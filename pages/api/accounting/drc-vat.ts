@@ -1,0 +1,45 @@
+/**
+ * DRC (Domestic Reverse Charge) VAT API
+ * GET  — list eligible invoices and DRC history
+ * POST — apply DRC VAT to a supplier invoice
+ */
+
+import type { NextApiRequest, NextApiResponse } from 'next';
+import { withErrorHandler } from '@/lib/api-error-handler';
+import { apiResponse } from '@/lib/apiResponse';
+import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { log } from '@/lib/logger';
+import {
+  getDRCEligibleInvoices, getDRCHistory, applyDRCVat,
+} from '@/modules/accounting/services/drcVatService';
+
+async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const userId = (req as AuthenticatedNextApiRequest).user.id;
+
+  if (req.method === 'GET') {
+    const tab = req.query.tab as string;
+    if (tab === 'history') {
+      const items = await getDRCHistory();
+      return apiResponse.success(res, { items });
+    }
+    const items = await getDRCEligibleInvoices();
+    return apiResponse.success(res, { items });
+  }
+
+  if (req.method === 'POST') {
+    const { supplierInvoiceId } = req.body;
+    if (!supplierInvoiceId) return apiResponse.badRequest(res, 'supplierInvoiceId required');
+    try {
+      const result = await applyDRCVat(supplierInvoiceId, userId);
+      return apiResponse.success(res, result);
+    } catch (err) {
+      log.error('Failed to apply DRC VAT', { error: err }, 'accounting-api');
+      return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Failed');
+    }
+  }
+
+  return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST']);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export default withAuth(withErrorHandler(handler as any));

@@ -1,0 +1,86 @@
+/**
+ * Customer Invoice Create API (standalone, not project-linked)
+ * POST — create invoice with line items
+ */
+
+import type { NextApiResponse } from 'next';
+import { withErrorHandler } from '@/lib/api-error-handler';
+import { apiResponse } from '@/lib/apiResponse';
+import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { log } from '@/lib/logger';
+import { sql } from '@/lib/neon';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Row = any;
+
+async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
+  if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
+
+  const { clientId, invoiceDate, dueDate, billingPeriodStart, billingPeriodEnd, taxRate, notes, items } = req.body;
+  if (!clientId) return apiResponse.badRequest(res, 'clientId is required');
+  if (!items || !Array.isArray(items) || items.length === 0) return apiResponse.badRequest(res, 'items required');
+
+  const userId = req.user.id;
+
+  // Auto-generate invoice number
+  const maxRows = (await sql`
+    SELECT invoice_number FROM customer_invoices ORDER BY created_at DESC LIMIT 1
+  `) as Row[];
+  let nextNum = 1;
+  if (maxRows.length > 0) {
+    const match = maxRows[0].invoice_number?.match(/(\d+)$/);
+    if (match) nextNum = parseInt(match[1], 10) + 1;
+  }
+  const invoiceNumber = `INV-${String(nextNum).padStart(5, '0')}`;
+
+  // Calculate totals
+  const rate = taxRate ?? 15;
+  let subtotal = 0;
+  for (const item of items) {
+    subtotal += (item.quantity || 1) * item.unitPrice;
+  }
+  subtotal = Math.round(subtotal * 100) / 100;
+  const taxAmount = Math.round(subtotal * (rate / 100) * 100) / 100;
+  const totalAmount = subtotal + taxAmount;
+
+  const today = new Date().toISOString().split('T')[0];
+  const invDate = invoiceDate || today;
+  const bpStart = billingPeriodStart || invDate;
+  const bpEnd = billingPeriodEnd || invDate;
+
+  // Find project from client (use first project if exists)
+  const projRows = (await sql`
+    SELECT id FROM projects WHERE client_id = ${clientId}::UUID LIMIT 1
+  `) as Row[];
+  const projectId = projRows[0]?.id || clientId;
+
+  const invRows = (await sql`
+    INSERT INTO customer_invoices (
+      invoice_number, project_id, client_id, billing_period_start, billing_period_end,
+      subtotal, tax_rate, tax_amount, total_amount, invoice_date, due_date,
+      notes, status, created_by
+    ) VALUES (
+      ${invoiceNumber}, ${projectId}::UUID, ${clientId}::UUID, ${bpStart}, ${bpEnd},
+      ${subtotal}, ${rate}, ${taxAmount}, ${totalAmount}, ${invDate},
+      ${dueDate || null}, ${notes || null}, 'draft', ${userId}
+    ) RETURNING id
+  `) as Row[];
+
+  const invoiceId = invRows[0].id;
+
+  for (const item of items) {
+    const lineTotal = Math.round((item.quantity || 1) * item.unitPrice * 100) / 100;
+    const lineTax = Math.round(lineTotal * (rate / 100) * 100) / 100;
+    await sql`
+      INSERT INTO customer_invoice_items (invoice_id, drop_number, description, unit_price, quantity, tax_amount, line_total, income_type)
+      VALUES (${invoiceId}::UUID, ${item.dropNumber || 'MANUAL'}, ${item.description}, ${item.unitPrice},
+        ${item.quantity || 1}, ${lineTax}, ${lineTotal}, ${item.incomeType || 'other'})
+    `;
+  }
+
+  log.info('Customer invoice created', { invoiceNumber, totalAmount });
+  return apiResponse.created(res, { id: invoiceId, invoiceNumber });
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export default withAuth(withErrorHandler(handler as any));
