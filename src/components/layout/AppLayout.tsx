@@ -49,7 +49,7 @@ const NAV_LINKS: NavLink[] = [
   { label: 'Banking', href: '/accounting/bank-accounts', icon: Landmark, matchPrefix: '/accounting/bank' },
   { label: 'Accounts', href: '/accounting/chart-of-accounts', icon: BookOpen, matchPrefix: '/accounting/chart' },
   { label: 'Reports', href: '/accounting/reports', icon: BarChart2, matchPrefix: '/accounting/reports' },
-  { label: 'Settings', href: '/accounting/settings', icon: Settings, matchPrefix: '/accounting/settings' },
+  { label: 'Settings', href: '/accounting/accounting-settings', icon: Settings, matchPrefix: '/accounting/accounting-settings' },
 ];
 
 const SIDEBAR_COLLAPSED_KEY = 'accounting-sidebar-collapsed';
