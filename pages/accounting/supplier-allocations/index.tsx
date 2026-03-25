@@ -26,7 +26,7 @@ export default function SupplierAllocationsPage() {
     setLoading(true);
     const res = await fetch('/api/accounting/supplier-payments?unallocated=true', { credentials: 'include' });
     const json = await res.json();
-    setPayments(json.data?.items || json.data || []);
+    setPayments((() => { const d = json.data; return Array.isArray(d) ? d : d?.items || d?.payments || d?.invoices || []; })());
     setLoading(false);
   }, []);
 
@@ -36,7 +36,7 @@ export default function SupplierAllocationsPage() {
     setSelected(p); setAllocs({}); setMsg(''); setLoadingInv(true);
     const res = await fetch(`/api/accounting/supplier-invoices?supplier_id=${p.supplierId}&status=approved`, { credentials: 'include' });
     const json = await res.json();
-    setInvoices(json.data?.items || json.data || []);
+    setInvoices((() => { const d = json.data; return Array.isArray(d) ? d : d?.items || d?.payments || d?.invoices || []; })());
     setLoadingInv(false);
   };
 

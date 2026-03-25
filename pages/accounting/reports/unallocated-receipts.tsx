@@ -19,7 +19,7 @@ export default function UnallocatedReceiptsReport() {
   const load = useCallback(async () => {
     const res = await fetch('/api/accounting/customer-payments?unallocated=true', { credentials: 'include' });
     const json = await res.json();
-    setItems(json.data?.items || json.data || []);
+    const d = json.data; setItems(Array.isArray(d) ? d : d?.items || d?.payments || []);
     setLoading(false);
   }, []);
 

@@ -27,7 +27,7 @@ export default function CustomerAllocationsPage() {
     setLoading(true);
     const res = await fetch('/api/accounting/customer-payments?unallocated=true', { credentials: 'include' });
     const json = await res.json();
-    setPayments(json.data?.items || json.data || []);
+    const d = json.data; setPayments(Array.isArray(d) ? d : d?.items || d?.payments || []);
     setLoading(false);
   }, []);
 
