@@ -20,9 +20,18 @@ import {
   Menu,
   LogOut,
   User,
+  Moon,
+  Sun,
 } from 'lucide-react';
+import dynamic from 'next/dynamic';
 import { useAuth } from '@/contexts/AuthContext';
+import { useTheme } from '@/contexts/ThemeContext';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+
+const AccountingNav = dynamic(
+  () => import('@/components/accounting/AccountingNav').then(mod => ({ default: mod.AccountingNav })),
+  { ssr: false }
+);
 
 // ─── Navigation items ─────────────────────────────────────────────────────────
 
@@ -56,6 +65,7 @@ interface AppLayoutProps {
 export function AppLayout({ children }: AppLayoutProps) {
   const router = useRouter();
   const { user, loading, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
 
   // Mobile sidebar open state
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -181,12 +191,12 @@ export function AppLayout({ children }: AppLayoutProps) {
   );
 
   return (
-    <div className="flex h-screen bg-gray-950 overflow-hidden">
+    <div className="flex h-screen bg-white dark:bg-gray-950 overflow-hidden">
 
       {/* ── Desktop sidebar ─────────────────────────────────────────────────── */}
       <aside
         className={`
-          hidden lg:flex flex-col bg-gray-900 border-r border-gray-700
+          hidden lg:flex flex-col bg-gray-50 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700
           transition-all duration-300 flex-shrink-0
           ${collapsed ? 'w-16' : 'w-56'}
         `}
@@ -227,7 +237,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       <div className="flex-1 flex flex-col min-w-0">
 
         {/* Header */}
-        <header className="bg-gray-900 border-b border-gray-700 h-14 flex items-center px-4 gap-3 flex-shrink-0">
+        <header className="bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 h-14 flex items-center px-4 gap-3 flex-shrink-0">
           {/* Mobile hamburger */}
           <button
             className="lg:hidden text-gray-400 hover:text-white transition-colors"
@@ -238,13 +248,22 @@ export function AppLayout({ children }: AppLayoutProps) {
           </button>
 
           {/* Title */}
-          <span className="text-white font-semibold text-sm hidden sm:block">Accounting</span>
+          <span className="text-gray-900 dark:text-white font-semibold text-sm hidden sm:block">Accounting</span>
 
           <div className="flex-1" />
 
+          {/* Theme toggle */}
+          <button
+            onClick={toggleTheme}
+            className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-700/50 dark:hover:bg-gray-700/50 transition-colors"
+            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          </button>
+
           {/* User info chip */}
           {user && (
-            <div className="flex items-center gap-2 text-sm text-gray-400">
+            <div className="flex items-center gap-2 text-sm text-gray-400 dark:text-gray-400">
               <User className="w-4 h-4" />
               <span className="hidden sm:inline truncate max-w-[160px]">
                 {user.firstName} {user.lastName}
@@ -253,8 +272,11 @@ export function AppLayout({ children }: AppLayoutProps) {
           )}
         </header>
 
+        {/* Accounting horizontal nav bar */}
+        <AccountingNav />
+
         {/* Page content */}
-        <main className="flex-1 overflow-y-auto bg-gray-950">
+        <main className="flex-1 overflow-y-auto bg-white dark:bg-gray-950 p-4 lg:p-6">
           {children}
         </main>
       </div>

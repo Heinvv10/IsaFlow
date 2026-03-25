@@ -12,7 +12,7 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login, loading, error, clearError } = useAuth();
+  const { login, error, clearError } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -37,7 +37,7 @@ export default function LoginPage() {
     }
   };
 
-  const isBusy = submitting || loading;
+  const isBusy = submitting;
 
   return (
     <div className="min-h-screen bg-gray-950 flex items-center justify-center px-4">
