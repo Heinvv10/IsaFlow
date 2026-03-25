@@ -89,11 +89,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       : req.headers['x-forwarded-for'] ?? req.socket.remoteAddress;
     const userAgent = req.headers['user-agent'];
 
-    const token = await signToken(authUser, 'pending');
-    const session = await createSession(authUser.id, token, ipAddress, userAgent);
+    // Create session first, then sign token with the real sessionId
+    // We pass a temporary token to createSession, then update the hash
+    const tempToken = await signToken(authUser, 'pending');
+    const session = await createSession(authUser.id, tempToken, ipAddress, userAgent);
 
     // Re-sign token with the real sessionId
     const finalToken = await signToken(authUser, session.id);
+
+    // Update session with the hash of the final token
+    const crypto = await import('crypto');
+    const finalHash = crypto.createHash('sha256').update(finalToken).digest('hex');
+    await sql`
+      UPDATE user_sessions SET token_hash = ${finalHash} WHERE id = ${Number(session.id)}
+    `;
 
     // Set HttpOnly cookie
     res.setHeader(

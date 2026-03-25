@@ -36,8 +36,8 @@ export function withErrorHandler<T = any, R extends NextApiRequest = NextApiRequ
     try {
       // Set CORS headers - restrict to known origins
       const allowedOrigins = [
-        'https://accounting.fibreflow.app',
-        'http://localhost:3006',
+        'https://fin.fibreflow.app',
+        'http://localhost:3101',
         'http://localhost:3004',
       ];
       const origin = req.headers.origin;

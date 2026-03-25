@@ -324,9 +324,9 @@ export class ApiResponseHelper {
     headers = ['Content-Type', 'Authorization']
   ): void {
     const allowedOrigins = [
-      'https://accounting.fibreflow.app',
+      'https://fin.fibreflow.app',
       // dev
-      'http://localhost:3006',
+      'http://localhost:3101',
       'http://localhost:3004',
     ];
     const safeOrigin = origin && allowedOrigins.includes(origin) ? origin : '';
