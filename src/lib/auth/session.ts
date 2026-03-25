@@ -28,15 +28,17 @@ export async function createSession(
   ipAddress?: string,
   userAgent?: string
 ): Promise<Session> {
-  const sessionId = uuidv4();
   const tokenHash = hashToken(token);
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + SESSION_EXPIRY_DAYS);
 
-  await sql`
-    INSERT INTO user_sessions (id, user_id, token_hash, expires_at, ip_address, user_agent)
-    VALUES (${sessionId}, ${userId}, ${tokenHash}, ${expiresAt.toISOString()}, ${ipAddress || null}, ${userAgent || null})
+  const rows = await sql`
+    INSERT INTO user_sessions (user_id, token_hash, expires_at, ip_address, user_agent)
+    VALUES (${userId}, ${tokenHash}, ${expiresAt.toISOString()}, ${ipAddress || null}, ${userAgent || null})
+    RETURNING id
   `;
+
+  const sessionId = String(rows[0]?.id ?? '');
 
   return {
     id: sessionId,
