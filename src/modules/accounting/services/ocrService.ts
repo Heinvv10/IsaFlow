@@ -1,11 +1,15 @@
 /**
- * OCR Service — Pattern-based document data extraction
- * Extracts vendor, date, amounts, VAT, reference numbers from PDF text.
+ * OCR Service — Document data extraction with VLM + regex fallback
+ *
+ * Primary:  Qwen3 VLM on vLLM (handles images AND text-based PDFs)
+ * Fallback: Pattern-based regex extraction for PDFs with text layers
+ *
  * Optimised for South African invoices and receipts.
  */
 
 import { log } from '@/lib/logger';
 import type { ExtractedDocument, ExtractedLineItem } from '@/modules/accounting/types/documentCapture.types';
+import { extractWithVlm, extractPdfWithVlm, isVlmAvailable } from './vlmService';
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -13,14 +17,14 @@ import type { ExtractedDocument, ExtractedLineItem } from '@/modules/accounting/
 
 /**
  * Extract structured data from a PDF buffer.
- * Uses pdf-parse to get the text layer, then runs pattern extraction.
+ * Tries VLM first (if configured), then falls back to regex-based extraction.
  */
 export async function extractFromPdf(buffer: Buffer): Promise<ExtractedDocument> {
   let rawText = '';
   const warnings: string[] = [];
 
+  // Always attempt text extraction — used by VLM as context and as regex fallback
   try {
-    // Dynamic import — pdf-parse is a CJS module
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const pdfParse = require('pdf-parse');
     const data = await pdfParse(buffer);
@@ -31,6 +35,23 @@ export async function extractFromPdf(buffer: Buffer): Promise<ExtractedDocument>
     warnings.push(`PDF parsing failed: ${msg}`);
   }
 
+  // --- VLM path ---
+  if (isVlmAvailable()) {
+    try {
+      const vlmResult = await extractPdfWithVlm(buffer, rawText);
+      if (vlmResult) {
+        vlmResult.warnings.push(...warnings);
+        return vlmResult;
+      }
+      warnings.push('VLM extraction returned no result — falling back to regex.');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.warn('VLM extraction failed, falling back to regex', { error: msg }, 'ocr-service');
+      warnings.push(`VLM extraction failed: ${msg}`);
+    }
+  }
+
+  // --- Regex fallback ---
   if (!rawText.trim()) {
     warnings.push('No text found in PDF — the document may be image-based. Manual entry recommended.');
     return emptyResult(rawText, warnings);
@@ -40,7 +61,37 @@ export async function extractFromPdf(buffer: Buffer): Promise<ExtractedDocument>
 }
 
 /**
+ * Extract structured data from an image buffer (JPEG/PNG).
+ * Requires VLM — no regex fallback for images.
+ */
+export async function extractFromImage(
+  imageBuffer: Buffer,
+  mimeType: string,
+): Promise<ExtractedDocument> {
+  const warnings: string[] = [];
+
+  if (!isVlmAvailable()) {
+    warnings.push('VLM not configured — cannot extract from images. Set VLLM_BASE_URL in environment.');
+    return emptyResult('', warnings);
+  }
+
+  try {
+    const base64 = imageBuffer.toString('base64');
+    const vlmResult = await extractWithVlm(base64, mimeType);
+    if (vlmResult) return vlmResult;
+    warnings.push('VLM returned no result for image.');
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error('VLM image extraction failed', { error: msg }, 'ocr-service');
+    warnings.push(`VLM image extraction failed: ${msg}`);
+  }
+
+  return emptyResult('', warnings);
+}
+
+/**
  * Extract structured data from raw text (e.g. pasted or OCR output).
+ * Uses VLM if available (sends text as prompt), otherwise regex.
  */
 export async function extractFromText(
   rawText: string,
@@ -54,6 +105,7 @@ export async function extractFromText(
     return emptyResult(rawText, warnings);
   }
 
+  // --- Regex extraction ---
   const documentType = detectDocumentType(rawText);
   const vendorName = extractVendorName(lines);
   const vendorVatNumber = extractVatRegistration(rawText);
@@ -62,7 +114,6 @@ export async function extractFromText(
   const amounts = extractAmounts(rawText);
   const lineItems = extractLineItems(lines);
 
-  // Calculate confidence based on how many fields we found
   const confidence = computeConfidence({
     vendorName,
     date,
@@ -80,15 +131,30 @@ export async function extractFromText(
     documentType,
     vendorName,
     vendorVatNumber,
+    vendorAddress: null,
+    vendorBankDetails: null,
+    customerName: null,
+    customerVatNumber: null,
     date,
+    dueDate: null,
+    paymentTerms: null,
     referenceNumber,
+    purchaseOrderRef: null,
+    currency: 'ZAR',
     subtotal: amounts.subtotal,
     vatAmount: amounts.vatAmount,
+    vatRate: amounts.vatAmount && amounts.subtotal ? Math.round((amounts.vatAmount / amounts.subtotal) * 100) : null,
     totalAmount: amounts.totalAmount,
-    lineItems,
+    lineItems: lineItems.map(li => ({
+      ...li,
+      vatAmount: null,
+      vatClassification: null,
+      glAccountSuggestion: null,
+    })),
     rawText,
     confidence,
     warnings,
+    extractionMethod: 'regex',
   };
 }
 
@@ -100,6 +166,8 @@ function detectDocumentType(text: string): ExtractedDocument['documentType'] {
   const upper = text.toUpperCase();
 
   if (/CREDIT\s*NOTE/i.test(upper)) return 'credit_note';
+  if (/PURCHASE\s*ORDER/i.test(upper)) return 'purchase_order';
+  if (/DELIVERY\s*NOTE/i.test(upper)) return 'delivery_note';
   if (/TAX\s*INVOICE/i.test(upper)) return 'invoice';
   if (/INVOICE/i.test(upper)) return 'invoice';
   if (/STATEMENT/i.test(upper)) return 'statement';
@@ -113,8 +181,6 @@ function detectDocumentType(text: string): ExtractedDocument['documentType'] {
 // ---------------------------------------------------------------------------
 
 function extractVendorName(lines: string[]): string | null {
-  // Strategy: First few non-empty lines often contain the vendor/company name.
-  // Skip lines that look like document type headers or dates.
   const skipPatterns = [
     /^(TAX\s*)?INVOICE$/i,
     /^CREDIT\s*NOTE$/i,
@@ -130,15 +196,12 @@ function extractVendorName(lines: string[]): string | null {
     const line = lines[i];
     if (!line || line.length < 3 || line.length > 80) continue;
     if (skipPatterns.some(p => p.test(line))) continue;
-    // Skip lines that are purely numeric
     if (/^\d+$/.test(line)) continue;
-    // Skip lines that look like addresses with postal codes
     if (/\b\d{4}\b.*\b(South Africa|SA|RSA)\b/i.test(line)) continue;
 
     return line;
   }
 
-  // Fallback: look for "From:" or "Supplier:" patterns
   const fromMatch = lines.join('\n').match(/(?:From|Supplier|Vendor|Company)\s*[:-]\s*(.+)/i);
   if (fromMatch && fromMatch[1]) return fromMatch[1].trim();
 
@@ -150,7 +213,6 @@ function extractVendorName(lines: string[]): string | null {
 // ---------------------------------------------------------------------------
 
 function extractVatRegistration(text: string): string | null {
-  // SA VAT numbers are typically 10 digits
   const patterns = [
     /VAT\s*(?:Reg(?:istration)?\.?\s*)?(?:No\.?|Number|#)\s*[:-]?\s*(\d{10})/i,
     /VAT\s*[:-]?\s*(\d{10})/i,
@@ -185,7 +247,6 @@ function extractDate(text: string): string | null {
     dec: '12', december: '12',
   };
 
-  // Priority: look for labelled dates first
   const labelledPatterns = [
     /(?:Invoice|Document|Tax Invoice|Statement)\s*Date\s*[:-]?\s*(.+)/i,
     /Date\s*[:-]\s*(.+)/i,
@@ -200,8 +261,6 @@ function extractDate(text: string): string | null {
     }
   }
 
-  // Fallback: find date patterns anywhere in text
-  // DD/MM/YYYY or DD-MM-YYYY
   const slashDate = text.match(/\b(\d{1,2})[/-](\d{1,2})[/-](\d{4})\b/);
   if (slashDate) {
     const [, d, m, y] = slashDate;
@@ -212,13 +271,11 @@ function extractDate(text: string): string | null {
     }
   }
 
-  // YYYY-MM-DD (ISO)
   const isoDate = text.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
   if (isoDate) {
     return `${isoDate[1]}-${isoDate[2]}-${isoDate[3]}`;
   }
 
-  // DD Month YYYY
   const longDate = text.match(/\b(\d{1,2})\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})\b/i);
   if (longDate) {
     const day = longDate[1]!.padStart(2, '0');
@@ -230,7 +287,6 @@ function extractDate(text: string): string | null {
 }
 
 function parseDateString(str: string, months: Record<string, string>): string | null {
-  // DD/MM/YYYY or DD-MM-YYYY
   const slashMatch = str.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
   if (slashMatch) {
     const day = slashMatch[1]!.padStart(2, '0');
@@ -240,11 +296,9 @@ function parseDateString(str: string, months: Record<string, string>): string | 
     }
   }
 
-  // YYYY-MM-DD
   const isoMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
 
-  // DD Month YYYY or DD Mon YYYY
   const longMatch = str.match(/^(\d{1,2})\s+(\w+)\s+(\d{4})/);
   if (longMatch) {
     const monthKey = longMatch[2]!.toLowerCase();
@@ -299,10 +353,6 @@ function extractAmounts(text: string): ExtractedAmounts {
     totalAmount: null,
   };
 
-  // Currency pattern: optional R or ZAR, then number with optional decimals and thousand separators
-  const _amountPattern = /R?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/;
-
-  // Total amount — look for "Total", "Amount Due", "Balance Due", "Grand Total"
   const totalPatterns = [
     /(?:Grand\s*)?Total\s*(?:Due|Amount|Payable)?\s*[:-]?\s*(?:ZAR|R)?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
     /(?:Amount|Balance)\s*(?:Due|Owing|Payable)\s*[:-]?\s*(?:ZAR|R)?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
@@ -317,7 +367,6 @@ function extractAmounts(text: string): ExtractedAmounts {
     }
   }
 
-  // VAT amount
   const vatPatterns = [
     /VAT\s*(?:@\s*\d+%?)?\s*[:-]?\s*(?:ZAR|R)?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
     /Tax\s*(?:Amount)?\s*[:-]?\s*(?:ZAR|R)?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
@@ -332,7 +381,6 @@ function extractAmounts(text: string): ExtractedAmounts {
     }
   }
 
-  // Subtotal
   const subtotalPatterns = [
     /Sub\s*[-\s]?Total\s*[:-]?\s*(?:ZAR|R)?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
     /Total\s*(?:Excl(?:uding)?\.?\s*(?:VAT|Tax))\s*[:-]?\s*(?:ZAR|R)?\s*(\d[\d\s,]*\d(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
@@ -347,12 +395,10 @@ function extractAmounts(text: string): ExtractedAmounts {
     }
   }
 
-  // If we have total and VAT but no subtotal, calculate it
   if (result.totalAmount !== null && result.vatAmount !== null && result.subtotal === null) {
     result.subtotal = Math.round((result.totalAmount - result.vatAmount) * 100) / 100;
   }
 
-  // If we have subtotal and VAT but no total, calculate it
   if (result.subtotal !== null && result.vatAmount !== null && result.totalAmount === null) {
     result.totalAmount = Math.round((result.subtotal + result.vatAmount) * 100) / 100;
   }
@@ -361,7 +407,6 @@ function extractAmounts(text: string): ExtractedAmounts {
 }
 
 function parseAmount(str: string): number {
-  // Remove spaces and commas used as thousand separators
   const cleaned = str.replace(/[\s,]/g, '');
   const num = parseFloat(cleaned);
   return isNaN(num) ? 0 : Math.round(num * 100) / 100;
@@ -371,18 +416,19 @@ function parseAmount(str: string): number {
 // Line item extraction
 // ---------------------------------------------------------------------------
 
-function extractLineItems(lines: string[]): ExtractedLineItem[] {
-  const items: ExtractedLineItem[] = [];
+interface RegexLineItem {
+  description: string;
+  quantity: number | null;
+  unitPrice: number | null;
+  total: number | null;
+}
 
-  // Look for lines that have a description followed by numbers (qty, price, total)
-  // Common patterns:
-  //   Description    Qty    Unit Price    Amount
-  //   Some item      2      100.00        200.00
+function extractLineItems(lines: string[]): RegexLineItem[] {
+  const items: RegexLineItem[] = [];
 
   const lineItemPattern = /^(.+?)\s+(\d+(?:\.\d+)?)\s+(?:R?\s*)?(\d[\d,]*(?:\.\d{2})?)\s+(?:R?\s*)?(\d[\d,]*(?:\.\d{2})?)$/;
   const simpleLinePattern = /^(.{3,}?)\s{2,}(?:R?\s*)?(\d[\d,]*(?:\.\d{2})?)$/;
 
-  // Find the header line to know where items start
   let itemsStarted = false;
   const headerPattern = /(?:description|item|product|service)\s.*(?:qty|quantity|amount|price|total)/i;
 
@@ -393,19 +439,16 @@ function extractLineItems(lines: string[]): ExtractedLineItem[] {
     }
 
     if (!itemsStarted && items.length === 0) {
-      // Also start if we see line item patterns even without header
       const match = lineItemPattern.exec(line);
       if (match) itemsStarted = true;
     }
 
     if (!itemsStarted) continue;
 
-    // Stop at totals section
     if (/^(Sub\s*[-\s]?Total|Total|VAT|Tax|Amount\s*Due|Balance\s*Due|Grand\s*Total)/i.test(line)) {
       break;
     }
 
-    // Try full pattern: description, qty, unit price, line total
     const fullMatch = lineItemPattern.exec(line);
     if (fullMatch) {
       items.push({
@@ -417,7 +460,6 @@ function extractLineItems(lines: string[]): ExtractedLineItem[] {
       continue;
     }
 
-    // Try simple pattern: description + amount
     const simpleMatch = simpleLinePattern.exec(line);
     if (simpleMatch) {
       items.push({
@@ -442,7 +484,7 @@ function computeConfidence(fields: {
   referenceNumber: string | null;
   totalAmount: number | null;
   vatAmount: number | null;
-  lineItems: ExtractedLineItem[];
+  lineItems: RegexLineItem[];
 }): number {
   let score = 0;
   const weights = {
@@ -473,14 +515,24 @@ function emptyResult(rawText: string, warnings: string[]): ExtractedDocument {
     documentType: 'unknown',
     vendorName: null,
     vendorVatNumber: null,
+    vendorAddress: null,
+    vendorBankDetails: null,
+    customerName: null,
+    customerVatNumber: null,
     date: null,
+    dueDate: null,
+    paymentTerms: null,
     referenceNumber: null,
+    purchaseOrderRef: null,
+    currency: null,
     subtotal: null,
     vatAmount: null,
+    vatRate: null,
     totalAmount: null,
     lineItems: [],
     rawText,
     confidence: 0,
     warnings,
+    extractionMethod: 'regex',
   };
 }
