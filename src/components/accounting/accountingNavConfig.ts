@@ -268,9 +268,19 @@ export const TABS: Tab[] = [
         ],
       },
       {
+        section: 'Fixed Assets',
+        items: [
+          { label: 'Asset Register', href: '/accounting/assets' },
+          { label: 'Add Asset', href: '/accounting/assets/new' },
+          { label: 'SARS Categories', href: '/accounting/assets/categories' },
+          { label: 'Disposals', href: '/accounting/assets/disposals' },
+          { label: 'Register Report', href: '/accounting/assets/register' },
+          { label: 'Depreciation', href: '/accounting/depreciation' },
+        ],
+      },
+      {
         section: 'Transactions',
         items: [
-          { label: 'Depreciation', href: '/accounting/depreciation' },
           { label: 'Year-End', href: '/accounting/year-end' },
         ],
       },
@@ -493,6 +503,7 @@ export function getActiveTabId(
   if (
     pathname.startsWith('/accounting/trial-balance') ||
     pathname.startsWith('/accounting/opening-balances') ||
+    pathname.startsWith('/accounting/assets') ||
     pathname.startsWith('/accounting/depreciation') ||
     pathname.startsWith('/accounting/year-end') ||
     pathname.startsWith('/accounting/cost-centres') ||
