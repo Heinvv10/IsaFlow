@@ -119,6 +119,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     checkAuth();
+
+    // Re-fetch user when tab regains focus (picks up RBAC changes)
+    const onFocus = () => checkAuth();
+    window.addEventListener('focus', onFocus);
+
+    // Also poll every 5 minutes as a fallback
+    const interval = setInterval(checkAuth, 5 * 60 * 1000);
+
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      clearInterval(interval);
+    };
   }, [checkAuth]);
 
   /**
@@ -165,7 +177,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setUser(null);
       if (typeof window !== 'undefined') {
-        window.location.href = '/sign-in';
+        window.location.href = '/login';
       }
     }
   };

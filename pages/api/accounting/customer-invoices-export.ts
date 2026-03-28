@@ -4,16 +4,16 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { neon } from '@neondatabase/serverless';
+import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withAuth, withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
-
-const sql = neon(process.env.DATABASE_URL!);
 
 function csvCell(v: string): string { return `"${String(v || '').replace(/"/g, '""')}"`; }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyApiRequest;
+
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
 
   try {
@@ -28,7 +28,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         FROM customer_invoices ci
         LEFT JOIN clients c ON c.id = ci.client_id
         LEFT JOIN projects p ON p.id = ci.project_id
-        WHERE ci.status = ${status as string}
+        WHERE ci.company_id = ${companyId}
+          AND ci.status = ${status as string}
         ORDER BY ci.invoice_date DESC
       `;
     } else {
@@ -39,6 +40,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         FROM customer_invoices ci
         LEFT JOIN clients c ON c.id = ci.client_id
         LEFT JOIN projects p ON p.id = ci.project_id
+        WHERE ci.company_id = ${companyId}
         ORDER BY ci.invoice_date DESC
       `;
     }
@@ -72,4 +74,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(handler);
+export default withCompany(handler);

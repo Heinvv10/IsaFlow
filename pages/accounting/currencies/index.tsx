@@ -10,6 +10,7 @@ import { DollarSign, Loader2, AlertCircle, Plus, RefreshCw } from 'lucide-react'
 import { CurrencyList } from '@/components/accounting/currencies/CurrencyList';
 import { ExchangeRatesPanel } from '@/components/accounting/currencies/ExchangeRatesPanel';
 import type { Currency, ExchangeRate } from '@/modules/accounting/services/currencyService';
+import { apiFetch } from '@/lib/apiFetch';
 
 type ActiveTab = 'currencies' | 'exchange-rates';
 
@@ -28,10 +29,10 @@ export default function CurrenciesPage() {
     setError('');
     try {
       const [activeCurrRes, allCurrRes, ratesRes, settingRes] = await Promise.all([
-        fetch('/api/accounting/currencies', { credentials: 'include' }),
-        fetch('/api/accounting/currencies?active=false', { credentials: 'include' }),
-        fetch('/api/accounting/exchange-rates?limit=50', { credentials: 'include' }),
-        fetch('/api/accounting/accounting-settings?key=reporting_currency', { credentials: 'include' }),
+        apiFetch('/api/accounting/currencies', { credentials: 'include' }),
+        apiFetch('/api/accounting/currencies?active=false', { credentials: 'include' }),
+        apiFetch('/api/accounting/exchange-rates?limit=50', { credentials: 'include' }),
+        apiFetch('/api/accounting/accounting-settings?key=reporting_currency', { credentials: 'include' }),
       ]);
 
       const activeCurrJson = await activeCurrRes.json();

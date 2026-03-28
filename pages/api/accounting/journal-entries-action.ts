@@ -7,7 +7,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import {
   postJournalEntry,
@@ -19,6 +19,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
   }
 
+  const { companyId } = req as CompanyApiRequest;
+
   try {
     const { id, action } = req.body;
     const userId = req.user.id;
@@ -29,10 +31,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     let result;
     switch (action) {
       case 'post':
-        result = await postJournalEntry(id, userId);
+        result = await postJournalEntry(companyId, id, userId);
         break;
       case 'reverse':
-        result = await reverseJournalEntry(id, userId);
+        result = await reverseJournalEntry(companyId, id, userId);
         break;
       default:
         return apiResponse.badRequest(res, `Invalid action: ${action}. Use post or reverse`);
@@ -47,4 +49,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

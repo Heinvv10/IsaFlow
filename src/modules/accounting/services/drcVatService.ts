@@ -45,7 +45,7 @@ export interface DRCResult {
  * Apply DRC VAT to a supplier invoice.
  * Creates a journal entry: DR Input VAT, CR Output VAT.
  */
-export async function applyDRCVat(
+export async function applyDRCVat(_companyId: string, 
   supplierInvoiceId: string,
   userId: string
 ): Promise<DRCResult> {
@@ -85,7 +85,7 @@ export async function applyDRCVat(
     { glAccountId: String(outputVatId), debit: 0, credit: vatAmount, description },
   ];
 
-  const je = await createJournalEntry({
+  const je = await createJournalEntry('', {
     entryDate: new Date().toISOString().split('T')[0] ?? '',
     description,
     source: 'auto_vat_adjustment',
@@ -93,7 +93,7 @@ export async function applyDRCVat(
     lines,
   }, userId);
 
-  await postJournalEntry(je.id, userId);
+  await postJournalEntry('', je.id, userId);
 
   // Mark invoice as DRC processed
   await sql`
@@ -110,7 +110,7 @@ export async function applyDRCVat(
 /**
  * Get all DRC-eligible supplier invoices (not yet processed).
  */
-export async function getDRCEligibleInvoices(): Promise<Array<{
+export async function getDRCEligibleInvoices(_companyId: string): Promise<Array<{
   id: string; invoiceNumber: string; supplierName: string;
   totalAmount: number; vatAmount: number; invoiceDate: string;
 }>> {
@@ -138,7 +138,7 @@ export async function getDRCEligibleInvoices(): Promise<Array<{
 /**
  * Get DRC VAT history (already processed).
  */
-export async function getDRCHistory(): Promise<Array<{
+export async function getDRCHistory(_companyId: string): Promise<Array<{
   id: string; invoiceNumber: string; supplierName: string;
   totalAmount: number; invoiceDate: string;
 }>> {

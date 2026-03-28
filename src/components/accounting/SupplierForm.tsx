@@ -61,7 +61,7 @@ interface Props {
 }
 
 const inputClass =
-  'w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] placeholder:text-[var(--ff-text-tertiary)] text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500';
+  'w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] placeholder:text-[var(--ff-text-tertiary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500';
 
 const textareaClass = `${inputClass} resize-none`;
 const selectClass = `${inputClass} cursor-pointer`;
@@ -282,7 +282,7 @@ export function SupplierForm({ form, onChange, fieldErrors = {} }: Props) {
               aria-checked={form.is_active}
               onClick={() => set('is_active', !form.is_active)}
               className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${
-                form.is_active ? 'bg-emerald-600' : 'bg-[var(--ff-bg-tertiary)]'
+                form.is_active ? 'bg-teal-600' : 'bg-[var(--ff-bg-tertiary)]'
               }`}
             >
               <span

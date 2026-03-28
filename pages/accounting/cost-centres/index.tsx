@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Tag, Plus, Trash2, Loader2, ToggleLeft, ToggleRight, Pencil } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
+import { apiFetch } from '@/lib/apiFetch';
 
 type CcType = 'cc1' | 'cc2';
 
@@ -34,7 +35,7 @@ export default function CostCentresPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await fetch(`/api/accounting/cost-centres?cc_type=${activeTab}`, { credentials: 'include' });
+    const res = await apiFetch(`/api/accounting/cost-centres?cc_type=${activeTab}`, { credentials: 'include' });
     const json = await res.json();
     setItems(json.data?.items || []);
     setLoading(false);
@@ -47,7 +48,7 @@ export default function CostCentresPage() {
     setError(''); setBusy('save');
     try {
       if (editId) {
-        const res = await fetch('/api/accounting/cost-centres-action', {
+        const res = await apiFetch('/api/accounting/cost-centres-action', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify({ action: 'update', id: editId, ...form }),
@@ -55,7 +56,7 @@ export default function CostCentresPage() {
         const json = await res.json();
         if (!res.ok) throw new Error(json.message || 'Failed');
       } else {
-        const res = await fetch('/api/accounting/cost-centres', {
+        const res = await apiFetch('/api/accounting/cost-centres', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify({ ...form, ccType: activeTab }),
@@ -83,7 +84,7 @@ export default function CostCentresPage() {
   const doAction = async (action: string, id: string, extra?: Record<string, unknown>) => {
     setBusy(id);
     try {
-      await fetch('/api/accounting/cost-centres-action', {
+      await apiFetch('/api/accounting/cost-centres-action', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         credentials: 'include', body: JSON.stringify({ action, id, ...extra }),
       });
@@ -193,7 +194,7 @@ export default function CostCentresPage() {
                     <td className="px-4 py-3 text-[var(--ff-text-primary)]">{cc.name}</td>
                     <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{cc.department || '—'}</td>
                     <td className="px-4 py-3">
-                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${cc.isActive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-gray-500/10 text-gray-400'}`}>
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${cc.isActive ? 'bg-teal-500/10 text-teal-400' : 'bg-gray-500/10 text-gray-400'}`}>
                         {cc.isActive ? 'Active' : 'Inactive'}
                       </span>
                     </td>
@@ -203,7 +204,7 @@ export default function CostCentresPage() {
                           <Pencil className="h-4 w-4" />
                         </button>
                         <button onClick={() => doAction('toggle', cc.id, { isActive: !cc.isActive })} disabled={busy === cc.id} className="p-1 text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]" title={cc.isActive ? 'Disable' : 'Enable'}>
-                          {cc.isActive ? <ToggleRight className="h-4 w-4 text-emerald-400" /> : <ToggleLeft className="h-4 w-4" />}
+                          {cc.isActive ? <ToggleRight className="h-4 w-4 text-teal-400" /> : <ToggleLeft className="h-4 w-4" />}
                         </button>
                         <button onClick={() => doAction('delete', cc.id)} disabled={busy === cc.id} className="p-1 text-red-400 hover:text-red-300" title="Delete">
                           {busy === cc.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}

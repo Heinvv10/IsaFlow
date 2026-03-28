@@ -7,14 +7,15 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withCompany, type AuthenticatedNextApiRequest, type CompanyApiRequest } from '@/lib/auth';
 import { getRules, createRule } from '@/modules/accounting/services/bankRulesService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyApiRequest;
   const userId = (req as AuthenticatedNextApiRequest).user.id;
 
   if (req.method === 'GET') {
-    const rules = await getRules();
+    const rules = await getRules(companyId);
     return apiResponse.success(res, { items: rules });
   }
 
@@ -26,7 +27,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!glAccountId && !supplierId && !clientId) {
       return apiResponse.badRequest(res, 'Either glAccountId, supplierId, or clientId is required');
     }
-    const rule = await createRule({
+    const rule = await createRule(companyId, {
       ruleName, matchField, matchType, matchPattern, glAccountId: glAccountId || undefined,
       supplierId: supplierId || undefined,
       clientId: clientId || undefined,
@@ -42,4 +43,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

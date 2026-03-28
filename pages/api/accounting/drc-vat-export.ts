@@ -4,17 +4,17 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { neon } from '@neondatabase/serverless';
+import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
-
-const sql = neon(process.env.DATABASE_URL!);
 
 function csvCell(v: string): string { return `"${String(v || '').replace(/"/g, '""')}"`; }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
+
+  const { companyId } = req as CompanyApiRequest;
 
   try {
     // Load VAT rate from settings (default 15%)
@@ -33,7 +33,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         COALESCE(si.total_amount * ${vatRate}, 0) AS vat_amount
       FROM supplier_invoices si
       JOIN suppliers s ON s.id = si.supplier_id
-      WHERE si.is_drc = true
+      WHERE si.is_drc = true AND si.company_id = ${companyId}
       ORDER BY si.invoice_date DESC
     `;
 
@@ -57,4 +57,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(handler);
+export default withCompany(handler);

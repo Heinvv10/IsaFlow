@@ -162,13 +162,13 @@ export function StatementBalanceWidget({ bankAccountId, glBalance }: Props) {
           <div className="flex items-center justify-between px-4 py-2.5">
             <span className="flex items-center gap-1.5 text-xs text-[var(--ff-text-tertiary)]">
               {isReconciled
-                ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                ? <CheckCircle2 className="h-3.5 w-3.5 text-teal-500" />
                 : <AlertCircle className="h-3.5 w-3.5 text-amber-400" />}
               Difference
             </span>
             <span
               className={`font-mono text-sm font-semibold ${
-                isReconciled ? 'text-emerald-500' : 'text-amber-400'
+                isReconciled ? 'text-teal-500' : 'text-amber-400'
               }`}
             >
               {isReconciled ? fmt(0) : fmt(difference)}

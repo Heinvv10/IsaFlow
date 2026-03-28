@@ -9,7 +9,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { getAccountTransactions } from '@/modules/accounting/services/transactionReportingService';
 
@@ -21,6 +21,7 @@ function csvCell(value: string): string {
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
 
+  const { companyId } = req as CompanyApiRequest;
   const accountCode = req.query.account_code as string;
   const periodStart = req.query.period_start as string;
   const periodEnd = req.query.period_end as string;
@@ -30,7 +31,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!periodEnd) return apiResponse.badRequest(res, 'period_end is required');
 
   try {
-    const report = await getAccountTransactions(accountCode, periodStart, periodEnd);
+    const report = await getAccountTransactions(companyId, accountCode, periodStart, periodEnd);
 
     const csvLines = [
       `Date,Entry Number,Description,Debit,Credit,Balance,Source`,
@@ -81,4 +82,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

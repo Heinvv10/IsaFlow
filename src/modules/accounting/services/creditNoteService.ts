@@ -20,7 +20,7 @@ interface CreditNoteFilters {
   offset?: number;
 }
 
-export async function getCreditNotes(filters?: CreditNoteFilters): Promise<{
+export async function getCreditNotes(_companyId: string, filters?: CreditNoteFilters): Promise<{
   creditNotes: CreditNote[];
   total: number;
 }> {
@@ -66,7 +66,7 @@ export async function getCreditNotes(filters?: CreditNoteFilters): Promise<{
   }
 }
 
-export async function getCreditNoteById(id: string): Promise<CreditNote | null> {
+export async function getCreditNoteById(_companyId: string, id: string): Promise<CreditNote | null> {
   const rows = (await sql`
     SELECT cn.*, c.company_name AS client_name, COALESCE(s.company_name, s.name) AS supplier_name,
       COALESCE(ci.invoice_number, si.invoice_number) AS invoice_number
@@ -80,7 +80,7 @@ export async function getCreditNoteById(id: string): Promise<CreditNote | null> 
   return rows.length > 0 ? mapRow(rows[0]) : null;
 }
 
-export async function createCreditNote(
+export async function createCreditNote(_companyId: string, 
   input: CreditNoteCreateInput,
   userId: string
 ): Promise<CreditNote> {
@@ -112,7 +112,7 @@ export async function createCreditNote(
   }
 }
 
-export async function approveCreditNote(id: string, userId: string): Promise<CreditNote> {
+export async function approveCreditNote(_companyId: string, id: string, userId: string): Promise<CreditNote> {
   try {
     const cnRows = (await sql`SELECT * FROM credit_notes WHERE id = ${id}`) as Row[];
     if (cnRows.length === 0) throw new Error(`Credit note ${id} not found`);
@@ -173,14 +173,14 @@ export async function approveCreditNote(id: string, userId: string): Promise<Cre
       }
     }
 
-    const je = await createJournalEntry({
+    const je = await createJournalEntry('', {
       entryDate: String(cn.credit_date),
       description: `Credit note ${cn.credit_note_number}`,
       source: 'auto_credit_note',
       sourceDocumentId: id,
       lines,
     }, userId);
-    await postJournalEntry(je.id, userId);
+    await postJournalEntry('', je.id, userId);
 
     const updated = (await sql`
       UPDATE credit_notes SET status = 'approved', approved_by = ${userId}::UUID,
@@ -196,7 +196,7 @@ export async function approveCreditNote(id: string, userId: string): Promise<Cre
   }
 }
 
-export async function cancelCreditNote(
+export async function cancelCreditNote(_companyId: string, 
   id: string,
   userId: string,
   reason?: string
@@ -211,7 +211,7 @@ export async function cancelCreditNote(
 
     // Reverse GL journal entry
     if (cn.gl_journal_entry_id) {
-      await reverseJournalEntry(String(cn.gl_journal_entry_id), userId);
+      await reverseJournalEntry('', String(cn.gl_journal_entry_id), userId);
     }
 
     // Reverse invoice balance adjustments

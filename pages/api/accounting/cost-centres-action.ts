@@ -6,7 +6,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import {
   updateCostCentre, toggleCostCentre, deleteCostCentre,
@@ -15,19 +15,21 @@ import {
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
 
+  const { companyId } = req as CompanyApiRequest;
   const { action, id, ...data } = req.body;
   if (!id) return apiResponse.badRequest(res, 'id required');
 
   try {
     switch (action) {
-      case 'update':
-        const updated = await updateCostCentre(id, data);
+      case 'update': {
+        const updated = await updateCostCentre(companyId, id, data);
         return apiResponse.success(res, updated);
+      }
       case 'toggle':
-        await toggleCostCentre(id, data.isActive !== false);
+        await toggleCostCentre(companyId, id, data.isActive !== false);
         return apiResponse.success(res, { toggled: true });
       case 'delete':
-        await deleteCostCentre(id);
+        await deleteCostCentre(companyId, id);
         return apiResponse.success(res, { deleted: true });
       default:
         return apiResponse.badRequest(res, `Unknown action: ${action}`);
@@ -39,4 +41,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

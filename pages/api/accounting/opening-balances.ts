@@ -9,11 +9,13 @@ import { sql } from '@/lib/neon';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest, withRole, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyApiRequest;
+
   if (req.method === 'GET') {
     try {
       // Get all posting-level (level 3) accounts
@@ -22,7 +24,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           id, account_code, account_name, account_type,
           normal_balance, is_active
         FROM gl_accounts
-        WHERE level = 3 AND is_active = true
+        WHERE level = 3 AND is_active = true AND company_id = ${companyId}
         ORDER BY account_code
       `;
 
@@ -59,7 +61,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // Get first open fiscal period
       const [period] = await sql`
         SELECT id FROM fiscal_periods
-        WHERE status = 'open'
+        WHERE status = 'open' AND company_id = ${companyId}
         ORDER BY start_date ASC
         LIMIT 1
       `;
@@ -67,14 +69,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // Create opening balance journal entry
       const entryRows = await sql`
         INSERT INTO gl_journal_entries (
-          id, entry_number, entry_date, description,
+          id, company_id, entry_number, entry_date, description,
           source, status, fiscal_period_id,
           total_debit, total_credit,
           created_by, created_at
         ) VALUES (
           gen_random_uuid(),
-          'OB-' || LPAD((SELECT COALESCE(MAX(CAST(SUBSTRING(entry_number FROM 4) AS INTEGER)), 0) + 1 FROM gl_journal_entries WHERE entry_number LIKE 'OB-%')::text, 4, '0'),
-          COALESCE((SELECT start_date FROM fiscal_periods WHERE id = ${period?.id || null}), CURRENT_DATE),
+          ${companyId},
+          'OB-' || LPAD((SELECT COALESCE(MAX(CAST(SUBSTRING(entry_number FROM 4) AS INTEGER)), 0) + 1 FROM gl_journal_entries WHERE entry_number LIKE 'OB-%' AND company_id = ${companyId})::text, 4, '0'),
+          COALESCE((SELECT start_date FROM fiscal_periods WHERE id = ${period?.id || null} AND company_id = ${companyId}), CURRENT_DATE),
           'Opening Balances',
           'opening_balance', 'posted', ${period?.id || null},
           ${totalDebit}, ${totalCredit},
@@ -113,4 +116,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withRole('admin')(withErrorHandler(handler as any)));

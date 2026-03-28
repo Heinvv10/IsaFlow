@@ -31,7 +31,7 @@ export interface CostCentreInput {
   ccType?: CcType;
 }
 
-export async function getCostCentres(activeOnly = false, ccType?: CcType): Promise<CostCentre[]> {
+export async function getCostCentres(_companyId: string, activeOnly = false, ccType?: CcType): Promise<CostCentre[]> {
   let rows: Row[];
   if (ccType === 'cc1') {
     rows = activeOnly
@@ -54,7 +54,7 @@ export async function getCostCentre(id: string): Promise<CostCentre | null> {
   return rows[0] ? mapRow(rows[0]) : null;
 }
 
-export async function createCostCentre(input: CostCentreInput, userId: string): Promise<CostCentre> {
+export async function createCostCentre(_companyId: string, input: CostCentreInput, userId: string): Promise<CostCentre> {
   const ccType: CcType = input.ccType || 'cc1';
   const rows = (await sql`
     INSERT INTO cost_centres (code, name, description, department, cc_type, created_by)
@@ -66,7 +66,7 @@ export async function createCostCentre(input: CostCentreInput, userId: string): 
   return mapRow(rows[0]);
 }
 
-export async function updateCostCentre(id: string, input: Partial<CostCentreInput>): Promise<CostCentre> {
+export async function updateCostCentre(_companyId: string, id: string, input: Partial<CostCentreInput>): Promise<CostCentre> {
   const rows = (await sql`
     UPDATE cost_centres SET
       code = COALESCE(${input.code || null}, code),
@@ -79,11 +79,11 @@ export async function updateCostCentre(id: string, input: Partial<CostCentreInpu
   return mapRow(rows[0]);
 }
 
-export async function toggleCostCentre(id: string, isActive: boolean): Promise<void> {
+export async function toggleCostCentre(_companyId: string, id: string, isActive: boolean): Promise<void> {
   await sql`UPDATE cost_centres SET is_active = ${isActive} WHERE id = ${id}::UUID`;
 }
 
-export async function deleteCostCentre(id: string): Promise<void> {
+export async function deleteCostCentre(_companyId: string, id: string): Promise<void> {
   // Check for usage in journal lines
   const usage = (await sql`
     SELECT COUNT(*) as cnt FROM gl_journal_lines WHERE cost_center_id = ${id}::UUID

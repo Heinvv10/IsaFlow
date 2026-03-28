@@ -16,7 +16,6 @@ export default {
     'bg-purple-500/20', 'text-purple-400',
     'bg-gray-500/20', 'text-gray-400',
   ],
-  darkMode: 'class',
   theme: {
     extend: {
       colors: {

@@ -7,7 +7,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import type { CandidateType, MatchCandidate } from '@/modules/accounting/types/bank-match.types';
@@ -68,12 +68,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'bankTransactionId query param is required');
   }
 
+  const { companyId } = req as CompanyApiRequest;
+
   try {
     // Fetch the bank transaction to get amount, date, description
     const txRows = (await sql`
       SELECT id, amount, transaction_date, description, reference
       FROM bank_transactions
-      WHERE id = ${bankTransactionId}::UUID
+      WHERE id = ${bankTransactionId}::UUID AND company_id = ${companyId}
     `) as Row[];
 
     if (txRows.length === 0) {
@@ -95,6 +97,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       FROM supplier_invoices si
       JOIN suppliers s ON s.id = si.supplier_id
       WHERE si.status IN ('approved', 'partially_paid')
+        AND si.company_id = ${companyId}
       ORDER BY ABS(si.total_amount - ${absAmount}::NUMERIC) ASC
       LIMIT 20
     `) as Row[];
@@ -151,6 +154,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       WHERE je.status = 'posted'
+        AND je.company_id = ${companyId}
         AND jl.id NOT IN (
           SELECT matched_journal_line_id FROM bank_transactions
           WHERE matched_journal_line_id IS NOT NULL
@@ -192,4 +196,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

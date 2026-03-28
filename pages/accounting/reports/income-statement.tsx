@@ -10,11 +10,10 @@ import { ArrowLeft, BarChart3, Loader2, AlertCircle, ChevronDown, ChevronRight, 
 import type { IncomeStatementReport, IncomeStatementLineItem } from '@/modules/accounting/types/gl.types';
 import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
 
-interface CostCentre { id: string; code: string; name: string }
+import { formatCurrency } from '@/utils/formatters';
+import { apiFetch } from '@/lib/apiFetch';
 
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amount);
-}
+interface CostCentre { id: string; code: string; name: string }
 
 function getDefaultDates(): { periodStart: string; periodEnd: string } {
   const now = new Date();
@@ -38,10 +37,10 @@ export default function IncomeStatementPage() {
   const [showComparative, setShowComparative] = useState(false);
 
   useEffect(() => {
-    fetch('/api/accounting/cost-centres?active_only=true', { credentials: 'include' })
+    apiFetch('/api/accounting/cost-centres?active_only=true', { credentials: 'include' })
       .then(r => r.json())
       .then(json => setCostCentres(json.data?.items || json.data || []))
-      .catch(() => {});
+      .catch(() => { /* reference data load failure — non-critical, cost centre filter will be empty */ });
   }, []);
 
   function handleExport() {
@@ -70,7 +69,7 @@ export default function IncomeStatementPage() {
         params.set('compare_start', priorStart.toISOString().split('T')[0] ?? '');
         params.set('compare_end', priorEnd.toISOString().split('T')[0] ?? '');
       }
-      const res = await fetch(`/api/accounting/reports-income-statement?${params}`);
+      const res = await apiFetch(`/api/accounting/reports-income-statement?${params}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Failed to load');
       setReport(json.data || json);
@@ -93,13 +92,13 @@ export default function IncomeStatementPage() {
             </Link>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-emerald-500/10">
-                  <BarChart3 className="h-6 w-6 text-emerald-500" />
+                <div className="p-2 rounded-lg bg-teal-500/10">
+                  <BarChart3 className="h-6 w-6 text-teal-500" />
                 </div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Income Statement</h1>
               </div>
               <button onClick={handleExport} disabled={!report}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium disabled:opacity-50">
+                className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium disabled:opacity-50">
                 <Download className="h-4 w-4" /> Export CSV
               </button>
             </div>
@@ -142,7 +141,7 @@ export default function IncomeStatementPage() {
 
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-6 w-6 animate-spin text-emerald-500" />
+              <Loader2 className="h-6 w-6 animate-spin text-teal-500" />
             </div>
           ) : report ? (
             <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
@@ -154,7 +153,7 @@ export default function IncomeStatementPage() {
 
               <div className="divide-y divide-[var(--ff-border-light)]">
                 {/* Revenue */}
-                <Section label="Revenue" items={report.revenue} total={report.totalRevenue} color="emerald"
+                <Section label="Revenue" items={report.revenue} total={report.totalRevenue} color="teal"
                   periodStart={periodStart} periodEnd={periodEnd} expandedAccount={expandedAccount}
                   onToggleAccount={toggleAccount} showComparative={showComparative} />
 
@@ -166,9 +165,9 @@ export default function IncomeStatementPage() {
                 )}
 
                 {/* Gross Profit */}
-                <div className="px-6 py-3 flex justify-between bg-emerald-500/5">
+                <div className="px-6 py-3 flex justify-between bg-teal-500/5">
                   <span className="font-semibold text-[var(--ff-text-primary)]">Gross Profit</span>
-                  <span className={`font-bold font-mono ${report.grossProfit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  <span className={`font-bold font-mono ${report.grossProfit >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
                     {formatCurrency(report.grossProfit)}
                     {showComparative && report.priorGrossProfit !== undefined && (
                       <span className="text-xs text-[var(--ff-text-tertiary)] ml-2">
@@ -186,7 +185,7 @@ export default function IncomeStatementPage() {
                 {/* Net Profit */}
                 <div className="px-6 py-4 flex justify-between bg-[var(--ff-bg-primary)]">
                   <span className="text-lg font-bold text-[var(--ff-text-primary)]">Net Profit / (Loss)</span>
-                  <span className={`text-xl font-bold font-mono ${report.netProfit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  <span className={`text-xl font-bold font-mono ${report.netProfit >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
                     {formatCurrency(report.netProfit)}
                     {showComparative && report.priorNetProfit !== undefined && (
                       <span className="text-xs text-[var(--ff-text-tertiary)] ml-2">
@@ -249,7 +248,7 @@ function Section({ label, items, total, color, periodStart, periodEnd, expandedA
                 <span className="flex items-center gap-4">
                   <span className="font-mono text-[var(--ff-text-tertiary)] w-28 text-right text-xs">{formatCurrency(item.priorAmount)}</span>
                   <span className="font-mono text-[var(--ff-text-primary)] w-28 text-right">{formatCurrency(item.amount)}</span>
-                  <span className={`font-mono w-20 text-right text-xs ${(item.variance ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  <span className={`font-mono w-20 text-right text-xs ${(item.variance ?? 0) >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
                     {(item.variance ?? 0) >= 0 ? '+' : ''}{formatCurrency(item.variance ?? 0)}
                   </span>
                 </span>

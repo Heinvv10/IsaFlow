@@ -32,7 +32,7 @@ export interface BudgetInput {
   notes?: string;
 }
 
-export async function getBudgets(fiscalYear: number): Promise<BudgetEntry[]> {
+export async function getBudgets(_companyId: string, fiscalYear: number): Promise<BudgetEntry[]> {
   const rows = (await sql`
     SELECT b.*, ga.account_code, ga.account_name, ga.account_type
     FROM accounting_budgets b
@@ -43,7 +43,7 @@ export async function getBudgets(fiscalYear: number): Promise<BudgetEntry[]> {
   return rows.map(mapRow);
 }
 
-export async function upsertBudget(input: BudgetInput, userId: string): Promise<BudgetEntry> {
+export async function upsertBudget(_companyId: string, input: BudgetInput, userId: string): Promise<BudgetEntry> {
   const months = input.months || distributeEvenly(input.annualAmount);
 
   const rows = (await sql`
@@ -84,11 +84,11 @@ export async function upsertBudget(input: BudgetInput, userId: string): Promise<
   return mapRow(result[0]);
 }
 
-export async function deleteBudget(id: string): Promise<void> {
+export async function deleteBudget(_companyId: string, id: string): Promise<void> {
   await sql`DELETE FROM accounting_budgets WHERE id = ${id}::UUID`;
 }
 
-export async function copyBudgets(fromYear: number, toYear: number, userId: string): Promise<number> {
+export async function copyBudgets(_companyId: string, fromYear: number, toYear: number, userId: string): Promise<number> {
   const existing = (await sql`
     SELECT gl_account_id, annual_amount,
            jan, feb, mar, apr, may, jun, jul, aug, sep, oct, nov, "dec", notes

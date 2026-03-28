@@ -78,7 +78,7 @@ function classifyBucket(daysOverdue: number): DebtorInvoice['agingBucket'] {
  * Aggregate outstanding invoices by customer with aging buckets.
  * Buckets: current (not yet due), 1-30, 31-60, 61-90, 90+ days overdue.
  */
-export async function getDebtorsSummary(): Promise<DebtorSummary[]> {
+export async function getDebtorsSummary(_companyId: string): Promise<DebtorSummary[]> {
   try {
     const rows = (await sql`
       SELECT
@@ -141,7 +141,7 @@ export async function getDebtorsSummary(): Promise<DebtorSummary[]> {
 /**
  * List outstanding invoices for a specific customer with age and amounts.
  */
-export async function getDebtorDetail(clientId: string): Promise<DebtorInvoice[]> {
+export async function getDebtorDetail(_companyId: string, clientId: string): Promise<DebtorInvoice[]> {
   try {
     const rows = (await sql`
       SELECT
@@ -191,7 +191,7 @@ export async function getDebtorDetail(clientId: string): Promise<DebtorInvoice[]
  * List all overdue invoices sorted by age descending.
  * Optionally filter to invoices overdue by at least daysOverdue days.
  */
-export async function getOverdueInvoices(daysOverdue?: number): Promise<OverdueInvoice[]> {
+export async function getOverdueInvoices(_companyId: string, daysOverdue?: number): Promise<OverdueInvoice[]> {
   const minDays = daysOverdue ?? 1;
 
   try {
@@ -243,7 +243,7 @@ export async function getOverdueInvoices(daysOverdue?: number): Promise<OverdueI
  * Aggregate collection metrics: total outstanding, total overdue,
  * average days outstanding, and collection rate.
  */
-export async function getCollectionStats(): Promise<CollectionStats> {
+export async function getCollectionStats(_companyId: string): Promise<CollectionStats> {
   try {
     const rows = (await sql`
       SELECT

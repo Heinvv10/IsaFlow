@@ -4,17 +4,16 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { neon } from '@neondatabase/serverless';
+import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
-
-const sql = neon(process.env.DATABASE_URL!);
 
 function csvCell(v: string): string { return `"${String(v || '').replace(/"/g, '""')}"`; }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
+  const { companyId } = req as CompanyApiRequest;
 
   try {
     const { status } = req.query;
@@ -29,6 +28,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         FROM customer_payments cp
         LEFT JOIN clients c ON c.id = cp.client_id
         WHERE cp.status = ${status as string}
+          AND cp.company_id = ${companyId}
         ORDER BY cp.payment_date DESC
       `;
     } else {
@@ -39,6 +39,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           cp.payment_method, cp.bank_reference, cp.status
         FROM customer_payments cp
         LEFT JOIN clients c ON c.id = cp.client_id
+        WHERE cp.company_id = ${companyId}
         ORDER BY cp.payment_date DESC
       `;
     }
@@ -71,4 +72,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(handler);
+export default withCompany(handler);

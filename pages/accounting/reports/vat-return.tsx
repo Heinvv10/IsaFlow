@@ -15,14 +15,8 @@ import {
   Download,
   FileText,
 } from 'lucide-react';
-
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amount);
-}
-
-function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' });
-}
+import { formatCurrency, formatDate } from '@/utils/formatters';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface VAT201Transaction {
   journalEntryId: string;
@@ -66,7 +60,7 @@ function BoxRow({ box, section }: { box: VAT201Box; section: 'output' | 'input' 
   const isPositive = box.amount > 0;
   const colorClass = section === 'output'
     ? (isPositive ? 'text-red-400' : 'text-[var(--ff-text-tertiary)]')
-    : (isPositive ? 'text-emerald-400' : 'text-[var(--ff-text-tertiary)]');
+    : (isPositive ? 'text-teal-400' : 'text-[var(--ff-text-tertiary)]');
 
   return (
     <div>
@@ -136,7 +130,7 @@ export default function VATReturnPage() {
     setError('');
     try {
       const params = new URLSearchParams({ period_start: periodStart, period_end: periodEnd });
-      const res = await fetch(`/api/accounting/reports-vat-return?${params}`);
+      const res = await apiFetch(`/api/accounting/reports-vat-return?${params}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Failed to load');
       setReport(json.data || json);
@@ -224,17 +218,17 @@ export default function VATReturnPage() {
                 </div>
                 <div className="p-4 rounded-xl bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)]">
                   <p className="text-xs text-[var(--ff-text-tertiary)] mb-1">Total Input Tax (Box 19)</p>
-                  <p className="text-2xl font-bold text-emerald-400 font-mono">{formatCurrency(report.totalInputTax)}</p>
+                  <p className="text-2xl font-bold text-teal-400 font-mono">{formatCurrency(report.totalInputTax)}</p>
                 </div>
                 <div className={`p-4 rounded-xl border ${
                   report.netVAT > 0
                     ? 'bg-red-500/5 border-red-500/30'
-                    : 'bg-emerald-500/5 border-emerald-500/30'
+                    : 'bg-teal-500/5 border-teal-500/30'
                 }`}>
                   <p className="text-xs text-[var(--ff-text-tertiary)] mb-1">
                     Net VAT — Box 20 {report.netVAT > 0 ? '(Payable to SARS)' : '(Refundable)'}
                   </p>
-                  <p className={`text-2xl font-bold font-mono ${report.netVAT > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                  <p className={`text-2xl font-bold font-mono ${report.netVAT > 0 ? 'text-red-400' : 'text-teal-400'}`}>
                     {formatCurrency(Math.abs(report.netVAT))}
                   </p>
                 </div>
@@ -261,20 +255,20 @@ export default function VATReturnPage() {
 
               {/* SECTION B — Input Tax */}
               <div className="rounded-xl bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] overflow-hidden">
-                <div className="px-4 py-3 bg-emerald-500/5 border-b border-[var(--ff-border-light)] flex items-center gap-2">
-                  <FileText className="h-4 w-4 text-emerald-400" />
+                <div className="px-4 py-3 bg-teal-500/5 border-b border-[var(--ff-border-light)] flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-teal-400" />
                   <h2 className="font-semibold text-[var(--ff-text-primary)]">Section B — Input Tax</h2>
                   <span className="text-xs text-[var(--ff-text-tertiary)] ml-auto">Click rows to expand transactions</span>
                 </div>
                 {report.inputBoxes.map(box => (
                   <BoxRow key={box.box} box={box} section="input" />
                 ))}
-                <div className="px-4 py-3 flex justify-between items-center bg-emerald-500/10 border-t border-[var(--ff-border-light)]">
+                <div className="px-4 py-3 flex justify-between items-center bg-teal-500/10 border-t border-[var(--ff-border-light)]">
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-xs text-[var(--ff-text-tertiary)] w-12">19</span>
                     <span className="font-semibold text-[var(--ff-text-primary)]">TOTAL INPUT TAX</span>
                   </div>
-                  <span className="font-mono font-bold text-emerald-400 text-lg">{formatCurrency(report.totalInputTax)}</span>
+                  <span className="font-mono font-bold text-teal-400 text-lg">{formatCurrency(report.totalInputTax)}</span>
                 </div>
               </div>
 
@@ -282,7 +276,7 @@ export default function VATReturnPage() {
               <div className={`rounded-xl border-2 p-5 ${
                 report.netVAT > 0
                   ? 'border-red-500/40 bg-red-500/5'
-                  : 'border-emerald-500/40 bg-emerald-500/5'
+                  : 'border-teal-500/40 bg-teal-500/5'
               }`}>
                 <div className="flex justify-between items-center">
                   <div>
@@ -297,7 +291,7 @@ export default function VATReturnPage() {
                     </p>
                   </div>
                   <span className={`text-3xl font-bold font-mono ${
-                    report.netVAT > 0 ? 'text-red-400' : 'text-emerald-400'
+                    report.netVAT > 0 ? 'text-red-400' : 'text-teal-400'
                   }`}>
                     {formatCurrency(Math.abs(report.netVAT))}
                   </span>

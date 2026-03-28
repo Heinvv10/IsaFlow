@@ -125,6 +125,35 @@ export const TABS: Tab[] = [
     ],
   },
   {
+    id: 'items', label: 'Items',
+    items: [
+      {
+        section: 'Transactions',
+        items: [
+          { label: 'Item Adjustments', href: '/accounting/item-adjustments' },
+          { label: 'Adjust Selling Prices', href: '/accounting/item-pricing' },
+        ],
+      },
+      {
+        section: 'Special',
+        items: [
+          { label: 'Item Opening Balances', href: '/accounting/item-opening-balances' },
+        ],
+      },
+      {
+        section: 'Reports',
+        items: [
+          { label: 'Item Listing', href: '/accounting/reports/item-listing' },
+          { label: 'Sales by Item', href: '/accounting/reports/sales-by-item' },
+          { label: 'Purchases by Item', href: '/accounting/reports/purchases-by-item' },
+          { label: 'Item Movement', href: '/accounting/reports/item-movement' },
+          { label: 'Item Valuation', href: '/accounting/reports/item-valuation' },
+          { label: 'Item Quantities', href: '/accounting/reports/item-quantities' },
+        ],
+      },
+    ],
+  },
+  {
     id: 'banking', label: 'Banking',
     items: [
       {
@@ -146,6 +175,7 @@ export const TABS: Tab[] = [
         section: 'Special',
         items: [
           { label: 'Mapping Rules', href: '/accounting/bank-reconciliation/rules' },
+          { label: 'Bank Feeds', href: '/accounting/bank-feeds' },
         ],
       },
     ],
@@ -159,6 +189,7 @@ export const TABS: Tab[] = [
           { label: 'Chart of Accounts', href: '/accounting/chart-of-accounts' },
           { label: 'Default Accounts', href: '/accounting/default-accounts' },
           { label: 'Currencies', href: '/accounting/currencies' },
+          { label: 'Exchange Rates', href: '/accounting/exchange-rates' },
         ],
       },
       {
@@ -177,6 +208,83 @@ export const TABS: Tab[] = [
     ],
   },
   {
+    id: 'vat', label: 'VAT',
+    items: [
+      {
+        section: 'Returns',
+        items: [
+          { label: 'VAT Return', href: '/accounting/reports/vat-return' },
+        ],
+      },
+      {
+        section: 'Transactions',
+        items: [
+          { label: 'VAT Adjustments', href: '/accounting/vat-adjustments' },
+          { label: 'DRC VAT', href: '/accounting/drc-vat' },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'accountants', label: "Accountant's Area",
+    topItems: [
+      { label: 'Process Journal Entries', href: '/accounting/journal-entries' },
+      { label: 'Recurring Journal Entries', href: '/accounting/recurring-journals' },
+    ],
+    items: [
+      {
+        section: 'VAT',
+        items: [
+          { label: 'VAT Return', href: '/accounting/reports/vat-return' },
+          { label: 'VAT Adjustments', href: '/accounting/vat-adjustments' },
+          { label: 'DRC VAT', href: '/accounting/drc-vat' },
+        ],
+      },
+      {
+        section: 'Reports',
+        items: [
+          {
+            section: 'Management Reports',
+            items: [
+              { label: 'Income Statement', href: '/accounting/reports/income-statement' },
+              { label: 'Balance Sheet', href: '/accounting/reports/balance-sheet' },
+              { label: 'Trial Balance', href: '/accounting/trial-balance' },
+              { label: 'Budget vs Actual', href: '/accounting/reports/budget-vs-actual' },
+            ],
+          },
+          {
+            section: 'Transaction Reports',
+            items: [
+              { label: 'Account Transactions', href: '/accounting/reports/account-transactions' },
+            ],
+          },
+          {
+            section: 'Audit Reports',
+            items: [
+              { label: 'Opening Balances', href: '/accounting/opening-balances' },
+              { label: 'Audit Trail', href: '/accounting/reports/audit-trail' },
+            ],
+          },
+        ],
+      },
+      {
+        section: 'Transactions',
+        items: [
+          { label: 'Depreciation', href: '/accounting/depreciation' },
+          { label: 'Year-End', href: '/accounting/year-end' },
+        ],
+      },
+      {
+        section: 'Management',
+        items: [
+          { label: 'Cost Centres', href: '/accounting/cost-centres' },
+          { label: 'Business Units', href: '/accounting/business-units' },
+          { label: 'Budgets', href: '/accounting/budgets' },
+        ],
+      },
+    ],
+  },
+  {
     id: 'reports', label: 'Reports',
     items: [
       {
@@ -185,12 +293,14 @@ export const TABS: Tab[] = [
           { label: 'Income Statement', href: '/accounting/reports/income-statement' },
           { label: 'Balance Sheet', href: '/accounting/reports/balance-sheet' },
           { label: 'Cash Flow', href: '/accounting/reports/cash-flow' },
+          { label: 'Cash Flow Forecast', href: '/accounting/cash-flow-forecast' },
         ],
       },
       {
         section: 'Management',
         items: [
           { label: 'Budget vs Actual', href: '/accounting/reports/budget-vs-actual' },
+          { label: 'Project Profitability', href: '/accounting/reports/project-profitability' },
           { label: 'Trial Balance', href: '/accounting/trial-balance' },
         ],
       },
@@ -207,7 +317,94 @@ export const TABS: Tab[] = [
       },
     ],
   },
+  {
+    id: 'sars', label: 'SARS',
+    items: [
+      {
+        section: 'Submissions',
+        items: [
+          { label: 'VAT201', href: '/accounting/sars/vat201' },
+          { label: 'EMP201', href: '/accounting/sars/emp201' },
+        ],
+      },
+      {
+        section: 'Management',
+        items: [
+          { label: 'Compliance Calendar', href: '/accounting/sars' },
+          { label: 'Submission History', href: '/accounting/sars/submissions' },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'tools', label: 'Tools',
+    items: [
+      {
+        section: 'Documents',
+        items: [
+          { label: 'Document Capture', href: '/accounting/document-capture' },
+        ],
+      },
+      {
+        section: 'Workflows',
+        items: [
+          { label: 'Approvals', href: '/accounting/approvals' },
+        ],
+      },
+      {
+        section: 'Settings',
+        items: [
+          { label: 'Company Settings', href: '/accounting/company-settings' },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'group', label: 'Group',
+    items: [
+      {
+        section: 'Overview',
+        items: [
+          { label: 'Group Dashboard', href: '/accounting/group' },
+          { label: 'Group Setup', href: '/accounting/group/setup' },
+        ],
+      },
+      {
+        section: 'Consolidated Reports',
+        items: [
+          { label: 'Consolidated Trial Balance', href: '/accounting/group/trial-balance' },
+          { label: 'Consolidated Income Statement', href: '/accounting/group/income-statement' },
+          { label: 'Consolidated Balance Sheet', href: '/accounting/group/balance-sheet' },
+        ],
+      },
+      {
+        section: 'Intercompany',
+        items: [
+          { label: 'Intercompany Reconciliation', href: '/accounting/group/intercompany' },
+          { label: 'Elimination Adjustments', href: '/accounting/group/eliminations' },
+        ],
+      },
+    ],
+  },
   { id: 'import', label: 'Data Import', href: '/accounting/sage-migration' },
+  {
+    id: 'payroll', label: 'Payroll',
+    items: [
+      {
+        section: 'Lists',
+        items: [
+          { label: 'Employees', href: '/payroll/employees' },
+        ],
+      },
+      {
+        section: 'Processing',
+        items: [
+          { label: 'Payroll Runs', href: '/payroll/runs' },
+          { label: 'New Payroll Run', href: '/payroll/runs/new' },
+        ],
+      },
+    ],
+  },
 ];
 
 export function getActiveTabId(
@@ -248,6 +445,19 @@ export function getActiveTabId(
     return 'suppliers';
   }
 
+  // Items
+  if (
+    pathname.startsWith('/accounting/item-') ||
+    pathname === '/accounting/reports/item-listing' ||
+    pathname === '/accounting/reports/sales-by-item' ||
+    pathname === '/accounting/reports/purchases-by-item' ||
+    pathname === '/accounting/reports/item-movement' ||
+    pathname === '/accounting/reports/item-valuation' ||
+    pathname === '/accounting/reports/item-quantities'
+  ) {
+    return 'items';
+  }
+
   // Banking
   if (pathname.startsWith('/accounting/bank-')) return 'banking';
 
@@ -258,13 +468,55 @@ export function getActiveTabId(
     pathname.startsWith('/accounting/recurring-journals') ||
     pathname.startsWith('/accounting/fiscal-periods') ||
     pathname.startsWith('/accounting/default-accounts') ||
-    pathname.startsWith('/accounting/currencies')
+    pathname.startsWith('/accounting/currencies') ||
+    pathname.startsWith('/accounting/exchange-rates')
   ) {
     return 'accounts';
   }
 
+  // VAT
+  if (
+    pathname.startsWith('/accounting/vat-') ||
+    pathname.startsWith('/accounting/drc-vat') ||
+    pathname === '/accounting/reports/vat-return'
+  ) {
+    return 'vat';
+  }
+
+  // Accountant's Area
+  if (
+    pathname.startsWith('/accounting/trial-balance') ||
+    pathname.startsWith('/accounting/opening-balances') ||
+    pathname.startsWith('/accounting/depreciation') ||
+    pathname.startsWith('/accounting/year-end') ||
+    pathname.startsWith('/accounting/cost-centres') ||
+    pathname.startsWith('/accounting/business-units') ||
+    pathname.startsWith('/accounting/budgets') ||
+    pathname === '/accounting/reports/audit-trail'
+  ) {
+    return 'accountants';
+  }
+
+  // Group
+  if (pathname.startsWith('/accounting/group')) return 'group';
+
+  // SARS
+  if (pathname.startsWith('/accounting/sars')) return 'sars';
+
+  // Tools
+  if (
+    pathname.startsWith('/accounting/document-capture') ||
+    pathname.startsWith('/accounting/approvals') ||
+    pathname.startsWith('/accounting/company-settings') ||
+    pathname.startsWith('/accounting/cash-flow-forecast')
+  ) {
+    return 'tools';
+  }
+
   if (pathname.startsWith('/accounting/reports')) return 'reports';
-  if (pathname.startsWith('/accounting/trial-balance')) return 'reports';
+
+  // Payroll
+  if (pathname.startsWith('/payroll')) return 'payroll';
 
   return 'dashboard';
 }

@@ -6,11 +6,13 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyApiRequest;
+
   if (req.method === 'PUT') {
     try {
       const { id, bankAccountNumber } = req.body;
@@ -19,7 +21,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         UPDATE gl_accounts
         SET bank_account_number = ${bankAccountNumber || null},
             updated_at = NOW()
-        WHERE id = ${id} AND account_subtype = 'bank'
+        WHERE id = ${id} AND account_subtype = 'bank' AND company_id = ${companyId}
       `;
       return apiResponse.success(res, { updated: true });
     } catch (err) {
@@ -69,6 +71,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       ) s ON TRUE
       WHERE ga.account_subtype = 'bank'
         AND ga.is_active = TRUE
+        AND ga.company_id = ${companyId}
       ORDER BY ga.account_code
     `;
 
@@ -102,4 +105,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

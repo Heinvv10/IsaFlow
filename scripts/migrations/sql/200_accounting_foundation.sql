@@ -308,7 +308,8 @@ INSERT INTO gl_accounts (account_code, account_name, account_type, normal_balanc
   ('5400', 'Transport & Fuel', 'expense', 'debit', 3, 540, false, (SELECT id FROM gl_accounts WHERE account_code = '5000')),
   ('5500', 'Equipment Costs', 'expense', 'debit', 3, 550, false, (SELECT id FROM gl_accounts WHERE account_code = '5000')),
   ('5600', 'Administrative Expenses', 'expense', 'debit', 3, 560, false, (SELECT id FROM gl_accounts WHERE account_code = '5000')),
-  ('5700', 'Bank Charges', 'expense', 'debit', 3, 570, false, (SELECT id FROM gl_accounts WHERE account_code = '5000'))
+  ('5700', 'Bank Charges', 'expense', 'debit', 3, 570, false, (SELECT id FROM gl_accounts WHERE account_code = '5000')),
+  ('5800', 'Depreciation Expense', 'expense', 'debit', 3, 580, false, (SELECT id FROM gl_accounts WHERE account_code = '5000'))
 ON CONFLICT (account_code) DO NOTHING;
 
 -- ── Seed Data: Fiscal Year 2026 ────────────────────────────────────────────

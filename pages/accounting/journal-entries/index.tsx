@@ -12,7 +12,7 @@ export default function JournalEntriesPage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)] flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
+        <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
       </div>
     </AppLayout>
   );

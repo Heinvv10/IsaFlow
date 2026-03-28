@@ -25,7 +25,7 @@ export function LoadingSpinner({ size = 'md', className = '' }: LoadingSpinnerPr
         ${SIZE_CLASSES[size]}
         rounded-full
         border-gray-600
-        border-t-emerald-500
+        border-t-teal-500
         animate-spin
         ${className}
       `}

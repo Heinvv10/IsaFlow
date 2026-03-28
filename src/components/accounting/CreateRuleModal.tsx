@@ -6,7 +6,8 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { X, Search, BookmarkPlus, Loader2 } from 'lucide-react';
-import { toast } from 'react-hot-toast';
+import { notify } from '@/utils/toast';
+import { apiFetch } from '@/lib/apiFetch';
 import type { BankTx, SelectOption } from './BankTxTable';
 import type { RuleMatchType, RuleVatCode } from '@/modules/accounting/types/bank.types';
 
@@ -147,7 +148,7 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
     const timer = setTimeout(async () => {
       try {
         const params = new URLSearchParams({ pattern, matchType, bankAccountId });
-        const res = await fetch(`/api/accounting/bank-rules-preview?${params}`);
+        const res = await apiFetch(`/api/accounting/bank-rules-preview?${params}`);
         const json = await res.json();
         setMatchCount(json.data?.matchCount ?? 0);
       } catch {
@@ -168,10 +169,10 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
   const needsGlAccount = allocType === 'account';
 
   const handleSave = async () => {
-    if (!pattern.trim()) { toast.error('Pattern is required'); return; }
-    if (needsGlAccount && !selectedGl) { toast.error('Select a GL account'); return; }
-    if (allocType === 'supplier' && !selectedSupplier) { toast.error('Select a supplier'); return; }
-    if (allocType === 'customer' && !selectedClient) { toast.error('Select a customer'); return; }
+    if (!pattern.trim()) { notify.error('Pattern is required'); return; }
+    if (needsGlAccount && !selectedGl) { notify.error('Select a GL account'); return; }
+    if (allocType === 'supplier' && !selectedSupplier) { notify.error('Select a supplier'); return; }
+    if (allocType === 'customer' && !selectedClient) { notify.error('Select a customer'); return; }
     setSaving(true);
     try {
       const body: Record<string, unknown> = {
@@ -187,18 +188,17 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
       if (allocType === 'supplier' && selectedSupplier) body.supplierId = selectedSupplier.id;
       if (allocType === 'customer' && selectedClient) body.clientId = selectedClient.id;
 
-      const res = await fetch('/api/accounting/bank-rules', {
+      const res = await apiFetch('/api/accounting/bank-rules', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify(body),
       });
       const json = await res.json();
       if (!res.ok || json.success === false) throw new Error(json.message || 'Failed to create rule');
-      toast.success('Rule created');
+      notify.success('Rule created');
       onCreated();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to create rule');
+      notify.error(e instanceof Error ? e.message : 'Failed to create rule');
     } finally {
       setSaving(false);
     }
@@ -241,7 +241,7 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
               {previewLoading ? (
                 <Loader2 className="h-3 w-3 animate-spin text-[var(--ff-text-tertiary)]" />
               ) : matchCount !== null ? (
-                <span className={`text-xs font-medium ${matchCount > 0 ? 'text-emerald-400' : 'text-[var(--ff-text-tertiary)]'}`}>
+                <span className={`text-xs font-medium ${matchCount > 0 ? 'text-teal-400' : 'text-[var(--ff-text-tertiary)]'}`}>
                   Would match <strong>{matchCount}</strong> transaction{matchCount !== 1 ? 's' : ''}
                 </span>
               ) : null}
@@ -273,7 +273,7 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
                   onClick={() => setAllocType(t)}
                   className={`flex-1 px-3 py-1.5 rounded text-xs font-medium transition-colors ${
                     allocType === t
-                      ? 'bg-emerald-600 text-white'
+                      ? 'bg-teal-600 text-white'
                       : 'bg-[var(--ff-bg-primary)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] border border-[var(--ff-border-light)]'
                   }`}
                 >
@@ -354,7 +354,7 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
               type="checkbox"
               checked={autoCreateEntry}
               onChange={e => setAutoCreateEntry(e.target.checked)}
-              className="accent-emerald-500"
+              className="accent-teal-500"
             />
             <span className="text-xs text-[var(--ff-text-secondary)]">
               Auto-create journal entry (otherwise suggestion only)
@@ -369,7 +369,7 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
             Cancel
           </button>
           <button onClick={handleSave} disabled={saving || !pattern.trim() || (needsGlAccount && !selectedGl)}
-            className="px-4 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-medium flex items-center gap-1.5">
+            className="px-4 py-1.5 rounded bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-medium flex items-center gap-1.5">
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             Create Rule
           </button>

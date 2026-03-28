@@ -9,7 +9,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
@@ -34,6 +34,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
   }
 
+  const { companyId } = req as CompanyApiRequest;
+
   try {
     const { bankAccountId, transactions } = req.body as {
       bankAccountId: string;
@@ -49,7 +51,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     // Verify bank account exists
     const bankCheck = (await sql`
-      SELECT id FROM gl_accounts WHERE id = ${bankAccountId}::UUID LIMIT 1
+      SELECT id FROM gl_accounts WHERE id = ${bankAccountId}::UUID AND company_id = ${companyId} LIMIT 1
     `) as Row[];
     if (bankCheck.length === 0) {
       return apiResponse.notFound(res, 'Bank account', bankAccountId);
@@ -59,7 +61,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const ruleRows = (await sql`
       SELECT LOWER(rule_name) AS rule_name, gl_account_id, supplier_id
       FROM bank_categorisation_rules
-      WHERE is_active = true
+      WHERE is_active = true AND company_id = ${companyId}
     `) as Row[];
     const categoryMap = new Map<string, { glAccountId: string; supplierId: number | null }>();
     for (const r of ruleRows) {
@@ -92,6 +94,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           AND transaction_date = ${txDate}
           AND amount = ${amount}
           AND description = ${desc}
+          AND company_id = ${companyId}
         LIMIT 1
       `) as Row[];
 
@@ -121,12 +124,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           bank_account_id, transaction_date, amount, description,
           reference, import_batch_id, status,
           suggested_gl_account_id, suggested_supplier_id,
-          suggested_category, suggested_cost_centre
+          suggested_category, suggested_cost_centre,
+          company_id
         ) VALUES (
           ${bankAccountId}::UUID, ${txDate}, ${amount}, ${desc},
           ${tx.statementRef || null}, ${batchId}::UUID, 'imported',
           ${suggestedGlAccountId}::UUID, ${suggestedSupplierId},
-          ${category || null}, ${costCentre}
+          ${category || null}, ${costCentre},
+          ${companyId}
         )
       `;
       inserted++;
@@ -151,4 +156,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

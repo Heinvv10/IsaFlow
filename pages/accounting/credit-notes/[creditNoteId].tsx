@@ -6,14 +6,15 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, FileText, Loader2, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
+import { ArrowLeft, FileText, Loader2, AlertCircle, CheckCircle2, XCircle, Download } from 'lucide-react';
 import { AccountingDocumentPanel } from '@/modules/accounting/documents';
+import { apiFetch } from '@/lib/apiFetch';
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
 const STATUS_COLORS: Record<string, string> = {
   draft: 'bg-gray-500/20 text-gray-400',
-  approved: 'bg-emerald-500/20 text-emerald-400',
+  approved: 'bg-teal-500/20 text-teal-400',
   applied: 'bg-blue-500/20 text-blue-400',
   cancelled: 'bg-red-500/20 text-red-400',
 };
@@ -37,7 +38,7 @@ export default function CreditNoteDetailPage() {
   useEffect(() => {
     if (!creditNoteId) return;
     setLoading(true);
-    fetch(`/api/accounting/credit-notes?id=${creditNoteId}`)
+    apiFetch(`/api/accounting/credit-notes?id=${creditNoteId}`)
       .then(r => r.json())
       .then(json => setNote(json.data || json))
       .catch(() => setError('Failed to load'))
@@ -48,7 +49,7 @@ export default function CreditNoteDetailPage() {
     setActionLoading(action);
     setError('');
     try {
-      const res = await fetch('/api/accounting/credit-notes-action', {
+      const res = await apiFetch('/api/accounting/credit-notes-action', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, creditNoteId }),
       });
@@ -83,9 +84,13 @@ export default function CreditNoteDetailPage() {
               </span>
             </div>
             <div className="flex items-center gap-2">
+              <button onClick={() => window.open(`/api/accounting/credit-note-pdf?creditNoteId=${creditNoteId}`, '_blank')}
+                className="inline-flex items-center gap-1.5 px-3 py-2 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-500">
+                <Download className="h-4 w-4" />Download PDF
+              </button>
               {note.status === 'draft' && (
                 <button onClick={() => handleAction('approve')} disabled={!!actionLoading}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-500 disabled:opacity-50">
+                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-500 disabled:opacity-50">
                   <CheckCircle2 className="h-4 w-4" />{actionLoading === 'approve' ? 'Approving...' : 'Approve & Post GL'}
                 </button>
               )}

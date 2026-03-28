@@ -8,7 +8,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import {
@@ -35,6 +35,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     candidateId?: string;
   };
 
+  const { companyId } = req as CompanyApiRequest;
   // @ts-expect-error — auth middleware attaches user
   const userId: string = req.user?.id ?? req.user?.userId ?? 'system';
 
@@ -51,7 +52,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (candidateType === 'supplier_invoice') {
       // Look up the supplier invoice to derive the supplier entity id
       const invRows = (await sql`
-        SELECT id, supplier_id, total_amount FROM supplier_invoices WHERE id = ${candidateId}::UUID
+        SELECT id, supplier_id, total_amount FROM supplier_invoices WHERE id = ${candidateId}::UUID AND company_id = ${companyId}
       `) as Row[];
       if (invRows.length === 0) {
         return apiResponse.notFound(res, 'Supplier invoice', candidateId);
@@ -61,6 +62,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
       // Allocate the bank transaction against the AP account for this supplier
       await allocateTransaction(
+        companyId,
         bankTransactionId,
         '', // contraAccountId unused when allocType is 'supplier'
         userId,
@@ -89,6 +91,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
       // Allocate against AP account for this supplier
       await allocateTransaction(
+        companyId,
         bankTransactionId,
         '',
         userId,
@@ -116,7 +119,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       log.info('Confirmed match: purchase order', { bankTransactionId, candidateId }, 'accounting-api');
     } else {
       // journal_line — use the existing matchTransaction function
-      await matchTransaction(bankTransactionId, candidateId);
+      await matchTransaction(companyId, bankTransactionId, candidateId);
       log.info('Confirmed match: journal line', { bankTransactionId, candidateId }, 'accounting-api');
     }
 
@@ -129,4 +132,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

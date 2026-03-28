@@ -10,12 +10,10 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { neon } from '@neondatabase/serverless';
+import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
-
-const sql = neon(process.env.DATABASE_URL!);
 
 /** Escape a value for CSV — wraps in double-quotes and escapes internal quotes. */
 function csvVal(value: string | number): string {
@@ -26,6 +24,7 @@ function csvVal(value: string | number): string {
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
 
+  const { companyId } = req as CompanyApiRequest;
   const period = (req.query.period as string) || 'ytd';
 
   try {
@@ -41,9 +40,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const fyRows = await sql`
         SELECT MIN(start_date) AS start_date, MAX(end_date) AS end_date
         FROM fiscal_periods
-        WHERE fiscal_year = (
+        WHERE company_id = ${companyId} AND fiscal_year = (
           SELECT fiscal_year FROM fiscal_periods
-          WHERE status = 'open'
+          WHERE company_id = ${companyId} AND status = 'open'
           ORDER BY start_date DESC
           LIMIT 1
         )
@@ -75,7 +74,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           ab.jul, ab.aug, ab.sep, ab.oct, ab.nov, ab.dec
         FROM accounting_budgets ab
         JOIN gl_accounts ga ON ga.id = ab.gl_account_id
-        WHERE ab.fiscal_year = ${fiscalYear}
+        WHERE ab.company_id = ${companyId} AND ab.fiscal_year = ${fiscalYear}
       `;
       for (const row of budgetRows) {
         let total = 0;
@@ -115,6 +114,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         AND je.entry_date <= ${endDate}
       WHERE ga.level = 3
         AND ga.is_active = true
+        AND ga.company_id = ${companyId}
         AND ga.account_type IN ('expense', 'revenue')
       GROUP BY ga.id, ga.account_code, ga.account_name, ga.account_type
       ORDER BY ga.account_code
@@ -164,4 +164,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(handler);
+export default withCompany(handler);

@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Landmark, Loader2, AlertCircle, Download } from 'lucide-react';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface Txn {
   date: string;
@@ -49,7 +50,7 @@ export default function BankTransactionsPage() {
       const params = new URLSearchParams({
         period_start: periodStart, period_end: periodEnd, account_code: accountCode,
       });
-      const res = await fetch(`/api/accounting/reports-bank-transactions?${params}`, { credentials: 'include' });
+      const res = await apiFetch(`/api/accounting/reports-bank-transactions?${params}`, { credentials: 'include' });
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Failed');
       setReport(json.data || null);
@@ -142,7 +143,7 @@ export default function BankTransactionsPage() {
                         <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{t.date}</td>
                         <td className="px-4 py-2 text-[var(--ff-text-secondary)] font-mono text-xs">{t.entryNumber}</td>
                         <td className="px-4 py-2 text-[var(--ff-text-primary)] truncate max-w-[250px]">{t.description}</td>
-                        <td className="px-4 py-2 text-right font-mono text-emerald-400">{t.deposit > 0 ? fmt(t.deposit) : ''}</td>
+                        <td className="px-4 py-2 text-right font-mono text-teal-400">{t.deposit > 0 ? fmt(t.deposit) : ''}</td>
                         <td className="px-4 py-2 text-right font-mono text-red-400">{t.withdrawal > 0 ? fmt(t.withdrawal) : ''}</td>
                         <td className="px-4 py-2 text-right font-mono text-[var(--ff-text-primary)]">{fmt(t.runningBalance)}</td>
                       </tr>
@@ -150,7 +151,7 @@ export default function BankTransactionsPage() {
                     {report.transactions.length > 0 && (
                       <tr className="bg-[var(--ff-bg-primary)] font-medium">
                         <td colSpan={3} className="px-4 py-3 text-[var(--ff-text-primary)]">TOTAL</td>
-                        <td className="px-4 py-3 text-right font-mono text-emerald-400">{fmt(totalDep)}</td>
+                        <td className="px-4 py-3 text-right font-mono text-teal-400">{fmt(totalDep)}</td>
                         <td className="px-4 py-3 text-right font-mono text-red-400">{fmt(totalWd)}</td>
                         <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">{fmt(report.closingBalance)}</td>
                       </tr>

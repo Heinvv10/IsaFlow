@@ -8,7 +8,8 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeft, Loader2 } from 'lucide-react';
-import { toast } from 'react-hot-toast';
+import { notify } from '@/utils/toast';
+import { apiFetch } from '@/lib/apiFetch';
 
 type TxType = 'spend' | 'receive';
 type AllocType = 'account' | 'supplier' | 'customer';
@@ -27,7 +28,7 @@ const VAT_OPTIONS: { value: VatCode; label: string }[] = [
   { value: 'zero_rated', label: 'Zero Rated' }, { value: 'exempt', label: 'Exempt' },
 ];
 
-const INPUT_CLS = 'w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-emerald-500 transition-colors';
+const INPUT_CLS = 'w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-teal-500 transition-colors';
 const LABEL_CLS = 'block text-xs font-medium text-[var(--ff-text-secondary)] mb-1';
 
 export default function NewBankTransactionPage() {
@@ -48,13 +49,13 @@ export default function NewBankTransactionPage() {
   useEffect(() => {
     let mounted = true;
     const promises = [
-      fetch('/api/accounting/bank-accounts').then(r => r.json()).then(json => {
+      apiFetch('/api/accounting/bank-accounts').then(r => r.json()).then(json => {
         if (!mounted) return;
         const list: BankAcct[] = Array.isArray(json.data ?? json) ? (json.data ?? json) : [];
         setBankAccounts(list);
         if (list.length > 0) setForm(prev => ({ ...prev, bankAccountId: list[0]!.id }));
       }),
-      fetch('/api/accounting/chart-of-accounts').then(r => r.json()).then(json => {
+      apiFetch('/api/accounting/chart-of-accounts').then(r => r.json()).then(json => {
         if (!mounted) return;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const list: any[] = Array.isArray(json.data ?? json) ? (json.data ?? json) : [];
@@ -62,13 +63,13 @@ export default function NewBankTransactionPage() {
           .filter(a => a.accountSubtype !== 'bank')
           .map(a => ({ id: a.id, code: a.accountCode ?? a.code, name: a.accountName ?? a.name })));
       }),
-      fetch('/api/suppliers?status=active').then(r => r.json()).then(json => {
+      apiFetch('/api/suppliers?status=active').then(r => r.json()).then(json => {
         if (!mounted) return;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const list: any[] = Array.isArray(json.data) ? json.data : [];
         setSuppliers(list.map(s => ({ id: String(s.id), name: s.name, code: s.code })));
       }),
-      fetch('/api/clients').then(r => r.json()).then(json => {
+      apiFetch('/api/clients').then(r => r.json()).then(json => {
         if (!mounted) return;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const list: any[] = Array.isArray(json.data) ? json.data : [];
@@ -114,10 +115,10 @@ export default function NewBankTransactionPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const err = validate();
-    if (err) { toast.error(err); return; }
+    if (err) { notify.error(err); return; }
     setIsSubmitting(true);
     try {
-      const res = await fetch('/api/accounting/bank-transactions-manual', {
+      const res = await apiFetch('/api/accounting/bank-transactions-manual', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({
           type: txType, bankAccountId: form.bankAccountId, date: form.date, amount: Number(form.amount),
@@ -129,10 +130,10 @@ export default function NewBankTransactionPage() {
       const json = await res.json();
       if (!res.ok || json.success === false)
         throw new Error(json.error?.message ?? json.message ?? 'Failed to record transaction');
-      toast.success('Transaction recorded successfully');
+      notify.success('Transaction recorded successfully');
       void router.push('/accounting/bank-transactions');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to record transaction');
+      notify.error(error instanceof Error ? error.message : 'Failed to record transaction');
     } finally {
       setIsSubmitting(false);
     }
@@ -165,7 +166,7 @@ export default function NewBankTransactionPage() {
             {(['spend', 'receive'] as TxType[]).map(t => (
               <button key={t} type="button" onClick={() => setTxType(t)}
                 className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${txType === t
-                  ? 'border-emerald-500 text-emerald-400'
+                  ? 'border-teal-500 text-teal-400'
                   : 'border-transparent text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'}`}>
                 {t === 'spend' ? 'Spend Money' : 'Receive Money'}
               </button>
@@ -177,7 +178,7 @@ export default function NewBankTransactionPage() {
         <div className="px-6 py-6 max-w-2xl">
           {isLoadingRef ? (
             <div className="flex items-center justify-center py-16">
-              <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
+              <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
             </div>
           ) : (
             <form onSubmit={handleSubmit} noValidate>
@@ -237,7 +238,7 @@ export default function NewBankTransactionPage() {
                       <button key={t} type="button" onClick={() => handleAllocTypeChange(t)}
                         className={`px-4 py-1.5 rounded-lg border text-sm font-medium transition-all ${
                           form.allocationType === t
-                            ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400'
+                            ? 'border-teal-500 bg-teal-500/10 text-teal-400'
                             : 'border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'
                         }`}>
                         {t.charAt(0).toUpperCase() + t.slice(1)}
@@ -289,7 +290,7 @@ export default function NewBankTransactionPage() {
               {/* Actions */}
               <div className="mt-6 flex items-center gap-3">
                 <button type="submit" disabled={isSubmitting}
-                  className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors">
+                  className="flex items-center gap-2 px-6 py-2.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors">
                   {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
                   Record Transaction
                 </button>

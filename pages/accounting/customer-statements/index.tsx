@@ -8,10 +8,8 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ClipboardList, Loader2, AlertCircle, Download, ChevronRight, Search } from 'lucide-react';
-
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amount);
-}
+import { formatCurrency } from '@/utils/formatters';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface CustomerBalance {
   client_id: string;
@@ -77,7 +75,7 @@ export default function CustomerStatementsPage() {
     setIsLoading(true);
     setError('');
     try {
-      const res = await fetch(`/api/accounting/customer-statements?as_at_date=${asAtDate}`);
+      const res = await apiFetch(`/api/accounting/customer-statements?as_at_date=${asAtDate}`);
       const json = await res.json();
       const data = json.data || json;
       setCustomers(data.customers || []);
@@ -179,7 +177,7 @@ export default function CustomerStatementsPage() {
                         </Link>
                       </td>
                       <td className="py-3 px-4 text-right text-[var(--ff-text-primary)]">{formatCurrency(c.total_invoiced)}</td>
-                      <td className="py-3 px-4 text-right text-emerald-400">{formatCurrency(c.total_paid)}</td>
+                      <td className="py-3 px-4 text-right text-teal-400">{formatCurrency(c.total_paid)}</td>
                       <td className="py-3 px-4 text-right font-medium text-[var(--ff-text-primary)]">{formatCurrency(c.balance)}</td>
                       <td className="py-3 px-4 text-center text-[var(--ff-text-secondary)]">{c.invoice_count}</td>
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{c.last_payment_date?.split('T')[0] || '-'}</td>

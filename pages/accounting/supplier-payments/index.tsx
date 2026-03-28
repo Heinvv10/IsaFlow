@@ -10,6 +10,8 @@ import {
   Wallet, Plus, Loader2, AlertCircle, ChevronRight, Filter,
 } from 'lucide-react';
 import type { SupplierPayment, PaymentStatus } from '@/modules/accounting/types/ap.types';
+import { formatCurrency } from '@/utils/formatters';
+import { apiFetch } from '@/lib/apiFetch';
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: '', label: 'All Statuses' },
@@ -24,7 +26,7 @@ function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
     draft: 'bg-gray-500/20 text-gray-400',
     approved: 'bg-amber-500/20 text-amber-400',
-    processed: 'bg-emerald-500/20 text-emerald-400',
+    processed: 'bg-teal-500/20 text-teal-400',
     reconciled: 'bg-blue-500/20 text-blue-400',
     cancelled: 'bg-red-500/20 text-red-400',
   };
@@ -33,10 +35,6 @@ function StatusBadge({ status }: { status: string }) {
       {status}
     </span>
   );
-}
-
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amount);
 }
 
 export default function SupplierPaymentsPage() {
@@ -52,7 +50,7 @@ export default function SupplierPaymentsPage() {
     try {
       const params = new URLSearchParams();
       if (statusFilter) params.set('status', statusFilter);
-      const res = await fetch(`/api/accounting/supplier-payments?${params}`);
+      const res = await apiFetch(`/api/accounting/supplier-payments?${params}`);
       const json = await res.json();
       const payload = json.data || json;
       setPayments(payload.payments || []);
@@ -73,8 +71,8 @@ export default function SupplierPaymentsPage() {
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-emerald-500/10">
-                <Wallet className="h-6 w-6 text-emerald-500" />
+              <div className="p-2 rounded-lg bg-teal-500/10">
+                <Wallet className="h-6 w-6 text-teal-500" />
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Supplier Payments</h1>
@@ -85,7 +83,7 @@ export default function SupplierPaymentsPage() {
             </div>
             <Link
               href="/accounting/supplier-payments/new"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors text-sm font-medium"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium"
             >
               <Plus className="h-4 w-4" />
               New Payment
@@ -151,7 +149,7 @@ export default function SupplierPaymentsPage() {
                       <td className="px-4 py-3 text-sm text-[var(--ff-text-secondary)] uppercase">{p.paymentMethod}</td>
                       <td className="px-4 py-3"><StatusBadge status={p.status} /></td>
                       <td className="px-4 py-3 text-right">
-                        <Link href={`/accounting/supplier-payments/${p.id}`} className="text-emerald-600 hover:text-emerald-700">
+                        <Link href={`/accounting/supplier-payments/${p.id}`} className="text-teal-600 hover:text-teal-700">
                           <ChevronRight className="h-4 w-4" />
                         </Link>
                       </td>

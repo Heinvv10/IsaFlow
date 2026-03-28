@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { SlidersHorizontal, Plus, Check, Loader2 } from 'lucide-react';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface Adjustment {
   id: string; adjustmentNumber: string; entityType: string; entityId: string;
@@ -19,7 +20,7 @@ const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', c
 
 const STATUS_BADGE: Record<string, string> = {
   draft: 'bg-gray-500/10 text-gray-400',
-  approved: 'bg-emerald-500/10 text-emerald-400',
+  approved: 'bg-teal-500/10 text-teal-400',
   cancelled: 'bg-red-500/10 text-red-400',
 };
 
@@ -36,7 +37,7 @@ export default function AdjustmentsPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await fetch(`/api/accounting/adjustments?entityType=${entityType}`, { credentials: 'include' });
+    const res = await apiFetch(`/api/accounting/adjustments?entityType=${entityType}`, { credentials: 'include' });
     const json = await res.json();
     setItems(json.data?.items || []);
     setLoading(false);
@@ -45,7 +46,7 @@ export default function AdjustmentsPage() {
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     const url = entityType === 'supplier' ? '/api/suppliers' : '/api/clients';
-    fetch(url, { credentials: 'include' }).then(r => r.json()).then(res => {
+    apiFetch(url).then(r => r.json()).then(res => {
       const d = res.data || res;
       setEntities(Array.isArray(d) ? d : d.clients || d.suppliers || []);
     });
@@ -55,7 +56,7 @@ export default function AdjustmentsPage() {
     e.preventDefault();
     setError(''); setBusy('new');
     try {
-      const res = await fetch('/api/accounting/adjustments', {
+      const res = await apiFetch('/api/accounting/adjustments', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ entityType, entityId: form.entityId, adjustmentType: form.adjustmentType, amount: Number(form.amount), reason: form.reason }),
@@ -71,7 +72,7 @@ export default function AdjustmentsPage() {
 
   const approve = async (id: string) => {
     setBusy(id);
-    await fetch('/api/accounting/adjustments-action', {
+    await apiFetch('/api/accounting/adjustments-action', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       credentials: 'include', body: JSON.stringify({ action: 'approve', id }),
     });
@@ -144,7 +145,7 @@ export default function AdjustmentsPage() {
                     <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_BADGE[item.status] || ''}`}>{item.status}</span></td>
                     <td className="px-4 py-3">
                       {item.status === 'draft' && (
-                        <button onClick={() => approve(item.id)} disabled={busy === item.id} className="p-1 text-emerald-400 hover:text-emerald-300" title="Approve">
+                        <button onClick={() => approve(item.id)} disabled={busy === item.id} className="p-1 text-teal-400 hover:text-teal-300" title="Approve">
                           {busy === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                         </button>
                       )}

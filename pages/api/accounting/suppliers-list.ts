@@ -9,13 +9,14 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withAuth, withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
 
-export default withAuth(async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default withCompany(async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyApiRequest;
   // ─── GET: List suppliers ────────────────────────────────────────────────────
   if (req.method === 'GET') {
     try {
@@ -32,12 +33,12 @@ export default withAuth(async function handler(req: NextApiRequest, res: NextApi
             vat_number, payment_terms,
             created_at
           FROM suppliers
-          WHERE
-            name ILIKE ${searchTerm}
+          WHERE company_id = ${companyId}
+            AND (name ILIKE ${searchTerm}
             OR email ILIKE ${searchTerm}
             OR company_name ILIKE ${searchTerm}
             OR category ILIKE ${searchTerm}
-            OR contact_person ILIKE ${searchTerm}
+            OR contact_person ILIKE ${searchTerm})
           ORDER BY name ASC
           LIMIT 200
         `) as Row[];
@@ -49,6 +50,7 @@ export default withAuth(async function handler(req: NextApiRequest, res: NextApi
             vat_number, payment_terms,
             created_at
           FROM suppliers
+          WHERE company_id = ${companyId}
           ORDER BY name ASC
           LIMIT 200
         `) as Row[];
@@ -111,12 +113,13 @@ export default withAuth(async function handler(req: NextApiRequest, res: NextApi
 
       const rows = (await sql`
         INSERT INTO suppliers (
-          name, company_name, email, phone,
+          company_id, name, company_name, email, phone,
           vat_number, registration_number, address, contact_person,
           payment_terms,
           bank_name, bank_account_number, bank_branch_code, bank_account_type,
           is_active, notes, category
         ) VALUES (
+          ${companyId},
           ${name.trim()},
           ${company_name?.trim() || null},
           ${email?.trim() || null},

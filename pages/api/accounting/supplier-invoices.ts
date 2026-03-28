@@ -7,7 +7,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withAuth, withCompany, type AuthenticatedNextApiRequest, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import {
   getSupplierInvoices,
@@ -16,10 +16,12 @@ import {
 import type { SupplierInvoiceStatus } from '@/modules/accounting/types/ap.types';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyApiRequest;
+
   if (req.method === 'GET') {
     try {
       const { status, supplier_id, match_status, limit, offset } = req.query;
-      const result = await getSupplierInvoices({
+      const result = await getSupplierInvoices(companyId, {
         status: status as SupplierInvoiceStatus | undefined,
         supplierId: supplier_id ? Number(supplier_id) : undefined,
         matchStatus: match_status as 'unmatched' | 'po_matched' | 'grn_matched' | 'fully_matched' | undefined,
@@ -46,7 +48,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       // User identity comes from JWT (req.user), never from client request body
       const userId = req.user.id;
 
-      const invoice = await createSupplierInvoice({
+      const invoice = await createSupplierInvoice(companyId, {
         invoiceNumber, supplierId: String(supplierId), purchaseOrderId, grnId,
         invoiceDate, dueDate, taxRate: taxRate ? Number(taxRate) : undefined,
         paymentTerms, reference, projectId, costCenterId, notes, items,
@@ -64,4 +66,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

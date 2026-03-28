@@ -8,6 +8,7 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Upload, Loader2, AlertCircle, CheckCircle2, Landmark, FileText } from 'lucide-react';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface BankAccount { id: string; account_code: string; account_name: string; bank_account_number?: string | null }
 
@@ -47,7 +48,7 @@ export default function BankStatementImportPage() {
   });
 
   useEffect(() => {
-    fetch('/api/accounting/chart-of-accounts?subtype=bank')
+    apiFetch('/api/accounting/chart-of-accounts?subtype=bank')
       .then(r => r.json())
       .then(res => {
         const data = res.data || res;
@@ -143,7 +144,7 @@ export default function BankStatementImportPage() {
         body.csvContent = form.csvContent;
       }
 
-      const res = await fetch('/api/accounting/bank-transactions-import', {
+      const res = await apiFetch('/api/accounting/bank-transactions-import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -175,8 +176,8 @@ export default function BankStatementImportPage() {
               <ArrowLeft className="h-4 w-4" /> Back to Reconciliations
             </Link>
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-emerald-500/10">
-                <Upload className="h-6 w-6 text-emerald-500" />
+              <div className="p-2 rounded-lg bg-teal-500/10">
+                <Upload className="h-6 w-6 text-teal-500" />
               </div>
               <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Import Bank Statement</h1>
             </div>
@@ -191,8 +192,8 @@ export default function BankStatementImportPage() {
           )}
 
           {result && (
-            <div className="p-4 rounded-lg bg-emerald-500/10 border border-emerald-500/30 space-y-2">
-              <div className="flex items-center gap-2 text-emerald-400 font-medium">
+            <div className="p-4 rounded-lg bg-teal-500/10 border border-teal-500/30 space-y-2">
+              <div className="flex items-center gap-2 text-teal-400 font-medium">
                 <CheckCircle2 className="h-5 w-5" /> Import Successful
               </div>
               <p className="text-sm text-[var(--ff-text-secondary)]">
@@ -212,7 +213,7 @@ export default function BankStatementImportPage() {
               <div className="pt-2">
                 <Link
                   href="/accounting/bank-reconciliation"
-                  className="text-sm text-emerald-500 hover:text-emerald-400 font-medium"
+                  className="text-sm text-teal-500 hover:text-teal-400 font-medium"
                 >
                   Start a reconciliation with these transactions
                 </Link>
@@ -294,7 +295,7 @@ export default function BankStatementImportPage() {
                   <Landmark className="h-8 w-8 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
                 )}
                 <label className="block">
-                  <span className="text-emerald-500 hover:text-emerald-400 cursor-pointer font-medium">
+                  <span className="text-teal-500 hover:text-teal-400 cursor-pointer font-medium">
                     Choose CSV, PDF, OFX, or QIF file
                   </span>
                   <input
@@ -354,7 +355,7 @@ export default function BankStatementImportPage() {
               <button
                 type="submit"
                 disabled={isSubmitting || !hasFile || !form.bankAccountId}
-                className="inline-flex items-center gap-2 px-6 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors text-sm font-medium"
+                className="inline-flex items-center gap-2 px-6 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 transition-colors text-sm font-medium"
               >
                 {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
                 Import Statement

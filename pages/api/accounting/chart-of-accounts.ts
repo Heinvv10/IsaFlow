@@ -7,7 +7,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withAuth, withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import {
   getChartOfAccounts,
@@ -17,15 +17,17 @@ import {
 } from '@/modules/accounting/services/chartOfAccountsService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyApiRequest;
+
   if (req.method === 'GET') {
     try {
       const { view, subtype, includeInactive } = req.query;
       const withInactive = includeInactive === 'true';
       let data;
       if (view === 'tree') {
-        data = await getAccountTree(withInactive);
+        data = await getAccountTree(companyId, withInactive);
       } else {
-        const accounts = await getChartOfAccounts(withInactive);
+        const accounts = await getChartOfAccounts(companyId, withInactive);
         data = subtype
           ? accounts.filter(a => a.accountSubtype === String(subtype))
           : accounts;
@@ -45,7 +47,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         return apiResponse.badRequest(res, 'accountCode, accountName, accountType, and normalBalance are required');
       }
 
-      const account = await createAccount({
+      const account = await createAccount(companyId, {
         accountCode,
         accountName,
         accountType,
@@ -67,7 +69,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     try {
       const { id, accountName, description, isActive, displayOrder, defaultVatCode } = req.body;
       if (!id) return apiResponse.badRequest(res, 'id is required');
-      const updated = await updateAccount(id, { accountName, description, isActive, displayOrder, defaultVatCode });
+      const updated = await updateAccount(companyId, id, { accountName, description, isActive, displayOrder, defaultVatCode });
       return apiResponse.success(res, updated);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to update account';
@@ -80,4 +82,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

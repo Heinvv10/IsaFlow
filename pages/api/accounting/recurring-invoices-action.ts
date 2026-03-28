@@ -6,7 +6,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withAuth, withCompany, type AuthenticatedNextApiRequest, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import {
   updateRecurringStatus,
@@ -14,6 +14,8 @@ import {
 } from '@/modules/accounting/services/recurringInvoiceService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyApiRequest;
+
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
   }
@@ -25,16 +27,16 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     switch (action) {
       case 'pause':
-        await updateRecurringStatus(id, 'paused');
+        await updateRecurringStatus(companyId, id, 'paused');
         return apiResponse.success(res, { status: 'paused' });
       case 'resume':
-        await updateRecurringStatus(id, 'active');
+        await updateRecurringStatus(companyId, id, 'active');
         return apiResponse.success(res, { status: 'active' });
       case 'cancel':
-        await updateRecurringStatus(id, 'cancelled');
+        await updateRecurringStatus(companyId, id, 'cancelled');
         return apiResponse.success(res, { status: 'cancelled' });
       case 'generate': {
-        const invoiceId = await generateInvoiceFromRecurring(id, userId);
+        const invoiceId = await generateInvoiceFromRecurring(companyId, id, userId);
         return apiResponse.success(res, { invoiceId });
       }
       default:
@@ -48,4 +50,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

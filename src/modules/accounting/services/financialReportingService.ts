@@ -38,6 +38,7 @@ interface ISOptions {
 
 /** Fetch P&L line items for a single period. Reused for comparative calls. */
 async function fetchIncomeStatementRows(
+  companyId: string,
   periodStart: string,
   periodEnd: string,
   opts: ISOptions
@@ -53,6 +54,7 @@ async function fetchIncomeStatementRows(
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id
     WHERE je.status = 'posted'
+      AND je.company_id = ${companyId}::UUID
       AND je.entry_date >= ${periodStart}
       AND je.entry_date <= ${periodEnd}
       AND ga.account_type IN ('revenue', 'expense')
@@ -96,14 +98,14 @@ async function fetchIncomeStatementRows(
   return { revenue, costOfSales, operatingExpenses, totalRevenue, totalCostOfSales, grossProfit, totalOperatingExpenses, netProfit };
 }
 
-export async function getIncomeStatement(
+export async function getIncomeStatement(companyId: string,
   periodStart: string,
   periodEnd: string,
   opts: ISOptions = {},
   comparePeriod?: { start: string; end: string }
 ): Promise<IncomeStatementReport> {
   try {
-    const current = await fetchIncomeStatementRows(periodStart, periodEnd, opts);
+    const current = await fetchIncomeStatementRows(companyId, periodStart, periodEnd, opts);
 
     const report: IncomeStatementReport = {
       periodStart,
@@ -121,7 +123,7 @@ export async function getIncomeStatement(
     };
 
     if (comparePeriod) {
-      const prior = await fetchIncomeStatementRows(comparePeriod.start, comparePeriod.end, opts);
+      const prior = await fetchIncomeStatementRows(companyId, comparePeriod.start, comparePeriod.end, opts);
       report.comparativePeriod = comparePeriod;
       report.priorTotalRevenue = prior.totalRevenue;
       report.priorTotalCostOfSales = prior.totalCostOfSales;
@@ -152,7 +154,7 @@ export async function getIncomeStatement(
 // ── Balance Sheet ────────────────────────────────────────────────────────────
 
 /** Fetch balance sheet data for a single date. Reused for comparative calls. */
-async function fetchBalanceSheetData(asAtDate: string, costCentreId?: string) {
+async function fetchBalanceSheetData(companyId: string, asAtDate: string, costCentreId?: string) {
   const ccId = costCentreId ?? null;
 
   const rows = (await sql`
@@ -163,6 +165,7 @@ async function fetchBalanceSheetData(asAtDate: string, costCentreId?: string) {
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id
     WHERE je.status = 'posted'
+      AND je.company_id = ${companyId}::UUID
       AND je.entry_date <= ${asAtDate}
       AND ga.account_type IN ('asset', 'liability', 'equity')
       AND ga.level >= 3
@@ -189,7 +192,7 @@ async function fetchBalanceSheetData(asAtDate: string, costCentreId?: string) {
     else if (type === 'equity') equity.push(item);
   }
 
-  const retainedEarnings = await calculateRetainedEarnings(asAtDate, costCentreId);
+  const retainedEarnings = await calculateRetainedEarnings(companyId, asAtDate, costCentreId);
   if (Math.abs(retainedEarnings) > 0.01) {
     const existing = equity.find(e => e.accountCode === '3200');
     if (existing) existing.balance += retainedEarnings;
@@ -199,13 +202,13 @@ async function fetchBalanceSheetData(asAtDate: string, costCentreId?: string) {
   return { assets, liabilities, equity };
 }
 
-export async function getBalanceSheet(
+export async function getBalanceSheet(companyId: string,
   asAtDate: string,
   costCentreId?: string,
   compareDate?: string
 ): Promise<BalanceSheetReport> {
   try {
-    const current = await fetchBalanceSheetData(asAtDate, costCentreId);
+    const current = await fetchBalanceSheetData(companyId, asAtDate, costCentreId);
 
     const report: BalanceSheetReport = {
       asAtDate,
@@ -219,7 +222,7 @@ export async function getBalanceSheet(
     };
 
     if (compareDate) {
-      const prior = await fetchBalanceSheetData(compareDate, costCentreId);
+      const prior = await fetchBalanceSheetData(companyId, compareDate, costCentreId);
       report.compareDate = compareDate;
       report.priorTotalAssets = prior.assets.reduce((s, a) => s + a.balance, 0);
       report.priorTotalLiabilities = prior.liabilities.reduce((s, l) => s + l.balance, 0);
@@ -245,7 +248,7 @@ export async function getBalanceSheet(
   }
 }
 
-async function calculateRetainedEarnings(asAtDate: string, costCentreId?: string): Promise<number> {
+async function calculateRetainedEarnings(companyId: string, asAtDate: string, costCentreId?: string): Promise<number> {
   const ccId = costCentreId ?? null;
   const rows = (await sql`
     SELECT
@@ -255,6 +258,7 @@ async function calculateRetainedEarnings(asAtDate: string, costCentreId?: string
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id
     WHERE je.status = 'posted'
+      AND je.company_id = ${companyId}::UUID
       AND je.entry_date <= ${asAtDate}
       AND ga.account_type IN ('revenue', 'expense')
       AND (${ccId}::TEXT IS NULL OR jl.cost_center_id = ${ccId}::UUID)
@@ -308,15 +312,11 @@ interface PopulatedBox {
   transactions: VATDrillDown[];
 }
 
-export async function getVATReturn(
+export async function getVATReturn(companyId: string,
   periodStart: string,
   periodEnd: string
 ): Promise<VATReturnReport> {
   try {
-    // Fetch every posted journal line that touches a VAT-control account within the
-    // period. Two account codes are targeted: 2120 (Output VAT liability) and 1140
-    // (Input VAT asset). The account_subtype = 'tax' guard catches any additional
-    // tax sub-ledger accounts the chart of accounts may define in the future.
     const vatLines = (await sql`
       SELECT
         jl.id              AS line_id,
@@ -337,6 +337,7 @@ export async function getVATReturn(
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       JOIN gl_accounts ga        ON ga.id  = jl.gl_account_id
       WHERE je.status = 'posted'
+        AND je.company_id = ${companyId}::UUID
         AND je.entry_date >= ${periodStart}
         AND je.entry_date <= ${periodEnd}
         AND (
@@ -468,18 +469,18 @@ export async function getVATReturn(
 
 // ── Project Profitability ────────────────────────────────────────────────────
 
-export async function getProjectProfitability(
+export async function getProjectProfitability(companyId: string,
   periodStart: string,
   periodEnd: string
 ): Promise<ProjectProfitabilityReport[]> {
   try {
-    // Get all projects with journal activity in the period
     const projectRows = (await sql`
       SELECT DISTINCT jl.project_id, p.project_name
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       LEFT JOIN projects p ON p.id = jl.project_id
       WHERE je.status = 'posted'
+        AND je.company_id = ${companyId}::UUID
         AND je.entry_date >= ${periodStart}
         AND je.entry_date <= ${periodEnd}
         AND jl.project_id IS NOT NULL
@@ -500,6 +501,7 @@ export async function getProjectProfitability(
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
         WHERE je.status = 'posted'
+          AND je.company_id = ${companyId}::UUID
           AND je.entry_date >= ${periodStart}
           AND je.entry_date <= ${periodEnd}
           AND jl.project_id = ${projectId}::UUID

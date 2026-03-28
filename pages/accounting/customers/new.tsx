@@ -9,8 +9,9 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Users, Loader2, ArrowLeft, Save } from 'lucide-react';
 import Link from 'next/link';
-import { toast } from 'react-hot-toast';
+import { notify } from '@/utils/toast';
 import { CustomerForm, type CustomerFormData, INITIAL_CUSTOMER_FORM } from '@/components/accounting/CustomerForm';
+import { apiFetch } from '@/lib/apiFetch';
 
 export default function NewCustomerPage() {
   const router = useRouter();
@@ -40,7 +41,7 @@ export default function NewCustomerPage() {
 
     setIsSubmitting(true);
     try {
-      const res = await fetch('/api/accounting/customers', {
+      const res = await apiFetch('/api/accounting/customers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -53,10 +54,10 @@ export default function NewCustomerPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error?.message ?? `HTTP ${res.status}`);
 
-      toast.success('Customer created successfully');
+      notify.success('Customer created successfully');
       await router.push('/accounting/customers');
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to create customer');
+      notify.error(err instanceof Error ? err.message : 'Failed to create customer');
     } finally {
       setIsSubmitting(false);
     }
@@ -74,8 +75,8 @@ export default function NewCustomerPage() {
             >
               <ArrowLeft className="h-5 w-5" />
             </Link>
-            <div className="p-2 rounded-lg bg-emerald-500/10">
-              <Users className="h-6 w-6 text-emerald-500" />
+            <div className="p-2 rounded-lg bg-teal-500/10">
+              <Users className="h-6 w-6 text-teal-500" />
             </div>
             <div>
               <h1 className="text-xl font-semibold text-[var(--ff-text-primary)]">New Customer</h1>
@@ -103,7 +104,7 @@ export default function NewCustomerPage() {
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="flex items-center gap-2 px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors"
+                className="flex items-center gap-2 px-5 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors"
               >
                 {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 {isSubmitting ? 'Saving...' : 'Save Customer'}

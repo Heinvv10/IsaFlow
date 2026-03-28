@@ -7,7 +7,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withCompany, type AuthenticatedNextApiRequest, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import {
   approveSupplierPayment,
@@ -19,6 +19,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
   }
 
+  const { companyId } = req as CompanyApiRequest;
+
   try {
     const { action, paymentId } = req.body;
     const userId = req.user.id;
@@ -29,11 +31,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     switch (action) {
       case 'approve': {
-        const payment = await approveSupplierPayment(paymentId, userId);
+        const payment = await approveSupplierPayment(companyId, paymentId, userId);
         return apiResponse.success(res, payment);
       }
       case 'process': {
-        const payment = await processSupplierPayment(paymentId, userId);
+        const payment = await processSupplierPayment(companyId, paymentId, userId);
         return apiResponse.success(res, payment);
       }
       default:
@@ -47,4 +49,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

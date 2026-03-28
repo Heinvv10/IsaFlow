@@ -7,10 +7,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeftRight, Loader2, AlertCircle, Plus } from 'lucide-react';
-
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amount);
-}
+import { formatCurrency } from '@/utils/formatters';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface BankAccount {
   id: string;
@@ -32,7 +30,7 @@ export default function BankTransfersPage() {
   const loadBankAccounts = useCallback(async () => {
     setIsLoading(true);
     try {
-      const res = await fetch('/api/accounting/chart-of-accounts?subtype=bank');
+      const res = await apiFetch('/api/accounting/chart-of-accounts?subtype=bank');
       const json = await res.json();
       const data = json.data || json;
       setBankAccounts(data.accounts || []);
@@ -53,7 +51,7 @@ export default function BankTransfersPage() {
     setIsSubmitting(true);
     setMessage({ type: '', text: '' });
     try {
-      const res = await fetch('/api/accounting/bank-transfers', {
+      const res = await apiFetch('/api/accounting/bank-transfers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -175,7 +173,7 @@ export default function BankTransfersPage() {
 
                 {message.text && (
                   <div className={`flex items-center gap-2 p-3 rounded-lg text-sm ${
-                    message.type === 'error' ? 'bg-red-500/10 text-red-400' : 'bg-emerald-500/10 text-emerald-400'
+                    message.type === 'error' ? 'bg-red-500/10 text-red-400' : 'bg-teal-500/10 text-teal-400'
                   }`}>
                     <AlertCircle className="h-4 w-4" />
                     {message.text}

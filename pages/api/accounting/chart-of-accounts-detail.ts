@@ -8,7 +8,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withAuth, withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import {
   getAccountById,
@@ -17,12 +17,13 @@ import {
 } from '@/modules/accounting/services/chartOfAccountsService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyApiRequest;
   const id = (req.query.id || req.body?.id) as string;
 
   if (req.method === 'GET') {
     if (!id) return apiResponse.badRequest(res, 'id is required');
     try {
-      const account = await getAccountById(id);
+      const account = await getAccountById(companyId, id);
       if (!account) return apiResponse.notFound(res, 'Account', id);
       return apiResponse.success(res, account);
     } catch (err) {
@@ -35,7 +36,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!id) return apiResponse.badRequest(res, 'id is required');
     try {
       const { accountName, description, isActive, displayOrder } = req.body;
-      const account = await updateAccount(id, { accountName, description, isActive, displayOrder });
+      const account = await updateAccount(companyId, id, { accountName, description, isActive, displayOrder });
       return apiResponse.success(res, account);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to update account';
@@ -47,7 +48,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'DELETE') {
     if (!id) return apiResponse.badRequest(res, 'id is required');
     try {
-      await deleteAccount(id);
+      await deleteAccount(companyId, id);
       return apiResponse.success(res, { deleted: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to delete account';
@@ -60,4 +61,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

@@ -15,6 +15,8 @@ import {
   ArrowLeft, Database, ArrowRightLeft, FileSpreadsheet, Receipt,
   BarChart3, Loader2, AlertCircle, CheckCircle2, Play, RotateCcw,
 } from 'lucide-react';
+import { formatCurrency } from '@/utils/formatters';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface MigrationStatus {
   accounts: { sageTotal: number; mapped: number; unmapped: number; autoMapped: number };
@@ -31,10 +33,6 @@ interface ComparisonReport {
   isBalanced: boolean;
 }
 
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amount);
-}
-
 export default function SageMigrationPage() {
   const [status, setStatus] = useState<MigrationStatus | null>(null);
   const [comparison, setComparison] = useState<ComparisonReport | null>(null);
@@ -45,7 +43,7 @@ export default function SageMigrationPage() {
 
   const loadStatus = useCallback(async () => {
     try {
-      const res = await fetch('/api/accounting/sage-migration');
+      const res = await apiFetch('/api/accounting/sage-migration');
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Failed to load');
       setStatus(json.data || json);
@@ -63,7 +61,7 @@ export default function SageMigrationPage() {
     setError('');
     setMessage('');
     try {
-      const res = await fetch('/api/accounting/sage-migration-action', {
+      const res = await apiFetch('/api/accounting/sage-migration-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, ...extra }),
@@ -120,7 +118,7 @@ export default function SageMigrationPage() {
             </div>
           )}
           {message && (
-            <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-500/10 text-emerald-400 text-sm">
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-teal-500/10 text-teal-400 text-sm">
               <CheckCircle2 className="h-4 w-4" /> {message}
             </div>
           )}
@@ -231,7 +229,7 @@ export default function SageMigrationPage() {
               <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-3">
-                    <div className="flex items-center justify-center w-8 h-8 rounded-full bg-emerald-500/10 text-emerald-400 text-sm font-bold">4</div>
+                    <div className="flex items-center justify-center w-8 h-8 rounded-full bg-teal-500/10 text-teal-400 text-sm font-bold">4</div>
                     <div>
                       <h3 className="font-semibold text-[var(--ff-text-primary)]">Parallel Run Comparison</h3>
                       <p className="text-xs text-[var(--ff-text-secondary)]">Compare Sage balances vs GL balances for validation</p>
@@ -240,7 +238,7 @@ export default function SageMigrationPage() {
                   <button
                     onClick={() => runAction('compare')}
                     disabled={actionLoading === 'compare'}
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium disabled:opacity-50"
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium disabled:opacity-50"
                   >
                     {actionLoading === 'compare' ? <Loader2 className="h-4 w-4 animate-spin" /> : <BarChart3 className="h-4 w-4" />}
                     Run Comparison
@@ -258,9 +256,9 @@ export default function SageMigrationPage() {
                         <p className="text-xs text-[var(--ff-text-tertiary)]">GL Accounts</p>
                         <p className="text-lg font-bold text-[var(--ff-text-primary)]">{comparison.glTotals.accountCount}</p>
                       </div>
-                      <div className={`p-3 rounded-lg ${comparison.isBalanced ? 'bg-emerald-500/10' : 'bg-red-500/10'}`}>
+                      <div className={`p-3 rounded-lg ${comparison.isBalanced ? 'bg-teal-500/10' : 'bg-red-500/10'}`}>
                         <p className="text-xs text-[var(--ff-text-tertiary)]">Status</p>
-                        <p className={`text-lg font-bold ${comparison.isBalanced ? 'text-emerald-400' : 'text-red-400'}`}>
+                        <p className={`text-lg font-bold ${comparison.isBalanced ? 'text-teal-400' : 'text-red-400'}`}>
                           {comparison.isBalanced ? 'Balanced' : `${comparison.differences.length} Differences`}
                         </p>
                       </div>
@@ -368,7 +366,7 @@ function MigrationStep({ step, icon, title, desc, progress, complete, onRun, onR
     <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-3">
-          <div className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${complete ? 'bg-emerald-500/10 text-emerald-400' : 'bg-blue-500/10 text-blue-400'}`}>
+          <div className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${complete ? 'bg-teal-500/10 text-teal-400' : 'bg-blue-500/10 text-blue-400'}`}>
             {complete ? <CheckCircle2 className="h-4 w-4" /> : step}
           </div>
           <div>
@@ -399,7 +397,7 @@ function MigrationStep({ step, icon, title, desc, progress, complete, onRun, onR
       </div>
       <div className="h-2 rounded-full bg-[var(--ff-bg-primary)] overflow-hidden">
         <div
-          className={`h-full rounded-full transition-all ${complete ? 'bg-emerald-500' : 'bg-blue-500'}`}
+          className={`h-full rounded-full transition-all ${complete ? 'bg-teal-500' : 'bg-blue-500'}`}
           style={{ width: `${Math.min(progress, 100)}%` }}
         />
       </div>
@@ -409,7 +407,7 @@ function MigrationStep({ step, icon, title, desc, progress, complete, onRun, onR
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
-    completed: 'bg-emerald-500/20 text-emerald-400',
+    completed: 'bg-teal-500/20 text-teal-400',
     partial: 'bg-amber-500/20 text-amber-400',
     failed: 'bg-red-500/20 text-red-400',
     running: 'bg-blue-500/20 text-blue-400',

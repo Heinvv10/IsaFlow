@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Package, Loader2, Download, AlertTriangle } from 'lucide-react';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface Row { id: string; itemCode: string; name: string; category: string; uom: string; qtyOnHand: number; minLevel: number; lowStock: boolean; }
 
@@ -17,7 +18,7 @@ export default function ItemQuantitiesReport() {
   const load = useCallback(async () => {
     setLoading(true);
     const params = showLowOnly ? '?low_stock=true' : '';
-    const res = await fetch(`/api/accounting/reports/item-quantities${params}`, { credentials: 'include' });
+    const res = await apiFetch(`/api/accounting/reports/item-quantities${params}`, { credentials: 'include' });
     const json = await res.json();
     setRows(json.data || []);
     setLoading(false);
@@ -88,7 +89,7 @@ export default function ItemQuantitiesReport() {
                         {r.lowStock ? (
                           <span className="px-2 py-0.5 rounded text-xs font-medium bg-red-500/10 text-red-400">Low</span>
                         ) : (
-                          <span className="px-2 py-0.5 rounded text-xs font-medium bg-emerald-500/10 text-emerald-400">OK</span>
+                          <span className="px-2 py-0.5 rounded text-xs font-medium bg-teal-500/10 text-teal-400">OK</span>
                         )}
                       </td>
                     </tr>

@@ -7,7 +7,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withAuth, withCompany, type AuthenticatedNextApiRequest, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import {
   getCreditNotes,
@@ -17,15 +17,17 @@ import {
 import type { CreditNoteStatus } from '@/modules/accounting/types/ar.types';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyApiRequest;
+
   if (req.method === 'GET') {
     try {
       const { id, type, status, limit, offset } = req.query;
       if (id) {
-        const note = await getCreditNoteById(id as string);
+        const note = await getCreditNoteById(companyId, id as string);
         if (!note) return apiResponse.notFound(res, 'Credit Note', id as string);
         return apiResponse.success(res, note);
       }
-      const result = await getCreditNotes({
+      const result = await getCreditNotes(companyId, {
         type: type as 'customer' | 'supplier' | undefined,
         status: status as CreditNoteStatus | undefined,
         limit: limit ? Number(limit) : undefined,
@@ -50,7 +52,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       // User identity comes from JWT (req.user), never from client request body
       const userId = req.user.id;
 
-      const creditNote = await createCreditNote({
+      const creditNote = await createCreditNote(companyId, {
         type,
         clientId: clientId || undefined,
         customerInvoiceId: customerInvoiceId || undefined,
@@ -75,4 +77,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

@@ -9,23 +9,14 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Wallet, Loader2, AlertCircle, Check, X } from 'lucide-react';
 import { AccountingDocumentPanel } from '@/modules/accounting/documents';
-import toast from 'react-hot-toast';
-
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amount);
-}
-
-function formatDate(dateStr: string): string {
-  if (!dateStr) return '-';
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return dateStr;
-  return d.toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' });
-}
+import { notify } from '@/utils/toast';
+import { formatCurrency, formatDate } from '@/utils/formatters';
+import { apiFetch } from '@/lib/apiFetch';
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
     draft: 'bg-gray-500/20 text-gray-400',
-    confirmed: 'bg-emerald-500/20 text-emerald-400',
+    confirmed: 'bg-teal-500/20 text-teal-400',
     reconciled: 'bg-blue-500/20 text-blue-400',
     cancelled: 'bg-red-500/20 text-red-400',
   };
@@ -72,7 +63,7 @@ export default function CustomerPaymentDetailPage() {
     setIsLoading(true);
     setError('');
     try {
-      const res = await fetch(`/api/accounting/customer-payments?id=${paymentId}`);
+      const res = await apiFetch(`/api/accounting/customer-payments?id=${paymentId}`);
       const json = await res.json();
       const data = json.data || json;
       setPayment(data);
@@ -93,7 +84,7 @@ export default function CustomerPaymentDetailPage() {
       if (reason === null) return;
       setActing(true);
       try {
-        const res = await fetch('/api/accounting/customer-payments-action', {
+        const res = await apiFetch('/api/accounting/customer-payments-action', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
@@ -101,17 +92,17 @@ export default function CustomerPaymentDetailPage() {
         });
         const json = await res.json();
         if (!res.ok) throw new Error(json.error || 'Cancel failed');
-        toast.success('Payment cancelled');
+        notify.success('Payment cancelled');
         loadPayment();
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Failed to cancel');
+        notify.error(err instanceof Error ? err.message : 'Failed to cancel');
       } finally {
         setActing(false);
       }
     } else {
       setActing(true);
       try {
-        const res = await fetch('/api/accounting/customer-payments-action', {
+        const res = await apiFetch('/api/accounting/customer-payments-action', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
@@ -119,10 +110,10 @@ export default function CustomerPaymentDetailPage() {
         });
         const json = await res.json();
         if (!res.ok) throw new Error(json.error || 'Confirm failed');
-        toast.success('Payment confirmed and GL posted');
+        notify.success('Payment confirmed and GL posted');
         loadPayment();
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Failed to confirm');
+        notify.error(err instanceof Error ? err.message : 'Failed to confirm');
       } finally {
         setActing(false);
       }
@@ -138,8 +129,8 @@ export default function CustomerPaymentDetailPage() {
               <Link href="/accounting/customer-payments" className="p-2 rounded-lg hover:bg-[var(--ff-bg-tertiary)]">
                 <ArrowLeft className="h-5 w-5 text-[var(--ff-text-secondary)]" />
               </Link>
-              <div className="p-2 rounded-lg bg-emerald-500/10">
-                <Wallet className="h-6 w-6 text-emerald-500" />
+              <div className="p-2 rounded-lg bg-teal-500/10">
+                <Wallet className="h-6 w-6 text-teal-500" />
               </div>
               <div>
                 <div className="flex items-center gap-3">
@@ -157,7 +148,7 @@ export default function CustomerPaymentDetailPage() {
               <div className="flex gap-2">
                 {payment.status === 'draft' && (
                   <button onClick={() => handleAction('confirm')} disabled={acting}
-                    className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm disabled:opacity-50">
+                    className="flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-lg text-sm disabled:opacity-50">
                     <Check className="h-4 w-4" /> Confirm & Post GL
                   </button>
                 )}
@@ -175,7 +166,7 @@ export default function CustomerPaymentDetailPage() {
         <div className="p-6 space-y-6">
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
+              <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
             </div>
           ) : error ? (
             <div className="flex items-center gap-2 text-red-400 py-8 justify-center">

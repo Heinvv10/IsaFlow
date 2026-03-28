@@ -7,11 +7,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Landmark, Loader2, AlertCircle, Plus, ArrowUpRight, ArrowDownRight, X, Pencil } from 'lucide-react';
-import { toast } from 'react-hot-toast';
-
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amount);
-}
+import { notify } from '@/utils/toast';
+import { formatCurrency } from '@/utils/formatters';
+import { apiFetch } from '@/lib/apiFetch';
 
 /** Mask account number for display: show last 4 digits only */
 function maskAccountNumber(num: string): string {
@@ -55,7 +53,7 @@ export default function BankAccountsPage() {
     setIsLoading(true);
     setError('');
     try {
-      const res = await fetch('/api/accounting/bank-accounts');
+      const res = await apiFetch('/api/accounting/bank-accounts');
       const json = await res.json();
       const data = json.data || json;
       setAccounts(Array.isArray(data) ? data : []);
@@ -70,12 +68,12 @@ export default function BankAccountsPage() {
 
   const handleAdd = async () => {
     if (!form.accountCode || !form.accountName) {
-      toast.error('Account code and name are required');
+      notify.error('Account code and name are required');
       return;
     }
     setSaving(true);
     try {
-      const res = await fetch('/api/accounting/chart-of-accounts', {
+      const res = await apiFetch('/api/accounting/chart-of-accounts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -91,25 +89,25 @@ export default function BankAccountsPage() {
       });
       const json = await res.json();
       if (!res.ok || json.success === false) {
-        toast.error(json.message || json.error || 'Failed to create account');
+        notify.error(json.message || json.error || 'Failed to create account');
         return;
       }
       // If bank account number provided, save it separately
       if (form.bankAccountNumber.trim()) {
         const created = json.data || json;
-        await fetch('/api/accounting/bank-accounts', {
+        await apiFetch('/api/accounting/bank-accounts', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify({ id: created.id, bankAccountNumber: form.bankAccountNumber.trim() }),
         });
       }
-      toast.success('Bank account created');
+      notify.success('Bank account created');
       setShowAddModal(false);
       setForm({ accountCode: '', accountName: '', description: '', bankAccountNumber: '' });
       loadAccounts();
     } catch {
-      toast.error('Failed to create bank account');
+      notify.error('Failed to create bank account');
     } finally {
       setSaving(false);
     }
@@ -127,13 +125,13 @@ export default function BankAccountsPage() {
   const handleSaveEdit = async () => {
     if (!editingAccount) return;
     if (!editForm.accountName.trim()) {
-      toast.error('Account name is required');
+      notify.error('Account name is required');
       return;
     }
     setSaving(true);
     try {
       // Update name & description via chart-of-accounts
-      const coaRes = await fetch('/api/accounting/chart-of-accounts', {
+      const coaRes = await apiFetch('/api/accounting/chart-of-accounts', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -145,11 +143,11 @@ export default function BankAccountsPage() {
       });
       if (!coaRes.ok) {
         const json = await coaRes.json();
-        toast.error(json.message || 'Failed to update account');
+        notify.error(json.message || 'Failed to update account');
         return;
       }
       // Update bank account number
-      await fetch('/api/accounting/bank-accounts', {
+      await apiFetch('/api/accounting/bank-accounts', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -158,11 +156,11 @@ export default function BankAccountsPage() {
           bankAccountNumber: editForm.bankAccountNumber.trim() || null,
         }),
       });
-      toast.success('Bank account updated');
+      notify.success('Bank account updated');
       setEditingAccount(null);
       loadAccounts();
     } catch {
-      toast.error('Failed to update bank account');
+      notify.error('Failed to update bank account');
     } finally {
       setSaving(false);
     }
@@ -187,7 +185,7 @@ export default function BankAccountsPage() {
               </div>
               <button
                 onClick={() => setShowAddModal(true)}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg flex items-center gap-2 text-sm"
+                className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg flex items-center gap-2 text-sm"
               >
                 <Plus className="h-4 w-4" />
                 Add Bank Account
@@ -227,7 +225,7 @@ export default function BankAccountsPage() {
                   </button>
                   <div className="flex items-center justify-between mb-3">
                     <span className="text-xs font-mono text-[var(--ff-text-tertiary)]">{acct.accountCode}</span>
-                    <span className={`px-2 py-0.5 rounded-full text-xs ${acct.isActive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
+                    <span className={`px-2 py-0.5 rounded-full text-xs ${acct.isActive ? 'bg-teal-500/10 text-teal-400' : 'bg-red-500/10 text-red-400'}`}>
                       {acct.isActive ? 'Active' : 'Inactive'}
                     </span>
                   </div>
@@ -243,13 +241,13 @@ export default function BankAccountsPage() {
 
                   <div className="mt-4 pt-3 border-t border-[var(--ff-border-light)]">
                     <p className="text-sm text-[var(--ff-text-secondary)]">Net Balance</p>
-                    <p className={`text-2xl font-bold ${acct.balance >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    <p className={`text-2xl font-bold ${acct.balance >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
                       {formatCurrency(acct.balance)}
                     </p>
                   </div>
 
                   <div className="mt-3 flex gap-4 text-sm">
-                    <div className="flex items-center gap-1 text-emerald-400">
+                    <div className="flex items-center gap-1 text-teal-400">
                       <ArrowDownRight className="h-3.5 w-3.5" />
                       <span>{formatCurrency(acct.totalCredits)}</span>
                     </div>
@@ -353,7 +351,7 @@ export default function BankAccountsPage() {
               <button
                 onClick={handleAdd}
                 disabled={saving}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-sm flex items-center gap-2"
+                className="px-4 py-2 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded-lg text-sm flex items-center gap-2"
               >
                 {saving && <Loader2 className="h-4 w-4 animate-spin" />}
                 Create Account

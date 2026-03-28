@@ -13,7 +13,7 @@ import type { JournalLineInput } from '../types/gl.types';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
 
-export async function getVATAdjustments(filters?: {
+export async function getVATAdjustments(_companyId: string, filters?: {
   status?: string;
   limit?: number;
   offset?: number;
@@ -42,7 +42,7 @@ export async function getVATAdjustments(filters?: {
   return { items: rows.map(mapRow), total: Number(countRows[0]?.cnt || 0) };
 }
 
-export async function createVATAdjustment(
+export async function createVATAdjustment(_companyId: string, 
   input: VATAdjustmentCreateInput,
   userId: string
 ): Promise<VATAdjustment> {
@@ -59,7 +59,7 @@ export async function createVATAdjustment(
   return mapRow(rows[0]!);
 }
 
-export async function approveVATAdjustment(
+export async function approveVATAdjustment(_companyId: string, 
   id: string,
   userId: string
 ): Promise<VATAdjustment> {
@@ -94,14 +94,14 @@ export async function approveVATAdjustment(
           description: `VAT output adjustment ${va.adjustment_number}` },
       ];
 
-  const je = await createJournalEntry({
+  const je = await createJournalEntry('', {
     entryDate: String(va.adjustment_date),
     description: `VAT adjustment ${va.adjustment_number}`,
     source: 'auto_vat_adjustment',
     sourceDocumentId: id,
     lines,
   }, userId);
-  await postJournalEntry(je.id, userId);
+  await postJournalEntry('', je.id, userId);
 
   const updated = (await sql`
     UPDATE vat_adjustments
@@ -114,7 +114,7 @@ export async function approveVATAdjustment(
   return mapRow(updated[0]!);
 }
 
-export async function cancelVATAdjustment(id: string): Promise<void> {
+export async function cancelVATAdjustment(_companyId: string, id: string): Promise<void> {
   await sql`UPDATE vat_adjustments SET status = 'cancelled' WHERE id = ${id} AND status = 'draft'`;
 }
 

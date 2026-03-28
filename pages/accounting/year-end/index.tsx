@@ -8,10 +8,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { CalendarCheck, Loader2, AlertCircle, CheckCircle2, Lock } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
-
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amount);
-}
+import { formatCurrency } from '@/utils/formatters';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface FiscalYear {
   year_label: string;
@@ -34,7 +32,7 @@ export default function YearEndPage() {
   const loadYears = useCallback(async () => {
     setIsLoading(true);
     try {
-      const res = await fetch('/api/accounting/year-end');
+      const res = await apiFetch('/api/accounting/year-end');
       const json = await res.json();
       const data = json.data || json;
       setFiscalYears(data.years || []);
@@ -51,7 +49,7 @@ export default function YearEndPage() {
     setIsProcessing(true);
     setMessage({ type: '', text: '' });
     try {
-      const res = await fetch('/api/accounting/year-end', {
+      const res = await apiFetch('/api/accounting/year-end', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ yearLabel, action: 'close' }),
@@ -108,7 +106,7 @@ export default function YearEndPage() {
 
           {message.text && (
             <div className={`flex items-center gap-2 p-3 rounded-lg text-sm mb-6 ${
-              message.type === 'error' ? 'bg-red-500/10 text-red-400' : 'bg-emerald-500/10 text-emerald-400'
+              message.type === 'error' ? 'bg-red-500/10 text-red-400' : 'bg-teal-500/10 text-teal-400'
             }`}>
               {message.type === 'success' ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
               {message.text}
@@ -143,7 +141,7 @@ export default function YearEndPage() {
                     <span className={`px-3 py-1 rounded-full text-xs font-medium ${
                       fy.status === 'closed' ? 'bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-tertiary)]' :
                       fy.periods_open === 0 ? 'bg-amber-500/10 text-amber-400' :
-                      'bg-emerald-500/10 text-emerald-400'
+                      'bg-teal-500/10 text-teal-400'
                     }`}>
                       {fy.status === 'closed' ? 'Closed' : `${fy.periods_open} periods open`}
                     </span>
@@ -152,7 +150,7 @@ export default function YearEndPage() {
                   <div className="grid grid-cols-3 gap-4 mb-4">
                     <div className="p-3 rounded-lg bg-[var(--ff-bg-tertiary)]">
                       <p className="text-xs text-[var(--ff-text-tertiary)]">Total Revenue</p>
-                      <p className="text-lg font-bold text-emerald-400">{formatCurrency(fy.total_revenue)}</p>
+                      <p className="text-lg font-bold text-teal-400">{formatCurrency(fy.total_revenue)}</p>
                     </div>
                     <div className="p-3 rounded-lg bg-[var(--ff-bg-tertiary)]">
                       <p className="text-xs text-[var(--ff-text-tertiary)]">Total Expenses</p>
@@ -160,7 +158,7 @@ export default function YearEndPage() {
                     </div>
                     <div className="p-3 rounded-lg bg-[var(--ff-bg-tertiary)]">
                       <p className="text-xs text-[var(--ff-text-tertiary)]">Net Income</p>
-                      <p className={`text-lg font-bold ${fy.net_income >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      <p className={`text-lg font-bold ${fy.net_income >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
                         {formatCurrency(fy.net_income)}
                       </p>
                     </div>

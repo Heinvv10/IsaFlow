@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Users, Loader2, AlertCircle, Download } from 'lucide-react';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface Row {
   clientId: string;
@@ -39,7 +40,7 @@ export default function CustomerReportsPage() {
     setError('');
     try {
       const params = new URLSearchParams({ period_start: periodStart, period_end: periodEnd });
-      const res = await fetch(`/api/accounting/reports-customer?${params}`, { credentials: 'include' });
+      const res = await apiFetch(`/api/accounting/reports-customer?${params}`, { credentials: 'include' });
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Failed');
       setRows(json.data || []);
@@ -115,7 +116,7 @@ export default function CustomerReportsPage() {
                       <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">{r.clientName}</td>
                       <td className="px-4 py-3 text-right text-[var(--ff-text-secondary)]">{r.invoiceCount}</td>
                       <td className="px-4 py-3 text-right text-[var(--ff-text-primary)] font-mono">{fmt(r.totalInvoiced)}</td>
-                      <td className="px-4 py-3 text-right text-emerald-400 font-mono">{fmt(r.totalPaid)}</td>
+                      <td className="px-4 py-3 text-right text-teal-400 font-mono">{fmt(r.totalPaid)}</td>
                       <td className="px-4 py-3 text-right font-mono font-medium" style={{ color: r.balance > 0.01 ? 'var(--ff-text-primary)' : 'rgb(52 211 153)' }}>{fmt(r.balance)}</td>
                     </tr>
                   ))}
@@ -124,7 +125,7 @@ export default function CustomerReportsPage() {
                       <td className="px-4 py-3 text-[var(--ff-text-primary)]">TOTAL</td>
                       <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{totals.count}</td>
                       <td className="px-4 py-3 text-right text-[var(--ff-text-primary)] font-mono">{fmt(totals.invoiced)}</td>
-                      <td className="px-4 py-3 text-right text-emerald-400 font-mono">{fmt(totals.paid)}</td>
+                      <td className="px-4 py-3 text-right text-teal-400 font-mono">{fmt(totals.paid)}</td>
                       <td className="px-4 py-3 text-right text-[var(--ff-text-primary)] font-mono">{fmt(totals.balance)}</td>
                     </tr>
                   )}

@@ -6,7 +6,8 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { X, Plus, Trash2, Search, Scissors } from 'lucide-react';
-import { toast } from 'react-hot-toast';
+import { notify } from '@/utils/toast';
+import { apiFetch } from '@/lib/apiFetch';
 import type { BankTx, SelectOption, VatCode } from './BankTxTable';
 import { VAT_OPTIONS } from './BankTxTable';
 
@@ -97,18 +98,17 @@ export function SplitTransactionModal({ transaction, glAccounts, onClose, onSpli
           description: l.description || undefined,
         })),
       };
-      const res = await fetch('/api/accounting/bank-transactions-action', {
+      const res = await apiFetch('/api/accounting/bank-transactions-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify(payload),
       });
       const json = await res.json();
       if (!res.ok || json.success === false) throw new Error(json.message || json.error || 'Split failed');
-      toast.success(`Transaction split into ${lines.length} lines and allocated`);
+      notify.success(`Transaction split into ${lines.length} lines and allocated`);
       onSplit();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Split allocation failed');
+      notify.error(err instanceof Error ? err.message : 'Split allocation failed');
     } finally {
       setSubmitting(false);
     }
@@ -129,7 +129,7 @@ export function SplitTransactionModal({ transaction, glAccounts, onClose, onSpli
             </p>
           </div>
           <div className="text-right mr-2">
-            <p className={`text-base font-bold font-mono ${transaction.amount < 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+            <p className={`text-base font-bold font-mono ${transaction.amount < 0 ? 'text-red-400' : 'text-teal-400'}`}>
               {fmtCurrency(transaction.amount)}
             </p>
             <p className="text-xs text-[var(--ff-text-tertiary)]">{transaction.amount < 0 ? 'Spent' : 'Received'}</p>
@@ -244,7 +244,7 @@ export function SplitTransactionModal({ transaction, glAccounts, onClose, onSpli
               <span>Allocated: <span className="font-mono font-medium text-[var(--ff-text-primary)]">{fmtCurrency(allocated)}</span></span>
               <span>Remaining:
                 <span className={`font-mono font-medium ml-1 ${
-                  Math.abs(remaining) <= 0.01 ? 'text-emerald-400' : 'text-amber-400'
+                  Math.abs(remaining) <= 0.01 ? 'text-teal-400' : 'text-amber-400'
                 }`}>{fmtCurrency(remaining)}</span>
               </span>
             </div>

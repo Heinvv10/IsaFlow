@@ -13,7 +13,7 @@ import type { JournalLineInput } from '../types/gl.types';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
 
-export async function getBatches(filters?: {
+export async function getBatches(_companyId: string, filters?: {
   status?: string;
   limit?: number;
   offset?: number;
@@ -42,13 +42,13 @@ export async function getBatches(filters?: {
   return { items: rows.map(mapRow), total: Number(countRows[0]?.cnt || 0) };
 }
 
-export async function getBatchById(id: string): Promise<SupplierPaymentBatch | null> {
+export async function getBatchById(_companyId: string, id: string): Promise<SupplierPaymentBatch | null> {
   const rows = (await sql`SELECT * FROM supplier_payment_batches WHERE id = ${id}`) as Row[];
   if (!rows[0]) return null;
   return mapRow(rows[0]);
 }
 
-export async function createBatch(
+export async function createBatch(_companyId: string, 
   input: BatchPaymentCreateInput,
   userId: string
 ): Promise<SupplierPaymentBatch> {
@@ -99,18 +99,18 @@ export async function createBatch(
   `;
 
   log.info('Created batch payment', { batchId, paymentCount: input.payments.length, totalAmount }, 'accounting');
-  const result = await getBatchById(batchId);
+  const result = await getBatchById('', batchId);
   return result!;
 }
 
-export async function approveBatch(id: string, userId: string): Promise<void> {
+export async function approveBatch(_companyId: string, id: string, _userId: string): Promise<void> {
   await sql`UPDATE supplier_payment_batches SET status = 'approved' WHERE id = ${id} AND status = 'draft'`;
   await sql`UPDATE supplier_payments SET status = 'approved' WHERE batch_id = ${id}::UUID AND status = 'draft'`;
   log.info('Approved batch', { id }, 'accounting');
 }
 
-export async function processBatch(id: string, userId: string): Promise<void> {
-  const batch = await getBatchById(id);
+export async function processBatch(_companyId: string, id: string, userId: string): Promise<void> {
+  const batch = await getBatchById('', id);
   if (!batch) throw new Error('Batch not found');
   if (batch.status !== 'approved') throw new Error('Batch must be approved first');
 
@@ -130,14 +130,14 @@ export async function processBatch(id: string, userId: string): Promise<void> {
       description: `Batch payment ${batch.batchNumber}` },
   ];
 
-  const je = await createJournalEntry({
+  const je = await createJournalEntry('', {
     entryDate: batch.batchDate,
     description: `Supplier batch payment ${batch.batchNumber}`,
     source: 'auto_batch_payment',
     sourceDocumentId: id,
     lines,
   }, userId);
-  await postJournalEntry(je.id, userId);
+  await postJournalEntry('', je.id, userId);
 
   // Update all linked payments and their invoices
   const payments = (await sql`
@@ -170,7 +170,7 @@ export async function processBatch(id: string, userId: string): Promise<void> {
   log.info('Processed batch', { id, journalEntryId: je.id }, 'accounting');
 }
 
-export async function cancelBatch(id: string): Promise<void> {
+export async function cancelBatch(_companyId: string, id: string): Promise<void> {
   await sql`UPDATE supplier_payment_batches SET status = 'cancelled' WHERE id = ${id} AND status = 'draft'`;
   await sql`UPDATE supplier_payments SET status = 'cancelled' WHERE batch_id = ${id}::UUID AND status = 'draft'`;
 }

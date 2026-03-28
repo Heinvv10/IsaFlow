@@ -10,7 +10,7 @@ declare global {
     __appLogs?: LogEntry[];
   }
 
-  // Modern approach: extend NodeJS namespace
+  // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace NodeJS {
     interface Process {
       __appLogs?: LogEntry[];

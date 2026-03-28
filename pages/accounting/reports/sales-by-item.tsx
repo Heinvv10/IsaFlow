@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { TrendingUp, Loader2, Download } from 'lucide-react';
+import { apiFetch } from '@/lib/apiFetch';
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
@@ -20,7 +21,7 @@ export default function SalesByItemReport() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await fetch(`/api/accounting/reports/sales-by-item?from=${from}&to=${to}`, { credentials: 'include' });
+    const res = await apiFetch(`/api/accounting/reports/sales-by-item?from=${from}&to=${to}`, { credentials: 'include' });
     const json = await res.json();
     setRows(json.data || []);
     setLoading(false);
@@ -38,7 +39,7 @@ export default function SalesByItemReport() {
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-emerald-500/10"><TrendingUp className="h-6 w-6 text-emerald-500" /></div>
+              <div className="p-2 rounded-lg bg-teal-500/10"><TrendingUp className="h-6 w-6 text-teal-500" /></div>
               <div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Sales by Item</h1>
                 <p className="text-sm text-[var(--ff-text-secondary)]">Revenue breakdown per stock item</p>
@@ -80,7 +81,7 @@ export default function SalesByItemReport() {
                       <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.category}</td>
                       <td className="px-4 py-3 text-right text-[var(--ff-text-secondary)]">{r.timesSold}</td>
                       <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{r.qtySold}</td>
-                      <td className="px-4 py-3 text-right font-mono text-emerald-400">{fmt(r.totalRevenue)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-teal-400">{fmt(r.totalRevenue)}</td>
                       <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-secondary)]">{fmt(r.avgPrice)}</td>
                     </tr>
                   ))}
@@ -88,7 +89,7 @@ export default function SalesByItemReport() {
                 <tfoot><tr className="border-t-2 border-[var(--ff-border-medium)] bg-[var(--ff-bg-tertiary)] font-bold">
                   <td className="px-4 py-3" colSpan={4}>TOTAL</td>
                   <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{totals.qtySold}</td>
-                  <td className="px-4 py-3 text-right font-mono text-emerald-400">{fmt(totals.totalRevenue)}</td>
+                  <td className="px-4 py-3 text-right font-mono text-teal-400">{fmt(totals.totalRevenue)}</td>
                   <td className="px-4 py-3"></td>
                 </tr></tfoot>
               </table>

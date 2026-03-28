@@ -325,9 +325,9 @@ export class ApiResponseHelper {
   ): void {
     const allowedOrigins = [
       'https://fin.fibreflow.app',
-      // dev
-      'http://localhost:3101',
-      'http://localhost:3004',
+      ...(process.env.NODE_ENV === 'development'
+        ? ['http://localhost:3101', 'http://localhost:3004']
+        : []),
     ];
     const safeOrigin = origin && allowedOrigins.includes(origin) ? origin : '';
     if (!safeOrigin) return;

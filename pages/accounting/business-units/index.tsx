@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Building2, Plus, Loader2, ToggleLeft, ToggleRight, Pencil } from 'lucide-react';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface BusinessUnit {
   id: string;
@@ -28,7 +29,7 @@ export default function BusinessUnitsPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await fetch('/api/departments', { credentials: 'include' });
+    const res = await apiFetch('/api/departments', { credentials: 'include' });
     const json = await res.json();
     const rows: BusinessUnit[] = (json.data || []).map((d: BusinessUnit) => ({
       id: d.id, name: d.name, code: d.code,
@@ -46,7 +47,7 @@ export default function BusinessUnitsPage() {
     setError(''); setBusy('save');
     try {
       if (editId) {
-        const res = await fetch(`/api/departments/${editId}`, {
+        const res = await apiFetch(`/api/departments/${editId}`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify({ name: form.name, code: form.code, description: form.description }),
@@ -54,7 +55,7 @@ export default function BusinessUnitsPage() {
         const json = await res.json();
         if (!res.ok) throw new Error(json.message || 'Failed');
       } else {
-        const res = await fetch('/api/departments', {
+        const res = await apiFetch('/api/departments', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify({ name: form.name, code: form.code, description: form.description }),
@@ -77,7 +78,7 @@ export default function BusinessUnitsPage() {
   const toggleActive = async (bu: BusinessUnit) => {
     setBusy(bu.id);
     try {
-      await fetch(`/api/departments/${bu.id}`, {
+      await apiFetch(`/api/departments/${bu.id}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ isActive: !bu.isActive }),
@@ -170,7 +171,7 @@ export default function BusinessUnitsPage() {
                     <td className="px-4 py-3 text-[var(--ff-text-secondary)] text-xs">{bu.description || '—'}</td>
                     <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{bu.staffCount ?? '—'}</td>
                     <td className="px-4 py-3">
-                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${bu.isActive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-gray-500/10 text-gray-400'}`}>
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${bu.isActive ? 'bg-teal-500/10 text-teal-400' : 'bg-gray-500/10 text-gray-400'}`}>
                         {bu.isActive ? 'Active' : 'Inactive'}
                       </span>
                     </td>
@@ -183,7 +184,7 @@ export default function BusinessUnitsPage() {
                           {busy === bu.id
                             ? <Loader2 className="h-4 w-4 animate-spin" />
                             : bu.isActive
-                              ? <ToggleRight className="h-4 w-4 text-emerald-400" />
+                              ? <ToggleRight className="h-4 w-4 text-teal-400" />
                               : <ToggleLeft className="h-4 w-4" />
                           }
                         </button>

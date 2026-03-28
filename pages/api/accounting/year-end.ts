@@ -9,11 +9,13 @@ import { sql } from '@/lib/neon';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest, withRole, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyApiRequest;
+
   if (req.method === 'GET') {
     try {
       // Group fiscal periods by year label
@@ -31,6 +33,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             ELSE 'open'
           END as status
         FROM fiscal_periods
+        WHERE company_id = ${companyId}
         GROUP BY fiscal_year
         ORDER BY MIN(start_date) DESC
       `;
@@ -43,6 +46,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
           JOIN gl_accounts ga ON ga.id = jl.gl_account_id
           WHERE ga.account_type = 'revenue'
+            AND je.company_id = ${companyId}
             AND je.status = 'posted'
             AND je.entry_date >= ${fy.start_date}
             AND je.entry_date <= ${fy.end_date}
@@ -53,6 +57,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
           JOIN gl_accounts ga ON ga.id = jl.gl_account_id
           WHERE ga.account_type = 'expense'
+            AND je.company_id = ${companyId}
             AND je.status = 'posted'
             AND je.entry_date >= ${fy.start_date}
             AND je.entry_date <= ${fy.end_date}
@@ -91,7 +96,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // Check all periods are closed
       const openPeriods = await sql`
         SELECT COUNT(*)::int as cnt FROM fiscal_periods
-        WHERE fiscal_year = ${yearLabel} AND status = 'open'
+        WHERE fiscal_year = ${yearLabel} AND company_id = ${companyId} AND status = 'open'
       `;
 
       if (Number(openPeriods[0]?.cnt ?? 0) > 0) {
@@ -101,7 +106,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // Get year date range
       const yearRangeRows = await sql`
         SELECT MIN(start_date) as start_date, MAX(end_date) as end_date
-        FROM fiscal_periods WHERE fiscal_year = ${yearLabel}
+        FROM fiscal_periods WHERE fiscal_year = ${yearLabel} AND company_id = ${companyId}
       `;
       const yearRange = yearRangeRows[0];
       if (!yearRange) throw new Error('Fiscal year not found');
@@ -114,9 +119,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         LEFT JOIN gl_journal_lines jl ON jl.gl_account_id = ga.id
         LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
           AND je.status = 'posted'
+          AND je.company_id = ${companyId}
           AND je.entry_date >= ${yearRange.start_date}
           AND je.entry_date <= ${yearRange.end_date}
-        WHERE ga.account_type = 'revenue'
+        WHERE ga.account_type = 'revenue' AND ga.company_id = ${companyId}
         GROUP BY ga.id, ga.account_code, ga.account_name
         HAVING COALESCE(SUM(jl.credit - jl.debit), 0) != 0
       `;
@@ -128,9 +134,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         LEFT JOIN gl_journal_lines jl ON jl.gl_account_id = ga.id
         LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
           AND je.status = 'posted'
+          AND je.company_id = ${companyId}
           AND je.entry_date >= ${yearRange.start_date}
           AND je.entry_date <= ${yearRange.end_date}
-        WHERE ga.account_type = 'expense'
+        WHERE ga.account_type = 'expense' AND ga.company_id = ${companyId}
         GROUP BY ga.id, ga.account_code, ga.account_name
         HAVING COALESCE(SUM(jl.debit - jl.credit), 0) != 0
       `;
@@ -148,7 +155,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
       const reRows = await sql`
         SELECT id FROM gl_accounts
-        WHERE account_code = ${reAccountCode} OR account_name ILIKE '%retained earnings%'
+        WHERE company_id = ${companyId} AND (account_code = ${reAccountCode} OR account_name ILIKE '%retained earnings%')
         LIMIT 1
       `;
       const retainedEarnings = reRows[0];
@@ -163,11 +170,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
       const closingEntryRows = await sql`
         INSERT INTO gl_journal_entries (
-          id, entry_number, entry_date, description,
+          id, company_id, entry_number, entry_date, description,
           source, status, total_debit, total_credit,
           created_by, created_at
         ) VALUES (
           gen_random_uuid(),
+          ${companyId},
           ${'YE-' + yearLabel},
           ${yearRange.end_date},
           ${'Year-End Closing: ' + yearLabel},
@@ -211,7 +219,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
       // Lock all periods
       await sql`
-        UPDATE fiscal_periods SET status = 'locked' WHERE fiscal_year = ${yearLabel}
+        UPDATE fiscal_periods SET status = 'locked' WHERE fiscal_year = ${yearLabel} AND company_id = ${companyId}
       `;
 
       log.info('Year-end processed', {
@@ -236,4 +244,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withRole('admin')(withErrorHandler(handler as any)));

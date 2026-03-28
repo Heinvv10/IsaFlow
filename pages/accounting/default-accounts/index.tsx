@@ -7,6 +7,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Settings, Loader2, AlertCircle, Save } from 'lucide-react';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface GLAccount {
   id: string;
@@ -52,8 +53,8 @@ export default function DefaultAccountsPage() {
     setIsLoading(true);
     try {
       const [acctRes, mapRes] = await Promise.all([
-        fetch('/api/accounting/chart-of-accounts?level=3'),
-        fetch('/api/accounting/default-accounts'),
+        apiFetch('/api/accounting/chart-of-accounts?level=3'),
+        apiFetch('/api/accounting/default-accounts'),
       ]);
       const acctJson = await acctRes.json();
       const mapJson = await mapRes.json();
@@ -72,7 +73,7 @@ export default function DefaultAccountsPage() {
     setIsSaving(true);
     setMessage({ type: '', text: '' });
     try {
-      const res = await fetch('/api/accounting/default-accounts', {
+      const res = await apiFetch('/api/accounting/default-accounts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mappings }),
@@ -112,7 +113,7 @@ export default function DefaultAccountsPage() {
               <button
                 onClick={handleSave}
                 disabled={isSaving}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg flex items-center gap-2 text-sm"
+                className="px-4 py-2 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded-lg flex items-center gap-2 text-sm"
               >
                 {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 Save Changes
@@ -130,7 +131,7 @@ export default function DefaultAccountsPage() {
             <div className="space-y-8">
               {message.text && (
                 <div className={`flex items-center gap-2 p-3 rounded-lg text-sm ${
-                  message.type === 'error' ? 'bg-red-500/10 text-red-400' : 'bg-emerald-500/10 text-emerald-400'
+                  message.type === 'error' ? 'bg-red-500/10 text-red-400' : 'bg-teal-500/10 text-teal-400'
                 }`}>
                   <AlertCircle className="h-4 w-4" />
                   {message.text}

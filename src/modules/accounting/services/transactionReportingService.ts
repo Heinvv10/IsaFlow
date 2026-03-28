@@ -30,7 +30,7 @@ export interface CustomerReportRow {
   balance: number;
 }
 
-export async function getCustomerReport(
+export async function getCustomerReport(_companyId: string, 
   periodStart: string,
   periodEnd: string
 ): Promise<CustomerReportRow[]> {
@@ -77,7 +77,7 @@ export interface SupplierReportRow {
   balance: number;
 }
 
-export async function getSupplierReport(
+export async function getSupplierReport(_companyId: string, 
   periodStart: string,
   periodEnd: string
 ): Promise<SupplierReportRow[]> {
@@ -134,7 +134,7 @@ export interface BankTransactionsReport {
   transactions: BankTransactionRow[];
 }
 
-export async function getBankTransactions(
+export async function getBankTransactions(_companyId: string, 
   periodStart: string,
   periodEnd: string,
   accountCode?: string
@@ -219,6 +219,7 @@ export interface AccountTransactionsReport {
 }
 
 export async function getAccountTransactions(
+  _companyId: string,
   accountCode: string,
   periodStart: string,
   periodEnd: string
@@ -314,7 +315,7 @@ export interface AuditTrailRow {
   postedAt: string | null;
 }
 
-export async function getAuditTrail(
+export async function getAuditTrail(_companyId: string, 
   periodStart: string,
   periodEnd: string
 ): Promise<AuditTrailRow[]> {

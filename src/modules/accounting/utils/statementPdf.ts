@@ -29,6 +29,8 @@ export interface StatementData {
   totalCredits: number;
   balanceOutstanding: number;
   transactions: StatementTransaction[];
+  companyName?: string;
+  companyVatNumber?: string;
 }
 
 // ─── Private helpers (no jsPDF type reference — avoids static import) ─────────
@@ -76,8 +78,8 @@ export async function generateStatementPdf(data: StatementData): Promise<Blob> {
   doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(80, 80, 80);
-  doc.text('Velocity Fibre (Pty) Ltd', 14, 26);
-  doc.text('VAT No: 4070313040', 14, 31);
+  doc.text(data.companyName || 'Company Name Not Set', 14, 26);
+  doc.text(data.companyVatNumber ? `VAT No: ${data.companyVatNumber}` : '', 14, 31);
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);

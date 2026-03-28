@@ -1,28 +1,28 @@
 [Unit]
-Description=Accounting App (Next.js)
+Description=IsaFlow App (Next.js)
 After=network.target
 
 [Service]
 Type=simple
 User=velo
 Group=velo
-WorkingDirectory=/home/velo/accounting
-ExecStart=/usr/bin/node /home/velo/accounting/node_modules/.bin/next start -p 3101
+WorkingDirectory=/home/velo/isaflow
+ExecStart=/usr/bin/node /home/velo/isaflow/node_modules/.bin/next start -p 3101
 Restart=on-failure
 RestartSec=5
 Environment=NODE_ENV=production
 Environment=PORT=3101
-EnvironmentFile=/home/velo/accounting/.env.local
+EnvironmentFile=/home/velo/isaflow/.env.local
 
 # Logging
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=accounting
+SyslogIdentifier=isaflow
 
 # Security
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/home/velo/accounting
+ReadWritePaths=/home/velo/isaflow
 
 [Install]
 WantedBy=multi-user.target

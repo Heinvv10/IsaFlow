@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Wallet, Plus, Trash2, Loader2, Copy } from 'lucide-react';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface GLAccount { id: string; accountCode: string; accountName: string }
 interface BudgetEntry {
@@ -29,7 +30,7 @@ export default function BudgetManagementPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await fetch(`/api/accounting/budgets?fiscal_year=${fiscalYear}`, { credentials: 'include' });
+    const res = await apiFetch(`/api/accounting/budgets?fiscal_year=${fiscalYear}`, { credentials: 'include' });
     const json = await res.json();
     setBudgets(json.data?.items || []);
     setLoading(false);
@@ -38,7 +39,7 @@ export default function BudgetManagementPage() {
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    fetch('/api/accounting/chart-of-accounts', { credentials: 'include' }).then(r => r.json()).then(res => {
+    apiFetch('/api/accounting/chart-of-accounts', { credentials: 'include' }).then(r => r.json()).then(res => {
       const d = res.data || res;
       const list = Array.isArray(d) ? d : d.accounts || d.items || [];
       setAccounts(list
@@ -59,7 +60,7 @@ export default function BudgetManagementPage() {
     e.preventDefault();
     setError(''); setBusy('save');
     try {
-      const res = await fetch('/api/accounting/budgets', {
+      const res = await apiFetch('/api/accounting/budgets', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
@@ -78,7 +79,7 @@ export default function BudgetManagementPage() {
 
   const handleDelete = async (id: string) => {
     setBusy(id);
-    await fetch('/api/accounting/budgets-action', {
+    await apiFetch('/api/accounting/budgets-action', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       credentials: 'include', body: JSON.stringify({ action: 'delete', id }),
     });
@@ -88,7 +89,7 @@ export default function BudgetManagementPage() {
   const handleCopy = async () => {
     setBusy('copy'); setSuccess('');
     try {
-      const res = await fetch('/api/accounting/budgets-action', {
+      const res = await apiFetch('/api/accounting/budgets-action', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ action: 'copy', fromYear: fiscalYear, toYear: fiscalYear + 1 }),
@@ -135,7 +136,7 @@ export default function BudgetManagementPage() {
 
         <div className="p-6 space-y-4">
           {error && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{error}</div>}
-          {success && <div className="p-3 rounded-lg bg-emerald-500/10 text-emerald-400 text-sm">{success}</div>}
+          {success && <div className="p-3 rounded-lg bg-teal-500/10 text-teal-400 text-sm">{success}</div>}
 
           {/* Summary card */}
           {!loading && budgets.length > 0 && (

@@ -9,18 +9,20 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { getQuotes, getQuote, createQuote, updateQuote, deleteQuote } from '@/modules/accounting/services/quoteService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyApiRequest;
+
   if (req.method === 'GET') {
     const { id, status, search, limit, offset } = req.query;
     if (id) {
-      const quote = await getQuote(id as string);
+      const quote = await getQuote(companyId, id as string);
       if (!quote) return apiResponse.notFound(res, 'Quote', id as string);
       return apiResponse.success(res, quote);
     }
-    const result = await getQuotes({
+    const result = await getQuotes(companyId, {
       status: status as string,
       search: search as string,
       limit: limit ? Number(limit) : undefined,
@@ -31,14 +33,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'POST') {
     const userId = req.user.id;
-    const quote = await createQuote(req.body, userId);
+    const quote = await createQuote(companyId, req.body, userId);
     return apiResponse.created(res, quote);
   }
 
   if (req.method === 'PUT') {
     const { id, ...input } = req.body;
     if (!id) return apiResponse.badRequest(res, 'id is required');
-    const quote = await updateQuote(id, input);
+    const quote = await updateQuote(companyId, id, input);
     if (!quote) return apiResponse.badRequest(res, 'Quote not found or not in draft status');
     return apiResponse.success(res, quote);
   }
@@ -46,7 +48,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method === 'DELETE') {
     const { id } = req.body;
     if (!id) return apiResponse.badRequest(res, 'id is required');
-    const deleted = await deleteQuote(id);
+    const deleted = await deleteQuote(companyId, id);
     if (!deleted) return apiResponse.badRequest(res, 'Quote not found or not in draft status');
     return apiResponse.success(res, { deleted: true });
   }
@@ -55,4 +57,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

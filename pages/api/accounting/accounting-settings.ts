@@ -7,10 +7,12 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withAuth, withCompany, type AuthenticatedNextApiRequest, type CompanyApiRequest } from '@/lib/auth';
 import { getSetting, setSetting } from '@/modules/accounting/services/currencyService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
+  const { companyId } = req as CompanyApiRequest;
+
   if (req.method === 'GET') {
     const { key } = req.query;
     if (!key) return apiResponse.badRequest(res, 'key is required');
@@ -30,4 +32,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

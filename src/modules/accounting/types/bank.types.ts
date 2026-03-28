@@ -50,6 +50,8 @@ export interface BankTransaction {
   suggestedCategory?: string;
   suggestedCostCentre?: string;
   suggestedVatCode?: string;
+  /** Smart categorization confidence score (0-1) */
+  suggestedConfidence?: number;
   /** Dimension fields — cost centres and business unit */
   cc1Id?: string;
   cc2Id?: string;

@@ -7,16 +7,17 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { getBudgets, upsertBudget } from '@/modules/accounting/services/budgetService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyApiRequest;
   const userId = (req as AuthenticatedNextApiRequest).user.id;
 
   if (req.method === 'GET') {
     const fiscalYear = Number(req.query.fiscal_year) || new Date().getFullYear();
-    const items = await getBudgets(fiscalYear);
+    const items = await getBudgets(companyId, fiscalYear);
     return apiResponse.success(res, { items, fiscalYear });
   }
 
@@ -26,7 +27,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, 'glAccountId, fiscalYear, and annualAmount are required');
     }
     try {
-      const entry = await upsertBudget({
+      const entry = await upsertBudget(companyId, {
         glAccountId, fiscalYear: Number(fiscalYear),
         annualAmount: Number(annualAmount),
         months: months || undefined, notes,
@@ -42,4 +43,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

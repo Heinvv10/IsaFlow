@@ -10,6 +10,8 @@ import {
   FileText, Plus, Loader2, AlertCircle, ChevronRight, Filter, Download,
 } from 'lucide-react';
 import type { CreditNote, CreditNoteStatus } from '@/modules/accounting/types/ar.types';
+import { formatCurrency } from '@/utils/formatters';
+import { apiFetch } from '@/lib/apiFetch';
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: '', label: 'All Statuses' },
@@ -28,7 +30,7 @@ const TYPE_OPTIONS: { value: string; label: string }[] = [
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
     draft: 'bg-gray-500/20 text-gray-400',
-    approved: 'bg-emerald-500/20 text-emerald-400',
+    approved: 'bg-teal-500/20 text-teal-400',
     applied: 'bg-blue-500/20 text-blue-400',
     cancelled: 'bg-red-500/20 text-red-400',
   };
@@ -51,10 +53,6 @@ function TypeBadge({ type }: { type: string }) {
   );
 }
 
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amount);
-}
-
 export default function CreditNotesPage() {
   const [creditNotes, setCreditNotes] = useState<CreditNote[]>([]);
   const [total, setTotal] = useState(0);
@@ -70,7 +68,7 @@ export default function CreditNotesPage() {
       const params = new URLSearchParams();
       if (statusFilter) params.set('status', statusFilter);
       if (typeFilter) params.set('type', typeFilter);
-      const res = await fetch(`/api/accounting/credit-notes?${params}`);
+      const res = await apiFetch(`/api/accounting/credit-notes?${params}`);
       const json = await res.json();
       const payload = json.data || json;
       setCreditNotes(payload.creditNotes || []);
@@ -105,8 +103,8 @@ export default function CreditNotesPage() {
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
           <div className="px-6 py-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-emerald-500/10">
-                <FileText className="h-6 w-6 text-emerald-500" />
+              <div className="p-2 rounded-lg bg-teal-500/10">
+                <FileText className="h-6 w-6 text-teal-500" />
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Credit Notes</h1>
@@ -123,7 +121,7 @@ export default function CreditNotesPage() {
               )}
               <Link
                 href="/accounting/credit-notes/new"
-                className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors text-sm font-medium"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium"
               >
                 <Plus className="h-4 w-4" /> New Credit Note
               </Link>
@@ -159,7 +157,7 @@ export default function CreditNotesPage() {
 
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-6 w-6 animate-spin text-emerald-500" />
+              <Loader2 className="h-6 w-6 animate-spin text-teal-500" />
             </div>
           ) : creditNotes.length === 0 ? (
             <div className="text-center py-12 text-[var(--ff-text-secondary)]">

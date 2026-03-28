@@ -3,7 +3,7 @@
  * Tabs with dropdown menus; supports up to three-level flyout nesting.
  *
  * Usage:
- *   <ModuleNav tabs={TABS} getActiveTabId={getActiveTabId} accentColor="emerald" />
+ *   <ModuleNav tabs={TABS} getActiveTabId={getActiveTabId} accentColor="teal" />
  *
  * Accent classes are pre-written in full so Tailwind's purge pass retains them.
  */
@@ -18,7 +18,7 @@ import {
 } from '../accounting/accountingNavConfig';
 
 // 🟢 WORKING: Full class strings — never use template literals with Tailwind.
-export type AccentColor = 'emerald' | 'blue' | 'amber' | 'teal' | 'violet' | 'slate' | 'rose' | 'cyan';
+export type AccentColor = 'teal' | 'blue' | 'amber' | 'emerald' | 'violet' | 'slate' | 'rose' | 'cyan';
 
 interface AccentTokens {
   activeBorder: string;
@@ -28,11 +28,11 @@ interface AccentTokens {
 }
 
 export const ACCENT_CLASSES: Record<AccentColor, AccentTokens> = {
-  emerald: {
-    activeBorder: 'border-emerald-500',
-    activeText: 'text-emerald-400',
-    activeLinkBg: 'text-emerald-400 bg-emerald-500/10',
-    activeSectionText: 'text-emerald-400',
+  teal: {
+    activeBorder: 'border-teal-500',
+    activeText: 'text-teal-400',
+    activeLinkBg: 'text-teal-400 bg-teal-500/10',
+    activeSectionText: 'text-teal-400',
   },
   blue: {
     activeBorder: 'border-blue-500',
@@ -46,11 +46,11 @@ export const ACCENT_CLASSES: Record<AccentColor, AccentTokens> = {
     activeLinkBg: 'text-amber-400 bg-amber-500/10',
     activeSectionText: 'text-amber-400',
   },
-  teal: {
-    activeBorder: 'border-teal-500',
-    activeText: 'text-teal-400',
-    activeLinkBg: 'text-teal-400 bg-teal-500/10',
-    activeSectionText: 'text-teal-400',
+  emerald: {
+    activeBorder: 'border-emerald-500',
+    activeText: 'text-emerald-400',
+    activeLinkBg: 'text-emerald-400 bg-emerald-500/10',
+    activeSectionText: 'text-emerald-400',
   },
   violet: {
     activeBorder: 'border-violet-500',
@@ -90,7 +90,7 @@ const panelCls =
   'absolute left-full top-0 bg-gray-800 border border-gray-700 rounded-r-lg shadow-xl min-w-[210px] py-1';
 
 const inactiveLinkCls =
-  'text-gray-400 hover:text-white hover:bg-gray-700/50';
+  'text-gray-300 hover:text-white hover:bg-gray-700/50';
 
 // ─── Internal helpers that need accent tokens ─────────────────────────────────
 
@@ -106,7 +106,7 @@ function makeSectionCls(hovered: boolean, active: boolean, accent: AccentTokens)
       ? 'bg-gray-700 text-white'
       : active
         ? accent.activeSectionText
-        : 'text-gray-400'
+        : 'text-gray-300'
   }`;
 }
 
@@ -213,7 +213,7 @@ function FlyoutDropdown({ tab, asPath, onClose, accent }: FlyoutDropdownProps) {
             key={item.href}
             href={item.href}
             onClick={onClose}
-            className="block px-4 py-2 text-sm text-gray-400 hover:text-white hover:bg-gray-700/50 transition-colors"
+            className="block px-4 py-2 text-sm text-gray-300 hover:text-white hover:bg-gray-700/50 transition-colors"
           >
             {item.label}
           </Link>
@@ -277,7 +277,7 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor }: ModuleNavProps)
   const hasFlyout = (t: Tab) => t.items?.some(isFlyout) ?? false;
 
   return (
-    <nav ref={navRef} className="bg-gray-900 border-b border-gray-700 relative z-30 overflow-x-auto">
+    <nav ref={navRef} className="bg-gray-900 border-b border-gray-700 relative z-30">
       <div className="flex items-center gap-0 px-2">
         {tabs.map(t => (
           <div key={t.id} className="relative">

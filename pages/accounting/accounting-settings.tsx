@@ -6,7 +6,8 @@
 import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Settings, Loader2, AlertCircle, Save, Check } from 'lucide-react';
-import { toast } from 'react-hot-toast';
+import { notify } from '@/utils/toast';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface SettingItem {
   key: string;
@@ -46,7 +47,7 @@ export default function AccountingSettingsPage() {
         const loaded: SettingItem[] = [];
         for (const def of SETTINGS_DEFINITIONS) {
           try {
-            const res = await fetch(`/api/accounting/accounting-settings?key=${def.key}`, { credentials: 'include' });
+            const res = await apiFetch(`/api/accounting/accounting-settings?key=${def.key}`, { credentials: 'include' });
             const json = await res.json();
             loaded.push({ ...def, value: String(json.data?.value || '') });
           } catch {
@@ -73,16 +74,16 @@ export default function AccountingSettingsPage() {
 
     setSaving(key);
     try {
-      const res = await fetch('/api/accounting/accounting-settings', {
+      const res = await apiFetch('/api/accounting/accounting-settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ key, value: setting.value }),
       });
       if (!res.ok) throw new Error('Failed to save');
-      toast.success(`${setting.label} updated`);
+      notify.success(`${setting.label} updated`);
     } catch {
-      toast.error('Failed to save setting');
+      notify.error('Failed to save setting');
     } finally {
       setSaving(null);
     }

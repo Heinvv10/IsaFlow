@@ -10,21 +10,19 @@ import {
   Landmark, Plus, Loader2, AlertCircle, ChevronRight, CheckCircle2,
 } from 'lucide-react';
 import type { BankReconciliation } from '@/modules/accounting/types/bank.types';
+import { formatCurrency } from '@/utils/formatters';
+import { apiFetch } from '@/lib/apiFetch';
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
     in_progress: 'bg-amber-500/20 text-amber-400',
-    completed: 'bg-emerald-500/20 text-emerald-400',
+    completed: 'bg-teal-500/20 text-teal-400',
   };
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${colors[status] || 'bg-gray-500/20 text-gray-400'}`}>
       {status.replace(/_/g, ' ')}
     </span>
   );
-}
-
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amount);
 }
 
 export default function BankReconciliationListPage() {
@@ -36,7 +34,7 @@ export default function BankReconciliationListPage() {
     setIsLoading(true);
     setError('');
     try {
-      const res = await fetch('/api/accounting/bank-reconciliations');
+      const res = await apiFetch('/api/accounting/bank-reconciliations');
       const json = await res.json();
       const data = json.data || json;
       setReconciliations(Array.isArray(data) ? data : []);
@@ -56,8 +54,8 @@ export default function BankReconciliationListPage() {
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
           <div className="px-6 py-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-emerald-500/10">
-                <Landmark className="h-6 w-6 text-emerald-500" />
+              <div className="p-2 rounded-lg bg-teal-500/10">
+                <Landmark className="h-6 w-6 text-teal-500" />
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Bank Reconciliation</h1>
@@ -69,13 +67,13 @@ export default function BankReconciliationListPage() {
             <div className="flex items-center gap-2">
               <Link
                 href="/accounting/bank-reconciliation/import"
-                className="inline-flex items-center gap-2 px-4 py-2 bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)] rounded-lg border border-[var(--ff-border-light)] hover:border-emerald-500/50 transition-colors text-sm font-medium"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)] rounded-lg border border-[var(--ff-border-light)] hover:border-teal-500/50 transition-colors text-sm font-medium"
               >
                 Import Statement
               </Link>
               <Link
                 href="/accounting/bank-reconciliation/new"
-                className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors text-sm font-medium"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium"
               >
                 <Plus className="h-4 w-4" /> New Reconciliation
               </Link>
@@ -92,7 +90,7 @@ export default function BankReconciliationListPage() {
 
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-6 w-6 animate-spin text-emerald-500" />
+              <Loader2 className="h-6 w-6 animate-spin text-teal-500" />
             </div>
           ) : reconciliations.length === 0 ? (
             <div className="text-center py-12">
@@ -100,7 +98,7 @@ export default function BankReconciliationListPage() {
               <p className="text-[var(--ff-text-secondary)] mb-4">No reconciliations started yet</p>
               <Link
                 href="/accounting/bank-reconciliation/import"
-                className="text-emerald-500 hover:text-emerald-400 text-sm font-medium"
+                className="text-teal-500 hover:text-teal-400 text-sm font-medium"
               >
                 Import a bank statement to get started
               </Link>
@@ -133,7 +131,7 @@ export default function BankReconciliationListPage() {
                       <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">
                         {formatCurrency(r.reconciledBalance)}
                       </td>
-                      <td className={`px-4 py-3 text-right font-mono font-bold ${Math.abs(r.difference) < 0.01 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      <td className={`px-4 py-3 text-right font-mono font-bold ${Math.abs(r.difference) < 0.01 ? 'text-teal-400' : 'text-red-400'}`}>
                         {formatCurrency(r.difference)}
                       </td>
                       <td className="px-4 py-3 text-center">
@@ -144,7 +142,7 @@ export default function BankReconciliationListPage() {
                       </td>
                       <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
                       <td className="px-4 py-3 text-right">
-                        <Link href={`/accounting/bank-reconciliation/${r.id}`} className="text-emerald-500 hover:text-emerald-400">
+                        <Link href={`/accounting/bank-reconciliation/${r.id}`} className="text-teal-500 hover:text-teal-400">
                           {r.status === 'completed' ? (
                             <CheckCircle2 className="h-4 w-4" />
                           ) : (

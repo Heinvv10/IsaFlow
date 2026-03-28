@@ -28,7 +28,7 @@ interface InvoiceFilters {
   offset?: number;
 }
 
-export async function getSupplierInvoices(filters?: InvoiceFilters): Promise<{
+export async function getSupplierInvoices(_companyId: string, filters?: InvoiceFilters): Promise<{
   invoices: SupplierInvoice[];
   total: number;
 }> {
@@ -91,7 +91,7 @@ export async function getSupplierInvoices(filters?: InvoiceFilters): Promise<{
   }
 }
 
-export async function getSupplierInvoiceById(
+export async function getSupplierInvoiceById(_companyId: string, 
   id: string
 ): Promise<(SupplierInvoice & { items: SupplierInvoiceItem[] }) | null> {
   try {
@@ -118,7 +118,7 @@ export async function getSupplierInvoiceById(
   }
 }
 
-export async function createSupplierInvoice(
+export async function createSupplierInvoice(_companyId: string, 
   input: SupplierInvoiceCreateInput,
   userId: string
 ): Promise<SupplierInvoice> {
@@ -186,12 +186,12 @@ export async function createSupplierInvoice(
   }
 }
 
-export async function approveSupplierInvoice(
+export async function approveSupplierInvoice(_companyId: string, 
   id: string,
   userId: string
 ): Promise<SupplierInvoice> {
   try {
-    const invoice = await getSupplierInvoiceById(id);
+    const invoice = await getSupplierInvoiceById('', id);
     if (!invoice) throw new Error(`Supplier invoice ${id} not found`);
     if (invoice.status !== 'draft' && invoice.status !== 'pending_approval') {
       throw new Error(`Cannot approve invoice with status: ${invoice.status}`);
@@ -236,7 +236,7 @@ export async function approveSupplierInvoice(
       description: `AP: ${invoice.invoiceNumber}`,
     });
 
-    const journalEntry = await createJournalEntry({
+    const journalEntry = await createJournalEntry('', {
       entryDate: invoice.invoiceDate,
       description: `Supplier invoice ${invoice.invoiceNumber}`,
       source: 'auto_supplier_invoice',
@@ -244,7 +244,7 @@ export async function approveSupplierInvoice(
       lines,
     }, userId);
 
-    await postJournalEntry(journalEntry.id, userId);
+    await postJournalEntry('', journalEntry.id, userId);
 
     const updated = (await sql`
       UPDATE supplier_invoices
@@ -262,9 +262,9 @@ export async function approveSupplierInvoice(
   }
 }
 
-export async function cancelSupplierInvoice(id: string): Promise<SupplierInvoice> {
+export async function cancelSupplierInvoice(_companyId: string, id: string): Promise<SupplierInvoice> {
   try {
-    const invoice = await getSupplierInvoiceById(id);
+    const invoice = await getSupplierInvoiceById('', id);
     if (!invoice) throw new Error(`Supplier invoice ${id} not found`);
     if (invoice.status === 'paid' || invoice.status === 'partially_paid') {
       throw new Error('Cannot cancel invoice with payments');
@@ -279,9 +279,9 @@ export async function cancelSupplierInvoice(id: string): Promise<SupplierInvoice
   }
 }
 
-export async function performThreeWayMatch(invoiceId: string) {
+export async function performThreeWayMatch(_companyId: string, invoiceId: string) {
   try {
-    const invoice = await getSupplierInvoiceById(invoiceId);
+    const invoice = await getSupplierInvoiceById('', invoiceId);
     if (!invoice) throw new Error(`Invoice ${invoiceId} not found`);
     if (!invoice.purchaseOrderId) throw new Error('Invoice has no linked PO');
 

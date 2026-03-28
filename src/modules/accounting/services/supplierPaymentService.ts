@@ -39,7 +39,7 @@ export interface CreatePaymentInput {
   allocations: PaymentAllocationInput[];
 }
 
-export async function getSupplierPayments(filters?: PaymentFilters): Promise<{
+export async function getSupplierPayments(_companyId: string, filters?: PaymentFilters): Promise<{
   payments: SupplierPayment[];
   total: number;
 }> {
@@ -96,7 +96,7 @@ export async function getSupplierPayments(filters?: PaymentFilters): Promise<{
   }
 }
 
-export async function getSupplierPaymentById(
+export async function getSupplierPaymentById(_companyId: string, 
   id: string
 ): Promise<(SupplierPayment & { allocations: PaymentAllocation[] }) | null> {
   try {
@@ -121,7 +121,7 @@ export async function getSupplierPaymentById(
   }
 }
 
-export async function createSupplierPayment(
+export async function createSupplierPayment(_companyId: string, 
   input: CreatePaymentInput,
   userId: string
 ): Promise<SupplierPayment> {
@@ -180,12 +180,12 @@ export async function createSupplierPayment(
   }
 }
 
-export async function processSupplierPayment(
+export async function processSupplierPayment(_companyId: string, 
   id: string,
   userId: string
 ): Promise<SupplierPayment> {
   try {
-    const payment = await getSupplierPaymentById(id);
+    const payment = await getSupplierPaymentById('', id);
     if (!payment) throw new Error(`Payment ${id} not found`);
     if (payment.status !== 'approved') throw new Error(`Payment must be approved before processing`);
 
@@ -213,7 +213,7 @@ export async function processSupplierPayment(
       },
     ];
 
-    const journalEntry = await createJournalEntry({
+    const journalEntry = await createJournalEntry('', {
       entryDate: payment.paymentDate,
       description: `Supplier payment ${payment.paymentNumber}`,
       source: 'auto_supplier_payment',
@@ -221,7 +221,7 @@ export async function processSupplierPayment(
       lines,
     }, userId);
 
-    await postJournalEntry(journalEntry.id, userId);
+    await postJournalEntry('', journalEntry.id, userId);
 
     // Update invoice balances from allocations
     for (const alloc of payment.allocations) {
@@ -257,12 +257,12 @@ export async function processSupplierPayment(
   }
 }
 
-export async function approveSupplierPayment(
+export async function approveSupplierPayment(_companyId: string, 
   id: string,
   userId: string
 ): Promise<SupplierPayment> {
   try {
-    const payment = await getSupplierPaymentById(id);
+    const payment = await getSupplierPaymentById('', id);
     if (!payment) throw new Error(`Payment ${id} not found`);
     if (payment.status !== 'draft') throw new Error(`Cannot approve payment with status: ${payment.status}`);
 

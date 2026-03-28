@@ -6,7 +6,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { getTrialBalance } from '@/modules/accounting/services/journalEntryService';
 
@@ -14,6 +14,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
   }
+
+  const { companyId } = req as CompanyApiRequest;
 
   try {
     const fiscalPeriodId = req.query.fiscal_period_id as string;
@@ -23,12 +25,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, 'fiscal_period_id is required');
     }
 
-    const rows = await getTrialBalance(fiscalPeriodId, costCentreId || undefined);
+    const rows = await getTrialBalance(companyId,fiscalPeriodId, costCentreId || undefined);
     const totalDebit = rows.reduce((sum, r) => sum + r.debitBalance, 0);
     const totalCredit = rows.reduce((sum, r) => sum + r.creditBalance, 0);
 
     if (comparePeriodId) {
-      const priorRows = await getTrialBalance(comparePeriodId, costCentreId || undefined);
+      const priorRows = await getTrialBalance(companyId,comparePeriodId, costCentreId || undefined);
       const priorMap = new Map(priorRows.map(r => [r.accountCode, r]));
       for (const row of rows) {
         const prior = priorMap.get(row.accountCode);
@@ -51,4 +53,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

@@ -18,12 +18,11 @@ interface LineItem {
   glAccountId: string;
 }
 
+import { formatCurrency } from '@/utils/formatters';
+import { apiFetch } from '@/lib/apiFetch';
+
 interface Supplier { id: number; name: string }
 interface GLAccount { id: string; accountCode: string; accountName: string }
-
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amount);
-}
 
 export default function NewSupplierInvoicePage() {
   const router = useRouter();
@@ -49,8 +48,8 @@ export default function NewSupplierInvoicePage() {
 
   useEffect(() => {
     Promise.all([
-      fetch('/api/suppliers').then(r => r.json()),
-      fetch('/api/accounting/chart-of-accounts').then(r => r.json()),
+      apiFetch('/api/suppliers').then(r => r.json()),
+      apiFetch('/api/accounting/chart-of-accounts').then(r => r.json()),
     ]).then(([suppRes, accRes]) => {
       const suppData = suppRes.data || suppRes;
       setSuppliers(Array.isArray(suppData) ? suppData : suppData.suppliers || []);
@@ -84,7 +83,7 @@ export default function NewSupplierInvoicePage() {
     setIsSubmitting(true);
     setError('');
     try {
-      const res = await fetch('/api/accounting/supplier-invoices', {
+      const res = await apiFetch('/api/accounting/supplier-invoices', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -125,12 +124,12 @@ export default function NewSupplierInvoicePage() {
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <Link href="/accounting/supplier-invoices" className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-emerald-600 mb-3">
+          <Link href="/accounting/supplier-invoices" className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-teal-600 mb-3">
             <ArrowLeft className="h-4 w-4" /> Back to Supplier Invoices
           </Link>
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-emerald-500/10">
-              <Receipt className="h-6 w-6 text-emerald-500" />
+            <div className="p-2 rounded-lg bg-teal-500/10">
+              <Receipt className="h-6 w-6 text-teal-500" />
             </div>
             <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">New Supplier Invoice</h1>
           </div>
@@ -198,7 +197,7 @@ export default function NewSupplierInvoicePage() {
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-[var(--ff-text-primary)]">Line Items</h3>
               <button type="button" onClick={addLine}
-                className="inline-flex items-center gap-1 text-sm text-emerald-600 hover:text-emerald-700 font-medium">
+                className="inline-flex items-center gap-1 text-sm text-teal-600 hover:text-teal-700 font-medium">
                 <Plus className="h-4 w-4" /> Add Line
               </button>
             </div>
@@ -265,7 +264,7 @@ export default function NewSupplierInvoicePage() {
                 </div>
                 <div className="flex justify-between text-base font-bold border-t border-[var(--ff-border-medium)] pt-2">
                   <span className="text-[var(--ff-text-primary)]">Total</span>
-                  <span className="font-mono text-emerald-500">{formatCurrency(total)}</span>
+                  <span className="font-mono text-teal-500">{formatCurrency(total)}</span>
                 </div>
               </div>
             </div>
@@ -285,7 +284,7 @@ export default function NewSupplierInvoicePage() {
               Cancel
             </Link>
             <button type="submit" disabled={isSubmitting}
-              className="inline-flex items-center gap-2 px-6 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium disabled:opacity-50">
+              className="inline-flex items-center gap-2 px-6 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium disabled:opacity-50">
               {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
               Create Invoice
             </button>

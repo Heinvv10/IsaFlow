@@ -7,7 +7,8 @@
 
 import { useState, useEffect } from 'react';
 import { X, Search, CheckCircle, FileText, ShoppingCart, BookOpen, Loader2 } from 'lucide-react';
-import { toast } from 'react-hot-toast';
+import { notify } from '@/utils/toast';
+import { apiFetch } from '@/lib/apiFetch';
 import type { MatchCandidate, CandidateType } from '@/modules/accounting/types/bank-match.types';
 
 interface Transaction {
@@ -56,9 +57,8 @@ export function FindMatchModal({ transaction, onClose, onMatch }: Props) {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(
+        const res = await apiFetch(
           `/api/accounting/bank-match-candidates?bankTransactionId=${encodeURIComponent(transaction.id)}`,
-          { credentials: 'include' },
         );
         const json = await res.json() as { success: boolean; data?: { candidates: MatchCandidate[] }; error?: { message: string } };
         if (!res.ok || !json.success) {
@@ -95,10 +95,9 @@ export function FindMatchModal({ transaction, onClose, onMatch }: Props) {
     if (!selected) return;
     setConfirming(true);
     try {
-      const res = await fetch('/api/accounting/bank-match-confirm', {
+      const res = await apiFetch('/api/accounting/bank-match-confirm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({
           bankTransactionId: transaction.id,
           candidateType: selected.type,
@@ -110,10 +109,10 @@ export function FindMatchModal({ transaction, onClose, onMatch }: Props) {
         throw new Error(json.error?.message ?? 'Match failed');
       }
       const matchedMeta = TYPE_META[selected.type];
-      toast.success(`Matched to ${matchedMeta?.label ?? selected.type}: ${selected.label}`);
+      notify.success(`Matched to ${matchedMeta?.label ?? selected.type}: ${selected.label}`);
       onMatch(selected.type, selected.id);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Match confirmation failed');
+      notify.error(err instanceof Error ? err.message : 'Match confirmation failed');
     } finally {
       setConfirming(false);
     }
@@ -127,8 +126,8 @@ export function FindMatchModal({ transaction, onClose, onMatch }: Props) {
 
         {/* Header */}
         <div className="flex items-center gap-3 px-5 py-4 border-b border-[var(--ff-border-light)]">
-          <div className="p-2 rounded-lg bg-emerald-500/10">
-            <Search className="h-4 w-4 text-emerald-400" />
+          <div className="p-2 rounded-lg bg-teal-500/10">
+            <Search className="h-4 w-4 text-teal-400" />
           </div>
           <div className="flex-1 min-w-0">
             <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Find &amp; Match</h2>
@@ -137,7 +136,7 @@ export function FindMatchModal({ transaction, onClose, onMatch }: Props) {
             </p>
           </div>
           <div className="text-right mr-2">
-            <p className={`text-base font-bold font-mono ${transaction.amount < 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+            <p className={`text-base font-bold font-mono ${transaction.amount < 0 ? 'text-red-400' : 'text-teal-400'}`}>
               {fmtCurrency(transaction.amount)}
             </p>
           </div>
@@ -215,9 +214,9 @@ export function FindMatchModal({ transaction, onClose, onMatch }: Props) {
                           <span className="flex-1 text-xs text-[var(--ff-text-primary)] truncate">{c.label}</span>
 
                           {/* Amount */}
-                          <span className={`text-xs font-mono font-semibold ${exact ? 'text-emerald-400' : 'text-[var(--ff-text-primary)]'}`}>
+                          <span className={`text-xs font-mono font-semibold ${exact ? 'text-teal-400' : 'text-[var(--ff-text-primary)]'}`}>
                             {fmtCurrency(c.amount)}
-                            {exact && <span className="ml-1 text-[10px] text-emerald-400">exact</span>}
+                            {exact && <span className="ml-1 text-[10px] text-teal-400">exact</span>}
                           </span>
                         </div>
 
@@ -258,7 +257,7 @@ export function FindMatchModal({ transaction, onClose, onMatch }: Props) {
             <button
               onClick={handleConfirm}
               disabled={!selected || confirming}
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded text-xs font-medium bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white transition-colors"
+              className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded text-xs font-medium bg-teal-600 hover:bg-teal-700 disabled:opacity-40 text-white transition-colors"
             >
               {confirming
                 ? <><Loader2 className="h-3 w-3 animate-spin" /> Confirming…</>

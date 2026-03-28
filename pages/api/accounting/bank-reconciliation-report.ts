@@ -9,7 +9,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 
@@ -41,17 +41,17 @@ function toDateStr(d: string | Date): string {
   return String(d).split('T')[0] ?? '';
 }
 
-async function fetchBankAccountName(bankAccountId: string): Promise<string> {
+async function fetchBankAccountName(companyId: string, bankAccountId: string): Promise<string> {
   const rows = (await sql`
     SELECT account_name
     FROM gl_accounts
-    WHERE id = ${bankAccountId}::UUID
+    WHERE id = ${bankAccountId}::UUID AND company_id = ${companyId}
     LIMIT 1
   `) as AccountRow[];
   return rows[0]?.account_name ?? 'Unknown Account';
 }
 
-async function fetchLatestBatch(bankAccountId: string): Promise<BatchRow | null> {
+async function fetchLatestBatch(companyId: string, bankAccountId: string): Promise<BatchRow | null> {
   const rows = (await sql`
     SELECT opening_balance, closing_balance, statement_date
     FROM bank_import_batches
@@ -62,7 +62,7 @@ async function fetchLatestBatch(bankAccountId: string): Promise<BatchRow | null>
   return rows[0] ?? null;
 }
 
-async function fetchMatchedTransactions(bankAccountId: string): Promise<TxRow[]> {
+async function fetchMatchedTransactions(companyId: string, bankAccountId: string): Promise<TxRow[]> {
   return (await sql`
     SELECT
       bt.id,
@@ -76,11 +76,12 @@ async function fetchMatchedTransactions(bankAccountId: string): Promise<TxRow[]>
     LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     WHERE bt.bank_account_id = ${bankAccountId}::UUID
       AND bt.status = 'matched'
+      AND bt.company_id = ${companyId}
     ORDER BY bt.transaction_date
   `) as TxRow[];
 }
 
-async function fetchUnmatchedTransactions(bankAccountId: string): Promise<TxRow[]> {
+async function fetchUnmatchedTransactions(companyId: string, bankAccountId: string): Promise<TxRow[]> {
   return (await sql`
     SELECT
       bt.id,
@@ -92,6 +93,7 @@ async function fetchUnmatchedTransactions(bankAccountId: string): Promise<TxRow[
     FROM bank_transactions bt
     WHERE bt.bank_account_id = ${bankAccountId}::UUID
       AND bt.status = 'imported'
+      AND bt.company_id = ${companyId}
     ORDER BY bt.transaction_date
   `) as TxRow[];
 }
@@ -99,6 +101,8 @@ async function fetchUnmatchedTransactions(bankAccountId: string): Promise<TxRow[
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyApiRequest;
+
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
   }
@@ -112,10 +116,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     // Parallel fetch: account name, latest batch, matched and unmatched transactions
     const [bankAccountName, latestBatch, matchedRows, unmatchedRows] = await Promise.all([
-      fetchBankAccountName(bankAccountId),
-      fetchLatestBatch(bankAccountId),
-      fetchMatchedTransactions(bankAccountId),
-      fetchUnmatchedTransactions(bankAccountId),
+      fetchBankAccountName(companyId, bankAccountId),
+      fetchLatestBatch(companyId, bankAccountId),
+      fetchMatchedTransactions(companyId, bankAccountId),
+      fetchUnmatchedTransactions(companyId, bankAccountId),
     ]);
 
     const mapTx = (row: TxRow) => ({
@@ -147,4 +151,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

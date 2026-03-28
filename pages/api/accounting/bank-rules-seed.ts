@@ -9,7 +9,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withCompany, withRole, type AuthenticatedNextApiRequest, type CompanyApiRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
@@ -23,6 +23,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
   }
+
+  const { companyId } = req as CompanyApiRequest;
 
   try {
     const userId = req.user.id;
@@ -44,9 +46,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       if (!glCode) { skipped++; continue; }
 
       // Look up GL account by account_code
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const glRows = (await sql`
-        SELECT id FROM gl_accounts WHERE account_code = ${glCode} LIMIT 1
+        SELECT id FROM gl_accounts WHERE account_code = ${glCode} AND company_id = ${companyId} LIMIT 1
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       `) as any[];
 
       if (glRows.length === 0) {
@@ -59,10 +61,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       const ruleName = String(entry.standardCategory || entry.originalCategory).trim();
 
       // UPSERT — skip if match_pattern already exists
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const existing = (await sql`
         SELECT id FROM bank_categorisation_rules
-        WHERE LOWER(match_pattern) = ${pattern} LIMIT 1
+        WHERE LOWER(match_pattern) = ${pattern} AND company_id = ${companyId} LIMIT 1
       `) as any[];
 
       if (existing.length > 0) {
@@ -73,10 +74,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       await sql`
         INSERT INTO bank_categorisation_rules (
           rule_name, match_field, match_type, match_pattern,
-          gl_account_id, auto_create_entry, priority, created_by
+          gl_account_id, auto_create_entry, priority, created_by,
+          company_id
         ) VALUES (
           ${ruleName}, 'description', 'contains', ${pattern},
-          ${glAccountId}::UUID, false, 100, ${userId}
+          ${glAccountId}::UUID, false, 100, ${userId},
+          ${companyId}
         )
       `;
       created++;
@@ -97,4 +100,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withRole('admin')(withErrorHandler(handler as any)));

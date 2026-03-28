@@ -6,11 +6,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { TrendingDown, Loader2, AlertCircle, Plus, X } from 'lucide-react';
-import toast from 'react-hot-toast';
-
-function formatCurrency(n: number) {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
-}
+import { notify } from '@/utils/toast';
+import { formatCurrency } from '@/utils/formatters';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface SupplierReturn {
   id: string; return_number: string; supplier_name: string;
@@ -34,7 +32,7 @@ export default function SupplierReturnsPage() {
   const loadReturns = useCallback(async () => {
     setIsLoading(true); setError('');
     try {
-      const res = await fetch('/api/accounting/supplier-returns');
+      const res = await apiFetch('/api/accounting/supplier-returns');
       const json = await res.json();
       setReturns((json.data || json).returns || []);
     } catch { setError('Failed to load supplier returns'); }
@@ -44,7 +42,7 @@ export default function SupplierReturnsPage() {
   useEffect(() => { loadReturns(); }, [loadReturns]);
 
   useEffect(() => {
-    fetch('/api/procurement/suppliers').then(r => r.json()).then(json => {
+    apiFetch('/api/procurement/suppliers').then(r => r.json()).then(json => {
       const data = json.data || json;
       setSuppliers((data.suppliers || []).map((s: Record<string, unknown>) => ({
         id: s.id as number,
@@ -59,11 +57,11 @@ export default function SupplierReturnsPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.supplierId) { toast.error('Please select a supplier'); return; }
-    if (!form.amount || Number(form.amount) <= 0) { toast.error('Please enter a valid amount'); return; }
+    if (!form.supplierId) { notify.error('Please select a supplier'); return; }
+    if (!form.amount || Number(form.amount) <= 0) { notify.error('Please enter a valid amount'); return; }
     setSubmitting(true);
     try {
-      const res = await fetch('/api/accounting/supplier-returns', {
+      const res = await apiFetch('/api/accounting/supplier-returns', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -75,15 +73,15 @@ export default function SupplierReturnsPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to create return');
-      toast.success('Supplier return created');
+      notify.success('Supplier return created');
       setShowForm(false); setForm(EMPTY);
       await loadReturns();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to create return');
+      notify.error(err instanceof Error ? err.message : 'Failed to create return');
     } finally { setSubmitting(false); }
   }
 
-  const inp = 'w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-emerald-500';
+  const inp = 'w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-teal-500';
   const lbl = 'block text-xs font-medium text-[var(--ff-text-secondary)] mb-1';
 
   return (
@@ -102,7 +100,7 @@ export default function SupplierReturnsPage() {
               </div>
             </div>
             <button onClick={() => { setForm(EMPTY); setShowForm(true); }}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg flex items-center gap-2 text-sm">
+              className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg flex items-center gap-2 text-sm">
               <Plus className="h-4 w-4" /> New Return
             </button>
           </div>
@@ -157,7 +155,7 @@ export default function SupplierReturnsPage() {
                     Cancel
                   </button>
                   <button type="submit" disabled={submitting}
-                    className="px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg flex items-center gap-2">
+                    className="px-4 py-2 text-sm bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded-lg flex items-center gap-2">
                     {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
                     Create Return
                   </button>
@@ -203,7 +201,7 @@ export default function SupplierReturnsPage() {
                       <td className="py-3 px-4 text-right text-red-400">{formatCurrency(r.amount)}</td>
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{r.reason}</td>
                       <td className="py-3 px-4">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${r.status === 'processed' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-yellow-500/10 text-yellow-400'}`}>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${r.status === 'processed' ? 'bg-teal-500/10 text-teal-400' : 'bg-yellow-500/10 text-yellow-400'}`}>
                           {r.status}
                         </span>
                       </td>

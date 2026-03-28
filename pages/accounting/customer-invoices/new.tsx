@@ -7,6 +7,7 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, FileText, Plus, Trash2, Loader2 } from 'lucide-react';
+import { apiFetch } from '@/lib/apiFetch';
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
@@ -24,10 +25,10 @@ export default function NewCustomerInvoicePage() {
   const [lines, setLines] = useState<LineItem[]>([{ key: '1', description: '', quantity: 1, unitPrice: 0, incomeType: 'other' }]);
 
   useEffect(() => {
-    fetch('/api/clients', { credentials: 'include' }).then(r => r.json()).then(json => {
+    apiFetch('/api/clients', { credentials: 'include' }).then(r => r.json()).then(json => {
       const d = json.data || json;
       setClients(Array.isArray(d) ? d : d.clients || []);
-    }).catch(() => {});
+    }).catch(() => { /* reference data load failure — non-critical, client dropdown will be empty */ });
   }, []);
 
   const updateLine = (key: string, field: string, value: string | number) => {
@@ -47,7 +48,7 @@ export default function NewCustomerInvoicePage() {
     setSubmitting(true);
     setError('');
     try {
-      const res = await fetch('/api/accounting/customer-invoices-create', {
+      const res = await apiFetch('/api/accounting/customer-invoices-create', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...form, items: validLines }),
       });

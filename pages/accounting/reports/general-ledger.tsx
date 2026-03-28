@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, BookOpen, Loader2, AlertCircle, Download, ChevronDown, ChevronRight } from 'lucide-react';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface GLAccount {
   id: string;
@@ -54,7 +55,7 @@ export default function GeneralLedgerPage() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    fetch('/api/accounting/chart-of-accounts', { credentials: 'include' })
+    apiFetch('/api/accounting/chart-of-accounts', { credentials: 'include' })
       .then(r => r.json())
       .then(res => {
         const d = res.data || res;
@@ -70,7 +71,7 @@ export default function GeneralLedgerPage() {
             }))
         );
       })
-      .catch(() => {});
+      .catch(() => { /* reference data load failure — non-critical, filter will show no accounts */ });
   }, []);
 
   const load = useCallback(async () => {
@@ -88,7 +89,7 @@ export default function GeneralLedgerPage() {
               period_start: periodStart,
               period_end: periodEnd,
             });
-            const res = await fetch(`/api/accounting/reports-account-transactions?${params}`, { credentials: 'include' });
+            const res = await apiFetch(`/api/accounting/reports-account-transactions?${params}`, { credentials: 'include' });
             if (!res.ok) return;
             const json = await res.json();
             const data = json.data;

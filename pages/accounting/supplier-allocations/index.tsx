@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeftRight, Loader2, AlertCircle, Check } from 'lucide-react';
+import { apiFetch } from '@/lib/apiFetch';
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
@@ -24,7 +25,7 @@ export default function SupplierAllocationsPage() {
 
   const loadPayments = useCallback(async () => {
     setLoading(true);
-    const res = await fetch('/api/accounting/supplier-payments?unallocated=true', { credentials: 'include' });
+    const res = await apiFetch('/api/accounting/supplier-payments?unallocated=true', { credentials: 'include' });
     const json = await res.json();
     setPayments((() => { const d = json.data; return Array.isArray(d) ? d : d?.items || d?.payments || d?.invoices || []; })());
     setLoading(false);
@@ -34,7 +35,7 @@ export default function SupplierAllocationsPage() {
 
   const selectPayment = async (p: Payment) => {
     setSelected(p); setAllocs({}); setMsg(''); setLoadingInv(true);
-    const res = await fetch(`/api/accounting/supplier-invoices?supplier_id=${p.supplierId}&status=approved`, { credentials: 'include' });
+    const res = await apiFetch(`/api/accounting/supplier-invoices?supplier_id=${p.supplierId}&status=approved`, { credentials: 'include' });
     const json = await res.json();
     setInvoices((() => { const d = json.data; return Array.isArray(d) ? d : d?.items || d?.payments || d?.invoices || []; })());
     setLoadingInv(false);
@@ -55,7 +56,7 @@ export default function SupplierAllocationsPage() {
     if (!selected || totalAlloc <= 0) return;
     setSaving(true);
     const allocations = Object.entries(allocs).filter(([, a]) => a > 0).map(([invoiceId, amount]) => ({ invoiceId, amount }));
-    const res = await fetch('/api/accounting/supplier-allocations', {
+    const res = await apiFetch('/api/accounting/supplier-allocations', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       credentials: 'include', body: JSON.stringify({ paymentId: selected.id, allocations }),
     });
@@ -85,7 +86,7 @@ export default function SupplierAllocationsPage() {
               <p className="text-xs text-[var(--ff-text-tertiary)]">{payments.length} payment(s)</p>
             </div>
           )}
-          {msg && <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-500/10 text-emerald-400 text-sm"><Check className="h-4 w-4" />{msg}</div>}
+          {msg && <div className="flex items-center gap-2 p-3 rounded-lg bg-teal-500/10 text-teal-400 text-sm"><Check className="h-4 w-4" />{msg}</div>}
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Unallocated Payments */}

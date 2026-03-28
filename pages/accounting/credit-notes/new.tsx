@@ -9,12 +9,11 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, FileText, Loader2 } from 'lucide-react';
 
+import { formatCurrency } from '@/utils/formatters';
+import { apiFetch } from '@/lib/apiFetch';
+
 interface Client { id: string; company_name: string }
 interface Supplier { id: number; name: string }
-
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amount);
-}
 
 export default function NewCreditNotePage() {
   const router = useRouter();
@@ -37,11 +36,11 @@ export default function NewCreditNotePage() {
   const totalAmount = form.subtotal + taxAmount;
 
   useEffect(() => {
-    fetch('/api/clients').then(r => r.json()).then(res => {
+    apiFetch('/api/clients').then(r => r.json()).then(res => {
       const data = res.data || res;
       setClients(Array.isArray(data) ? data : data.clients || []);
     });
-    fetch('/api/suppliers').then(r => r.json()).then(res => {
+    apiFetch('/api/suppliers').then(r => r.json()).then(res => {
       const data = res.data || res;
       setSuppliers(Array.isArray(data) ? data : data.suppliers || []);
     });
@@ -53,7 +52,7 @@ export default function NewCreditNotePage() {
     setIsSubmitting(true);
 
     try {
-      const res = await fetch('/api/accounting/credit-notes', {
+      const res = await apiFetch('/api/accounting/credit-notes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -88,8 +87,8 @@ export default function NewCreditNotePage() {
               <ArrowLeft className="h-4 w-4" /> Back to Credit Notes
             </Link>
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-emerald-500/10">
-                <FileText className="h-6 w-6 text-emerald-500" />
+              <div className="p-2 rounded-lg bg-teal-500/10">
+                <FileText className="h-6 w-6 text-teal-500" />
               </div>
               <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">New Credit Note</h1>
             </div>
@@ -221,7 +220,7 @@ export default function NewCreditNotePage() {
             <button
               type="submit"
               disabled={isSubmitting || form.subtotal <= 0}
-              className="inline-flex items-center gap-2 px-6 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors text-sm font-medium"
+              className="inline-flex items-center gap-2 px-6 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 transition-colors text-sm font-medium"
             >
               {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
               Create Credit Note

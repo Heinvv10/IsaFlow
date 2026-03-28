@@ -8,6 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { TrendingUp, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import { ExchangeRatesPanel } from '@/components/accounting/currencies/ExchangeRatesPanel';
 import type { Currency, ExchangeRate } from '@/modules/accounting/services/currencyService';
+import { apiFetch } from '@/lib/apiFetch';
 
 export default function ExchangeRatesPage() {
   const [currencies, setCurrencies] = useState<Currency[]>([]);
@@ -20,8 +21,8 @@ export default function ExchangeRatesPage() {
     setError('');
     try {
       const [currRes, ratesRes] = await Promise.all([
-        fetch('/api/accounting/currencies', { credentials: 'include' }),
-        fetch('/api/accounting/exchange-rates?limit=50', { credentials: 'include' }),
+        apiFetch('/api/accounting/currencies', { credentials: 'include' }),
+        apiFetch('/api/accounting/exchange-rates?limit=50', { credentials: 'include' }),
       ]);
       const currJson = await currRes.json();
       const ratesJson = await ratesRes.json();

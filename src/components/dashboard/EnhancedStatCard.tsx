@@ -121,7 +121,7 @@ const EnhancedStatCardComponent = ({
   const cardClasses = cn(
     'group relative overflow-hidden bg-gray-800 rounded-lg border border-gray-700 shadow-sm',
     'hover:shadow-md transition-all duration-200',
-    (onClick || route) && !error && 'cursor-pointer hover:border-emerald-500/50',
+    (onClick || route) && !error && 'cursor-pointer hover:border-teal-500/50',
     variant === 'compact' ? 'p-4' : 'p-6',
     className
   );

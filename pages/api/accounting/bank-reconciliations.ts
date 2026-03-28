@@ -7,7 +7,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withCompany, type AuthenticatedNextApiRequest, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import {
   getReconciliations,
@@ -16,18 +16,20 @@ import {
 } from '@/modules/accounting/services/bankReconciliationService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyApiRequest;
+
   if (req.method === 'GET') {
     try {
       const { bank_account_id, id } = req.query;
 
       if (id) {
-        const recon = await getReconciliationById(String(id));
+        const recon = await getReconciliationById(companyId, String(id));
         if (!recon) return apiResponse.notFound(res, 'Reconciliation', String(id));
         return apiResponse.success(res, recon);
       }
 
       const result = await getReconciliations(
-        bank_account_id ? String(bank_account_id) : undefined
+        companyId, bank_account_id ? String(bank_account_id) : undefined
       );
       return apiResponse.success(res, result);
     } catch (err) {
@@ -47,7 +49,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       }
 
       const recon = await startReconciliation(
-        String(bankAccountId), String(statementDate),
+        companyId, String(bankAccountId), String(statementDate),
         Number(statementBalance), userId
       );
       return apiResponse.created(res, recon);
@@ -62,4 +64,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

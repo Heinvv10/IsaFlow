@@ -28,7 +28,7 @@ interface JournalEntryFilters {
   offset?: number;
 }
 
-export async function getJournalEntries(filters?: JournalEntryFilters): Promise<{
+export async function getJournalEntries(_companyId: string, filters?: JournalEntryFilters): Promise<{
   entries: JournalEntry[];
   total: number;
 }> {
@@ -110,7 +110,7 @@ export async function getJournalEntries(filters?: JournalEntryFilters): Promise<
   }
 }
 
-export async function getJournalEntryById(
+export async function getJournalEntryById(_companyId: string, 
   id: string
 ): Promise<(JournalEntry & { lines: JournalLine[] }) | null> {
   try {
@@ -140,7 +140,7 @@ export async function getJournalEntryById(
   }
 }
 
-export async function createJournalEntry(
+export async function createJournalEntry(_companyId: string, 
   input: JournalEntryCreateInput,
   userId: string
 ): Promise<JournalEntry> {
@@ -206,9 +206,9 @@ export async function createJournalEntry(
   }
 }
 
-export async function postJournalEntry(id: string, userId: string): Promise<JournalEntry> {
+export async function postJournalEntry(_companyId: string, id: string, userId: string): Promise<JournalEntry> {
   try {
-    const entry = await getJournalEntryById(id);
+    const entry = await getJournalEntryById(_companyId, id);
     if (!entry) throw new Error(`Journal entry ${id} not found`);
     if (entry.status !== 'draft') throw new Error(`Cannot post entry with status: ${entry.status}`);
 
@@ -247,9 +247,9 @@ export async function postJournalEntry(id: string, userId: string): Promise<Jour
   }
 }
 
-export async function reverseJournalEntry(id: string, userId: string): Promise<JournalEntry> {
+export async function reverseJournalEntry(_companyId: string, id: string, userId: string): Promise<JournalEntry> {
   try {
-    const entry = await getJournalEntryById(id);
+    const entry = await getJournalEntryById(_companyId, id);
     if (!entry) throw new Error(`Journal entry ${id} not found`);
     if (entry.status !== 'posted') throw new Error('Can only reverse posted entries');
     if (!entry.lines || entry.lines.length === 0) throw new Error('Entry has no lines');
@@ -263,7 +263,7 @@ export async function reverseJournalEntry(id: string, userId: string): Promise<J
       costCenterId: l.costCenterId,
     }));
 
-    const reversalEntry = await createJournalEntry({
+    const reversalEntry = await createJournalEntry(_companyId, {
       entryDate: new Date().toISOString().split('T')[0]!,
       description: `Reversal of ${entry.entryNumber}`,
       source: entry.source,
@@ -271,7 +271,7 @@ export async function reverseJournalEntry(id: string, userId: string): Promise<J
       lines: reversalLines,
     }, userId);
 
-    await postJournalEntry(reversalEntry.id, userId);
+    await postJournalEntry('', reversalEntry.id, userId);
 
     await sql`
       UPDATE gl_journal_entries
@@ -297,10 +297,21 @@ export async function reverseJournalEntry(id: string, userId: string): Promise<J
   }
 }
 
-export async function getTrialBalance(fiscalPeriodId: string, costCentreId?: string): Promise<TrialBalanceRow[]> {
+export async function getTrialBalance(companyId: string, fiscalPeriodId: string, costCentreId?: string): Promise<TrialBalanceRow[]> {
   try {
     if (!costCentreId) {
-      const rows = (await sql`SELECT * FROM get_trial_balance(${fiscalPeriodId}::UUID)`) as Row[];
+      // Use direct query with company_id filter instead of the SQL function
+      const rows = (await sql`
+        SELECT a.account_code, a.account_name, a.account_type, a.normal_balance,
+          COALESCE(b.debit_total, 0) AS debit_balance,
+          COALESCE(b.credit_total, 0) AS credit_balance
+        FROM gl_accounts a
+        LEFT JOIN gl_account_balances b ON b.gl_account_id = a.id AND b.fiscal_period_id = ${fiscalPeriodId}::UUID
+        WHERE a.is_active = true
+          AND a.company_id = ${companyId}::UUID
+          AND (COALESCE(b.debit_total, 0) != 0 OR COALESCE(b.credit_total, 0) != 0)
+        ORDER BY a.account_code
+      `) as Row[];
       return rows.map(r => ({
         accountCode: String(r.account_code),
         accountName: String(r.account_name),
@@ -320,6 +331,7 @@ export async function getTrialBalance(fiscalPeriodId: string, costCentreId?: str
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id
       WHERE je.status = 'posted'
+        AND je.company_id = ${companyId}::UUID
         AND je.fiscal_period_id = ${fiscalPeriodId}::UUID
         AND jl.cost_center_id = ${costCentreId}::UUID
       GROUP BY ga.id, ga.account_code, ga.account_name, ga.account_type, ga.normal_balance

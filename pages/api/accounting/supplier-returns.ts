@@ -11,7 +11,7 @@ import { sql } from '@/lib/neon';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -19,6 +19,8 @@ type Row = Record<string, any>;
 
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyApiRequest;
+
   if (req.method === 'GET') {
     try {
       const returns = (await sql`
@@ -33,7 +35,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           cn.reason
         FROM credit_notes cn
         LEFT JOIN suppliers s ON s.id = cn.supplier_id
-        WHERE cn.type = 'supplier'
+        WHERE cn.type = 'supplier' AND cn.company_id = ${companyId}
         ORDER BY cn.credit_date DESC
       `) as Row[];
 
@@ -55,18 +57,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     try {
       // Generate return number
       const countRows = (await sql`
-        SELECT COUNT(*)::int as cnt FROM credit_notes WHERE type = 'supplier'
+        SELECT COUNT(*)::int as cnt FROM credit_notes WHERE type = 'supplier' AND company_id = ${companyId}
       `) as Row[];
       const countRow = countRows[0];
       const returnNum = `DR-${String(Number(countRow?.cnt ?? 0) + 1).padStart(4, '0')}`;
 
       const createdRows = (await sql`
         INSERT INTO credit_notes (
-          id, credit_note_number, type, supplier_id,
+          id, company_id, credit_note_number, type, supplier_id,
           total_amount, reason,
           status, credit_date, created_by, created_at
         ) VALUES (
-          gen_random_uuid(), ${returnNum}, 'supplier', ${supplierId},
+          gen_random_uuid(), ${companyId}, ${returnNum}, 'supplier', ${supplierId},
           ${amount}, ${reason || ''},
           'draft', NOW(), ${userId}, NOW()
         )
@@ -86,4 +88,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

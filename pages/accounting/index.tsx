@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { EnhancedStatCard, StatsGrid } from '@/components/dashboard/EnhancedStatCard';
+import { useCompany } from '@/contexts/CompanyContext';
 import { log } from '@/lib/logger';
 import Link from 'next/link';
 import {
@@ -28,13 +28,17 @@ import {
   FileText,
   CreditCard,
   Landmark,
-  Database,
   Pencil,
   Trash2,
   Save,
   X,
 } from 'lucide-react';
+import {
+  LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+} from 'recharts';
 import type { GLAccount, GLAccountType, FiscalPeriod, JournalEntry, TrialBalanceRow } from '@/modules/accounting/types/gl.types';
+import { apiFetch } from '@/lib/apiFetch';
 
 type AccountingTab = 'overview' | 'chart-of-accounts' | 'journal-entries' | 'fiscal-periods' | 'reports';
 
@@ -48,6 +52,7 @@ const TABS: { id: AccountingTab; label: string; icon: React.ElementType }[] = [
 
 export default function AccountingPage() {
   const router = useRouter();
+  const { activeCompany } = useCompany();
   const [activeTab, setActiveTab] = useState<AccountingTab>('overview');
   const [isMounted, setIsMounted] = useState(false);
 
@@ -74,7 +79,7 @@ export default function AccountingPage() {
       <AppLayout>
         <div className="min-h-screen bg-[var(--ff-bg-primary)] flex items-center justify-center">
           <div className="text-center">
-            <Loader2 className="h-8 w-8 animate-spin text-emerald-500 mx-auto mb-2" />
+            <Loader2 className="h-8 w-8 animate-spin text-teal-500 mx-auto mb-2" />
             <p className="text-[var(--ff-text-secondary)]">Loading accounting module...</p>
           </div>
         </div>
@@ -90,11 +95,11 @@ export default function AccountingPage() {
           <div className="px-6 py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-emerald-500/10">
-                  <Calculator className="h-6 w-6 text-emerald-500" />
+                <div className="p-2 rounded-lg bg-teal-500/10">
+                  <Calculator className="h-6 w-6 text-teal-500" />
                 </div>
                 <div>
-                  <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Accounting</h1>
+                  <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">{activeCompany?.tradingName || activeCompany?.name || 'ISAFlow'}</h1>
                   <p className="text-sm text-[var(--ff-text-secondary)]">
                     General Ledger, Journal Entries & Financial Reports
                   </p>
@@ -103,7 +108,7 @@ export default function AccountingPage() {
               {activeTab === 'journal-entries' && (
                 <Link
                   href="/accounting/journal-entries/new"
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors text-sm font-medium"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium"
                 >
                   <Plus className="h-4 w-4" />
                   New Journal Entry
@@ -125,7 +130,7 @@ export default function AccountingPage() {
                     className={`
                       flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap
                       ${isActive
-                        ? 'border-emerald-500 text-emerald-600'
+                        ? 'border-teal-500 text-teal-600'
                         : 'border-transparent text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:border-[var(--ff-border-medium)]'
                       }
                     `}
@@ -153,214 +158,343 @@ export default function AccountingPage() {
 }
 
 // =====================================================
-// Overview Tab
+// Overview Tab — KPI Dashboard
 // =====================================================
 
-interface DashStats {
-  banks: { code: string; name: string; balance: number }[];
-  totalBankBalance: number;
-  apTotal: number;
-  arTotal: number;
-  monthRevenue: number;
-  monthExpenses: number;
-  unallocatedTx: number;
-  recentJournals: { id: string; date: string; description: string; source: string; status: string; amount: number }[];
-  // Legacy
-  totalAccounts: number;
-  totalEntries: number;
-  draftEntries: number;
-  currentPeriod: string;
+function fmtCurrency(n: number): string {
+  return 'R ' + new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 }
 
-function fmtCurrency(n: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
+function fmtCompact(n: number): string {
+  if (Math.abs(n) >= 1_000_000) return 'R ' + (n / 1_000_000).toFixed(1) + 'M';
+  if (Math.abs(n) >= 1_000) return 'R ' + (n / 1_000).toFixed(1) + 'K';
+  return fmtCurrency(n);
+}
+
+interface KPIData {
+  kpis: {
+    revenue: { total: number; priorTotal: number; changePercent: number };
+    expenses: { total: number; priorTotal: number };
+    grossProfit: { amount: number; margin: number };
+    netProfit: { amount: number; margin: number };
+    cash: { total: number; priorTotal: number; change: number };
+    receivables: { total: number; overdue: number; avgDebtorDays: number };
+    payables: { total: number; overdue: number; avgCreditorDays: number };
+    activity: { invoicesIssued: number; paymentsReceived: number; journalsPosted: number };
+  };
+  revenueChart: { month: string; revenue: number; expenses: number }[];
+  cashFlowChart: { month: string; inflows: number; outflows: number }[];
+  arAging: { name: string; value: number }[];
+  apAging: { name: string; value: number }[];
+  topCustomers: { name: string; revenue: number; invoiceCount: number }[];
+  topExpenses: { accountName: string; total: number; percentOfExpenses: number }[];
 }
 
 function OverviewTab() {
-  const [stats, setStats] = useState<DashStats>({
-    banks: [], totalBankBalance: 0, apTotal: 0, arTotal: 0,
-    monthRevenue: 0, monthExpenses: 0, unallocatedTx: 0, recentJournals: [],
-    totalAccounts: 0, totalEntries: 0, draftEntries: 0, currentPeriod: '',
-  });
-  const [recentEntries, setRecentEntries] = useState<JournalEntry[]>([]);
+  const [data, setData] = useState<KPIData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    loadOverviewData();
+    loadKPIData();
   }, []);
 
-  const loadOverviewData = async () => {
+  const loadKPIData = async () => {
     setIsLoading(true);
     try {
-      const [dashRes, accountsRes, entriesRes, periodsRes] = await Promise.all([
-        fetch('/api/accounting/dashboard-stats', { credentials: 'include' }),
-        fetch('/api/accounting/chart-of-accounts'),
-        fetch('/api/accounting/journal-entries'),
-        fetch('/api/accounting/fiscal-periods?current=true'),
-      ]);
-
-      const dashData = await dashRes.json();
-      const dash = dashData.data || dashData;
-      const accountsData = await accountsRes.json();
-      const entriesData = await entriesRes.json();
-      const periodsData = await periodsRes.json();
-
-      const accounts = accountsData.data || accountsData || [];
-      const entriesPayload = entriesData.data || entriesData;
-      const entries = entriesPayload.entries || entriesPayload || [];
-      const period = periodsData.data || periodsData;
-
-      setStats({
-        banks: dash.banks || [],
-        totalBankBalance: Number(dash.totalBankBalance || 0),
-        apTotal: Number(dash.apTotal || 0),
-        arTotal: Number(dash.arTotal || 0),
-        monthRevenue: Number(dash.monthRevenue || 0),
-        monthExpenses: Number(dash.monthExpenses || 0),
-        unallocatedTx: Number(dash.unallocatedTx || 0),
-        recentJournals: dash.recentJournals || [],
-        totalAccounts: Array.isArray(accounts) ? accounts.length : 0,
-        totalEntries: Array.isArray(entries) ? entries.length : 0,
-        draftEntries: Array.isArray(entries) ? entries.filter((e: JournalEntry) => e.status === 'draft').length : 0,
-        currentPeriod: period?.periodName || 'N/A',
-      });
-
-      if (Array.isArray(entries)) {
-        setRecentEntries(entries.slice(0, 5));
-      }
+      const res = await apiFetch('/api/accounting/kpi-dashboard', { credentials: 'include' });
+      const json = await res.json();
+      const payload = json.data || json;
+      setData(payload);
     } catch (err) {
-      log.error('Failed to load overview data', { error: err }, 'accounting-ui');
+      log.error('Failed to load KPI data', { error: err }, 'accounting-ui');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const statCards = [
-    {
-      title: 'Bank Balance',
-      value: isLoading ? '...' : fmtCurrency(stats.totalBankBalance),
-      icon: Landmark,
-      color: '#10b981',
-      subtitle: `${stats.banks.length} accounts`,
-      route: '/accounting/bank-transactions',
-    },
-    {
-      title: 'Accounts Payable',
-      value: isLoading ? '...' : fmtCurrency(stats.apTotal),
-      icon: FileText,
-      color: '#f59e0b',
-      subtitle: 'Outstanding to suppliers',
-      route: '/accounting/ap-aging',
-    },
-    {
-      title: 'Accounts Receivable',
-      value: isLoading ? '...' : fmtCurrency(stats.arTotal),
-      icon: CreditCard,
-      color: '#3b82f6',
-      subtitle: 'Owed by customers',
-      route: '/accounting/ar-aging',
-    },
-    {
-      title: 'Current Period',
-      value: stats.currentPeriod,
-      icon: Calendar,
-      color: '#8b5cf6',
-      subtitle: 'Active fiscal period',
-      route: '/accounting/fiscal-periods',
-    },
-  ];
+  const kpis = data?.kpis;
+  const AGING_COLORS = ['#14b8a6', '#fbbf24', '#f97316', '#f43f5e'];
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
-      <StatsGrid cards={statCards.map(c => ({ ...c, isLoading }))} columns={4} />
-
-      {/* Financial Summary Row */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Bank Accounts */}
-        <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-[var(--ff-text-primary)]">Bank Accounts</h3>
-            <Link href="/accounting/bank-transactions" className="text-xs text-emerald-400 hover:underline">View all</Link>
+      {/* Row 1 — Key Metric Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Revenue */}
+        <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-medium uppercase tracking-wider text-[var(--ff-text-secondary)]">Revenue</span>
+            <TrendingUp className="h-4 w-4 text-teal-500" />
           </div>
-          {stats.banks.map(b => (
-            <div key={b.code} className="flex items-center justify-between py-1.5 border-b border-[var(--ff-border-light)]/50 last:border-0">
-              <div>
-                <span className="text-xs font-mono text-[var(--ff-text-tertiary)] mr-2">{b.code}</span>
-                <span className="text-xs text-[var(--ff-text-secondary)]">{b.name.replace('Bank - ', '')}</span>
-              </div>
-              <span className={`text-xs font-mono font-bold ${b.balance >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                {fmtCurrency(b.balance)}
-              </span>
-            </div>
-          ))}
-          {stats.banks.length === 0 && !isLoading && (
-            <p className="text-xs text-[var(--ff-text-tertiary)]">No bank accounts</p>
+          <p className="text-2xl font-bold text-[var(--ff-text-primary)]">{fmtCompact(kpis?.revenue.total ?? 0)}</p>
+          <p className={`text-xs mt-1 ${(kpis?.revenue.changePercent ?? 0) >= 0 ? 'text-teal-500' : 'text-rose-500'}`}>
+            {(kpis?.revenue.changePercent ?? 0) >= 0 ? '+' : ''}{(kpis?.revenue.changePercent ?? 0).toFixed(1)}% vs prior period
+          </p>
+        </div>
+
+        {/* Gross Profit */}
+        <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-medium uppercase tracking-wider text-[var(--ff-text-secondary)]">Gross Profit</span>
+            <DollarSign className="h-4 w-4 text-teal-500" />
+          </div>
+          <p className="text-2xl font-bold text-[var(--ff-text-primary)]">{fmtCompact(kpis?.grossProfit.amount ?? 0)}</p>
+          <p className="text-xs mt-1 text-[var(--ff-text-tertiary)]">
+            Margin: {(kpis?.grossProfit.margin ?? 0).toFixed(1)}%
+          </p>
+        </div>
+
+        {/* Cash Position */}
+        <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-medium uppercase tracking-wider text-[var(--ff-text-secondary)]">Cash Position</span>
+            <Landmark className="h-4 w-4 text-teal-500" />
+          </div>
+          <p className="text-2xl font-bold text-[var(--ff-text-primary)]">{fmtCompact(kpis?.cash.total ?? 0)}</p>
+          <p className={`text-xs mt-1 ${(kpis?.cash.change ?? 0) >= 0 ? 'text-teal-500' : 'text-rose-500'}`}>
+            {(kpis?.cash.change ?? 0) >= 0 ? '+' : ''}{fmtCompact(kpis?.cash.change ?? 0)} change
+          </p>
+        </div>
+
+        {/* Outstanding AR */}
+        <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-medium uppercase tracking-wider text-[var(--ff-text-secondary)]">Outstanding AR</span>
+            <CreditCard className="h-4 w-4 text-teal-500" />
+          </div>
+          <p className="text-2xl font-bold text-[var(--ff-text-primary)]">{fmtCompact(kpis?.receivables.total ?? 0)}</p>
+          {(kpis?.receivables.overdue ?? 0) > 0 ? (
+            <p className="text-xs mt-1 text-rose-500">
+              {fmtCompact(kpis?.receivables.overdue ?? 0)} overdue
+            </p>
+          ) : (
+            <p className="text-xs mt-1 text-teal-500">No overdue</p>
           )}
-        </div>
-
-        {/* Month-to-Date P&L */}
-        <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
-          <h3 className="text-sm font-semibold text-[var(--ff-text-primary)] mb-3">Month-to-Date</h3>
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-[var(--ff-text-secondary)]">Revenue</span>
-              <span className="text-xs font-mono font-bold text-emerald-400">{fmtCurrency(stats.monthRevenue)}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-[var(--ff-text-secondary)]">Expenses</span>
-              <span className="text-xs font-mono font-bold text-red-400">{fmtCurrency(stats.monthExpenses)}</span>
-            </div>
-            <div className="border-t border-[var(--ff-border-light)] pt-2 flex items-center justify-between">
-              <span className="text-xs font-medium text-[var(--ff-text-primary)]">Net Profit</span>
-              <span className={`text-sm font-mono font-bold ${stats.monthRevenue - stats.monthExpenses >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                {fmtCurrency(stats.monthRevenue - stats.monthExpenses)}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Pending Actions */}
-        <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
-          <h3 className="text-sm font-semibold text-[var(--ff-text-primary)] mb-3">Pending Actions</h3>
-          <div className="space-y-2">
-            <Link href="/accounting/bank-transactions" className="flex items-center justify-between group no-underline">
-              <span className="text-xs text-[var(--ff-text-secondary)] group-hover:text-[var(--ff-text-primary)]">Unallocated Bank Tx</span>
-              <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-                stats.unallocatedTx > 0 ? 'bg-amber-500/10 text-amber-400' : 'bg-emerald-500/10 text-emerald-400'
-              }`}>{stats.unallocatedTx}</span>
-            </Link>
-            <Link href="/accounting/journal-entries" className="flex items-center justify-between group no-underline">
-              <span className="text-xs text-[var(--ff-text-secondary)] group-hover:text-[var(--ff-text-primary)]">Draft Journal Entries</span>
-              <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-                stats.draftEntries > 0 ? 'bg-amber-500/10 text-amber-400' : 'bg-emerald-500/10 text-emerald-400'
-              }`}>{stats.draftEntries}</span>
-            </Link>
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-[var(--ff-text-secondary)]">GL Accounts</span>
-              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400">{stats.totalAccounts}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-[var(--ff-text-secondary)]">Total Journal Entries</span>
-              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400">{stats.totalEntries}</span>
-            </div>
-          </div>
         </div>
       </div>
 
-      {/* Quick Actions */}
+      {/* Row 2 — Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Revenue vs Expenses Line Chart */}
+        <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5">
+          <h3 className="text-sm font-semibold text-[var(--ff-text-primary)] mb-4">Revenue vs Expenses</h3>
+          {(data?.revenueChart?.length ?? 0) > 0 ? (
+            <ResponsiveContainer width="100%" height={260}>
+              <LineChart data={data?.revenueChart ?? []}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--ff-border-light)" />
+                <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'var(--ff-text-secondary)' }} />
+                <YAxis tick={{ fontSize: 11, fill: 'var(--ff-text-secondary)' }} tickFormatter={(v) => fmtCompact(Number(v))} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: 'var(--ff-bg-secondary)', border: '1px solid var(--ff-border-light)', borderRadius: '8px', color: 'var(--ff-text-primary)' }}
+                  formatter={(value) => [fmtCurrency(Number(value)), '']}
+                />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Line type="monotone" dataKey="revenue" name="Revenue" stroke="#14b8a6" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="expenses" name="Expenses" stroke="#f43f5e" strokeWidth={2} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex items-center justify-center h-[260px] text-[var(--ff-text-tertiary)] text-sm">No data available</div>
+          )}
+        </div>
+
+        {/* Cash Flow Bar Chart */}
+        <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5">
+          <h3 className="text-sm font-semibold text-[var(--ff-text-primary)] mb-4">Cash Flow</h3>
+          {(data?.cashFlowChart?.length ?? 0) > 0 ? (
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={data?.cashFlowChart ?? []}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--ff-border-light)" />
+                <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'var(--ff-text-secondary)' }} />
+                <YAxis tick={{ fontSize: 11, fill: 'var(--ff-text-secondary)' }} tickFormatter={(v) => fmtCompact(Number(v))} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: 'var(--ff-bg-secondary)', border: '1px solid var(--ff-border-light)', borderRadius: '8px', color: 'var(--ff-text-primary)' }}
+                  formatter={(value) => [fmtCurrency(Number(value)), '']}
+                />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Bar dataKey="inflows" name="Inflows" fill="#2dd4bf" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="outflows" name="Outflows" fill="#fb923c" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex items-center justify-center h-[260px] text-[var(--ff-text-tertiary)] text-sm">No data available</div>
+          )}
+        </div>
+      </div>
+
+      {/* Row 3 — Tables */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Top 5 Customers */}
+        <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
+          <div className="px-5 py-3 border-b border-[var(--ff-border-light)]">
+            <h3 className="text-sm font-semibold text-[var(--ff-text-primary)]">Top 5 Customers by Revenue</h3>
+          </div>
+          {(data?.topCustomers?.length ?? 0) > 0 ? (
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-[var(--ff-border-light)]">
+                  <th className="px-5 py-2 text-left text-xs font-medium uppercase text-[var(--ff-text-secondary)]">Customer</th>
+                  <th className="px-5 py-2 text-right text-xs font-medium uppercase text-[var(--ff-text-secondary)]">Revenue</th>
+                  <th className="px-5 py-2 text-right text-xs font-medium uppercase text-[var(--ff-text-secondary)]">Invoices</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(data?.topCustomers ?? []).map((c, i) => (
+                  <tr key={i} className="border-b border-[var(--ff-border-light)]/50 last:border-0">
+                    <td className="px-5 py-2.5 text-sm text-[var(--ff-text-primary)] truncate max-w-[200px]">{c.name}</td>
+                    <td className="px-5 py-2.5 text-sm text-right font-mono text-teal-500">{fmtCurrency(c.revenue)}</td>
+                    <td className="px-5 py-2.5 text-sm text-right text-[var(--ff-text-secondary)]">{c.invoiceCount}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <div className="p-8 text-center text-sm text-[var(--ff-text-tertiary)]">No customer data</div>
+          )}
+        </div>
+
+        {/* Top 5 Expense Categories */}
+        <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
+          <div className="px-5 py-3 border-b border-[var(--ff-border-light)]">
+            <h3 className="text-sm font-semibold text-[var(--ff-text-primary)]">Top 5 Expense Categories</h3>
+          </div>
+          {(data?.topExpenses?.length ?? 0) > 0 ? (
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-[var(--ff-border-light)]">
+                  <th className="px-5 py-2 text-left text-xs font-medium uppercase text-[var(--ff-text-secondary)]">Account</th>
+                  <th className="px-5 py-2 text-right text-xs font-medium uppercase text-[var(--ff-text-secondary)]">Total</th>
+                  <th className="px-5 py-2 text-right text-xs font-medium uppercase text-[var(--ff-text-secondary)]">%</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(data?.topExpenses ?? []).map((e, i) => (
+                  <tr key={i} className="border-b border-[var(--ff-border-light)]/50 last:border-0">
+                    <td className="px-5 py-2.5 text-sm text-[var(--ff-text-primary)] truncate max-w-[200px]">{e.accountName}</td>
+                    <td className="px-5 py-2.5 text-sm text-right font-mono text-rose-500">{fmtCurrency(e.total)}</td>
+                    <td className="px-5 py-2.5 text-sm text-right text-[var(--ff-text-secondary)]">{e.percentOfExpenses.toFixed(1)}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <div className="p-8 text-center text-sm text-[var(--ff-text-tertiary)]">No expense data</div>
+          )}
+        </div>
+      </div>
+
+      {/* Row 4 — Aging Donut Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* AR Aging */}
+        <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5">
+          <h3 className="text-sm font-semibold text-[var(--ff-text-primary)] mb-4">AR Aging</h3>
+          {(data?.arAging ?? []).some(b => b.value > 0) ? (
+            <div className="flex items-center gap-4">
+              <ResponsiveContainer width="50%" height={200}>
+                <PieChart>
+                  <Pie
+                    data={data?.arAging ?? []}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={50}
+                    outerRadius={80}
+                    paddingAngle={2}
+                  >
+                    {(data?.arAging ?? []).map((_entry, index) => (
+                      <Cell key={`ar-${index}`} fill={AGING_COLORS[index % AGING_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{ backgroundColor: 'var(--ff-bg-secondary)', border: '1px solid var(--ff-border-light)', borderRadius: '8px', color: 'var(--ff-text-primary)' }}
+                    formatter={(value) => [fmtCurrency(Number(value)), '']}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="flex-1 space-y-2">
+                {(data?.arAging ?? []).map((bucket, i) => (
+                  <div key={i} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: AGING_COLORS[i] }} />
+                      <span className="text-xs text-[var(--ff-text-secondary)]">{bucket.name}</span>
+                    </div>
+                    <span className="text-xs font-mono text-[var(--ff-text-primary)]">{fmtCurrency(bucket.value)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-center h-[200px] text-[var(--ff-text-tertiary)] text-sm">No outstanding AR</div>
+          )}
+        </div>
+
+        {/* AP Aging */}
+        <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5">
+          <h3 className="text-sm font-semibold text-[var(--ff-text-primary)] mb-4">AP Aging</h3>
+          {(data?.apAging ?? []).some(b => b.value > 0) ? (
+            <div className="flex items-center gap-4">
+              <ResponsiveContainer width="50%" height={200}>
+                <PieChart>
+                  <Pie
+                    data={data?.apAging ?? []}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={50}
+                    outerRadius={80}
+                    paddingAngle={2}
+                  >
+                    {(data?.apAging ?? []).map((_entry, index) => (
+                      <Cell key={`ap-${index}`} fill={AGING_COLORS[index % AGING_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{ backgroundColor: 'var(--ff-bg-secondary)', border: '1px solid var(--ff-border-light)', borderRadius: '8px', color: 'var(--ff-text-primary)' }}
+                    formatter={(value) => [fmtCurrency(Number(value)), '']}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="flex-1 space-y-2">
+                {(data?.apAging ?? []).map((bucket, i) => (
+                  <div key={i} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: AGING_COLORS[i] }} />
+                      <span className="text-xs text-[var(--ff-text-secondary)]">{bucket.name}</span>
+                    </div>
+                    <span className="text-xs font-mono text-[var(--ff-text-primary)]">{fmtCurrency(bucket.value)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-center h-[200px] text-[var(--ff-text-tertiary)] text-sm">No outstanding AP</div>
+          )}
+        </div>
+      </div>
+
+      {/* Row 5 — Quick Actions */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Link
           href="/accounting/journal-entries/new"
-          className="flex items-center gap-3 p-4 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] hover:border-emerald-500/50 hover:shadow-md transition-all group no-underline"
+          className="flex items-center gap-3 p-4 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] hover:border-teal-500/50 hover:shadow-md transition-all group no-underline"
         >
-          <div className="p-2 rounded-lg bg-emerald-500/10">
-            <Plus className="h-5 w-5 text-emerald-500" />
+          <div className="p-2 rounded-lg bg-teal-500/10">
+            <Plus className="h-5 w-5 text-teal-500" />
           </div>
           <div className="flex-1 min-w-0">
             <p className="font-medium text-[var(--ff-text-primary)]">New Journal Entry</p>
             <p className="text-sm text-[var(--ff-text-secondary)]">Create a manual journal entry</p>
           </div>
-          <ArrowRight className="h-4 w-4 text-[var(--ff-text-tertiary)] group-hover:text-emerald-500 transition-colors" />
+          <ArrowRight className="h-4 w-4 text-[var(--ff-text-tertiary)] group-hover:text-teal-500 transition-colors" />
         </Link>
 
         <Link
@@ -378,21 +512,20 @@ function OverviewTab() {
         </Link>
 
         <Link
-          href="/accounting/fiscal-periods"
-          className="flex items-center gap-3 p-4 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] hover:border-purple-500/50 hover:shadow-md transition-all group no-underline"
+          href="/accounting/bank-reconciliation"
+          className="flex items-center gap-3 p-4 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] hover:border-indigo-500/50 hover:shadow-md transition-all group no-underline"
         >
-          <div className="p-2 rounded-lg bg-purple-500/10">
-            <Calendar className="h-5 w-5 text-purple-500" />
+          <div className="p-2 rounded-lg bg-indigo-500/10">
+            <Landmark className="h-5 w-5 text-indigo-500" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="font-medium text-[var(--ff-text-primary)]">Fiscal Periods</p>
-            <p className="text-sm text-[var(--ff-text-secondary)]">Manage period open/close</p>
+            <p className="font-medium text-[var(--ff-text-primary)]">Bank Reconciliation</p>
+            <p className="text-sm text-[var(--ff-text-secondary)]">Match statements to GL entries</p>
           </div>
-          <ArrowRight className="h-4 w-4 text-[var(--ff-text-tertiary)] group-hover:text-purple-500 transition-colors" />
+          <ArrowRight className="h-4 w-4 text-[var(--ff-text-tertiary)] group-hover:text-indigo-500 transition-colors" />
         </Link>
       </div>
 
-      {/* AP Quick Actions */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Link
           href="/accounting/supplier-invoices"
@@ -409,62 +542,17 @@ function OverviewTab() {
         </Link>
 
         <Link
-          href="/accounting/supplier-payments"
-          className="flex items-center gap-3 p-4 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] hover:border-cyan-500/50 hover:shadow-md transition-all group no-underline"
-        >
-          <div className="p-2 rounded-lg bg-cyan-500/10">
-            <DollarSign className="h-5 w-5 text-cyan-500" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-medium text-[var(--ff-text-primary)]">Supplier Payments</p>
-            <p className="text-sm text-[var(--ff-text-secondary)]">Payment runs & allocations</p>
-          </div>
-          <ArrowRight className="h-4 w-4 text-[var(--ff-text-tertiary)] group-hover:text-cyan-500 transition-colors" />
-        </Link>
-
-        <Link
-          href="/accounting/ap-aging"
-          className="flex items-center gap-3 p-4 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] hover:border-red-500/50 hover:shadow-md transition-all group no-underline"
-        >
-          <div className="p-2 rounded-lg bg-red-500/10">
-            <TrendingUp className="h-5 w-5 text-red-500" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-medium text-[var(--ff-text-primary)]">AP Aging Report</p>
-            <p className="text-sm text-[var(--ff-text-secondary)]">Outstanding invoices by age</p>
-          </div>
-          <ArrowRight className="h-4 w-4 text-[var(--ff-text-tertiary)] group-hover:text-red-500 transition-colors" />
-        </Link>
-      </div>
-
-      {/* AR Quick Actions */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Link
           href="/accounting/customer-payments"
-          className="flex items-center gap-3 p-4 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] hover:border-emerald-500/50 hover:shadow-md transition-all group no-underline"
+          className="flex items-center gap-3 p-4 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] hover:border-teal-500/50 hover:shadow-md transition-all group no-underline"
         >
-          <div className="p-2 rounded-lg bg-emerald-500/10">
-            <CreditCard className="h-5 w-5 text-emerald-500" />
+          <div className="p-2 rounded-lg bg-teal-500/10">
+            <CreditCard className="h-5 w-5 text-teal-500" />
           </div>
           <div className="flex-1 min-w-0">
             <p className="font-medium text-[var(--ff-text-primary)]">Customer Payments</p>
             <p className="text-sm text-[var(--ff-text-secondary)]">Record & allocate payments</p>
           </div>
-          <ArrowRight className="h-4 w-4 text-[var(--ff-text-tertiary)] group-hover:text-emerald-500 transition-colors" />
-        </Link>
-
-        <Link
-          href="/accounting/credit-notes"
-          className="flex items-center gap-3 p-4 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] hover:border-amber-500/50 hover:shadow-md transition-all group no-underline"
-        >
-          <div className="p-2 rounded-lg bg-amber-500/10">
-            <FileText className="h-5 w-5 text-amber-500" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-medium text-[var(--ff-text-primary)]">Credit Notes</p>
-            <p className="text-sm text-[var(--ff-text-secondary)]">Customer & supplier credits</p>
-          </div>
-          <ArrowRight className="h-4 w-4 text-[var(--ff-text-tertiary)] group-hover:text-amber-500 transition-colors" />
+          <ArrowRight className="h-4 w-4 text-[var(--ff-text-tertiary)] group-hover:text-teal-500 transition-colors" />
         </Link>
 
         <Link
@@ -480,108 +568,6 @@ function OverviewTab() {
           </div>
           <ArrowRight className="h-4 w-4 text-[var(--ff-text-tertiary)] group-hover:text-teal-500 transition-colors" />
         </Link>
-      </div>
-
-      {/* Bank Reconciliation */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Link
-          href="/accounting/bank-reconciliation"
-          className="flex items-center gap-3 p-4 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] hover:border-indigo-500/50 hover:shadow-md transition-all group no-underline"
-        >
-          <div className="p-2 rounded-lg bg-indigo-500/10">
-            <Landmark className="h-5 w-5 text-indigo-500" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-medium text-[var(--ff-text-primary)]">Bank Reconciliation</p>
-            <p className="text-sm text-[var(--ff-text-secondary)]">Match statements to GL entries</p>
-          </div>
-          <ArrowRight className="h-4 w-4 text-[var(--ff-text-tertiary)] group-hover:text-indigo-500 transition-colors" />
-        </Link>
-
-        <Link
-          href="/accounting/bank-reconciliation/import"
-          className="flex items-center gap-3 p-4 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] hover:border-violet-500/50 hover:shadow-md transition-all group no-underline"
-        >
-          <div className="p-2 rounded-lg bg-violet-500/10">
-            <FileText className="h-5 w-5 text-violet-500" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-medium text-[var(--ff-text-primary)]">Import Bank Statement</p>
-            <p className="text-sm text-[var(--ff-text-secondary)]">FNB, Standard Bank, Nedbank CSV</p>
-          </div>
-          <ArrowRight className="h-4 w-4 text-[var(--ff-text-tertiary)] group-hover:text-violet-500 transition-colors" />
-        </Link>
-      </div>
-
-      {/* Sage Migration */}
-      <Link
-        href="/accounting/sage-migration"
-        className="flex items-center gap-3 p-4 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] hover:border-orange-500/50 hover:shadow-md transition-all group no-underline"
-      >
-        <div className="p-2 rounded-lg bg-orange-500/10">
-          <Database className="h-5 w-5 text-orange-500" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="font-medium text-[var(--ff-text-primary)]">Sage Migration</p>
-          <p className="text-sm text-[var(--ff-text-secondary)]">Import Sage data into native GL</p>
-        </div>
-        <ArrowRight className="h-4 w-4 text-[var(--ff-text-tertiary)] group-hover:text-orange-500 transition-colors" />
-      </Link>
-
-      {/* Recent Journal Entries */}
-      <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)]">
-        <div className="px-6 py-4 border-b border-[var(--ff-border-light)] flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-[var(--ff-text-primary)]">Recent Journal Entries</h3>
-          <Link
-            href="/accounting/journal-entries"
-            className="text-sm text-emerald-600 hover:text-emerald-700 font-medium"
-          >
-            View All
-          </Link>
-        </div>
-        {isLoading ? (
-          <div className="p-8 text-center">
-            <Loader2 className="h-6 w-6 animate-spin text-[var(--ff-text-tertiary)] mx-auto" />
-          </div>
-        ) : recentEntries.length === 0 ? (
-          <div className="p-8 text-center">
-            <FileSpreadsheet className="h-8 w-8 text-[var(--ff-text-tertiary)] mx-auto mb-2" />
-            <p className="text-[var(--ff-text-secondary)]">No journal entries yet</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-[var(--ff-border-light)]">
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-[var(--ff-text-secondary)]">Entry #</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-[var(--ff-text-secondary)]">Date</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-[var(--ff-text-secondary)]">Description</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-[var(--ff-text-secondary)]">Status</th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-[var(--ff-text-secondary)]">Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentEntries.map(entry => (
-                  <tr key={entry.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-tertiary)] transition-colors">
-                    <td className="px-6 py-3 text-sm font-medium text-emerald-600">{entry.entryNumber}</td>
-                    <td className="px-6 py-3 text-sm text-[var(--ff-text-primary)]">
-                      {new Date(entry.entryDate).toLocaleDateString()}
-                    </td>
-                    <td className="px-6 py-3 text-sm text-[var(--ff-text-primary)] max-w-xs truncate">
-                      {entry.description || '-'}
-                    </td>
-                    <td className="px-6 py-3">
-                      <StatusBadge status={entry.status} />
-                    </td>
-                    <td className="px-6 py-3 text-sm text-right font-medium text-[var(--ff-text-primary)]">
-                      {entry.lines ? `R ${entry.lines.reduce((s, l) => s + Number(l.debit), 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}` : '-'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
       </div>
     </div>
   );
@@ -650,7 +636,7 @@ function ChartOfAccountsTab() {
       const params = new URLSearchParams();
       if (viewMode === 'tree') params.set('view', 'tree');
       if (showInactive) params.set('includeInactive', 'true');
-      const res = await fetch(`/api/accounting/chart-of-accounts?${params}`);
+      const res = await apiFetch(`/api/accounting/chart-of-accounts?${params}`);
       const data = await res.json();
       setAccounts(data.data || data || []);
     } catch (err) {
@@ -665,7 +651,7 @@ function ChartOfAccountsTab() {
     setIsSaving(true);
     try {
       const normalBalance = (addForm.accountType === 'asset' || addForm.accountType === 'expense') ? 'debit' : 'credit';
-      const res = await fetch('/api/accounting/chart-of-accounts', {
+      const res = await apiFetch('/api/accounting/chart-of-accounts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -696,7 +682,7 @@ function ChartOfAccountsTab() {
 
   const handleUpdateAccount = async (id: string, data: { accountName: string; description: string; defaultVatCode: string }) => {
     try {
-      const res = await fetch('/api/accounting/chart-of-accounts', {
+      const res = await apiFetch('/api/accounting/chart-of-accounts', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -716,7 +702,7 @@ function ChartOfAccountsTab() {
   const handleDeleteAccount = async (id: string) => {
     if (!window.confirm('Deactivate this account? It will be hidden from the chart of accounts.')) return;
     try {
-      const res = await fetch(`/api/accounting/chart-of-accounts-detail?id=${id}`, {
+      const res = await apiFetch(`/api/accounting/chart-of-accounts-detail?id=${id}`, {
         method: 'DELETE',
         credentials: 'include',
       });
@@ -740,7 +726,7 @@ function ChartOfAccountsTab() {
       case 'asset': return 'bg-blue-500/20 text-blue-400';
       case 'liability': return 'bg-red-500/20 text-red-400';
       case 'equity': return 'bg-purple-500/20 text-purple-400';
-      case 'revenue': return 'bg-emerald-500/20 text-emerald-400';
+      case 'revenue': return 'bg-teal-500/20 text-teal-400';
       case 'expense': return 'bg-amber-500/20 text-amber-400';
       default: return 'bg-gray-500/20 text-gray-400';
     }
@@ -772,7 +758,7 @@ function ChartOfAccountsTab() {
               onClick={() => setViewMode('flat')}
               className={`px-3 py-2 text-sm font-medium transition-colors ${
                 viewMode === 'flat'
-                  ? 'bg-emerald-600 text-white'
+                  ? 'bg-teal-600 text-white'
                   : 'bg-[var(--ff-bg-secondary)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'
               }`}
             >
@@ -782,7 +768,7 @@ function ChartOfAccountsTab() {
               onClick={() => setViewMode('tree')}
               className={`px-3 py-2 text-sm font-medium transition-colors ${
                 viewMode === 'tree'
-                  ? 'bg-emerald-600 text-white'
+                  ? 'bg-teal-600 text-white'
                   : 'bg-[var(--ff-bg-secondary)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'
               }`}
             >
@@ -807,7 +793,7 @@ function ChartOfAccountsTab() {
           </p>
           <button
             onClick={() => setShowAddForm(!showAddForm)}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors text-sm font-medium"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium"
           >
             <Plus className="h-4 w-4" />
             Add Account
@@ -817,7 +803,7 @@ function ChartOfAccountsTab() {
 
       {/* Add Account Form */}
       {showAddForm && (
-        <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-emerald-500/30 p-4 space-y-4">
+        <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-teal-500/30 p-4 space-y-4">
           <h4 className="text-sm font-semibold text-[var(--ff-text-primary)]">New Account</h4>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
@@ -905,7 +891,7 @@ function ChartOfAccountsTab() {
               <button
                 onClick={handleAddAccount}
                 disabled={isSaving || !addForm.accountCode || !addForm.accountName}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors text-sm font-medium disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium disabled:opacity-50"
               >
                 {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
                 {isSaving ? 'Creating...' : 'Create Account'}
@@ -1068,7 +1054,7 @@ function AccountRow({
               <button
                 onClick={handleSave}
                 disabled={isSaving}
-                className="p-1.5 rounded text-emerald-400 hover:bg-emerald-500/10 transition-colors disabled:opacity-50"
+                className="p-1.5 rounded text-teal-400 hover:bg-teal-500/10 transition-colors disabled:opacity-50"
                 title="Save"
               >
                 {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
@@ -1134,7 +1120,7 @@ function JournalEntriesTab() {
     try {
       const params = new URLSearchParams();
       if (statusFilter !== 'all') params.set('status', statusFilter);
-      const res = await fetch(`/api/accounting/journal-entries?${params}`);
+      const res = await apiFetch(`/api/accounting/journal-entries?${params}`);
       const data = await res.json();
       const payload = data.data || data;
       setEntries(payload.entries || payload || []);
@@ -1163,7 +1149,7 @@ function JournalEntriesTab() {
         </div>
         <Link
           href="/accounting/journal-entries/new"
-          className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors text-sm font-medium"
+          className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium"
         >
           <Plus className="h-4 w-4" />
           New Entry
@@ -1182,7 +1168,7 @@ function JournalEntriesTab() {
             <p className="text-[var(--ff-text-secondary)]">No journal entries found</p>
             <Link
               href="/accounting/journal-entries/new"
-              className="inline-flex items-center gap-2 mt-3 text-sm text-emerald-600 hover:text-emerald-700 font-medium"
+              className="inline-flex items-center gap-2 mt-3 text-sm text-teal-600 hover:text-teal-700 font-medium"
             >
               <Plus className="h-4 w-4" />
               Create your first entry
@@ -1205,7 +1191,7 @@ function JournalEntriesTab() {
                 {entries.map(entry => (
                   <tr key={entry.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-tertiary)] transition-colors">
                     <td className="px-6 py-3">
-                      <Link href={`/accounting/journal-entries/${entry.id}`} className="text-sm font-medium text-emerald-600 hover:text-emerald-700">
+                      <Link href={`/accounting/journal-entries/${entry.id}`} className="text-sm font-medium text-teal-600 hover:text-teal-700">
                         {entry.entryNumber}
                       </Link>
                     </td>
@@ -1258,7 +1244,7 @@ function FiscalPeriodsTab() {
   const loadPeriods = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch('/api/accounting/fiscal-periods');
+      const res = await apiFetch('/api/accounting/fiscal-periods');
       const data = await res.json();
       setPeriods(data.data || data || []);
     } catch (err) {
@@ -1271,7 +1257,7 @@ function FiscalPeriodsTab() {
   const handlePeriodAction = async (periodId: string, action: 'close' | 'lock' | 'reopen') => {
     setActionLoading(periodId);
     try {
-      const res = await fetch('/api/accounting/fiscal-periods-action', {
+      const res = await apiFetch('/api/accounting/fiscal-periods-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -1291,7 +1277,7 @@ function FiscalPeriodsTab() {
 
   const statusIcon = (status: string) => {
     switch (status) {
-      case 'open': return <CheckCircle2 className="h-4 w-4 text-emerald-500" />;
+      case 'open': return <CheckCircle2 className="h-4 w-4 text-teal-500" />;
       case 'closing': return <Clock className="h-4 w-4 text-amber-500" />;
       case 'closed': return <Lock className="h-4 w-4 text-blue-500" />;
       case 'locked': return <Lock className="h-4 w-4 text-red-500" />;
@@ -1301,7 +1287,7 @@ function FiscalPeriodsTab() {
 
   const statusColor = (status: string) => {
     switch (status) {
-      case 'open': return 'bg-emerald-500/20 text-emerald-400';
+      case 'open': return 'bg-teal-500/20 text-teal-400';
       case 'closing': return 'bg-amber-500/20 text-amber-400';
       case 'closed': return 'bg-blue-500/20 text-blue-400';
       case 'locked': return 'bg-red-500/20 text-red-400';
@@ -1365,7 +1351,7 @@ function FiscalPeriodsTab() {
                             <button
                               onClick={() => handlePeriodAction(period.id, 'reopen')}
                               disabled={actionLoading === period.id}
-                              className="px-3 py-1 text-xs font-medium rounded bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors disabled:opacity-50"
+                              className="px-3 py-1 text-xs font-medium rounded bg-teal-500/20 text-teal-400 hover:bg-teal-500/30 transition-colors disabled:opacity-50"
                             >
                               Reopen
                             </button>
@@ -1404,7 +1390,7 @@ function ReportsTab() {
 
   const loadPeriods = async () => {
     try {
-      const res = await fetch('/api/accounting/fiscal-periods');
+      const res = await apiFetch('/api/accounting/fiscal-periods');
       const data = await res.json();
       const list = data.data || data || [];
       setPeriods(list);
@@ -1419,7 +1405,7 @@ function ReportsTab() {
     if (!selectedPeriod) return;
     setIsLoading(true);
     try {
-      const res = await fetch(`/api/accounting/reports-trial-balance?fiscal_period_id=${selectedPeriod}`);
+      const res = await apiFetch(`/api/accounting/reports-trial-balance?fiscal_period_id=${selectedPeriod}`);
       const data = await res.json();
       const payload = data.data || data;
       setTrialBalance(payload.rows || []);
@@ -1442,7 +1428,7 @@ function ReportsTab() {
     <div className="space-y-6">
       {/* Report Navigation */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Link href="/accounting/reports/income-statement" className="p-4 rounded-lg bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] hover:border-emerald-500/50 transition-all no-underline">
+        <Link href="/accounting/reports/income-statement" className="p-4 rounded-lg bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] hover:border-teal-500/50 transition-all no-underline">
           <p className="font-medium text-sm text-[var(--ff-text-primary)]">Income Statement</p>
           <p className="text-xs text-[var(--ff-text-tertiary)]">Profit & Loss</p>
         </Link>
@@ -1555,7 +1541,7 @@ function ReportsTab() {
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
     draft: 'bg-amber-500/20 text-amber-400',
-    posted: 'bg-emerald-500/20 text-emerald-400',
+    posted: 'bg-teal-500/20 text-teal-400',
     reversed: 'bg-red-500/20 text-red-400',
     voided: 'bg-gray-500/20 text-gray-400',
   };

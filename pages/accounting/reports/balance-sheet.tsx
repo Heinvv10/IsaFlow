@@ -9,10 +9,8 @@ import Link from 'next/link';
 import { ArrowLeft, BarChart3, Loader2, AlertCircle, CheckCircle2, ChevronDown, ChevronRight, Download } from 'lucide-react';
 import type { BalanceSheetReport } from '@/modules/accounting/types/gl.types';
 import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
-
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amount);
-}
+import { formatCurrency } from '@/utils/formatters';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface CostCentre { id: string; code: string; name: string }
 
@@ -27,10 +25,10 @@ export default function BalanceSheetPage() {
   const [showComparative, setShowComparative] = useState(false);
 
   useEffect(() => {
-    fetch('/api/accounting/cost-centres?active_only=true', { credentials: 'include' })
+    apiFetch('/api/accounting/cost-centres?active_only=true', { credentials: 'include' })
       .then(r => r.json())
       .then(json => setCostCentres(json.data?.items || json.data || []))
-      .catch(() => {});
+      .catch(() => { /* reference data load failure — non-critical, cost centre filter will be empty */ });
   }, []);
 
   const loadReport = useCallback(async () => {
@@ -45,7 +43,7 @@ export default function BalanceSheetPage() {
         d.setFullYear(d.getFullYear() - 1);
         params.set('compare_date', d.toISOString().slice(0, 10));
       }
-      const res = await fetch(`/api/accounting/reports-balance-sheet?${params}`);
+      const res = await apiFetch(`/api/accounting/reports-balance-sheet?${params}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Failed to load');
       setReport(json.data || json);
@@ -138,7 +136,7 @@ export default function BalanceSheetPage() {
           ) : report ? (
             <div className="space-y-4">
               {balanced && (
-                <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-500/10 text-emerald-400 text-sm">
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-teal-500/10 text-teal-400 text-sm">
                   <CheckCircle2 className="h-4 w-4" /> Balance sheet is balanced (A = L + E)
                 </div>
               )}
@@ -168,7 +166,7 @@ export default function BalanceSheetPage() {
                             <span className="flex items-center gap-3">
                               <span className="font-mono text-[var(--ff-text-tertiary)] text-xs w-24 text-right">{formatCurrency(a.priorBalance)}</span>
                               <span className="font-mono text-[var(--ff-text-primary)] w-24 text-right">{formatCurrency(a.balance)}</span>
-                              <span className={`font-mono text-xs w-20 text-right ${(a.variance ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                              <span className={`font-mono text-xs w-20 text-right ${(a.variance ?? 0) >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
                                 {(a.variance ?? 0) >= 0 ? '+' : ''}{formatCurrency(a.variance ?? 0)}
                               </span>
                             </span>
@@ -214,7 +212,7 @@ export default function BalanceSheetPage() {
                               <span className="flex items-center gap-3">
                                 <span className="font-mono text-[var(--ff-text-tertiary)] text-xs w-24 text-right">{formatCurrency(l.priorBalance)}</span>
                                 <span className="font-mono text-[var(--ff-text-primary)] w-24 text-right">{formatCurrency(l.balance)}</span>
-                                <span className={`font-mono text-xs w-20 text-right ${(l.variance ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                <span className={`font-mono text-xs w-20 text-right ${(l.variance ?? 0) >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
                                   {(l.variance ?? 0) >= 0 ? '+' : ''}{formatCurrency(l.variance ?? 0)}
                                 </span>
                               </span>
@@ -258,7 +256,7 @@ export default function BalanceSheetPage() {
                               <span className="flex items-center gap-3">
                                 <span className="font-mono text-[var(--ff-text-tertiary)] text-xs w-24 text-right">{formatCurrency(e.priorBalance)}</span>
                                 <span className="font-mono text-[var(--ff-text-primary)] w-24 text-right">{formatCurrency(e.balance)}</span>
-                                <span className={`font-mono text-xs w-20 text-right ${(e.variance ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                <span className={`font-mono text-xs w-20 text-right ${(e.variance ?? 0) >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
                                   {(e.variance ?? 0) >= 0 ? '+' : ''}{formatCurrency(e.variance ?? 0)}
                                 </span>
                               </span>

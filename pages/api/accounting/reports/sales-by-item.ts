@@ -4,14 +4,12 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { neon } from '@neondatabase/serverless';
+import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 
-const sql = neon(process.env.DATABASE_URL!);
-
-export default withAuth(async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default withCompany(async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
 
   try {
@@ -19,6 +17,7 @@ export default withAuth(async function handler(req: NextApiRequest, res: NextApi
     const to = (req.query.to as string) || new Date().toISOString().split('T')[0];
     const format = req.query.format as string;
 
+    const { companyId } = req as CompanyApiRequest;
     const rows = await sql`
       SELECT
         cii.description AS name,
@@ -28,7 +27,8 @@ export default withAuth(async function handler(req: NextApiRequest, res: NextApi
         COALESCE(SUM(cii.line_total), 0)::numeric AS total_revenue
       FROM customer_invoice_items cii
       JOIN customer_invoices ci ON ci.id = cii.invoice_id
-      WHERE ci.invoice_date >= ${from}
+      WHERE ci.company_id = ${companyId}
+        AND ci.invoice_date >= ${from}
         AND ci.invoice_date <= ${to}
         AND ci.status != 'cancelled'
       GROUP BY cii.description, cii.income_type
