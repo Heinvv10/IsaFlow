@@ -100,7 +100,7 @@ export const TABS: Tab[] = [
       {
         section: 'Transactions',
         items: [
-          { label: 'Purchase Orders', href: '/accounting/supplier-purchase-orders' },
+          { label: 'Purchase Orders', href: '/accounting/purchase-orders' },
           { label: 'Invoices', href: '/accounting/supplier-invoices' },
           { label: 'Returns', href: '/accounting/supplier-returns' },
           { label: 'Payments', href: '/accounting/supplier-payments' },
@@ -464,6 +464,7 @@ export function getActiveTabId(
   if (
     pathname.startsWith('/accounting/suppliers') ||
     pathname.startsWith('/accounting/supplier-') ||
+    pathname.startsWith('/accounting/purchase-orders') ||
     pathname.startsWith('/accounting/batch-payments') ||
     pathname.startsWith('/accounting/ap-aging') ||
     pathname === '/accounting/reports/purchases-by-supplier' ||
