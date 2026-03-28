@@ -126,7 +126,17 @@ export const TABS: Tab[] = [
   },
   {
     id: 'items', label: 'Items',
+    topItems: [
+      { label: 'Add Product', href: '/accounting/products/new' },
+    ],
     items: [
+      {
+        section: 'Inventory',
+        items: [
+          { label: 'Products', href: '/accounting/products' },
+          { label: 'Stock Levels', href: '/accounting/stock-levels' },
+        ],
+      },
       {
         section: 'Transactions',
         items: [
@@ -463,6 +473,8 @@ export function getActiveTabId(
 
   // Items
   if (
+    pathname.startsWith('/accounting/products') ||
+    pathname.startsWith('/accounting/stock-levels') ||
     pathname.startsWith('/accounting/item-') ||
     pathname === '/accounting/reports/item-listing' ||
     pathname === '/accounting/reports/sales-by-item' ||

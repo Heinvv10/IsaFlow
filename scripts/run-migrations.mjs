@@ -35,6 +35,8 @@ const migrations = [
   '241_time_tracking.sql',
   '242_payment_gateway.sql',
   '243_onboarding.sql',
+  '244_fixed_assets.sql',
+  '245_inventory.sql',
 ];
 
 async function runMigrations() {
