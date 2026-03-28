@@ -5,8 +5,8 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { Writable } from 'stream';
 import formidable from 'formidable';
-import fs from 'fs';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
@@ -21,14 +21,31 @@ export const config = {
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
+/** In-memory file buffer attached to formidable file objects */
+const fileBuffers = new WeakMap<formidable.File, Buffer>();
+
 function parseForm(req: NextApiRequest): Promise<{ fields: formidable.Fields; files: formidable.Files }> {
   return new Promise((resolve, reject) => {
     const form = formidable({
       maxFileSize: MAX_FILE_SIZE,
       keepExtensions: true,
       filter: (part) => {
-        // Only accept PDF files
         return part.mimetype === 'application/pdf' || part.mimetype === null || part.mimetype === undefined;
+      },
+      // Write to memory instead of disk to avoid read-only filesystem issues
+      fileWriteStreamHandler: (file) => {
+        const chunks: Buffer[] = [];
+        const writable = new Writable({
+          write(chunk, _encoding, callback) {
+            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+            callback();
+          },
+          final(callback) {
+            fileBuffers.set(file as unknown as formidable.File, Buffer.concat(chunks));
+            callback();
+          },
+        });
+        return writable;
       },
     });
     form.parse(req, (err, fields, files) => {
@@ -111,8 +128,6 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
 async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;
   const user = (req as NextApiRequest & { user: { id: string } }).user;
-  let tempFilePath: string | null = null;
-
   try {
     const { files } = await parseForm(req);
 
@@ -123,7 +138,6 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, 'No file uploaded. Please select a PDF file.');
     }
 
-    tempFilePath = file.filepath;
     const mimeType = file.mimetype || '';
 
     if (mimeType !== 'application/pdf') {
@@ -134,8 +148,13 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, `File too large. Maximum size: ${MAX_FILE_SIZE / (1024 * 1024)}MB`);
     }
 
+    // Get the in-memory buffer
+    const buffer = fileBuffers.get(file);
+    if (!buffer || buffer.length === 0) {
+      return apiResponse.badRequest(res, 'Failed to read uploaded file');
+    }
+
     // Validate PDF magic bytes
-    const buffer = await fs.promises.readFile(file.filepath);
     const hex = buffer.subarray(0, 4).toString('hex').toUpperCase();
     if (!hex.startsWith('25504446')) {
       return apiResponse.badRequest(res, 'File does not appear to be a valid PDF');
@@ -194,12 +213,6 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     }
 
     return apiResponse.internalError(res, err, `Document capture failed: ${msg}`);
-  } finally {
-    if (tempFilePath) {
-      await fs.promises.unlink(tempFilePath).catch((e) =>
-        log.debug('Temp file cleanup failed', { error: e instanceof Error ? e.message : 'unknown' }, 'document-capture')
-      );
-    }
   }
 }
 
