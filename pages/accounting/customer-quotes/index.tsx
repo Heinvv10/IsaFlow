@@ -3,13 +3,14 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { FileText, Plus, Search, Loader2, Send, Check, X, ArrowRight } from 'lucide-react';
+import { FileText, Plus, Search, Loader2, Send, Check, X, ArrowRight, ExternalLink } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 
 interface Quote {
   id: string; quoteNumber: string; customerName: string; quoteDate: string;
-  expiryDate: string | null; status: string; total: number;
+  expiryDate: string | null; status: string; total: number; invoiceId?: string;
 }
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
@@ -26,6 +27,7 @@ const STATUS_BADGE: Record<string, string> = {
 const TABS = ['all', 'draft', 'sent', 'accepted', 'declined', 'expired', 'converted'] as const;
 
 export default function CustomerQuotesPage() {
+  const router = useRouter();
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -33,6 +35,8 @@ export default function CustomerQuotesPage() {
   const [search, setSearch] = useState('');
   const [showNew, setShowNew] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [converting, setConverting] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<{ text: string; invoiceId: string } | null>(null);
   const [form, setForm] = useState({ customerName: '', quoteDate: new Date().toISOString().split('T')[0], expiryDate: '', notes: '' });
   const [lines, setLines] = useState([{ description: '', quantity: 1, unitPrice: 0, taxRate: 15 }]);
 
@@ -57,6 +61,34 @@ export default function CustomerQuotesPage() {
       body: JSON.stringify({ id, action }),
     });
     load();
+  };
+
+  const handleConvert = async (q: Quote) => {
+    const confirmed = window.confirm(
+      `Convert quote ${q.quoteNumber} for ${q.customerName} (${fmt(q.total)}) to a customer invoice?`
+    );
+    if (!confirmed) return;
+    setConverting(q.id);
+    setSuccessMsg(null);
+    try {
+      const res = await apiFetch('/api/accounting/customer-quotes-action', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: q.id, action: 'convert' }),
+      });
+      const json = await res.json();
+      if (res.ok) {
+        const invoiceId = json.data?.invoiceId || json.invoiceId;
+        setSuccessMsg({
+          text: `Quote ${q.quoteNumber} converted successfully.`,
+          invoiceId,
+        });
+        load();
+      } else {
+        window.alert(json.error || json.message || 'Failed to convert quote');
+      }
+    } finally {
+      setConverting(null);
+    }
   };
 
   const handleCreate = async () => {
@@ -149,6 +181,24 @@ export default function CustomerQuotesPage() {
             </div>
           )}
 
+          {/* Success banner */}
+          {successMsg && (
+            <div className="flex items-center justify-between bg-teal-500/10 border border-teal-500/20 text-teal-400 rounded-lg px-4 py-3 text-sm">
+              <span>{successMsg.text}</span>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => router.push(`/accounting/customer-invoices/${successMsg.invoiceId}`)}
+                  className="flex items-center gap-1 text-teal-300 hover:text-teal-200 font-medium"
+                >
+                  View Invoice <ExternalLink className="h-3.5 w-3.5" />
+                </button>
+                <button onClick={() => setSuccessMsg(null)} className="text-teal-500 hover:text-teal-300">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Table */}
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
             {loading ? (
@@ -192,8 +242,24 @@ export default function CustomerQuotesPage() {
                               className="p-1.5 rounded hover:bg-red-500/10 text-red-400"><X className="h-3.5 w-3.5" /></button>
                           </>)}
                           {q.status === 'accepted' && (
-                            <button onClick={() => handleAction(q.id, 'convert')} title="Convert to Invoice"
-                              className="p-1.5 rounded hover:bg-purple-500/10 text-purple-400"><ArrowRight className="h-3.5 w-3.5" /></button>
+                            <button
+                              onClick={() => handleConvert(q)}
+                              disabled={converting === q.id}
+                              title="Convert to Invoice"
+                              className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 disabled:opacity-50"
+                            >
+                              {converting === q.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowRight className="h-3.5 w-3.5" />}
+                              Convert
+                            </button>
+                          )}
+                          {q.status === 'converted' && q.invoiceId && (
+                            <button
+                              onClick={() => router.push(`/accounting/customer-invoices/${q.invoiceId}`)}
+                              title="View Invoice"
+                              className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-teal-500/10 hover:bg-teal-500/20 text-teal-400"
+                            >
+                              <ExternalLink className="h-3.5 w-3.5" /> View Invoice
+                            </button>
                           )}
                         </div>
                       </td>

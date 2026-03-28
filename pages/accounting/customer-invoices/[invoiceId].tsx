@@ -7,7 +7,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, FileText, Loader2, AlertCircle, CheckCircle2, Send, XCircle, Download, Mail, X } from 'lucide-react';
+import { ArrowLeft, FileText, Loader2, AlertCircle, CheckCircle2, Send, XCircle, Download, Mail, X, CreditCard, Copy } from 'lucide-react';
 import { AccountingDocumentPanel } from '@/modules/accounting/documents';
 import { apiFetch } from '@/lib/apiFetch';
 
@@ -30,6 +30,7 @@ interface Invoice {
   billing_period_end: string; subtotal: number; tax_rate: number; tax_amount: number;
   total_amount: number; amount_paid: number; notes: string; gl_journal_entry_id: string;
   client_email?: string; email_sent_at?: string; email_sent_to?: string;
+  online_payment_enabled?: boolean; payment_url?: string;
   items: InvoiceItem[];
 }
 
@@ -44,6 +45,8 @@ export default function CustomerInvoiceDetailPage() {
   const [emailTo, setEmailTo] = useState('');
   const [emailSending, setEmailSending] = useState(false);
   const [emailSuccess, setEmailSuccess] = useState('');
+  const [paymentLoading, setPaymentLoading] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   useEffect(() => {
     if (!invoiceId) return;
@@ -109,6 +112,29 @@ export default function CustomerInvoiceDetailPage() {
     }
   };
 
+  const handleEnablePayment = async () => {
+    setPaymentLoading(true);
+    setError('');
+    try {
+      const res = await apiFetch('/api/accounting/payment-gateway', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoiceId, action: 'enable' }),
+      });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error?.message || e.message || 'Failed'); }
+      await loadInvoice();
+    } catch (e) { setError(e instanceof Error ? e.message : 'Failed to enable online payment'); }
+    finally { setPaymentLoading(false); }
+  };
+
+  const handleCopyPaymentLink = async () => {
+    if (!invoice?.payment_url) return;
+    try {
+      await navigator.clipboard.writeText(invoice.payment_url);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch { setError('Failed to copy link'); }
+  };
+
   if (loading) return <AppLayout><div className="flex items-center justify-center min-h-[60vh]"><Loader2 className="h-8 w-8 animate-spin text-blue-500" /></div></AppLayout>;
   if (!invoice) return <AppLayout><div className="flex items-center justify-center min-h-[60vh] flex-col"><AlertCircle className="h-8 w-8 text-red-400 mb-2" /><p className="text-[var(--ff-text-secondary)]">{error || 'Invoice not found'}</p></div></AppLayout>;
 
@@ -144,6 +170,19 @@ export default function CustomerInvoiceDetailPage() {
                 className="inline-flex items-center gap-1.5 px-3 py-2 border border-teal-500/50 text-teal-400 rounded-lg text-sm hover:bg-teal-500/10">
                 <Mail className="h-4 w-4" />Email Invoice
               </button>
+              {!invoice.online_payment_enabled && !['paid', 'cancelled', 'draft'].includes(invoice.status) && (
+                <button onClick={handleEnablePayment} disabled={paymentLoading}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 border border-purple-500/50 text-purple-400 rounded-lg text-sm hover:bg-purple-500/10 disabled:opacity-50">
+                  <CreditCard className="h-4 w-4" />{paymentLoading ? 'Enabling...' : 'Enable Online Payment'}
+                </button>
+              )}
+              {invoice.online_payment_enabled && invoice.payment_url && (
+                <button onClick={handleCopyPaymentLink}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 border border-purple-500/50 text-purple-400 rounded-lg text-sm hover:bg-purple-500/10">
+                  {linkCopied ? <CheckCircle2 className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                  {linkCopied ? 'Copied!' : 'Copy Payment Link'}
+                </button>
+              )}
               {canApprove && <button onClick={() => handleAction('approve')} disabled={!!actionLoading}
                 className="inline-flex items-center gap-1.5 px-3 py-2 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-500 disabled:opacity-50">
                 <CheckCircle2 className="h-4 w-4" />{actionLoading === 'approve' ? 'Approving...' : 'Approve'}

@@ -32,6 +32,8 @@ const migrations = [
   '236_multi_entity.sql',
   '237_bank_feeds.sql',
   '240_group_companies.sql',
+  '241_time_tracking.sql',
+  '242_payment_gateway.sql',
 ];
 
 async function runMigrations() {

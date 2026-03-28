@@ -4,7 +4,7 @@
  * User preference persisted in localStorage.
  */
 
-import { useState, useEffect, ReactNode } from 'react';
+import { useState, useEffect, useRef, ReactNode } from 'react';
 import { useRouter } from 'next/router';
 import {
   BookOpen,
@@ -17,6 +17,8 @@ import {
   Sun,
   PanelLeft,
   PanelTop,
+  Download,
+  X as XIcon,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { useAuth } from '@/contexts/AuthContext';
@@ -32,6 +34,7 @@ const AccountingNav = dynamic(
 
 const SIDEBAR_COLLAPSED_KEY = 'accounting-sidebar-collapsed';
 const NAV_MODE_KEY = 'accounting-nav-mode';
+const PWA_INSTALL_DISMISSED_KEY = 'isaflow-pwa-install-dismissed';
 
 type NavMode = 'top' | 'side';
 
@@ -58,12 +61,30 @@ export function AppLayout({ children }: AppLayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
+  // PWA install prompt
+  const deferredPromptRef = useRef<Event | null>(null);
+  const [showInstallBanner, setShowInstallBanner] = useState(false);
+
   useEffect(() => {
     const savedMode = localStorage.getItem(NAV_MODE_KEY) as NavMode | null;
     if (savedMode === 'top' || savedMode === 'side') setNavMode(savedMode);
     const savedCollapsed = localStorage.getItem(SIDEBAR_COLLAPSED_KEY);
     if (savedCollapsed !== null) setCollapsed(JSON.parse(savedCollapsed) as boolean);
     setHydrated(true);
+  }, []);
+
+  // Listen for PWA install prompt
+  useEffect(() => {
+    const dismissed = localStorage.getItem(PWA_INSTALL_DISMISSED_KEY);
+    if (dismissed) return;
+
+    const handler = (e: Event) => {
+      e.preventDefault();
+      deferredPromptRef.current = e;
+      setShowInstallBanner(true);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
 
   useEffect(() => {
@@ -79,6 +100,19 @@ export function AppLayout({ children }: AppLayoutProps) {
   }, [router.pathname]);
 
   const toggleNavMode = () => setNavMode(m => m === 'top' ? 'side' : 'top');
+
+  const handleInstall = async () => {
+    const prompt = deferredPromptRef.current as (Event & { prompt: () => Promise<void> }) | null;
+    if (!prompt) return;
+    await prompt.prompt();
+    deferredPromptRef.current = null;
+    setShowInstallBanner(false);
+  };
+
+  const dismissInstall = () => {
+    setShowInstallBanner(false);
+    localStorage.setItem(PWA_INSTALL_DISMISSED_KEY, '1');
+  };
 
   const userInitials = user
     ? (`${user.firstName?.[0] ?? ''}${user.lastName?.[0] ?? ''}`.toUpperCase() || user.email?.[0]?.toUpperCase() || 'U')
@@ -193,6 +227,24 @@ export function AppLayout({ children }: AppLayoutProps) {
 
       {/* ── Main area ────────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0">
+
+        {/* PWA install banner */}
+        {showInstallBanner && (
+          <div className="bg-teal-600 text-white px-4 py-2 flex items-center justify-between text-sm flex-shrink-0">
+            <div className="flex items-center gap-2">
+              <Download className="w-4 h-4" />
+              <span>Install IsaFlow for a faster, app-like experience</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={handleInstall} className="px-3 py-1 bg-white/20 hover:bg-white/30 rounded text-xs font-medium transition-colors">
+                Install
+              </button>
+              <button onClick={dismissInstall} className="p-1 hover:bg-white/20 rounded transition-colors" aria-label="Dismiss">
+                <XIcon className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Header bar */}
         <header className="bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 h-14 flex items-center px-4 gap-3 flex-shrink-0">
