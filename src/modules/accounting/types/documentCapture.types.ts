@@ -66,3 +66,80 @@ export interface CapturedDocument {
 }
 
 export type CapturedDocumentAction = 'confirm' | 'match_bank_tx' | 'reject';
+
+// ---------------------------------------------------------------------------
+// Bank Statement VLM extraction
+// ---------------------------------------------------------------------------
+
+export interface ExtractedBankTransaction {
+  date: string | null;
+  description: string;
+  amount: number;
+  balance: number | null;
+  reference: string | null;
+  transactionType: string | null;
+}
+
+export interface ExtractedBankStatement {
+  bankName: string | null;
+  accountNumber: string | null;
+  statementPeriod: { from: string | null; to: string | null } | null;
+  openingBalance: number | null;
+  closingBalance: number | null;
+  transactions: ExtractedBankTransaction[];
+  confidence: number;
+  warnings: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Statutory Document VLM extraction
+// ---------------------------------------------------------------------------
+
+export type StatutoryDocType = 'cipc' | 'tax_clearance' | 'bbee' | 'vat_registration' | 'unknown';
+
+export interface ExtractedStatutoryDoc {
+  documentType: StatutoryDocType;
+  entityName: string | null;
+  registrationNumber: string | null;
+  vatNumber: string | null;
+  taxNumber: string | null;
+  issueDate: string | null;
+  expiryDate: string | null;
+  bbeeLevel: number | null;
+  bbeeScore: number | null;
+  verificationAgency: string | null;
+  confidence: number;
+  warnings: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Document Validation
+// ---------------------------------------------------------------------------
+
+export interface ValidationDiscrepancy {
+  field: string;
+  expected: string | number | null;
+  actual: string | number | null;
+  severity: 'error' | 'warning' | 'info';
+  message: string;
+}
+
+export interface DocumentValidationResult {
+  valid: boolean;
+  score: number; // 0-1
+  discrepancies: ValidationDiscrepancy[];
+  validatedAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Compliance Alerts
+// ---------------------------------------------------------------------------
+
+export interface ComplianceAlert {
+  documentType: StatutoryDocType;
+  documentName: string;
+  status: 'valid' | 'expiring_soon' | 'expiring_warning' | 'expired' | 'missing';
+  expiryDate: string | null;
+  daysUntilExpiry: number | null;
+  message: string;
+}

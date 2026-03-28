@@ -6,8 +6,11 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, FileText, Plus, Trash2, Loader2 } from 'lucide-react';
+import { ArrowLeft, FileText, Plus, Trash2, Loader2, Info } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { ScanAndFillButton } from '@/components/accounting/ScanAndFillButton';
+import { fuzzyMatchClient } from '@/modules/accounting/utils/fuzzyMatch';
+import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
@@ -19,6 +22,7 @@ export default function NewCustomerInvoicePage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [scanBanner, setScanBanner] = useState<string | null>(null);
   const today = new Date().toISOString().split('T')[0];
 
   const [form, setForm] = useState({ clientId: '', invoiceDate: today, dueDate: '', billingPeriodStart: today, billingPeriodEnd: today, taxRate: 15, notes: '' });
@@ -40,6 +44,32 @@ export default function NewCustomerInvoicePage() {
   const subtotal = lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0);
   const tax = subtotal * (form.taxRate / 100);
   const total = subtotal + tax;
+
+  function handleExtracted(data: ExtractedDocument) {
+    const updates: Partial<typeof form> = {};
+    if (data.date) updates.invoiceDate = data.date;
+    if (data.dueDate) updates.dueDate = data.dueDate;
+    if (data.vatRate !== null) updates.taxRate = data.vatRate;
+
+    setForm(f => ({ ...f, ...updates }));
+
+    if (data.customerName && clients.length > 0) {
+      const match = fuzzyMatchClient(data.customerName, clients);
+      if (match) setForm(f => ({ ...f, clientId: String(match.id) }));
+    }
+
+    if (data.lineItems.length > 0) {
+      setLines(data.lineItems.map(li => ({
+        key: String(Date.now() + Math.random()),
+        description: li.description,
+        quantity: li.quantity ?? 1,
+        unitPrice: li.unitPrice ?? 0,
+        incomeType: 'other',
+      })));
+    }
+
+    setScanBanner(`Auto-filled (${Math.round(data.confidence * 100)}% confidence). Review all fields.`);
+  }
 
   const handleSubmit = async () => {
     if (!form.clientId) return setError('Select a client');
@@ -66,13 +96,22 @@ export default function NewCustomerInvoicePage() {
           <Link href="/accounting/customer-invoices" className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-blue-400 mb-3">
             <ArrowLeft className="h-4 w-4" /> Back to Invoices
           </Link>
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-blue-500/10"><FileText className="h-6 w-6 text-blue-500" /></div>
-            <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">New Customer Invoice</h1>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-blue-500/10"><FileText className="h-6 w-6 text-blue-500" /></div>
+              <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">New Customer Invoice</h1>
+            </div>
+            <ScanAndFillButton onExtracted={handleExtracted} label="Scan Invoice" />
           </div>
         </div>
 
         <div className="p-6 max-w-4xl space-y-6">
+          {scanBanner && (
+            <div className="p-3 bg-blue-500/10 rounded-lg text-blue-400 text-sm flex items-center gap-2">
+              <Info className="h-4 w-4 flex-shrink-0" />{scanBanner}
+              <button type="button" onClick={() => setScanBanner(null)} className="ml-auto text-blue-500 hover:text-blue-300 text-xs">Dismiss</button>
+            </div>
+          )}
           {error && <div className="p-3 bg-red-500/10 rounded-lg text-red-400 text-sm">{error}</div>}
 
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4 space-y-4">

@@ -11,6 +11,9 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
+import { isVlmAvailable } from '@/modules/accounting/services/vlmService';
+import { extractStatutoryDocWithVlm } from '@/modules/accounting/services/vlmService';
+import { log } from '@/lib/logger';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
@@ -104,7 +107,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       RETURNING id
     `) as Row[];
 
-    return apiResponse.created(res, { id: rows[0].id });
+    const docId = rows[0].id as string;
+
+    // Fire-and-forget VLM extraction for statutory documents
+    if (isVlmAvailable() && fileData) {
+      extractStatutoryDocData(fileData, documentType, docId).catch(err =>
+        log.warn('Statutory doc extraction failed', { error: err instanceof Error ? err.message : String(err) }, 'company-docs')
+      );
+    }
+
+    return apiResponse.created(res, { id: docId });
   }
 
   // ── DELETE (soft) ──
@@ -128,6 +140,32 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST', 'DELETE']);
+}
+
+/** Background statutory document VLM extraction */
+async function extractStatutoryDocData(fileData: string, docType: string, docId: string) {
+  // fileData is a base64 data URL
+  const match = fileData.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) return;
+  const mimeType = match[1]!;
+  const base64 = match[2]!;
+
+  const docTypeMap: Record<string, string> = {
+    cipc_certificate: 'cipc',
+    tax_clearance: 'tax_clearance',
+    bbbee_certificate: 'bbee',
+    vat_registration: 'vat_registration',
+  };
+
+  const result = await extractStatutoryDocWithVlm(base64, mimeType, docTypeMap[docType] || undefined);
+  if (result) {
+    await sql`
+      UPDATE company_documents
+      SET extracted_data = ${JSON.stringify(result)}::jsonb
+      WHERE id = ${docId}::uuid
+    `;
+    log.info('Statutory doc extraction stored', { docId, docType: result.documentType }, 'company-docs');
+  }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

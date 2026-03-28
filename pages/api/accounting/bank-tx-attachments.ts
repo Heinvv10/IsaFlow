@@ -18,6 +18,8 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
+import { extractFromPdf, extractFromImage } from '@/modules/accounting/services/ocrService';
+import { isVlmAvailable } from '@/modules/accounting/services/vlmService';
 
 // ── Local Types ───────────────────────────────────────────────────────────────
 
@@ -127,6 +129,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     const attachment = insertRows[0];
     log.info('Uploaded bank tx attachment', { bankTransactionId, fileName, byteSize }, 'bank-tx-attachments');
+
+    // Fire-and-forget VLM extraction on the attachment
+    if (isVlmAvailable() && mime && attachment?.id) {
+      extractAttachmentData(fileData, mime, attachment.id as string).catch(err =>
+        log.warn('Background attachment extraction failed', { error: err instanceof Error ? err.message : String(err) }, 'bank-tx-attachments')
+      );
+    }
+
     return apiResponse.created(res, attachment, 'Attachment uploaded');
   }
 
@@ -153,6 +163,28 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST', 'DELETE']);
+}
+
+/** Background VLM extraction for bank tx attachments */
+async function extractAttachmentData(dataUrl: string, mime: string, attachmentId: string) {
+  const base64Part = dataUrl.split(',')[1];
+  if (!base64Part) return;
+
+  const buffer = Buffer.from(base64Part, 'base64');
+  const isPdf = mime === 'application/pdf';
+
+  const extracted = isPdf
+    ? await extractFromPdf(buffer)
+    : await extractFromImage(buffer, mime);
+
+  if (extracted && extracted.confidence > 0) {
+    await sql`
+      UPDATE bank_transaction_attachments
+      SET extracted_data = ${JSON.stringify(extracted)}::jsonb
+      WHERE id = ${attachmentId}::uuid
+    `;
+    log.info('VLM extraction stored for bank tx attachment', { attachmentId, confidence: extracted.confidence }, 'bank-tx-attachments');
+  }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
