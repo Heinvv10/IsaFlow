@@ -68,63 +68,58 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
   // ─── POST: Create customer ──────────────────────────────────────────────────
   if (req.method === 'POST') {
     try {
-      const {
-        name,
-        email,
-        phone,
-        vat_number,
-        registration_number,
-        billing_address,
-        shipping_address,
-        contact_person,
-        payment_terms,
-        credit_limit,
-        is_active,
-        notes,
-      } = req.body as {
-        name?: string;
-        email?: string;
-        phone?: string;
-        vat_number?: string;
-        registration_number?: string;
-        billing_address?: string;
-        shipping_address?: string;
-        contact_person?: string;
-        payment_terms?: number;
-        credit_limit?: number | null;
-        is_active?: boolean;
-        notes?: string;
-      };
+      const b = req.body as Record<string, unknown>;
+      const name = b.name as string | undefined;
 
       if (!name?.trim()) {
         return apiResponse.badRequest(res, 'Customer name is required');
       }
 
+      const s = (k: string) => { const v = b[k]; return typeof v === 'string' && v.trim() ? v.trim() : null; };
+      const n = (k: string) => { const v = b[k]; return v !== undefined && v !== null && v !== '' ? Number(v) : null; };
+      const bool = (k: string, def = false) => { const v = b[k]; return typeof v === 'boolean' ? v : def; };
+
       const rows = (await sql`
         INSERT INTO customers (
-          company_id, name, email, phone, vat_number, registration_number,
+          company_id, name, email, phone, mobile, fax, web_address,
+          vat_number, registration_number,
           billing_address, shipping_address, contact_person,
-          payment_terms, credit_limit, is_active, notes
+          payment_terms, payment_terms_type, credit_limit, is_active, notes,
+          category_id, cash_sale, opening_balance, opening_balance_date,
+          accepts_electronic_invoices, auto_allocate_receipts,
+          statement_distribution, default_discount, default_vat_type,
+          subject_to_drc_vat, invoices_viewable_online
         ) VALUES (
           ${companyId},
           ${name.trim()},
-          ${email?.trim() || null},
-          ${phone?.trim() || null},
-          ${vat_number?.trim() || null},
-          ${registration_number?.trim() || null},
-          ${billing_address?.trim() || null},
-          ${shipping_address?.trim() || null},
-          ${contact_person?.trim() || null},
-          ${payment_terms ?? 30},
-          ${credit_limit ?? null},
-          ${is_active ?? true},
-          ${notes?.trim() || null}
+          ${s('email')},
+          ${s('phone')},
+          ${s('mobile')},
+          ${s('fax')},
+          ${s('web_address')},
+          ${s('vat_number')},
+          ${s('registration_number')},
+          ${s('billing_address')},
+          ${s('shipping_address')},
+          ${s('contact_person')},
+          ${n('payment_terms') ?? 30},
+          ${s('payment_terms_type') ?? 'days'},
+          ${n('credit_limit')},
+          ${bool('is_active', true)},
+          ${s('notes')},
+          ${s('category_id') ? s('category_id') : null}::uuid,
+          ${bool('cash_sale')},
+          ${n('opening_balance') ?? 0},
+          ${s('opening_balance_date')}::date,
+          ${bool('accepts_electronic_invoices')},
+          ${bool('auto_allocate_receipts')},
+          ${s('statement_distribution') ?? 'email'},
+          ${n('default_discount') ?? 0},
+          ${s('default_vat_type')},
+          ${bool('subject_to_drc_vat')},
+          ${bool('invoices_viewable_online', true)}
         )
-        RETURNING
-          id, name, email, phone, vat_number, registration_number,
-          billing_address, shipping_address, contact_person,
-          payment_terms, credit_limit, is_active, notes,
-          created_at
+        RETURNING *
       `) as Row[];
 
       log.info('Customer created', { id: rows[0]?.id, name: rows[0]?.name, module: 'accounting' });
