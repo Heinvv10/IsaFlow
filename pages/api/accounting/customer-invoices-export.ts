@@ -22,24 +22,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     let rows;
     if (status && status !== 'all') {
       rows = await sql`
-        SELECT ci.invoice_number, c.company_name AS client_name,
+        SELECT ci.invoice_number, c.name AS client_name,
           ci.total_amount, ci.amount_paid, ci.status, ci.reference,
-          ci.invoice_date, ci.due_date, p.project_name
+          ci.invoice_date, ci.due_date, NULL as project_name
         FROM customer_invoices ci
-        LEFT JOIN clients c ON c.id = ci.client_id
-        LEFT JOIN projects p ON p.id = ci.project_id
+        LEFT JOIN customers c ON c.id = ci.client_id
         WHERE ci.company_id = ${companyId}
           AND ci.status = ${status as string}
         ORDER BY ci.invoice_date DESC
       `;
     } else {
       rows = await sql`
-        SELECT ci.invoice_number, c.company_name AS client_name,
+        SELECT ci.invoice_number, c.name AS client_name,
           ci.total_amount, ci.amount_paid, ci.status, ci.reference,
-          ci.invoice_date, ci.due_date, p.project_name
+          ci.invoice_date, ci.due_date, NULL as project_name
         FROM customer_invoices ci
-        LEFT JOIN clients c ON c.id = ci.client_id
-        LEFT JOIN projects p ON p.id = ci.project_id
+        LEFT JOIN customers c ON c.id = ci.client_id
         WHERE ci.company_id = ${companyId}
         ORDER BY ci.invoice_date DESC
       `;

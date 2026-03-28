@@ -24,7 +24,7 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
         SELECT cc.id, cc.name, cc.description, cc.created_at,
                COUNT(c.id)::int AS client_count
         FROM customer_categories cc
-        LEFT JOIN clients c ON LOWER(c.category) = LOWER(cc.name)
+        LEFT JOIN customers c ON LOWER(c.category) = LOWER(cc.name)
         GROUP BY cc.id
         ORDER BY cc.name
       `) as Row[];

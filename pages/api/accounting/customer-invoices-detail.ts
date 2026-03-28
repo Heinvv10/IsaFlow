@@ -22,20 +22,34 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const { id } = req.query;
     if (!id) return apiResponse.badRequest(res, 'id is required');
 
-    const rows = (await sql`
-      SELECT ci.*, c.company_name AS client_name, c.email AS client_email, p.project_name
-      FROM customer_invoices ci
-      LEFT JOIN clients c ON c.id = ci.client_id
-      LEFT JOIN projects p ON p.id = ci.project_id
-      WHERE ci.id = ${id as string}::UUID AND ci.company_id = ${companyId}
-    `) as Row[];
-    if (rows.length === 0) return apiResponse.notFound(res, 'Invoice', id as string);
+    try {
+      const rows = (await sql`
+        SELECT ci.id, ci.invoice_number, ci.customer_id, ci.client_id,
+               ci.billing_period_start, ci.billing_period_end,
+               ci.subtotal, ci.tax_rate, ci.tax_amount, ci.total_amount,
+               ci.amount_paid, ci.status, ci.invoice_date, ci.due_date,
+               ci.sent_at, ci.paid_at, ci.notes, ci.internal_notes,
+               ci.project_id, ci.gl_journal_entry_id,
+               ci.email_sent_at, ci.email_sent_to,
+               ci.online_payment_enabled, ci.payment_url,
+               ci.created_at, ci.updated_at,
+               c.name AS client_name, c.email AS client_email
+        FROM customer_invoices ci
+        LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
+        WHERE ci.id = ${id as string}::UUID AND ci.company_id = ${companyId}
+      `) as Row[];
+      if (rows.length === 0) return apiResponse.notFound(res, 'Invoice', id as string);
 
-    const items = (await sql`
-      SELECT * FROM customer_invoice_items WHERE invoice_id = ${id as string}::UUID ORDER BY created_at
-    `) as Row[];
+      const items = (await sql`
+        SELECT * FROM customer_invoice_items WHERE invoice_id = ${id as string}::UUID ORDER BY created_at
+      `) as Row[];
 
-    return apiResponse.success(res, { ...rows[0], items });
+      return apiResponse.success(res, { ...rows[0], items });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.error('Customer invoice detail GET error', { error: msg }, 'customer-invoice-detail');
+      return apiResponse.internalError(res, err, `Failed to load invoice: ${msg}`);
+    }
   }
 
   if (req.method === 'PUT') {
