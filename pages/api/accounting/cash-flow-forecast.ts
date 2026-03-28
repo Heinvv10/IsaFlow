@@ -19,15 +19,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const threshold = Number(req.query.threshold) || 0;
   const includeHistory = req.query.history !== 'false';
 
-  const [forecast, historical] = await Promise.all([
-    generateForecast(companyId, months, threshold),
-    includeHistory ? getHistoricalForChart(companyId, 6) : Promise.resolve([]),
-  ]);
+  try {
+    const [forecast, historical] = await Promise.all([
+      generateForecast(companyId, months, threshold),
+      includeHistory ? getHistoricalForChart(companyId, 6) : Promise.resolve([]),
+    ]);
 
-  return apiResponse.success(res, {
-    ...forecast,
-    historical,
-  });
+    return apiResponse.success(res, {
+      ...forecast,
+      historical,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Cash flow forecast failed';
+    return apiResponse.internalError(res, err, message);
+  }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
