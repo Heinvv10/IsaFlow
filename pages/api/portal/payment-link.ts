@@ -9,6 +9,12 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth } from '@/lib/auth';
 import { createPaymentLink, getPaymentLink } from '@/modules/accounting/services/portalService';
+import { generatePayFastForm } from '@/modules/accounting/services/paymentGatewayService';
+import { sql } from '@/lib/neon';
+import { log } from '@/lib/logger';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Row = any;
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
@@ -16,7 +22,46 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!token) return apiResponse.badRequest(res, 'token is required');
     const link = await getPaymentLink(token);
     if (!link) return apiResponse.notFound(res, 'Payment link');
-    return apiResponse.success(res, link);
+
+    // Enrich with invoice details and PayFast form data
+    const enriched: Record<string, unknown> = { ...link };
+    try {
+      const invoiceRows = (await sql`
+        SELECT ci.invoice_number, ci.due_date, ci.online_payment_enabled, ci.company_id,
+               co.name AS company_name
+        FROM customer_invoices ci
+        LEFT JOIN companies co ON co.id = ci.company_id
+        WHERE ci.id = ${link.invoiceId}::UUID
+      `) as Row[];
+
+      if (invoiceRows[0]) {
+        enriched.invoiceNumber = invoiceRows[0].invoice_number;
+        enriched.dueDate = invoiceRows[0].due_date;
+        enriched.companyName = invoiceRows[0].company_name;
+
+        // Generate PayFast form data if online payment is enabled
+        if (invoiceRows[0].online_payment_enabled) {
+          const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3101';
+          const companyId = invoiceRows[0].company_id as string;
+          try {
+            const formData = await generatePayFastForm(
+              companyId,
+              link.invoiceId,
+              `${appUrl}/portal/pay/${token}?payment_status=success`,
+              `${appUrl}/portal/pay/${token}?payment_status=cancelled`,
+              `${appUrl}/api/accounting/payment-gateway-itn`,
+            );
+            enriched.payfastFormData = formData;
+          } catch (e) {
+            log.error('Failed to generate PayFast form for portal', e instanceof Error ? { message: e.message } : { error: e }, 'PaymentLink');
+          }
+        }
+      }
+    } catch (e) {
+      log.error('Failed to enrich payment link', e instanceof Error ? { message: e.message } : { error: e }, 'PaymentLink');
+    }
+
+    return apiResponse.success(res, enriched);
   }
 
   if (req.method === 'POST') {
