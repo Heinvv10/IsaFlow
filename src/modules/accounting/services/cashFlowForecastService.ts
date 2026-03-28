@@ -71,6 +71,11 @@ async function getCurrentCashBalance(): Promise<number> {
 
 /** Get monthly cash inflows and outflows for the last N months */
 async function getHistoricalCashFlows(months: number): Promise<HistoricalCashFlow[]> {
+  // Compute the start date in JS to avoid interval arithmetic in tagged templates
+  const startDate = new Date();
+  startDate.setMonth(startDate.getMonth() - months);
+  const startStr = startDate.toISOString().split('T')[0]!;
+
   const rows = (await sql`
     WITH monthly AS (
       SELECT
@@ -83,7 +88,7 @@ async function getHistoricalCashFlows(months: number): Promise<HistoricalCashFlo
       WHERE je.status = 'posted'
         AND ga.account_type = 'asset'
         AND ga.account_subtype IN ('bank', 'cash')
-        AND je.entry_date >= CURRENT_DATE - make_interval(months => ${months})
+        AND je.entry_date >= ${startStr}::DATE
       GROUP BY date_trunc('month', je.entry_date)
     )
     SELECT
@@ -193,12 +198,12 @@ export async function generateForecast(_companyId: string,
 
     // Known receivables due this month
     const knownInflows = receivables
-      .filter(r => r.dueDate.startsWith(monthStr))
+      .filter(r => String(r.dueDate).startsWith(monthStr))
       .reduce((sum, r) => sum + r.amount, 0);
 
     // Known payables due this month
     const knownOutflows = payables
-      .filter(p => p.dueDate.startsWith(monthStr))
+      .filter(p => String(p.dueDate).startsWith(monthStr))
       .reduce((sum, p) => sum + p.amount, 0);
 
     // Projected inflow: known receivables + recurring revenue + historical average for unknowns
