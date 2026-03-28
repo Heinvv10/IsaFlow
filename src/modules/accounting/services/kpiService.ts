@@ -53,7 +53,7 @@ export interface TopExpenseCategory {
 
 // ── Dashboard KPIs ──────────────────────────────────────────────────────────
 
-export async function getDashboardKPIs(_companyId: string, 
+export async function getDashboardKPIs(companyId: string,
   fromDate: string,
   toDate: string
 ): Promise<DashboardKPIs> {
@@ -90,6 +90,7 @@ export async function getDashboardKPIs(_companyId: string,
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
         WHERE ga.account_type = 'revenue' AND je.status = 'posted'
+          AND je.company_id = ${companyId}::UUID
           AND je.entry_date >= ${fromDate} AND je.entry_date <= ${toDate}
       `,
       // Prior period revenue
@@ -99,6 +100,7 @@ export async function getDashboardKPIs(_companyId: string,
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
         WHERE ga.account_type = 'revenue' AND je.status = 'posted'
+          AND je.company_id = ${companyId}::UUID
           AND je.entry_date >= ${priorFromStr} AND je.entry_date <= ${priorToStr}
       `,
       // Current period expenses
@@ -108,6 +110,7 @@ export async function getDashboardKPIs(_companyId: string,
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
         WHERE ga.account_type = 'expense' AND je.status = 'posted'
+          AND je.company_id = ${companyId}::UUID
           AND je.entry_date >= ${fromDate} AND je.entry_date <= ${toDate}
       `,
       // Prior period expenses
@@ -117,6 +120,7 @@ export async function getDashboardKPIs(_companyId: string,
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
         WHERE ga.account_type = 'expense' AND je.status = 'posted'
+          AND je.company_id = ${companyId}::UUID
           AND je.entry_date >= ${priorFromStr} AND je.entry_date <= ${priorToStr}
       `,
       // Current cash position (sum of all bank account balances from transactions)
@@ -125,6 +129,7 @@ export async function getDashboardKPIs(_companyId: string,
         FROM bank_transactions bt
         JOIN gl_accounts ga ON ga.id = bt.bank_account_id
         WHERE ga.account_subtype = 'bank' AND ga.is_active = true
+          AND bt.company_id = ${companyId}::UUID
       `,
       // Prior period cash (transactions up to prior period end)
       sql`
@@ -132,6 +137,7 @@ export async function getDashboardKPIs(_companyId: string,
         FROM bank_transactions bt
         JOIN gl_accounts ga ON ga.id = bt.bank_account_id
         WHERE ga.account_subtype = 'bank' AND ga.is_active = true
+          AND bt.company_id = ${companyId}::UUID
           AND bt.transaction_date <= ${priorToStr}
       `,
       // AR total outstanding
@@ -139,6 +145,7 @@ export async function getDashboardKPIs(_companyId: string,
         SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
         FROM customer_invoices
         WHERE status IN ('approved', 'sent', 'partially_paid', 'overdue')
+          AND company_id = ${companyId}::UUID
           AND (total_amount - COALESCE(amount_paid, 0)) > 0
       `,
       // AR overdue
@@ -146,6 +153,7 @@ export async function getDashboardKPIs(_companyId: string,
         SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
         FROM customer_invoices
         WHERE status IN ('approved', 'sent', 'partially_paid', 'overdue')
+          AND company_id = ${companyId}::UUID
           AND (total_amount - COALESCE(amount_paid, 0)) > 0
           AND due_date < CURRENT_DATE
       `,
@@ -156,6 +164,7 @@ export async function getDashboardKPIs(_companyId: string,
         ), 0) AS avg_days
         FROM customer_invoices
         WHERE status NOT IN ('cancelled', 'draft')
+          AND company_id = ${companyId}::UUID
           AND invoice_date >= ${fromDate}
       `,
       // AP total outstanding
@@ -163,6 +172,7 @@ export async function getDashboardKPIs(_companyId: string,
         SELECT COALESCE(SUM(balance), 0) AS total
         FROM supplier_invoices
         WHERE status IN ('approved', 'partially_paid')
+          AND company_id = ${companyId}::UUID
           AND balance > 0
       `,
       // AP overdue
@@ -170,6 +180,7 @@ export async function getDashboardKPIs(_companyId: string,
         SELECT COALESCE(SUM(balance), 0) AS total
         FROM supplier_invoices
         WHERE status IN ('approved', 'partially_paid')
+          AND company_id = ${companyId}::UUID
           AND balance > 0
           AND due_date < CURRENT_DATE
       `,
@@ -180,26 +191,30 @@ export async function getDashboardKPIs(_companyId: string,
         ), 0) AS avg_days
         FROM supplier_invoices
         WHERE status NOT IN ('cancelled', 'draft')
+          AND company_id = ${companyId}::UUID
           AND invoice_date >= ${fromDate}
       `,
       // Invoices issued this period
       sql`
         SELECT COUNT(*) AS count
         FROM customer_invoices
-        WHERE invoice_date >= ${fromDate} AND invoice_date <= ${toDate}
+        WHERE company_id = ${companyId}::UUID
+          AND invoice_date >= ${fromDate} AND invoice_date <= ${toDate}
           AND status NOT IN ('cancelled', 'draft')
       `,
       // Payments received this period
       sql`
         SELECT COUNT(*) AS count
         FROM customer_invoices
-        WHERE paid_date >= ${fromDate} AND paid_date <= ${toDate}
+        WHERE company_id = ${companyId}::UUID
+          AND paid_date >= ${fromDate} AND paid_date <= ${toDate}
       `,
       // Journal entries posted this period
       sql`
         SELECT COUNT(*) AS count
         FROM gl_journal_entries
-        WHERE status = 'posted'
+        WHERE company_id = ${companyId}::UUID
+          AND status = 'posted'
           AND entry_date >= ${fromDate} AND entry_date <= ${toDate}
       `,
     ]);
@@ -247,7 +262,7 @@ export async function getDashboardKPIs(_companyId: string,
 
 // ── Revenue Chart ───────────────────────────────────────────────────────────
 
-export async function getRevenueChart(_companyId: string, months: number): Promise<ChartPoint[]> {
+export async function getRevenueChart(companyId: string, months: number): Promise<ChartPoint[]> {
   try {
     const rows = (await sql`
       WITH months AS (
@@ -264,6 +279,7 @@ export async function getRevenueChart(_companyId: string, months: number): Promi
       FROM months m
       LEFT JOIN gl_journal_entries je
         ON je.status = 'posted'
+        AND je.company_id = ${companyId}::UUID
         AND je.entry_date >= m.month_start
         AND je.entry_date < m.month_start + '1 month'::INTERVAL
       LEFT JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id
@@ -286,7 +302,7 @@ export async function getRevenueChart(_companyId: string, months: number): Promi
 
 // ── Cash Flow Chart ─────────────────────────────────────────────────────────
 
-export async function getCashFlowChart(_companyId: string, months: number): Promise<CashFlowPoint[]> {
+export async function getCashFlowChart(companyId: string, months: number): Promise<CashFlowPoint[]> {
   try {
     const rows = (await sql`
       WITH months AS (
@@ -302,7 +318,8 @@ export async function getCashFlowChart(_companyId: string, months: number): Prom
         COALESCE(SUM(CASE WHEN bt.amount < 0 THEN ABS(bt.amount) ELSE 0 END), 0) AS outflows
       FROM months m
       LEFT JOIN bank_transactions bt
-        ON bt.transaction_date >= m.month_start
+        ON bt.company_id = ${companyId}::UUID
+        AND bt.transaction_date >= m.month_start
         AND bt.transaction_date < m.month_start + '1 month'::INTERVAL
       LEFT JOIN gl_accounts ga ON ga.id = bt.bank_account_id
         AND ga.account_subtype = 'bank' AND ga.is_active = true
@@ -323,7 +340,7 @@ export async function getCashFlowChart(_companyId: string, months: number): Prom
 
 // ── Aging Breakdown ─────────────────────────────────────────────────────────
 
-export async function getAgingBreakdown(_companyId: string, type: 'ar' | 'ap'): Promise<AgingBreakdownBucket[]> {
+export async function getAgingBreakdown(companyId: string, type: 'ar' | 'ap'): Promise<AgingBreakdownBucket[]> {
   try {
     let rows: Row[];
 
@@ -339,6 +356,7 @@ export async function getAgingBreakdown(_companyId: string, type: 'ar' | 'ap'): 
           COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
         FROM customer_invoices
         WHERE status IN ('approved', 'sent', 'partially_paid', 'overdue')
+          AND company_id = ${companyId}::UUID
           AND (total_amount - COALESCE(amount_paid, 0)) > 0
         GROUP BY bucket
       `) as Row[];
@@ -354,6 +372,7 @@ export async function getAgingBreakdown(_companyId: string, type: 'ar' | 'ap'): 
           COALESCE(SUM(balance), 0) AS total
         FROM supplier_invoices
         WHERE status IN ('approved', 'partially_paid')
+          AND company_id = ${companyId}::UUID
           AND balance > 0
         GROUP BY bucket
       `) as Row[];
@@ -376,7 +395,7 @@ export async function getAgingBreakdown(_companyId: string, type: 'ar' | 'ap'): 
 
 // ── Top Customers ───────────────────────────────────────────────────────────
 
-export async function getTopCustomers(_companyId: string, limit: number): Promise<TopCustomer[]> {
+export async function getTopCustomers(companyId: string, limit: number): Promise<TopCustomer[]> {
   try {
     const rows = (await sql`
       SELECT c.company_name AS name,
@@ -385,6 +404,7 @@ export async function getTopCustomers(_companyId: string, limit: number): Promis
       FROM customer_invoices ci
       JOIN clients c ON c.id = ci.client_id
       WHERE ci.status NOT IN ('cancelled', 'draft')
+        AND ci.company_id = ${companyId}::UUID
       GROUP BY c.id, c.company_name
       ORDER BY revenue DESC
       LIMIT ${limit}
@@ -403,7 +423,7 @@ export async function getTopCustomers(_companyId: string, limit: number): Promis
 
 // ── Top Expense Categories ──────────────────────────────────────────────────
 
-export async function getTopExpenseCategories(_companyId: string, limit: number): Promise<TopExpenseCategory[]> {
+export async function getTopExpenseCategories(companyId: string, limit: number): Promise<TopExpenseCategory[]> {
   try {
     const rows = (await sql`
       SELECT ga.account_name,
@@ -412,6 +432,7 @@ export async function getTopExpenseCategories(_companyId: string, limit: number)
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id
       WHERE ga.account_type = 'expense' AND je.status = 'posted'
+        AND je.company_id = ${companyId}::UUID
       GROUP BY ga.id, ga.account_name
       HAVING SUM(jl.debit - jl.credit) > 0
       ORDER BY total DESC

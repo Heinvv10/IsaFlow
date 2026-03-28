@@ -7,7 +7,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import {
   getEmployee,
@@ -17,6 +17,7 @@ import {
 } from '@/modules/payroll/payrollService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyApiRequest;
   const { id } = req.query;
   if (!id || typeof id !== 'string') {
     return apiResponse.badRequest(res, 'Employee ID is required');
@@ -24,13 +25,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'GET') {
     try {
-      const employee = await getEmployee(id);
+      const employee = await getEmployee(companyId, id);
       if (!employee) {
         return apiResponse.notFound(res, 'Employee', id);
       }
 
-      const payHistory = await getEmployeePayHistory(id);
-      const payslips = await getEmployeePayslips(id);
+      const payHistory = await getEmployeePayHistory(companyId, id);
+      const payslips = await getEmployeePayslips(companyId, id);
 
       return apiResponse.success(res, {
         ...employee,
@@ -45,7 +46,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'PUT') {
     try {
-      const employee = await updateEmployee(id, req.body);
+      const employee = await updateEmployee(companyId, id, req.body);
       return apiResponse.success(res, employee);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to update employee';
@@ -58,4 +59,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

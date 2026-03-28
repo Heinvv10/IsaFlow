@@ -17,6 +17,7 @@ type Row = any;
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
 
+  const { companyId } = req as CompanyApiRequest;
   const userId = String(req.user.id);
 
   // Find assets eligible for depreciation:
@@ -27,7 +28,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     SELECT id, asset_number, name, purchase_price, useful_life_years,
            salvage_value, current_book_value, accumulated_depreciation
     FROM assets
-    WHERE status IN ('available', 'assigned', 'in_maintenance')
+    WHERE company_id = ${companyId}::UUID
+      AND status IN ('available', 'assigned', 'in_maintenance')
       AND purchase_price IS NOT NULL
       AND purchase_price > 0
       AND useful_life_years IS NOT NULL

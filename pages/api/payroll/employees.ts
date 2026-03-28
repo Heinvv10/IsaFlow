@@ -7,15 +7,18 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { listEmployees, createEmployee } from '@/modules/payroll/payrollService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyApiRequest;
+
   if (req.method === 'GET') {
     try {
       const { q, status } = req.query;
       const employees = await listEmployees(
+        companyId,
         typeof q === 'string' ? q : undefined,
         typeof status === 'string' ? status : undefined
       );
@@ -54,7 +57,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         return apiResponse.badRequest(res, 'Basic salary is required');
       }
 
-      const employee = await createEmployee({
+      const employee = await createEmployee(companyId, {
         employee_number: employee_number.trim(),
         first_name: first_name.trim(),
         last_name: last_name.trim(),
@@ -92,4 +95,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

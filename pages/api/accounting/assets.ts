@@ -7,7 +7,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withCompany, type AuthenticatedNextApiRequest, type CompanyApiRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { validateAsset, generateAssetNumber, type AssetInput } from '@/modules/accounting/services/assetService';
@@ -15,6 +15,8 @@ import { validateAsset, generateAssetNumber, type AssetInput } from '@/modules/a
 type Row = Record<string, unknown>;
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyApiRequest;
+
   if (req.method === 'GET') {
     const { status, category, search } = req.query;
 
@@ -25,34 +27,35 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       rows = await sql`
         SELECT a.*, ac.name as category_name, ac.sars_rate, ac.sars_years
         FROM assets a LEFT JOIN asset_categories ac ON a.category_id = ac.id
-        WHERE (a.name ILIKE ${term} OR a.asset_number ILIKE ${term} OR a.serial_number ILIKE ${term})
+        WHERE a.company_id = ${companyId}::UUID AND (a.name ILIKE ${term} OR a.asset_number ILIKE ${term} OR a.serial_number ILIKE ${term})
         ORDER BY a.created_at DESC LIMIT 200
       ` as Row[];
     } else if (status && status !== 'all' && category) {
       rows = await sql`
         SELECT a.*, ac.name as category_name, ac.sars_rate, ac.sars_years
         FROM assets a LEFT JOIN asset_categories ac ON a.category_id = ac.id
-        WHERE a.status = ${String(status)} AND (a.category = ${String(category)} OR ac.code = ${String(category)})
+        WHERE a.company_id = ${companyId}::UUID AND a.status = ${String(status)} AND (a.category = ${String(category)} OR ac.code = ${String(category)})
         ORDER BY a.created_at DESC LIMIT 200
       ` as Row[];
     } else if (status && status !== 'all') {
       rows = await sql`
         SELECT a.*, ac.name as category_name, ac.sars_rate, ac.sars_years
         FROM assets a LEFT JOIN asset_categories ac ON a.category_id = ac.id
-        WHERE a.status = ${String(status)}
+        WHERE a.company_id = ${companyId}::UUID AND a.status = ${String(status)}
         ORDER BY a.created_at DESC LIMIT 200
       ` as Row[];
     } else if (category) {
       rows = await sql`
         SELECT a.*, ac.name as category_name, ac.sars_rate, ac.sars_years
         FROM assets a LEFT JOIN asset_categories ac ON a.category_id = ac.id
-        WHERE a.category = ${String(category)} OR ac.code = ${String(category)}
+        WHERE a.company_id = ${companyId}::UUID AND (a.category = ${String(category)} OR ac.code = ${String(category)})
         ORDER BY a.created_at DESC LIMIT 200
       ` as Row[];
     } else {
       rows = await sql`
         SELECT a.*, ac.name as category_name, ac.sars_rate, ac.sars_years
         FROM assets a LEFT JOIN asset_categories ac ON a.category_id = ac.id
+        WHERE a.company_id = ${companyId}::UUID
         ORDER BY a.created_at DESC LIMIT 200
       ` as Row[];
     }
@@ -77,7 +80,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (body.sarsCategory || body.category) {
       const catCode = body.sarsCategory || body.category;
       const cats = await sql`
-        SELECT id, sars_rate, sars_years FROM asset_categories WHERE code = ${catCode} LIMIT 1
+        SELECT id, sars_rate, sars_years FROM asset_categories WHERE code = ${catCode} AND company_id = ${companyId}::UUID LIMIT 1
       ` as Row[];
       if (cats[0]) {
         categoryId = String(cats[0].id);
@@ -88,20 +91,20 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     const catKey = body.category || body.sarsCategory || 'general';
     const countResult = await sql`
-      SELECT COUNT(*) as cnt FROM assets WHERE category = ${catKey}
+      SELECT COUNT(*) as cnt FROM assets WHERE category = ${catKey} AND company_id = ${companyId}::UUID
     ` as Row[];
     const existingCount = Number((countResult[0] as any)?.cnt || 0);
     const assetNumber = generateAssetNumber(body.sarsCategory || body.category || 'general', existingCount);
 
     const inserted = await sql`
       INSERT INTO assets (
-        asset_number, name, description, category_id, category,
+        company_id, asset_number, name, description, category_id, category,
         serial_number, location, purchase_date, purchase_price,
         salvage_value, useful_life_years, depreciation_method,
         sars_category, sars_rate, tax_useful_life_years, tax_depreciation_method,
         status, created_by
       ) VALUES (
-        ${assetNumber}, ${body.name}, ${body.description || null},
+        ${companyId}::UUID, ${assetNumber}, ${body.name}, ${body.description || null},
         ${categoryId}, ${catKey},
         ${(body as any).serialNumber || null}, ${body.location || null},
         ${body.purchaseDate}, ${body.cost},

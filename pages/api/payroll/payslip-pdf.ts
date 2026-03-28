@@ -6,7 +6,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 
@@ -14,6 +14,8 @@ import { sql } from '@/lib/neon';
 type Row = Record<string, any>;
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyApiRequest;
+
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
   }
@@ -24,7 +26,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   try {
-    // Get payslip with employee and run data
+    // Get payslip with employee and run data (scoped to company)
     const rows = (await sql`
       SELECT ps.*, e.employee_number, e.first_name, e.last_name,
         e.id_number, e.tax_number, e.department, e.position,
@@ -34,6 +36,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       JOIN employees e ON e.id = ps.employee_id
       JOIN payroll_runs pr ON pr.id = ps.payroll_run_id
       WHERE ps.id = ${id}
+        AND e.company_id = ${companyId}::UUID
     `) as Row[];
 
     if (rows.length === 0 || !rows[0]) {
@@ -237,4 +240,4 @@ function formatDate(dateStr: string): string {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));
