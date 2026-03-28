@@ -8,7 +8,7 @@ import { sql } from '@/lib/neon';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, withCompany, type CompanyApiRequest } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 
 
@@ -20,36 +20,50 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   try {
-    const { status, limit = '50', offset = '0' } = req.query;
+    const { status, limit = '50', offset = '0', q } = req.query;
+    const searchTerm = typeof q === 'string' && q.trim() ? `%${q.trim()}%` : null;
 
     let invoices;
     if (status && status !== 'all') {
       invoices = await sql`
         SELECT
-          ci.id, ci.invoice_number, ci.project_id, ci.client_id,
-          ci.total_amount, ci.amount_paid, ci.status, ci.reference,
+          ci.id, ci.invoice_number, ci.project_id,
+          COALESCE(ci.client_id, ci.customer_id) as client_id,
+          ci.total_amount, ci.amount_paid, ci.status,
           ci.invoice_date, ci.due_date, ci.sent_at, ci.paid_at,
-          c.company_name as client_name,
-          p.project_name as project_name
+          c.name as client_name
         FROM customer_invoices ci
-        LEFT JOIN clients c ON c.id = ci.client_id
-        LEFT JOIN projects p ON p.id = ci.project_id
+        LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
         WHERE ci.company_id = ${companyId}
           AND ci.status = ${status as string}
+        ORDER BY ci.invoice_date DESC
+        LIMIT ${Number(limit)} OFFSET ${Number(offset)}
+      `;
+    } else if (searchTerm) {
+      invoices = await sql`
+        SELECT
+          ci.id, ci.invoice_number, ci.project_id,
+          COALESCE(ci.client_id, ci.customer_id) as client_id,
+          ci.total_amount, ci.amount_paid, ci.status,
+          ci.invoice_date, ci.due_date, ci.sent_at, ci.paid_at,
+          c.name as client_name
+        FROM customer_invoices ci
+        LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
+        WHERE ci.company_id = ${companyId}
+          AND (ci.invoice_number ILIKE ${searchTerm} OR c.name ILIKE ${searchTerm})
         ORDER BY ci.invoice_date DESC
         LIMIT ${Number(limit)} OFFSET ${Number(offset)}
       `;
     } else {
       invoices = await sql`
         SELECT
-          ci.id, ci.invoice_number, ci.project_id, ci.client_id,
-          ci.total_amount, ci.amount_paid, ci.status, ci.reference,
+          ci.id, ci.invoice_number, ci.project_id,
+          COALESCE(ci.client_id, ci.customer_id) as client_id,
+          ci.total_amount, ci.amount_paid, ci.status,
           ci.invoice_date, ci.due_date, ci.sent_at, ci.paid_at,
-          c.company_name as client_name,
-          p.project_name as project_name
+          c.name as client_name
         FROM customer_invoices ci
-        LEFT JOIN clients c ON c.id = ci.client_id
-        LEFT JOIN projects p ON p.id = ci.project_id
+        LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
         WHERE ci.company_id = ${companyId}
         ORDER BY ci.invoice_date DESC
         LIMIT ${Number(limit)} OFFSET ${Number(offset)}

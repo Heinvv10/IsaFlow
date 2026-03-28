@@ -23,13 +23,14 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
       const { q } = req.query;
       const searchTerm = typeof q === 'string' && q.trim() ? `%${q.trim()}%` : null;
 
+
       let rows: Row[];
 
       if (searchTerm) {
         rows = (await sql`
           SELECT
             id, name, company_name, email, phone,
-            contact_person, category, is_active,
+            contact_person, is_active,
             vat_number, payment_terms,
             created_at
           FROM suppliers
@@ -37,7 +38,6 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
             AND (name ILIKE ${searchTerm}
             OR email ILIKE ${searchTerm}
             OR company_name ILIKE ${searchTerm}
-            OR category ILIKE ${searchTerm}
             OR contact_person ILIKE ${searchTerm})
           ORDER BY name ASC
           LIMIT 200
@@ -46,7 +46,7 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
         rows = (await sql`
           SELECT
             id, name, company_name, email, phone,
-            contact_person, category, is_active,
+            contact_person, is_active,
             vat_number, payment_terms,
             created_at
           FROM suppliers
@@ -59,12 +59,8 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
       return apiResponse.success(res, rows);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      // Return empty list if table does not yet exist
-      if (message.includes('does not exist')) {
-        return apiResponse.success(res, []);
-      }
       log.error('suppliers GET failed', { error: message, module: 'accounting' });
-      return apiResponse.internalError(res, err, 'Failed to fetch suppliers');
+      return apiResponse.internalError(res, err, `Failed to fetch suppliers: ${message}`);
     }
   }
 
