@@ -202,10 +202,10 @@ ON CONFLICT (id) DO NOTHING;
 -- ═══════════════════════════════════════════════════════════════════════════
 -- APPROVAL RULES (3) — for workflow testing
 -- ═══════════════════════════════════════════════════════════════════════════
-INSERT INTO approval_rules (id, company_id, document_type, description, operator, threshold_amount, approver_role, priority, is_active) VALUES
-('a0000001-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'supplier_invoice', 'Supplier invoices over R50,000 require approval', 'greater_than', 50000, 'admin', 1, true),
-('a0000001-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', 'payment', 'Payments over R100,000 require approval', 'greater_than', 100000, 'admin', 1, true),
-('a0000001-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', 'journal_entry', 'All journal entries require approval', 'any', 0, 'accountant', 2, true)
+INSERT INTO approval_rules (id, name, document_type, condition_field, condition_operator, condition_value, approver_role, priority, is_active) VALUES
+('a0000001-0000-0000-0000-000000000001', 'Supplier invoices over R50k', 'supplier_invoice', 'total_amount', 'greater_than', '50000', 'admin', 1, true),
+('a0000001-0000-0000-0000-000000000002', 'Payments over R100k', 'payment', 'total_amount', 'greater_than', '100000', 'admin', 1, true),
+('a0000001-0000-0000-0000-000000000003', 'All journal entries', 'journal_entry', 'total_amount', 'any', '0', 'accountant', 2, true)
 ON CONFLICT (id) DO NOTHING;
 
 -- ═══════════════════════════════════════════════════════════════════════════
@@ -225,12 +225,12 @@ BEGIN
   SELECT id INTO v_office_id FROM gl_accounts WHERE account_code = '5100' AND company_id = '00000000-0000-0000-0000-000000000001' LIMIT 1;
 
   IF v_bank_charges_id IS NOT NULL THEN
-    INSERT INTO bank_categorisation_rules (id, company_id, name, description_pattern, gl_account_id, vat_code, priority) VALUES
-    ('bc000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'Bank Charges', 'BANK CHARGES|SWIFT FEE|SERVICE FEE', v_bank_charges_id, 'exempt', 1),
-    ('bc000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', 'Fuel - Engen', 'ENGEN|FUEL|PETROL|DIESEL', v_fuel_id, 'standard', 2),
-    ('bc000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', 'Telecoms', 'TELKOM|VODACOM|MTN|CELL C', v_telecom_id, 'standard', 3),
-    ('bc000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001', 'Office Supplies', 'WOOLWORTHS|TAKEALOT|OFFICE|STATIONERY', v_office_id, 'standard', 4),
-    ('bc000000-0000-0000-0000-000000000005', '00000000-0000-0000-0000-000000000001', 'Insurance', 'SANLAM|INSURANCE|PREMIUM', v_telecom_id, 'exempt', 5)
+    INSERT INTO bank_categorisation_rules (id, company_id, rule_name, match_field, match_type, match_value, gl_account_id, priority, is_active) VALUES
+    ('bc000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', 'Bank Charges', 'description', 'contains', 'BANK CHARGES|SWIFT FEE|SERVICE FEE', v_bank_charges_id, 1, true),
+    ('bc000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', 'Fuel - Engen', 'description', 'contains', 'ENGEN|FUEL|PETROL|DIESEL', v_fuel_id, 2, true),
+    ('bc000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000001', 'Telecoms', 'description', 'contains', 'TELKOM|VODACOM|MTN|CELL C', v_telecom_id, 3, true),
+    ('bc000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000001', 'Office Supplies', 'description', 'contains', 'WOOLWORTHS|TAKEALOT|OFFICE|STATIONERY', v_office_id, 4, true),
+    ('bc000000-0000-0000-0000-000000000005', '00000000-0000-0000-0000-000000000001', 'Insurance', 'description', 'contains', 'SANLAM|INSURANCE|PREMIUM', v_telecom_id, 5, true)
     ON CONFLICT (id) DO NOTHING;
   END IF;
 END $$;
