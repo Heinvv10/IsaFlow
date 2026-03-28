@@ -49,6 +49,7 @@ export const TABS: Tab[] = [
         section: 'Transactions',
         items: [
           { label: 'Quotes', href: '/accounting/customer-quotes' },
+          { label: 'Sales Orders', href: '/accounting/customer-sales-orders' },
           { label: 'Tax Invoices', href: '/accounting/customer-invoices' },
           { label: 'Recurring Invoices', href: '/accounting/recurring-invoices' },
           { label: 'Receipts', href: '/accounting/customer-payments' },
@@ -99,6 +100,7 @@ export const TABS: Tab[] = [
       {
         section: 'Transactions',
         items: [
+          { label: 'Purchase Orders', href: '/accounting/supplier-purchase-orders' },
           { label: 'Invoices', href: '/accounting/supplier-invoices' },
           { label: 'Returns', href: '/accounting/supplier-returns' },
           { label: 'Payments', href: '/accounting/supplier-payments' },
@@ -127,14 +129,14 @@ export const TABS: Tab[] = [
   {
     id: 'items', label: 'Items',
     topItems: [
-      { label: 'Add Product', href: '/accounting/products/new' },
+      { label: 'Add an Item', href: '/accounting/items/new' },
     ],
     items: [
       {
-        section: 'Inventory',
+        section: 'Lists',
         items: [
-          { label: 'Products', href: '/accounting/products' },
-          { label: 'Stock Levels', href: '/accounting/stock-levels' },
+          { label: 'List of Items', href: '/accounting/items' },
+          { label: 'Item Categories', href: '/accounting/item-categories' },
         ],
       },
       {
@@ -473,8 +475,7 @@ export function getActiveTabId(
 
   // Items
   if (
-    pathname.startsWith('/accounting/products') ||
-    pathname.startsWith('/accounting/stock-levels') ||
+    pathname.startsWith('/accounting/items') ||
     pathname.startsWith('/accounting/item-') ||
     pathname === '/accounting/reports/item-listing' ||
     pathname === '/accounting/reports/sales-by-item' ||

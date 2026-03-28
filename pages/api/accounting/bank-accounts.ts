@@ -15,12 +15,28 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'PUT') {
     try {
-      const { id, bankAccountNumber } = req.body;
+      const b = req.body as Record<string, unknown>;
+      const id = b.id as string;
       if (!id) return apiResponse.badRequest(res, 'id is required');
+      const s = (k: string) => { const v = b[k]; return typeof v === 'string' && v.trim() ? v.trim() : null; };
+      const n = (k: string) => { const v = b[k]; return v !== undefined && v !== null && v !== '' ? Number(v) : null; };
+      const bool = (k: string) => typeof b[k] === 'boolean' ? b[k] : null;
+
       await sql`
-        UPDATE gl_accounts
-        SET bank_account_number = ${bankAccountNumber || null},
-            updated_at = NOW()
+        UPDATE gl_accounts SET
+          bank_account_number = COALESCE(${s('bankAccountNumber')}, bank_account_number),
+          bank_name = COALESCE(${s('bankName')}, bank_name),
+          bank_branch_name = COALESCE(${s('bankBranchName')}, bank_branch_name),
+          bank_branch_code = COALESCE(${s('bankBranchCode')}, bank_branch_code),
+          bank_account_type = COALESCE(${s('bankAccountType')}, bank_account_type),
+          bank_is_default = COALESCE(${bool('bankIsDefault')}, bank_is_default),
+          bank_default_payment_method = COALESCE(${s('bankDefaultPaymentMethod')}, bank_default_payment_method),
+          bank_opening_balance = COALESCE(${n('bankOpeningBalance')}, bank_opening_balance),
+          bank_opening_balance_date = COALESCE(${s('bankOpeningBalanceDate')}::date, bank_opening_balance_date),
+          description = COALESCE(${s('description')}, description),
+          account_name = COALESCE(${s('accountName')}, account_name),
+          is_active = COALESCE(${bool('isActive')}, is_active),
+          updated_at = NOW()
         WHERE id = ${id} AND account_subtype = 'bank' AND company_id = ${companyId}
       `;
       return apiResponse.success(res, { updated: true });
@@ -43,6 +59,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         ga.description,
         ga.is_active,
         ga.bank_account_number,
+        ga.bank_name,
+        ga.bank_branch_name,
+        ga.bank_branch_code,
+        ga.bank_account_type,
+        ga.bank_is_default,
+        ga.bank_default_payment_method,
+        ga.bank_opening_balance,
+        ga.bank_opening_balance_date,
         COALESCE(s.txn_count, 0)         AS txn_count,
         COALESCE(s.total_debits, 0)       AS total_debits,
         COALESCE(s.total_credits, 0)      AS total_credits,
@@ -81,6 +105,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       accountName: r.account_name,
       description: r.description,
       bankAccountNumber: r.bank_account_number || null,
+      bankName: r.bank_name || null,
+      bankBranchName: r.bank_branch_name || null,
+      bankBranchCode: r.bank_branch_code || null,
+      bankAccountType: r.bank_account_type || 'current',
+      bankIsDefault: r.bank_is_default || false,
+      bankDefaultPaymentMethod: r.bank_default_payment_method || 'eft',
+      bankOpeningBalance: Number(r.bank_opening_balance || 0),
+      bankOpeningBalanceDate: r.bank_opening_balance_date ? String(r.bank_opening_balance_date).split('T')[0] : null,
       isActive: r.is_active,
       txnCount: Number(r.txn_count),
       totalDebits: Number(r.total_debits),
