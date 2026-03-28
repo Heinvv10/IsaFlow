@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { List, Loader2, Download, Search } from 'lucide-react';
+import { apiFetch } from '@/lib/apiFetch';
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
@@ -19,7 +20,7 @@ export default function ItemListingReport() {
   const load = useCallback(async () => {
     setLoading(true);
     const params = search ? `?search=${encodeURIComponent(search)}` : '';
-    const res = await fetch(`/api/accounting/reports/item-listing${params}`, { credentials: 'include' });
+    const res = await apiFetch(`/api/accounting/reports/item-listing${params}`, { credentials: 'include' });
     const json = await res.json();
     setRows(json.data || []);
     setLoading(false);

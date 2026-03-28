@@ -45,6 +45,9 @@ export {
   type AuthenticatedNextApiRequest,
 } from './middleware';
 
+// Company-scoped middleware
+export { withCompany, type CompanyApiRequest } from './withCompany';
+
 // App Router utilities (NextRequest)
 export { getUserFromRequest, requireAuth } from './app-router';
 

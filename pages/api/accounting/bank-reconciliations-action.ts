@@ -7,7 +7,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withCompany, type AuthenticatedNextApiRequest, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import {
   completeReconciliation,
@@ -19,6 +19,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
   }
 
+  const { companyId } = req as CompanyApiRequest;
+
   try {
     const { action, reconciliationId } = req.body;
     const userId = req.user.id;
@@ -29,7 +31,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     switch (action) {
       case 'complete': {
-        const recon = await completeReconciliation(reconciliationId, userId);
+        const recon = await completeReconciliation(companyId, reconciliationId, userId);
         return apiResponse.success(res, recon);
       }
       case 'adjustment': {
@@ -38,7 +40,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
           return apiResponse.badRequest(res, 'bankAccountId, contraAccountId, amount, and description are required');
         }
         const jeId = await createAdjustmentEntry(
-          reconciliationId, bankAccountId, contraAccountId,
+          companyId, reconciliationId, bankAccountId, contraAccountId,
           Number(amount), description, userId
         );
         return apiResponse.success(res, { journalEntryId: jeId });
@@ -54,4 +56,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Layers, Plus, Check, Zap, Loader2 } from 'lucide-react';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface Batch {
   id: string; batchNumber: string; batchDate: string; totalAmount: number;
@@ -18,7 +19,7 @@ const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', c
 const STATUS_BADGE: Record<string, string> = {
   draft: 'bg-gray-500/10 text-gray-400',
   approved: 'bg-blue-500/10 text-blue-400',
-  processed: 'bg-emerald-500/10 text-emerald-400',
+  processed: 'bg-teal-500/10 text-teal-400',
   cancelled: 'bg-red-500/10 text-red-400',
 };
 
@@ -28,7 +29,7 @@ export default function BatchPaymentsPage() {
   const [busy, setBusy] = useState('');
 
   const load = useCallback(async () => {
-    const res = await fetch('/api/accounting/batch-payments', { credentials: 'include' });
+    const res = await apiFetch('/api/accounting/batch-payments', { credentials: 'include' });
     const json = await res.json();
     setItems(json.data?.items || []);
     setLoading(false);
@@ -38,7 +39,7 @@ export default function BatchPaymentsPage() {
 
   const doAction = async (action: string, id: string) => {
     setBusy(id);
-    await fetch('/api/accounting/batch-payments-action', {
+    await apiFetch('/api/accounting/batch-payments-action', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       credentials: 'include', body: JSON.stringify({ action, id }),
     });
@@ -92,7 +93,7 @@ export default function BatchPaymentsPage() {
                           </button>
                         )}
                         {item.status === 'approved' && (
-                          <button onClick={() => doAction('process', item.id)} disabled={busy === item.id} className="p-1 text-emerald-400 hover:text-emerald-300" title="Process">
+                          <button onClick={() => doAction('process', item.id)} disabled={busy === item.id} className="p-1 text-teal-400 hover:text-teal-300" title="Process">
                             {busy === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
                           </button>
                         )}

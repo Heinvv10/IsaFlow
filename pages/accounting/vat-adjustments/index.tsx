@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Percent, Plus, Check, Loader2 } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface VATAdjustment {
   id: string; adjustmentNumber: string; adjustmentDate: string; vatPeriod?: string;
@@ -17,7 +18,7 @@ const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', c
 
 const STATUS_BADGE: Record<string, string> = {
   draft: 'bg-gray-500/10 text-gray-400',
-  approved: 'bg-emerald-500/10 text-emerald-400',
+  approved: 'bg-teal-500/10 text-teal-400',
   cancelled: 'bg-red-500/10 text-red-400',
 };
 
@@ -35,7 +36,7 @@ export default function VATAdjustmentsPage() {
   const [dateTo, setDateTo] = useState('');
 
   const load = useCallback(async () => {
-    const res = await fetch('/api/accounting/vat-adjustments', { credentials: 'include' });
+    const res = await apiFetch('/api/accounting/vat-adjustments', { credentials: 'include' });
     const json = await res.json();
     setItems(json.data?.items || []);
     setLoading(false);
@@ -47,7 +48,7 @@ export default function VATAdjustmentsPage() {
     e.preventDefault();
     setError(''); setBusy('new');
     try {
-      const res = await fetch('/api/accounting/vat-adjustments', {
+      const res = await apiFetch('/api/accounting/vat-adjustments', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
@@ -76,7 +77,7 @@ export default function VATAdjustmentsPage() {
 
   const approve = async (id: string) => {
     setBusy(id);
-    await fetch('/api/accounting/vat-adjustments-action', {
+    await apiFetch('/api/accounting/vat-adjustments-action', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       credentials: 'include', body: JSON.stringify({ action: 'approve', id }),
     });
@@ -165,7 +166,7 @@ export default function VATAdjustmentsPage() {
                     <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_BADGE[item.status] || ''}`}>{item.status}</span></td>
                     <td className="px-4 py-3">
                       {item.status === 'draft' && (
-                        <button onClick={() => approve(item.id)} disabled={busy === item.id} className="p-1 text-emerald-400 hover:text-emerald-300" title="Approve">
+                        <button onClick={() => approve(item.id)} disabled={busy === item.id} className="p-1 text-teal-400 hover:text-teal-300" title="Approve">
                           {busy === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                         </button>
                       )}

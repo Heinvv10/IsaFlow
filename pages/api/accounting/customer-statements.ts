@@ -8,7 +8,7 @@ import { sql } from '@/lib/neon';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 
 
@@ -16,6 +16,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
   }
+
+  const { companyId } = req as CompanyApiRequest;
 
   try {
     const customers = await sql`
@@ -37,7 +39,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         WHERE status IN ('confirmed', 'reconciled')
         GROUP BY client_id
       ) paid ON paid.client_id = ci.client_id
-      WHERE ci.status != 'cancelled'
+      WHERE ci.company_id = ${companyId} AND ci.status != 'cancelled'
       GROUP BY ci.client_id, c.company_name, paid.total_paid, paid.last_payment_date
       HAVING SUM(ci.total_amount::numeric) > 0
       ORDER BY SUM(ci.total_amount::numeric) - COALESCE(paid.total_paid, 0) DESC
@@ -59,4 +61,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

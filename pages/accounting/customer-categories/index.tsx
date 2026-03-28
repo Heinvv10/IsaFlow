@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Tag, Plus, Pencil, Trash2, Loader2, X, Check } from 'lucide-react';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface Category { id: string; name: string; description: string; clientCount: number; }
 
@@ -18,7 +19,7 @@ export default function CustomerCategoriesPage() {
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
-    const res = await fetch('/api/accounting/customer-categories', { credentials: 'include' });
+    const res = await apiFetch('/api/accounting/customer-categories', { credentials: 'include' });
     const json = await res.json();
     setItems(json.data || []);
     setLoading(false);
@@ -31,7 +32,7 @@ export default function CustomerCategoriesPage() {
     setBusy(true);
     const method = editing ? 'PUT' : 'POST';
     const body = editing ? { id: editing, ...form } : form;
-    await fetch('/api/accounting/customer-categories', {
+    await apiFetch('/api/accounting/customer-categories', {
       method, headers: { 'Content-Type': 'application/json' },
       credentials: 'include', body: JSON.stringify(body),
     });
@@ -42,7 +43,7 @@ export default function CustomerCategoriesPage() {
 
   const remove = async (id: string) => {
     if (!confirm('Delete this category?')) return;
-    await fetch('/api/accounting/customer-categories', {
+    await apiFetch('/api/accounting/customer-categories', {
       method: 'DELETE', headers: { 'Content-Type': 'application/json' },
       credentials: 'include', body: JSON.stringify({ id }),
     });
@@ -97,7 +98,7 @@ export default function CustomerCategoriesPage() {
                     <td />
                     <td className="px-4 py-2">
                       <div className="flex items-center gap-1">
-                        <button onClick={save} disabled={busy} className="p-1 text-emerald-400 hover:text-emerald-300">
+                        <button onClick={save} disabled={busy} className="p-1 text-teal-400 hover:text-teal-300">
                           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                         </button>
                         <button onClick={() => { setAdding(false); setEditing(null); }} className="p-1 text-red-400 hover:text-red-300">

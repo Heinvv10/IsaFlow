@@ -12,7 +12,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 
@@ -33,6 +33,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
 
+  const { companyId } = req as CompanyApiRequest;
   const { bankTransactionId, fleetEntityType, fleetEntityId } = req.body as PostBody;
 
   // ── Validation ─────────────────────────────────────────────────────────────
@@ -56,7 +57,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         linked_fleet_fuel_id = ${fleetEntityId}::UUID,
         status = CASE WHEN status = 'imported' THEN 'matched' ELSE status END,
         updated_at = NOW()
-      WHERE id = ${bankTransactionId}::UUID
+      WHERE id = ${bankTransactionId}::UUID AND company_id = ${companyId}
     `;
 
     log.info('Linked bank tx to fleet fuel', { bankTransactionId, fleetEntityId }, 'bank-match-fleet');
@@ -81,7 +82,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       linked_fleet_service_id = ${fleetEntityId}::UUID,
       status = CASE WHEN status = 'imported' THEN 'matched' ELSE status END,
       updated_at = NOW()
-    WHERE id = ${bankTransactionId}::UUID
+    WHERE id = ${bankTransactionId}::UUID AND company_id = ${companyId}
   `;
 
   log.info('Linked bank tx to fleet service', { bankTransactionId, fleetEntityId }, 'bank-match-fleet');
@@ -94,4 +95,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

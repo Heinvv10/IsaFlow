@@ -7,7 +7,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
@@ -15,6 +15,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
   }
+
+  const { companyId } = req as CompanyApiRequest;
 
   try {
     const now = new Date();
@@ -39,7 +41,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           - COALESCE(SUM(CASE WHEN bt.amount < 0 THEN ABS(bt.amount) ELSE 0 END), 0) AS balance
         FROM gl_accounts ga
         LEFT JOIN bank_transactions bt ON bt.bank_account_id = ga.id
-        WHERE ga.account_subtype = 'bank' AND ga.is_active = true
+        WHERE ga.account_subtype = 'bank' AND ga.is_active = true AND ga.company_id = ${companyId}
         GROUP BY ga.id, ga.account_code, ga.account_name
         ORDER BY ga.account_code
       `,
@@ -47,13 +49,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       sql`
         SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
         FROM supplier_invoices
-        WHERE status NOT IN ('cancelled', 'paid')
+        WHERE company_id = ${companyId} AND status NOT IN ('cancelled', 'paid')
       `,
       // Accounts Receivable total (from customer_invoices, matching AR aging)
       sql`
         SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
         FROM customer_invoices
-        WHERE status NOT IN ('cancelled', 'paid')
+        WHERE company_id = ${companyId} AND status NOT IN ('cancelled', 'paid')
       `,
       // Revenue this month (account_type = 'revenue')
       sql`
@@ -62,7 +64,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
         WHERE ga.account_type = 'revenue' AND je.status = 'posted'
-          AND je.entry_date >= ${monthStart}
+          AND je.company_id = ${companyId} AND je.entry_date >= ${monthStart}
       `,
       // Expenses this month (account_type = 'expense')
       sql`
@@ -71,17 +73,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
         WHERE ga.account_type = 'expense' AND je.status = 'posted'
-          AND je.entry_date >= ${monthStart}
+          AND je.company_id = ${companyId} AND je.entry_date >= ${monthStart}
       `,
       // Unallocated bank transactions
       sql`
-        SELECT COUNT(*) AS count FROM bank_transactions WHERE status = 'imported'
+        SELECT COUNT(*) AS count FROM bank_transactions WHERE company_id = ${companyId} AND status = 'imported'
       `,
       // Recent journal entries (last 5)
       sql`
         SELECT id, entry_date, description, source, status,
           (SELECT SUM(debit) FROM gl_journal_lines WHERE journal_entry_id = je.id) AS total_debit
         FROM gl_journal_entries je
+        WHERE je.company_id = ${companyId}
         ORDER BY created_at DESC LIMIT 5
       `,
     ]);
@@ -116,4 +119,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

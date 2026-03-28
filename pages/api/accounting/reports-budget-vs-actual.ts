@@ -11,7 +11,7 @@ import { sql } from '@/lib/neon';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 
 
@@ -19,6 +19,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
   }
+
+  const { companyId } = req as CompanyApiRequest;
 
   try {
     const { period = 'ytd' } = req.query;
@@ -36,7 +38,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const [fy] = await sql`
         SELECT MIN(start_date) as start_date, MAX(end_date) as end_date
         FROM fiscal_periods
-        WHERE fiscal_year = (SELECT fiscal_year FROM fiscal_periods WHERE status = 'open' ORDER BY start_date DESC LIMIT 1)
+        WHERE company_id = ${companyId} AND fiscal_year = (SELECT fiscal_year FROM fiscal_periods WHERE company_id = ${companyId} AND status = 'open' ORDER BY start_date DESC LIMIT 1)
       `;
       startDate = fy?.start_date?.toString().split('T')[0] || `${now.getFullYear()}-03-01`;
       endDate = period === 'full_year'
@@ -59,7 +61,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           ab.jul, ab.aug, ab.sep, ab.oct, ab.nov, ab.dec
         FROM accounting_budgets ab
         JOIN gl_accounts ga ON ga.id = ab.gl_account_id
-        WHERE ab.fiscal_year = ${fiscalYear}
+        WHERE ab.company_id = ${companyId} AND ab.fiscal_year = ${fiscalYear}
       `;
       for (const row of budgetRows) {
         let total = 0;
@@ -98,6 +100,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         AND je.entry_date <= ${endDate}
       WHERE ga.level = 3
         AND ga.is_active = true
+        AND ga.company_id = ${companyId}
         AND ga.account_type IN ('expense', 'revenue')
       GROUP BY ga.id, ga.account_code, ga.account_name, ga.account_type
       ORDER BY ga.account_code
@@ -142,4 +145,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

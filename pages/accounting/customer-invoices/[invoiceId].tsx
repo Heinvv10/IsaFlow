@@ -7,15 +7,16 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, FileText, Loader2, AlertCircle, CheckCircle2, Send, XCircle } from 'lucide-react';
+import { ArrowLeft, FileText, Loader2, AlertCircle, CheckCircle2, Send, XCircle, Download, Mail, X } from 'lucide-react';
 import { AccountingDocumentPanel } from '@/modules/accounting/documents';
+import { apiFetch } from '@/lib/apiFetch';
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
 const STATUS_COLORS: Record<string, string> = {
   draft: 'bg-gray-500/20 text-gray-400', pending_approval: 'bg-amber-500/20 text-amber-400',
   approved: 'bg-blue-500/20 text-blue-400', sent: 'bg-indigo-500/20 text-indigo-400',
-  paid: 'bg-emerald-500/20 text-emerald-400', partially_paid: 'bg-purple-500/20 text-purple-400',
+  paid: 'bg-teal-500/20 text-teal-400', partially_paid: 'bg-purple-500/20 text-purple-400',
   overdue: 'bg-red-500/20 text-red-400', cancelled: 'bg-gray-500/20 text-gray-500',
 };
 
@@ -28,6 +29,7 @@ interface Invoice {
   status: string; invoice_date: string; due_date: string; billing_period_start: string;
   billing_period_end: string; subtotal: number; tax_rate: number; tax_amount: number;
   total_amount: number; amount_paid: number; notes: string; gl_journal_entry_id: string;
+  client_email?: string; email_sent_at?: string; email_sent_to?: string;
   items: InvoiceItem[];
 }
 
@@ -38,6 +40,10 @@ export default function CustomerInvoiceDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [actionLoading, setActionLoading] = useState('');
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [emailTo, setEmailTo] = useState('');
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailSuccess, setEmailSuccess] = useState('');
 
   useEffect(() => {
     if (!invoiceId) return;
@@ -47,7 +53,7 @@ export default function CustomerInvoiceDetailPage() {
   const loadInvoice = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/accounting/customer-invoices-detail?id=${invoiceId}`);
+      const res = await apiFetch(`/api/accounting/customer-invoices-detail?id=${invoiceId}`);
       const json = await res.json();
       setInvoice(json.data || json);
     } catch { setError('Failed to load invoice'); }
@@ -58,7 +64,7 @@ export default function CustomerInvoiceDetailPage() {
     setActionLoading(action);
     setError('');
     try {
-      const res = await fetch('/api/accounting/customer-invoices-detail', {
+      const res = await apiFetch('/api/accounting/customer-invoices-detail', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: invoiceId, action }),
       });
@@ -66,6 +72,41 @@ export default function CustomerInvoiceDetailPage() {
       await loadInvoice();
     } catch (e) { setError(e instanceof Error ? e.message : 'Action failed'); }
     finally { setActionLoading(''); }
+  };
+
+  const handleDownloadPdf = () => {
+    window.open(`/api/accounting/invoice-pdf?invoiceId=${invoiceId}`, '_blank');
+  };
+
+  const handleOpenEmailModal = () => {
+    setEmailTo(invoice?.client_email || invoice?.email_sent_to || '');
+    setEmailSuccess('');
+    setShowEmailModal(true);
+  };
+
+  const handleSendEmail = async () => {
+    if (!emailTo.trim()) return;
+    setEmailSending(true);
+    setEmailSuccess('');
+    try {
+      const res = await apiFetch('/api/accounting/invoice-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoiceId, recipientEmail: emailTo.trim() }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error?.message || 'Failed to send');
+      if (json.data?.sent) {
+        setEmailSuccess('Invoice emailed successfully!');
+        await loadInvoice();
+      } else {
+        setEmailSuccess(json.message || 'Email could not be sent. Check SMTP configuration.');
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to send email');
+    } finally {
+      setEmailSending(false);
+    }
   };
 
   if (loading) return <AppLayout><div className="flex items-center justify-center min-h-[60vh]"><Loader2 className="h-8 w-8 animate-spin text-blue-500" /></div></AppLayout>;
@@ -95,8 +136,16 @@ export default function CustomerInvoiceDetailPage() {
               </span>
             </div>
             <div className="flex items-center gap-2">
+              <button onClick={handleDownloadPdf}
+                className="inline-flex items-center gap-1.5 px-3 py-2 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-500">
+                <Download className="h-4 w-4" />Download PDF
+              </button>
+              <button onClick={handleOpenEmailModal}
+                className="inline-flex items-center gap-1.5 px-3 py-2 border border-teal-500/50 text-teal-400 rounded-lg text-sm hover:bg-teal-500/10">
+                <Mail className="h-4 w-4" />Email Invoice
+              </button>
               {canApprove && <button onClick={() => handleAction('approve')} disabled={!!actionLoading}
-                className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-500 disabled:opacity-50">
+                className="inline-flex items-center gap-1.5 px-3 py-2 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-500 disabled:opacity-50">
                 <CheckCircle2 className="h-4 w-4" />{actionLoading === 'approve' ? 'Approving...' : 'Approve'}
               </button>}
               {canSend && <button onClick={() => handleAction('send')} disabled={!!actionLoading}
@@ -195,6 +244,53 @@ export default function CustomerInvoiceDetailPage() {
             ]}
           />
         </div>
+
+        {/* Email Invoice Modal */}
+        {showEmailModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowEmailModal(false)}>
+            <div className="bg-[var(--ff-bg-secondary)] rounded-xl border border-[var(--ff-border-light)] shadow-2xl w-full max-w-md mx-4 p-6" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-[var(--ff-text-primary)]">Email Invoice</h3>
+                <button onClick={() => setShowEmailModal(false)} className="text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)]">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <p className="text-sm text-[var(--ff-text-secondary)] mb-4">
+                Send invoice <strong>{invoice.invoice_number}</strong> as a PDF attachment.
+              </p>
+              <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Recipient Email</label>
+              <input
+                type="email"
+                value={emailTo}
+                onChange={e => setEmailTo(e.target.value)}
+                placeholder="client@example.com"
+                className="w-full px-3 py-2 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/50 mb-4"
+              />
+              {emailSuccess && (
+                <div className={`flex items-center gap-2 p-3 rounded-lg text-sm mb-4 ${emailSuccess.includes('successfully') ? 'bg-teal-500/10 text-teal-400' : 'bg-amber-500/10 text-amber-400'}`}>
+                  {emailSuccess.includes('successfully') ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+                  {emailSuccess}
+                </div>
+              )}
+              {invoice.email_sent_at && (
+                <p className="text-xs text-[var(--ff-text-tertiary)] mb-4">
+                  Last sent to {invoice.email_sent_to} on {invoice.email_sent_at.split('T')[0]}
+                </p>
+              )}
+              <div className="flex justify-end gap-2">
+                <button onClick={() => setShowEmailModal(false)}
+                  className="px-4 py-2 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] rounded-lg border border-[var(--ff-border-light)]">
+                  Cancel
+                </button>
+                <button onClick={handleSendEmail} disabled={emailSending || !emailTo.trim()}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-500 disabled:opacity-50">
+                  {emailSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  {emailSending ? 'Sending...' : 'Send Email'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </AppLayout>
   );

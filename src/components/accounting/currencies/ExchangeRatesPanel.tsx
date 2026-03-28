@@ -5,7 +5,8 @@
 
 import { useState } from 'react';
 import { Save, ArrowRight, Loader2 } from 'lucide-react';
-import { toast } from 'react-hot-toast';
+import { notify } from '@/utils/toast';
+import { apiFetch } from '@/lib/apiFetch';
 import type { Currency, ExchangeRate } from '@/modules/accounting/services/currencyService';
 
 interface Props {
@@ -52,24 +53,23 @@ export function ExchangeRatesPanel({ currencies, exchangeRates, onRefresh }: Pro
 
   const handleSaveRate = async () => {
     if (!rateForm.fromCurrency || !rateForm.toCurrency || !rateForm.rate || !rateForm.effectiveDate) {
-      toast.error('All fields are required');
+      notify.error('All fields are required');
       return;
     }
     if (rateForm.fromCurrency === rateForm.toCurrency) {
-      toast.error('From and To currencies must differ');
+      notify.error('From and To currencies must differ');
       return;
     }
     const rateVal = parseFloat(rateForm.rate);
     if (isNaN(rateVal) || rateVal <= 0) {
-      toast.error('Rate must be a positive number');
+      notify.error('Rate must be a positive number');
       return;
     }
     setSavingRate(true);
     try {
-      const res = await fetch('/api/accounting/exchange-rates', {
+      const res = await apiFetch('/api/accounting/exchange-rates', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({
           fromCurrency: rateForm.fromCurrency,
           toCurrency: rateForm.toCurrency,
@@ -80,14 +80,14 @@ export function ExchangeRatesPanel({ currencies, exchangeRates, onRefresh }: Pro
       });
       const json = await res.json();
       if (!res.ok || json.success === false) {
-        toast.error(json.message || 'Failed to save rate');
+        notify.error(json.message || 'Failed to save rate');
         return;
       }
-      toast.success(`Rate ${rateForm.fromCurrency}/${rateForm.toCurrency} saved`);
+      notify.success(`Rate ${rateForm.fromCurrency}/${rateForm.toCurrency} saved`);
       setRateForm(f => ({ ...f, rate: '' }));
       onRefresh();
     } catch {
-      toast.error('Failed to save exchange rate');
+      notify.error('Failed to save exchange rate');
     } finally {
       setSavingRate(false);
     }
@@ -96,11 +96,11 @@ export function ExchangeRatesPanel({ currencies, exchangeRates, onRefresh }: Pro
   const handleConvert = async () => {
     const amt = parseFloat(convertForm.amount);
     if (isNaN(amt) || amt <= 0) {
-      toast.error('Enter a valid amount');
+      notify.error('Enter a valid amount');
       return;
     }
     if (!convertForm.from || !convertForm.to) {
-      toast.error('Select both currencies');
+      notify.error('Select both currencies');
       return;
     }
     setConverting(true);
@@ -112,15 +112,15 @@ export function ExchangeRatesPanel({ currencies, exchangeRates, onRefresh }: Pro
         to: convertForm.to,
         amount: String(amt),
       });
-      const res = await fetch(`/api/accounting/exchange-rates?${params}`, { credentials: 'include' });
+      const res = await apiFetch(`/api/accounting/exchange-rates?${params}`);
       const json = await res.json();
       if (!res.ok || json.success === false) {
-        toast.error(json.message || 'No rate available for this pair');
+        notify.error(json.message || 'No rate available for this pair');
         return;
       }
       setConvertResult(json.data);
     } catch {
-      toast.error('Conversion failed');
+      notify.error('Conversion failed');
     } finally {
       setConverting(false);
     }

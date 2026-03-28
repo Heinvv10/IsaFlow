@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Zap, Plus, Trash2, Loader2, ToggleLeft, ToggleRight, Play, Pencil, Search, X } from 'lucide-react';
+import { apiFetch } from '@/lib/apiFetch';
 
 type VatCode = 'none' | 'standard' | 'zero_rated' | 'exempt';
 
@@ -67,7 +68,7 @@ export default function BankRulesPage() {
   });
 
   const load = useCallback(async () => {
-    const res = await fetch('/api/accounting/bank-rules', { credentials: 'include' });
+    const res = await apiFetch('/api/accounting/bank-rules', { credentials: 'include' });
     const json = await res.json();
     setRules(json.data?.items || []);
     setLoading(false);
@@ -80,7 +81,7 @@ export default function BankRulesPage() {
     setBulkDeleting(true);
     setError('');
     try {
-      const res = await fetch('/api/accounting/bank-rules-action', {
+      const res = await apiFetch('/api/accounting/bank-rules-action', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         credentials: 'include', body: JSON.stringify({ action: 'deleteMany', ids: [...selected] }),
       });
@@ -101,7 +102,7 @@ export default function BankRulesPage() {
       accountCode: String(a.accountCode || a.account_code || ''),
       accountName: String(a.accountName || a.account_name || ''),
     });
-    fetch('/api/accounting/chart-of-accounts', { credentials: 'include' }).then(r => r.json()).then(res => {
+    apiFetch('/api/accounting/chart-of-accounts', { credentials: 'include' }).then(r => r.json()).then(res => {
       const d = res.data || res;
       const list = Array.isArray(d) ? d : d.accounts || d.items || [];
       setAccounts(list.map((a: Record<string, unknown>) => ({
@@ -109,7 +110,7 @@ export default function BankRulesPage() {
         defaultVatCode: String(a.defaultVatCode || a.default_vat_code || 'none'),
       })));
     });
-    fetch('/api/accounting/bank-accounts', { credentials: 'include' }).then(r => r.json()).then(res => {
+    apiFetch('/api/accounting/bank-accounts', { credentials: 'include' }).then(r => r.json()).then(res => {
       const list = Array.isArray(res.data) ? res.data : [];
       const mapped = list.map((a: Record<string, unknown>) => ({
         id: String(a.id),
@@ -119,13 +120,13 @@ export default function BankRulesPage() {
       setBankAccounts(mapped);
       if (mapped.length > 0) setSelectedBankId(String(mapped[0].id));
     });
-    fetch('/api/suppliers?status=active', { credentials: 'include' }).then(r => r.json()).then(res => {
+    apiFetch('/api/suppliers?status=active', { credentials: 'include' }).then(r => r.json()).then(res => {
       const list = Array.isArray(res.data) ? res.data : [];
       setSuppliers(list.map((s: { id: number | string; name: string }) => ({
         id: String(s.id), name: s.name,
       })));
     });
-    fetch('/api/clients', { credentials: 'include' }).then(r => r.json()).then(res => {
+    apiFetch('/api/clients', { credentials: 'include' }).then(r => r.json()).then(res => {
       const list = Array.isArray(res.data) ? res.data : [];
       setClients(list.map((c: { id: string; name?: string; company_name?: string; companyName?: string }) => ({
         id: c.id, name: c.company_name || c.companyName || c.name || '',
@@ -145,7 +146,7 @@ export default function BankRulesPage() {
           matchField: form.matchField,
           ...(selectedBankId ? { bankAccountId: selectedBankId } : {}),
         });
-        const res = await fetch(`/api/accounting/bank-rules-preview?${params}`, { credentials: 'include' });
+        const res = await apiFetch(`/api/accounting/bank-rules-preview?${params}`, { credentials: 'include' });
         const json = await res.json();
         setPreviewCount(json.data?.matchCount ?? null);
       } catch { setPreviewCount(null); }
@@ -205,7 +206,7 @@ export default function BankRulesPage() {
       };
 
       if (editingRule) {
-        const res = await fetch('/api/accounting/bank-rules-action', {
+        const res = await apiFetch('/api/accounting/bank-rules-action', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify({ action: 'update', id: editingRule.id, ...payload }),
@@ -213,7 +214,7 @@ export default function BankRulesPage() {
         const json = await res.json();
         if (!res.ok) throw new Error(json.message || 'Failed to update rule');
       } else {
-        const res = await fetch('/api/accounting/bank-rules', {
+        const res = await apiFetch('/api/accounting/bank-rules', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify(payload),
@@ -232,7 +233,7 @@ export default function BankRulesPage() {
     setBusy(id || action);
     setError('');
     try {
-      const res = await fetch('/api/accounting/bank-rules-action', {
+      const res = await apiFetch('/api/accounting/bank-rules-action', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         credentials: 'include', body: JSON.stringify({ action, id, ...extra }),
       });
@@ -287,7 +288,7 @@ export default function BankRulesPage() {
               <button
                 onClick={() => doAction('apply', undefined, { bankAccountId: selectedBankId })}
                 disabled={!!busy || !selectedBankId}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium disabled:opacity-50"
               >
                 {busy === 'apply' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} Apply Rules
               </button>
@@ -301,7 +302,7 @@ export default function BankRulesPage() {
         <div className="p-6 space-y-4">
           {error && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{error}</div>}
           {applyResult && (
-            <div className="p-3 rounded-lg bg-emerald-500/10 text-emerald-400 text-sm">
+            <div className="p-3 rounded-lg bg-teal-500/10 text-teal-400 text-sm">
               Rules applied: {applyResult.applied} categorised, {applyResult.skipped} skipped
             </div>
           )}
@@ -331,7 +332,7 @@ export default function BankRulesPage() {
                   {form.matchPattern.trim() && (
                     <p className="mt-1 text-xs text-[var(--ff-text-tertiary)]">
                       {previewCount === null ? 'Checking matches…' : (
-                        <span className={previewCount > 0 ? 'text-emerald-400' : 'text-[var(--ff-text-tertiary)]'}>
+                        <span className={previewCount > 0 ? 'text-teal-400' : 'text-[var(--ff-text-tertiary)]'}>
                           {previewCount} transaction{previewCount !== 1 ? 's' : ''} match
                         </span>
                       )}
@@ -476,7 +477,7 @@ export default function BankRulesPage() {
                     </td>
                     <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{rule.priority}</td>
                     <td className="px-4 py-3">
-                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${rule.isActive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-gray-500/10 text-gray-400'}`}>
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${rule.isActive ? 'bg-teal-500/10 text-teal-400' : 'bg-gray-500/10 text-gray-400'}`}>
                         {rule.isActive ? 'Active' : 'Inactive'}
                       </span>
                     </td>
@@ -486,7 +487,7 @@ export default function BankRulesPage() {
                           <Pencil className="h-4 w-4" />
                         </button>
                         <button onClick={() => doAction('toggle', rule.id, { isActive: !rule.isActive })} disabled={busy === rule.id} className="p-1 text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]" title={rule.isActive ? 'Disable' : 'Enable'}>
-                          {rule.isActive ? <ToggleRight className="h-4 w-4 text-emerald-400" /> : <ToggleLeft className="h-4 w-4" />}
+                          {rule.isActive ? <ToggleRight className="h-4 w-4 text-teal-400" /> : <ToggleLeft className="h-4 w-4" />}
                         </button>
                         <button onClick={() => doAction('delete', rule.id)} disabled={busy === rule.id} className="p-1 text-red-400 hover:text-red-300" title="Delete">
                           {busy === rule.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}

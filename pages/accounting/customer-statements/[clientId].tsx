@@ -9,17 +9,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, ClipboardList, Loader2, AlertCircle, Download, FileText, Search, ExternalLink } from 'lucide-react';
 // generateStatementPdf is loaded dynamically inside handleDownloadPDF
-
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amount);
-}
-
-function formatDate(dateStr: string): string {
-  if (!dateStr) return '-';
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return dateStr;
-  return d.toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' });
-}
+import { formatCurrency, formatDate } from '@/utils/formatters';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface Transaction {
   id: number | string;
@@ -59,7 +50,7 @@ function getTransactionUrl(txn: Transaction): string | null {
 function TypeBadge({ type }: { type: string }) {
   const styles: Record<string, string> = {
     invoice: 'bg-blue-500/10 text-blue-400',
-    payment: 'bg-emerald-500/10 text-emerald-400',
+    payment: 'bg-teal-500/10 text-teal-400',
     credit_note: 'bg-amber-500/10 text-amber-400',
   };
   const labels: Record<string, string> = {
@@ -91,7 +82,7 @@ export default function CustomerStatementDetailPage() {
     setIsLoading(true);
     setError('');
     try {
-      const res = await fetch(`/api/accounting/customer-statement-detail?client_id=${clientId}`);
+      const res = await apiFetch(`/api/accounting/customer-statement-detail?client_id=${clientId}`);
       const json = await res.json();
       const data = json.data || json;
       setClient(data.client || null);
@@ -140,6 +131,17 @@ export default function CustomerStatementDetailPage() {
   async function handleDownloadPDF() {
     if (!client || !summary || transactions.length === 0) return;
     const { generateStatementPdf } = await import('@/modules/accounting/utils/statementPdf');
+    // Fetch company details for PDF header
+    let companyName = '';
+    let companyVatNumber = '';
+    try {
+      const settingsRes = await apiFetch('/api/accounting/accounting-settings');
+      const settingsJson = await settingsRes.json();
+      const settings = Array.isArray(settingsJson.data) ? settingsJson.data : [];
+      companyName = settings.find((s: { key: string }) => s.key === 'company_name')?.value || '';
+      companyVatNumber = settings.find((s: { key: string }) => s.key === 'company_vat_number')?.value || '';
+    } catch { /* use defaults */ }
+
     const blob = await generateStatementPdf({
       clientName: client.name,
       clientEmail: client.email || undefined,
@@ -150,6 +152,8 @@ export default function CustomerStatementDetailPage() {
       totalCredits: summary.totalCredits,
       balanceOutstanding: summary.balance,
       transactions,
+      companyName,
+      companyVatNumber,
     });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -221,9 +225,9 @@ export default function CustomerStatementDetailPage() {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   {[
                     { label: 'Total Invoiced', value: summary.totalInvoiced, color: 'blue' },
-                    { label: 'Total Paid', value: summary.totalPaid, color: 'emerald' },
+                    { label: 'Total Paid', value: summary.totalPaid, color: 'teal' },
                     { label: 'Credits Applied', value: summary.totalCredits, color: 'amber' },
-                    { label: 'Balance Outstanding', value: summary.balance, color: summary.balance > 0 ? 'red' : 'emerald' },
+                    { label: 'Balance Outstanding', value: summary.balance, color: summary.balance > 0 ? 'red' : 'teal' },
                   ].map(card => (
                     <div key={card.label} className="p-4 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
                       <p className="text-xs text-[var(--ff-text-tertiary)] mb-1">{card.label}</p>
@@ -296,10 +300,10 @@ export default function CustomerStatementDetailPage() {
                               <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">
                                 {txn.debit > 0 ? formatCurrency(txn.debit) : ''}
                               </td>
-                              <td className={`px-4 py-3 text-right font-mono ${txn.type === 'payment' ? 'text-emerald-400' : 'text-amber-400'}`}>
+                              <td className={`px-4 py-3 text-right font-mono ${txn.type === 'payment' ? 'text-teal-400' : 'text-amber-400'}`}>
                                 {txn.credit > 0 ? formatCurrency(txn.credit) : ''}
                               </td>
-                              <td className={`px-4 py-3 text-right font-mono font-medium ${txn.balance > 0 ? 'text-[var(--ff-text-primary)]' : 'text-emerald-400'}`}>
+                              <td className={`px-4 py-3 text-right font-mono font-medium ${txn.balance > 0 ? 'text-[var(--ff-text-primary)]' : 'text-teal-400'}`}>
                                 {formatCurrency(txn.balance)}
                               </td>
                               <td className="px-2 py-3">

@@ -5,12 +5,10 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { neon } from '@neondatabase/serverless';
+import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
-
-const sql = neon(process.env.DATABASE_URL!);
 
 interface AllocationItem {
   invoiceId: string;
@@ -18,6 +16,8 @@ interface AllocationItem {
 }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyApiRequest;
+
   if (req.method === 'GET') {
     try {
       const paymentId = req.query.payment_id as string | undefined;
@@ -34,6 +34,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           JOIN supplier_invoices si ON si.id = spa.invoice_id
           JOIN suppliers s ON s.id = sp.supplier_id
           WHERE spa.payment_id = ${paymentId}
+            AND sp.company_id = ${companyId}
           ORDER BY spa.created_at DESC
         `;
       } else if (supplierId) {
@@ -46,6 +47,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           JOIN supplier_invoices si ON si.id = spa.invoice_id
           JOIN suppliers s ON s.id = sp.supplier_id
           WHERE sp.supplier_id = ${supplierId}
+            AND sp.company_id = ${companyId}
           ORDER BY spa.created_at DESC
           LIMIT 200
         `;
@@ -58,6 +60,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           JOIN supplier_payments sp ON sp.id = spa.payment_id
           JOIN supplier_invoices si ON si.id = spa.invoice_id
           JOIN suppliers s ON s.id = sp.supplier_id
+          WHERE sp.company_id = ${companyId}
           ORDER BY spa.created_at DESC
           LIMIT 200
         `;
@@ -91,7 +94,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const paymentRows = await sql`
         SELECT sp.id, sp.supplier_id, sp.total_amount, sp.status,
           COALESCE((SELECT SUM(amount_allocated) FROM supplier_payment_allocations WHERE payment_id = sp.id), 0) AS allocated_amount
-        FROM supplier_payments sp WHERE sp.id = ${paymentId}
+        FROM supplier_payments sp WHERE sp.id = ${paymentId} AND sp.company_id = ${companyId}
       `;
       const payment = paymentRows[0];
       if (!payment) return apiResponse.notFound(res, 'Payment', paymentId);
@@ -112,7 +115,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       for (const alloc of allocations) {
         const invoiceRows = await sql`
           SELECT id, supplier_id, total_amount, amount_paid, status
-          FROM supplier_invoices WHERE id = ${alloc.invoiceId}
+          FROM supplier_invoices WHERE id = ${alloc.invoiceId} AND company_id = ${companyId}
         `;
         const invoice = invoiceRows[0];
         if (!invoice) {
@@ -176,4 +179,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'POST']);
 }
 
-export default withAuth(handler);
+export default withCompany(handler);

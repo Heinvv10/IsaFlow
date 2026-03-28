@@ -9,10 +9,8 @@ import { FileText, Loader2, AlertCircle, Download, CheckSquare, Square, Mail } f
 // generateStatementPdf is loaded dynamically inside handleGenerate
 import type { StatementData } from '@/modules/accounting/utils/statementPdf';
 import { log } from '@/lib/logger';
-
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amount);
-}
+import { formatCurrency } from '@/utils/formatters';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface CustomerBalance {
   client_id: string;
@@ -38,7 +36,7 @@ export default function StatementRunPage() {
     setIsLoading(true);
     setError('');
     try {
-      const res = await fetch(`/api/accounting/customer-statements?as_at_date=${asAtDate}`);
+      const res = await apiFetch(`/api/accounting/customer-statements?as_at_date=${asAtDate}`);
       const json = await res.json();
       const data = json.data || json;
       setCustomers(data.customers || []);
@@ -75,11 +73,22 @@ export default function StatementRunPage() {
       const { generateStatementPdf } = await import('@/modules/accounting/utils/statementPdf');
       const pdfs: { name: string; blob: Blob }[] = [];
 
+      // Fetch company details once for all PDFs
+      let companyName = '';
+      let companyVatNumber = '';
+      try {
+        const settingsRes = await apiFetch('/api/accounting/accounting-settings');
+        const settingsJson = await settingsRes.json();
+        const settings = Array.isArray(settingsJson.data) ? settingsJson.data : [];
+        companyName = settings.find((s: { key: string }) => s.key === 'company_name')?.value || '';
+        companyVatNumber = settings.find((s: { key: string }) => s.key === 'company_vat_number')?.value || '';
+      } catch { /* use defaults */ }
+
       for (const clientId of selected) {
         const cust = customers.find(c => c.client_id === clientId);
         if (!cust) continue;
 
-        const detailRes = await fetch(`/api/accounting/customer-statement-detail?client_id=${clientId}`);
+        const detailRes = await apiFetch(`/api/accounting/customer-statement-detail?client_id=${clientId}`);
         const detailJson = await detailRes.json();
         const detail = detailJson.data || detailJson;
 
@@ -93,6 +102,8 @@ export default function StatementRunPage() {
           totalCredits: detail.summary?.totalCredits || 0,
           balanceOutstanding: detail.summary?.balance || 0,
           transactions: detail.transactions || [],
+          companyName,
+          companyVatNumber,
         };
 
         const blob = await generateStatementPdf(stmtData);
@@ -232,11 +243,11 @@ export default function StatementRunPage() {
                       </td>
                       <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">{c.client_name}</td>
                       <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{formatCurrency(c.total_invoiced)}</td>
-                      <td className="px-4 py-3 text-right text-emerald-400">{formatCurrency(c.total_paid)}</td>
+                      <td className="px-4 py-3 text-right text-teal-400">{formatCurrency(c.total_paid)}</td>
                       <td className="px-4 py-3 text-right font-medium text-[var(--ff-text-primary)]">{formatCurrency(c.balance)}</td>
                       <td className="px-4 py-3 text-center text-[var(--ff-text-secondary)]">{c.invoice_count}</td>
                       <td className="px-4 py-3 text-center">
-                        {c.email ? <Mail className="h-4 w-4 text-emerald-400 mx-auto" /> : <span className="text-[var(--ff-text-tertiary)]">—</span>}
+                        {c.email ? <Mail className="h-4 w-4 text-teal-400 mx-auto" /> : <span className="text-[var(--ff-text-tertiary)]">—</span>}
                       </td>
                     </tr>
                   ))}

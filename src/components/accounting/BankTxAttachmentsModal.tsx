@@ -13,7 +13,8 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { X, Paperclip, Trash2, Upload, FileImage, FileText, AlertCircle, Loader2 } from 'lucide-react';
-import { toast } from 'react-hot-toast';
+import { notify } from '@/utils/toast';
+import { apiFetch } from '@/lib/apiFetch';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -85,15 +86,14 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
   const fetchAttachments = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/accounting/bank-tx-attachments?bankTransactionId=${encodeURIComponent(bankTransactionId)}`,
-        { credentials: 'include' },
       );
       const json = await res.json() as { success: boolean; data: Attachment[] };
       if (!res.ok || !json.success) throw new Error('Failed to load attachments');
       setAttachments(json.data);
     } catch {
-      toast.error('Could not load attachments');
+      notify.error('Could not load attachments');
     } finally {
       setLoading(false);
     }
@@ -104,21 +104,20 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
   // ── Upload ─────────────────────────────────────────────────────────────────
   const handleUpload = useCallback(async (file: File) => {
     if (!ACCEPTED_MIME.includes(file.type)) {
-      toast.error('Only JPG, PNG and PDF files are accepted');
+      notify.error('Only JPG, PNG and PDF files are accepted');
       return;
     }
     if (file.size > MAX_BYTES) {
-      toast.error('File exceeds the 2 MB limit');
+      notify.error('File exceeds the 2 MB limit');
       return;
     }
 
     setUploading(true);
     try {
       const fileData = await readFileAsDataUrl(file);
-      const res = await fetch('/api/accounting/bank-tx-attachments', {
+      const res = await apiFetch('/api/accounting/bank-tx-attachments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({
           bankTransactionId,
           fileName: file.name,
@@ -128,10 +127,10 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
       });
       const json = await res.json() as { success: boolean; message?: string };
       if (!res.ok || !json.success) throw new Error(json.message ?? 'Upload failed');
-      toast.success(`${file.name} uploaded`);
+      notify.success(`${file.name} uploaded`);
       await fetchAttachments();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Upload failed');
+      notify.error(err instanceof Error ? err.message : 'Upload failed');
     } finally {
       setUploading(false);
     }
@@ -156,16 +155,16 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
   const handleDelete = async (id: string, name: string) => {
     setDeletingId(id);
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/accounting/bank-tx-attachments?id=${encodeURIComponent(id)}`,
-        { method: 'DELETE', credentials: 'include' },
+        { method: 'DELETE' },
       );
       const json = await res.json() as { success: boolean; message?: string };
       if (!res.ok || !json.success) throw new Error(json.message ?? 'Delete failed');
-      toast.success(`${name} removed`);
+      notify.success(`${name} removed`);
       setAttachments(prev => prev.filter(a => a.id !== id));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Delete failed');
+      notify.error(err instanceof Error ? err.message : 'Delete failed');
     } finally {
       setDeletingId(null);
     }

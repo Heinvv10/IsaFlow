@@ -11,6 +11,8 @@ import {
 } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import type { CustomerPayment, CustomerPaymentStatus } from '@/modules/accounting/types/ar.types';
+import { formatCurrency } from '@/utils/formatters';
+import { apiFetch } from '@/lib/apiFetch';
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: '', label: 'All Statuses' },
@@ -23,7 +25,7 @@ const STATUS_OPTIONS: { value: string; label: string }[] = [
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
     draft: 'bg-gray-500/20 text-gray-400',
-    confirmed: 'bg-emerald-500/20 text-emerald-400',
+    confirmed: 'bg-teal-500/20 text-teal-400',
     reconciled: 'bg-blue-500/20 text-blue-400',
     cancelled: 'bg-red-500/20 text-red-400',
   };
@@ -32,10 +34,6 @@ function StatusBadge({ status }: { status: string }) {
       {status}
     </span>
   );
-}
-
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amount);
 }
 
 export default function CustomerPaymentsPage() {
@@ -51,7 +49,7 @@ export default function CustomerPaymentsPage() {
     try {
       const params = new URLSearchParams();
       if (statusFilter) params.set('status', statusFilter);
-      const res = await fetch(`/api/accounting/customer-payments?${params}`);
+      const res = await apiFetch(`/api/accounting/customer-payments?${params}`);
       const json = await res.json();
       const payload = json.data || json;
       setPayments(payload.payments || []);
@@ -72,8 +70,8 @@ export default function CustomerPaymentsPage() {
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
           <div className="px-6 py-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-emerald-500/10">
-                <Wallet className="h-6 w-6 text-emerald-500" />
+              <div className="p-2 rounded-lg bg-teal-500/10">
+                <Wallet className="h-6 w-6 text-teal-500" />
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Customer Payments</h1>
@@ -86,7 +84,7 @@ export default function CustomerPaymentsPage() {
               <ExportCSVButton endpoint="/api/accounting/customer-payments-export" filenamePrefix="customer-payments" params={{ status: statusFilter }} label="Export CSV" />
               <Link
                 href="/accounting/customer-payments/new"
-                className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors text-sm font-medium"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium"
               >
                 <Plus className="h-4 w-4" /> Record Payment
               </Link>
@@ -117,7 +115,7 @@ export default function CustomerPaymentsPage() {
           {/* Loading */}
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-6 w-6 animate-spin text-emerald-500" />
+              <Loader2 className="h-6 w-6 animate-spin text-teal-500" />
             </div>
           ) : payments.length === 0 ? (
             <div className="text-center py-12 text-[var(--ff-text-secondary)]">
@@ -141,7 +139,7 @@ export default function CustomerPaymentsPage() {
                   {payments.map(p => (
                     <tr key={p.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)] transition-colors">
                       <td className="px-4 py-3 font-mono text-[var(--ff-text-primary)]">
-                        <Link href={`/accounting/customer-payments/${p.id}`} className="hover:text-emerald-400 transition-colors">
+                        <Link href={`/accounting/customer-payments/${p.id}`} className="hover:text-teal-400 transition-colors">
                           {p.paymentNumber}
                         </Link>
                       </td>
@@ -156,7 +154,7 @@ export default function CustomerPaymentsPage() {
                       <td className="px-4 py-3"><StatusBadge status={p.status} /></td>
                       <td className="px-4 py-3 text-right">
                         <Link href={`/accounting/customer-payments/${p.id}`}>
-                          <ChevronRight className="h-4 w-4 text-[var(--ff-text-tertiary)] hover:text-emerald-400" />
+                          <ChevronRight className="h-4 w-4 text-[var(--ff-text-tertiary)] hover:text-teal-400" />
                         </Link>
                       </td>
                     </tr>

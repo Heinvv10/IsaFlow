@@ -8,10 +8,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
 import { BarChart3, Loader2, AlertCircle, Download, ChevronDown, ChevronRight } from 'lucide-react';
-
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amount);
-}
+import { formatCurrency } from '@/utils/formatters';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface BudgetLine {
   account_code: string;
@@ -57,7 +55,7 @@ export default function BudgetVsActualPage() {
     setError('');
     try {
       const params = new URLSearchParams({ period: fiscalPeriod });
-      const res = await fetch(`/api/accounting/reports-budget-vs-actual?${params}`);
+      const res = await apiFetch(`/api/accounting/reports-budget-vs-actual?${params}`);
       const json = await res.json();
       const data = json.data || json;
       setReport(data.report || data);
@@ -162,16 +160,16 @@ export default function BudgetVsActualPage() {
                           <td className="py-3 px-4 text-[var(--ff-text-primary)]">{line.account_name}</td>
                           <td className="py-3 px-4 text-right text-[var(--ff-text-secondary)]">{formatCurrency(line.budget_amount)}</td>
                           <td className="py-3 px-4 text-right text-[var(--ff-text-primary)]">{formatCurrency(line.actual_amount)}</td>
-                          <td className={`py-3 px-4 text-right font-medium ${line.variance >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                          <td className={`py-3 px-4 text-right font-medium ${line.variance >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
                             {formatCurrency(line.variance)}
                           </td>
-                          <td className={`py-3 px-4 text-right text-xs ${line.variance_pct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                          <td className={`py-3 px-4 text-right text-xs ${line.variance_pct >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
                             {line.variance_pct.toFixed(1)}%
                           </td>
                           <td className="py-3 px-4">
                             <div className="w-full h-2 bg-[var(--ff-bg-tertiary)] rounded-full overflow-hidden">
                               <div
-                                className={`h-full rounded-full ${pct > 100 ? 'bg-red-500' : pct > 80 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                                className={`h-full rounded-full ${pct > 100 ? 'bg-red-500' : pct > 80 ? 'bg-amber-500' : 'bg-teal-500'}`}
                                 style={{ width: `${Math.min(pct, 100)}%` }}
                               />
                             </div>
@@ -195,7 +193,7 @@ export default function BudgetVsActualPage() {
                     <td colSpan={2} className="py-3 px-4 text-[var(--ff-text-primary)]">Total</td>
                     <td className="py-3 px-4 text-right text-[var(--ff-text-primary)]">{formatCurrency(report.total_budget)}</td>
                     <td className="py-3 px-4 text-right text-[var(--ff-text-primary)]">{formatCurrency(report.total_actual)}</td>
-                    <td className={`py-3 px-4 text-right ${report.total_variance >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    <td className={`py-3 px-4 text-right ${report.total_variance >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
                       {formatCurrency(report.total_variance)}
                     </td>
                     <td colSpan={2}></td>

@@ -12,16 +12,14 @@ import {
   Zap, Link2, Unlink, Ban, Check,
 } from 'lucide-react';
 import type { BankReconciliation, BankTransaction } from '@/modules/accounting/types/bank.types';
-
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amount);
-}
+import { formatCurrency } from '@/utils/formatters';
+import { apiFetch } from '@/lib/apiFetch';
 
 function TxStatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
     imported: 'bg-gray-500/20 text-gray-400',
     matched: 'bg-blue-500/20 text-blue-400',
-    reconciled: 'bg-emerald-500/20 text-emerald-400',
+    reconciled: 'bg-teal-500/20 text-teal-400',
     excluded: 'bg-red-500/20 text-red-400',
   };
   return (
@@ -61,8 +59,8 @@ export default function ReconciliationDetailPage() {
     setError('');
     try {
       const [reconRes, txRes] = await Promise.all([
-        fetch(`/api/accounting/bank-reconciliations?id=${reconId}`),
-        fetch(`/api/accounting/bank-transactions?reconciliation_id=${reconId}&limit=500`),
+        apiFetch(`/api/accounting/bank-reconciliations?id=${reconId}`),
+        apiFetch(`/api/accounting/bank-transactions?reconciliation_id=${reconId}&limit=500`),
       ]);
 
       const reconJson = await reconRes.json();
@@ -75,7 +73,7 @@ export default function ReconciliationDetailPage() {
 
       // Load unmatched GL lines for this bank account
       if (reconData?.bankAccountId) {
-        const glRes = await fetch(`/api/accounting/journal-entries?gl_account_id=${reconData.bankAccountId}&status=posted&limit=200`);
+        const glRes = await apiFetch(`/api/accounting/journal-entries?gl_account_id=${reconData.bankAccountId}&status=posted&limit=200`);
         const glJson = await glRes.json();
         const entries = glJson.data?.entries || glJson.entries || [];
         const lines: GLLine[] = [];
@@ -114,7 +112,7 @@ export default function ReconciliationDetailPage() {
     if (!recon) return;
     setActionLoading('auto_match');
     try {
-      const res = await fetch('/api/accounting/bank-transactions-action', {
+      const res = await apiFetch('/api/accounting/bank-transactions-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -138,7 +136,7 @@ export default function ReconciliationDetailPage() {
     if (!selectedTx || !selectedGl) return;
     setActionLoading('match');
     try {
-      const res = await fetch('/api/accounting/bank-transactions-action', {
+      const res = await apiFetch('/api/accounting/bank-transactions-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -163,7 +161,7 @@ export default function ReconciliationDetailPage() {
   const handleUnmatch = async (txId: string) => {
     setActionLoading(txId);
     try {
-      await fetch('/api/accounting/bank-transactions-action', {
+      await apiFetch('/api/accounting/bank-transactions-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -180,7 +178,7 @@ export default function ReconciliationDetailPage() {
   const handleExclude = async (txId: string) => {
     setActionLoading(txId);
     try {
-      await fetch('/api/accounting/bank-transactions-action', {
+      await apiFetch('/api/accounting/bank-transactions-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -197,7 +195,7 @@ export default function ReconciliationDetailPage() {
   const handleComplete = async () => {
     setActionLoading('complete');
     try {
-      const res = await fetch('/api/accounting/bank-reconciliations-action', {
+      const res = await apiFetch('/api/accounting/bank-reconciliations-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -217,7 +215,7 @@ export default function ReconciliationDetailPage() {
     return (
       <AppLayout>
         <div className="min-h-screen bg-[var(--ff-bg-primary)] flex items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
+          <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
         </div>
       </AppLayout>
     );
@@ -249,8 +247,8 @@ export default function ReconciliationDetailPage() {
             </Link>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-emerald-500/10">
-                  <Landmark className="h-6 w-6 text-emerald-500" />
+                <div className="p-2 rounded-lg bg-teal-500/10">
+                  <Landmark className="h-6 w-6 text-teal-500" />
                 </div>
                 <div>
                   <h1 className="text-xl font-bold text-[var(--ff-text-primary)]">
@@ -258,7 +256,7 @@ export default function ReconciliationDetailPage() {
                   </h1>
                   <p className="text-sm text-[var(--ff-text-secondary)]">
                     Statement: {new Date(recon.statementDate).toLocaleDateString('en-ZA')}
-                    {isCompleted && <span className="ml-2 text-emerald-400">Completed</span>}
+                    {isCompleted && <span className="ml-2 text-teal-400">Completed</span>}
                   </p>
                 </div>
               </div>
@@ -277,7 +275,7 @@ export default function ReconciliationDetailPage() {
                   <button
                     onClick={handleComplete}
                     disabled={!!actionLoading}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors text-sm font-medium"
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 transition-colors text-sm font-medium"
                   >
                     {actionLoading === 'complete' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                     Complete Reconciliation
@@ -310,13 +308,13 @@ export default function ReconciliationDetailPage() {
               <p className="text-xs text-[var(--ff-text-tertiary)]">Reconciled Balance</p>
               <p className="text-xl font-bold text-blue-400">{formatCurrency(recon.reconciledBalance)}</p>
             </div>
-            <div className={`p-4 rounded-lg border ${Math.abs(recon.difference) < 0.01 ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-red-500/10 border-red-500/30'}`}>
+            <div className={`p-4 rounded-lg border ${Math.abs(recon.difference) < 0.01 ? 'bg-teal-500/10 border-teal-500/30' : 'bg-red-500/10 border-red-500/30'}`}>
               <p className="text-xs text-[var(--ff-text-tertiary)]">Difference</p>
-              <p className={`text-xl font-bold ${Math.abs(recon.difference) < 0.01 ? 'text-emerald-400' : 'text-red-400'}`}>
+              <p className={`text-xl font-bold ${Math.abs(recon.difference) < 0.01 ? 'text-teal-400' : 'text-red-400'}`}>
                 {formatCurrency(recon.difference)}
               </p>
               {Math.abs(recon.difference) < 0.01 && (
-                <p className="text-xs text-emerald-400 flex items-center gap-1 mt-1">
+                <p className="text-xs text-teal-400 flex items-center gap-1 mt-1">
                   <CheckCircle2 className="h-3 w-3" /> Balanced
                 </p>
               )}
@@ -375,7 +373,7 @@ export default function ReconciliationDetailPage() {
                             </p>
                           </div>
                           <div className="flex items-center gap-2 ml-2">
-                            <span className={`font-mono text-sm ${tx.amount >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                            <span className={`font-mono text-sm ${tx.amount >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
                               {formatCurrency(tx.amount)}
                             </span>
                             {!isCompleted && (
@@ -394,10 +392,10 @@ export default function ReconciliationDetailPage() {
                     {matchedTxs.length > 0 && (
                       <>
                         <div className="px-4 py-2 bg-[var(--ff-bg-primary)]">
-                          <p className="text-xs font-medium text-emerald-400">Matched ({matchedTxs.length})</p>
+                          <p className="text-xs font-medium text-teal-400">Matched ({matchedTxs.length})</p>
                         </div>
                         {matchedTxs.map(tx => (
-                          <div key={tx.id} className="px-4 py-2 text-sm bg-emerald-500/5">
+                          <div key={tx.id} className="px-4 py-2 text-sm bg-teal-500/5">
                             <div className="flex items-center justify-between">
                               <div className="flex-1 min-w-0">
                                 <p className="text-[var(--ff-text-primary)] truncate">{tx.description || '—'}</p>
@@ -459,7 +457,7 @@ export default function ReconciliationDetailPage() {
                                 {line.entryNumber} | {new Date(line.entryDate).toLocaleDateString('en-ZA')}
                               </p>
                             </div>
-                            <span className={`font-mono text-sm ml-2 ${amount >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                            <span className={`font-mono text-sm ml-2 ${amount >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
                               {formatCurrency(amount)}
                             </span>
                           </div>

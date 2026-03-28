@@ -92,7 +92,7 @@ export function ExcludeReasonModal({ transaction, onClose, onExclude }: Props) {
             </span>
           )}
           {received !== null && (
-            <span className="text-xs font-mono font-medium px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400">
+            <span className="text-xs font-mono font-medium px-2 py-0.5 rounded-full bg-teal-500/10 text-teal-400">
               Received {fmtCurrency(received)}
             </span>
           )}

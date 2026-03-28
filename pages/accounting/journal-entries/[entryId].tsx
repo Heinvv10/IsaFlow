@@ -21,6 +21,7 @@ import {
   Hash,
 } from 'lucide-react';
 import type { JournalEntry, JournalLine } from '@/modules/accounting/types/gl.types';
+import { apiFetch } from '@/lib/apiFetch';
 
 export default function JournalEntryDetailPage() {
   const router = useRouter();
@@ -38,7 +39,7 @@ export default function JournalEntryDetailPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/accounting/journal-entries-detail?id=${entryId}`);
+      const res = await apiFetch(`/api/accounting/journal-entries-detail?id=${entryId}`);
       if (!res.ok) {
         const errData = await res.json();
         throw new Error(errData.message || 'Failed to load entry');
@@ -58,7 +59,7 @@ export default function JournalEntryDetailPage() {
     if (!entry) return;
     setActionLoading(action);
     try {
-      const res = await fetch('/api/accounting/journal-entries-action', {
+      const res = await apiFetch('/api/accounting/journal-entries-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -85,7 +86,7 @@ export default function JournalEntryDetailPage() {
 
   const statusColors: Record<string, string> = {
     draft: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
-    posted: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
+    posted: 'bg-teal-500/20 text-teal-400 border-teal-500/30',
     reversed: 'bg-red-500/20 text-red-400 border-red-500/30',
     voided: 'bg-gray-500/20 text-gray-400 border-gray-500/30',
   };
@@ -123,7 +124,7 @@ export default function JournalEntryDetailPage() {
                   <button
                     onClick={() => handleAction('post')}
                     disabled={actionLoading === 'post'}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors text-sm font-medium disabled:opacity-50"
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium disabled:opacity-50"
                   >
                     {actionLoading === 'post' ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -156,7 +157,7 @@ export default function JournalEntryDetailPage() {
         <div className="p-6">
           {isLoading ? (
             <div className="flex justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
+              <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
             </div>
           ) : error ? (
             <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 flex items-start gap-3">

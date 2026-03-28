@@ -8,12 +8,10 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Landmark, Loader2 } from 'lucide-react';
+import { formatCurrency } from '@/utils/formatters';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface BankAccount { id: string; account_code: string; account_name: string; bank_account_number?: string | null }
-
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amount);
-}
 
 export default function NewReconciliationPage() {
   const router = useRouter();
@@ -28,7 +26,7 @@ export default function NewReconciliationPage() {
   });
 
   useEffect(() => {
-    fetch('/api/accounting/chart-of-accounts?subtype=bank')
+    apiFetch('/api/accounting/chart-of-accounts?subtype=bank')
       .then(r => r.json())
       .then(res => {
         const data = res.data || res;
@@ -48,7 +46,7 @@ export default function NewReconciliationPage() {
     setIsSubmitting(true);
 
     try {
-      const res = await fetch('/api/accounting/bank-reconciliations', {
+      const res = await apiFetch('/api/accounting/bank-reconciliations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -79,8 +77,8 @@ export default function NewReconciliationPage() {
               <ArrowLeft className="h-4 w-4" /> Back to Reconciliations
             </Link>
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-emerald-500/10">
-                <Landmark className="h-6 w-6 text-emerald-500" />
+              <div className="p-2 rounded-lg bg-teal-500/10">
+                <Landmark className="h-6 w-6 text-teal-500" />
               </div>
               <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Start Reconciliation</h1>
             </div>
@@ -152,7 +150,7 @@ export default function NewReconciliationPage() {
             <button
               type="submit"
               disabled={isSubmitting || !form.bankAccountId}
-              className="inline-flex items-center gap-2 px-6 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors text-sm font-medium"
+              className="inline-flex items-center gap-2 px-6 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 transition-colors text-sm font-medium"
             >
               {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
               Start Reconciliation

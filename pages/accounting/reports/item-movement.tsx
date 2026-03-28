@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeftRight, Loader2, Download } from 'lucide-react';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface Row { date: string; type: string; reference: string; itemCode: string; itemName: string; qtyIn: number; qtyOut: number; balance: number; }
 
@@ -18,7 +19,7 @@ export default function ItemMovementReport() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await fetch(`/api/accounting/reports/item-movement?from=${from}&to=${to}`, { credentials: 'include' });
+    const res = await apiFetch(`/api/accounting/reports/item-movement?from=${from}&to=${to}`, { credentials: 'include' });
     const json = await res.json();
     setRows(json.data || []);
     setLoading(false);
@@ -71,13 +72,13 @@ export default function ItemMovementReport() {
                     <tr key={i} className="hover:bg-[var(--ff-bg-tertiary)]">
                       <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.date}</td>
                       <td className="px-4 py-3">
-                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${r.type === 'GRN' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'}`}>
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${r.type === 'GRN' ? 'bg-teal-500/10 text-teal-400' : 'bg-amber-500/10 text-amber-400'}`}>
                           {r.type}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-[var(--ff-text-primary)]">{r.reference}</td>
                       <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.itemName}</td>
-                      <td className="px-4 py-3 text-right text-emerald-400">{r.qtyIn > 0 ? r.qtyIn : ''}</td>
+                      <td className="px-4 py-3 text-right text-teal-400">{r.qtyIn > 0 ? r.qtyIn : ''}</td>
                       <td className="px-4 py-3 text-right text-red-400">{r.qtyOut > 0 ? r.qtyOut : ''}</td>
                       <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">{r.balance}</td>
                     </tr>

@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { DollarSign, Loader2, Download } from 'lucide-react';
+import { apiFetch } from '@/lib/apiFetch';
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
@@ -17,7 +18,7 @@ export default function ItemValuationReport() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await fetch('/api/accounting/reports/item-valuation', { credentials: 'include' });
+    const res = await apiFetch('/api/accounting/reports/item-valuation', { credentials: 'include' });
     const json = await res.json();
     setRows(json.data || []);
     setLoading(false);

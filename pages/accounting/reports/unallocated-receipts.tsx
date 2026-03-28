@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { AlertCircle, Loader2 } from 'lucide-react';
+import { apiFetch } from '@/lib/apiFetch';
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
@@ -17,7 +18,7 @@ export default function UnallocatedReceiptsReport() {
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    const res = await fetch('/api/accounting/customer-payments?unallocated=true', { credentials: 'include' });
+    const res = await apiFetch('/api/accounting/customer-payments?unallocated=true', { credentials: 'include' });
     const json = await res.json();
     const d = json.data; setItems(Array.isArray(d) ? d : d?.items || d?.payments || []);
     setLoading(false);
@@ -78,7 +79,7 @@ export default function UnallocatedReceiptsReport() {
                       <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.clientName}</td>
                       <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.date?.split('T')[0]}</td>
                       <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">{fmt(r.amount)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-emerald-400">{fmt(r.allocatedAmount)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-teal-400">{fmt(r.allocatedAmount)}</td>
                       <td className="px-4 py-3 text-right font-mono font-bold text-amber-400">{fmt(r.amount - r.allocatedAmount)}</td>
                     </tr>
                   ))}

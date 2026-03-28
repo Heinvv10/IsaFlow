@@ -8,11 +8,13 @@ import { sql } from '@/lib/neon';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withAuth, withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyApiRequest;
+
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
   }
@@ -32,7 +34,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         FROM customer_invoices ci
         LEFT JOIN clients c ON c.id = ci.client_id
         LEFT JOIN projects p ON p.id = ci.project_id
-        WHERE ci.status = ${status as string}
+        WHERE ci.company_id = ${companyId}
+          AND ci.status = ${status as string}
         ORDER BY ci.invoice_date DESC
         LIMIT ${Number(limit)} OFFSET ${Number(offset)}
       `;
@@ -47,6 +50,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         FROM customer_invoices ci
         LEFT JOIN clients c ON c.id = ci.client_id
         LEFT JOIN projects p ON p.id = ci.project_id
+        WHERE ci.company_id = ${companyId}
         ORDER BY ci.invoice_date DESC
         LIMIT ${Number(limit)} OFFSET ${Number(offset)}
       `;
@@ -60,4 +64,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

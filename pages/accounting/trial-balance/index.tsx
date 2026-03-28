@@ -8,6 +8,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Scale, Loader2, AlertCircle, Download, ChevronDown, ChevronRight } from 'lucide-react';
 import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface TBRow {
   accountCode: string; accountName: string; accountType: string;
@@ -36,15 +37,15 @@ export default function TrialBalancePage() {
 
   // Load cost centres
   useEffect(() => {
-    fetch('/api/accounting/cost-centres?active_only=true', { credentials: 'include' })
+    apiFetch('/api/accounting/cost-centres?active_only=true', { credentials: 'include' })
       .then(r => r.json())
       .then(json => setCostCentres(json.data?.items || json.data || []))
-      .catch(() => {});
+      .catch(() => { /* reference data load failure — non-critical, cost centre filter will be empty */ });
   }, []);
 
   // Load fiscal periods
   useEffect(() => {
-    fetch('/api/accounting/fiscal-periods', { credentials: 'include' })
+    apiFetch('/api/accounting/fiscal-periods', { credentials: 'include' })
       .then(r => r.json())
       .then(res => {
         const items = res.data?.items || res.data || [];
@@ -62,7 +63,7 @@ export default function TrialBalancePage() {
       const params = new URLSearchParams({ fiscal_period_id: selectedPeriod });
       if (costCentreId) params.set('cost_centre_id', costCentreId);
       if (comparePeriodId) params.set('compare_period_id', comparePeriodId);
-      const res = await fetch(`/api/accounting/reports-trial-balance?${params}`, { credentials: 'include' });
+      const res = await apiFetch(`/api/accounting/reports-trial-balance?${params}`, { credentials: 'include' });
       if (!res.ok) throw new Error('Failed to load');
       const json = await res.json();
       const data = json.data || json;
@@ -146,9 +147,9 @@ export default function TrialBalancePage() {
                 <p className="text-xs text-[var(--ff-text-tertiary)] mb-1">Total Credits</p>
                 <p className="text-xl font-bold text-[var(--ff-text-primary)]">{fmt(totalCredit)}</p>
               </div>
-              <div className={`rounded-lg border p-4 ${balanced ? 'bg-emerald-500/5 border-emerald-500/30' : 'bg-red-500/5 border-red-500/30'}`}>
+              <div className={`rounded-lg border p-4 ${balanced ? 'bg-teal-500/5 border-teal-500/30' : 'bg-red-500/5 border-red-500/30'}`}>
                 <p className="text-xs text-[var(--ff-text-tertiary)] mb-1">Difference</p>
-                <p className={`text-xl font-bold ${balanced ? 'text-emerald-400' : 'text-red-400'}`}>
+                <p className={`text-xl font-bold ${balanced ? 'text-teal-400' : 'text-red-400'}`}>
                   {fmt(Math.abs(totalDebit - totalCredit))}
                   <span className="text-sm ml-2">{balanced ? 'Balanced' : 'Out of Balance'}</span>
                 </p>

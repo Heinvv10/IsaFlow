@@ -7,7 +7,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withAuth, withCompany, type AuthenticatedNextApiRequest, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import {
   approveSupplierInvoice,
@@ -16,6 +16,8 @@ import {
 } from '@/modules/accounting/services/supplierInvoiceService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyApiRequest;
+
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
   }
@@ -30,15 +32,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     switch (action) {
       case 'approve': {
-        const invoice = await approveSupplierInvoice(invoiceId, userId);
+        const invoice = await approveSupplierInvoice(companyId, invoiceId, userId);
         return apiResponse.success(res, invoice);
       }
       case 'cancel': {
-        const invoice = await cancelSupplierInvoice(invoiceId);
+        const invoice = await cancelSupplierInvoice(companyId, invoiceId);
         return apiResponse.success(res, invoice);
       }
       case 'match': {
-        const result = await performThreeWayMatch(invoiceId);
+        const result = await performThreeWayMatch(companyId, invoiceId);
         return apiResponse.success(res, result);
       }
       default:
@@ -52,4 +54,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PackageOpen, Save, Loader2, Search } from 'lucide-react';
+import { apiFetch } from '@/lib/apiFetch';
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
@@ -22,7 +23,7 @@ export default function ItemOpeningBalancesPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await fetch('/api/accounting/item-opening-balances', { credentials: 'include' });
+    const res = await apiFetch('/api/accounting/item-opening-balances', { credentials: 'include' });
     const json = await res.json();
     setItems(json.data || []);
     setEdits({});
@@ -57,7 +58,7 @@ export default function ItemOpeningBalancesPage() {
     if (!changedCount) return;
     setSaving(true); setMsg('');
     const payload = Object.entries(edits).map(([itemId, v]) => ({ itemId, quantity: Number(v.quantity), unitCost: Number(v.unitCost) }));
-    const res = await fetch('/api/accounting/item-opening-balances', {
+    const res = await apiFetch('/api/accounting/item-opening-balances', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       credentials: 'include', body: JSON.stringify({ items: payload }),
     });
@@ -97,7 +98,7 @@ export default function ItemOpeningBalancesPage() {
         </div>
 
         <div className="p-6">
-          {msg && <div className={`p-3 rounded-lg text-sm mb-4 ${msg.includes('set') ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>{msg}</div>}
+          {msg && <div className={`p-3 rounded-lg text-sm mb-4 ${msg.includes('set') ? 'bg-teal-500/10 text-teal-400' : 'bg-red-500/10 text-red-400'}`}>{msg}</div>}
 
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
             {loading ? (

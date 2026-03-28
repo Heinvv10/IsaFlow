@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Repeat, Plus, Pause, Play, XCircle, Zap, Loader2, Pencil, Save, Download } from 'lucide-react';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface RecurringInvoice {
   id: string; templateName: string; clientId: string; clientName?: string;
@@ -17,7 +18,7 @@ interface Client { id: string; company_name: string }
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
 const STATUS_BADGE: Record<string, string> = {
-  active: 'bg-emerald-500/10 text-emerald-400',
+  active: 'bg-teal-500/10 text-teal-400',
   paused: 'bg-yellow-500/10 text-yellow-400',
   completed: 'bg-blue-500/10 text-blue-400',
   cancelled: 'bg-red-500/10 text-red-400',
@@ -37,7 +38,7 @@ export default function RecurringInvoicesPage() {
   });
 
   const load = useCallback(async () => {
-    const res = await fetch('/api/accounting/recurring-invoices', { credentials: 'include' });
+    const res = await apiFetch('/api/accounting/recurring-invoices', { credentials: 'include' });
     const json = await res.json();
     setItems(json.data?.items || []);
     setLoading(false);
@@ -45,7 +46,7 @@ export default function RecurringInvoicesPage() {
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
-    fetch('/api/clients', { credentials: 'include' }).then(r => r.json()).then(res => {
+    apiFetch('/api/clients', { credentials: 'include' }).then(r => r.json()).then(res => {
       const d = res.data || res;
       setClients(Array.isArray(d) ? d : d.clients || []);
     });
@@ -53,7 +54,7 @@ export default function RecurringInvoicesPage() {
 
   const doAction = async (action: string, id: string) => {
     setBusy(id);
-    await fetch('/api/accounting/recurring-invoices-action', {
+    await apiFetch('/api/accounting/recurring-invoices-action', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       credentials: 'include', body: JSON.stringify({ action, id }),
     });
@@ -91,7 +92,7 @@ export default function RecurringInvoicesPage() {
             description: form.description,
             lineItems: [{ description: form.lineDesc, quantity: Number(form.lineQty), unitPrice: Number(form.linePrice) }],
           };
-      const res = await fetch('/api/accounting/recurring-invoices', {
+      const res = await apiFetch('/api/accounting/recurring-invoices', {
         method, headers: { 'Content-Type': 'application/json' },
         credentials: 'include', body: JSON.stringify(payload),
       });
@@ -193,9 +194,9 @@ export default function RecurringInvoicesPage() {
                       <div className="flex items-center gap-1">
                         {item.status === 'active' && <>
                           <button onClick={() => doAction('pause', item.id)} disabled={busy === item.id} className="p-1 text-yellow-400 hover:text-yellow-300" title="Pause"><Pause className="h-4 w-4" /></button>
-                          <button onClick={() => doAction('generate', item.id)} disabled={busy === item.id} className="p-1 text-emerald-400 hover:text-emerald-300" title="Generate Now"><Zap className="h-4 w-4" /></button>
+                          <button onClick={() => doAction('generate', item.id)} disabled={busy === item.id} className="p-1 text-teal-400 hover:text-teal-300" title="Generate Now"><Zap className="h-4 w-4" /></button>
                         </>}
-                        {item.status === 'paused' && <button onClick={() => doAction('resume', item.id)} disabled={busy === item.id} className="p-1 text-emerald-400 hover:text-emerald-300" title="Resume"><Play className="h-4 w-4" /></button>}
+                        {item.status === 'paused' && <button onClick={() => doAction('resume', item.id)} disabled={busy === item.id} className="p-1 text-teal-400 hover:text-teal-300" title="Resume"><Play className="h-4 w-4" /></button>}
                         {(item.status === 'active' || item.status === 'paused') && <>
                           <button onClick={() => startEdit(item)} disabled={busy === item.id} className="p-1 text-blue-400 hover:text-blue-300" title="Edit"><Pencil className="h-4 w-4" /></button>
                           <button onClick={() => doAction('cancel', item.id)} disabled={busy === item.id} className="p-1 text-red-400 hover:text-red-300" title="Cancel"><XCircle className="h-4 w-4" /></button>

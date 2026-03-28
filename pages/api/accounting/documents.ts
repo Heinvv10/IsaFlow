@@ -6,12 +6,12 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { neon } from '@neondatabase/serverless';
+import { sql } from '@/lib/neon';
 import formidable from 'formidable';
 import fs from 'fs';
 import { vfStorage } from '@/services/vfStorageAdapter';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import type {
   ProcurementDocument,
@@ -19,8 +19,6 @@ import type {
   AccountingEntityType,
   AccountingDocumentType,
 } from '@/types/procurement/document.types';
-
-const sql = neon(process.env.DATABASE_URL!);
 
 export const config = {
   api: { bodyParser: false },
@@ -324,4 +322,4 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, { id: row.id, deleted: true });
 }
 
-export default withAuth(handler);
+export default withCompany(handler);

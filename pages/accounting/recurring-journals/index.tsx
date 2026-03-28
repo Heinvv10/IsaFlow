@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { RotateCcw, Plus, Pause, Play, XCircle, Zap, Loader2, Trash2, Pencil, Save, Download } from 'lucide-react';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface RecurringJournal {
   id: string; templateName: string; description?: string; frequency: string;
@@ -18,7 +19,7 @@ interface Account { id: string; accountCode: string; accountName: string }
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
 const STATUS_BADGE: Record<string, string> = {
-  active: 'bg-emerald-500/10 text-emerald-400',
+  active: 'bg-teal-500/10 text-teal-400',
   paused: 'bg-yellow-500/10 text-yellow-400',
   completed: 'bg-blue-500/10 text-blue-400',
   cancelled: 'bg-red-500/10 text-red-400',
@@ -37,7 +38,7 @@ export default function RecurringJournalsPage() {
   const [formLines, setFormLines] = useState([{ key: crypto.randomUUID(), glAccountId: '', debit: 0, credit: 0, description: '' }]);
 
   const load = useCallback(async () => {
-    const res = await fetch('/api/accounting/recurring-journals', { credentials: 'include' });
+    const res = await apiFetch('/api/accounting/recurring-journals', { credentials: 'include' });
     const json = await res.json();
     setItems(json.data?.items || []);
     setLoading(false);
@@ -45,7 +46,7 @@ export default function RecurringJournalsPage() {
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
-    fetch('/api/accounting/chart-of-accounts', { credentials: 'include' }).then(r => r.json()).then(res => {
+    apiFetch('/api/accounting/chart-of-accounts', { credentials: 'include' }).then(r => r.json()).then(res => {
       const d = res.data || res;
       const list = Array.isArray(d) ? d : d.accounts || d.items || [];
       setAccounts(list.map((a: Record<string, unknown>) => ({
@@ -60,7 +61,7 @@ export default function RecurringJournalsPage() {
 
   const doAction = async (action: string, id: string) => {
     setBusy(id);
-    await fetch('/api/accounting/recurring-journals-action', {
+    await apiFetch('/api/accounting/recurring-journals-action', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       credentials: 'include', body: JSON.stringify({ action, id }),
     });
@@ -96,7 +97,7 @@ export default function RecurringJournalsPage() {
               glAccountId: l.glAccountId, debit: l.debit || 0, credit: l.credit || 0, description: l.description,
             })),
           };
-      const res = await fetch('/api/accounting/recurring-journals', {
+      const res = await apiFetch('/api/accounting/recurring-journals', {
         method, headers: { 'Content-Type': 'application/json' },
         credentials: 'include', body: JSON.stringify(payload),
       });
@@ -188,7 +189,7 @@ export default function RecurringJournalsPage() {
                   <div className="flex justify-end gap-4 text-sm">
                     <span className="text-[var(--ff-text-secondary)]">DR: {fmt(totalDebit)}</span>
                     <span className="text-[var(--ff-text-secondary)]">CR: {fmt(totalCredit)}</span>
-                    <span className={Math.abs(totalDebit - totalCredit) < 0.01 ? 'text-emerald-400' : 'text-red-400'}>
+                    <span className={Math.abs(totalDebit - totalCredit) < 0.01 ? 'text-teal-400' : 'text-red-400'}>
                       Diff: {fmt(totalDebit - totalCredit)}
                     </span>
                   </div>
@@ -226,9 +227,9 @@ export default function RecurringJournalsPage() {
                       <div className="flex items-center gap-1">
                         {item.status === 'active' && <>
                           <button onClick={() => doAction('pause', item.id)} disabled={busy === item.id} className="p-1 text-yellow-400 hover:text-yellow-300" title="Pause"><Pause className="h-4 w-4" /></button>
-                          <button onClick={() => doAction('generate', item.id)} disabled={busy === item.id} className="p-1 text-emerald-400 hover:text-emerald-300" title="Generate Now"><Zap className="h-4 w-4" /></button>
+                          <button onClick={() => doAction('generate', item.id)} disabled={busy === item.id} className="p-1 text-teal-400 hover:text-teal-300" title="Generate Now"><Zap className="h-4 w-4" /></button>
                         </>}
-                        {item.status === 'paused' && <button onClick={() => doAction('resume', item.id)} disabled={busy === item.id} className="p-1 text-emerald-400 hover:text-emerald-300" title="Resume"><Play className="h-4 w-4" /></button>}
+                        {item.status === 'paused' && <button onClick={() => doAction('resume', item.id)} disabled={busy === item.id} className="p-1 text-teal-400 hover:text-teal-300" title="Resume"><Play className="h-4 w-4" /></button>}
                         {(item.status === 'active' || item.status === 'paused') && <>
                           <button onClick={() => startEdit(item)} disabled={busy === item.id} className="p-1 text-blue-400 hover:text-blue-300" title="Edit"><Pencil className="h-4 w-4" /></button>
                           <button onClick={() => doAction('cancel', item.id)} disabled={busy === item.id} className="p-1 text-red-400 hover:text-red-300" title="Cancel"><XCircle className="h-4 w-4" /></button>

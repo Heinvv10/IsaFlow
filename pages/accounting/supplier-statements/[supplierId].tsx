@@ -9,14 +9,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, ClipboardList, Loader2, AlertCircle, Download, FileText, Search, ExternalLink } from 'lucide-react';
 // generateStatementPdf is loaded dynamically inside handleDownloadPDF
-
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amount);
-}
-function formatDate(d: string): string {
-  if (!d) return '-';
-  return new Date(d).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' });
-}
+import { formatCurrency, formatDate } from '@/utils/formatters';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface Transaction {
   id: number | string;
@@ -56,7 +50,7 @@ function getTransactionUrl(txn: Transaction): string | null {
 function TypeBadge({ type }: { type: string }) {
   const styles: Record<string, string> = {
     invoice: 'bg-blue-500/10 text-blue-400',
-    payment: 'bg-emerald-500/10 text-emerald-400',
+    payment: 'bg-teal-500/10 text-teal-400',
     debit_note: 'bg-amber-500/10 text-amber-400',
   };
   const labels: Record<string, string> = {
@@ -88,7 +82,7 @@ export default function SupplierStatementDetailPage() {
     setIsLoading(true);
     setError('');
     try {
-      const res = await fetch(`/api/accounting/supplier-statement-detail?supplier_id=${supplierId}`);
+      const res = await apiFetch(`/api/accounting/supplier-statement-detail?supplier_id=${supplierId}`);
       const json = await res.json();
       const data = json.data || json;
       setSupplier(data.supplier || null);
@@ -137,6 +131,16 @@ export default function SupplierStatementDetailPage() {
   async function handleDownloadPDF() {
     if (!supplier || !summary || transactions.length === 0) return;
     const { generateStatementPdf } = await import('@/modules/accounting/utils/statementPdf');
+    let companyName = '';
+    let companyVatNumber = '';
+    try {
+      const settingsRes = await apiFetch('/api/accounting/accounting-settings');
+      const settingsJson = await settingsRes.json();
+      const settings = Array.isArray(settingsJson.data) ? settingsJson.data : [];
+      companyName = settings.find((s: { key: string }) => s.key === 'company_name')?.value || '';
+      companyVatNumber = settings.find((s: { key: string }) => s.key === 'company_vat_number')?.value || '';
+    } catch { /* use defaults */ }
+
     const blob = await generateStatementPdf({
       clientName: supplier.name,
       clientEmail: supplier.email || undefined,
@@ -150,6 +154,8 @@ export default function SupplierStatementDetailPage() {
         ...t,
         type: t.type === 'debit_note' ? 'credit_note' as const : t.type,
       })),
+      companyName,
+      companyVatNumber,
     });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -218,9 +224,9 @@ export default function SupplierStatementDetailPage() {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   {[
                     { label: 'Total Invoiced', value: summary.totalInvoiced, color: 'blue' },
-                    { label: 'Total Paid', value: summary.totalPaid, color: 'emerald' },
+                    { label: 'Total Paid', value: summary.totalPaid, color: 'teal' },
                     { label: 'Returns/Credits', value: summary.totalReturns, color: 'amber' },
-                    { label: 'Balance Owing', value: summary.balance, color: summary.balance > 0 ? 'red' : 'emerald' },
+                    { label: 'Balance Owing', value: summary.balance, color: summary.balance > 0 ? 'red' : 'teal' },
                   ].map(card => (
                     <div key={card.label} className="p-4 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
                       <p className="text-xs text-[var(--ff-text-tertiary)] mb-1">{card.label}</p>
@@ -292,10 +298,10 @@ export default function SupplierStatementDetailPage() {
                               <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">
                                 {txn.debit > 0 ? formatCurrency(txn.debit) : ''}
                               </td>
-                              <td className={`px-4 py-3 text-right font-mono ${txn.type === 'payment' ? 'text-emerald-400' : 'text-amber-400'}`}>
+                              <td className={`px-4 py-3 text-right font-mono ${txn.type === 'payment' ? 'text-teal-400' : 'text-amber-400'}`}>
                                 {txn.credit > 0 ? formatCurrency(txn.credit) : ''}
                               </td>
-                              <td className={`px-4 py-3 text-right font-mono font-medium ${txn.balance > 0 ? 'text-[var(--ff-text-primary)]' : 'text-emerald-400'}`}>
+                              <td className={`px-4 py-3 text-right font-mono font-medium ${txn.balance > 0 ? 'text-[var(--ff-text-primary)]' : 'text-teal-400'}`}>
                                 {formatCurrency(txn.balance)}
                               </td>
                               <td className="px-2 py-3">

@@ -5,7 +5,8 @@
 
 import { useState } from 'react';
 import { Plus, Loader2, Check, X, Star } from 'lucide-react';
-import { toast } from 'react-hot-toast';
+import { notify } from '@/utils/toast';
+import { apiFetch } from '@/lib/apiFetch';
 import type { Currency } from '@/modules/accounting/services/currencyService';
 
 interface Props {
@@ -32,15 +33,14 @@ export function CurrencyList({ currencies, reportingCurrency, onRefresh }: Props
 
   const handleAdd = async () => {
     if (!form.code.trim() || !form.name.trim() || !form.symbol.trim()) {
-      toast.error('Code, name, and symbol are required');
+      notify.error('Code, name, and symbol are required');
       return;
     }
     setSaving(true);
     try {
-      const res = await fetch('/api/accounting/currencies', {
+      const res = await apiFetch('/api/accounting/currencies', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({
           code: form.code.trim().toUpperCase(),
           name: form.name.trim(),
@@ -50,15 +50,15 @@ export function CurrencyList({ currencies, reportingCurrency, onRefresh }: Props
       });
       const json = await res.json();
       if (!res.ok || json.success === false) {
-        toast.error(json.message || 'Failed to create currency');
+        notify.error(json.message || 'Failed to create currency');
         return;
       }
-      toast.success(`Currency ${form.code.toUpperCase()} created`);
+      notify.success(`Currency ${form.code.toUpperCase()} created`);
       setForm(EMPTY_FORM);
       setShowAdd(false);
       onRefresh();
     } catch {
-      toast.error('Failed to create currency');
+      notify.error('Failed to create currency');
     } finally {
       setSaving(false);
     }
@@ -67,20 +67,19 @@ export function CurrencyList({ currencies, reportingCurrency, onRefresh }: Props
   const handleToggle = async (currency: Currency) => {
     setToggling(currency.code);
     try {
-      const res = await fetch('/api/accounting/currencies', {
+      const res = await apiFetch('/api/accounting/currencies', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({ code: currency.code, isActive: !currency.isActive }),
       });
       if (!res.ok) {
-        toast.error('Failed to update currency');
+        notify.error('Failed to update currency');
         return;
       }
-      toast.success(`${currency.code} ${!currency.isActive ? 'activated' : 'deactivated'}`);
+      notify.success(`${currency.code} ${!currency.isActive ? 'activated' : 'deactivated'}`);
       onRefresh();
     } catch {
-      toast.error('Failed to update currency');
+      notify.error('Failed to update currency');
     } finally {
       setToggling(null);
     }
@@ -207,7 +206,7 @@ export function CurrencyList({ currencies, reportingCurrency, onRefresh }: Props
                   <td className="px-4 py-3">
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                       currency.isActive
-                        ? 'bg-emerald-500/10 text-emerald-400'
+                        ? 'bg-teal-500/10 text-teal-400'
                         : 'bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)]'
                     }`}>
                       {currency.isActive ? 'Active' : 'Inactive'}
@@ -221,7 +220,7 @@ export function CurrencyList({ currencies, reportingCurrency, onRefresh }: Props
                         className={`text-xs px-3 py-1 rounded-lg border transition-colors disabled:opacity-50 ${
                           currency.isActive
                             ? 'border-red-500/30 text-red-400 hover:bg-red-500/10'
-                            : 'border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10'
+                            : 'border-teal-500/30 text-teal-400 hover:bg-teal-500/10'
                         }`}
                       >
                         {toggling === currency.code

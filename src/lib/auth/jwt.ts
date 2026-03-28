@@ -17,7 +17,7 @@ const getJWTSecret = (): Uint8Array => {
 
 // Token expiration times
 const ACCESS_TOKEN_EXPIRY = '24h'; // 24 hours
-const REFRESH_TOKEN_EXPIRY = '30d'; // 30 days
+const _REFRESH_TOKEN_EXPIRY = '30d'; // 30 days – reserved for future refresh-token flow
 
 /**
  * Sign a JWT token for a user

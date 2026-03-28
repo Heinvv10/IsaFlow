@@ -22,7 +22,7 @@ interface ReportCard {
 
 const reports: ReportCard[] = [
   // Financial Statements
-  { title: 'Income Statement', description: 'Revenue, expenses, and net profit/loss', href: '/accounting/reports/income-statement', icon: BarChart3, color: 'emerald', category: 'Financial Statements' },
+  { title: 'Income Statement', description: 'Revenue, expenses, and net profit/loss', href: '/accounting/reports/income-statement', icon: BarChart3, color: 'teal', category: 'Financial Statements' },
   { title: 'Balance Sheet', description: 'Assets, liabilities, and equity snapshot', href: '/accounting/reports/balance-sheet', icon: PieChart, color: 'blue', category: 'Financial Statements' },
   { title: 'Cash Flow', description: 'Operating, investing, and financing activities', href: '/accounting/reports/cash-flow', icon: Banknote, color: 'cyan', category: 'Financial Statements' },
   { title: 'Trial Balance', description: 'All account balances for verification', href: '/accounting/trial-balance', icon: Scale, color: 'purple', category: 'Financial Statements' },
@@ -49,8 +49,8 @@ export default function ReportsHubPage() {
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-emerald-500/10">
-              <BarChart3 className="h-6 w-6 text-emerald-500" />
+            <div className="p-2 rounded-lg bg-teal-500/10">
+              <BarChart3 className="h-6 w-6 text-teal-500" />
             </div>
             <div>
               <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Reports</h1>

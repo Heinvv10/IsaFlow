@@ -11,7 +11,7 @@ import type { RecurringJournal, RecurringJournalCreateInput, JournalLineInput } 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
 
-export async function getRecurringJournals(filters?: {
+export async function getRecurringJournals(_companyId: string, filters?: {
   status?: string;
   limit?: number;
   offset?: number;
@@ -40,7 +40,7 @@ export async function getRecurringJournals(filters?: {
   return { items: rows.map(mapRow), total: Number(countRows[0]?.cnt || 0) };
 }
 
-export async function createRecurringJournal(
+export async function createRecurringJournal(_companyId: string, 
   input: RecurringJournalCreateInput,
   userId: string
 ): Promise<RecurringJournal> {
@@ -66,7 +66,7 @@ export async function createRecurringJournal(
   return mapRow(rows[0]!);
 }
 
-export async function updateRecurringJournalStatus(
+export async function updateRecurringJournalStatus(_companyId: string, 
   id: string,
   status: 'paused' | 'active' | 'cancelled'
 ): Promise<void> {
@@ -74,7 +74,7 @@ export async function updateRecurringJournalStatus(
   log.info('Updated recurring journal status', { id, status }, 'accounting');
 }
 
-export async function generateJournalFromRecurring(
+export async function generateJournalFromRecurring(_companyId: string, 
   id: string,
   userId: string
 ): Promise<string> {
@@ -85,13 +85,13 @@ export async function generateJournalFromRecurring(
 
   const lines: JournalLineInput[] = Array.isArray(rj.lines) ? rj.lines : JSON.parse(rj.lines || '[]');
 
-  const je = await createJournalEntry({
+  const je = await createJournalEntry('', {
     entryDate: new Date().toISOString().split('T')[0]!,
     description: rj.description || rj.template_name,
     source: 'auto_recurring',
     lines,
   }, userId);
-  await postJournalEntry(je.id, userId);
+  await postJournalEntry('', je.id, userId);
 
   // Advance next run date
   const nextDate = advanceDate(String(rj.next_run_date), String(rj.frequency));

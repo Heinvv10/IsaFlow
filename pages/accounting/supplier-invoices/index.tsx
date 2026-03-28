@@ -10,6 +10,8 @@ import {
   Receipt, Plus, Loader2, AlertCircle, ChevronRight, Filter,
 } from 'lucide-react';
 import type { SupplierInvoice, SupplierInvoiceStatus } from '@/modules/accounting/types/ap.types';
+import { formatCurrency, formatDate } from '@/utils/formatters';
+import { apiFetch } from '@/lib/apiFetch';
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: '', label: 'All Statuses' },
@@ -28,7 +30,7 @@ function StatusBadge({ status }: { status: string }) {
     pending_approval: 'bg-amber-500/20 text-amber-400',
     approved: 'bg-blue-500/20 text-blue-400',
     partially_paid: 'bg-purple-500/20 text-purple-400',
-    paid: 'bg-emerald-500/20 text-emerald-400',
+    paid: 'bg-teal-500/20 text-teal-400',
     disputed: 'bg-red-500/20 text-red-400',
     cancelled: 'bg-gray-500/20 text-gray-500',
   };
@@ -44,24 +46,13 @@ function MatchBadge({ status }: { status: string }) {
     unmatched: 'bg-gray-500/20 text-gray-400',
     po_matched: 'bg-amber-500/20 text-amber-400',
     grn_matched: 'bg-blue-500/20 text-blue-400',
-    fully_matched: 'bg-emerald-500/20 text-emerald-400',
+    fully_matched: 'bg-teal-500/20 text-teal-400',
   };
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${colors[status] || 'bg-gray-500/20 text-gray-400'}`}>
       {status.replace(/_/g, ' ')}
     </span>
   );
-}
-
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amount);
-}
-
-function formatDate(dateStr: string | undefined): string {
-  if (!dateStr) return '-';
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return dateStr;
-  return d.toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 export default function SupplierInvoicesPage() {
@@ -77,7 +68,7 @@ export default function SupplierInvoicesPage() {
     try {
       const params = new URLSearchParams();
       if (statusFilter) params.set('status', statusFilter);
-      const res = await fetch(`/api/accounting/supplier-invoices?${params}`);
+      const res = await apiFetch(`/api/accounting/supplier-invoices?${params}`);
       const json = await res.json();
       const payload = json.data || json;
       setInvoices(payload.invoices || []);
@@ -98,8 +89,8 @@ export default function SupplierInvoicesPage() {
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-emerald-500/10">
-                <Receipt className="h-6 w-6 text-emerald-500" />
+              <div className="p-2 rounded-lg bg-teal-500/10">
+                <Receipt className="h-6 w-6 text-teal-500" />
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Supplier Invoices</h1>
@@ -110,7 +101,7 @@ export default function SupplierInvoicesPage() {
             </div>
             <Link
               href="/accounting/supplier-invoices/new"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors text-sm font-medium"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium"
             >
               <Plus className="h-4 w-4" />
               New Invoice
@@ -174,7 +165,7 @@ export default function SupplierInvoicesPage() {
                     return (
                       <tr key={inv.id} className="hover:bg-[var(--ff-bg-tertiary)] transition-colors">
                         <td className="px-4 py-3 text-sm font-medium text-[var(--ff-text-primary)]">
-                          <Link href={`/accounting/supplier-invoices/${inv.id}`} className="hover:text-emerald-400 transition-colors">
+                          <Link href={`/accounting/supplier-invoices/${inv.id}`} className="hover:text-teal-400 transition-colors">
                             {inv.invoiceNumber}
                           </Link>
                         </td>
@@ -184,12 +175,12 @@ export default function SupplierInvoicesPage() {
                         </td>
                         <td className="px-4 py-3 text-sm text-[var(--ff-text-secondary)] whitespace-nowrap">{formatDate(inv.invoiceDate)}</td>
                         <td className="px-4 py-3 text-sm text-right font-mono text-[var(--ff-text-primary)]">{formatCurrency(inv.totalAmount)}</td>
-                        <td className={`px-4 py-3 text-sm text-right font-mono ${outstanding > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                        <td className={`px-4 py-3 text-sm text-right font-mono ${outstanding > 0 ? 'text-amber-400' : 'text-teal-400'}`}>
                           {formatCurrency(outstanding)}
                         </td>
                         <td className="px-4 py-3"><StatusBadge status={inv.status} /></td>
                         <td className="px-4 py-3 text-right">
-                          <Link href={`/accounting/supplier-invoices/${inv.id}`} className="text-emerald-600 hover:text-emerald-700">
+                          <Link href={`/accounting/supplier-invoices/${inv.id}`} className="text-teal-600 hover:text-teal-700">
                             <ChevronRight className="h-4 w-4" />
                           </Link>
                         </td>

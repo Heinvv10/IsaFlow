@@ -7,7 +7,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withCompany, type AuthenticatedNextApiRequest, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import {
   getCustomerPayments,
@@ -17,18 +17,20 @@ import {
 import type { CustomerPaymentStatus } from '@/modules/accounting/types/ar.types';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyApiRequest;
+
   if (req.method === 'GET') {
     try {
       const { id, status, client_id, limit, offset } = req.query;
 
       // Single payment by ID
       if (id) {
-        const payment = await getCustomerPaymentById(String(id));
+        const payment = await getCustomerPaymentById(companyId, String(id));
         if (!payment) return apiResponse.notFound(res, 'Payment', String(id));
         return apiResponse.success(res, payment);
       }
 
-      const result = await getCustomerPayments({
+      const result = await getCustomerPayments(companyId, {
         status: status as CustomerPaymentStatus | undefined,
         clientId: client_id ? String(client_id) : undefined,
         limit: limit ? Number(limit) : undefined,
@@ -53,7 +55,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       // User identity comes from JWT (req.user), never from client request body
       const userId = req.user.id;
 
-      const payment = await createCustomerPayment({
+      const payment = await createCustomerPayment(companyId, {
         clientId: String(clientId),
         paymentDate,
         totalAmount: Number(totalAmount),
@@ -80,4 +82,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

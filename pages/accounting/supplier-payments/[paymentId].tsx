@@ -9,20 +9,14 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Wallet, Loader2, AlertCircle, Check, Zap, XCircle } from 'lucide-react';
 import { AccountingDocumentPanel } from '@/modules/accounting/documents';
-
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amount);
-}
-function formatDate(d: string): string {
-  if (!d) return '-';
-  return new Date(d).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' });
-}
+import { formatCurrency, formatDate } from '@/utils/formatters';
+import { apiFetch } from '@/lib/apiFetch';
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
     draft: 'bg-gray-500/20 text-gray-400',
     approved: 'bg-amber-500/20 text-amber-400',
-    processed: 'bg-emerald-500/20 text-emerald-400',
+    processed: 'bg-teal-500/20 text-teal-400',
     reconciled: 'bg-blue-500/20 text-blue-400',
     cancelled: 'bg-red-500/20 text-red-400',
   };
@@ -70,7 +64,7 @@ export default function SupplierPaymentDetailPage() {
     setIsLoading(true);
     setError('');
     try {
-      const res = await fetch(`/api/accounting/supplier-payments?id=${paymentId}`);
+      const res = await apiFetch(`/api/accounting/supplier-payments?id=${paymentId}`);
       const json = await res.json();
       setPayment(json.data || null);
     } catch {
@@ -86,7 +80,7 @@ export default function SupplierPaymentDetailPage() {
     if (!payment) return;
     setActionBusy(action);
     try {
-      const res = await fetch('/api/accounting/supplier-payments-action', {
+      const res = await apiFetch('/api/accounting/supplier-payments-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, paymentId: payment.id }),
@@ -113,8 +107,8 @@ export default function SupplierPaymentDetailPage() {
               <Link href="/accounting/supplier-payments" className="p-2 rounded-lg hover:bg-[var(--ff-bg-tertiary)]">
                 <ArrowLeft className="h-5 w-5 text-[var(--ff-text-secondary)]" />
               </Link>
-              <div className="p-2 rounded-lg bg-emerald-500/10">
-                <Wallet className="h-6 w-6 text-emerald-500" />
+              <div className="p-2 rounded-lg bg-teal-500/10">
+                <Wallet className="h-6 w-6 text-teal-500" />
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">
@@ -136,7 +130,7 @@ export default function SupplierPaymentDetailPage() {
                 )}
                 {payment.status === 'approved' && (
                   <button onClick={() => handleAction('process')} disabled={!!actionBusy}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium disabled:opacity-50">
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium disabled:opacity-50">
                     {actionBusy === 'process' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />} Process
                   </button>
                 )}
@@ -148,7 +142,7 @@ export default function SupplierPaymentDetailPage() {
         <div className="p-6 space-y-6">
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
+              <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
             </div>
           ) : error ? (
             <div className="flex items-center gap-2 text-red-400 py-8 justify-center">
@@ -160,7 +154,7 @@ export default function SupplierPaymentDetailPage() {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="p-4 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
                   <p className="text-xs text-[var(--ff-text-tertiary)]">Payment Amount</p>
-                  <p className="text-xl font-bold text-emerald-400">{formatCurrency(payment.totalAmount)}</p>
+                  <p className="text-xl font-bold text-teal-400">{formatCurrency(payment.totalAmount)}</p>
                 </div>
                 <div className="p-4 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
                   <p className="text-xs text-[var(--ff-text-tertiary)]">Payment Date</p>
@@ -210,7 +204,7 @@ export default function SupplierPaymentDetailPage() {
                       ))}
                       <tr className="bg-[var(--ff-bg-tertiary)] font-bold">
                         <td className="px-4 py-3 text-[var(--ff-text-primary)]">Total</td>
-                        <td className="px-4 py-3 text-right font-mono text-emerald-400">{formatCurrency(payment.totalAmount)}</td>
+                        <td className="px-4 py-3 text-right font-mono text-teal-400">{formatCurrency(payment.totalAmount)}</td>
                       </tr>
                     </tbody>
                   </table>
@@ -220,7 +214,7 @@ export default function SupplierPaymentDetailPage() {
               {/* GL Link */}
               {payment.journalEntryId && (
                 <div className="text-sm text-[var(--ff-text-tertiary)]">
-                  GL Journal: <Link href={`/accounting?tab=journal-entries&id=${payment.journalEntryId}`} className="text-emerald-400 hover:underline">{payment.journalEntryId.slice(0, 8)}...</Link>
+                  GL Journal: <Link href={`/accounting?tab=journal-entries&id=${payment.journalEntryId}`} className="text-teal-400 hover:underline">{payment.journalEntryId.slice(0, 8)}...</Link>
                 </div>
               )}
 

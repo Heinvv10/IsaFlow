@@ -7,7 +7,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withCompany, type AuthenticatedNextApiRequest, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import {
   getSupplierPayments,
@@ -17,18 +17,20 @@ import {
 import type { PaymentStatus } from '@/modules/accounting/types/ap.types';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyApiRequest;
+
   if (req.method === 'GET') {
     try {
       const { id, status, supplier_id, limit, offset } = req.query;
 
       // Single payment by ID
       if (id) {
-        const payment = await getSupplierPaymentById(id as string);
+        const payment = await getSupplierPaymentById(companyId, id as string);
         if (!payment) return apiResponse.notFound(res, 'Payment', id as string);
         return apiResponse.success(res, payment);
       }
 
-      const result = await getSupplierPayments({
+      const result = await getSupplierPayments(companyId, {
         status: status as PaymentStatus | undefined,
         supplierId: supplier_id ? Number(supplier_id) : undefined,
         limit: limit ? Number(limit) : undefined,
@@ -53,7 +55,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       // User identity comes from JWT (req.user), never from client request body
       const userId = req.user.id;
 
-      const payment = await createSupplierPayment({
+      const payment = await createSupplierPayment(companyId, {
         supplierId: Number(supplierId),
         paymentDate, totalAmount: Number(totalAmount),
         paymentMethod, bankAccountId, reference, description,
@@ -72,4 +74,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

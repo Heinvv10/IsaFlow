@@ -10,7 +10,7 @@ import type { FiscalPeriod, FiscalPeriodStatus } from '../types/gl.types';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
 
-export async function getFiscalPeriods(fiscalYear?: number): Promise<FiscalPeriod[]> {
+export async function getFiscalPeriods(_companyId: string, fiscalYear?: number): Promise<FiscalPeriod[]> {
   try {
     let rows: Row[];
     if (fiscalYear) {
@@ -42,7 +42,7 @@ export async function getFiscalPeriodById(id: string): Promise<FiscalPeriod | nu
   }
 }
 
-export async function getCurrentFiscalPeriod(): Promise<FiscalPeriod | null> {
+export async function getCurrentFiscalPeriod(_companyId: string): Promise<FiscalPeriod | null> {
   try {
     const rows = (await sql`
       SELECT * FROM fiscal_periods
@@ -56,7 +56,7 @@ export async function getCurrentFiscalPeriod(): Promise<FiscalPeriod | null> {
   }
 }
 
-export async function createFiscalYear(year: number): Promise<FiscalPeriod[]> {
+export async function createFiscalYear(_companyId: string, year: number): Promise<FiscalPeriod[]> {
   try {
     const existing = (await sql`
       SELECT COUNT(*) AS cnt FROM fiscal_periods WHERE fiscal_year = ${year}
@@ -92,7 +92,7 @@ export async function createFiscalYear(year: number): Promise<FiscalPeriod[]> {
   }
 }
 
-export async function closePeriod(id: string, userId: string): Promise<FiscalPeriod> {
+export async function closePeriod(_companyId: string, id: string, userId: string): Promise<FiscalPeriod> {
   try {
     const period = await getFiscalPeriodById(id);
     if (!period) throw new Error(`Fiscal period ${id} not found`);
@@ -122,7 +122,7 @@ export async function closePeriod(id: string, userId: string): Promise<FiscalPer
   }
 }
 
-export async function lockPeriod(id: string): Promise<FiscalPeriod> {
+export async function lockPeriod(_companyId: string, id: string): Promise<FiscalPeriod> {
   try {
     const period = await getFiscalPeriodById(id);
     if (!period) throw new Error(`Fiscal period ${id} not found`);
@@ -138,7 +138,7 @@ export async function lockPeriod(id: string): Promise<FiscalPeriod> {
   }
 }
 
-export async function reopenPeriod(id: string): Promise<FiscalPeriod> {
+export async function reopenPeriod(_companyId: string, id: string): Promise<FiscalPeriod> {
   try {
     const period = await getFiscalPeriodById(id);
     if (!period) throw new Error(`Fiscal period ${id} not found`);

@@ -16,7 +16,7 @@ type Row = any;
 
 // ── CRUD ────────────────────────────────────────────────────────────────────
 
-export async function getRules(): Promise<BankCategorisationRule[]> {
+export async function getRules(_companyId: string): Promise<BankCategorisationRule[]> {
   const rows = (await sql`
     SELECT r.*, ga.account_code AS gl_account_code, ga.account_name AS gl_account_name,
            s.company_name AS supplier_name, c.company_name AS client_name
@@ -29,7 +29,7 @@ export async function getRules(): Promise<BankCategorisationRule[]> {
   return rows.map(mapRuleRow);
 }
 
-export async function createRule(input: RuleCreateInput, userId: string): Promise<BankCategorisationRule> {
+export async function createRule(_companyId: string, input: RuleCreateInput, userId: string): Promise<BankCategorisationRule> {
   const vatCode = input.vatCode || 'none';
   const rows = (await sql`
     INSERT INTO bank_categorisation_rules (
@@ -48,7 +48,7 @@ export async function createRule(input: RuleCreateInput, userId: string): Promis
   return mapRuleRow(rows[0]);
 }
 
-export async function updateRule(id: string, input: Partial<RuleCreateInput>): Promise<BankCategorisationRule> {
+export async function updateRule(_companyId: string, id: string, input: Partial<RuleCreateInput>): Promise<BankCategorisationRule> {
   const rows = (await sql`
     UPDATE bank_categorisation_rules SET
       rule_name = COALESCE(${input.ruleName || null}, rule_name),
@@ -68,11 +68,11 @@ export async function updateRule(id: string, input: Partial<RuleCreateInput>): P
   return mapRuleRow(rows[0]);
 }
 
-export async function deleteRule(id: string): Promise<void> {
+export async function deleteRule(_companyId: string, id: string): Promise<void> {
   await sql`DELETE FROM bank_categorisation_rules WHERE id = ${id}::UUID`;
 }
 
-export async function deleteRules(ids: string[]): Promise<number> {
+export async function deleteRules(_companyId: string, ids: string[]): Promise<number> {
   if (ids.length === 0) return 0;
   const rows = await sql`
     DELETE FROM bank_categorisation_rules
@@ -82,7 +82,7 @@ export async function deleteRules(ids: string[]): Promise<number> {
   return rows.length;
 }
 
-export async function toggleRule(id: string, isActive: boolean): Promise<void> {
+export async function toggleRule(_companyId: string, id: string, isActive: boolean): Promise<void> {
   await sql`UPDATE bank_categorisation_rules SET is_active = ${isActive} WHERE id = ${id}::UUID`;
 }
 
@@ -108,7 +108,7 @@ function toSqlPattern(matchType: string, matchPattern: string): string {
   }
 }
 
-export async function applyRules(
+export async function applyRules(_companyId: string, 
   bankAccountId: string,
   userId: string
 ): Promise<RuleApplyResult> {
@@ -287,7 +287,7 @@ export async function applyRules(
           }
         }
 
-        const je = await createJournalEntry({
+        const je = await createJournalEntry(_companyId, {
           entryDate: tx.transaction_date instanceof Date
             ? tx.transaction_date.toISOString().split('T')[0]
             : String(tx.transaction_date).split('T')[0],
@@ -295,7 +295,7 @@ export async function applyRules(
           source: 'auto_bank_recon',
           lines,
         }, userId);
-        await postJournalEntry(je.id, userId);
+        await postJournalEntry('', je.id, userId);
 
         const bankLineRows = (await sql`
           SELECT id FROM gl_journal_lines

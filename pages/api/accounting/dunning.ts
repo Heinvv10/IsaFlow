@@ -8,14 +8,16 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { log } from '@/lib/logger';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
 
-export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextApiResponse) => {
+export default withCompany(withErrorHandler(async (req: NextApiRequest, res: NextApiResponse) => {
+  const { companyId } = req as CompanyApiRequest;
+
   switch (req.method) {
     case 'GET': {
       const { client_id, status: filterStatus, limit: limitStr } = req.query;
@@ -29,6 +31,7 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
           JOIN clients c ON c.id = dc.client_id
           LEFT JOIN users u ON u.id = dc.created_by
           WHERE dc.client_id = ${client_id as string}
+            AND c.company_id = ${companyId}
           ORDER BY dc.created_at DESC
           LIMIT ${rowLimit}
         `) as Row[];
@@ -43,6 +46,7 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
           JOIN clients c ON c.id = dc.client_id
           LEFT JOIN users u ON u.id = dc.created_by
           WHERE dc.status = ${filterStatus as string}
+            AND c.company_id = ${companyId}
           ORDER BY dc.created_at DESC
           LIMIT ${rowLimit}
         `) as Row[];
@@ -55,6 +59,7 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
         FROM dunning_communications dc
         JOIN clients c ON c.id = dc.client_id
         LEFT JOIN users u ON u.id = dc.created_by
+        WHERE c.company_id = ${companyId}
         ORDER BY dc.created_at DESC
         LIMIT ${rowLimit}
       `) as Row[];

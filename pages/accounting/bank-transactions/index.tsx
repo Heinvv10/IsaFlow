@@ -5,26 +5,28 @@
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import dynamic from 'next/dynamic';
 import { AppLayout } from '@/components/layout/AppLayout';
 import {
   BankTxTable, type AllocType, type VatCode, type BankTx, type SelectOption, type RowSelection,
 } from '@/components/accounting/BankTxTable';
-import { SplitTransactionModal } from '@/components/accounting/SplitTransactionModal';
-import { ExcludeReasonModal } from '@/components/accounting/ExcludeReasonModal';
-import { FindMatchModal } from '@/components/accounting/FindMatchModal';
-import { BankTxAttachmentsModal } from '@/components/accounting/BankTxAttachmentsModal';
-import { CreateRuleModal, extractPattern } from '@/components/accounting/CreateRuleModal';
-import { CreateEntityModal } from '@/components/accounting/CreateEntityModal';
+import { extractPattern } from '@/components/accounting/CreateRuleModal';
 import { StatementBalanceWidget } from '@/components/accounting/StatementBalanceWidget';
+
+// Lazy-load modals — only loaded when opened
+const SplitTransactionModal = dynamic(() => import('@/components/accounting/SplitTransactionModal').then(m => ({ default: m.SplitTransactionModal })), { ssr: false });
+const ExcludeReasonModal = dynamic(() => import('@/components/accounting/ExcludeReasonModal').then(m => ({ default: m.ExcludeReasonModal })), { ssr: false });
+const FindMatchModal = dynamic(() => import('@/components/accounting/FindMatchModal').then(m => ({ default: m.FindMatchModal })), { ssr: false });
+const BankTxAttachmentsModal = dynamic(() => import('@/components/accounting/BankTxAttachmentsModal').then(m => ({ default: m.BankTxAttachmentsModal })), { ssr: false });
+const CreateRuleModal = dynamic(() => import('@/components/accounting/CreateRuleModal').then(m => ({ default: m.CreateRuleModal })), { ssr: false });
+const CreateEntityModal = dynamic(() => import('@/components/accounting/CreateEntityModal').then(m => ({ default: m.CreateEntityModal })), { ssr: false });
 import {
   Loader2, AlertCircle, RefreshCw, CheckCheck, Upload, Download, Search, Trash2, Layers, Zap, Plus, FileText,
 } from 'lucide-react';
-import { toast } from 'react-hot-toast';
+import { notify } from '@/utils/toast';
 import Link from 'next/link';
-
-function fmtCurrency(n: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
-}
+import { formatCurrency as fmtCurrency } from '@/utils/formatters';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface BankAcct {
   id: string;
@@ -89,55 +91,50 @@ export default function BankTransactionsPage() {
   const [createEntityTxId, setCreateEntityTxId] = useState<string | null>(null);
   const [createEntityType, setCreateEntityType] = useState<AllocType | null>(null);
 
-  // Load reference data — bank accounts, GL accounts, suppliers, customers
+  // Load reference data — all requests fire in parallel via Promise.all
   useEffect(() => {
-    fetch('/api/accounting/bank-accounts').then(r => r.json()).then(json => {
-      const list = Array.isArray(json.data || json) ? (json.data || json) : [];
-      setBankAccounts(list);
-      if (list.length > 0) setSelectedBank(prev => prev || list[0].id);
-    }).catch(() => {});
+    Promise.all([
+      apiFetch('/api/accounting/bank-accounts').then(r => r.json()),
+      apiFetch('/api/accounting/chart-of-accounts').then(r => r.json()),
+      apiFetch('/api/suppliers?status=active').then(r => r.json()),
+      apiFetch('/api/clients').then(r => r.json()),
+      apiFetch('/api/accounting/cost-centres?cc_type=cc1&active=true').then(r => r.json()),
+      apiFetch('/api/accounting/cost-centres?cc_type=cc2&active=true').then(r => r.json()),
+      apiFetch('/api/departments?isActive=true').then(r => r.json()),
+    ]).then(([bankJson, coaJson, suppJson, clientJson, cc1Json, cc2Json, deptJson]) => {
+      const bankList = Array.isArray(bankJson.data || bankJson) ? (bankJson.data || bankJson) : [];
+      setBankAccounts(bankList);
+      if (bankList.length > 0) setSelectedBank(prev => prev || bankList[0].id);
 
-    fetch('/api/accounting/chart-of-accounts').then(r => r.json()).then(json => {
-      const list = Array.isArray(json.data || json) ? (json.data || json) : [];
-      setGlAccounts(list
-        .filter((a: SelectOption & { accountSubtype?: string }) =>
-          a.accountSubtype !== 'bank')
+      const coaList = Array.isArray(coaJson.data || coaJson) ? (coaJson.data || coaJson) : [];
+      setGlAccounts(coaList
+        .filter((a: SelectOption & { accountSubtype?: string }) => a.accountSubtype !== 'bank')
         .map((a: SelectOption & { accountCode?: string; accountName?: string; defaultVatCode?: string }) => ({
           id: a.id, code: a.accountCode || a.code, name: a.accountName || a.name,
           defaultVatCode: a.defaultVatCode,
         }))
       );
-    }).catch(() => {});
 
-    fetch('/api/suppliers?status=active').then(r => r.json()).then(json => {
-      const list = Array.isArray(json.data) ? json.data : [];
-      setSuppliers(list.map((s: { id: number | string; name: string; code?: string }) => ({
+      const suppList = Array.isArray(suppJson.data) ? suppJson.data : [];
+      setSuppliers(suppList.map((s: { id: number | string; name: string; code?: string }) => ({
         id: String(s.id), name: s.name, code: s.code,
       })));
-    }).catch(() => {});
 
-    fetch('/api/clients').then(r => r.json()).then(json => {
-      const list = Array.isArray(json.data) ? json.data : [];
-      setCustomers(list.map((c: { id: string; name?: string; company_name?: string; companyName?: string }) => ({
+      const clientList = Array.isArray(clientJson.data) ? clientJson.data : [];
+      setCustomers(clientList.map((c: { id: string; name?: string; company_name?: string; companyName?: string }) => ({
         id: c.id, name: c.company_name || c.companyName || c.name || '',
       })));
-    }).catch(() => {});
 
-    fetch('/api/accounting/cost-centres?cc_type=cc1&active=true').then(r => r.json()).then(json => {
-      const list = Array.isArray(json.data?.items) ? json.data.items : [];
-      setCc1Options(list.map((c: { id: string; code: string; name: string }) => ({ id: c.id, code: c.code, name: c.name })));
-    }).catch(() => {});
+      const cc1List = Array.isArray(cc1Json.data?.items) ? cc1Json.data.items : [];
+      setCc1Options(cc1List.map((c: { id: string; code: string; name: string }) => ({ id: c.id, code: c.code, name: c.name })));
 
-    fetch('/api/accounting/cost-centres?cc_type=cc2&active=true').then(r => r.json()).then(json => {
-      const list = Array.isArray(json.data?.items) ? json.data.items : [];
-      setCc2Options(list.map((c: { id: string; code: string; name: string }) => ({ id: c.id, code: c.code, name: c.name })));
-    }).catch(() => {});
+      const cc2List = Array.isArray(cc2Json.data?.items) ? cc2Json.data.items : [];
+      setCc2Options(cc2List.map((c: { id: string; code: string; name: string }) => ({ id: c.id, code: c.code, name: c.name })));
 
-    fetch('/api/departments?isActive=true').then(r => r.json()).then(json => {
-      const list = Array.isArray(json.data || json) ? (json.data || json) : [];
-      setBuOptions(list.filter((d: { is_active?: boolean; isActive?: boolean }) => d.is_active !== false && d.isActive !== false)
+      const deptList = Array.isArray(deptJson.data || deptJson) ? (deptJson.data || deptJson) : [];
+      setBuOptions(deptList.filter((d: { is_active?: boolean; isActive?: boolean }) => d.is_active !== false && d.isActive !== false)
         .map((d: { id: string; name: string; code?: string }) => ({ id: d.id, name: d.name, code: d.code })));
-    }).catch(() => {});
+    }).catch(() => { /* reference data load failure — non-critical, UI handles empty lists */ });
   }, []);
 
   // Debounce search input — 500ms delay before firing server request
@@ -166,7 +163,7 @@ export default function BankTransactionsPage() {
       if (fromAmount) params.set('from_amount', fromAmount);
       if (toAmount) params.set('to_amount', toAmount);
       if (debouncedSearch) params.set('search', debouncedSearch);
-      const res = await fetch(`/api/accounting/bank-transactions?${params}`);
+      const res = await apiFetch(`/api/accounting/bank-transactions?${params}`);
       const json = await res.json();
       const data = json.data || json;
       setTransactions(data.transactions || []);
@@ -236,7 +233,7 @@ export default function BankTransactionsPage() {
 
   // API helpers
   const callAction = async (body: Record<string, string>) => {
-    const res = await fetch('/api/accounting/bank-transactions-action', {
+    const res = await apiFetch('/api/accounting/bank-transactions-action', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
       body: JSON.stringify(body),
     });
@@ -250,23 +247,23 @@ export default function BankTransactionsPage() {
 
   // Fire-and-forget: persist dropdown selection to DB so it survives page refresh
   const saveSelection = (txId: string, type: AllocType, entityId: string) => {
-    fetch('/api/accounting/bank-transactions-action', {
+    apiFetch('/api/accounting/bank-transactions-action', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
       body: JSON.stringify({ action: 'save_selection', bankTransactionId: txId, selectionType: type, selectionEntityId: entityId || null }),
-    }).catch(() => {});
+    }).catch(() => { /* fire-and-forget: selection persist failure is non-critical, selection still shown in UI */ });
   };
 
   // Fire-and-forget: persist CC1/CC2/BU dimension changes
   const saveDimensions = (txId: string, cc1Id: string, cc2Id: string, buId: string) => {
-    fetch('/api/accounting/bank-transactions-action', {
+    apiFetch('/api/accounting/bank-transactions-action', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
       body: JSON.stringify({ action: 'save_dimensions', bankTransactionId: txId, cc1Id: cc1Id || null, cc2Id: cc2Id || null, buId: buId || null }),
-    }).catch(() => {});
+    }).catch(() => { /* fire-and-forget: dimension persist failure is non-critical, dimensions still shown in UI */ });
   };
 
   const handleAccept = async (txId: string) => {
     const sel = rowSelections[txId];
-    if (!sel?.entityId) { toast.error('Select an account/supplier/customer first'); return; }
+    if (!sel?.entityId) { notify.error('Select an account/supplier/customer first'); return; }
     const tx = transactions.find(t => t.id === txId);
     try {
       const body: Record<string, string> = {
@@ -279,8 +276,15 @@ export default function BankTransactionsPage() {
       if (sel.cc2Id) body.cc2Id = sel.cc2Id;
       if (sel.buId) body.buId = sel.buId;
       await callAction(body);
-      toast.success('Transaction allocated');
+      notify.success('Transaction allocated');
       loadTransactions();
+      // Learn from this allocation for smart categorization (fire-and-forget)
+      if (sel.type === 'account' && sel.entityId) {
+        apiFetch('/api/accounting/smart-categorize', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+          body: JSON.stringify({ action: 'learn', txId, glAccountId: sel.entityId, category: sel.label, vatCode: sel.vatCode }),
+        }).catch(() => { /* fire-and-forget: smart-categorize learn failure is non-critical */ });
+      }
       // After allocation, check if there are other similar unprocessed transactions
       // to suggest creating a categorisation rule
       if (tx?.description && selectedBank) {
@@ -288,14 +292,14 @@ export default function BankTransactionsPage() {
         if (pattern.trim().length >= 3) {
           try {
             const params = new URLSearchParams({ pattern, matchType: 'contains', bankAccountId: selectedBank });
-            const res = await fetch(`/api/accounting/bank-rules-preview?${params}`);
+            const res = await apiFetch(`/api/accounting/bank-rules-preview?${params}`);
             const json = await res.json();
             const matchCount = json.data?.matchCount ?? 0;
             if (matchCount > 0) setRulePrompt({ tx, matchCount });
           } catch { /* non-critical — ignore preview errors */ }
         }
       }
-    } catch (e) { toast.error(e instanceof Error ? e.message : 'Failed'); }
+    } catch (e) { notify.error(e instanceof Error ? e.message : 'Failed'); }
   };
 
   /** Opens the ExcludeReasonModal — actual API call happens in handleExcludeConfirm */
@@ -310,17 +314,17 @@ export default function BankTransactionsPage() {
     setExcludingTxId(null);
     try {
       await callAction({ action: 'exclude', bankTransactionId: txId, excludeReason: reason });
-      toast.success('Transaction excluded');
+      notify.success('Transaction excluded');
       loadTransactions();
-    } catch (e) { toast.error(e instanceof Error ? e.message : 'Failed to exclude'); }
+    } catch (e) { notify.error(e instanceof Error ? e.message : 'Failed to exclude'); }
   };
 
   const handleUnmatch = async (txId: string) => {
     try {
       await callAction({ action: 'unmatch', bankTransactionId: txId });
-      toast.success('Allocation undone');
+      notify.success('Allocation undone');
       loadTransactions();
-    } catch (e) { toast.error(e instanceof Error ? e.message : 'Failed'); }
+    } catch (e) { notify.error(e instanceof Error ? e.message : 'Failed'); }
   };
 
   const handleSplit = (txId: string) => {
@@ -337,7 +341,7 @@ export default function BankTransactionsPage() {
       prev.map(tx => tx.id === txId ? { ...tx, notes: notes || undefined } : tx)
     );
     try {
-      const res = await fetch('/api/accounting/bank-transactions-action', {
+      const res = await apiFetch('/api/accounting/bank-transactions-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -346,7 +350,7 @@ export default function BankTransactionsPage() {
       const json = await res.json();
       if (!res.ok || json.success === false) throw new Error(json.message || 'Failed to save note');
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to save note');
+      notify.error(e instanceof Error ? e.message : 'Failed to save note');
       // Revert optimistic update on error
       loadTransactions();
     }
@@ -354,7 +358,7 @@ export default function BankTransactionsPage() {
 
   const handleBatchAccept = async () => {
     const toAccept = Array.from(selectedIds).filter(id => rowSelections[id]?.entityId);
-    if (toAccept.length === 0) { toast.error('Select transactions with accounts assigned'); return; }
+    if (toAccept.length === 0) { notify.error('Select transactions with accounts assigned'); return; }
     let ok = 0, fail = 0;
     for (const txId of toAccept) {
       try {
@@ -373,7 +377,7 @@ export default function BankTransactionsPage() {
         ok++;
       } catch { fail++; }
     }
-    toast.success(`${ok} allocated${fail ? `, ${fail} failed` : ''}`);
+    notify.success(`${ok} allocated${fail ? `, ${fail} failed` : ''}`);
     setSelectedIds(new Set());
     loadTransactions();
   };
@@ -383,25 +387,25 @@ export default function BankTransactionsPage() {
     if (!window.confirm(`Delete ${selectedIds.size} transaction(s)? This cannot be undone.`)) return;
     try {
       await callAction({ action: 'delete', bankTransactionIds: Array.from(selectedIds) } as unknown as Record<string, string>);
-      toast.success(`${selectedIds.size} transaction(s) deleted`);
+      notify.success(`${selectedIds.size} transaction(s) deleted`);
       setSelectedIds(new Set());
       loadTransactions();
-    } catch (e) { toast.error(e instanceof Error ? e.message : 'Delete failed'); }
+    } catch (e) { notify.error(e instanceof Error ? e.message : 'Delete failed'); }
   };
 
   const handleBulkAccept = async () => {
     if (selectedIds.size === 0) return;
     try {
-      const res = await fetch('/api/accounting/bank-transactions-action', {
+      const res = await apiFetch('/api/accounting/bank-transactions-action', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ action: 'bulk_accept', bankTransactionIds: Array.from(selectedIds) }),
       });
       const json = await res.json();
       if (!res.ok || json.success === false) throw new Error(json.message || 'Failed to mark as reviewed');
-      toast.success(`${json.data?.accepted ?? selectedIds.size} transaction(s) marked as reviewed`);
+      notify.success(`${json.data?.accepted ?? selectedIds.size} transaction(s) marked as reviewed`);
       setSelectedIds(new Set());
       loadTransactions();
-    } catch (e) { toast.error(e instanceof Error ? e.message : 'Failed to mark as reviewed'); }
+    } catch (e) { notify.error(e instanceof Error ? e.message : 'Failed to mark as reviewed'); }
   };
 
   const handleExport = () => {
@@ -440,23 +444,41 @@ export default function BankTransactionsPage() {
     });
     setRowSelections(updates);
     setShowBatchEdit(false);
-    toast.success(`Applied ${batchType} "${label}" to ${selectedIds.size} rows`);
+    notify.success(`Applied ${batchType} "${label}" to ${selectedIds.size} rows`);
   };
 
-  // Quick Win 4: Apply bank categorisation rules to current account's unreviewed transactions
+  // Quick Win 4: Apply bank categorisation rules + smart categorization to current account
   const handleApplyRules = async () => {
-    if (!selectedBank) { toast.error('Select a bank account first'); return; }
+    if (!selectedBank) { notify.error('Select a bank account first'); return; }
     try {
-      const res = await fetch('/api/accounting/bank-rules-action', {
+      // Step 1: Apply explicit bank rules first
+      const rulesRes = await apiFetch('/api/accounting/bank-rules-action', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ action: 'apply', bankAccountId: selectedBank }),
       });
-      const json = await res.json();
-      if (!res.ok || json.success === false) throw new Error(json.message || 'Apply failed');
-      const result = json.data || {};
-      toast.success(`${result.applied ?? 0} categorised, ${result.skipped ?? 0} skipped`);
+      const rulesJson = await rulesRes.json();
+      if (!rulesRes.ok || rulesJson.success === false) throw new Error(rulesJson.message || 'Apply rules failed');
+      const rulesResult = rulesJson.data || {};
+
+      // Step 2: Run smart categorization on remaining uncategorized transactions
+      const smartRes = await apiFetch('/api/accounting/smart-categorize', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ action: 'categorize', bankAccountId: selectedBank }),
+      });
+      const smartJson = await smartRes.json();
+      const smartResult = smartJson.data || {};
+
+      const rulesApplied = rulesResult.applied ?? 0;
+      const smartCategorized = smartResult.categorized ?? 0;
+      const totalSkipped = smartResult.skipped ?? 0;
+
+      if (rulesApplied + smartCategorized > 0) {
+        notify.success(`${rulesApplied} rules applied, ${smartCategorized} smart-categorised, ${totalSkipped} skipped`);
+      } else {
+        notify.success('No new categorisations found');
+      }
       loadTransactions();
-    } catch (e) { toast.error(e instanceof Error ? e.message : 'Failed to apply rules'); }
+    } catch (e) { notify.error(e instanceof Error ? e.message : 'Failed to apply rules'); }
   };
 
   const handleReverse = async (txId: string) => {
@@ -467,26 +489,26 @@ export default function BankTransactionsPage() {
     if (!window.confirm(msg)) return;
     try {
       await callAction({ action: 'reverse', bankTransactionId: txId });
-      toast.success(tx?.status === 'allocated' ? 'Allocation undone' : 'Transaction reversed');
+      notify.success(tx?.status === 'allocated' ? 'Allocation undone' : 'Transaction reversed');
       loadTransactions();
-    } catch (e) { toast.error(e instanceof Error ? e.message : 'Reverse failed'); }
+    } catch (e) { notify.error(e instanceof Error ? e.message : 'Reverse failed'); }
   };
 
   const handleDownloadReport = async () => {
     if (!selectedBank) return;
     try {
-      const res = await fetch(`/api/accounting/bank-reconciliation-report?bankAccountId=${selectedBank}`);
+      const res = await apiFetch(`/api/accounting/bank-reconciliation-report?bankAccountId=${selectedBank}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Failed');
       const data = json.data || json;
       const { generateReconReport } = await import('@/modules/accounting/utils/reconReportPdf');
-      const blob = generateReconReport(data);
+      const blob = await generateReconReport(data);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url; a.download = `recon-report-${bank?.accountCode || 'bank'}.pdf`;
       a.click(); URL.revokeObjectURL(url);
-      toast.success('Report downloaded');
-    } catch (e) { toast.error(e instanceof Error ? e.message : 'Report failed'); }
+      notify.success('Report downloaded');
+    } catch (e) { notify.error(e instanceof Error ? e.message : 'Report failed'); }
   };
 
   const bank = bankAccounts.find(b => b.id === selectedBank);
@@ -520,12 +542,12 @@ export default function BankTransactionsPage() {
                 <button key={b.id} onClick={() => setSelectedBank(b.id)}
                   className={`flex items-center gap-3 px-4 py-2.5 rounded-lg border-2 transition-all text-left ${
                     active
-                      ? 'border-emerald-500 bg-emerald-500/10 shadow-lg shadow-emerald-500/10'
+                      ? 'border-teal-500 bg-teal-500/10 shadow-lg shadow-teal-500/10'
                       : 'border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] hover:border-[var(--ff-text-tertiary)]'
                   }`}>
-                  <div className={`w-2 h-14 rounded-full shrink-0 ${active ? 'bg-emerald-500' : 'bg-[var(--ff-border-light)]'}`} />
+                  <div className={`w-2 h-14 rounded-full shrink-0 ${active ? 'bg-teal-500' : 'bg-[var(--ff-border-light)]'}`} />
                   <div>
-                    <p className={`text-sm font-semibold ${active ? 'text-emerald-400' : 'text-[var(--ff-text-primary)]'}`}>
+                    <p className={`text-sm font-semibold ${active ? 'text-teal-400' : 'text-[var(--ff-text-primary)]'}`}>
                       {b.accountName}
                     </p>
                     <p className="text-xs text-[var(--ff-text-tertiary)] font-mono">
@@ -535,12 +557,12 @@ export default function BankTransactionsPage() {
                   </div>
                   <div className="ml-3 text-right">
                     {/* Statement balance — sum of all imported transactions */}
-                    <p className={`text-sm font-bold font-mono ${b.balance >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    <p className={`text-sm font-bold font-mono ${b.balance >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
                       {fmtCurrency(b.balance)}
                     </p>
                     {/* Reconciled vs unreconciled breakdown */}
                     <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-[10px] text-emerald-500/80 font-mono" title="Allocated to GL entries">
+                      <span className="text-[10px] text-teal-500/80 font-mono" title="Allocated to GL entries">
                         ✓ {fmtCurrency(b.reconciledBalance)}
                       </span>
                       {hasGap && (
@@ -576,7 +598,7 @@ export default function BankTransactionsPage() {
                   tab === t
                     ? t === 'excluded'
                       ? 'border-red-500 text-red-400'
-                      : 'border-emerald-500 text-emerald-400'
+                      : 'border-teal-500 text-teal-400'
                     : 'border-transparent text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'
                 }`}>
                 {t === 'new' ? 'New Transactions' : t === 'excluded' ? 'Excluded' : 'Reviewed Transactions'}
@@ -600,7 +622,7 @@ export default function BankTransactionsPage() {
               </button>
               {selectedIds.size > 0 && (
                 <button onClick={handleBatchAccept}
-                  className="flex items-center gap-1 px-2 py-1 rounded text-xs text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20">
+                  className="flex items-center gap-1 px-2 py-1 rounded text-xs text-teal-400 hover:text-teal-300 bg-teal-500/10 hover:bg-teal-500/20">
                   <CheckCheck className="h-3.5 w-3.5" /> Batch Allocate
                 </button>
               )}
@@ -625,13 +647,14 @@ export default function BankTransactionsPage() {
             className="flex items-center gap-1 px-2.5 py-1 rounded border border-[var(--ff-border-light)] text-xs text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]">
             <Download className="h-3.5 w-3.5" /> Export
           </button>
-          {/* Quick Win 4: Apply Rules */}
+          {/* Quick Win 4: Apply Rules + Smart Categorize */}
           <button onClick={handleApplyRules} disabled={!selectedBank}
-            className="flex items-center gap-1 px-2.5 py-1 rounded border border-yellow-500/40 text-xs text-yellow-500 hover:text-yellow-400 hover:border-yellow-400 disabled:opacity-30">
-            <Zap className="h-3.5 w-3.5" /> Apply Rules
+            className="flex items-center gap-1 px-2.5 py-1 rounded border border-yellow-500/40 text-xs text-yellow-500 hover:text-yellow-400 hover:border-yellow-400 disabled:opacity-30"
+            title="Apply bank rules, then smart-categorize remaining transactions using patterns and historical data">
+            <Zap className="h-3.5 w-3.5" /> Smart Categorize
           </button>
           <Link href="/accounting/bank-transactions/new"
-            className="flex items-center gap-1 px-2.5 py-1 rounded border border-emerald-500/60 text-xs text-emerald-400 hover:text-emerald-300 hover:border-emerald-400 font-medium">
+            className="flex items-center gap-1 px-2.5 py-1 rounded border border-teal-500/60 text-xs text-teal-400 hover:text-teal-300 hover:border-teal-400 font-medium">
             <Plus className="h-3.5 w-3.5" /> New Transaction
           </Link>
           <button onClick={handleDownloadReport} disabled={!selectedBank}
@@ -835,7 +858,7 @@ export default function BankTransactionsPage() {
                 return (
                   <button key={p} onClick={() => setPage(p)}
                     className={`w-7 h-7 rounded text-xs ${
-                      p === page ? 'bg-emerald-600 text-white font-bold'
+                      p === page ? 'bg-teal-600 text-white font-bold'
                         : 'text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-secondary)]'
                     }`}>{p}</button>
                 );
@@ -854,7 +877,7 @@ export default function BankTransactionsPage() {
           <div className="sticky bottom-0 bg-[var(--ff-bg-secondary)] border-t border-[var(--ff-border-light)] px-6 py-3 flex items-center justify-center gap-4">
             <button onClick={handleBulkAccept}
               disabled={selectedIds.size === 0}
-              className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium">
+              className="px-5 py-2 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium">
               Mark Selected as Reviewed ({selectedIds.size})
             </button>
           </div>
@@ -919,7 +942,7 @@ export default function BankTransactionsPage() {
           onClose={() => setCreateRuleTx(null)}
           onCreated={() => {
             setCreateRuleTx(null);
-            toast.success('Rule created — click "Apply Rules" to categorise matching transactions');
+            notify.success('Rule created — click "Apply Rules" to categorise matching transactions');
             loadTransactions();
           }}
         />

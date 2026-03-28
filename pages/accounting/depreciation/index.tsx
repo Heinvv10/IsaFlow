@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { TrendingDown, Play, Loader2 } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface DepResult {
   assetNumber: string;
@@ -46,7 +47,7 @@ export default function DepreciationPage() {
 
   const loadAssets = useCallback(async () => {
     try {
-      const res = await fetch('/api/assets?status=available,assigned,in_maintenance&limit=500', {
+      const res = await apiFetch('/api/assets?status=available,assigned,in_maintenance&limit=500', {
         credentials: 'include',
       });
       const json = await res.json();
@@ -75,7 +76,7 @@ export default function DepreciationPage() {
     setError('');
     setRunning(true);
     try {
-      const res = await fetch('/api/accounting/run-depreciation', {
+      const res = await apiFetch('/api/accounting/run-depreciation', {
         method: 'POST',
         credentials: 'include',
       });
@@ -147,7 +148,7 @@ export default function DepreciationPage() {
                 Last Run Results
               </h2>
               <div className="flex gap-6 text-sm mb-3">
-                <span className="text-emerald-400">
+                <span className="text-teal-400">
                   Processed: {lastRun.processed}
                 </span>
                 <span className="text-[var(--ff-text-secondary)]">
@@ -169,7 +170,7 @@ export default function DepreciationPage() {
                       <span
                         className={
                           r.entryId
-                            ? 'text-emerald-400 text-xs'
+                            ? 'text-teal-400 text-xs'
                             : 'text-red-400 text-xs'
                         }
                       >

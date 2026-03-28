@@ -7,10 +7,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Banknote, Loader2, AlertCircle, Download } from 'lucide-react';
-
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amount);
-}
+import { formatCurrency } from '@/utils/formatters';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface CashFlowSection {
   section: string;
@@ -44,10 +42,10 @@ export default function CashFlowPage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    fetch('/api/accounting/cost-centres', { credentials: 'include' }).then(r => r.json()).then(res => {
+    apiFetch('/api/accounting/cost-centres', { credentials: 'include' }).then(r => r.json()).then(res => {
       const list = res.data?.items || [];
       setCostCentres(list.map((c: Record<string, unknown>) => ({ id: String(c.id), code: String(c.code), name: String(c.name) })));
-    }).catch(() => {});
+    }).catch(() => { /* reference data load failure — non-critical, cost centre filter will be empty */ });
   }, []);
 
   const loadReport = useCallback(async () => {
@@ -56,7 +54,7 @@ export default function CashFlowPage() {
     try {
       const params = new URLSearchParams({ start_date: startDate || '', end_date: endDate || '' });
       if (costCentreFilter) params.set('cost_centre', costCentreFilter);
-      const res = await fetch(`/api/accounting/reports-cash-flow?${params}`);
+      const res = await apiFetch(`/api/accounting/reports-cash-flow?${params}`);
       const json = await res.json();
       if (!res.ok) {
         setError(json?.error?.message || 'Failed to load cash flow statement');
@@ -168,7 +166,7 @@ export default function CashFlowPage() {
                     {section.items.map((item, i) => (
                       <div key={i} className="flex justify-between px-4 py-2.5">
                         <span className="text-sm text-[var(--ff-text-secondary)]">{item.label}</span>
-                        <span className={`text-sm font-mono ${item.amount >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        <span className={`text-sm font-mono ${item.amount >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
                           {formatCurrency(item.amount)}
                         </span>
                       </div>
@@ -176,7 +174,7 @@ export default function CashFlowPage() {
                   </div>
                   <div className="flex justify-between px-4 py-3 bg-[var(--ff-bg-tertiary)] border-t border-[var(--ff-border-light)]">
                     <span className="font-medium text-[var(--ff-text-primary)]">Net {section.section}</span>
-                    <span className={`font-mono font-bold ${section.total >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    <span className={`font-mono font-bold ${section.total >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
                       {formatCurrency(section.total)}
                     </span>
                   </div>
@@ -187,7 +185,7 @@ export default function CashFlowPage() {
               <div className="p-4 rounded-lg bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] space-y-3">
                 <div className="flex justify-between">
                   <span className="text-[var(--ff-text-secondary)]">Net Change in Cash</span>
-                  <span className={`font-mono font-bold ${report.net_change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  <span className={`font-mono font-bold ${report.net_change >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
                     {formatCurrency(report.net_change)}
                   </span>
                 </div>

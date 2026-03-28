@@ -5,7 +5,8 @@
 
 import { useState } from 'react';
 import { Plus, X, Loader2 } from 'lucide-react';
-import { toast } from 'react-hot-toast';
+import { notify } from '@/utils/toast';
+import { apiFetch } from '@/lib/apiFetch';
 import type { AllocType } from './BankTxTable';
 
 interface Props {
@@ -22,7 +23,7 @@ const ACCOUNT_TYPES = [
   { value: 'equity', label: 'Equity', nb: 'credit' },
 ];
 
-const INPUT = 'w-full px-3 py-2 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-sm text-[var(--ff-text-primary)] focus:outline-none focus:border-emerald-500';
+const INPUT = 'w-full px-3 py-2 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-sm text-[var(--ff-text-primary)] focus:outline-none focus:border-teal-500';
 const LABEL = 'text-xs text-[var(--ff-text-tertiary)] mb-1 block';
 
 export function CreateEntityModal({ type, onClose, onCreated }: Props) {
@@ -59,8 +60,8 @@ export function CreateEntityModal({ type, onClose, onCreated }: Props) {
 
       if (type === 'account') {
         const nb = ACCOUNT_TYPES.find(t => t.value === acctType)?.nb || 'debit';
-        const res = await fetch('/api/accounting/chart-of-accounts', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        const res = await apiFetch('/api/accounting/chart-of-accounts', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             accountCode: acctCode.trim(), accountName: acctName.trim(),
             accountType: acctType, normalBalance: nb,
@@ -71,8 +72,8 @@ export function CreateEntityModal({ type, onClose, onCreated }: Props) {
         const d = json.data;
         entity = { id: d.id, code: d.accountCode, name: d.accountName };
       } else if (type === 'supplier') {
-        const res = await fetch('/api/suppliers', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        const res = await apiFetch('/api/suppliers', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ data: {
             name: supName.trim(),
             email: supEmail.trim(),
@@ -84,8 +85,8 @@ export function CreateEntityModal({ type, onClose, onCreated }: Props) {
         const d = json.data;
         entity = { id: String(d.id), code: d.code, name: supName.trim() };
       } else {
-        const res = await fetch('/api/clients', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        const res = await apiFetch('/api/clients', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             company_name: custName.trim(),
             email: custEmail.trim() || undefined,
@@ -98,10 +99,10 @@ export function CreateEntityModal({ type, onClose, onCreated }: Props) {
         entity = { id: d.id, name: custName.trim() };
       }
 
-      toast.success(`${title.replace('New ', '')} created`);
+      notify.success(`${title.replace('New ', '')} created`);
       onCreated(entity);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to create');
+      notify.error(e instanceof Error ? e.message : 'Failed to create');
     } finally {
       setSaving(false);
     }
@@ -115,7 +116,7 @@ export function CreateEntityModal({ type, onClose, onCreated }: Props) {
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--ff-border-light)]">
           <div className="flex items-center gap-2">
-            <Plus className="h-4 w-4 text-emerald-400" />
+            <Plus className="h-4 w-4 text-teal-400" />
             <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">{title}</h2>
           </div>
           <button onClick={onClose} className="p-1 rounded hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)]">
@@ -147,7 +148,7 @@ export function CreateEntityModal({ type, onClose, onCreated }: Props) {
               </div>
               <div className="flex items-center gap-2 text-xs text-[var(--ff-text-tertiary)]">
                 Normal balance:&nbsp;
-                <span className={nb === 'debit' ? 'text-red-400' : 'text-emerald-400'}>
+                <span className={nb === 'debit' ? 'text-red-400' : 'text-teal-400'}>
                   {nb === 'debit' ? 'Debit' : 'Credit'}
                 </span>
               </div>
@@ -206,7 +207,7 @@ export function CreateEntityModal({ type, onClose, onCreated }: Props) {
             Cancel
           </button>
           <button onClick={handleSave} disabled={saving || !canSave}
-            className="px-4 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-medium flex items-center gap-1.5">
+            className="px-4 py-1.5 rounded bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-medium flex items-center gap-1.5">
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             Create
           </button>

@@ -6,7 +6,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import {
   updateRecurringJournalStatus,
@@ -18,6 +18,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
   }
 
+  const { companyId } = req as CompanyApiRequest;
+
   try {
     const { action, id } = req.body;
     const userId = req.user.id;
@@ -25,16 +27,16 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     switch (action) {
       case 'pause':
-        await updateRecurringJournalStatus(id, 'paused');
+        await updateRecurringJournalStatus(companyId, id, 'paused');
         return apiResponse.success(res, { status: 'paused' });
       case 'resume':
-        await updateRecurringJournalStatus(id, 'active');
+        await updateRecurringJournalStatus(companyId, id, 'active');
         return apiResponse.success(res, { status: 'active' });
       case 'cancel':
-        await updateRecurringJournalStatus(id, 'cancelled');
+        await updateRecurringJournalStatus(companyId, id, 'cancelled');
         return apiResponse.success(res, { status: 'cancelled' });
       case 'generate': {
-        const journalId = await generateJournalFromRecurring(id, userId);
+        const journalId = await generateJournalFromRecurring(companyId, id, userId);
         return apiResponse.success(res, { journalId });
       }
       default:
@@ -48,4 +50,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

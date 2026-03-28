@@ -4,14 +4,12 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { neon } from '@neondatabase/serverless';
-
-const sql = neon(process.env.DATABASE_URL!);
+import { sql } from '@/lib/neon';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 
-export default withAuth(async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default withCompany(async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
 
   try {
@@ -19,6 +17,7 @@ export default withAuth(async function handler(req: NextApiRequest, res: NextApi
     const to = (req.query.to as string) || new Date().toISOString().split('T')[0];
     const format = req.query.format as string;
 
+    const { companyId } = req as CompanyApiRequest;
     const rows = await sql`
       SELECT
         si.supplier_id,
@@ -29,7 +28,8 @@ export default withAuth(async function handler(req: NextApiRequest, res: NextApi
         COALESCE(SUM(si.total_amount - si.amount_paid), 0)::numeric AS outstanding
       FROM supplier_invoices si
       JOIN suppliers s ON s.id = si.supplier_id
-      WHERE si.invoice_date >= ${from}
+      WHERE si.company_id = ${companyId}
+        AND si.invoice_date >= ${from}
         AND si.invoice_date <= ${to}
         AND si.status != 'cancelled'
       GROUP BY si.supplier_id, s.company_name

@@ -11,7 +11,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import {
   getDebtorsSummary,
@@ -25,12 +25,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
   }
 
+  const { companyId } = req as CompanyApiRequest;
+
   try {
     const { customerId, daysOverdue } = req.query;
 
     // Detail view — invoices for a single customer
     if (customerId) {
-      const detail = await getDebtorDetail(String(customerId));
+      const detail = await getDebtorDetail(companyId, String(customerId));
       return apiResponse.success(res, detail);
     }
 
@@ -38,9 +40,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const minDays = daysOverdue ? Number(daysOverdue) : undefined;
 
     const [summary, stats, overdueInvoices] = await Promise.all([
-      getDebtorsSummary(),
-      getCollectionStats(),
-      getOverdueInvoices(minDays),
+      getDebtorsSummary(companyId),
+      getCollectionStats(companyId),
+      getOverdueInvoices(companyId, minDays),
     ]);
 
     return apiResponse.success(res, { summary, stats, overdueInvoices });
@@ -52,4 +54,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

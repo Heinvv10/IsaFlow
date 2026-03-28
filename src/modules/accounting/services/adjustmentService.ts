@@ -13,7 +13,7 @@ import type { JournalLineInput } from '../types/gl.types';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
 
-export async function getAdjustments(filters?: {
+export async function getAdjustments(_companyId: string, filters?: {
   entityType?: string;
   status?: string;
   limit?: number;
@@ -58,7 +58,7 @@ export async function getAdjustments(filters?: {
   return { items, total: Number(countRows[0]?.cnt || 0) };
 }
 
-export async function createAdjustment(
+export async function createAdjustment(_companyId: string, 
   input: AdjustmentCreateInput,
   userId: string
 ): Promise<AccountingAdjustment> {
@@ -78,7 +78,7 @@ export async function createAdjustment(
   return mapRow(rows[0]!);
 }
 
-export async function approveAdjustment(id: string, userId: string): Promise<AccountingAdjustment> {
+export async function approveAdjustment(_companyId: string, id: string, userId: string): Promise<AccountingAdjustment> {
   const adjRows = (await sql`SELECT * FROM accounting_adjustments WHERE id = ${id}`) as Row[];
   if (!adjRows[0]) throw new Error('Adjustment not found');
   if (adjRows[0].status !== 'draft') throw new Error('Adjustment is not in draft status');
@@ -113,14 +113,14 @@ export async function approveAdjustment(id: string, userId: string): Promise<Acc
           description: `Adjustment ${adj.adjustment_number}` },
       ];
 
-  const je = await createJournalEntry({
+  const je = await createJournalEntry('', {
     entryDate: String(adj.adjustment_date),
     description: `${isCustomer ? 'Customer' : 'Supplier'} adjustment ${adj.adjustment_number}`,
     source: 'auto_adjustment',
     sourceDocumentId: id,
     lines,
   }, userId);
-  await postJournalEntry(je.id, userId);
+  await postJournalEntry('', je.id, userId);
 
   const updated = (await sql`
     UPDATE accounting_adjustments
@@ -133,7 +133,7 @@ export async function approveAdjustment(id: string, userId: string): Promise<Acc
   return mapRow(updated[0]!);
 }
 
-export async function cancelAdjustment(id: string): Promise<void> {
+export async function cancelAdjustment(_companyId: string, id: string): Promise<void> {
   await sql`UPDATE accounting_adjustments SET status = 'cancelled' WHERE id = ${id} AND status = 'draft'`;
 }
 

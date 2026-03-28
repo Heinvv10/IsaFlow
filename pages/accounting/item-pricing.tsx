@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Tag, Save, Loader2, Search } from 'lucide-react';
+import { apiFetch } from '@/lib/apiFetch';
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
@@ -21,7 +22,7 @@ export default function ItemPricingPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await fetch('/api/accounting/item-pricing', { credentials: 'include' });
+    const res = await apiFetch('/api/accounting/item-pricing', { credentials: 'include' });
     const json = await res.json();
     setItems(json.data || []);
     setEdits({});
@@ -42,7 +43,7 @@ export default function ItemPricingPage() {
     const updates = Object.entries(edits).map(([itemId, sellingPrice]) => ({ itemId, sellingPrice: Number(sellingPrice) }));
     if (!updates.length) return;
     setSaving(true); setMsg('');
-    const res = await fetch('/api/accounting/item-pricing', {
+    const res = await apiFetch('/api/accounting/item-pricing', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       credentials: 'include', body: JSON.stringify({ updates }),
     });
@@ -76,7 +77,7 @@ export default function ItemPricingPage() {
         </div>
 
         <div className="p-6 space-y-4">
-          {msg && <div className={`p-3 rounded-lg text-sm ${msg.includes('updated') ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>{msg}</div>}
+          {msg && <div className={`p-3 rounded-lg text-sm ${msg.includes('updated') ? 'bg-teal-500/10 text-teal-400' : 'bg-red-500/10 text-red-400'}`}>{msg}</div>}
 
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
             {loading ? (
@@ -109,7 +110,7 @@ export default function ItemPricingPage() {
                             onChange={e => setEdits(p => ({ ...p, [item.id]: e.target.value }))}
                             className={`w-32 px-2 py-1 text-right rounded bg-[var(--ff-bg-tertiary)] border text-[var(--ff-text-primary)] text-sm ${changed ? 'border-blue-500' : 'border-[var(--ff-border-light)]'}`} />
                         </td>
-                        <td className={`px-4 py-2 text-right ${margin >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{margin.toFixed(1)}%</td>
+                        <td className={`px-4 py-2 text-right ${margin >= 0 ? 'text-teal-400' : 'text-red-400'}`}>{margin.toFixed(1)}%</td>
                       </tr>
                     );
                   })}

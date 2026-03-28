@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Truck, Loader2, AlertCircle, Plus, Search } from 'lucide-react';
 import Link from 'next/link';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface Supplier {
   id: string;
@@ -26,7 +27,7 @@ function StatusBadge({ active }: { active: boolean }) {
     <span
       className={`px-2 py-0.5 rounded-full text-xs font-medium ${
         active
-          ? 'bg-emerald-500/10 text-emerald-400'
+          ? 'bg-teal-500/10 text-teal-400'
           : 'bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-tertiary)]'
       }`}
     >
@@ -54,7 +55,7 @@ export default function SuppliersPage() {
     try {
       const params = new URLSearchParams();
       if (debouncedSearch) params.set('q', debouncedSearch);
-      const res = await fetch(`/api/accounting/suppliers-list?${params}`);
+      const res = await apiFetch(`/api/accounting/suppliers-list?${params}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       setSuppliers((json.data ?? json) as Supplier[]);
@@ -86,7 +87,7 @@ export default function SuppliersPage() {
             </div>
             <Link
               href="/accounting/suppliers/new"
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium transition-colors"
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium transition-colors"
             >
               <Plus className="h-4 w-4" />
               New Supplier
@@ -104,7 +105,7 @@ export default function SuppliersPage() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search by name, email or category..."
-                className="pl-9 pr-4 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] placeholder:text-[var(--ff-text-tertiary)] text-sm w-72 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                className="pl-9 pr-4 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] placeholder:text-[var(--ff-text-tertiary)] text-sm w-72 focus:outline-none focus:ring-1 focus:ring-teal-500"
               />
             </div>
             {!isLoading && (
@@ -134,7 +135,7 @@ export default function SuppliersPage() {
               {!search && (
                 <Link
                   href="/accounting/suppliers/new"
-                  className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium transition-colors"
+                  className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium transition-colors"
                 >
                   <Plus className="h-4 w-4" />
                   New Supplier
@@ -163,7 +164,7 @@ export default function SuppliersPage() {
                       <td className="py-3 px-4">
                         <Link
                           href={`/accounting/suppliers/${s.id}`}
-                          className="font-medium text-[var(--ff-text-primary)] hover:text-emerald-400 transition-colors"
+                          className="font-medium text-[var(--ff-text-primary)] hover:text-teal-400 transition-colors"
                         >
                           {s.name}
                         </Link>

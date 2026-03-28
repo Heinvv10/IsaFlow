@@ -40,6 +40,8 @@ export interface BankTx {
   suggestedClientName?: string;
   suggestedCategory?: string;
   suggestedVatCode?: string;
+  /** Smart categorization confidence score (0-1) */
+  suggestedConfidence?: number;
   /** Dimension fields */
   cc1Id?: string;
   cc2Id?: string;
@@ -208,7 +210,7 @@ export function BankTxTable(props: Props) {
         <thead>
           <tr className="border-b border-[var(--ff-border-light)] text-[var(--ff-text-tertiary)] text-xs">
             <th className="py-2 px-2 w-8">
-              <input type="checkbox" checked={allSelected} onChange={onSelectAll} className="accent-emerald-500" />
+              <input type="checkbox" checked={allSelected} onChange={onSelectAll} className="accent-teal-500" />
             </th>
             <th className={`${TH} w-24`}>Date</th>
             <th className={TH}>Description</th>
@@ -239,11 +241,11 @@ export function BankTxTable(props: Props) {
 
             return (
               <tr key={tx.id} className={`border-b border-[var(--ff-border-light)]/50 hover:bg-[var(--ff-bg-secondary)]/50 ${
-                isOpen ? 'bg-blue-500/5' : isAllocated ? 'bg-emerald-500/5' : ''
+                isOpen ? 'bg-blue-500/5' : isAllocated ? 'bg-teal-500/5' : ''
               } ${isExcluded ? 'opacity-60' : ''}`}>
                 <td className="py-2 px-2">
                   <input type="checkbox" checked={selectedIds.has(tx.id)}
-                    onChange={() => onToggleSelect(tx.id)} className="accent-emerald-500" />
+                    onChange={() => onToggleSelect(tx.id)} className="accent-teal-500" />
                 </td>
                 <td className="py-2 px-2 font-mono text-xs text-[var(--ff-text-secondary)]">
                   {tx.transactionDate}
@@ -291,9 +293,18 @@ export function BankTxTable(props: Props) {
                 <td className="py-2 px-2 relative">
                   {isNew ? (
                     <>
-                      {/* Amber dot for suggested (not yet confirmed) allocations */}
-                      {tx.suggestedGlAccountId && sel?.entityId === tx.suggestedGlAccountId && (
-                        <span className="absolute left-0.5 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-amber-400" title="Suggested by rule" />
+                      {/* Confidence dot for suggested allocations — green=HIGH, yellow=MEDIUM, grey=LOW */}
+                      {(tx.suggestedGlAccountId || tx.suggestedSupplierId || tx.suggestedClientId) && sel?.entityId && (
+                        <span
+                          className={`absolute left-0.5 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full ${
+                            (tx.suggestedConfidence ?? 0) >= 0.85
+                              ? 'bg-emerald-400'
+                              : (tx.suggestedConfidence ?? 0) >= 0.60
+                                ? 'bg-amber-400'
+                                : 'bg-gray-400'
+                          }`}
+                          title={`Confidence: ${tx.suggestedConfidence != null ? `${Math.round(tx.suggestedConfidence * 100)}%` : 'Rule match'}${tx.suggestedCategory ? ` — ${tx.suggestedCategory}` : ''}`}
+                        />
                       )}
                       <button
                         data-bank-toggle
@@ -349,7 +360,7 @@ export function BankTxTable(props: Props) {
                             <div className="border-t border-[var(--ff-border-light)] p-1.5">
                               <button
                                 onClick={() => { onCreateEntity(tx.id, rowType); setOpenSel(null); }}
-                                className="w-full text-left px-3 py-1.5 text-xs text-emerald-400 hover:bg-emerald-500/10 rounded flex items-center gap-1.5"
+                                className="w-full text-left px-3 py-1.5 text-xs text-teal-400 hover:bg-teal-500/10 rounded flex items-center gap-1.5"
                               >
                                 <Plus className="h-3 w-3" />
                                 New {rowType === 'account' ? 'Account' : rowType === 'supplier' ? 'Supplier' : 'Customer'}
@@ -363,7 +374,7 @@ export function BankTxTable(props: Props) {
                     <span className={`text-xs truncate max-w-[200px] block ${
                       (tx.allocationType) === 'supplier' ? 'text-blue-400'
                       : (tx.allocationType) === 'customer' ? 'text-purple-400'
-                      : 'text-emerald-400'
+                      : 'text-teal-400'
                     }`} title={tx.allocatedEntityName || sel?.label || 'Allocated'}>
                       {tx.allocatedEntityName || sel?.label || 'Allocated'}
                     </span>
@@ -430,7 +441,7 @@ export function BankTxTable(props: Props) {
                 <td className="py-2 px-2 text-right font-mono text-xs text-red-400">
                   {spent !== null ? fmtCurrency(spent) : ''}
                 </td>
-                <td className="py-2 px-2 text-right font-mono text-xs text-emerald-400">
+                <td className="py-2 px-2 text-right font-mono text-xs text-teal-400">
                   {received !== null ? fmtCurrency(received) : ''}
                 </td>
                 <td className="py-2 px-2 text-center">
@@ -453,7 +464,7 @@ export function BankTxTable(props: Props) {
                       {isNew ? (
                         <>
                           <button onClick={() => onAccept(tx.id)} disabled={!sel?.entityId} title="Accept"
-                            className="p-1 rounded hover:bg-emerald-500/10 text-emerald-400 disabled:opacity-30">
+                            className="p-1 rounded hover:bg-teal-500/10 text-teal-400 disabled:opacity-30">
                             <Check className="h-3.5 w-3.5" />
                           </button>
                           {onFindMatch && (

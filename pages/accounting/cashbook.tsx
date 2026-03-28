@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { BookOpen, Loader2, AlertCircle, Filter } from 'lucide-react';
+import { apiFetch } from '@/lib/apiFetch';
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
@@ -48,14 +49,14 @@ export default function CashbookPage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    fetch('/api/accounting/bank-accounts', { credentials: 'include' })
+    apiFetch('/api/accounting/bank-accounts', { credentials: 'include' })
       .then(r => r.json())
       .then(json => {
         const list = Array.isArray(json.data || json) ? (json.data || json) : [];
         setBankAccounts(list);
         if (list.length > 0 && !selectedBank) setSelectedBank(list[0].id);
       })
-      .catch(() => {});
+      .catch(() => { /* reference data load failure — non-critical, bank account selector will be empty */ });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -70,7 +71,7 @@ export default function CashbookPage() {
         ...(to ? { to } : {}),
         limit: '500',
       });
-      const res = await fetch(`/api/accounting/bank-transactions?${params}`, { credentials: 'include' });
+      const res = await apiFetch(`/api/accounting/bank-transactions?${params}`, { credentials: 'include' });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error?.message || 'Failed to load');
       const data = json.data || json;
@@ -104,8 +105,8 @@ export default function CashbookPage() {
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
           <div className="px-6 py-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-emerald-500/10">
-                <BookOpen className="h-6 w-6 text-emerald-500" />
+              <div className="p-2 rounded-lg bg-teal-500/10">
+                <BookOpen className="h-6 w-6 text-teal-500" />
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Cashbook</h1>
@@ -149,7 +150,7 @@ export default function CashbookPage() {
 
           {loading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-6 w-6 animate-spin text-emerald-500" />
+              <Loader2 className="h-6 w-6 animate-spin text-teal-500" />
             </div>
           ) : rows.length === 0 ? (
             <div className="text-center py-12 text-[var(--ff-text-secondary)]">

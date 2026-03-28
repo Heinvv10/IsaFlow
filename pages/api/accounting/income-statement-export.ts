@@ -11,7 +11,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { getIncomeStatement } from '@/modules/accounting/services/financialReportingService';
 
@@ -24,6 +24,7 @@ function csvVal(value: string | number): string {
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
 
+  const { companyId } = req as CompanyApiRequest;
   const periodStart = req.query.period_start as string;
   const periodEnd = req.query.period_end as string;
   const costCentreId = req.query.cost_centre_id as string | undefined;
@@ -32,7 +33,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!periodEnd) return apiResponse.badRequest(res, 'period_end is required');
 
   try {
-    const report = await getIncomeStatement(periodStart, periodEnd, {
+    const report = await getIncomeStatement(companyId, periodStart, periodEnd, {
       costCentreId: costCentreId || undefined,
     });
 
@@ -83,4 +84,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

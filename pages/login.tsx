@@ -20,7 +20,9 @@ export default function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const returnTo =
-    typeof router.query.returnTo === 'string' ? router.query.returnTo : '/accounting';
+    typeof router.query.returnTo === 'string' && router.query.returnTo.startsWith('/')
+      ? router.query.returnTo
+      : '/accounting';
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -45,10 +47,7 @@ export default function LoginPage() {
 
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <div className="w-12 h-12 bg-emerald-600 rounded-xl flex items-center justify-center mb-3">
-            <BookOpen className="w-6 h-6 text-white" />
-          </div>
-          <h1 className="text-xl font-semibold text-white">Accounting</h1>
+          <img src="/logo.png" alt="ISAFlow" className="h-16 w-auto brightness-0 invert mb-4" />
           <p className="text-sm text-gray-500 mt-1">Sign in to your account</p>
         </div>
 
@@ -72,7 +71,7 @@ export default function LoginPage() {
                 value={email}
                 onChange={e => { clearError(); setEmail(e.target.value); }}
                 disabled={isBusy}
-                className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent disabled:opacity-50 transition"
+                className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition"
                 placeholder="you@example.com"
               />
             </div>
@@ -94,7 +93,7 @@ export default function LoginPage() {
                   value={password}
                   onChange={e => { clearError(); setPassword(e.target.value); }}
                   disabled={isBusy}
-                  className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2.5 pr-10 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent disabled:opacity-50 transition"
+                  className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2.5 pr-10 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition"
                   placeholder="Enter your password"
                 />
                 <button
@@ -123,7 +122,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={isBusy || !email || !password}
-              className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-800 disabled:cursor-not-allowed text-white font-medium text-sm px-4 py-2.5 rounded-lg transition-colors"
+              className="w-full flex items-center justify-center gap-2 bg-teal-600 hover:bg-teal-500 disabled:bg-teal-800 disabled:cursor-not-allowed text-white font-medium text-sm px-4 py-2.5 rounded-lg transition-colors"
             >
               {isBusy ? (
                 <>

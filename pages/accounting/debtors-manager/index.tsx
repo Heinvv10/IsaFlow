@@ -7,6 +7,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, AlertCircle, Users, TrendingDown, Clock, Percent, ChevronDown, ChevronRight, Search } from 'lucide-react';
+import { apiFetch } from '@/lib/apiFetch';
 import type {
   DebtorSummary,
   CollectionStats,
@@ -26,7 +27,7 @@ function fmtDate(iso: string | null): string {
 }
 
 const BUCKET_COLORS = {
-  current: 'text-emerald-500',
+  current: 'text-teal-500',
   days30: 'text-amber-500',
   days60: 'text-orange-500',
   days90: 'text-red-400',
@@ -57,7 +58,7 @@ function DebtorDetailPanel({ clientId, clientName }: { clientId: string; clientN
 
   useEffect(() => {
     setLoading(true);
-    fetch(`/api/accounting/debtors-manager?customerId=${clientId}`)
+    apiFetch(`/api/accounting/debtors-manager?customerId=${clientId}`)
       .then(r => r.json())
       .then(json => setInvoices(Array.isArray(json.data) ? json.data : []))
       .catch(() => setInvoices([]))
@@ -94,9 +95,9 @@ function DebtorDetailPanel({ clientId, clientName }: { clientId: string; clientN
                 <td className="px-4 py-2 text-sm text-[var(--ff-text-secondary)]">{fmtDate(inv.invoiceDate)}</td>
                 <td className="px-4 py-2 text-sm text-[var(--ff-text-secondary)]">{fmtDate(inv.dueDate)}</td>
                 <td className="px-4 py-2 text-sm text-right font-mono text-[var(--ff-text-primary)]">{fmt(inv.totalAmount)}</td>
-                <td className="px-4 py-2 text-sm text-right font-mono text-emerald-500">{inv.amountPaid > 0 ? fmt(inv.amountPaid) : '—'}</td>
+                <td className="px-4 py-2 text-sm text-right font-mono text-teal-500">{inv.amountPaid > 0 ? fmt(inv.amountPaid) : '—'}</td>
                 <td className={`px-4 py-2 text-sm text-right font-mono font-bold ${BUCKET_COLORS[inv.agingBucket]}`}>{fmt(inv.outstanding)}</td>
-                <td className={`px-4 py-2 text-sm text-right font-mono ${inv.daysOverdue > 0 ? 'text-red-400' : 'text-emerald-500'}`}>
+                <td className={`px-4 py-2 text-sm text-right font-mono ${inv.daysOverdue > 0 ? 'text-red-400' : 'text-teal-500'}`}>
                   {inv.daysOverdue > 0 ? `${inv.daysOverdue}d` : 'Current'}
                 </td>
               </tr>
@@ -123,7 +124,7 @@ export default function DebtorsManagerPage() {
     setIsLoading(true);
     setError('');
     try {
-      const res = await fetch('/api/accounting/debtors-manager');
+      const res = await apiFetch('/api/accounting/debtors-manager');
       const json = await res.json();
       const payload = json.data ?? json;
       setSummary(Array.isArray(payload.summary) ? payload.summary : []);
@@ -168,7 +169,7 @@ export default function DebtorsManagerPage() {
               <StatCard label="Total Outstanding" value={fmt(stats.totalOutstanding)} sub={`${stats.clientCount} customers`} icon={TrendingDown} color="text-[var(--ff-text-primary)]" />
               <StatCard label="Total Overdue" value={fmt(stats.totalOverdue)} sub={`${stats.overdueCount} invoices`} icon={AlertCircle} color="text-red-500" />
               <StatCard label="Avg Days Overdue" value={`${stats.avgDaysOutstanding}d`} sub="On overdue invoices" icon={Clock} color="text-amber-500" />
-              <StatCard label="Collection Rate" value={`${stats.collectionRate}%`} sub="Paid vs invoiced" icon={Percent} color="text-emerald-500" />
+              <StatCard label="Collection Rate" value={`${stats.collectionRate}%`} sub="Paid vs invoiced" icon={Percent} color="text-teal-500" />
             </div>
           )}
 
@@ -204,7 +205,7 @@ export default function DebtorsManagerPage() {
                   <tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
                     <th className="px-4 py-3 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase w-6"></th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Customer</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-emerald-500 uppercase">Current</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-teal-500 uppercase">Current</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-amber-500 uppercase">1–30 Days</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-orange-500 uppercase">31–60 Days</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-red-400 uppercase">61–90 Days</th>
@@ -229,7 +230,7 @@ export default function DebtorsManagerPage() {
                           {d.clientName}
                           <span className="ml-2 text-xs text-[var(--ff-text-tertiary)]">({d.invoiceCount} inv.)</span>
                         </td>
-                        <td className="px-4 py-3 text-sm text-right font-mono text-emerald-500">{d.current > 0 ? fmt(d.current) : '—'}</td>
+                        <td className="px-4 py-3 text-sm text-right font-mono text-teal-500">{d.current > 0 ? fmt(d.current) : '—'}</td>
                         <td className="px-4 py-3 text-sm text-right font-mono text-amber-500">{d.days30 > 0 ? fmt(d.days30) : '—'}</td>
                         <td className="px-4 py-3 text-sm text-right font-mono text-orange-500">{d.days60 > 0 ? fmt(d.days60) : '—'}</td>
                         <td className="px-4 py-3 text-sm text-right font-mono text-red-400">{d.days90 > 0 ? fmt(d.days90) : '—'}</td>
@@ -246,7 +247,7 @@ export default function DebtorsManagerPage() {
                   <tr className="border-t-2 border-[var(--ff-border-medium)] bg-[var(--ff-bg-tertiary)]">
                     <td className="px-4 py-3"></td>
                     <td className="px-4 py-3 text-sm font-bold text-[var(--ff-text-primary)]">TOTAL</td>
-                    <td className="px-4 py-3 text-sm text-right font-mono font-bold text-emerald-500">{fmt(filtered.reduce((s, d) => s + d.current, 0))}</td>
+                    <td className="px-4 py-3 text-sm text-right font-mono font-bold text-teal-500">{fmt(filtered.reduce((s, d) => s + d.current, 0))}</td>
                     <td className="px-4 py-3 text-sm text-right font-mono font-bold text-amber-500">{fmt(filtered.reduce((s, d) => s + d.days30, 0))}</td>
                     <td className="px-4 py-3 text-sm text-right font-mono font-bold text-orange-500">{fmt(filtered.reduce((s, d) => s + d.days60, 0))}</td>
                     <td className="px-4 py-3 text-sm text-right font-mono font-bold text-red-400">{fmt(filtered.reduce((s, d) => s + d.days90, 0))}</td>

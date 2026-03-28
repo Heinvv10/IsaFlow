@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowUpDown, Plus, Loader2, Check } from 'lucide-react';
+import { apiFetch } from '@/lib/apiFetch';
 
 const fmtQty = (n: number) => new Intl.NumberFormat('en-ZA', { maximumFractionDigits: 4 }).format(n);
 
@@ -26,7 +27,7 @@ export default function ItemAdjustmentsPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await fetch('/api/accounting/item-adjustments', { credentials: 'include' });
+    const res = await apiFetch('/api/accounting/item-adjustments', { credentials: 'include' });
     const json = await res.json();
     setItems(json.data || []);
     setLoading(false);
@@ -37,7 +38,7 @@ export default function ItemAdjustmentsPage() {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true); setMsg('');
-    const res = await fetch('/api/accounting/item-adjustments', {
+    const res = await apiFetch('/api/accounting/item-adjustments', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       credentials: 'include', body: JSON.stringify(form),
     });
@@ -72,7 +73,7 @@ export default function ItemAdjustmentsPage() {
         </div>
 
         <div className="p-6 space-y-4">
-          {msg && <div className={`p-3 rounded-lg text-sm flex items-center gap-2 ${msg.includes('saved') ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}><Check className="h-4 w-4" />{msg}</div>}
+          {msg && <div className={`p-3 rounded-lg text-sm flex items-center gap-2 ${msg.includes('saved') ? 'bg-teal-500/10 text-teal-400' : 'bg-red-500/10 text-red-400'}`}><Check className="h-4 w-4" />{msg}</div>}
 
           {showForm && (
             <form onSubmit={submit} className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-6 space-y-4">

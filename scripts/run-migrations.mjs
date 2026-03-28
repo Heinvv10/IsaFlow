@@ -2,7 +2,11 @@ import pg from 'pg';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
-const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://neondb_owner:npg_TDuKN9ao1sZB@ep-shiny-flower-aldyej0o-pooler.c-3.eu-central-1.aws.neon.tech/neondb?sslmode=require';
+const DATABASE_URL = process.env.DATABASE_URL;
+if (!DATABASE_URL) {
+  console.error('ERROR: DATABASE_URL environment variable is required.');
+  process.exit(1);
+}
 
 const client = new pg.Client({ connectionString: DATABASE_URL });
 
@@ -16,6 +20,18 @@ const migrations = [
   '205_sage_migration.sql',
   '206_phase1_sage_alignment.sql',
   '210_vat201_data_model.sql',
+  '211_schema_patches.sql',
+  '212_smart_categorization.sql',
+  '220_multi_company_scoping.sql',
+  '230_payroll.sql',
+  '231_sars_efiling.sql',
+  '232_invoice_emails.sql',
+  '233_document_capture.sql',
+  '234_approval_workflows.sql',
+  '235_client_portal.sql',
+  '236_multi_entity.sql',
+  '237_bank_feeds.sql',
+  '240_group_companies.sql',
 ];
 
 async function runMigrations() {

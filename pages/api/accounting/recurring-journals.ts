@@ -7,7 +7,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import {
@@ -16,9 +16,11 @@ import {
 } from '@/modules/accounting/services/recurringJournalService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyApiRequest;
+
   if (req.method === 'GET') {
     const { status, limit, offset } = req.query;
-    const result = await getRecurringJournals({
+    const result = await getRecurringJournals(companyId, {
       status: status as string,
       limit: limit ? Number(limit) : undefined,
       offset: offset ? Number(offset) : undefined,
@@ -29,7 +31,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method === 'POST') {
     const userId = req.user.id;
     try {
-      const item = await createRecurringJournal(req.body, userId);
+      const item = await createRecurringJournal(companyId, req.body, userId);
       return apiResponse.success(res, item);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Create failed';
@@ -49,7 +51,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
           next_run_date = COALESCE(${nextRunDate || null}, next_run_date),
           description = COALESCE(${description || null}, description),
           updated_at = NOW()
-        WHERE id = ${id}::UUID AND status IN ('active', 'paused')
+        WHERE id = ${id}::UUID AND company_id = ${companyId} AND status IN ('active', 'paused')
       `;
       log.info('Recurring journal updated', { id });
       return apiResponse.success(res, { updated: true });
@@ -63,4 +65,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

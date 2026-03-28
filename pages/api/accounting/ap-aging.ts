@@ -7,7 +7,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { getAPAging, getAPAgingDetail } from '@/modules/accounting/services/apAgingService';
 
@@ -16,16 +16,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
   }
 
+  const { companyId } = req as CompanyApiRequest;
+
   try {
     const { supplier_id, as_at_date } = req.query;
     const asAtDate = as_at_date as string | undefined;
 
     if (supplier_id) {
-      const detail = await getAPAgingDetail(supplier_id as string, asAtDate);
+      const detail = await getAPAgingDetail(companyId, supplier_id as string, asAtDate);
       return apiResponse.success(res, detail);
     }
 
-    const aging = await getAPAging(asAtDate);
+    const aging = await getAPAging(companyId, asAtDate);
     return apiResponse.success(res, aging);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to get AP aging';
@@ -35,4 +37,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

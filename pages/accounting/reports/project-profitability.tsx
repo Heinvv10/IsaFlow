@@ -8,10 +8,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, TrendingUp, Loader2, AlertCircle } from 'lucide-react';
 import type { ProjectProfitabilityReport } from '@/modules/accounting/types/gl.types';
-
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amount);
-}
+import { formatCurrency } from '@/utils/formatters';
+import { apiFetch } from '@/lib/apiFetch';
 
 function getDefaultDates() {
   const now = new Date();
@@ -37,7 +35,7 @@ export default function ProjectProfitabilityPage() {
     setError('');
     try {
       const params = new URLSearchParams({ period_start: periodStart, period_end: periodEnd });
-      const res = await fetch(`/api/accounting/reports-project-profitability?${params}`);
+      const res = await apiFetch(`/api/accounting/reports-project-profitability?${params}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Failed to load');
       const data = json.data || json;
@@ -120,9 +118,9 @@ export default function ProjectProfitabilityPage() {
                         className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)] cursor-pointer transition-colors"
                       >
                         <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">{r.projectName}</td>
-                        <td className="px-4 py-3 text-right font-mono text-emerald-400">{formatCurrency(r.revenue)}</td>
+                        <td className="px-4 py-3 text-right font-mono text-teal-400">{formatCurrency(r.revenue)}</td>
                         <td className="px-4 py-3 text-right font-mono text-red-400">{formatCurrency(r.costs)}</td>
-                        <td className={`px-4 py-3 text-right font-mono font-bold ${r.profit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        <td className={`px-4 py-3 text-right font-mono font-bold ${r.profit >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
                           {formatCurrency(r.profit)}
                         </td>
                         <td className={`px-4 py-3 text-right font-mono ${r.margin >= 0 ? 'text-[var(--ff-text-primary)]' : 'text-red-400'}`}>
@@ -134,7 +132,7 @@ export default function ProjectProfitabilityPage() {
                           <td colSpan={5} className="px-4 py-3 bg-[var(--ff-bg-primary)]">
                             <div className="grid grid-cols-2 gap-4 text-xs">
                               <div>
-                                <p className="font-semibold text-emerald-400 mb-1">Revenue Breakdown</p>
+                                <p className="font-semibold text-teal-400 mb-1">Revenue Breakdown</p>
                                 {r.revenueLines.map(l => (
                                   <div key={l.accountCode} className="flex justify-between py-0.5">
                                     <span className="text-[var(--ff-text-secondary)]">{l.accountName}</span>
@@ -161,9 +159,9 @@ export default function ProjectProfitabilityPage() {
                 <tfoot>
                   <tr className="bg-[var(--ff-bg-primary)] font-bold">
                     <td className="px-4 py-3 text-[var(--ff-text-primary)]">TOTAL</td>
-                    <td className="px-4 py-3 text-right font-mono text-emerald-400">{formatCurrency(totals.revenue)}</td>
+                    <td className="px-4 py-3 text-right font-mono text-teal-400">{formatCurrency(totals.revenue)}</td>
                     <td className="px-4 py-3 text-right font-mono text-red-400">{formatCurrency(totals.costs)}</td>
-                    <td className={`px-4 py-3 text-right font-mono ${totals.profit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    <td className={`px-4 py-3 text-right font-mono ${totals.profit >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
                       {formatCurrency(totals.profit)}
                     </td>
                     <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">

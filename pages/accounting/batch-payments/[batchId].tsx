@@ -8,17 +8,15 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Layers, Loader2, AlertCircle, Check, Zap, XCircle } from 'lucide-react';
+import { formatDate } from '@/utils/formatters';
+import { apiFetch } from '@/lib/apiFetch';
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
-function formatDate(d: string): string {
-  if (!d) return '-';
-  return new Date(d).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' });
-}
 
 const STATUS_BADGE: Record<string, string> = {
   draft: 'bg-gray-500/20 text-gray-400',
   approved: 'bg-blue-500/20 text-blue-400',
-  processed: 'bg-emerald-500/20 text-emerald-400',
+  processed: 'bg-teal-500/20 text-teal-400',
   cancelled: 'bg-red-500/20 text-red-400',
 };
 
@@ -56,7 +54,7 @@ export default function BatchPaymentDetailPage() {
     setIsLoading(true);
     setError('');
     try {
-      const res = await fetch(`/api/accounting/batch-payments?id=${batchId}`);
+      const res = await apiFetch(`/api/accounting/batch-payments?id=${batchId}`);
       const json = await res.json();
       setBatch(json.data || null);
     } catch {
@@ -72,7 +70,7 @@ export default function BatchPaymentDetailPage() {
     if (!batch) return;
     setActionBusy(action);
     try {
-      const res = await fetch('/api/accounting/batch-payments-action', {
+      const res = await apiFetch('/api/accounting/batch-payments-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, id: batch.id }),
@@ -132,7 +130,7 @@ export default function BatchPaymentDetailPage() {
                 )}
                 {batch.status === 'approved' && (
                   <button onClick={() => doAction('process')} disabled={!!actionBusy}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium disabled:opacity-50">
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium disabled:opacity-50">
                     {actionBusy === 'process' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />} Process
                   </button>
                 )}

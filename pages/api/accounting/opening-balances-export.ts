@@ -4,17 +4,17 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { neon } from '@neondatabase/serverless';
+import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
-
-const sql = neon(process.env.DATABASE_URL!);
 
 function csvCell(v: string): string { return `"${String(v || '').replace(/"/g, '""')}"`; }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
+
+  const { companyId } = req as CompanyApiRequest;
 
   try {
     const rows = await sql`
@@ -27,9 +27,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           SUM(CASE WHEN credit > 0 THEN credit ELSE 0 END) AS credit
         FROM gl_journal_lines jl
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-        WHERE je.source = 'opening_balance'
+        WHERE je.source = 'opening_balance' AND je.company_id = ${companyId}
         GROUP BY gl_account_id
       ) ob ON ob.gl_account_id = a.id
+      WHERE a.company_id = ${companyId}
       ORDER BY a.account_code
     `;
 
@@ -54,4 +55,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(handler);
+export default withCompany(handler);

@@ -7,11 +7,13 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withAuth, withCompany, type AuthenticatedNextApiRequest, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { approveCreditNote, cancelCreditNote } from '@/modules/accounting/services/creditNoteService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyApiRequest;
+
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
   }
@@ -26,11 +28,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     switch (action) {
       case 'approve': {
-        const creditNote = await approveCreditNote(creditNoteId, userId);
+        const creditNote = await approveCreditNote(companyId, creditNoteId, userId);
         return apiResponse.success(res, creditNote);
       }
       case 'cancel': {
-        const cancelled = await cancelCreditNote(creditNoteId, userId, reason);
+        const cancelled = await cancelCreditNote(companyId, creditNoteId, userId, reason);
         return apiResponse.success(res, cancelled);
       }
       default:
@@ -44,4 +46,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

@@ -10,7 +10,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import {
@@ -42,6 +42,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
 
+  const { companyId } = req as CompanyApiRequest;
   // @ts-expect-error — auth middleware attaches user
   const userId: string = req.user?.id ?? req.user?.userId ?? 'system';
 
@@ -98,14 +99,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         amount,
         description,
         reference,
-        status
+        status,
+        company_id
       ) VALUES (
         ${bankAccountId}::UUID,
         ${date}::DATE,
         ${signedAmount},
         ${description ?? null},
         ${reference ?? null},
-        'imported'
+        'imported',
+        ${companyId}
       )
       RETURNING id
     `;
@@ -120,6 +123,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // ── Step 2: Immediately allocate the transaction ──────────────────────────
 
     const result = await allocateTransaction(
+      companyId,
       txId,
       contraAccountId ?? '',
       userId,
@@ -146,4 +150,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

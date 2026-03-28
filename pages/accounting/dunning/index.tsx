@@ -8,15 +8,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { AlertTriangle, Loader2, AlertCircle, Send, FileText, Clock, CheckCircle, Plus } from 'lucide-react';
 import { log } from '@/lib/logger';
-
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amount);
-}
-
-function formatDate(d: string): string {
-  if (!d) return '-';
-  return new Date(d).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' });
-}
+import { formatCurrency, formatDate } from '@/utils/formatters';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface OverdueClient {
   entityId: string;
@@ -63,7 +56,7 @@ export default function DunningPage() {
     setIsLoading(true);
     setError('');
     try {
-      const res = await fetch('/api/accounting/ar-aging');
+      const res = await apiFetch('/api/accounting/ar-aging');
       const json = await res.json();
       const data = json.data || json;
       const arr = Array.isArray(data) ? data : [];
@@ -78,7 +71,7 @@ export default function DunningPage() {
   const loadHistory = useCallback(async () => {
     setIsLoading(true);
     try {
-      const res = await fetch('/api/accounting/dunning');
+      const res = await apiFetch('/api/accounting/dunning');
       const json = await res.json();
       setHistory(json.data || []);
     } catch {
@@ -102,7 +95,7 @@ export default function DunningPage() {
         .replace('{client}', client.entityName)
         .replace('{amount}', formatCurrency(client.total));
 
-      const res = await fetch('/api/accounting/dunning', {
+      const res = await apiFetch('/api/accounting/dunning', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -128,7 +121,7 @@ export default function DunningPage() {
 
   async function handleMarkSent(id: string) {
     try {
-      await fetch('/api/accounting/dunning', {
+      await apiFetch('/api/accounting/dunning', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, status: 'sent', sent_at: new Date().toISOString() }),
@@ -260,8 +253,8 @@ export default function DunningPage() {
                   <div key={comm.id} className="p-4 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
-                        <div className={`p-1.5 rounded ${comm.status === 'sent' ? 'bg-emerald-500/10' : 'bg-amber-500/10'}`}>
-                          {comm.status === 'sent' ? <CheckCircle className="h-4 w-4 text-emerald-400" /> : <Clock className="h-4 w-4 text-amber-400" />}
+                        <div className={`p-1.5 rounded ${comm.status === 'sent' ? 'bg-teal-500/10' : 'bg-amber-500/10'}`}>
+                          {comm.status === 'sent' ? <CheckCircle className="h-4 w-4 text-teal-400" /> : <Clock className="h-4 w-4 text-amber-400" />}
                         </div>
                         <div>
                           <p className="text-sm font-medium text-[var(--ff-text-primary)]">{comm.subject}</p>
@@ -274,12 +267,12 @@ export default function DunningPage() {
                         <span className="text-xs text-[var(--ff-text-tertiary)]">{formatDate(comm.created_at)}</span>
                         {comm.status === 'draft' && (
                           <button onClick={() => handleMarkSent(comm.id)}
-                            className="inline-flex items-center gap-1 px-3 py-1 rounded bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-xs font-medium">
+                            className="inline-flex items-center gap-1 px-3 py-1 rounded bg-teal-500/10 hover:bg-teal-500/20 text-teal-400 text-xs font-medium">
                             <Send className="h-3 w-3" /> Mark Sent
                           </button>
                         )}
                         {comm.status === 'sent' && (
-                          <span className="text-xs text-emerald-400">Sent {comm.sent_at ? formatDate(comm.sent_at) : ''}</span>
+                          <span className="text-xs text-teal-400">Sent {comm.sent_at ? formatDate(comm.sent_at) : ''}</span>
                         )}
                       </div>
                     </div>

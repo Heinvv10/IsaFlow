@@ -6,7 +6,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withAuth, withCompany, type AuthenticatedNextApiRequest, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 
@@ -14,6 +14,8 @@ import { sql } from '@/lib/neon';
 type Row = any;
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyApiRequest;
+
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
 
   const { clientId, invoiceDate, dueDate, billingPeriodStart, billingPeriodEnd, taxRate, notes, items } = req.body;
@@ -24,7 +26,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   // Auto-generate invoice number
   const maxRows = (await sql`
-    SELECT invoice_number FROM customer_invoices ORDER BY created_at DESC LIMIT 1
+    SELECT invoice_number FROM customer_invoices WHERE company_id = ${companyId} ORDER BY created_at DESC LIMIT 1
   `) as Row[];
   let nextNum = 1;
   if (maxRows.length > 0) {
@@ -56,11 +58,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const invRows = (await sql`
     INSERT INTO customer_invoices (
-      invoice_number, project_id, client_id, billing_period_start, billing_period_end,
+      company_id, invoice_number, project_id, client_id, billing_period_start, billing_period_end,
       subtotal, tax_rate, tax_amount, total_amount, invoice_date, due_date,
       notes, status, created_by
     ) VALUES (
-      ${invoiceNumber}, ${projectId}::UUID, ${clientId}::UUID, ${bpStart}, ${bpEnd},
+      ${companyId}, ${invoiceNumber}, ${projectId}::UUID, ${clientId}::UUID, ${bpStart}, ${bpEnd},
       ${subtotal}, ${rate}, ${taxAmount}, ${totalAmount}, ${invDate},
       ${dueDate || null}, ${notes || null}, 'draft', ${userId}
     ) RETURNING id
@@ -83,4 +85,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, BookOpen, Loader2, AlertCircle, Download } from 'lucide-react';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface Txn {
   date: string;
@@ -49,11 +50,11 @@ export default function AccountTransactionsPage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    fetch('/api/accounting/cost-centres', { credentials: 'include' }).then(r => r.json()).then(res => {
+    apiFetch('/api/accounting/cost-centres', { credentials: 'include' }).then(r => r.json()).then(res => {
       const list = res.data?.items || [];
       setCostCentres(list.map((c: Record<string, unknown>) => ({ id: String(c.id), code: String(c.code), name: String(c.name) })));
-    }).catch(() => {});
-    fetch('/api/accounting/chart-of-accounts', { credentials: 'include' }).then(r => r.json()).then(res => {
+    }).catch(() => { /* reference data load failure — non-critical, cost centre filter will be empty */ });
+    apiFetch('/api/accounting/chart-of-accounts', { credentials: 'include' }).then(r => r.json()).then(res => {
       const d = res.data || res;
       const list = Array.isArray(d) ? d : d.accounts || d.items || [];
       setAccounts(list.filter((a: GLAccount & { level?: number }) => (a as { level?: number }).level === undefined || (a as { level?: number }).level! >= 3).map((a: Record<string, unknown>) => ({
@@ -73,7 +74,7 @@ export default function AccountTransactionsPage() {
         account_code: accountCode, period_start: periodStart, period_end: periodEnd,
       });
       if (costCentreFilter) params.set('cost_centre', costCentreFilter);
-      const res = await fetch(`/api/accounting/reports-account-transactions?${params}`, { credentials: 'include' });
+      const res = await apiFetch(`/api/accounting/reports-account-transactions?${params}`, { credentials: 'include' });
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Failed');
       setReport(json.data || null);

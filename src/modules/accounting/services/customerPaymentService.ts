@@ -25,7 +25,7 @@ interface PaymentFilters {
   offset?: number;
 }
 
-export async function getCustomerPayments(filters?: PaymentFilters): Promise<{
+export async function getCustomerPayments(_companyId: string, filters?: PaymentFilters): Promise<{
   payments: CustomerPayment[];
   total: number;
 }> {
@@ -71,7 +71,7 @@ export async function getCustomerPayments(filters?: PaymentFilters): Promise<{
   }
 }
 
-export async function getCustomerPaymentById(
+export async function getCustomerPaymentById(_companyId: string, 
   id: string
 ): Promise<(CustomerPayment & { allocations: CustomerPaymentAllocation[] }) | null> {
   try {
@@ -96,7 +96,7 @@ export async function getCustomerPaymentById(
   }
 }
 
-export async function createCustomerPayment(
+export async function createCustomerPayment(_companyId: string, 
   input: CustomerPaymentCreateInput,
   userId: string
 ): Promise<CustomerPayment> {
@@ -147,12 +147,12 @@ export async function createCustomerPayment(
   }
 }
 
-export async function confirmCustomerPayment(
+export async function confirmCustomerPayment(_companyId: string, 
   id: string,
   userId: string
 ): Promise<CustomerPayment> {
   try {
-    const payment = await getCustomerPaymentById(id);
+    const payment = await getCustomerPaymentById('', id);
     if (!payment) throw new Error(`Payment ${id} not found`);
     if (payment.status !== 'draft') throw new Error(`Cannot confirm payment with status: ${payment.status}`);
 
@@ -171,14 +171,14 @@ export async function confirmCustomerPayment(
         description: `Customer payment ${payment.paymentNumber}` },
     ];
 
-    const je = await createJournalEntry({
+    const je = await createJournalEntry('', {
       entryDate: payment.paymentDate,
       description: `Customer payment ${payment.paymentNumber}`,
       source: 'auto_payment',
       sourceDocumentId: id,
       lines,
     }, userId);
-    await postJournalEntry(je.id, userId);
+    await postJournalEntry('', je.id, userId);
 
     // Update invoice balances
     for (const alloc of payment.allocations) {
@@ -211,13 +211,13 @@ export async function confirmCustomerPayment(
   }
 }
 
-export async function cancelCustomerPayment(
+export async function cancelCustomerPayment(_companyId: string, 
   id: string,
   userId: string,
   reason?: string
 ): Promise<CustomerPayment> {
   try {
-    const payment = await getCustomerPaymentById(id);
+    const payment = await getCustomerPaymentById('', id);
     if (!payment) throw new Error(`Payment ${id} not found`);
     if (payment.status !== 'confirmed') {
       throw new Error(`Cannot cancel payment with status: ${payment.status}`);
@@ -225,7 +225,7 @@ export async function cancelCustomerPayment(
 
     // Reverse GL journal entry
     if (payment.glJournalEntryId) {
-      await reverseJournalEntry(payment.glJournalEntryId, userId);
+      await reverseJournalEntry('', payment.glJournalEntryId, userId);
     }
 
     // Reverse invoice balance updates
@@ -260,7 +260,7 @@ export async function cancelCustomerPayment(
   }
 }
 
-export async function postCustomerInvoiceToGL(invoiceId: string, userId: string): Promise<string> {
+export async function postCustomerInvoiceToGL(_companyId: string, invoiceId: string, userId: string): Promise<string> {
   try {
     const invRows = (await sql`
       SELECT ci.*, c.company_name AS client_name
@@ -293,14 +293,14 @@ export async function postCustomerInvoiceToGL(invoiceId: string, userId: string)
       });
     }
 
-    const je = await createJournalEntry({
+    const je = await createJournalEntry('', {
       entryDate: String(inv.invoice_date),
       description: `Customer invoice ${inv.invoice_number}`,
       source: 'auto_invoice',
       sourceDocumentId: invoiceId,
       lines,
     }, userId);
-    await postJournalEntry(je.id, userId);
+    await postJournalEntry('', je.id, userId);
 
     await sql`UPDATE customer_invoices SET gl_journal_entry_id = ${je.id}::UUID WHERE id = ${invoiceId}::UUID`;
 

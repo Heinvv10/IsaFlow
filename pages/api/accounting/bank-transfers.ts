@@ -9,7 +9,7 @@ import { sql } from '@/lib/neon';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withCompany, type AuthenticatedNextApiRequest, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 
 
@@ -18,6 +18,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
   }
 
+  const { companyId } = req as CompanyApiRequest;
   const userId = (req as AuthenticatedNextApiRequest).user.id;
   const { fromAccountId, toAccountId, amount, reference, transferDate } = req.body;
 
@@ -42,7 +43,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const accounts = await sql`
       SELECT id, account_code, account_name, account_subtype
       FROM gl_accounts
-      WHERE id IN (${fromAccountId}, ${toAccountId})
+      WHERE id IN (${fromAccountId}, ${toAccountId}) AND company_id = ${companyId}
     `;
 
     if (accounts.length !== 2) {
@@ -55,7 +56,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Get current fiscal period
     const [period] = await sql`
       SELECT id FROM fiscal_periods
-      WHERE status = 'open'
+      WHERE status = 'open' AND company_id = ${companyId}
       ORDER BY start_date DESC
       LIMIT 1
     `;
@@ -69,14 +70,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         id, entry_number, entry_date, description,
         source, status, fiscal_period_id,
         total_debit, total_credit,
-        created_by, created_at
+        created_by, created_at, company_id
       ) VALUES (
         gen_random_uuid(),
-        'TXF-' || LPAD((SELECT COALESCE(MAX(CAST(SUBSTRING(entry_number FROM 5) AS INTEGER)), 0) + 1 FROM gl_journal_entries WHERE entry_number LIKE 'TXF-%')::text, 4, '0'),
+        'TXF-' || LPAD((SELECT COALESCE(MAX(CAST(SUBSTRING(entry_number FROM 5) AS INTEGER)), 0) + 1 FROM gl_journal_entries WHERE entry_number LIKE 'TXF-%' AND company_id = ${companyId})::text, 4, '0'),
         ${txDate}, ${entryRef},
         'bank_transfer', 'posted', ${period?.id || null},
         ${Number(amount)}, ${Number(amount)},
-        ${userId}, NOW()
+        ${userId}, NOW(), ${companyId}
       )
       RETURNING *
     `;
@@ -110,4 +111,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

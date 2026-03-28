@@ -8,7 +8,7 @@ import { sql } from '@/lib/neon';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 
 
@@ -20,6 +20,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
   }
 
+  const { companyId } = req as CompanyApiRequest;
   const clientId = req.query.client_id as string;
   if (!clientId) {
     return apiResponse.badRequest(res, 'client_id is required');
@@ -28,7 +29,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     // Get client info
     const clientRows = (await sql`
-      SELECT id, company_name, email, phone FROM clients WHERE id = ${clientId}::UUID
+      SELECT id, company_name, email, phone FROM clients WHERE id = ${clientId}::UUID AND company_id = ${companyId}
     `) as Row[];
     if (clientRows.length === 0) {
       return apiResponse.notFound(res, 'Client', clientId);
@@ -39,7 +40,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const invoices = (await sql`
       SELECT id, invoice_number, invoice_date, reference, total_amount, status
       FROM customer_invoices
-      WHERE client_id = ${clientId}::UUID AND status != 'cancelled'
+      WHERE client_id = ${clientId}::UUID AND company_id = ${companyId} AND status != 'cancelled'
       ORDER BY invoice_date
     `) as Row[];
 
@@ -49,7 +50,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         COALESCE(SUM(cpa.amount_allocated), cp.total_amount) AS amount_allocated
       FROM customer_payments cp
       LEFT JOIN customer_payment_allocations cpa ON cpa.payment_id = cp.id
-      WHERE cp.client_id = ${clientId}::UUID AND cp.status IN ('confirmed', 'reconciled')
+      WHERE cp.client_id = ${clientId}::UUID AND cp.company_id = ${companyId} AND cp.status IN ('confirmed', 'reconciled')
       GROUP BY cp.id, cp.payment_number, cp.payment_date, cp.bank_reference, cp.total_amount
     `) as Row[];
 
@@ -57,18 +58,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const creditNotes = (await sql`
       SELECT id, credit_note_number, credit_date, reason, total_amount
       FROM credit_notes
-      WHERE client_id = ${clientId}::UUID AND type = 'customer' AND status = 'approved'
+      WHERE client_id = ${clientId}::UUID AND company_id = ${companyId} AND type = 'customer' AND status = 'approved'
     `) as Row[];
 
     // Normalize date to YYYY-MM-DD regardless of input format
-    function toISODate(val: unknown): string {
+    const toISODate = (val: unknown): string => {
       if (!val) return '1970-01-01';
       if (val instanceof Date) return val.toISOString().split('T')[0] ?? '1970-01-01';
       const s = String(val);
       if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.split('T')[0] ?? '1970-01-01';
       const d = new Date(s);
       return isNaN(d.getTime()) ? '1970-01-01' : (d.toISOString().split('T')[0] ?? '1970-01-01');
-    }
+    };
 
     // Build transaction list
     interface Transaction {
@@ -166,4 +167,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

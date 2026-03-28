@@ -5,12 +5,10 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { neon } from '@neondatabase/serverless';
+import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
-
-const sql = neon(process.env.DATABASE_URL!);
 
 interface AllocationItem {
   invoiceId: string;
@@ -18,6 +16,8 @@ interface AllocationItem {
 }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyApiRequest;
+
   if (req.method === 'GET') {
     try {
       const paymentId = req.query.payment_id as string | undefined;
@@ -34,6 +34,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           JOIN customer_invoices ci ON ci.id = cpa.invoice_id
           JOIN clients c ON c.id = cp.client_id
           WHERE cpa.payment_id = ${paymentId}
+            AND cp.company_id = ${companyId}
           ORDER BY cpa.created_at DESC
         `;
       } else if (clientId) {
@@ -46,6 +47,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           JOIN customer_invoices ci ON ci.id = cpa.invoice_id
           JOIN clients c ON c.id = cp.client_id
           WHERE cp.client_id = ${clientId}
+            AND cp.company_id = ${companyId}
           ORDER BY cpa.created_at DESC
           LIMIT 200
         `;
@@ -58,6 +60,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           JOIN customer_payments cp ON cp.id = cpa.payment_id
           JOIN customer_invoices ci ON ci.id = cpa.invoice_id
           JOIN clients c ON c.id = cp.client_id
+          WHERE cp.company_id = ${companyId}
           ORDER BY cpa.created_at DESC
           LIMIT 200
         `;
@@ -93,7 +96,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const paymentRows = await sql`
         SELECT cp.id, cp.client_id, cp.total_amount, cp.status,
           COALESCE((SELECT SUM(amount_allocated) FROM customer_payment_allocations WHERE payment_id = cp.id), 0) AS allocated_amount
-        FROM customer_payments cp WHERE cp.id = ${paymentId}
+        FROM customer_payments cp WHERE cp.id = ${paymentId} AND cp.company_id = ${companyId}
       `;
       const payment = paymentRows[0];
       if (!payment) return apiResponse.notFound(res, 'Payment', paymentId);
@@ -116,7 +119,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         // Validate invoice belongs to same client
         const invoiceRows = await sql`
           SELECT id, client_id, total_amount, amount_paid, status
-          FROM customer_invoices WHERE id = ${alloc.invoiceId}
+          FROM customer_invoices WHERE id = ${alloc.invoiceId} AND company_id = ${companyId}
         `;
         const invoice = invoiceRows[0];
         if (!invoice) {
@@ -183,4 +186,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'POST']);
 }
 
-export default withAuth(handler);
+export default withCompany(handler);

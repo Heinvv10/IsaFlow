@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { TrendingUp, Loader2, Download } from 'lucide-react';
+import { apiFetch } from '@/lib/apiFetch';
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
@@ -20,7 +21,7 @@ export default function SalesByCustomerReport() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await fetch(`/api/accounting/reports/sales-by-customer?from=${from}&to=${to}`, { credentials: 'include' });
+    const res = await apiFetch(`/api/accounting/reports/sales-by-customer?from=${from}&to=${to}`, { credentials: 'include' });
     const json = await res.json();
     setRows(json.data || []);
     setLoading(false);
@@ -80,7 +81,7 @@ export default function SalesByCustomerReport() {
                       <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">{r.clientName}</td>
                       <td className="px-4 py-3 text-right text-[var(--ff-text-secondary)]">{r.invoiceCount}</td>
                       <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">{fmt(r.totalSales)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-emerald-400">{fmt(r.paymentsReceived)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-teal-400">{fmt(r.paymentsReceived)}</td>
                       <td className="px-4 py-3 text-right font-mono text-amber-400">{fmt(r.outstanding)}</td>
                     </tr>
                   ))}
@@ -89,7 +90,7 @@ export default function SalesByCustomerReport() {
                   <td className="px-4 py-3 text-[var(--ff-text-primary)]">TOTAL</td>
                   <td className="px-4 py-3 text-right text-[var(--ff-text-secondary)]">{totals.invoiceCount}</td>
                   <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">{fmt(totals.totalSales)}</td>
-                  <td className="px-4 py-3 text-right font-mono text-emerald-400">{fmt(totals.paymentsReceived)}</td>
+                  <td className="px-4 py-3 text-right font-mono text-teal-400">{fmt(totals.paymentsReceived)}</td>
                   <td className="px-4 py-3 text-right font-mono text-amber-400">{fmt(totals.outstanding)}</td>
                 </tr></tfoot>
               </table>

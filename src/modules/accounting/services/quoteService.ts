@@ -98,7 +98,7 @@ function calcTotals(lines: QuoteInput['lines']) {
   return { subtotal: Math.round(subtotal * 100) / 100, taxAmount: Math.round(taxAmount * 100) / 100, total: Math.round((subtotal + taxAmount) * 100) / 100 };
 }
 
-export async function getQuotes(filters?: QuoteFilters): Promise<{ quotes: Quote[]; total: number }> {
+export async function getQuotes(_companyId: string, filters?: QuoteFilters): Promise<{ quotes: Quote[]; total: number }> {
   const limit = filters?.limit || 50;
   const offset = filters?.offset || 0;
   let rows: Row[];
@@ -132,7 +132,7 @@ export async function getQuotes(filters?: QuoteFilters): Promise<{ quotes: Quote
   return { quotes: rows.map(mapQuote), total: Number(countRows[0]?.cnt || 0) };
 }
 
-export async function getQuote(id: string): Promise<Quote | null> {
+export async function getQuote(_companyId: string, id: string): Promise<Quote | null> {
   const rows = (await sql`SELECT * FROM customer_quotes WHERE id = ${id}::UUID`) as Row[];
   if (rows.length === 0) return null;
   const quote = mapQuote(rows[0]);
@@ -143,7 +143,7 @@ export async function getQuote(id: string): Promise<Quote | null> {
   return quote;
 }
 
-export async function createQuote(input: QuoteInput, userId?: string): Promise<Quote> {
+export async function createQuote(_companyId: string, input: QuoteInput, userId?: string): Promise<Quote> {
   const quoteNumber = await nextQuoteNumber();
   const { subtotal, taxAmount, total } = calcTotals(input.lines);
   const qd = input.quoteDate || new Date().toISOString().split('T')[0];
@@ -168,11 +168,11 @@ export async function createQuote(input: QuoteInput, userId?: string): Promise<Q
     `;
   }
   log.info('Quote created', { quoteNumber, total });
-  return (await getQuote(quote.id))!;
+  return (await getQuote('', quote.id))!;
 }
 
-export async function updateQuote(id: string, input: QuoteInput): Promise<Quote | null> {
-  const existing = await getQuote(id);
+export async function updateQuote(_companyId: string, id: string, input: QuoteInput): Promise<Quote | null> {
+  const existing = await getQuote('', id);
   if (!existing || existing.status !== 'draft') return null;
   const { subtotal, taxAmount, total } = calcTotals(input.lines);
 
@@ -194,22 +194,22 @@ export async function updateQuote(id: string, input: QuoteInput): Promise<Quote 
     `;
   }
   log.info('Quote updated', { id });
-  return getQuote(id);
+  return getQuote('', id);
 }
 
-export async function deleteQuote(id: string): Promise<boolean> {
+export async function deleteQuote(_companyId: string, id: string): Promise<boolean> {
   const rows = (await sql`DELETE FROM customer_quotes WHERE id = ${id}::UUID AND status = 'draft' RETURNING id`) as Row[];
   return rows.length > 0;
 }
 
-export async function updateQuoteStatus(id: string, status: string): Promise<Quote | null> {
+export async function updateQuoteStatus(_companyId: string, id: string, status: string): Promise<Quote | null> {
   await sql`UPDATE customer_quotes SET status = ${status}, updated_at = NOW() WHERE id = ${id}::UUID`;
   log.info('Quote status changed', { id, status });
-  return getQuote(id);
+  return getQuote('', id);
 }
 
-export async function convertToInvoice(id: string, userId?: string): Promise<{ quote: Quote; invoiceId: string } | null> {
-  const quote = await getQuote(id);
+export async function convertToInvoice(_companyId: string, id: string, userId?: string): Promise<{ quote: Quote; invoiceId: string } | null> {
+  const quote = await getQuote('', id);
   if (!quote || quote.status !== 'accepted') return null;
 
   // Create invoice from quote
@@ -231,5 +231,5 @@ export async function convertToInvoice(id: string, userId?: string): Promise<{ q
 
   await sql`UPDATE customer_quotes SET status = 'converted', converted_invoice_id = ${invoiceId}::UUID, updated_at = NOW() WHERE id = ${id}::UUID`;
   log.info('Quote converted to invoice', { quoteId: id, invoiceId });
-  return { quote: (await getQuote(id))!, invoiceId };
+  return { quote: (await getQuote('', id))!, invoiceId };
 }

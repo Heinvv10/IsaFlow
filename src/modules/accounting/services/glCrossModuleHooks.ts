@@ -1,9 +1,6 @@
 /**
  * Cross-Module GL Integration Hooks
  * - Asset depreciation → DR Depreciation Expense, CR Accumulated Depreciation
- *
- * NOTE: postPurchaseOrderToGL is stubbed — purchase_orders table is not available
- * in the standalone Accounting app.
  */
 
 import { sql } from '@/lib/neon';
@@ -21,22 +18,6 @@ async function getAccountId(code: string): Promise<string> {
   const rows = (await sql`SELECT id FROM gl_accounts WHERE account_code = ${code} LIMIT 1`) as Row[];
   if (!rows[0]) throw new Error(`GL account ${code} not found`);
   return String(rows[0].id);
-}
-
-/**
- * Stub: purchase_orders table not available in standalone Accounting app.
- * Returns null without performing any GL posting.
- */
-export async function postPurchaseOrderToGL(
-  _poId: string,
-  _userId: string
-): Promise<string | null> {
-  log.warn(
-    'postPurchaseOrderToGL: purchase_orders table is not available in standalone accounting app',
-    undefined,
-    'accounting'
-  );
-  return null;
 }
 
 // ── Asset Depreciation → GL ────────────────────────────────────────────────

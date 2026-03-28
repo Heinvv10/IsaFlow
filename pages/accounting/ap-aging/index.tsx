@@ -8,10 +8,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { Clock, Loader2, AlertCircle, Download } from 'lucide-react';
 import type { AgingBucket } from '@/modules/accounting/types/ap.types';
-
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amount);
-}
+import { formatCurrency } from '@/utils/formatters';
+import { apiFetch } from '@/lib/apiFetch';
 
 export default function APAgingPage() {
   const [buckets, setBuckets] = useState<AgingBucket[]>([]);
@@ -25,7 +23,7 @@ export default function APAgingPage() {
     try {
       const params = new URLSearchParams();
       if (asAtDate) params.set('as_at_date', asAtDate);
-      const res = await fetch(`/api/accounting/ap-aging?${params}`);
+      const res = await apiFetch(`/api/accounting/ap-aging?${params}`);
       const json = await res.json();
       const data = json.data || json;
       setBuckets(Array.isArray(data) ? data : []);
@@ -57,8 +55,8 @@ export default function APAgingPage() {
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-emerald-500/10">
-                <Clock className="h-6 w-6 text-emerald-500" />
+              <div className="p-2 rounded-lg bg-teal-500/10">
+                <Clock className="h-6 w-6 text-teal-500" />
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">AP Aging Report</h1>
@@ -81,7 +79,7 @@ export default function APAgingPage() {
                   if (asAtDate) params.set('as_at_date', asAtDate);
                   window.open(`/api/accounting/ap-aging-export?${params}`, '_blank');
                 }}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-teal-600 hover:bg-teal-500 text-white rounded-lg transition-colors"
               >
                 <Download className="h-4 w-4" />
                 Export CSV
@@ -94,7 +92,7 @@ export default function APAgingPage() {
           {/* Summary Cards */}
           <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
             {[
-              { label: 'Current', value: totals.current, color: 'text-emerald-500' },
+              { label: 'Current', value: totals.current, color: 'text-teal-500' },
               { label: '30 Days', value: totals.days30, color: 'text-amber-500' },
               { label: '60 Days', value: totals.days60, color: 'text-orange-500' },
               { label: '90 Days', value: totals.days90, color: 'text-red-400' },
@@ -130,7 +128,7 @@ export default function APAgingPage() {
                 <thead>
                   <tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
                     <th className="px-4 py-3 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Supplier</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-emerald-500 uppercase">Current</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-teal-500 uppercase">Current</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-amber-500 uppercase">30 Days</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-orange-500 uppercase">60 Days</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-red-400 uppercase">90 Days</th>
@@ -142,11 +140,11 @@ export default function APAgingPage() {
                   {buckets.map(b => (
                     <tr key={b.entityId} className="hover:bg-[var(--ff-bg-tertiary)] transition-colors">
                       <td className="px-4 py-3 text-sm font-medium text-[var(--ff-text-primary)]">
-                        <Link href={`/accounting/supplier-statements/${b.entityId}`} className="hover:text-emerald-400 transition-colors">
+                        <Link href={`/accounting/supplier-statements/${b.entityId}`} className="hover:text-teal-400 transition-colors">
                           {b.entityName}
                         </Link>
                       </td>
-                      <td className="px-4 py-3 text-sm text-right font-mono text-emerald-500">{b.current > 0 ? formatCurrency(b.current) : '-'}</td>
+                      <td className="px-4 py-3 text-sm text-right font-mono text-teal-500">{b.current > 0 ? formatCurrency(b.current) : '-'}</td>
                       <td className="px-4 py-3 text-sm text-right font-mono text-amber-500">{b.days30 > 0 ? formatCurrency(b.days30) : '-'}</td>
                       <td className="px-4 py-3 text-sm text-right font-mono text-orange-500">{b.days60 > 0 ? formatCurrency(b.days60) : '-'}</td>
                       <td className="px-4 py-3 text-sm text-right font-mono text-red-400">{b.days90 > 0 ? formatCurrency(b.days90) : '-'}</td>
@@ -158,7 +156,7 @@ export default function APAgingPage() {
                 <tfoot>
                   <tr className="border-t-2 border-[var(--ff-border-medium)] bg-[var(--ff-bg-tertiary)]">
                     <td className="px-4 py-3 text-sm font-bold text-[var(--ff-text-primary)]">TOTAL</td>
-                    <td className="px-4 py-3 text-sm text-right font-mono font-bold text-emerald-500">{formatCurrency(totals.current)}</td>
+                    <td className="px-4 py-3 text-sm text-right font-mono font-bold text-teal-500">{formatCurrency(totals.current)}</td>
                     <td className="px-4 py-3 text-sm text-right font-mono font-bold text-amber-500">{formatCurrency(totals.days30)}</td>
                     <td className="px-4 py-3 text-sm text-right font-mono font-bold text-orange-500">{formatCurrency(totals.days60)}</td>
                     <td className="px-4 py-3 text-sm text-right font-mono font-bold text-red-400">{formatCurrency(totals.days90)}</td>

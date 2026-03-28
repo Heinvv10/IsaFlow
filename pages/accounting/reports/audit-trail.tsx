@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Shield, Loader2, AlertCircle, Download } from 'lucide-react';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface AuditRow {
   entryDate: string;
@@ -26,7 +27,7 @@ const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', c
 const SOURCE_BADGE: Record<string, string> = {
   manual: 'bg-gray-500/10 text-gray-400',
   auto_invoice: 'bg-blue-500/10 text-blue-400',
-  auto_payment: 'bg-emerald-500/10 text-emerald-400',
+  auto_payment: 'bg-teal-500/10 text-teal-400',
   auto_grn: 'bg-orange-500/10 text-orange-400',
   auto_credit_note: 'bg-red-500/10 text-red-400',
   auto_purchase_order: 'bg-indigo-500/10 text-indigo-400',
@@ -40,7 +41,7 @@ const SOURCE_BADGE: Record<string, string> = {
 
 const STATUS_BADGE: Record<string, string> = {
   draft: 'bg-gray-500/10 text-gray-400',
-  posted: 'bg-emerald-500/10 text-emerald-400',
+  posted: 'bg-teal-500/10 text-teal-400',
   reversed: 'bg-red-500/10 text-red-400',
 };
 
@@ -66,7 +67,7 @@ export default function AuditTrailPage() {
     setError('');
     try {
       const params = new URLSearchParams({ period_start: periodStart, period_end: periodEnd });
-      const res = await fetch(`/api/accounting/reports-audit-trail?${params}`, { credentials: 'include' });
+      const res = await apiFetch(`/api/accounting/reports-audit-trail?${params}`, { credentials: 'include' });
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Failed');
       setRows(json.data || []);

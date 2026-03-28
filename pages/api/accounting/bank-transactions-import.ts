@@ -13,7 +13,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { importBankStatement, importParsedTransactions } from '@/modules/accounting/services/bankReconciliationService';
 import { parseBankPdf } from '@/modules/accounting/utils/bankPdfParser';
@@ -23,6 +23,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
   }
+
+  const { companyId } = req as CompanyApiRequest;
 
   try {
     const {
@@ -67,6 +69,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
 
       const result = await importParsedTransactions(
+        companyId,
         parseResult,
         String(bankAccountId),
         String(statementDate),
@@ -81,6 +84,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     const result = await importBankStatement(
+      companyId,
       csvContent,
       String(bankAccountId),
       String(statementDate),
@@ -96,4 +100,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

@@ -6,8 +6,22 @@
  * Dependencies: jsPDF + jspdf-autotable (already in package.json)
  */
 
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
+// Dynamic imports — avoid pulling ~500KB jsPDF into the initial bundle
+import type { jsPDF } from 'jspdf';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _pdfLibs: { jsPDF: any; autoTable: any } | null = null;
+
+async function getPdfLibs() {
+  if (!_pdfLibs) {
+    const [jspdfMod, autoTableMod] = await Promise.all([
+      import('jspdf'),
+      import('jspdf-autotable'),
+    ]);
+    _pdfLibs = { jsPDF: jspdfMod.jsPDF, autoTable: autoTableMod.default };
+  }
+  return _pdfLibs;
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -196,7 +210,7 @@ function paintSection(
     ...(includeJournalRef ? { journalRef: tx.journalRef ? trunc(tx.journalRef, 20) : '—' } : {}),
   }));
 
-  autoTable(doc, {
+  _pdfLibs!.autoTable(doc, {
     startY: startY + 9,
     head: [columns.map(c => c.header)],
     body: tableRows.map(r => columns.map(c => (r as Record<string, string>)[c.dataKey] ?? '—')),
@@ -243,7 +257,8 @@ function paintFooters(doc: jsPDF): void {
  * Call `URL.createObjectURL(blob)` to download in the browser.
  */
 // 🟢 WORKING: generateReconReport
-export function generateReconReport(data: ReconReportData): Blob {
+export async function generateReconReport(data: ReconReportData): Promise<Blob> {
+  const { jsPDF } = await getPdfLibs();
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
 
   // Page 1 header

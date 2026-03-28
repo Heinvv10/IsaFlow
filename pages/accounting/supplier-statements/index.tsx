@@ -7,10 +7,8 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ClipboardList, Loader2, AlertCircle, Download, ChevronRight, Search } from 'lucide-react';
-
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amount);
-}
+import { formatCurrency } from '@/utils/formatters';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface SupplierBalance {
   entityId: string;
@@ -36,7 +34,7 @@ export default function SupplierStatementsPage() {
     try {
       const params = new URLSearchParams();
       if (asAtDate) params.set('as_at_date', asAtDate);
-      const res = await fetch(`/api/accounting/ap-aging?${params}`);
+      const res = await apiFetch(`/api/accounting/ap-aging?${params}`);
       const json = await res.json();
       const data = json.data || json;
       setSuppliers(Array.isArray(data) ? data : []);
@@ -147,7 +145,7 @@ export default function SupplierStatementsPage() {
                 <thead>
                   <tr className="border-b border-[var(--ff-border-light)]">
                     <th className="text-left px-4 py-3 text-[var(--ff-text-secondary)] font-medium">Supplier</th>
-                    <th className="text-right px-4 py-3 text-emerald-400 font-medium">Current</th>
+                    <th className="text-right px-4 py-3 text-teal-400 font-medium">Current</th>
                     <th className="text-right px-4 py-3 text-amber-400 font-medium">1-30</th>
                     <th className="text-right px-4 py-3 text-orange-400 font-medium">31-60</th>
                     <th className="text-right px-4 py-3 text-red-400 font-medium">61-90</th>
@@ -164,7 +162,7 @@ export default function SupplierStatementsPage() {
                           {s.entityName}
                         </Link>
                       </td>
-                      <td className="px-4 py-3 text-right font-mono text-emerald-400">{formatCurrency(s.current)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-teal-400">{formatCurrency(s.current)}</td>
                       <td className="px-4 py-3 text-right font-mono text-amber-400">{formatCurrency(s.days30)}</td>
                       <td className="px-4 py-3 text-right font-mono text-orange-400">{formatCurrency(s.days60)}</td>
                       <td className="px-4 py-3 text-right font-mono text-red-400">{formatCurrency(s.days90)}</td>
@@ -182,7 +180,7 @@ export default function SupplierStatementsPage() {
                   ))}
                   <tr className="bg-[var(--ff-bg-primary)] font-bold">
                     <td className="px-4 py-3 text-[var(--ff-text-primary)]">TOTAL</td>
-                    <td className="px-4 py-3 text-right font-mono text-emerald-400">{formatCurrency(totals.current)}</td>
+                    <td className="px-4 py-3 text-right font-mono text-teal-400">{formatCurrency(totals.current)}</td>
                     <td className="px-4 py-3 text-right font-mono text-amber-400">{formatCurrency(totals.days30)}</td>
                     <td className="px-4 py-3 text-right font-mono text-orange-400">{formatCurrency(totals.days60)}</td>
                     <td className="px-4 py-3 text-right font-mono text-red-400">{formatCurrency(totals.days90)}</td>

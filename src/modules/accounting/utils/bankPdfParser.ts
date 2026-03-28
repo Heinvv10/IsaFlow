@@ -143,8 +143,7 @@ export async function parseBankPdf(
 
   try {
     // Dynamic require: pdf-parse uses CommonJS export= and cannot be ESM-imported.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
-    pdfParse = require('pdf-parse') as PdfParseFunction;
+    pdfParse = require('pdf-parse') as PdfParseFunction; // eslint-disable-line @typescript-eslint/no-var-requires
   } catch {
     log.error('pdf-parse module not available', {}, 'accounting-pdf');
     return {

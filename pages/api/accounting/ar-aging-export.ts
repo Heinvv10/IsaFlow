@@ -7,7 +7,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { getARAging } from '@/modules/accounting/services/arAgingService';
 
@@ -19,10 +19,12 @@ function csvCell(value: string): string {
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
 
+  const { companyId } = req as CompanyApiRequest;
+
   try {
     const asAtDate = req.query.as_at_date ? String(req.query.as_at_date) : undefined;
 
-    const buckets = await getARAging(asAtDate);
+    const buckets = await getARAging(companyId, asAtDate);
 
     const totalCurrent = buckets.reduce((s, r) => s + r.current, 0);
     const total30 = buckets.reduce((s, r) => s + r.days30, 0);
@@ -68,4 +70,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

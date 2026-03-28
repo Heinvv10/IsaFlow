@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowRightLeft, Loader2, Check } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface Invoice {
   id: string; invoiceNumber: string; supplierName: string;
@@ -27,8 +28,8 @@ export default function DRCVatPage() {
   const load = useCallback(async () => {
     setLoading(true);
     const [eligRes, histRes] = await Promise.all([
-      fetch('/api/accounting/drc-vat', { credentials: 'include' }),
-      fetch('/api/accounting/drc-vat?tab=history', { credentials: 'include' }),
+      apiFetch('/api/accounting/drc-vat', { credentials: 'include' }),
+      apiFetch('/api/accounting/drc-vat?tab=history', { credentials: 'include' }),
     ]);
     const eligJson = await eligRes.json();
     const histJson = await histRes.json();
@@ -42,7 +43,7 @@ export default function DRCVatPage() {
   const applyDRC = async (invoiceId: string) => {
     setBusy(invoiceId); setError(''); setSuccess('');
     try {
-      const res = await fetch('/api/accounting/drc-vat', {
+      const res = await apiFetch('/api/accounting/drc-vat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         credentials: 'include', body: JSON.stringify({ supplierInvoiceId: invoiceId }),
       });
@@ -74,7 +75,7 @@ export default function DRCVatPage() {
 
         <div className="p-6 space-y-4">
           {error && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{error}</div>}
-          {success && <div className="p-3 rounded-lg bg-emerald-500/10 text-emerald-400 text-sm">{success}</div>}
+          {success && <div className="p-3 rounded-lg bg-teal-500/10 text-teal-400 text-sm">{success}</div>}
 
           {/* Info box */}
           <div className="bg-rose-500/5 border border-rose-500/20 rounded-lg p-4 text-sm text-[var(--ff-text-secondary)]">

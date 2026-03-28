@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Users, Loader2, AlertCircle, Plus, Search } from 'lucide-react';
 import Link from 'next/link';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface Customer {
   id: string;
@@ -25,7 +26,7 @@ function StatusBadge({ active }: { active: boolean }) {
     <span
       className={`px-2 py-0.5 rounded-full text-xs font-medium ${
         active
-          ? 'bg-emerald-500/10 text-emerald-400'
+          ? 'bg-teal-500/10 text-teal-400'
           : 'bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-tertiary)]'
       }`}
     >
@@ -53,7 +54,7 @@ export default function CustomersPage() {
     try {
       const params = new URLSearchParams();
       if (debouncedSearch) params.set('q', debouncedSearch);
-      const res = await fetch(`/api/accounting/customers?${params}`);
+      const res = await apiFetch(`/api/accounting/customers?${params}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       setCustomers((json.data ?? json) as Customer[]);
@@ -75,8 +76,8 @@ export default function CustomersPage() {
         <div className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
           <div className="px-6 py-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-emerald-500/10">
-                <Users className="h-6 w-6 text-emerald-500" />
+              <div className="p-2 rounded-lg bg-teal-500/10">
+                <Users className="h-6 w-6 text-teal-500" />
               </div>
               <div>
                 <h1 className="text-xl font-semibold text-[var(--ff-text-primary)]">Customers</h1>
@@ -85,7 +86,7 @@ export default function CustomersPage() {
             </div>
             <Link
               href="/accounting/customers/new"
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium transition-colors"
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium transition-colors"
             >
               <Plus className="h-4 w-4" />
               New Customer
@@ -103,7 +104,7 @@ export default function CustomersPage() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search by name, email or VAT..."
-                className="pl-9 pr-4 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] placeholder:text-[var(--ff-text-tertiary)] text-sm w-72 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                className="pl-9 pr-4 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] placeholder:text-[var(--ff-text-tertiary)] text-sm w-72 focus:outline-none focus:ring-1 focus:ring-teal-500"
               />
             </div>
             {!isLoading && (
@@ -116,7 +117,7 @@ export default function CustomersPage() {
           {/* Content */}
           {isLoading ? (
             <div className="flex items-center justify-center py-16">
-              <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
+              <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
             </div>
           ) : error ? (
             <div className="flex items-center justify-center gap-2 text-red-400 py-12">
@@ -133,7 +134,7 @@ export default function CustomersPage() {
               {!search && (
                 <Link
                   href="/accounting/customers/new"
-                  className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium transition-colors"
+                  className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium transition-colors"
                 >
                   <Plus className="h-4 w-4" />
                   New Customer
@@ -162,7 +163,7 @@ export default function CustomersPage() {
                       <td className="py-3 px-4">
                         <Link
                           href={`/accounting/customers/${c.id}`}
-                          className="font-medium text-[var(--ff-text-primary)] hover:text-emerald-400 transition-colors"
+                          className="font-medium text-[var(--ff-text-primary)] hover:text-teal-400 transition-colors"
                         >
                           {c.name}
                         </Link>

@@ -8,10 +8,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { BookMarked, Loader2, AlertCircle, Save } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
-
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amount);
-}
+import { formatCurrency } from '@/utils/formatters';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface AccountBalance {
   id: string;
@@ -32,7 +30,7 @@ export default function OpeningBalancesPage() {
   const loadAccounts = useCallback(async () => {
     setIsLoading(true);
     try {
-      const res = await fetch('/api/accounting/opening-balances');
+      const res = await apiFetch('/api/accounting/opening-balances');
       const json = await res.json();
       const data = json.data || json;
       setAccounts(data.accounts || []);
@@ -63,7 +61,7 @@ export default function OpeningBalancesPage() {
     setIsSaving(true);
     setMessage({ type: '', text: '' });
     try {
-      const res = await fetch('/api/accounting/opening-balances', {
+      const res = await apiFetch('/api/accounting/opening-balances', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -109,7 +107,7 @@ export default function OpeningBalancesPage() {
                 <button
                   onClick={handleSave}
                   disabled={isSaving || !isBalanced}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg flex items-center gap-2 text-sm"
+                  className="px-4 py-2 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded-lg flex items-center gap-2 text-sm"
                 >
                   {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                   Save Opening Balances
@@ -121,7 +119,7 @@ export default function OpeningBalancesPage() {
 
         <div className="p-6">
           {/* Balance indicator */}
-          <div className={`flex items-center gap-4 p-4 rounded-lg mb-6 ${isBalanced ? 'bg-emerald-500/10' : 'bg-red-500/10'}`}>
+          <div className={`flex items-center gap-4 p-4 rounded-lg mb-6 ${isBalanced ? 'bg-teal-500/10' : 'bg-red-500/10'}`}>
             <div className="flex-1 grid grid-cols-3 gap-4 text-sm">
               <div>
                 <span className="text-[var(--ff-text-secondary)]">Total Debits:</span>
@@ -133,7 +131,7 @@ export default function OpeningBalancesPage() {
               </div>
               <div>
                 <span className="text-[var(--ff-text-secondary)]">Difference:</span>
-                <span className={`ml-2 font-mono font-bold ${isBalanced ? 'text-emerald-400' : 'text-red-400'}`}>
+                <span className={`ml-2 font-mono font-bold ${isBalanced ? 'text-teal-400' : 'text-red-400'}`}>
                   {formatCurrency(Math.abs(totalDebits - totalCredits))}
                 </span>
               </div>
@@ -148,7 +146,7 @@ export default function OpeningBalancesPage() {
             <>
               {message.text && (
                 <div className={`flex items-center gap-2 p-3 rounded-lg text-sm mb-4 ${
-                  message.type === 'error' ? 'bg-red-500/10 text-red-400' : 'bg-emerald-500/10 text-emerald-400'
+                  message.type === 'error' ? 'bg-red-500/10 text-red-400' : 'bg-teal-500/10 text-teal-400'
                 }`}>
                   <AlertCircle className="h-4 w-4" />
                   {message.text}

@@ -17,11 +17,10 @@ interface OutstandingInvoice {
   amount_paid: number;
 }
 
-interface Allocation { key: string; invoiceId: string; amount: number }
+import { formatCurrency } from '@/utils/formatters';
+import { apiFetch } from '@/lib/apiFetch';
 
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amount);
-}
+interface Allocation { key: string; invoiceId: string; amount: number }
 
 export default function NewCustomerPaymentPage() {
   const router = useRouter();
@@ -43,7 +42,7 @@ export default function NewCustomerPaymentPage() {
   ]);
 
   useEffect(() => {
-    fetch('/api/clients').then(r => r.json()).then(res => {
+    apiFetch('/api/clients').then(r => r.json()).then(res => {
       const data = res.data || res;
       setClients(Array.isArray(data) ? data : data.clients || []);
     });
@@ -52,7 +51,7 @@ export default function NewCustomerPaymentPage() {
   // Load outstanding invoices when client changes
   useEffect(() => {
     if (!form.clientId) { setInvoices([]); return; }
-    fetch(`/api/customer-invoices?client_id=${form.clientId}&status=approved&status=sent&status=partially_paid&status=overdue`)
+    apiFetch(`/api/customer-invoices?client_id=${form.clientId}&status=approved&status=sent&status=partially_paid&status=overdue`)
       .then(r => r.json())
       .then(res => {
         const data = res.data || res;
@@ -83,7 +82,7 @@ export default function NewCustomerPaymentPage() {
     setIsSubmitting(true);
 
     try {
-      const res = await fetch('/api/accounting/customer-payments', {
+      const res = await apiFetch('/api/accounting/customer-payments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -120,8 +119,8 @@ export default function NewCustomerPaymentPage() {
               <ArrowLeft className="h-4 w-4" /> Back to Payments
             </Link>
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-emerald-500/10">
-                <Wallet className="h-6 w-6 text-emerald-500" />
+              <div className="p-2 rounded-lg bg-teal-500/10">
+                <Wallet className="h-6 w-6 text-teal-500" />
               </div>
               <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Record Customer Payment</h1>
             </div>
@@ -207,7 +206,7 @@ export default function NewCustomerPaymentPage() {
               <button
                 type="button"
                 onClick={addAllocation}
-                className="inline-flex items-center gap-1 text-sm text-emerald-500 hover:text-emerald-400"
+                className="inline-flex items-center gap-1 text-sm text-teal-500 hover:text-teal-400"
               >
                 <Plus className="h-4 w-4" /> Add Line
               </button>
@@ -273,7 +272,7 @@ export default function NewCustomerPaymentPage() {
             <button
               type="submit"
               disabled={isSubmitting || totalAllocated <= 0}
-              className="inline-flex items-center gap-2 px-6 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors text-sm font-medium"
+              className="inline-flex items-center gap-2 px-6 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 transition-colors text-sm font-medium"
             >
               {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
               Create Payment

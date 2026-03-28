@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeftRight, Loader2, AlertCircle, Check } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
+import { apiFetch } from '@/lib/apiFetch';
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
@@ -25,7 +26,7 @@ export default function CustomerAllocationsPage() {
 
   const loadPayments = useCallback(async () => {
     setLoading(true);
-    const res = await fetch('/api/accounting/customer-payments?unallocated=true', { credentials: 'include' });
+    const res = await apiFetch('/api/accounting/customer-payments?unallocated=true', { credentials: 'include' });
     const json = await res.json();
     const d = json.data; setPayments(Array.isArray(d) ? d : d?.items || d?.payments || []);
     setLoading(false);
@@ -35,7 +36,7 @@ export default function CustomerAllocationsPage() {
 
   const selectPayment = async (p: Payment) => {
     setSelected(p); setAllocs({}); setMsg(''); setLoadingInv(true);
-    const res = await fetch(`/api/accounting/customer-invoices?client_id=${p.clientId}&status=approved`, { credentials: 'include' });
+    const res = await apiFetch(`/api/accounting/customer-invoices?client_id=${p.clientId}&status=approved`, { credentials: 'include' });
     const json = await res.json();
     setInvoices(json.data?.items || json.data || []);
     setLoadingInv(false);
@@ -56,7 +57,7 @@ export default function CustomerAllocationsPage() {
     if (!selected || totalAlloc <= 0) return;
     setSaving(true);
     const allocations = Object.entries(allocs).filter(([, a]) => a > 0).map(([invoiceId, amount]) => ({ invoiceId, amount }));
-    const res = await fetch('/api/accounting/customer-allocations', {
+    const res = await apiFetch('/api/accounting/customer-allocations', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       credentials: 'include', body: JSON.stringify({ paymentId: selected.id, allocations }),
     });
@@ -89,7 +90,7 @@ export default function CustomerAllocationsPage() {
               <p className="text-xs text-[var(--ff-text-tertiary)]">{payments.length} receipt(s)</p>
             </div>
           )}
-          {msg && <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-500/10 text-emerald-400 text-sm"><Check className="h-4 w-4" />{msg}</div>}
+          {msg && <div className="flex items-center gap-2 p-3 rounded-lg bg-teal-500/10 text-teal-400 text-sm"><Check className="h-4 w-4" />{msg}</div>}
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Unallocated Receipts */}

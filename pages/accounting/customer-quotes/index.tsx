@@ -5,6 +5,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { FileText, Plus, Search, Loader2, Send, Check, X, ArrowRight } from 'lucide-react';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface Quote {
   id: string; quoteNumber: string; customerName: string; quoteDate: string;
@@ -16,7 +17,7 @@ const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', c
 const STATUS_BADGE: Record<string, string> = {
   draft: 'bg-gray-500/10 text-gray-400',
   sent: 'bg-blue-500/10 text-blue-400',
-  accepted: 'bg-emerald-500/10 text-emerald-400',
+  accepted: 'bg-teal-500/10 text-teal-400',
   declined: 'bg-red-500/10 text-red-400',
   expired: 'bg-amber-500/10 text-amber-400',
   converted: 'bg-purple-500/10 text-purple-400',
@@ -40,7 +41,7 @@ export default function CustomerQuotesPage() {
     const params = new URLSearchParams();
     if (tab !== 'all') params.set('status', tab);
     if (search) params.set('search', search);
-    const res = await fetch(`/api/accounting/customer-quotes?${params}`);
+    const res = await apiFetch(`/api/accounting/customer-quotes?${params}`);
     const json = await res.json();
     const d = json.data || json;
     setQuotes(d.quotes || []);
@@ -51,7 +52,7 @@ export default function CustomerQuotesPage() {
   useEffect(() => { load(); }, [load]);
 
   const handleAction = async (id: string, action: string) => {
-    await fetch('/api/accounting/customer-quotes-action', {
+    await apiFetch('/api/accounting/customer-quotes-action', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, action }),
     });
@@ -61,7 +62,7 @@ export default function CustomerQuotesPage() {
   const handleCreate = async () => {
     if (!form.customerName || lines.every(l => !l.description)) return;
     setSaving(true);
-    await fetch('/api/accounting/customer-quotes', {
+    await apiFetch('/api/accounting/customer-quotes', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...form, lines: lines.filter(l => l.description) }),
     });
@@ -186,7 +187,7 @@ export default function CustomerQuotesPage() {
                           )}
                           {q.status === 'sent' && (<>
                             <button onClick={() => handleAction(q.id, 'accept')} title="Accept"
-                              className="p-1.5 rounded hover:bg-emerald-500/10 text-emerald-400"><Check className="h-3.5 w-3.5" /></button>
+                              className="p-1.5 rounded hover:bg-teal-500/10 text-teal-400"><Check className="h-3.5 w-3.5" /></button>
                             <button onClick={() => handleAction(q.id, 'decline')} title="Decline"
                               className="p-1.5 rounded hover:bg-red-500/10 text-red-400"><X className="h-3.5 w-3.5" /></button>
                           </>)}

@@ -9,17 +9,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { FileText, Loader2, AlertCircle, Plus } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import Link from 'next/link';
-
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amount);
-}
-
-function formatDate(dateStr: string | undefined): string {
-  if (!dateStr) return '-';
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return dateStr;
-  return d.toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' });
-}
+import { formatCurrency, formatDate } from '@/utils/formatters';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface Invoice {
   id: string;
@@ -48,7 +39,7 @@ export default function CustomerInvoicesPage() {
     try {
       const params = new URLSearchParams();
       if (statusFilter !== 'all') params.set('status', statusFilter);
-      const res = await fetch(`/api/accounting/customer-invoices-list?${params}`);
+      const res = await apiFetch(`/api/accounting/customer-invoices-list?${params}`);
       const json = await res.json();
       const data = json.data || json;
       setInvoices(data.invoices || []);
@@ -162,12 +153,12 @@ export default function CustomerInvoicesPage() {
                         </td>
                         <td className="py-3 px-4 text-[var(--ff-text-secondary)] whitespace-nowrap">{formatDate(inv.invoice_date)}</td>
                         <td className="py-3 px-4 text-right font-mono text-[var(--ff-text-primary)]">{formatCurrency(Number(inv.total_amount))}</td>
-                        <td className={`py-3 px-4 text-right font-mono ${outstanding > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                        <td className={`py-3 px-4 text-right font-mono ${outstanding > 0 ? 'text-amber-400' : 'text-teal-400'}`}>
                           {formatCurrency(outstanding)}
                         </td>
                         <td className="py-3 px-4">
                           <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            inv.status === 'paid' ? 'bg-emerald-500/10 text-emerald-400' :
+                            inv.status === 'paid' ? 'bg-teal-500/10 text-teal-400' :
                             inv.status === 'overdue' ? 'bg-red-500/10 text-red-400' :
                             inv.status === 'sent' ? 'bg-blue-500/10 text-blue-400' :
                             'bg-yellow-500/10 text-yellow-400'

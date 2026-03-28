@@ -9,25 +9,25 @@ export interface ApiErrorResponse {
   data: null;
   message: string;
   code?: string;
-  details?: any;
+  details?: Record<string, unknown>;
 }
 
 /**
  * Standard API success response
  */
-export interface ApiSuccessResponse<T = any> {
+export interface ApiSuccessResponse<T = unknown> {
   success: true;
   data: T;
   message?: string;
 }
 
-export type ApiResponse<T = any> = ApiSuccessResponse<T> | ApiErrorResponse;
+export type ApiResponse<T = unknown> = ApiSuccessResponse<T> | ApiErrorResponse;
 
 /**
  * Wraps an API handler with error handling
  * Generic R extends NextApiRequest to support AuthenticatedNextApiRequest
  */
-export function withErrorHandler<T = any, R extends NextApiRequest = NextApiRequest>(
+export function withErrorHandler<T = unknown, R extends NextApiRequest = NextApiRequest>(
   handler: (req: R, res: NextApiResponse<ApiResponse<T>>) => Promise<void>
 ) {
   return async (req: R, res: NextApiResponse<ApiResponse<T>>) => {
@@ -37,8 +37,9 @@ export function withErrorHandler<T = any, R extends NextApiRequest = NextApiRequ
       // Set CORS headers - restrict to known origins
       const allowedOrigins = [
         'https://fin.fibreflow.app',
-        'http://localhost:3101',
-        'http://localhost:3004',
+        ...(process.env.NODE_ENV === 'development'
+          ? ['http://localhost:3101', 'http://localhost:3004']
+          : []),
       ];
       const origin = req.headers.origin;
       if (origin && allowedOrigins.includes(origin)) {
@@ -93,8 +94,11 @@ export function withErrorHandler<T = any, R extends NextApiRequest = NextApiRequ
         return;
       }
 
-      // Send error response
-      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
+      // Send error response — mask internal details in production
+      const errorMessage =
+        process.env.NODE_ENV === 'production'
+          ? 'An unexpected error occurred'
+          : error instanceof Error ? error.message : 'An unexpected error occurred';
 
       res.status(500).json({
         success: false,
@@ -105,7 +109,7 @@ export function withErrorHandler<T = any, R extends NextApiRequest = NextApiRequ
           details: error instanceof Error ? {
             message: error.message,
             stack: error.stack,
-          } : error,
+          } as Record<string, unknown> : { error: String(error) },
         }),
       });
     }
@@ -129,7 +133,7 @@ export function successResponse<T>(data: T, message?: string): ApiSuccessRespons
 export function errorResponse(
   message: string,
   code?: string,
-  details?: any
+  details?: Record<string, unknown>
 ): ApiErrorResponse {
   return {
     success: false,
@@ -165,6 +169,6 @@ export const HttpErrors = {
   DatabaseError: (message = 'Database operation failed') =>
     errorResponse(message, 'DATABASE_ERROR'),
 
-  ValidationError: (message = 'Validation failed', details?: any) =>
+  ValidationError: (message = 'Validation failed', details?: Record<string, unknown>) =>
     errorResponse(message, 'VALIDATION_ERROR', details),
 };

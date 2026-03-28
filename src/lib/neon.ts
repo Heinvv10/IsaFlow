@@ -88,30 +88,35 @@ function getDatabaseUrl(): string {
 export const sql = neon(getDatabaseUrl());
 
 /**
- * Execute multiple queries in a transaction using the serverless client.
+ * Execute multiple queries in a transaction using the Neon serverless driver.
  *
- * @param callback - Async function receiving the sql client
- * @returns The result of the callback
+ * IMPORTANT: The Neon HTTP driver is stateless — each tagged template call is an
+ * independent HTTP request. Issuing BEGIN/COMMIT as separate calls does NOT
+ * guarantee they run on the same connection. We use the official `transaction()`
+ * API from @neondatabase/serverless which batches queries into a single HTTP request.
+ *
+ * @param queries - Array of query-producing functions that receive the sql client
+ * @returns Array of query results
  *
  * @example
- * const result = await transaction(async (tx) => {
- *   await tx`INSERT INTO accounts ...`;
- *   await tx`UPDATE balances ...`;
- *   return { success: true };
- * });
+ * const results = await transaction([
+ *   (sql) => sql`INSERT INTO accounts (name) VALUES (${'Cash'}) RETURNING id`,
+ *   (sql) => sql`UPDATE balances SET amount = 0 WHERE account_id = ${id}`,
+ * ]);
  */
-export async function transaction<T>(
-  callback: (client: typeof sql) => Promise<T>
-): Promise<T> {
+export async function transaction(
+  queriesFn: (txSql: typeof sql) => Array<ReturnType<typeof sql>>
+): Promise<unknown[]> {
   try {
-    await sql`BEGIN`;
-    const result = await callback(sql);
-    await sql`COMMIT`;
-    return result;
+    const txClient = neon(getDatabaseUrl());
+    const results = await txClient.transaction(
+      (tx) => queriesFn(tx as unknown as typeof sql) as any,
+      { isolationLevel: 'ReadCommitted' }
+    );
+    return results as unknown[];
   } catch (error) {
-    await sql`ROLLBACK`;
     log.error(
-      'Transaction rolled back',
+      'Transaction failed',
       error instanceof Error ? { message: error.message } : { error },
       'Neon'
     );

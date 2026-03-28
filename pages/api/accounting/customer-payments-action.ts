@@ -7,7 +7,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withCompany, type AuthenticatedNextApiRequest, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { confirmCustomerPayment, cancelCustomerPayment } from '@/modules/accounting/services/customerPaymentService';
 
@@ -15,6 +15,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
   }
+
+  const { companyId } = req as CompanyApiRequest;
 
   try {
     const { action, paymentId, reason } = req.body;
@@ -26,11 +28,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     switch (action) {
       case 'confirm': {
-        const payment = await confirmCustomerPayment(paymentId, userId);
+        const payment = await confirmCustomerPayment(companyId, paymentId, userId);
         return apiResponse.success(res, payment);
       }
       case 'cancel': {
-        const cancelled = await cancelCustomerPayment(paymentId, userId, reason);
+        const cancelled = await cancelCustomerPayment(companyId, paymentId, userId, reason);
         return apiResponse.success(res, cancelled);
       }
       default:
@@ -44,4 +46,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

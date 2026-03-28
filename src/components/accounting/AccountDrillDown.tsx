@@ -7,6 +7,7 @@
 import { useState, useEffect } from 'react';
 import { Loader2, AlertCircle } from 'lucide-react';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { apiFetch } from '@/lib/apiFetch';
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
@@ -68,9 +69,7 @@ export function AccountDrillDown({
       period_end: periodEnd,
     });
 
-    fetch(`/api/accounting/reports-account-transactions?${params}`, {
-      credentials: 'include',
-    })
+    apiFetch(`/api/accounting/reports-account-transactions?${params}`)
       .then(r => r.json())
       .then(json => {
         if (cancelled) return;

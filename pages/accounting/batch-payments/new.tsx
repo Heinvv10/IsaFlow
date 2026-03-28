@@ -8,6 +8,7 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Layers, Plus, Trash2, Loader2 } from 'lucide-react';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface Supplier { id: string; company_name: string }
 interface Invoice { id: string; invoice_number: string; total_amount: number; amount_paid: number; supplier_id: string }
@@ -26,11 +27,11 @@ export default function NewBatchPaymentPage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    fetch('/api/suppliers', { credentials: 'include' }).then(r => r.json()).then(res => {
+    apiFetch('/api/suppliers', { credentials: 'include' }).then(r => r.json()).then(res => {
       const d = res.data || res;
       setSuppliers(Array.isArray(d) ? d : d.suppliers || []);
     });
-    fetch('/api/accounting/supplier-invoices?status=approved&status=partially_paid', { credentials: 'include' }).then(r => r.json()).then(res => {
+    apiFetch('/api/accounting/supplier-invoices?status=approved&status=partially_paid', { credentials: 'include' }).then(r => r.json()).then(res => {
       const d = res.data || res;
       const list = Array.isArray(d) ? d : d.invoices || d.items || [];
       setInvoices(list.filter((inv: Invoice) => Number(inv.total_amount) - Number(inv.amount_paid) > 0.01));
@@ -62,7 +63,7 @@ export default function NewBatchPaymentPage() {
     if (payments.length === 0) { setError('Add at least one payment'); setBusy(false); return; }
 
     try {
-      const res = await fetch('/api/accounting/batch-payments', {
+      const res = await apiFetch('/api/accounting/batch-payments', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ paymentMethod: method, notes: notes || undefined, payments }),

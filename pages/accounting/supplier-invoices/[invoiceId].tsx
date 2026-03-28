@@ -13,10 +13,8 @@ import {
 } from 'lucide-react';
 import type { SupplierInvoice, SupplierInvoiceItem } from '@/modules/accounting/types/ap.types';
 import { AccountingDocumentPanel } from '@/modules/accounting/documents';
-
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amount);
-}
+import { formatCurrency } from '@/utils/formatters';
+import { apiFetch } from '@/lib/apiFetch';
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -24,7 +22,7 @@ function StatusBadge({ status }: { status: string }) {
     pending_approval: 'bg-amber-500/20 text-amber-400',
     approved: 'bg-blue-500/20 text-blue-400',
     partially_paid: 'bg-purple-500/20 text-purple-400',
-    paid: 'bg-emerald-500/20 text-emerald-400',
+    paid: 'bg-teal-500/20 text-teal-400',
     disputed: 'bg-red-500/20 text-red-400',
     cancelled: 'bg-gray-500/20 text-gray-500',
   };
@@ -55,7 +53,7 @@ export default function SupplierInvoiceDetailPage() {
   const loadInvoice = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch(`/api/accounting/supplier-invoices-detail?id=${invoiceId}`);
+      const res = await apiFetch(`/api/accounting/supplier-invoices-detail?id=${invoiceId}`);
       const json = await res.json();
       setInvoice(json.data || json);
     } catch {
@@ -69,7 +67,7 @@ export default function SupplierInvoiceDetailPage() {
     if (!invoiceId) return;
     setActionLoading(action);
     try {
-      const res = await fetch('/api/accounting/supplier-invoices-action', {
+      const res = await apiFetch('/api/accounting/supplier-invoices-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, invoiceId }),
@@ -90,7 +88,7 @@ export default function SupplierInvoiceDetailPage() {
     return (
       <AppLayout>
         <div className="min-h-screen bg-[var(--ff-bg-primary)] flex items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
+          <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
         </div>
       </AppLayout>
     );
@@ -103,7 +101,7 @@ export default function SupplierInvoiceDetailPage() {
           <div className="text-center">
             <AlertCircle className="h-8 w-8 text-red-400 mx-auto mb-2" />
             <p className="text-[var(--ff-text-secondary)]">{error || 'Invoice not found'}</p>
-            <Link href="/accounting/supplier-invoices" className="text-sm text-emerald-600 mt-2 inline-block">
+            <Link href="/accounting/supplier-invoices" className="text-sm text-teal-600 mt-2 inline-block">
               Back to invoices
             </Link>
           </div>
@@ -122,13 +120,13 @@ export default function SupplierInvoiceDetailPage() {
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         {/* Header */}
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <Link href="/accounting/supplier-invoices" className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-emerald-600 mb-3">
+          <Link href="/accounting/supplier-invoices" className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-teal-600 mb-3">
             <ArrowLeft className="h-4 w-4" /> Back to Supplier Invoices
           </Link>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-emerald-500/10">
-                <Receipt className="h-6 w-6 text-emerald-500" />
+              <div className="p-2 rounded-lg bg-teal-500/10">
+                <Receipt className="h-6 w-6 text-teal-500" />
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">{invoice.invoiceNumber}</h1>
@@ -144,8 +142,8 @@ export default function SupplierInvoiceDetailPage() {
                 </button>
               )}
               {editing && (
-                <button onClick={async () => { setActionLoading('save'); try { await fetch('/api/accounting/supplier-invoices-detail', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: invoiceId, ...editForm }) }); setEditing(false); await loadInvoice(); } catch { setError('Save failed'); } setActionLoading(''); }} disabled={!!actionLoading}
-                  className="inline-flex items-center gap-2 px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium disabled:opacity-50">
+                <button onClick={async () => { setActionLoading('save'); try { await apiFetch('/api/accounting/supplier-invoices-detail', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: invoiceId, ...editForm }) }); setEditing(false); await loadInvoice(); } catch { setError('Save failed'); } setActionLoading(''); }} disabled={!!actionLoading}
+                  className="inline-flex items-center gap-2 px-3 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium disabled:opacity-50">
                   <Save className="h-4 w-4" />{actionLoading === 'save' ? 'Saving...' : 'Save'}
                 </button>
               )}
@@ -157,7 +155,7 @@ export default function SupplierInvoiceDetailPage() {
               )}
               {canApprove && (
                 <button onClick={() => handleAction('approve')} disabled={!!actionLoading}
-                  className="inline-flex items-center gap-2 px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium disabled:opacity-50">
+                  className="inline-flex items-center gap-2 px-3 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium disabled:opacity-50">
                   <CheckCircle2 className="h-4 w-4" />{actionLoading === 'approve' ? 'Approving...' : 'Approve & Post GL'}
                 </button>
               )}
@@ -206,7 +204,7 @@ export default function SupplierInvoiceDetailPage() {
             ].map((item, i) => (
               <div key={i} className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
                 <p className="text-xs text-[var(--ff-text-tertiary)] uppercase">{item.label}</p>
-                <p className={`text-lg font-semibold mt-1 ${item.highlight ? 'text-emerald-500' : 'text-[var(--ff-text-primary)]'}`}>{item.value}</p>
+                <p className={`text-lg font-semibold mt-1 ${item.highlight ? 'text-teal-500' : 'text-[var(--ff-text-primary)]'}`}>{item.value}</p>
               </div>
             ))}
           </div>
@@ -241,7 +239,7 @@ export default function SupplierInvoiceDetailPage() {
                 <tr className="border-t-2 border-[var(--ff-border-medium)] bg-[var(--ff-bg-tertiary)]">
                   <td colSpan={3}></td>
                   <td className="px-4 py-3 text-sm font-medium text-right text-[var(--ff-text-secondary)]">Total:</td>
-                  <td className="px-4 py-3 text-sm text-right font-mono font-bold text-emerald-500">{formatCurrency(invoice.totalAmount)}</td>
+                  <td className="px-4 py-3 text-sm text-right font-mono font-bold text-teal-500">{formatCurrency(invoice.totalAmount)}</td>
                 </tr>
               </tfoot>
             </table>
@@ -259,7 +257,7 @@ export default function SupplierInvoiceDetailPage() {
           {invoice.glJournalEntryId && (
             <Link
               href={`/accounting/journal-entries/${invoice.glJournalEntryId}`}
-              className="inline-flex items-center gap-2 text-sm text-emerald-600 hover:text-emerald-700"
+              className="inline-flex items-center gap-2 text-sm text-teal-600 hover:text-teal-700"
             >
               <FileText className="h-4 w-4" /> View GL Journal Entry
             </Link>

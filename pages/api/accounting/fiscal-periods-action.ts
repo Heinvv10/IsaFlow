@@ -7,7 +7,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest, withRole } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import {
   closePeriod,
@@ -20,6 +20,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
   }
 
+  const { companyId } = req as CompanyApiRequest;
+
   try {
     const { id, action, userId } = req.body;
     if (!id || !action) {
@@ -30,13 +32,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     switch (action) {
       case 'close':
         if (!userId) return apiResponse.badRequest(res, 'userId required for close action');
-        result = await closePeriod(id, userId);
+        result = await closePeriod(companyId, id, userId);
         break;
       case 'lock':
-        result = await lockPeriod(id);
+        result = await lockPeriod(companyId, id);
         break;
       case 'reopen':
-        result = await reopenPeriod(id);
+        result = await reopenPeriod(companyId, id);
         break;
       default:
         return apiResponse.badRequest(res, `Invalid action: ${action}. Use close, lock, or reopen`);
@@ -51,4 +53,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withRole('admin')(withErrorHandler(handler as any)));

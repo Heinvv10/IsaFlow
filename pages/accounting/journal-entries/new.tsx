@@ -18,6 +18,7 @@ import {
   Save,
 } from 'lucide-react';
 import type { GLAccount } from '@/modules/accounting/types/gl.types';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface LineInput {
   key: string;
@@ -51,7 +52,7 @@ export default function NewJournalEntryPage() {
 
   const loadAccounts = async () => {
     try {
-      const res = await fetch('/api/accounting/chart-of-accounts');
+      const res = await apiFetch('/api/accounting/chart-of-accounts');
       const data = await res.json();
       const list = data.data || data || [];
       // Only show leaf accounts (no children / subtype level) for journal lines
@@ -101,7 +102,7 @@ export default function NewJournalEntryPage() {
 
     setIsSubmitting(true);
     try {
-      const res = await fetch('/api/accounting/journal-entries', {
+      const res = await apiFetch('/api/accounting/journal-entries', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -171,9 +172,9 @@ export default function NewJournalEntryPage() {
               </div>
             )}
             {success && (
-              <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-4 flex items-start gap-3">
-                <CheckCircle2 className="h-5 w-5 text-emerald-400 mt-0.5 flex-shrink-0" />
-                <p className="text-sm text-emerald-400">Journal entry created successfully. Redirecting...</p>
+              <div className="bg-teal-500/10 border border-teal-500/30 rounded-lg p-4 flex items-start gap-3">
+                <CheckCircle2 className="h-5 w-5 text-teal-400 mt-0.5 flex-shrink-0" />
+                <p className="text-sm text-teal-400">Journal entry created successfully. Redirecting...</p>
               </div>
             )}
 
@@ -214,7 +215,7 @@ export default function NewJournalEntryPage() {
                 <button
                   type="button"
                   onClick={addLine}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-emerald-600 bg-emerald-500/10 rounded-lg hover:bg-emerald-500/20 transition-colors"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-teal-600 bg-teal-500/10 rounded-lg hover:bg-teal-500/20 transition-colors"
                 >
                   <Plus className="h-4 w-4" />
                   Add Line
@@ -311,7 +312,7 @@ export default function NewJournalEntryPage() {
                     </tr>
                     <tr>
                       <td colSpan={6} className="px-4 py-2">
-                        <div className={`flex items-center gap-2 text-sm ${isBalanced ? 'text-emerald-400' : totalDebit === 0 && totalCredit === 0 ? 'text-[var(--ff-text-tertiary)]' : 'text-red-400'}`}>
+                        <div className={`flex items-center gap-2 text-sm ${isBalanced ? 'text-teal-400' : totalDebit === 0 && totalCredit === 0 ? 'text-[var(--ff-text-tertiary)]' : 'text-red-400'}`}>
                           {isBalanced ? (
                             <>
                               <CheckCircle2 className="h-4 w-4" />
@@ -344,7 +345,7 @@ export default function NewJournalEntryPage() {
               <button
                 type="submit"
                 disabled={isSubmitting || !isBalanced}
-                className="inline-flex items-center gap-2 px-6 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                className="inline-flex items-center gap-2 px-6 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isSubmitting ? (
                   <Loader2 className="h-4 w-4 animate-spin" />

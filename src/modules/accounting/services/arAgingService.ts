@@ -11,7 +11,7 @@ import type { AgingBucket, AgingInvoice } from '../types/ap.types';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
 
-export async function getARAging(asAtDate?: string): Promise<AgingBucket[]> {
+export async function getARAging(_companyId: string, asAtDate?: string): Promise<AgingBucket[]> {
   try {
     const asAt = asAtDate ? new Date(asAtDate) : new Date();
 
@@ -67,7 +67,7 @@ export async function getARAging(asAtDate?: string): Promise<AgingBucket[]> {
   }
 }
 
-export async function getARAgingDetail(
+export async function getARAgingDetail(_companyId: string, 
   clientId: string,
   asAtDate?: string
 ): Promise<{ client: { id: string; name: string }; invoices: AgingInvoice[]; buckets: AgingBucket | null }> {

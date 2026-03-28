@@ -7,7 +7,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { log } from '@/lib/logger';
 
@@ -22,16 +22,17 @@ interface Transaction {
   balance: number;
 }
 
-export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextApiResponse) => {
+export default withCompany(withErrorHandler(async (req: NextApiRequest, res: NextApiResponse) => {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method || '', ['GET']);
 
+  const { companyId } = req as CompanyApiRequest;
   const { supplier_id } = req.query;
   if (!supplier_id) return apiResponse.badRequest(res, 'supplier_id is required');
 
   try {
     // Get supplier info
     const supplierRows = await sql`
-      SELECT id, name, email, phone FROM suppliers WHERE id = ${Number(supplier_id)}
+      SELECT id, name, email, phone FROM suppliers WHERE id = ${Number(supplier_id)} AND company_id = ${companyId}
     `;
     if (supplierRows.length === 0) return apiResponse.notFound(res, 'Supplier', supplier_id as string);
     const supplier = supplierRows[0] as { id: number; name: string; email: string | null; phone: string | null };
@@ -41,7 +42,7 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
       SELECT id, invoice_number as reference, invoice_date as date,
         total_amount as amount, amount_paid, notes as description
       FROM supplier_invoices
-      WHERE supplier_id = ${Number(supplier_id)}
+      WHERE supplier_id = ${Number(supplier_id)} AND company_id = ${companyId}
         AND status NOT IN ('cancelled', 'draft')
       ORDER BY invoice_date ASC
     `;
@@ -51,7 +52,7 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
       SELECT sp.id, sp.payment_number as reference, sp.payment_date as date,
         sp.total_amount as amount, sp.description
       FROM supplier_payments sp
-      WHERE sp.supplier_id = ${Number(supplier_id)}
+      WHERE sp.supplier_id = ${Number(supplier_id)} AND sp.company_id = ${companyId}
         AND sp.status NOT IN ('cancelled', 'draft')
       ORDER BY sp.payment_date ASC
     `;
@@ -61,21 +62,21 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
       SELECT cn.id, cn.credit_note_number as reference, cn.credit_date as date,
         cn.total_amount as amount, cn.reason as description
       FROM credit_notes cn
-      WHERE cn.supplier_id = ${Number(supplier_id)}
+      WHERE cn.supplier_id = ${Number(supplier_id)} AND cn.company_id = ${companyId}
         AND cn.type = 'supplier'
         AND cn.status NOT IN ('cancelled', 'draft')
       ORDER BY cn.credit_date ASC
     `;
 
     // Normalize date to YYYY-MM-DD regardless of input format
-    function toISODate(val: unknown): string {
+    const toISODate = (val: unknown): string => {
       if (!val) return '1970-01-01';
       if (val instanceof Date) return val.toISOString().split('T')[0] ?? '1970-01-01';
       const s = String(val);
       if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.split('T')[0] ?? '1970-01-01';
       const d = new Date(s);
       return isNaN(d.getTime()) ? '1970-01-01' : (d.toISOString().split('T')[0] ?? '1970-01-01');
-    }
+    };
 
     // Merge into chronological transactions
     const transactions: Transaction[] = [];

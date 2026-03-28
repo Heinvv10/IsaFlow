@@ -8,7 +8,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { getIncomeStatement } from '@/modules/accounting/services/financialReportingService';
 
@@ -16,6 +16,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
   }
+
+  const { companyId } = req as CompanyApiRequest;
 
   try {
     const { period_start, period_end, project_id, cost_centre_id, compare_start, compare_end } = req.query;
@@ -27,7 +29,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       ? { start: String(compare_start), end: String(compare_end) }
       : undefined;
 
-    const report = await getIncomeStatement(
+    const report = await getIncomeStatement(companyId,
       String(period_start),
       String(period_end),
       {
@@ -44,4 +46,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));

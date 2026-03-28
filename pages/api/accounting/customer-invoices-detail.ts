@@ -8,7 +8,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withAuth, withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 
@@ -16,16 +16,18 @@ import { sql } from '@/lib/neon';
 type Row = any;
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyApiRequest;
+
   if (req.method === 'GET') {
     const { id } = req.query;
     if (!id) return apiResponse.badRequest(res, 'id is required');
 
     const rows = (await sql`
-      SELECT ci.*, c.company_name AS client_name, p.project_name
+      SELECT ci.*, c.company_name AS client_name, c.email AS client_email, p.project_name
       FROM customer_invoices ci
       LEFT JOIN clients c ON c.id = ci.client_id
       LEFT JOIN projects p ON p.id = ci.project_id
-      WHERE ci.id = ${id as string}::UUID
+      WHERE ci.id = ${id as string}::UUID AND ci.company_id = ${companyId}
     `) as Row[];
     if (rows.length === 0) return apiResponse.notFound(res, 'Invoice', id as string);
 
@@ -46,7 +48,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           internal_notes = COALESCE(${internalNotes || null}, internal_notes),
           due_date = COALESCE(${dueDate || null}, due_date),
           updated_at = NOW()
-      WHERE id = ${id}::UUID AND status = 'draft'
+      WHERE id = ${id}::UUID AND company_id = ${companyId} AND status = 'draft'
     `;
     log.info('Customer invoice updated', { id });
     return apiResponse.success(res, { updated: true });
@@ -62,7 +64,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const newStatus = validActions[action];
     if (!newStatus) return apiResponse.badRequest(res, `Unknown action: ${action}`);
 
-    await sql`UPDATE customer_invoices SET status = ${newStatus}, updated_at = NOW() WHERE id = ${id}::UUID`;
+    await sql`UPDATE customer_invoices SET status = ${newStatus}, updated_at = NOW() WHERE id = ${id}::UUID AND company_id = ${companyId}`;
     log.info('Customer invoice action', { id, action, newStatus });
     return apiResponse.success(res, { id, status: newStatus });
   }
@@ -71,4 +73,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler as any));
