@@ -41,7 +41,7 @@ export function middleware(request: NextRequest) {
   // Check for auth cookie on protected routes
   const token = request.cookies.get(AUTH_COOKIE_NAME)?.value;
 
-  if (!token && pathname.startsWith('/accounting')) {
+  if (!token && (pathname.startsWith('/accounting') || pathname.startsWith('/payroll'))) {
     const loginUrl = new URL('/login', request.url);
     loginUrl.searchParams.set('returnTo', pathname);
     return NextResponse.redirect(loginUrl);
@@ -58,5 +58,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/', '/accounting/:path*', '/onboarding/:path*'],
+  matcher: ['/', '/accounting/:path*', '/onboarding/:path*', '/payroll/:path*'],
 };

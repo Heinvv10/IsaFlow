@@ -33,6 +33,7 @@ type Row = Record<string, any>;
 // ── Employee Functions ──────────────────────────────────────────────────────
 
 export async function listEmployees(
+  companyId: string,
   search?: string,
   statusFilter?: string
 ): Promise<EmployeeWithPay[]> {
@@ -56,7 +57,8 @@ export async function listEmployees(
           ORDER BY p.effective_from DESC
           LIMIT 1
         ) ps ON TRUE
-        WHERE e.status = ${statusFilter}
+        WHERE e.company_id = ${companyId}::UUID
+          AND e.status = ${statusFilter}
           AND (
             e.first_name ILIKE ${searchTerm}
             OR e.last_name ILIKE ${searchTerm}
@@ -82,11 +84,13 @@ export async function listEmployees(
           ORDER BY p.effective_from DESC
           LIMIT 1
         ) ps ON TRUE
-        WHERE
-          e.first_name ILIKE ${searchTerm}
-          OR e.last_name ILIKE ${searchTerm}
-          OR e.employee_number ILIKE ${searchTerm}
-          OR e.department ILIKE ${searchTerm}
+        WHERE e.company_id = ${companyId}::UUID
+          AND (
+            e.first_name ILIKE ${searchTerm}
+            OR e.last_name ILIKE ${searchTerm}
+            OR e.employee_number ILIKE ${searchTerm}
+            OR e.department ILIKE ${searchTerm}
+          )
         ORDER BY e.employee_number ASC
         LIMIT 200
       `) as Row[];
@@ -106,7 +110,8 @@ export async function listEmployees(
           ORDER BY p.effective_from DESC
           LIMIT 1
         ) ps ON TRUE
-        WHERE e.status = ${statusFilter}
+        WHERE e.company_id = ${companyId}::UUID
+          AND e.status = ${statusFilter}
         ORDER BY e.employee_number ASC
         LIMIT 200
       `) as Row[];
@@ -126,6 +131,7 @@ export async function listEmployees(
           ORDER BY p.effective_from DESC
           LIMIT 1
         ) ps ON TRUE
+        WHERE e.company_id = ${companyId}::UUID
         ORDER BY e.employee_number ASC
         LIMIT 200
       `) as Row[];
@@ -140,7 +146,7 @@ export async function listEmployees(
   }
 }
 
-export async function getEmployee(id: string): Promise<EmployeeWithPay | null> {
+export async function getEmployee(companyId: string, id: string): Promise<EmployeeWithPay | null> {
   try {
     const rows = (await sql`
       SELECT e.*,
@@ -158,6 +164,7 @@ export async function getEmployee(id: string): Promise<EmployeeWithPay | null> {
         LIMIT 1
       ) ps ON TRUE
       WHERE e.id = ${id}
+        AND e.company_id = ${companyId}::UUID
     `) as Row[];
 
     if (rows.length === 0) return null;
@@ -169,13 +176,16 @@ export async function getEmployee(id: string): Promise<EmployeeWithPay | null> {
 }
 
 export async function getEmployeePayHistory(
+  companyId: string,
   employeeId: string
 ): Promise<PayStructure[]> {
   try {
     const rows = (await sql`
-      SELECT * FROM pay_structures
-      WHERE employee_id = ${employeeId}
-      ORDER BY effective_from DESC
+      SELECT ps.* FROM pay_structures ps
+      JOIN employees e ON e.id = ps.employee_id
+      WHERE ps.employee_id = ${employeeId}
+        AND e.company_id = ${companyId}::UUID
+      ORDER BY ps.effective_from DESC
     `) as Row[];
     return rows.map(mapPayStructure);
   } catch (err) {
@@ -185,6 +195,7 @@ export async function getEmployeePayHistory(
 }
 
 export async function getEmployeePayslips(
+  companyId: string,
   employeeId: string
 ): Promise<Payslip[]> {
   try {
@@ -192,7 +203,9 @@ export async function getEmployeePayslips(
       SELECT ps.*, pr.period_start, pr.period_end
       FROM payslips ps
       JOIN payroll_runs pr ON pr.id = ps.payroll_run_id
+      JOIN employees e ON e.id = ps.employee_id
       WHERE ps.employee_id = ${employeeId}
+        AND e.company_id = ${companyId}::UUID
       ORDER BY pr.period_end DESC
     `) as Row[];
     return rows.map(mapPayslip);
@@ -203,17 +216,19 @@ export async function getEmployeePayslips(
 }
 
 export async function createEmployee(
+  companyId: string,
   input: CreateEmployeeInput
 ): Promise<EmployeeWithPay> {
   try {
     // Create employee record
     const empRows = (await sql`
       INSERT INTO employees (
-        employee_number, first_name, last_name, id_number, tax_number,
+        company_id, employee_number, first_name, last_name, id_number, tax_number,
         start_date, termination_date, bank_name, bank_account_number,
         bank_branch_code, department, position, employment_type,
         pay_frequency, status
       ) VALUES (
+        ${companyId}::UUID,
         ${input.employee_number},
         ${input.first_name},
         ${input.last_name},
@@ -261,7 +276,7 @@ export async function createEmployee(
       number: input.employee_number,
     }, 'payroll');
 
-    const employee = await getEmployee(employeeId);
+    const employee = await getEmployee(companyId, employeeId);
     if (!employee) throw new Error('Failed to retrieve created employee');
     return employee;
   } catch (err) {
@@ -271,11 +286,12 @@ export async function createEmployee(
 }
 
 export async function updateEmployee(
+  companyId: string,
   id: string,
   input: UpdateEmployeeInput
 ): Promise<EmployeeWithPay> {
   try {
-    // Update employee fields
+    // Update employee fields (scoped to company)
     await sql`
       UPDATE employees SET
         first_name = COALESCE(${input.first_name ?? null}, first_name),
@@ -293,6 +309,7 @@ export async function updateEmployee(
         status = COALESCE(${input.status ?? null}, status),
         updated_at = NOW()
       WHERE id = ${id}
+        AND company_id = ${companyId}::UUID
     `;
 
     // If pay fields provided, create new pay structure record
@@ -329,7 +346,7 @@ export async function updateEmployee(
 
     log.info('Employee updated', { id }, 'payroll');
 
-    const employee = await getEmployee(id);
+    const employee = await getEmployee(companyId, id);
     if (!employee) throw new Error('Employee not found');
     return employee;
   } catch (err) {
@@ -341,12 +358,13 @@ export async function updateEmployee(
 // ── Payroll Run Functions ───────────────────────────────────────────────────
 
 export async function createPayrollRun(
+  companyId: string,
   periodStart: string,
   periodEnd: string,
   userId: string
 ): Promise<PayrollRunWithPayslips> {
   try {
-    // Get all active employees with current pay structures
+    // Get all active employees with current pay structures (scoped to company)
     const empRows = (await sql`
       SELECT e.*,
         ps.basic_salary, ps.travel_allowance, ps.housing_allowance,
@@ -361,7 +379,8 @@ export async function createPayrollRun(
         ORDER BY p.effective_from DESC
         LIMIT 1
       ) ps ON TRUE
-      WHERE e.status = 'active'
+      WHERE e.company_id = ${companyId}::UUID
+        AND e.status = 'active'
         AND e.start_date <= ${periodEnd}::DATE
         AND (e.termination_date IS NULL OR e.termination_date >= ${periodStart}::DATE)
       ORDER BY e.employee_number
@@ -373,8 +392,8 @@ export async function createPayrollRun(
 
     // Create the payroll run record
     const runRows = (await sql`
-      INSERT INTO payroll_runs (period_start, period_end, status, created_by)
-      VALUES (${periodStart}, ${periodEnd}, 'draft', ${userId}::UUID)
+      INSERT INTO payroll_runs (company_id, period_start, period_end, status, created_by)
+      VALUES (${companyId}::UUID, ${periodStart}, ${periodEnd}, 'draft', ${userId}::UUID)
       RETURNING *
     `) as Row[];
 
@@ -551,13 +570,14 @@ export async function createPayrollRun(
 }
 
 export async function completePayrollRun(
+  companyId: string,
   runId: string,
   userId: string
 ): Promise<PayrollRun> {
   try {
-    // Get the run
+    // Get the run (scoped to company)
     const runRows = (await sql`
-      SELECT * FROM payroll_runs WHERE id = ${runId}
+      SELECT * FROM payroll_runs WHERE id = ${runId} AND company_id = ${companyId}::UUID
     `) as Row[];
 
     if (runRows.length === 0) throw new Error('Payroll run not found');
@@ -701,7 +721,7 @@ export async function completePayrollRun(
     });
 
     // Create journal entry
-    const journalEntry = await createJournalEntry('', {
+    const journalEntry = await createJournalEntry(companyId, {
       entryDate: periodEnd,
       description: `Payroll for period ${run.period_start} to ${run.period_end}`,
       source: 'manual',
@@ -709,7 +729,7 @@ export async function completePayrollRun(
     }, userId);
 
     // Post the journal entry
-    await postJournalEntry('', journalEntry.id, userId);
+    await postJournalEntry(companyId, journalEntry.id, userId);
 
     // Update payroll run status
     const updatedRows = (await sql`
@@ -733,12 +753,13 @@ export async function completePayrollRun(
 }
 
 export async function reversePayrollRun(
+  companyId: string,
   runId: string,
   userId: string
 ): Promise<PayrollRun> {
   try {
     const runRows = (await sql`
-      SELECT * FROM payroll_runs WHERE id = ${runId}
+      SELECT * FROM payroll_runs WHERE id = ${runId} AND company_id = ${companyId}::UUID
     `) as Row[];
 
     if (runRows.length === 0) throw new Error('Payroll run not found');
@@ -752,7 +773,7 @@ export async function reversePayrollRun(
         '@/modules/accounting/services/journalEntryService'
       );
       await reverseJournalEntry(
-        '', String(runRows[0]!.journal_entry_id), userId
+        companyId, String(runRows[0]!.journal_entry_id), userId
       );
     }
 
@@ -771,11 +792,12 @@ export async function reversePayrollRun(
 }
 
 export async function getPayrollRun(
+  companyId: string,
   runId: string
 ): Promise<PayrollRunWithPayslips | null> {
   try {
     const runRows = (await sql`
-      SELECT * FROM payroll_runs WHERE id = ${runId}
+      SELECT * FROM payroll_runs WHERE id = ${runId} AND company_id = ${companyId}::UUID
     `) as Row[];
 
     if (runRows.length === 0) return null;
@@ -808,10 +830,11 @@ export async function getPayrollRun(
   }
 }
 
-export async function listPayrollRuns(): Promise<PayrollRun[]> {
+export async function listPayrollRuns(companyId: string): Promise<PayrollRun[]> {
   try {
     const rows = (await sql`
       SELECT * FROM payroll_runs
+      WHERE company_id = ${companyId}::UUID
       ORDER BY period_end DESC, created_at DESC
       LIMIT 100
     `) as Row[];

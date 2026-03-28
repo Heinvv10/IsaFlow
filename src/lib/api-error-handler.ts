@@ -1,6 +1,17 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { apiLogger } from '@/lib/logger';
 
+const SENSITIVE_KEYS = new Set(['password', 'confirmPassword', 'password_hash', 'token', 'secret', 'apiKey', 'api_key']);
+
+function sanitizeBody(body: unknown): unknown {
+  if (!body || typeof body !== 'object') return body;
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
+    sanitized[key] = SENSITIVE_KEYS.has(key) ? '[REDACTED]' : value;
+  }
+  return sanitized;
+}
+
 /**
  * Standard API error response
  */
@@ -59,7 +70,7 @@ export function withErrorHandler<T = unknown, R extends NextApiRequest = NextApi
         method: req.method,
         url: req.url,
         query: req.query,
-        body: req.method !== 'GET' ? req.body : undefined,
+        body: req.method !== 'GET' ? sanitizeBody(req.body) : undefined,
       }, `API Request: ${req.method} ${req.url}`);
 
       // Execute the actual handler

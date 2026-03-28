@@ -10,8 +10,9 @@
     "type-check": "tsc --noEmit",
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
-    "test:e2e": "playwright test",
-    "test": "vitest run && playwright test",
+    "test:e2e": "playwright test --config playwright-test.config.ts",
+    "test:coverage": "vitest run --coverage",
+    "test": "vitest run && playwright test --config playwright-test.config.ts",
     "db:migrate": "node scripts/run-migrations.mjs"
   },
   "dependencies": {
@@ -58,6 +59,7 @@
     "@typescript-eslint/eslint-plugin": "^6.21.0",
     "@typescript-eslint/parser": "^6.21.0",
     "@vitejs/plugin-react": "^6.0.1",
+    "@vitest/coverage-v8": "^4.1.2",
     "autoprefixer": "^10.4.21",
     "eslint": "^8.48.0",
     "eslint-plugin-react": "^7.33.0",
