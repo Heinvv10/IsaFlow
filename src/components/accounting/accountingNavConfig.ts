@@ -431,6 +431,12 @@ export const TABS: Tab[] = [
           { label: 'New Payroll Run', href: '/payroll/runs/new' },
         ],
       },
+      {
+        section: 'Leave',
+        items: [
+          { label: 'Leave Applications', href: '/payroll/leave' },
+        ],
+      },
     ],
   },
 ];
