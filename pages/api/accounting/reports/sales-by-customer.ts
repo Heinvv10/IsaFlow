@@ -21,18 +21,18 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
     const rows = await sql`
       SELECT
         ci.client_id,
-        c.company_name AS client_name,
+        c.name AS client_name,
         COUNT(ci.id)::int AS invoice_count,
         COALESCE(SUM(ci.total_amount), 0)::numeric AS total_sales,
         COALESCE(SUM(ci.amount_paid), 0)::numeric AS payments_received,
         COALESCE(SUM(ci.total_amount - ci.amount_paid), 0)::numeric AS outstanding
       FROM customer_invoices ci
-      JOIN clients c ON c.id = ci.client_id
+      JOIN customers c ON c.id = ci.client_id
       WHERE ci.company_id = ${companyId}
         AND ci.invoice_date >= ${from}
         AND ci.invoice_date <= ${to}
         AND ci.status != 'cancelled'
-      GROUP BY ci.client_id, c.company_name
+      GROUP BY ci.client_id, c.name
       ORDER BY total_sales DESC
     `;
 

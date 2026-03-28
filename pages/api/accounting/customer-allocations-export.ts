@@ -18,12 +18,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     const rows = await sql`
       SELECT cp.payment_number, ci.invoice_number,
-        c.company_name AS client_name, cpa.amount_allocated AS amount,
+        c.name AS client_name, cpa.amount_allocated AS amount,
         cpa.created_at AS allocated_at, cp.payment_date
       FROM customer_payment_allocations cpa
       JOIN customer_payments cp ON cp.id = cpa.payment_id
       JOIN customer_invoices ci ON ci.id = cpa.invoice_id
-      JOIN clients c ON c.id = cp.client_id
+      JOIN customers c ON c.id = cp.client_id
       WHERE cp.company_id = ${companyId}
       ORDER BY cpa.created_at DESC
     `;

@@ -29,7 +29,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     // Get client info
     const clientRows = (await sql`
-      SELECT id, company_name, email, phone FROM clients WHERE id = ${clientId}::UUID AND company_id = ${companyId}
+      SELECT id, name, email, phone FROM customers WHERE id = ${clientId}::UUID AND company_id = ${companyId}
     `) as Row[];
     if (clientRows.length === 0) {
       return apiResponse.notFound(res, 'Client', clientId);
@@ -148,7 +148,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, {
       client: {
         id: String(client.id),
-        name: String(client.company_name),
+        name: String(client.name),
         email: client.email ? String(client.email) : null,
         phone: client.phone ? String(client.phone) : null,
       },

@@ -21,24 +21,24 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     let rows;
     if (status && status !== '') {
       rows = await sql`
-        SELECT cp.payment_number, c.company_name AS client_name,
+        SELECT cp.payment_number, c.name AS client_name,
           cp.payment_date, cp.total_amount,
           COALESCE((SELECT SUM(cpa.amount_allocated) FROM customer_payment_allocations cpa WHERE cpa.payment_id = cp.id), 0) AS allocated_amount,
           cp.payment_method, cp.bank_reference, cp.status
         FROM customer_payments cp
-        LEFT JOIN clients c ON c.id = cp.client_id
+        LEFT JOIN customers c ON c.id = cp.client_id
         WHERE cp.status = ${status as string}
           AND cp.company_id = ${companyId}
         ORDER BY cp.payment_date DESC
       `;
     } else {
       rows = await sql`
-        SELECT cp.payment_number, c.company_name AS client_name,
+        SELECT cp.payment_number, c.name AS client_name,
           cp.payment_date, cp.total_amount,
           COALESCE((SELECT SUM(cpa.amount_allocated) FROM customer_payment_allocations cpa WHERE cpa.payment_id = cp.id), 0) AS allocated_amount,
           cp.payment_method, cp.bank_reference, cp.status
         FROM customer_payments cp
-        LEFT JOIN clients c ON c.id = cp.client_id
+        LEFT JOIN customers c ON c.id = cp.client_id
         WHERE cp.company_id = ${companyId}
         ORDER BY cp.payment_date DESC
       `;

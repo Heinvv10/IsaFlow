@@ -23,14 +23,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const customers = await sql`
       SELECT
         ci.client_id,
-        c.company_name as client_name,
+        c.name as client_name,
         SUM(ci.total_amount::numeric) as total_invoiced,
         COALESCE(paid.total_paid, 0) as total_paid,
         SUM(ci.total_amount::numeric) - COALESCE(paid.total_paid, 0) as balance,
         paid.last_payment_date,
         COUNT(*)::int as invoice_count
       FROM customer_invoices ci
-      LEFT JOIN clients c ON c.id = ci.client_id
+      LEFT JOIN customers c ON c.id = ci.client_id
       LEFT JOIN (
         SELECT client_id,
           SUM(total_amount::numeric) as total_paid,
@@ -40,7 +40,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         GROUP BY client_id
       ) paid ON paid.client_id = ci.client_id
       WHERE ci.company_id = ${companyId} AND ci.status != 'cancelled'
-      GROUP BY ci.client_id, c.company_name, paid.total_paid, paid.last_payment_date
+      GROUP BY ci.client_id, c.name, paid.total_paid, paid.last_payment_date
       HAVING SUM(ci.total_amount::numeric) > 0
       ORDER BY SUM(ci.total_amount::numeric) - COALESCE(paid.total_paid, 0) DESC
     `;

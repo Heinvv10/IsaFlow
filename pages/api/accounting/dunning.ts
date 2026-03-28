@@ -25,10 +25,10 @@ export default withCompany(withErrorHandler(async (req: NextApiRequest, res: Nex
 
       if (client_id) {
         const rows = (await sql`
-          SELECT dc.*, c.company_name as client_name,
+          SELECT dc.*, c.name as client_name,
                  u.first_name || ' ' || u.last_name as created_by_name
           FROM dunning_communications dc
-          JOIN clients c ON c.id = dc.client_id
+          JOIN customers c ON c.id = dc.client_id
           LEFT JOIN users u ON u.id = dc.created_by
           WHERE dc.client_id = ${client_id as string}
             AND c.company_id = ${companyId}
@@ -40,10 +40,10 @@ export default withCompany(withErrorHandler(async (req: NextApiRequest, res: Nex
 
       if (filterStatus) {
         const rows = (await sql`
-          SELECT dc.*, c.company_name as client_name,
+          SELECT dc.*, c.name as client_name,
                  u.first_name || ' ' || u.last_name as created_by_name
           FROM dunning_communications dc
-          JOIN clients c ON c.id = dc.client_id
+          JOIN customers c ON c.id = dc.client_id
           LEFT JOIN users u ON u.id = dc.created_by
           WHERE dc.status = ${filterStatus as string}
             AND c.company_id = ${companyId}
@@ -54,10 +54,10 @@ export default withCompany(withErrorHandler(async (req: NextApiRequest, res: Nex
       }
 
       const rows = (await sql`
-        SELECT dc.*, c.company_name as client_name,
+        SELECT dc.*, c.name as client_name,
                u.first_name || ' ' || u.last_name as created_by_name
         FROM dunning_communications dc
-        JOIN clients c ON c.id = dc.client_id
+        JOIN customers c ON c.id = dc.client_id
         LEFT JOIN users u ON u.id = dc.created_by
         WHERE c.company_id = ${companyId}
         ORDER BY dc.created_at DESC
