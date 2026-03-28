@@ -11,6 +11,7 @@
 
 import { log } from '@/lib/logger';
 import type { BankCsvParseResult, ParsedBankTransaction } from '../types/bank.types';
+import { isVlmAvailable, extractBankStatementWithVlm } from '../services/vlmService';
 
 // pdf-parse uses export= (CommonJS), so we use require() at runtime.
 // Type definition for the parsed result.
@@ -191,13 +192,47 @@ export async function parseBankPdf(
   }
 
   // Fallback: attempt generic ABSA-style date-amount pattern for unknown formats
-  // This covers cases where the bank couldn't be detected but the format is similar
   const fallback = parseAbsaTextLines(text);
   if (fallback.transactions.length > 0) {
     log.info('PDF parsed using ABSA fallback pattern', {
       count: fallback.transactions.length,
     }, 'accounting-pdf');
     return { ...fallback, bankFormat: detectedFormat };
+  }
+
+  // VLM fallback: use AI vision to extract from any bank format
+  if (isVlmAvailable()) {
+    try {
+      log.info('Attempting VLM bank statement extraction', { format: detectedFormat }, 'accounting-pdf');
+      const vlmResult = await extractBankStatementWithVlm(
+        pdfBuffer.toString('base64'),
+        'application/pdf',
+        text,
+      );
+
+      if (vlmResult && vlmResult.transactions.length > 0) {
+        log.info('VLM bank statement extraction successful', {
+          bankName: vlmResult.bankName,
+          count: vlmResult.transactions.length,
+        }, 'accounting-pdf');
+
+        return {
+          transactions: vlmResult.transactions.map(t => ({
+            transactionDate: t.date || '',
+            amount: t.amount,
+            description: t.description,
+            balance: t.balance ?? undefined,
+            reference: t.reference ?? undefined,
+          })),
+          errors: [],
+          bankFormat: vlmResult.bankName?.toLowerCase() || detectedFormat,
+        };
+      }
+    } catch (err) {
+      log.warn('VLM bank statement extraction failed', {
+        error: err instanceof Error ? err.message : String(err),
+      }, 'accounting-pdf');
+    }
   }
 
   return {

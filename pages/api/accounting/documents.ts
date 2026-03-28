@@ -19,6 +19,8 @@ import type {
   AccountingEntityType,
   AccountingDocumentType,
 } from '@/types/procurement/document.types';
+import { extractFromPdf, extractFromImage } from '@/modules/accounting/services/ocrService';
+import { isVlmAvailable } from '@/modules/accounting/services/vlmService';
 
 export const config = {
   api: { bodyParser: false },
@@ -216,6 +218,13 @@ async function handlePost(
       await autoLinkSupplierInvoice(docId, entityId);
     }
 
+    // Fire-and-forget VLM extraction (non-blocking)
+    if (isVlmAvailable()) {
+      extractAndStoreDocMetadata(buffer, file.mimetype || '', docId).catch(err =>
+        log.warn('Background VLM extraction failed', { error: err instanceof Error ? err.message : String(err) }, 'accounting-docs')
+      );
+    }
+
     log.info('Accounting document uploaded', {
       data: { entityType, entityId, documentType, fileName },
     }, 'accounting-docs');
@@ -297,6 +306,27 @@ async function autoLinkSupplierInvoice(docId: string, invoiceId: string) {
     }
   } catch (err) {
     log.warn('Auto-link supplier invoice docs failed (non-fatal)', { error: err }, 'accounting-docs');
+  }
+}
+
+/** Background VLM extraction — stores result in extracted_data JSONB column */
+async function extractAndStoreDocMetadata(buffer: Buffer, mimeType: string, docId: string) {
+  const isPdf = mimeType === 'application/pdf';
+  const isImage = mimeType.startsWith('image/');
+
+  if (!isPdf && !isImage) return;
+
+  const extracted = isPdf
+    ? await extractFromPdf(buffer)
+    : await extractFromImage(buffer, mimeType);
+
+  if (extracted && extracted.confidence > 0) {
+    await sql`
+      UPDATE procurement_documents
+      SET extracted_data = ${JSON.stringify(extracted)}::jsonb
+      WHERE id = ${docId}::uuid
+    `;
+    log.info('VLM extraction stored for document', { docId, confidence: extracted.confidence }, 'accounting-docs');
   }
 }
 

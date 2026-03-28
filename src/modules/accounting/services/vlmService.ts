@@ -15,6 +15,10 @@ import { log } from '@/lib/logger';
 import type {
   ExtractedDocument,
   ExtractedLineItem,
+  ExtractedBankStatement,
+  ExtractedBankTransaction,
+  ExtractedStatutoryDoc,
+  StatutoryDocType,
   VendorBankDetails,
 } from '@/modules/accounting/types/documentCapture.types';
 
@@ -272,22 +276,7 @@ async function renderPdfFirstPage(pdfBuffer: Buffer): Promise<string | null> {
 // ---------------------------------------------------------------------------
 
 function parseVlmResponse(content: string, rawText: string): ExtractedDocument | null {
-  // Strip markdown code fences if present
-  let jsonStr = content.trim();
-  if (jsonStr.startsWith('```')) {
-    jsonStr = jsonStr.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
-  }
-
-  // Handle Qwen3's <think>...</think> tags — strip reasoning, keep the JSON
-  if (jsonStr.includes('<think>')) {
-    jsonStr = jsonStr.replace(/<think>[\s\S]*?<\/think>\s*/g, '').trim();
-  }
-
-  // Try to extract JSON object if there's surrounding text
-  const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
-  if (jsonMatch) {
-    jsonStr = jsonMatch[0];
-  }
+  const jsonStr = cleanVlmJson(content);
 
   try {
     const parsed = JSON.parse(jsonStr) as Record<string, unknown>;
@@ -475,4 +464,335 @@ function validateAmounts(doc: ExtractedDocument): string[] {
   }
 
   return warnings;
+}
+
+// ===========================================================================
+// BANK STATEMENT EXTRACTION
+// ===========================================================================
+
+const BANK_STATEMENT_PROMPT = `You are an expert at reading South African bank statements.
+Extract ALL transactions and metadata from this bank statement image.
+Common SA banks: ABSA, FNB, Standard Bank, Nedbank, Capitec, Investec, African Bank, TymeBank.
+
+Return ONLY valid JSON (no markdown, no explanation) matching this schema:
+
+{
+  "bankName": string | null,
+  "accountNumber": string | null,
+  "statementPeriod": { "from": "YYYY-MM-DD" | null, "to": "YYYY-MM-DD" | null } | null,
+  "openingBalance": number | null,
+  "closingBalance": number | null,
+  "transactions": [
+    {
+      "date": "YYYY-MM-DD" | null,
+      "description": string,
+      "amount": number,
+      "balance": number | null,
+      "reference": string | null,
+      "transactionType": string | null
+    }
+  ]
+}
+
+Rules:
+- Debit (money out) amounts should be NEGATIVE, credit (money in) should be POSITIVE
+- Include every single transaction row — do not skip or summarise
+- Parse dates carefully — SA format is typically DD/MM/YYYY or DD Mon YYYY
+- If a transaction spans multiple description lines, concatenate them`;
+
+/**
+ * Extract bank statement transactions using VLM.
+ */
+export async function extractBankStatementWithVlm(
+  base64: string,
+  mimeType: string,
+  rawText?: string,
+): Promise<ExtractedBankStatement | null> {
+  const config = getConfig();
+  if (!config) return null;
+
+  const userContent: Array<Record<string, unknown>> = [];
+
+  userContent.push({
+    type: 'image_url',
+    image_url: { url: `data:${mimeType};base64,${base64}` },
+  });
+
+  let textPrompt = 'Extract all transactions from this bank statement.';
+  if (rawText && rawText.trim().length > 0) {
+    textPrompt += `\n\nPDF text layer:\n\n${rawText.substring(0, 6000)}`;
+  }
+
+  userContent.push({ type: 'text', text: textPrompt });
+
+  const body = {
+    model: config.model,
+    messages: [
+      { role: 'system', content: BANK_STATEMENT_PROMPT },
+      { role: 'user', content: userContent },
+    ],
+    max_tokens: 8192,
+    temperature: 0.1,
+    stream: false,
+  };
+
+  log.info('Calling vLLM for bank statement extraction', {
+    model: config.model,
+  }, 'vlm-service');
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), config.timeout);
+
+    const response = await fetch(`${config.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.apiKey}`,
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => 'unknown');
+      log.error('vLLM bank statement request failed', { status: response.status, error: errorText.substring(0, 500) }, 'vlm-service');
+      return null;
+    }
+
+    const result = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+    const content = result.choices?.[0]?.message?.content;
+    if (!content) return null;
+
+    return parseBankStatementResponse(content);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error('vLLM bank statement error', { error: msg }, 'vlm-service');
+    return null;
+  }
+}
+
+function parseBankStatementResponse(content: string): ExtractedBankStatement | null {
+  const jsonStr = cleanVlmJson(content);
+
+  try {
+    const parsed = JSON.parse(jsonStr) as Record<string, unknown>;
+
+    const transactions: ExtractedBankTransaction[] = [];
+    if (Array.isArray(parsed.transactions)) {
+      for (const t of parsed.transactions) {
+        if (!t || typeof t !== 'object') continue;
+        const tx = t as Record<string, unknown>;
+        transactions.push({
+          date: asDateString(tx.date),
+          description: asString(tx.description) || 'Unknown',
+          amount: asNumber(tx.amount) ?? 0,
+          balance: asNumber(tx.balance),
+          reference: asString(tx.reference),
+          transactionType: asString(tx.transactionType) ?? asString(tx.transaction_type),
+        });
+      }
+    }
+
+    const period = parsed.statementPeriod as Record<string, unknown> | null;
+
+    const result: ExtractedBankStatement = {
+      bankName: asString(parsed.bankName) ?? asString(parsed.bank_name),
+      accountNumber: asString(parsed.accountNumber) ?? asString(parsed.account_number),
+      statementPeriod: period ? {
+        from: asDateString(period.from),
+        to: asDateString(period.to),
+      } : null,
+      openingBalance: asNumber(parsed.openingBalance) ?? asNumber(parsed.opening_balance),
+      closingBalance: asNumber(parsed.closingBalance) ?? asNumber(parsed.closing_balance),
+      transactions,
+      confidence: transactions.length > 0 ? 0.85 : 0.1,
+      warnings: [],
+    };
+
+    if (transactions.length === 0) {
+      result.warnings.push('No transactions extracted from bank statement');
+    }
+
+    log.info('Bank statement extraction successful', {
+      bankName: result.bankName,
+      transactionCount: transactions.length,
+    }, 'vlm-service');
+
+    return result;
+  } catch (err) {
+    log.error('Failed to parse bank statement VLM response', {
+      error: err instanceof Error ? err.message : String(err),
+    }, 'vlm-service');
+    return null;
+  }
+}
+
+// ===========================================================================
+// STATUTORY DOCUMENT EXTRACTION
+// ===========================================================================
+
+const STATUTORY_DOC_PROMPT = `You are an expert at reading South African statutory and compliance documents.
+Extract key information from this document image.
+
+Document types you may encounter:
+- CIPC Registration Certificate (Companies and Intellectual Property Commission)
+- SARS Tax Clearance Certificate / Tax Compliance Status
+- B-BBEE Certificate (Broad-Based Black Economic Empowerment)
+- VAT Registration Certificate
+
+Return ONLY valid JSON (no markdown, no explanation) matching this schema:
+
+{
+  "documentType": "cipc" | "tax_clearance" | "bbee" | "vat_registration" | "unknown",
+  "entityName": string | null,
+  "registrationNumber": string | null,
+  "vatNumber": string | null,
+  "taxNumber": string | null,
+  "issueDate": "YYYY-MM-DD" | null,
+  "expiryDate": "YYYY-MM-DD" | null,
+  "bbeeLevel": number | null,
+  "bbeeScore": number | null,
+  "verificationAgency": string | null
+}
+
+Notes:
+- CIPC registration numbers look like: K2024/123456 or 2024/123456/07
+- SA VAT numbers are 10 digits
+- Tax reference numbers are typically 10 digits
+- B-BBEE levels range from 1 (best) to 8 (non-compliant)
+- Tax clearance certificates have a PIN and expiry date`;
+
+/**
+ * Extract statutory document data using VLM.
+ */
+export async function extractStatutoryDocWithVlm(
+  base64: string,
+  mimeType: string,
+  docTypeHint?: string,
+): Promise<ExtractedStatutoryDoc | null> {
+  const config = getConfig();
+  if (!config) return null;
+
+  const userContent: Array<Record<string, unknown>> = [];
+
+  userContent.push({
+    type: 'image_url',
+    image_url: { url: `data:${mimeType};base64,${base64}` },
+  });
+
+  let textPrompt = 'Extract all information from this statutory document.';
+  if (docTypeHint) {
+    textPrompt += ` This is expected to be a ${docTypeHint} document.`;
+  }
+
+  userContent.push({ type: 'text', text: textPrompt });
+
+  const body = {
+    model: config.model,
+    messages: [
+      { role: 'system', content: STATUTORY_DOC_PROMPT },
+      { role: 'user', content: userContent },
+    ],
+    max_tokens: 2048,
+    temperature: 0.1,
+    stream: false,
+  };
+
+  log.info('Calling vLLM for statutory doc extraction', {
+    model: config.model,
+    docTypeHint,
+  }, 'vlm-service');
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), config.timeout);
+
+    const response = await fetch(`${config.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.apiKey}`,
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => 'unknown');
+      log.error('vLLM statutory doc request failed', { status: response.status, error: errorText.substring(0, 500) }, 'vlm-service');
+      return null;
+    }
+
+    const result = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+    const content = result.choices?.[0]?.message?.content;
+    if (!content) return null;
+
+    return parseStatutoryDocResponse(content);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error('vLLM statutory doc error', { error: msg }, 'vlm-service');
+    return null;
+  }
+}
+
+function parseStatutoryDocResponse(content: string): ExtractedStatutoryDoc | null {
+  const jsonStr = cleanVlmJson(content);
+
+  try {
+    const parsed = JSON.parse(jsonStr) as Record<string, unknown>;
+
+    const validTypes: StatutoryDocType[] = ['cipc', 'tax_clearance', 'bbee', 'vat_registration', 'unknown'];
+    const docType = validTypes.includes(parsed.documentType as StatutoryDocType)
+      ? parsed.documentType as StatutoryDocType
+      : 'unknown';
+
+    const result: ExtractedStatutoryDoc = {
+      documentType: docType,
+      entityName: asString(parsed.entityName) ?? asString(parsed.entity_name),
+      registrationNumber: asString(parsed.registrationNumber) ?? asString(parsed.registration_number),
+      vatNumber: asString(parsed.vatNumber) ?? asString(parsed.vat_number),
+      taxNumber: asString(parsed.taxNumber) ?? asString(parsed.tax_number),
+      issueDate: asDateString(parsed.issueDate) ?? asDateString(parsed.issue_date),
+      expiryDate: asDateString(parsed.expiryDate) ?? asDateString(parsed.expiry_date),
+      bbeeLevel: asNumber(parsed.bbeeLevel) ?? asNumber(parsed.bbee_level),
+      bbeeScore: asNumber(parsed.bbeeScore) ?? asNumber(parsed.bbee_score),
+      verificationAgency: asString(parsed.verificationAgency) ?? asString(parsed.verification_agency),
+      confidence: docType !== 'unknown' ? 0.85 : 0.3,
+      warnings: [],
+    };
+
+    log.info('Statutory doc extraction successful', {
+      documentType: result.documentType,
+      entityName: result.entityName,
+    }, 'vlm-service');
+
+    return result;
+  } catch (err) {
+    log.error('Failed to parse statutory doc VLM response', {
+      error: err instanceof Error ? err.message : String(err),
+    }, 'vlm-service');
+    return null;
+  }
+}
+
+// ===========================================================================
+// Shared VLM JSON cleanup
+// ===========================================================================
+
+function cleanVlmJson(content: string): string {
+  let jsonStr = content.trim();
+  if (jsonStr.startsWith('```')) {
+    jsonStr = jsonStr.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
+  }
+  if (jsonStr.includes('<think>')) {
+    jsonStr = jsonStr.replace(/<think>[\s\S]*?<\/think>\s*/g, '').trim();
+  }
+  const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+  if (jsonMatch) jsonStr = jsonMatch[0];
+  return jsonStr;
 }

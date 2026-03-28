@@ -7,7 +7,10 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, Receipt, Plus, Trash2, Loader2 } from 'lucide-react';
+import { ArrowLeft, Receipt, Plus, Trash2, Loader2, Info } from 'lucide-react';
+import { ScanAndFillButton } from '@/components/accounting/ScanAndFillButton';
+import { fuzzyMatchSupplier } from '@/modules/accounting/utils/fuzzyMatch';
+import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 
 interface LineItem {
   key: string;
@@ -30,6 +33,7 @@ export default function NewSupplierInvoicePage() {
   const [glAccounts, setGLAccounts] = useState<GLAccount[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [scanBanner, setScanBanner] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     invoiceNumber: '',
@@ -77,6 +81,48 @@ export default function NewSupplierInvoicePage() {
   const subtotal = lines.reduce((sum, l) => sum + l.quantity * l.unitPrice, 0);
   const totalTax = lines.reduce((sum, l) => sum + (l.quantity * l.unitPrice * l.taxRate / 100), 0);
   const total = subtotal + totalTax;
+
+  function handleExtracted(data: ExtractedDocument) {
+    const updates: Partial<typeof form> = {};
+    if (data.referenceNumber) updates.invoiceNumber = data.referenceNumber;
+    if (data.date) updates.invoiceDate = data.date;
+    if (data.dueDate) updates.dueDate = data.dueDate;
+    if (data.purchaseOrderRef) updates.reference = data.purchaseOrderRef;
+    if (data.vatRate !== null) updates.taxRate = data.vatRate;
+
+    // Map payment terms
+    if (data.paymentTerms) {
+      const pt = data.paymentTerms.toLowerCase();
+      if (pt.includes('immediate') || pt.includes('cod') || pt.includes('0 day')) updates.paymentTerms = 'immediate';
+      else if (pt.includes('30')) updates.paymentTerms = 'net30';
+      else if (pt.includes('60')) updates.paymentTerms = 'net60';
+      else if (pt.includes('90')) updates.paymentTerms = 'net90';
+    }
+
+    setForm(f => ({ ...f, ...updates }));
+
+    // Fuzzy match supplier
+    if (data.vendorName && suppliers.length > 0) {
+      const match = fuzzyMatchSupplier(data.vendorName, suppliers.map(s => ({ id: String(s.id), name: s.name })));
+      if (match) {
+        setForm(f => ({ ...f, supplierId: String(match.id) }));
+      }
+    }
+
+    // Populate line items
+    if (data.lineItems.length > 0) {
+      setLines(data.lineItems.map(li => ({
+        key: crypto.randomUUID(),
+        description: li.description,
+        quantity: li.quantity ?? 1,
+        unitPrice: li.unitPrice ?? 0,
+        taxRate: data.vatRate ?? form.taxRate,
+        glAccountId: '',
+      })));
+    }
+
+    setScanBanner(`Auto-filled from document (${Math.round(data.confidence * 100)}% confidence). Review all fields before submitting.`);
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -127,15 +173,25 @@ export default function NewSupplierInvoicePage() {
           <Link href="/accounting/supplier-invoices" className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-teal-600 mb-3">
             <ArrowLeft className="h-4 w-4" /> Back to Supplier Invoices
           </Link>
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-teal-500/10">
-              <Receipt className="h-6 w-6 text-teal-500" />
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-teal-500/10">
+                <Receipt className="h-6 w-6 text-teal-500" />
+              </div>
+              <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">New Supplier Invoice</h1>
             </div>
-            <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">New Supplier Invoice</h1>
+            <ScanAndFillButton onExtracted={handleExtracted} label="Scan Invoice" />
           </div>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-6 max-w-5xl">
+          {scanBanner && (
+            <div className="p-3 bg-teal-500/10 rounded-lg text-teal-400 text-sm flex items-center gap-2">
+              <Info className="h-4 w-4 flex-shrink-0" />
+              {scanBanner}
+              <button type="button" onClick={() => setScanBanner(null)} className="ml-auto text-teal-500 hover:text-teal-300 text-xs">Dismiss</button>
+            </div>
+          )}
           {error && (
             <div className="p-3 bg-red-500/10 rounded-lg text-red-400 text-sm">{error}</div>
           )}

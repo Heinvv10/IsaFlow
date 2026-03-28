@@ -7,7 +7,10 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, Wallet, Loader2, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, Wallet, Loader2, Plus, Trash2, Info } from 'lucide-react';
+import { ScanAndFillButton } from '@/components/accounting/ScanAndFillButton';
+import { fuzzyMatchClient } from '@/modules/accounting/utils/fuzzyMatch';
+import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 
 interface Client { id: string; company_name: string }
 interface OutstandingInvoice {
@@ -28,6 +31,7 @@ export default function NewCustomerPaymentPage() {
   const [invoices, setInvoices] = useState<OutstandingInvoice[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [scanBanner, setScanBanner] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     clientId: '',
@@ -76,6 +80,27 @@ export default function NewCustomerPaymentPage() {
     setAllocations(prev => prev.map(a => a.key === key ? { ...a, [field]: value } : a));
   };
 
+  function handleExtracted(data: ExtractedDocument) {
+    if (data.date) setForm(f => ({ ...f, paymentDate: data.date! }));
+    if (data.referenceNumber) setForm(f => ({ ...f, bankReference: data.referenceNumber! }));
+
+    if (data.customerName && clients.length > 0) {
+      const match = fuzzyMatchClient(data.customerName, clients);
+      if (match) setForm(f => ({ ...f, clientId: String(match.id) }));
+    }
+
+    if (data.totalAmount && invoices.length > 0) {
+      const exactMatch = invoices.find(inv =>
+        Math.abs((Number(inv.total_amount) - Number(inv.amount_paid)) - data.totalAmount!) < 0.02
+      );
+      if (exactMatch) {
+        setAllocations([{ key: crypto.randomUUID(), invoiceId: exactMatch.id, amount: data.totalAmount }]);
+      }
+    }
+
+    setScanBanner(`Auto-filled from document (${Math.round(data.confidence * 100)}% confidence). Review all fields.`);
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -118,16 +143,25 @@ export default function NewCustomerPaymentPage() {
             <Link href="/accounting/customer-payments" className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] mb-2">
               <ArrowLeft className="h-4 w-4" /> Back to Payments
             </Link>
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-teal-500/10">
-                <Wallet className="h-6 w-6 text-teal-500" />
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-teal-500/10">
+                  <Wallet className="h-6 w-6 text-teal-500" />
+                </div>
+                <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Record Customer Payment</h1>
               </div>
-              <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Record Customer Payment</h1>
+              <ScanAndFillButton onExtracted={handleExtracted} label="Scan Document" />
             </div>
           </div>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 max-w-4xl space-y-6">
+          {scanBanner && (
+            <div className="p-3 bg-teal-500/10 rounded-lg text-teal-400 text-sm flex items-center gap-2">
+              <Info className="h-4 w-4 flex-shrink-0" />{scanBanner}
+              <button type="button" onClick={() => setScanBanner(null)} className="ml-auto text-teal-500 hover:text-teal-300 text-xs">Dismiss</button>
+            </div>
+          )}
           {error && (
             <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{error}</div>
           )}
