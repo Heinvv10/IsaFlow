@@ -53,8 +53,8 @@ async function getCurrentCashBalance(): Promise<number> {
       CASE WHEN ga.account_subtype IN ('bank', 'cash')
         THEN COALESCE(
           (SELECT SUM(jl.debit) - SUM(jl.credit)
-           FROM journal_entry_lines jl
-           JOIN journal_entries je ON je.id = jl.journal_entry_id
+           FROM gl_journal_lines jl
+           JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
            WHERE jl.gl_account_id = ga.id
              AND je.status = 'posted'),
           0)
@@ -77,13 +77,13 @@ async function getHistoricalCashFlows(months: number): Promise<HistoricalCashFlo
         date_trunc('month', je.entry_date) AS month,
         COALESCE(SUM(CASE WHEN jl.debit > 0 AND ga.account_subtype IN ('bank', 'cash') THEN jl.debit ELSE 0 END), 0) AS inflow,
         COALESCE(SUM(CASE WHEN jl.credit > 0 AND ga.account_subtype IN ('bank', 'cash') THEN jl.credit ELSE 0 END), 0) AS outflow
-      FROM journal_entry_lines jl
-      JOIN journal_entries je ON je.id = jl.journal_entry_id
+      FROM gl_journal_lines jl
+      JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id
       WHERE je.status = 'posted'
         AND ga.account_type = 'asset'
         AND ga.account_subtype IN ('bank', 'cash')
-        AND je.entry_date >= (CURRENT_DATE - (${months} || ' months')::INTERVAL)
+        AND je.entry_date >= CURRENT_DATE - make_interval(months => ${months})
       GROUP BY date_trunc('month', je.entry_date)
     )
     SELECT
@@ -106,11 +106,11 @@ async function getHistoricalCashFlows(months: number): Promise<HistoricalCashFlo
 /** Get known future receivables (unpaid customer invoices) */
 async function getExpectedReceivables(): Promise<Array<{ dueDate: string; amount: number }>> {
   const rows = (await sql`
-    SELECT due_date, SUM(total - COALESCE(amount_paid, 0)) AS amount_due
+    SELECT due_date, SUM(total_amount - COALESCE(amount_paid, 0)) AS amount_due
     FROM customer_invoices
     WHERE status IN ('sent', 'overdue', 'approved')
       AND due_date >= CURRENT_DATE
-      AND (total - COALESCE(amount_paid, 0)) > 0
+      AND (total_amount - COALESCE(amount_paid, 0)) > 0
     GROUP BY due_date
     ORDER BY due_date ASC
   `) as Row[];
@@ -124,11 +124,11 @@ async function getExpectedReceivables(): Promise<Array<{ dueDate: string; amount
 /** Get known future payables (unpaid supplier invoices) */
 async function getExpectedPayables(): Promise<Array<{ dueDate: string; amount: number }>> {
   const rows = (await sql`
-    SELECT due_date, SUM(total - COALESCE(amount_paid, 0)) AS amount_due
+    SELECT due_date, SUM(total_amount - COALESCE(amount_paid, 0)) AS amount_due
     FROM supplier_invoices
     WHERE status IN ('approved', 'received', 'overdue')
       AND due_date >= CURRENT_DATE
-      AND (total - COALESCE(amount_paid, 0)) > 0
+      AND (total_amount - COALESCE(amount_paid, 0)) > 0
     GROUP BY due_date
     ORDER BY due_date ASC
   `) as Row[];

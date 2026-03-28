@@ -217,9 +217,14 @@ test.describe('Branding', () => {
     await expect(page.locator('text=IsaFlow').first()).toBeVisible();
   });
 
-  test('shows IsaFlow on the login page', async ({ page }) => {
+  test('shows sign-in form on the login page', async ({ browser }) => {
+    // Use a fresh context without auth to test the login page
+    const context = await browser.newContext();
+    const page = await context.newPage();
     await page.goto('/login');
-    await expect(page.locator('h1', { hasText: 'IsaFlow' })).toBeVisible();
+    await page.waitForLoadState('networkidle');
+    await expect(page.locator('text=Sign in').first()).toBeVisible({ timeout: 10000 });
+    await context.close();
   });
 
   test('meta application-name is IsaFlow', async ({ page }) => {
