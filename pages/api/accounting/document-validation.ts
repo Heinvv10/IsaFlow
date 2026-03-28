@@ -51,15 +51,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (entityType === 'supplier_invoice') {
     const [invoice] = (await sql`
-      SELECT invoice_number, total_amount, vat_amount, tax_rate
-      FROM sage_supplier_invoices WHERE id = ${entityId}::uuid
+      SELECT invoice_number, total_amount, tax_amount as vat_amount, tax_rate
+      FROM supplier_invoices WHERE id = ${entityId}::uuid
     `) as Row[];
     if (!invoice) return apiResponse.notFound(res, 'Supplier invoice', entityId);
 
     // Get supplier name
     const [supplier] = (await sql`
-      SELECT name FROM sage_suppliers WHERE id = (
-        SELECT supplier_id FROM sage_supplier_invoices WHERE id = ${entityId}::uuid
+      SELECT name FROM suppliers WHERE id = (
+        SELECT supplier_id FROM supplier_invoices WHERE id = ${entityId}::uuid
       )
     `) as Row[];
 
@@ -85,7 +85,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     });
   } else if (entityType === 'supplier_payment' || entityType === 'customer_payment') {
     const [payment] = entityType === 'supplier_payment'
-      ? (await sql`SELECT total_amount, payment_date, reference FROM sage_supplier_payments WHERE id = ${entityId}::uuid`) as Row[]
+      ? (await sql`SELECT total_amount, payment_date, reference FROM supplier_payments WHERE id = ${entityId}::uuid`) as Row[]
       : (await sql`SELECT total_amount, payment_date, reference FROM customer_payments WHERE id = ${entityId}::uuid`) as Row[];
     if (!payment) return apiResponse.notFound(res, entityType, entityId);
 
