@@ -10,7 +10,7 @@ import type { NextRequest } from 'next/server';
 
 const AUTH_COOKIE_NAME = 'ff_auth_token';
 
-const PUBLIC_PATHS = ['/login', '/api/auth/login', '/api/auth/logout'];
+const PUBLIC_PATHS = ['/login', '/register', '/api/auth/login', '/api/auth/logout', '/api/auth/register', '/onboarding', '/api/onboarding'];
 
 /** Hostnames that should skip the landing page and go straight to the app */
 const APP_HOSTS = ['app.isaflow.co.za'];
@@ -47,9 +47,16 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
+  // Redirect to onboarding if user hasn't completed it
+  if (token && !request.cookies.get('ff_onboarding_done')?.value) {
+    if (pathname.startsWith('/accounting')) {
+      return NextResponse.redirect(new URL('/onboarding', request.url));
+    }
+  }
+
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: ['/', '/accounting/:path*'],
+  matcher: ['/', '/accounting/:path*', '/onboarding/:path*'],
 };

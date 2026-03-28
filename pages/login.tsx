@@ -6,6 +6,7 @@
 
 import { useState, FormEvent } from 'react';
 import { useRouter } from 'next/router';
+import Link from 'next/link';
 import { BookOpen, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
@@ -50,6 +51,13 @@ export default function LoginPage() {
           <img src="/logo.png" alt="ISAFlow" className="h-16 w-auto brightness-0 invert mb-4" />
           <p className="text-sm text-gray-500 mt-1">Sign in to your account</p>
         </div>
+
+        {/* Registration success banner */}
+        {router.query.registered === '1' && (
+          <div className="mb-4 px-3 py-2.5 bg-green-500/10 border border-green-500/30 rounded-lg">
+            <p className="text-sm text-green-400">Account created successfully! Please sign in.</p>
+          </div>
+        )}
 
         {/* Card */}
         <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 shadow-xl">
@@ -135,6 +143,14 @@ export default function LoginPage() {
             </button>
           </form>
         </div>
+
+        {/* Footer link */}
+        <p className="text-center text-sm text-gray-500 mt-6">
+          Don&apos;t have an account?{' '}
+          <Link href="/register" className="text-teal-400 hover:text-teal-300 transition-colors">
+            Create one
+          </Link>
+        </p>
 
       </div>
     </div>

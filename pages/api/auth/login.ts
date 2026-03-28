@@ -33,7 +33,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Look up user by email
     const rows = (await sql`
       SELECT id, email, password_hash, first_name, last_name, role,
-             is_active, permissions, profile_picture, department
+             is_active, permissions, profile_picture, department, onboarding_completed
       FROM users
       WHERE email = ${email.toLowerCase().trim()}
       LIMIT 1
@@ -105,20 +105,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     `;
 
     // Set HttpOnly cookie
-    res.setHeader(
-      'Set-Cookie',
-      serialize(AUTH_COOKIE_NAME, finalToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
-        path: '/',
-        maxAge: 30 * 24 * 60 * 60, // 30 days
-      })
-    );
+    const authCookieString = serialize(AUTH_COOKIE_NAME, finalToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      path: '/',
+      maxAge: 30 * 24 * 60 * 60, // 30 days
+    });
+
+    const cookies = [authCookieString];
+    if (user.onboarding_completed) {
+      cookies.push(`ff_onboarding_done=1; Path=/; Max-Age=${30 * 24 * 60 * 60}; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`);
+    }
+    res.setHeader('Set-Cookie', cookies);
 
     log.info('User logged in', { userId: authUser.id, email: authUser.email }, 'auth/login');
 
-    return apiResponse.success(res, { user: authUser }, 'Login successful');
+    return apiResponse.success(res, { user: { ...authUser, onboardingCompleted: !!user.onboarding_completed } }, 'Login successful');
   } catch (err) {
     log.error('Login error', err instanceof Error ? { message: err.message } : { err }, 'auth/login');
     return apiResponse.internalError(res, err);
