@@ -1,6 +1,6 @@
 /**
  * Document Capture API
- * POST /api/accounting/document-capture  — Upload PDF, extract data, save
+ * POST /api/accounting/document-capture  — Upload PDF or image, extract data, save
  * GET  /api/accounting/document-capture  — List captured documents
  */
 
@@ -12,7 +12,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
-import { extractFromPdf } from '@/modules/accounting/services/ocrService';
+import { extractFromPdf, extractFromImage } from '@/modules/accounting/services/ocrService';
 import type { CapturedDocument } from '@/modules/accounting/types/documentCapture.types';
 
 export const config = {
@@ -20,6 +20,15 @@ export const config = {
 };
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
+const ALLOWED_MIME_TYPES: Record<string, string> = {
+  'application/pdf': 'pdf',
+  'image/jpeg': 'jpeg',
+  'image/jpg': 'jpeg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/tiff': 'tiff',
+};
 
 /** In-memory file buffer attached to formidable file objects */
 const fileBuffers = new WeakMap<formidable.File, Buffer>();
@@ -30,9 +39,9 @@ function parseForm(req: NextApiRequest): Promise<{ fields: formidable.Fields; fi
       maxFileSize: MAX_FILE_SIZE,
       keepExtensions: true,
       filter: (part) => {
-        return part.mimetype === 'application/pdf' || part.mimetype === null || part.mimetype === undefined;
+        const mime = part.mimetype || '';
+        return mime in ALLOWED_MIME_TYPES || !mime;
       },
-      // Write to memory instead of disk to avoid read-only filesystem issues
       fileWriteStreamHandler: (file) => {
         const chunks: Buffer[] = [];
         const writable = new Writable({
@@ -124,7 +133,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.paginated(res, documents, { page, pageSize, total });
 }
 
-/** POST — Upload a PDF, extract data, save to captured_documents */
+/** POST — Upload a PDF or image, extract data, save to captured_documents */
 async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;
   const user = (req as NextApiRequest & { user: { id: string } }).user;
@@ -135,41 +144,55 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     const file = Array.isArray(fileField) ? fileField[0] : fileField;
 
     if (!file) {
-      return apiResponse.badRequest(res, 'No file uploaded. Please select a PDF file.');
+      return apiResponse.badRequest(res, 'No file uploaded. Please select a PDF or image file.');
     }
 
     const mimeType = file.mimetype || '';
+    const fileTypeKey = ALLOWED_MIME_TYPES[mimeType];
 
-    if (mimeType !== 'application/pdf') {
-      return apiResponse.badRequest(res, `Only PDF files are supported. Received: ${mimeType}`);
+    if (!fileTypeKey) {
+      const supported = Object.keys(ALLOWED_MIME_TYPES).join(', ');
+      return apiResponse.badRequest(res, `Unsupported file type: ${mimeType}. Supported: ${supported}`);
     }
 
     if (file.size > MAX_FILE_SIZE) {
       return apiResponse.badRequest(res, `File too large. Maximum size: ${MAX_FILE_SIZE / (1024 * 1024)}MB`);
     }
 
-    // Get the in-memory buffer
     const buffer = fileBuffers.get(file);
     if (!buffer || buffer.length === 0) {
       return apiResponse.badRequest(res, 'Failed to read uploaded file');
     }
 
-    // Validate PDF magic bytes
+    // Validate file magic bytes
     const hex = buffer.subarray(0, 4).toString('hex').toUpperCase();
-    if (!hex.startsWith('25504446')) {
-      return apiResponse.badRequest(res, 'File does not appear to be a valid PDF');
+    const isPdf = hex.startsWith('25504446'); // %PDF
+    const isJpeg = hex.startsWith('FFD8FF');
+    const isPng = hex.startsWith('89504E47');
+    const isWebp = buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP';
+    const isTiff = hex.startsWith('49492A00') || hex.startsWith('4D4D002A');
+
+    if (!isPdf && !isJpeg && !isPng && !isWebp && !isTiff) {
+      return apiResponse.badRequest(res, 'File does not appear to be a valid PDF or image');
     }
 
     log.info('Starting document capture extraction', {
       fileName: file.originalFilename,
       fileSize: file.size,
+      mimeType,
+      fileType: fileTypeKey,
     }, 'document-capture');
 
-    // Extract data from PDF
-    const extracted = await extractFromPdf(buffer);
+    // Extract data based on file type
+    let extracted;
+    if (isPdf) {
+      extracted = await extractFromPdf(buffer);
+    } else {
+      extracted = await extractFromImage(buffer, mimeType);
+    }
 
     // Save to database
-    const fileName = file.originalFilename || `capture_${Date.now()}.pdf`;
+    const fileName = file.originalFilename || `capture_${Date.now()}.${fileTypeKey}`;
 
     const [row] = await sql`
       INSERT INTO captured_documents (
@@ -179,7 +202,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       ) VALUES (
         ${companyId},
         ${fileName},
-        'pdf',
+        ${fileTypeKey},
         ${file.size},
         ${extracted.documentType},
         ${JSON.stringify(extracted)}::jsonb,
@@ -198,6 +221,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       id: row?.id,
       confidence: extracted.confidence,
       documentType: extracted.documentType,
+      extractionMethod: extracted.extractionMethod,
     }, 'document-capture');
 
     return apiResponse.created(res, {

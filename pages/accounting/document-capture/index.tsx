@@ -98,8 +98,10 @@ export default function DocumentCapturePage() {
   }, [uploadResult]);
 
   async function handleUpload(file: File) {
-    if (!file.name.toLowerCase().endsWith('.pdf')) {
-      notify.error('Only PDF files are supported');
+    const allowedExts = ['.pdf', '.jpg', '.jpeg', '.png', '.webp', '.tiff', '.tif'];
+    const ext = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
+    if (!allowedExts.includes(ext)) {
+      notify.error('Supported formats: PDF, JPEG, PNG, WebP, TIFF');
       return;
     }
     if (file.size > 10 * 1024 * 1024) {
@@ -248,7 +250,7 @@ export default function DocumentCapturePage() {
             <input
               ref={fileInputRef}
               type="file"
-              accept=".pdf,application/pdf"
+              accept=".pdf,application/pdf,image/jpeg,image/png,image/webp,image/tiff"
               className="hidden"
               onChange={(e) => {
                 const file = e.target.files?.[0];
@@ -265,10 +267,10 @@ export default function DocumentCapturePage() {
                 <Upload className="h-10 w-10 text-[var(--ff-text-tertiary)]" />
                 <div>
                   <p className="text-sm font-medium text-[var(--ff-text-primary)]">
-                    Drop a PDF here or click to browse
+                    Drop a document here or click to browse
                   </p>
                   <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">
-                    Invoices, receipts, credit notes — PDF up to 10MB
+                    Invoices, receipts, credit notes — PDF or image up to 10MB
                   </p>
                 </div>
               </div>
