@@ -28,6 +28,7 @@ export interface Company {
   email: string | null;
   website: string | null;
   logoUrl: string | null;
+  logoData: string | null;
   bankName: string | null;
   bankAccountNumber: string | null;
   bankBranchCode: string | null;
@@ -66,12 +67,41 @@ export async function createCompany(input: {
   taxNumber?: string;
   email?: string;
   phone?: string;
+  website?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  province?: string;
+  postalCode?: string;
+  country?: string;
+  logoData?: string;
+  bankName?: string;
+  bankAccountNumber?: string;
+  bankBranchCode?: string;
+  bankAccountType?: string;
+  financialYearStart?: number;
+  vatPeriod?: string;
+  defaultCurrency?: string;
 }, userId: string): Promise<Company> {
   const rows = (await sql`
-    INSERT INTO companies (name, trading_name, registration_number, vat_number, tax_number, email, phone)
-    VALUES (${input.name}, ${input.tradingName || null}, ${input.registrationNumber || null},
-            ${input.vatNumber || null}, ${input.taxNumber || null}, ${input.email || null}, ${input.phone || null})
-    RETURNING *
+    INSERT INTO companies (
+      name, trading_name, registration_number, vat_number, tax_number,
+      email, phone, website,
+      address_line1, address_line2, city, province, postal_code, country,
+      logo_data,
+      bank_name, bank_account_number, bank_branch_code, bank_account_type,
+      financial_year_start, vat_period, default_currency
+    ) VALUES (
+      ${input.name}, ${input.tradingName || null}, ${input.registrationNumber || null},
+      ${input.vatNumber || null}, ${input.taxNumber || null}, ${input.email || null}, ${input.phone || null},
+      ${input.website || null},
+      ${input.addressLine1 || null}, ${input.addressLine2 || null}, ${input.city || null},
+      ${input.province || null}, ${input.postalCode || null}, ${input.country || 'South Africa'},
+      ${input.logoData || null},
+      ${input.bankName || null}, ${input.bankAccountNumber || null}, ${input.bankBranchCode || null},
+      ${input.bankAccountType || 'current'},
+      ${input.financialYearStart ?? 3}, ${input.vatPeriod || 'bi-monthly'}, ${input.defaultCurrency || 'ZAR'}
+    ) RETURNING *
   `) as Row[];
 
   // Auto-assign creator as owner
@@ -95,14 +125,18 @@ export async function updateCompany(id: string, input: Partial<{
   city: string;
   province: string;
   postalCode: string;
+  country: string;
   phone: string;
   email: string;
   website: string;
+  logoData: string;
   bankName: string;
   bankAccountNumber: string;
   bankBranchCode: string;
+  bankAccountType: string;
   financialYearStart: number;
   vatPeriod: string;
+  defaultCurrency: string;
 }>): Promise<Company> {
   const rows = (await sql`
     UPDATE companies SET
@@ -116,14 +150,18 @@ export async function updateCompany(id: string, input: Partial<{
       city = COALESCE(${input.city ?? null}, city),
       province = COALESCE(${input.province ?? null}, province),
       postal_code = COALESCE(${input.postalCode ?? null}, postal_code),
+      country = COALESCE(${input.country ?? null}, country),
       phone = COALESCE(${input.phone ?? null}, phone),
       email = COALESCE(${input.email ?? null}, email),
       website = COALESCE(${input.website ?? null}, website),
+      logo_data = COALESCE(${input.logoData ?? null}, logo_data),
       bank_name = COALESCE(${input.bankName ?? null}, bank_name),
       bank_account_number = COALESCE(${input.bankAccountNumber ?? null}, bank_account_number),
       bank_branch_code = COALESCE(${input.bankBranchCode ?? null}, bank_branch_code),
+      bank_account_type = COALESCE(${input.bankAccountType ?? null}, bank_account_type),
       financial_year_start = COALESCE(${input.financialYearStart ?? null}, financial_year_start),
       vat_period = COALESCE(${input.vatPeriod ?? null}, vat_period),
+      default_currency = COALESCE(${input.defaultCurrency ?? null}, default_currency),
       updated_at = NOW()
     WHERE id = ${id}::UUID RETURNING *
   `) as Row[];
@@ -186,6 +224,7 @@ function mapCompany(r: Row): Company {
     email: r.email,
     website: r.website,
     logoUrl: r.logo_url,
+    logoData: r.logo_data || null,
     bankName: r.bank_name,
     bankAccountNumber: r.bank_account_number,
     bankBranchCode: r.bank_branch_code,

@@ -22,6 +22,7 @@ export interface AuthUser {
   isActive: boolean;
   profilePicture?: string | null;
   department?: string;
+  onboardingCompleted?: boolean;
 }
 
 interface AuthContextType {
@@ -72,6 +73,7 @@ function mapApiUser(raw: Record<string, unknown>): AuthUser {
     isActive: raw.isActive !== false && raw.is_active !== false,
     profilePicture: (raw.profilePicture as string) || (raw.profile_picture as string) || null,
     department: (raw.department as string) || undefined,
+    onboardingCompleted: raw.onboardingCompleted === true || raw.onboarding_completed === true,
   };
 }
 

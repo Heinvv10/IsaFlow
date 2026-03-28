@@ -191,7 +191,7 @@ export default function LandingPage() {
                 <a href={`${APP_URL}/login`} className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors">
                   Sign In
                 </a>
-                <a href={`${APP_URL}/login`} className="px-5 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-teal-600 to-teal-500 rounded-xl hover:from-teal-700 hover:to-teal-600 transition-all shadow-lg shadow-teal-500/25 hover:shadow-teal-500/40">
+                <a href={`${APP_URL}/register`} className="px-5 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-teal-600 to-teal-500 rounded-xl hover:from-teal-700 hover:to-teal-600 transition-all shadow-lg shadow-teal-500/25 hover:shadow-teal-500/40">
                   Start Free Trial
                 </a>
               </div>
@@ -213,7 +213,7 @@ export default function LandingPage() {
                 <a href="#faq" onClick={() => setMobileMenuOpen(false)} className="block px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-50">FAQ</a>
                 <hr className="my-2 border-gray-100" />
                 <a href={`${APP_URL}/login`} className="block px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-50">Sign In</a>
-                <a href={`${APP_URL}/login`} className="block px-3 py-2.5 text-sm font-semibold text-center text-white bg-teal-600 rounded-xl">Start Free Trial</a>
+                <a href={`${APP_URL}/register`} className="block px-3 py-2.5 text-sm font-semibold text-center text-white bg-teal-600 rounded-xl">Start Free Trial</a>
               </div>
             </div>
           )}
@@ -243,7 +243,7 @@ export default function LandingPage() {
                   Invoicing, bank reconciliation, VAT returns, SARS compliance, payroll — everything your business needs in one powerful, beautifully simple platform.
                 </p>
                 <div className="flex flex-col sm:flex-row gap-3">
-                  <a href={`${APP_URL}/login`} className="inline-flex items-center justify-center gap-2 px-7 py-3.5 text-base font-semibold text-white bg-gradient-to-r from-teal-600 to-teal-500 rounded-xl hover:from-teal-700 hover:to-teal-600 transition-all shadow-xl shadow-teal-500/25 hover:shadow-teal-500/40">
+                  <a href={`${APP_URL}/register`} className="inline-flex items-center justify-center gap-2 px-7 py-3.5 text-base font-semibold text-white bg-gradient-to-r from-teal-600 to-teal-500 rounded-xl hover:from-teal-700 hover:to-teal-600 transition-all shadow-xl shadow-teal-500/25 hover:shadow-teal-500/40">
                     Start Free Trial <ArrowRight className="w-4 h-4" />
                   </a>
                   <a href="#features" className="inline-flex items-center justify-center gap-2 px-7 py-3.5 text-base font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition-all shadow-sm">
@@ -251,6 +251,7 @@ export default function LandingPage() {
                   </a>
                 </div>
                 <p className="mt-4 text-sm text-gray-500">14-day free trial &middot; No credit card required</p>
+                <p className="mt-2 text-sm text-gray-500">Already have an account? <a href={`${APP_URL}/login`} className="text-teal-600 font-medium hover:underline">Sign in</a></p>
               </div>
 
               {/* Right — hero image */}
@@ -451,7 +452,7 @@ export default function LandingPage() {
                   </ul>
 
                   <a
-                    href={tier.name === 'Enterprise' ? '#contact' : `${APP_URL}/login`}
+                    href={tier.name === 'Enterprise' ? '#contact' : `${APP_URL}/register`}
                     className={`block w-full text-center py-3 rounded-xl text-sm font-semibold transition-all ${
                       tier.popular
                         ? 'bg-gradient-to-r from-teal-500 to-cyan-500 text-white hover:from-teal-600 hover:to-cyan-600 shadow-lg shadow-teal-500/25'
@@ -544,7 +545,7 @@ export default function LandingPage() {
               Join South African businesses who have already made the switch to ISAFlow. Start your 14-day free trial today.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
-              <a href={`${APP_URL}/login`} className="inline-flex items-center justify-center gap-2 px-8 py-3.5 text-base font-semibold text-white bg-gradient-to-r from-teal-500 to-cyan-500 rounded-xl hover:from-teal-600 hover:to-cyan-600 transition-all shadow-xl shadow-teal-500/25">
+              <a href={`${APP_URL}/register`} className="inline-flex items-center justify-center gap-2 px-8 py-3.5 text-base font-semibold text-white bg-gradient-to-r from-teal-500 to-cyan-500 rounded-xl hover:from-teal-600 hover:to-cyan-600 transition-all shadow-xl shadow-teal-500/25">
                 Start Free Trial <ArrowRight className="w-4 h-4" />
               </a>
               <a href="#contact" className="inline-flex items-center justify-center gap-2 px-8 py-3.5 text-base font-semibold text-white border border-gray-600 rounded-xl hover:bg-gray-800 transition-all">
