@@ -160,7 +160,7 @@ export async function getDashboardKPIs(companyId: string,
       // Average debtor days
       sql`
         SELECT COALESCE(AVG(
-          EXTRACT(EPOCH FROM (COALESCE(paid_date, CURRENT_DATE) - invoice_date)) / 86400
+          EXTRACT(EPOCH FROM (COALESCE(paid_at, CURRENT_DATE) - invoice_date)) / 86400
         ), 0) AS avg_days
         FROM customer_invoices
         WHERE status NOT IN ('cancelled', 'draft')
@@ -187,7 +187,7 @@ export async function getDashboardKPIs(companyId: string,
       // Average creditor days
       sql`
         SELECT COALESCE(AVG(
-          EXTRACT(EPOCH FROM (COALESCE(paid_date, CURRENT_DATE) - invoice_date)) / 86400
+          EXTRACT(EPOCH FROM (COALESCE(paid_at, CURRENT_DATE) - invoice_date)) / 86400
         ), 0) AS avg_days
         FROM supplier_invoices
         WHERE status NOT IN ('cancelled', 'draft')
@@ -207,7 +207,7 @@ export async function getDashboardKPIs(companyId: string,
         SELECT COUNT(*) AS count
         FROM customer_invoices
         WHERE company_id = ${companyId}::UUID
-          AND paid_date >= ${fromDate} AND paid_date <= ${toDate}
+          AND paid_at >= ${fromDate} AND paid_at <= ${toDate}
       `,
       // Journal entries posted this period
       sql`

@@ -176,7 +176,8 @@ test.describe('Payroll module', () => {
 test.describe('SARS eFiling', () => {
   test('SARS dashboard loads', async ({ page }) => {
     await page.goto('/accounting/sars');
-    await expect(page.locator('text=SARS').first()).toBeVisible();
+    await page.waitForLoadState('networkidle');
+    await expect(page.locator('h1', { hasText: /SARS/ })).toBeVisible({ timeout: 10000 });
   });
 
   test('VAT201 page loads', async ({ page }) => {
