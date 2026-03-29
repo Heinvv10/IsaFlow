@@ -27,7 +27,7 @@ export default function NewBatchPaymentPage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    apiFetch('/api/suppliers', { credentials: 'include' }).then(r => r.json()).then(res => {
+    apiFetch('/api/accounting/suppliers-list', { credentials: 'include' }).then(r => r.json()).then(res => {
       const d = res.data || res;
       setSuppliers(Array.isArray(d) ? d : d.suppliers || []);
     });

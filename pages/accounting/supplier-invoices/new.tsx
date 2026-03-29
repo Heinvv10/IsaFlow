@@ -52,7 +52,7 @@ export default function NewSupplierInvoicePage() {
 
   useEffect(() => {
     Promise.all([
-      apiFetch('/api/suppliers').then(r => r.json()),
+      apiFetch('/api/accounting/suppliers-list').then(r => r.json()),
       apiFetch('/api/accounting/chart-of-accounts').then(r => r.json()),
     ]).then(([suppRes, accRes]) => {
       const suppData = suppRes.data || suppRes;

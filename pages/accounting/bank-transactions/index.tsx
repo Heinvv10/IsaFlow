@@ -96,11 +96,11 @@ export default function BankTransactionsPage() {
     Promise.all([
       apiFetch('/api/accounting/bank-accounts').then(r => r.json()),
       apiFetch('/api/accounting/chart-of-accounts').then(r => r.json()),
-      apiFetch('/api/suppliers?status=active').then(r => r.json()),
-      apiFetch('/api/clients').then(r => r.json()),
+      apiFetch('/api/accounting/suppliers-list?status=active').then(r => r.json()),
+      apiFetch('/api/accounting/customers').then(r => r.json()),
       apiFetch('/api/accounting/cost-centres?cc_type=cc1&active=true').then(r => r.json()),
       apiFetch('/api/accounting/cost-centres?cc_type=cc2&active=true').then(r => r.json()),
-      apiFetch('/api/departments?isActive=true').then(r => r.json()),
+      apiFetch('/api/accounting/cost-centres?active=true').then(r => r.json()),
     ]).then(([bankJson, coaJson, suppJson, clientJson, cc1Json, cc2Json, deptJson]) => {
       const bankList = Array.isArray(bankJson.data || bankJson) ? (bankJson.data || bankJson) : [];
       setBankAccounts(bankList);
@@ -121,8 +121,8 @@ export default function BankTransactionsPage() {
       })));
 
       const clientList = Array.isArray(clientJson.data) ? clientJson.data : [];
-      setCustomers(clientList.map((c: { id: string; name?: string; company_name?: string; companyName?: string }) => ({
-        id: c.id, name: c.company_name || c.companyName || c.name || '',
+      setCustomers(clientList.map((c: { id: string; name: string }) => ({
+        id: c.id, name: c.name || '',
       })));
 
       const cc1List = Array.isArray(cc1Json.data?.items) ? cc1Json.data.items : [];

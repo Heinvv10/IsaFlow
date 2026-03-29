@@ -46,7 +46,7 @@ export default function NewSupplierPaymentPage() {
   ]);
 
   useEffect(() => {
-    apiFetch('/api/suppliers').then(r => r.json()).then(res => {
+    apiFetch('/api/accounting/suppliers-list').then(r => r.json()).then(res => {
       const data = res.data || res;
       setSuppliers(Array.isArray(data) ? data : data.suppliers || []);
     });

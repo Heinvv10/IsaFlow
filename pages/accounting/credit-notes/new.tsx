@@ -36,11 +36,11 @@ export default function NewCreditNotePage() {
   const totalAmount = form.subtotal + taxAmount;
 
   useEffect(() => {
-    apiFetch('/api/clients').then(r => r.json()).then(res => {
+    apiFetch('/api/accounting/customers').then(r => r.json()).then(res => {
       const data = res.data || res;
       setClients(Array.isArray(data) ? data : data.clients || []);
     });
-    apiFetch('/api/suppliers').then(r => r.json()).then(res => {
+    apiFetch('/api/accounting/suppliers-list').then(r => r.json()).then(res => {
       const data = res.data || res;
       setSuppliers(Array.isArray(data) ? data : data.suppliers || []);
     });

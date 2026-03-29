@@ -46,7 +46,7 @@ export default function NewCustomerPaymentPage() {
   ]);
 
   useEffect(() => {
-    apiFetch('/api/clients').then(r => r.json()).then(res => {
+    apiFetch('/api/accounting/customers').then(r => r.json()).then(res => {
       const data = res.data || res;
       setClients(Array.isArray(data) ? data : data.clients || []);
     });

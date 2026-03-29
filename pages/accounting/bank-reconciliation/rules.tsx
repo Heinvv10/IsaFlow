@@ -120,13 +120,13 @@ export default function BankRulesPage() {
       setBankAccounts(mapped);
       if (mapped.length > 0) setSelectedBankId(String(mapped[0].id));
     });
-    apiFetch('/api/suppliers?status=active', { credentials: 'include' }).then(r => r.json()).then(res => {
+    apiFetch('/api/accounting/suppliers-list?status=active', { credentials: 'include' }).then(r => r.json()).then(res => {
       const list = Array.isArray(res.data) ? res.data : [];
       setSuppliers(list.map((s: { id: number | string; name: string }) => ({
         id: String(s.id), name: s.name,
       })));
     });
-    apiFetch('/api/clients', { credentials: 'include' }).then(r => r.json()).then(res => {
+    apiFetch('/api/accounting/customers', { credentials: 'include' }).then(r => r.json()).then(res => {
       const list = Array.isArray(res.data) ? res.data : [];
       setClients(list.map((c: { id: string; name?: string; company_name?: string; companyName?: string }) => ({
         id: c.id, name: c.company_name || c.companyName || c.name || '',
