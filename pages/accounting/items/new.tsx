@@ -68,7 +68,7 @@ export default function NewItemPage() {
 
   const loadAccounts = useCallback(async () => {
     try {
-      const res = await apiFetch('/api/accounting/accounts', { credentials: 'include' });
+      const res = await apiFetch('/api/accounting/chart-of-accounts', { credentials: 'include' });
       const json = await res.json();
       setAccounts(json.data || []);
     } catch {

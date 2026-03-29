@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
+import { apiFetch } from '@/lib/apiFetch';
 import { AppLayout } from '@/components/layout/AppLayout';
 import {
   CalendarDays, Loader2, AlertCircle, ArrowLeft,
@@ -92,7 +93,7 @@ export default function PayrollRunDetailPage() {
     setIsLoading(true);
     setError('');
     try {
-      const res = await fetch(`/api/payroll/payroll-runs-detail?id=${runId}`);
+      const res = await apiFetch(`/api/payroll/payroll-runs-detail?id=${runId}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       setRun((json.data ?? json) as PayrollRunDetail);
@@ -114,7 +115,7 @@ export default function PayrollRunDetailPage() {
 
     setIsActioning(true);
     try {
-      const res = await fetch('/api/payroll/payroll-runs-action', {
+      const res = await apiFetch('/api/payroll/payroll-runs-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ runId: run.id, action }),

@@ -11,6 +11,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
+import { postCustomerInvoiceToGL } from '@/modules/accounting/services/customerPaymentService';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
@@ -79,8 +80,21 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!newStatus) return apiResponse.badRequest(res, `Unknown action: ${action}`);
 
     await sql`UPDATE customer_invoices SET status = ${newStatus}, updated_at = NOW() WHERE id = ${id}::UUID AND company_id = ${companyId}`;
+
+    // Post to GL on approve (accrual accounting: DR AR, CR Revenue, CR VAT Output)
+    let glJournalEntryId: string | null = null;
+    if (action === 'approve') {
+      try {
+        const userId = (req as CompanyApiRequest).user?.id || 'system';
+        glJournalEntryId = await postCustomerInvoiceToGL(companyId, id, userId);
+        log.info('Customer invoice GL posted on approve', { id, glJournalEntryId });
+      } catch (glErr) {
+        log.error('GL posting failed on invoice approve (invoice still approved)', { id, error: glErr });
+      }
+    }
+
     log.info('Customer invoice action', { id, action, newStatus });
-    return apiResponse.success(res, { id, status: newStatus });
+    return apiResponse.success(res, { id, status: newStatus, glJournalEntryId });
   }
 
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'PUT', 'POST']);

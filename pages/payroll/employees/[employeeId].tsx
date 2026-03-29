@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
+import { apiFetch } from '@/lib/apiFetch';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Users, Loader2, AlertCircle, ArrowLeft, Save, FileText } from 'lucide-react';
 import Link from 'next/link';
@@ -83,7 +84,7 @@ export default function EmployeeDetailPage() {
     setIsLoading(true);
     setError('');
     try {
-      const res = await fetch(`/api/payroll/employees-detail?id=${employeeId}`);
+      const res = await apiFetch(`/api/payroll/employees-detail?id=${employeeId}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       const data = json.data ?? json;
@@ -128,7 +129,7 @@ export default function EmployeeDetailPage() {
     if (!employee) return;
     setIsSaving(true);
     try {
-      const res = await fetch(`/api/payroll/employees-detail?id=${employee.id}`, {
+      const res = await apiFetch(`/api/payroll/employees-detail?id=${employee.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
