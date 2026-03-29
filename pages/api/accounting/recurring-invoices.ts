@@ -49,7 +49,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       if (lineItems) {
         for (const l of lineItems) subtotal += (l.quantity || 1) * (l.unitPrice || 0);
       }
-      const taxAmount = Math.round(subtotal * 0.15 * 100) / 100;
+      const taxRate = req.body.taxRate ?? 15;
+      const taxAmount = Math.round(subtotal * (taxRate / 100) * 100) / 100;
       await sql`
         UPDATE recurring_invoices SET
           template_name = COALESCE(${templateName || null}, template_name),

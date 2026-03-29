@@ -11,7 +11,7 @@ import { SignJWT } from 'jose';
 import cookie from 'cookie';
 
 const PORTAL_SECRET = new TextEncoder().encode(
-  (process.env.JWT_SECRET || 'fallback-secret') + '-portal'
+  (() => { if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET is required'); return process.env.JWT_SECRET + '-portal'; })()
 );
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {

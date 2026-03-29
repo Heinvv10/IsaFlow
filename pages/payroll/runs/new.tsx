@@ -6,6 +6,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
+import { apiFetch } from '@/lib/apiFetch';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { CalendarDays, Loader2, ArrowLeft, Play, Users, AlertCircle } from 'lucide-react';
 import Link from 'next/link';
@@ -85,7 +86,7 @@ export default function NewPayrollRunPage() {
     async function loadEmployees() {
       setIsLoadingEmps(true);
       try {
-        const res = await fetch('/api/payroll/employees?status=active');
+        const res = await apiFetch('/api/payroll/employees?status=active');
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
         setEmployees((json.data ?? json) as EmployeePreview[]);
@@ -111,7 +112,7 @@ export default function NewPayrollRunPage() {
     setIsProcessing(true);
     setError('');
     try {
-      const res = await fetch('/api/payroll/payroll-runs', {
+      const res = await apiFetch('/api/payroll/payroll-runs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ period_start: periodStart, period_end: periodEnd }),

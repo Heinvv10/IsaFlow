@@ -8,15 +8,34 @@ import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { classifyClientQuery, buildClientChatPrompt, parseClientChatResponse, sanitizeClientResponse, type ClientContext } from '@/modules/accounting/services/portalChatbotService';
+import { jwtVerify } from 'jose';
+import cookie from 'cookie';
+
+const PORTAL_SECRET = new TextEncoder().encode(
+  (() => { if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET is required'); return process.env.JWT_SECRET + '-portal'; })()
+);
 
 type Row = Record<string, unknown>;
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
 
+  // Authenticate portal session
+  const cookies = cookie.parse(req.headers.cookie || '');
+  const token = cookies.portal_session;
+  if (!token) return res.status(401).json({ success: false, error: { message: 'Not authenticated' } });
+  let sessionClientId: string;
+  try {
+    const { payload } = await jwtVerify(token, PORTAL_SECRET);
+    sessionClientId = payload.clientId as string;
+  } catch {
+    return res.status(401).json({ success: false, error: { message: 'Invalid session' } });
+  }
+
   const { question, clientId } = req.body;
   if (!question) return apiResponse.badRequest(res, 'question is required');
-  if (!clientId) return apiResponse.badRequest(res, 'clientId is required');
+  if (!clientId || clientId !== sessionClientId) return apiResponse.badRequest(res, 'clientId mismatch or missing');
+  if (question.length > 500) return apiResponse.badRequest(res, 'question too long (max 500 chars)');
 
   const queryType = classifyClientQuery(question);
 

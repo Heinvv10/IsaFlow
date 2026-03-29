@@ -82,13 +82,10 @@ export function calculatePAYE(annualTaxableIncome: number, age: number): number 
   for (const bracket of TAX_BRACKETS) {
     if (annualTaxableIncome >= bracket.min) {
       if (annualTaxableIncome <= bracket.max) {
-        grossTax = bracket.baseTax + (annualTaxableIncome - bracket.min + 1) * bracket.rate;
-        // For the first bracket, the formula is slightly different:
-        // Tax = (income - 0) * 18%, not (income - 1 + 1) * 18%
         if (bracket.min === 0) {
           grossTax = annualTaxableIncome * bracket.rate;
         } else {
-          grossTax = bracket.baseTax + (annualTaxableIncome - bracket.min + 1) * bracket.rate;
+          grossTax = bracket.baseTax + (annualTaxableIncome - bracket.min) * bracket.rate;
         }
         break;
       }

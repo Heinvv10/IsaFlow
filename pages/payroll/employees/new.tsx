@@ -6,6 +6,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/router';
+import { apiFetch } from '@/lib/apiFetch';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Users, Loader2, ArrowLeft, Save } from 'lucide-react';
 import Link from 'next/link';
@@ -105,7 +106,7 @@ export default function NewEmployeePage() {
 
     setIsSubmitting(true);
     try {
-      const res = await fetch('/api/payroll/employees', {
+      const res = await apiFetch('/api/payroll/employees', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

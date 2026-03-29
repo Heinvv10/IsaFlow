@@ -22,11 +22,11 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
     };
 
     const [hasPayrollPosted, hasDepreciationRun, hasBankRecon, hasVATRecon, hasAccruals] = await Promise.all([
-      safeCount(sql`SELECT COUNT(*) as cnt FROM payroll_runs WHERE company_id = ${companyId} AND status = 'posted' AND pay_date >= ${monthStart}::DATE AND pay_date <= ${monthEnd}::DATE` as Promise<Row[]>),
-      safeCount(sql`SELECT COUNT(*) as cnt FROM journal_entries WHERE company_id = ${companyId} AND source = 'depreciation' AND entry_date >= ${monthStart}::DATE AND entry_date <= ${monthEnd}::DATE` as Promise<Row[]>),
+      safeCount(sql`SELECT COUNT(*) as cnt FROM payroll_runs WHERE company_id = ${companyId} AND status = 'completed' AND pay_date >= ${monthStart}::DATE AND pay_date <= ${monthEnd}::DATE` as Promise<Row[]>),
+      safeCount(sql`SELECT COUNT(*) as cnt FROM gl_journal_entries WHERE company_id = ${companyId} AND source = 'auto_depreciation' AND entry_date >= ${monthStart}::DATE AND entry_date <= ${monthEnd}::DATE` as Promise<Row[]>),
       safeCount(sql`SELECT COUNT(*) as cnt FROM bank_reconciliations WHERE company_id = ${companyId} AND status = 'completed' AND statement_end_date >= ${monthStart}::DATE` as Promise<Row[]>),
-      safeCount(sql`SELECT COUNT(*) as cnt FROM journal_entries WHERE company_id = ${companyId} AND source = 'vat' AND entry_date >= ${monthStart}::DATE AND entry_date <= ${monthEnd}::DATE` as Promise<Row[]>),
-      safeCount(sql`SELECT COUNT(*) as cnt FROM journal_entries WHERE company_id = ${companyId} AND description ILIKE '%accrual%' AND entry_date >= ${monthStart}::DATE AND entry_date <= ${monthEnd}::DATE` as Promise<Row[]>),
+      safeCount(sql`SELECT COUNT(*) as cnt FROM gl_journal_entries WHERE company_id = ${companyId} AND source = 'vat' AND entry_date >= ${monthStart}::DATE AND entry_date <= ${monthEnd}::DATE` as Promise<Row[]>),
+      safeCount(sql`SELECT COUNT(*) as cnt FROM gl_journal_entries WHERE company_id = ${companyId} AND description ILIKE '%accrual%' AND entry_date >= ${monthStart}::DATE AND entry_date <= ${monthEnd}::DATE` as Promise<Row[]>),
     ]);
 
     const checklist = generateCloseChecklist('with_payroll');
