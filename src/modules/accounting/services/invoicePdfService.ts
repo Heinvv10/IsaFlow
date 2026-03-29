@@ -15,11 +15,12 @@ type Row = any;
 const fmtZAR = (amount: number): string =>
   'R ' + Number(amount).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 
-const fmtDate = (d: string | null | undefined): string => {
+const fmtDate = (d: string | Date | null | undefined): string => {
   if (!d) return '—';
-  const parts = d.split('T')[0]?.split('-') ?? [];
+  const str = d instanceof Date ? d.toISOString() : String(d);
+  const parts = str.split('T')[0]?.split('-') ?? [];
   if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
-  return d;
+  return str;
 };
 
 // ─── Company Details (loaded from DB settings) ─────────────────────────────
