@@ -5,14 +5,14 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { buildIRP5Certificate, validateIRP5Data, type IRP5EmployeeData } from '@/modules/accounting/services/irp5Service';
 
 type Row = Record<string, unknown>;
 
-async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
+async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
     // List generated IRP5 certificates
     const { taxYear } = req.query;
@@ -82,13 +82,17 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       sdl: Number(data.sdl || 0),
     };
 
+    // Fetch company details for employer info
+    const companyRows = await sql`SELECT name, vat_number FROM companies WHERE id = ${req.companyId}` as Row[];
+    const company = companyRows[0] as Record<string, string> | undefined;
+
     const cert = buildIRP5Certificate({
       employeeData,
       employeeName: `${emp.first_name} ${emp.last_name}`,
       idNumber: emp.id_number || '',
       taxNumber: emp.tax_number || '',
-      employerName: 'IsaFlow',
-      employerPayeRef: '',
+      employerName: String(company?.name || 'Unknown Company'),
+      employerPayeRef: String(company?.vat_number || ''),
       taxYear: yr,
       periodStart: `${yr - 1}-03-01`,
       periodEnd: `${yr}-02-28`,

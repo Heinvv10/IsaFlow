@@ -59,8 +59,12 @@ export default function FinancialAnalysisPage() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
+      const now = new Date();
+      const to = now.toISOString().split('T')[0];
+      const fromDate = new Date(now.getFullYear(), now.getMonth() - months, 1);
+      const from = fromDate.toISOString().split('T')[0];
       const [scRes, trRes] = await Promise.all([
-        apiFetch('/api/accounting/reports-kpi-scorecard?from=2026-01-01&to=2026-03-31').then(r => r.json()),
+        apiFetch(`/api/accounting/reports-kpi-scorecard?from=${from}&to=${to}`).then(r => r.json()),
         apiFetch(`/api/accounting/reports-ratio-trends?months=${months}`).then(r => r.json()),
       ]);
       if (scRes.data) {
@@ -70,8 +74,7 @@ export default function FinancialAnalysisPage() {
       if (trRes.data) {
         setTrends(trRes.data.trends || []);
       }
-      // Also get raw ratios
-      const ratioRes = await apiFetch('/api/accounting/reports-extended-ratios?from=2026-01-01&to=2026-03-31').then(r => r.json());
+      const ratioRes = await apiFetch(`/api/accounting/reports-extended-ratios?from=${from}&to=${to}`).then(r => r.json());
       if (ratioRes.data?.ratios) setRatios(ratioRes.data.ratios);
     } catch { /* handled by empty states */ }
     finally { setLoading(false); }

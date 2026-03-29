@@ -20,7 +20,11 @@ export default function WaterfallPage() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await apiFetch(`/api/accounting/reports-waterfall?type=${tab}&from=2026-01-01&to=2026-03-31`);
+      const now = new Date();
+      const to = now.toISOString().split('T')[0];
+      const fromDate = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+      const from = fromDate.toISOString().split('T')[0];
+      const res = await apiFetch(`/api/accounting/reports-waterfall?type=${tab}&from=${from}&to=${to}`);
       const json = await res.json();
       if (json.data?.steps) setSteps(json.data.steps);
     } catch { /* empty state */ }

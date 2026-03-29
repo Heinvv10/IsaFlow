@@ -21,8 +21,8 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 interface InvoiceItem {
-  id: string; drop_number: string; description: string;
-  quantity: number; unit_price: number; tax_amount: number; line_total: number; income_type: string;
+  id: string; description: string;
+  quantity: number; unit_price: number; amount: number; tax_rate: number;
 }
 interface Invoice {
   id: string; invoice_number: string; client_name: string; project_name: string;
@@ -206,7 +206,7 @@ export default function CustomerInvoiceDetailPage() {
             {[
               { label: 'Invoice Date', value: invoice.invoice_date?.split('T')[0] },
               { label: 'Due Date', value: invoice.due_date?.split('T')[0] || '—' },
-              { label: 'Billing Period', value: `${invoice.billing_period_start?.split('T')[0]} → ${invoice.billing_period_end?.split('T')[0]}` },
+              { label: 'Billing Period', value: invoice.billing_period_start && invoice.billing_period_end ? `${String(invoice.billing_period_start).split('T')[0]} → ${String(invoice.billing_period_end).split('T')[0]}` : '—' },
               { label: 'VAT Rate', value: `${invoice.tax_rate}%` },
               { label: 'Subtotal', value: fmt(Number(invoice.subtotal)) },
               { label: 'VAT', value: fmt(Number(invoice.tax_amount)) },
@@ -227,31 +227,27 @@ export default function CustomerInvoiceDetailPage() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
-                  <th className="px-4 py-3 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Drop #</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Description</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Type</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Qty</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Unit Price</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Tax</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Total</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Tax Rate</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Amount</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--ff-border-light)]">
                 {(invoice.items || []).map(item => (
                   <tr key={item.id} className="hover:bg-[var(--ff-bg-tertiary)]">
-                    <td className="px-4 py-3 text-sm font-mono text-blue-400">{item.drop_number}</td>
                     <td className="px-4 py-3 text-sm text-[var(--ff-text-primary)]">{item.description || '—'}</td>
-                    <td className="px-4 py-3 text-sm text-center"><span className="px-2 py-0.5 rounded text-xs bg-gray-500/10 text-[var(--ff-text-secondary)]">{item.income_type}</span></td>
                     <td className="px-4 py-3 text-sm text-right font-mono">{item.quantity}</td>
                     <td className="px-4 py-3 text-sm text-right font-mono">{fmt(Number(item.unit_price))}</td>
-                    <td className="px-4 py-3 text-sm text-right font-mono text-[var(--ff-text-secondary)]">{fmt(Number(item.tax_amount))}</td>
-                    <td className="px-4 py-3 text-sm text-right font-mono font-medium">{fmt(Number(item.line_total))}</td>
+                    <td className="px-4 py-3 text-sm text-right font-mono text-[var(--ff-text-secondary)]">{Number(item.tax_rate)}{'%'}</td>
+                    <td className="px-4 py-3 text-sm text-right font-mono font-medium">{fmt(Number(item.amount))}</td>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
                 <tr className="border-t-2 border-[var(--ff-border-medium)] bg-[var(--ff-bg-tertiary)]">
-                  <td colSpan={5}></td>
+                  <td colSpan={3}></td>
                   <td className="px-4 py-3 text-sm text-right font-medium text-[var(--ff-text-secondary)]">Total:</td>
                   <td className="px-4 py-3 text-sm text-right font-mono font-bold text-blue-400">{fmt(Number(invoice.total_amount))}</td>
                 </tr>

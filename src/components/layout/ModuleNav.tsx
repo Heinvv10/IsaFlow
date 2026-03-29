@@ -261,7 +261,9 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor }: ModuleNavProps)
   const router = useRouter();
   const [openTab, setOpenTab] = useState<string | null>(null);
   const navRef = useRef<HTMLDivElement>(null);
-  const activeTab = getActiveTabId(router.pathname, router.query);
+  const activeTab = typeof getActiveTabId === 'function'
+    ? getActiveTabId(router.pathname, router.query)
+    : 'dashboard';
   const accent = ACCENT_CLASSES[accentColor];
 
   useEffect(() => {

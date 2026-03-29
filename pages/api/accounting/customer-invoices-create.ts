@@ -71,12 +71,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const invoiceId = invRows[0].id;
 
   for (const item of items) {
-    const lineTotal = Math.round((item.quantity || 1) * item.unitPrice * 100) / 100;
-    const lineTax = Math.round(lineTotal * (rate / 100) * 100) / 100;
+    const qty = item.quantity || 1;
+    const lineAmount = Math.round(qty * item.unitPrice * 100) / 100;
     await sql`
-      INSERT INTO customer_invoice_items (invoice_id, drop_number, description, unit_price, quantity, tax_amount, line_total, income_type)
-      VALUES (${invoiceId}::UUID, ${item.dropNumber || 'MANUAL'}, ${item.description}, ${item.unitPrice},
-        ${item.quantity || 1}, ${lineTax}, ${lineTotal}, ${item.incomeType || 'other'})
+      INSERT INTO customer_invoice_items (invoice_id, description, unit_price, quantity, amount, tax_rate)
+      VALUES (${invoiceId}::UUID, ${item.description}, ${item.unitPrice}, ${qty}, ${lineAmount}, ${rate})
     `;
   }
 
