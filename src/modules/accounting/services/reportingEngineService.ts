@@ -17,6 +17,13 @@ export interface FinancialData {
   accountsReceivable: number;
   accountsPayable: number;
   cash: number;
+  // Extended (optional for backward compat)
+  depreciation?: number;
+  amortization?: number;
+  interestExpense?: number;
+  operatingCashFlow?: number;
+  capitalExpenditure?: number;
+  employeeCount?: number;
 }
 
 export interface RatioResult {
@@ -31,6 +38,35 @@ export interface RatioResult {
   debtorDays: number;
   creditorDays: number;
   inventoryTurnover: number;
+}
+
+export interface ExtendedRatioResult extends RatioResult {
+  // Profitability
+  ebitda: number;
+  ebitdaMargin: number;
+  roce: number; // Return on Capital Employed
+  // Leverage
+  interestCoverage: number;
+  debtRatio: number;
+  equityMultiplier: number;
+  // Liquidity
+  cashRatio: number;
+  workingCapital: number;
+  operatingCashFlowRatio: number;
+  // Efficiency
+  assetTurnover: number;
+  receivablesTurnover: number;
+  payablesTurnover: number;
+  inventoryDays: number;
+  cashConversionCycle: number;
+  // Cash Flow
+  freeCashFlow: number;
+  // Per-Unit
+  revenuePerEmployee: number;
+  // DuPont Decomposition
+  dupontMargin: number;
+  dupontTurnover: number;
+  dupontLeverage: number;
 }
 
 export interface VarianceResult {
@@ -88,6 +124,57 @@ export function calculateFinancialRatios(data: FinancialData): RatioResult {
     debtorDays: Math.round(safeDiv(data.accountsReceivable, data.revenue) * 365 * 100) / 100,
     creditorDays: Math.round(safeDiv(data.accountsPayable, data.costOfSales) * 365 * 100) / 100,
     inventoryTurnover: Math.round(safeDiv(data.costOfSales, data.inventory) * 100) / 100,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// EXTENDED FINANCIAL RATIOS (30+)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export function calculateExtendedRatios(data: FinancialData): ExtendedRatioResult {
+  const base = calculateFinancialRatios(data);
+  const grossProfit = data.revenue - data.costOfSales;
+  const ebit = grossProfit - data.operatingExpenses;
+  const dep = data.depreciation ?? 0;
+  const amort = data.amortization ?? 0;
+  const interest = data.interestExpense ?? 0;
+  const opCF = data.operatingCashFlow ?? 0;
+  const capex = data.capitalExpenditure ?? 0;
+  const employees = data.employeeCount ?? 0;
+  const capitalEmployed = data.totalAssets - data.currentLiabilities;
+
+  const ebitda = ebit + dep + amort;
+  const invTurnover = base.inventoryTurnover || 0;
+  const inventoryDays = invTurnover > 0 ? Math.round((365 / invTurnover) * 100) / 100 : 0;
+
+  return {
+    ...base,
+    // Profitability
+    ebitda: Math.round(ebitda * 100) / 100,
+    ebitdaMargin: pct(ebitda, data.revenue),
+    roce: pct(ebit, capitalEmployed),
+    // Leverage
+    interestCoverage: interest > 0 ? Math.round(safeDiv(ebit, interest) * 100) / 100 : 0,
+    debtRatio: Math.round(safeDiv(data.totalLiabilities, data.totalAssets) * 100) / 100,
+    equityMultiplier: Math.round(safeDiv(data.totalAssets, data.totalEquity) * 100) / 100,
+    // Liquidity
+    cashRatio: Math.round(safeDiv(data.cash, data.currentLiabilities) * 100) / 100,
+    workingCapital: Math.round((data.currentAssets - data.currentLiabilities) * 100) / 100,
+    operatingCashFlowRatio: Math.round(safeDiv(opCF, data.currentLiabilities) * 100) / 100,
+    // Efficiency
+    assetTurnover: Math.round(safeDiv(data.revenue, data.totalAssets) * 100) / 100,
+    receivablesTurnover: Math.round(safeDiv(data.revenue, data.accountsReceivable) * 100) / 100,
+    payablesTurnover: Math.round(safeDiv(data.costOfSales, data.accountsPayable) * 100) / 100,
+    inventoryDays,
+    cashConversionCycle: Math.round((base.debtorDays + inventoryDays - base.creditorDays) * 100) / 100,
+    // Cash Flow
+    freeCashFlow: Math.round((opCF - capex) * 100) / 100,
+    // Per-Unit
+    revenuePerEmployee: employees > 0 ? Math.round(safeDiv(data.revenue, employees) * 100) / 100 : 0,
+    // DuPont Decomposition
+    dupontMargin: pct(data.netProfit, data.revenue),
+    dupontTurnover: Math.round(safeDiv(data.revenue, data.totalAssets) * 100) / 100,
+    dupontLeverage: Math.round(safeDiv(data.totalAssets, data.totalEquity) * 100) / 100,
   };
 }
 
