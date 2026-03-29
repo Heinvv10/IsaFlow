@@ -76,18 +76,48 @@ async function getCompanyDetails(): Promise<CompanyDetails> {
   }
 }
 
+async function getCompanyDetailsFromCompany(companyId: string): Promise<CompanyDetails> {
+  try {
+    const rows = await sql`
+      SELECT name, address_line1, address_line2, city, province, postal_code,
+             phone, email, vat_number,
+             bank_name, bank_account_number, bank_branch_code
+      FROM companies WHERE id = ${companyId}::UUID
+    `;
+    if (rows.length > 0) {
+      const c = rows[0] as Row;
+      const addressParts = [c.address_line1, c.address_line2, c.city, c.province, c.postal_code].filter(Boolean);
+      return {
+        name: c.name || 'Company Name Not Set',
+        address: addressParts.join(', '),
+        phone: c.phone || '',
+        email: c.email || '',
+        vatNumber: c.vat_number || '',
+        bankName: c.bank_name || '',
+        bankAccountName: c.name || '',
+        bankAccountNumber: c.bank_account_number || '',
+        bankBranchCode: c.bank_branch_code || '',
+        bankReference: '',
+      };
+    }
+  } catch {
+    log.warn('Failed to load company from companies table, trying app_settings', {}, 'invoicePdf');
+  }
+  return getCompanyDetails();
+}
+
 const TEAL = { r: 20, g: 184, b: 166 }; // #14b8a6
 
 // ─── Invoice PDF ────────────────────────────────────────────────────────────
 
-export async function generateInvoicePdf(_companyId: string, invoiceId: string): Promise<Buffer> {
-  // Load company details from DB settings
-  const COMPANY = await getCompanyDetails();
+export async function generateInvoicePdf(companyId: string, invoiceId: string): Promise<Buffer> {
+  // Load company details from companies table (with fallback to app_settings)
+  const COMPANY = await getCompanyDetailsFromCompany(companyId);
 
   // Fetch invoice with client details
   const invoiceRows = (await sql`
     SELECT ci.*,
-           c.company_name AS client_name,
+           c.name AS client_name,
            c.email AS client_email,
            c.phone AS client_phone,
            c.vat_number AS client_vat,
@@ -95,7 +125,7 @@ export async function generateInvoicePdf(_companyId: string, invoiceId: string):
            c.contact_person AS client_contact,
            p.project_name
     FROM customer_invoices ci
-    LEFT JOIN clients c ON c.id = ci.client_id
+    LEFT JOIN customers c ON c.id = ci.client_id
     LEFT JOIN projects p ON p.id = ci.project_id
     WHERE ci.id = ${invoiceId}::UUID
   `) as Row[];
@@ -407,22 +437,22 @@ export async function generateInvoicePdf(_companyId: string, invoiceId: string):
 
 // ─── Credit Note PDF ────────────────────────────────────────────────────────
 
-export async function generateCreditNotePdf(_companyId: string, creditNoteId: string): Promise<Buffer> {
-  const COMPANY = await getCompanyDetails();
+export async function generateCreditNotePdf(companyId: string, creditNoteId: string): Promise<Buffer> {
+  const COMPANY = await getCompanyDetailsFromCompany(companyId);
 
   // Fetch credit note with client/supplier details
   const rows = (await sql`
     SELECT cn.*,
-           c.company_name AS client_name,
+           c.name AS client_name,
            c.email AS client_email,
            c.phone AS client_phone,
            c.vat_number AS client_vat,
            c.billing_address AS client_address,
            c.contact_person AS client_contact,
-           s.company_name AS supplier_name,
+           s.name AS supplier_name,
            ci.invoice_number AS original_invoice_number
     FROM credit_notes cn
-    LEFT JOIN clients c ON c.id = cn.client_id
+    LEFT JOIN customers c ON c.id = cn.client_id
     LEFT JOIN suppliers s ON s.id = cn.supplier_id
     LEFT JOIN customer_invoices ci ON ci.id = cn.customer_invoice_id
     WHERE cn.id = ${creditNoteId}::UUID
