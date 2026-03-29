@@ -163,9 +163,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
 
     y += 2;
+    const totalDed = Number(slip.paye || 0) + Number(slip.uif_employee || 0) + Number(slip.medical_aid || 0) + Number(slip.retirement_fund || 0) + Number(slip.other_deductions || 0);
     doc.setFont('helvetica', 'bold');
     doc.text('Total Deductions', margin, y);
-    doc.text(formatCurrency(Number(slip.total_deductions)), pageWidth - margin, y, { align: 'right' });
+    doc.text(formatCurrency(totalDed), pageWidth - margin, y, { align: 'right' });
     y += 10;
 
     // Net Pay
@@ -218,7 +219,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     // Output PDF
     const pdfBuffer = Buffer.from(doc.output('arraybuffer'));
-    const filename = `payslip_${slip.employee_number}_${slip.period_start}_${slip.period_end}.pdf`;
+    const fmtPeriod = (d: string | Date) => { const dt = new Date(d); return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}`; };
+    const filename = `payslip_${slip.employee_number}_${fmtPeriod(slip.period_start)}_to_${fmtPeriod(slip.period_end)}.pdf`;
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
