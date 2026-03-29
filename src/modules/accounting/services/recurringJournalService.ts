@@ -11,7 +11,7 @@ import type { RecurringJournal, RecurringJournalCreateInput, JournalLineInput } 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
 
-export async function getRecurringJournals(_companyId: string, filters?: {
+export async function getRecurringJournals(companyId: string, filters?: {
   status?: string;
   limit?: number;
   offset?: number;
@@ -40,7 +40,7 @@ export async function getRecurringJournals(_companyId: string, filters?: {
   return { items: rows.map(mapRow), total: Number(countRows[0]?.cnt || 0) };
 }
 
-export async function createRecurringJournal(_companyId: string, 
+export async function createRecurringJournal(companyId: string, 
   input: RecurringJournalCreateInput,
   userId: string
 ): Promise<RecurringJournal> {
@@ -66,7 +66,7 @@ export async function createRecurringJournal(_companyId: string,
   return mapRow(rows[0]!);
 }
 
-export async function updateRecurringJournalStatus(_companyId: string, 
+export async function updateRecurringJournalStatus(companyId: string, 
   id: string,
   status: 'paused' | 'active' | 'cancelled'
 ): Promise<void> {
@@ -74,7 +74,7 @@ export async function updateRecurringJournalStatus(_companyId: string,
   log.info('Updated recurring journal status', { id, status }, 'accounting');
 }
 
-export async function generateJournalFromRecurring(_companyId: string, 
+export async function generateJournalFromRecurring(companyId: string, 
   id: string,
   userId: string
 ): Promise<string> {

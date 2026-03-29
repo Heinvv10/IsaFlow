@@ -23,6 +23,7 @@ async function getAccountId(code: string): Promise<string> {
 // ── Asset Depreciation → GL ────────────────────────────────────────────────
 
 export async function postAssetDepreciationToGL(
+  companyId: string,
   assetId: string,
   depreciationAmount: number,
   userId: string
@@ -44,9 +45,9 @@ export async function postAssetDepreciationToGL(
 
     const entry = (await sql`
       INSERT INTO gl_journal_entries (
-        entry_number, entry_date, description, source, status, created_by
+        company_id, entry_number, entry_date, description, source, status, created_by
       ) VALUES (
-        ${`DEP-${asset[0].asset_number}-${new Date().toISOString().slice(0, 7)}`}, CURRENT_DATE,
+        ${companyId}, ${`DEP-${asset[0].asset_number}-${new Date().toISOString().slice(0, 7)}`}, CURRENT_DATE,
         ${`Depreciation: ${asset[0].name} (${asset[0].asset_number})`},
         'auto_depreciation', 'posted', ${userId}
       ) RETURNING id

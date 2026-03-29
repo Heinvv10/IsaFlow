@@ -165,7 +165,7 @@ async function getRecurringRevenue(): Promise<number> {
  * 3. Historical average patterns (medium confidence)
  * 4. Seasonal adjustment from same month prior year (lower confidence)
  */
-export async function generateForecast(_companyId: string, 
+export async function generateForecast(companyId: string, 
   forecastMonths = 6,
   alertThreshold = 0
 ): Promise<CashFlowForecastResult> {
@@ -285,6 +285,6 @@ export async function generateForecast(_companyId: string,
 }
 
 /** Get historical cash flow data for chart display */
-export async function getHistoricalForChart(_companyId: string, months = 6): Promise<HistoricalCashFlow[]> {
+export async function getHistoricalForChart(companyId: string, months = 6): Promise<HistoricalCashFlow[]> {
   return getHistoricalCashFlows(months);
 }

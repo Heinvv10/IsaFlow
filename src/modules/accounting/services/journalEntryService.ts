@@ -28,7 +28,7 @@ interface JournalEntryFilters {
   offset?: number;
 }
 
-export async function getJournalEntries(_companyId: string, filters?: JournalEntryFilters): Promise<{
+export async function getJournalEntries(companyId: string, filters?: JournalEntryFilters): Promise<{
   entries: JournalEntry[];
   total: number;
 }> {
@@ -110,7 +110,7 @@ export async function getJournalEntries(_companyId: string, filters?: JournalEnt
   }
 }
 
-export async function getJournalEntryById(_companyId: string, 
+export async function getJournalEntryById(companyId: string, 
   id: string
 ): Promise<(JournalEntry & { lines: JournalLine[] }) | null> {
   try {
@@ -140,7 +140,7 @@ export async function getJournalEntryById(_companyId: string,
   }
 }
 
-export async function createJournalEntry(_companyId: string, 
+export async function createJournalEntry(companyId: string, 
   input: JournalEntryCreateInput,
   userId: string
 ): Promise<JournalEntry> {
@@ -206,9 +206,9 @@ export async function createJournalEntry(_companyId: string,
   }
 }
 
-export async function postJournalEntry(_companyId: string, id: string, userId: string): Promise<JournalEntry> {
+export async function postJournalEntry(companyId: string, id: string, userId: string): Promise<JournalEntry> {
   try {
-    const entry = await getJournalEntryById(_companyId, id);
+    const entry = await getJournalEntryById(companyId, id);
     if (!entry) throw new Error(`Journal entry ${id} not found`);
     if (entry.status !== 'draft') throw new Error(`Cannot post entry with status: ${entry.status}`);
 
@@ -247,9 +247,9 @@ export async function postJournalEntry(_companyId: string, id: string, userId: s
   }
 }
 
-export async function reverseJournalEntry(_companyId: string, id: string, userId: string): Promise<JournalEntry> {
+export async function reverseJournalEntry(companyId: string, id: string, userId: string): Promise<JournalEntry> {
   try {
-    const entry = await getJournalEntryById(_companyId, id);
+    const entry = await getJournalEntryById(companyId, id);
     if (!entry) throw new Error(`Journal entry ${id} not found`);
     if (entry.status !== 'posted') throw new Error('Can only reverse posted entries');
     if (!entry.lines || entry.lines.length === 0) throw new Error('Entry has no lines');
@@ -263,7 +263,7 @@ export async function reverseJournalEntry(_companyId: string, id: string, userId
       costCenterId: l.costCenterId,
     }));
 
-    const reversalEntry = await createJournalEntry(_companyId, {
+    const reversalEntry = await createJournalEntry(companyId, {
       entryDate: new Date().toISOString().split('T')[0]!,
       description: `Reversal of ${entry.entryNumber}`,
       source: entry.source,

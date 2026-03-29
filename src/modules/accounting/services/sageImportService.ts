@@ -18,7 +18,7 @@ type Row = any;
  * Import sage_ledger_transactions as GL journal entries
  * Groups by document_number + transaction_date into balanced entries
  */
-export async function importLedgerTransactions(_companyId: string, userId: string): Promise<MigrationRun> {
+export async function importLedgerTransactions(companyId: string, userId: string): Promise<MigrationRun> {
   const runId = await startRun('ledger_import', userId);
 
   try {
@@ -128,7 +128,7 @@ export async function importLedgerTransactions(_companyId: string, userId: strin
  * Matches Sage's approach: invoices are standalone AP documents,
  * no separate GL journal entries are created per invoice.
  */
-export async function importSupplierInvoices(_companyId: string, userId: string): Promise<MigrationRun> {
+export async function importSupplierInvoices(companyId: string, userId: string): Promise<MigrationRun> {
   const runId = await startRun('invoice_import', userId);
 
   try {

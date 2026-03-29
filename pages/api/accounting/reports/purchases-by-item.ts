@@ -23,7 +23,7 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
         COUNT(DISTINCT poi.purchase_order_id)::int AS po_count,
         COALESCE(SUM(poi.quantity_ordered), 0)::numeric AS qty_ordered,
         COALESCE(SUM(poi.quantity_ordered * poi.unit_price), 0)::numeric AS total_cost
-      FROM purchase_order_items poi
+      FROM po_items poi
       JOIN purchase_orders po ON po.id = poi.purchase_order_id
       JOIN stock_items si ON si.id = poi.stock_item_id
       WHERE po.order_date >= ${from}

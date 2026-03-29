@@ -83,7 +83,7 @@ export async function failRun(runId: string, err: unknown): Promise<void> {
 
 // ── Migration Status ────────────────────────────────────────────────────────
 
-export async function getMigrationStatus(_companyId: string): Promise<MigrationStatus> {
+export async function getMigrationStatus(companyId: string): Promise<MigrationStatus> {
   try {
     const accountStats = (await sql`
       SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE gl_account_id IS NOT NULL) AS mapped,
@@ -160,7 +160,7 @@ export async function getMigrationStatus(_companyId: string): Promise<MigrationS
 
 // ── Account Mapping ─────────────────────────────────────────────────────────
 
-export async function getAccountMappings(_companyId: string): Promise<AccountMapping[]> {
+export async function getAccountMappings(companyId: string): Promise<AccountMapping[]> {
   const rows = (await sql`
     SELECT sa.sage_account_id, sa.name, sa.account_type, sa.balance,
       sa.gl_account_id, sa.mapping_status, sa.mapping_notes,
@@ -193,7 +193,7 @@ function nameSimilarity(a: string, b: string): number {
   return overlap / Math.max(tokensA.size, tokensB.size);
 }
 
-export async function autoMapAccounts(_companyId: string, userId: string): Promise<MigrationRun> {
+export async function autoMapAccounts(companyId: string, userId: string): Promise<MigrationRun> {
   const runId = await startRun('account_mapping', userId);
   try {
     const sageAccounts = (await sql`
@@ -230,7 +230,7 @@ export async function autoMapAccounts(_companyId: string, userId: string): Promi
   } catch (err) { await failRun(runId, err); throw err; }
 }
 
-export async function mapAccount(_companyId: string, sageAccountId: string, glAccountId: string | null, notes?: string): Promise<void> {
+export async function mapAccount(companyId: string, sageAccountId: string, glAccountId: string | null, notes?: string): Promise<void> {
   if (glAccountId) {
     await sql`UPDATE sage_accounts SET gl_account_id = ${glAccountId}::UUID, mapping_status = 'manual',
       mapping_notes = ${notes || 'Manually mapped'} WHERE sage_account_id = ${sageAccountId}`;
@@ -242,7 +242,7 @@ export async function mapAccount(_companyId: string, sageAccountId: string, glAc
 
 // ── Comparison ──────────────────────────────────────────────────────────────
 
-export async function generateComparison(_companyId: string, userId: string): Promise<ComparisonReport> {
+export async function generateComparison(companyId: string, userId: string): Promise<ComparisonReport> {
   try {
     const sageBalances = (await sql`
       SELECT sa.sage_account_id, sa.name, sa.balance, ga.account_code, ga.account_name, ga.id AS gl_id
@@ -294,7 +294,7 @@ export async function generateComparison(_companyId: string, userId: string): Pr
 
 // ── Reset ───────────────────────────────────────────────────────────────────
 
-export async function resetMigration(_companyId: string, 
+export async function resetMigration(companyId: string, 
   runType: 'accounts' | 'ledger' | 'invoices' | 'customer_invoices'
 ): Promise<void> {
   if (runType === 'accounts') {

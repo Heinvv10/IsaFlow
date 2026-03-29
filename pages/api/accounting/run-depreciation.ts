@@ -57,7 +57,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     if (amount < 0.01) { skipped++; continue; }
 
-    const entryId = await postAssetDepreciationToGL(String(asset.id), amount, userId);
+    const entryId = await postAssetDepreciationToGL(companyId, String(asset.id), amount, userId);
     results.push({ assetNumber: String(asset.asset_number), amount, entryId });
     processed++;
   }

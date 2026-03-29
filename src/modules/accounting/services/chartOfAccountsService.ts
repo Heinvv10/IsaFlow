@@ -29,7 +29,7 @@ interface AccountTreeNode extends GLAccount {
   children: AccountTreeNode[];
 }
 
-export async function getChartOfAccounts(_companyId: string, includeInactive = false): Promise<GLAccount[]> {
+export async function getChartOfAccounts(companyId: string, includeInactive = false): Promise<GLAccount[]> {
   try {
     let rows;
     if (includeInactive) {
@@ -59,8 +59,8 @@ export async function getChartOfAccounts(_companyId: string, includeInactive = f
   }
 }
 
-export async function getAccountTree(_companyId: string, includeInactive = false): Promise<AccountTreeNode[]> {
-  const accounts = await getChartOfAccounts(_companyId, includeInactive);
+export async function getAccountTree(companyId: string, includeInactive = false): Promise<AccountTreeNode[]> {
+  const accounts = await getChartOfAccounts(companyId, includeInactive);
   const map = new Map<string, AccountTreeNode>();
   const roots: AccountTreeNode[] = [];
 
@@ -83,7 +83,7 @@ export async function getAccountTree(_companyId: string, includeInactive = false
   return roots;
 }
 
-export async function getAccountById(_companyId: string, id: string): Promise<GLAccount | null> {
+export async function getAccountById(companyId: string, id: string): Promise<GLAccount | null> {
   try {
     const rows = await sql`SELECT * FROM gl_accounts WHERE id = ${id}`;
     const arr = rows as { [key: string]: unknown }[];
@@ -143,7 +143,7 @@ export async function createAccount(companyId: string, input: CreateAccountInput
   }
 }
 
-export async function updateAccount(_companyId: string, id: string, input: UpdateAccountInput): Promise<GLAccount> {
+export async function updateAccount(companyId: string, id: string, input: UpdateAccountInput): Promise<GLAccount> {
   try {
     const account = await sql`SELECT * FROM gl_accounts WHERE id = ${id}` as {
       is_system_account: boolean;
@@ -171,7 +171,7 @@ export async function updateAccount(_companyId: string, id: string, input: Updat
   }
 }
 
-export async function deleteAccount(_companyId: string, id: string): Promise<void> {
+export async function deleteAccount(companyId: string, id: string): Promise<void> {
   try {
     const lines = await sql`
       SELECT COUNT(*) AS cnt FROM gl_journal_lines WHERE gl_account_id = ${id}

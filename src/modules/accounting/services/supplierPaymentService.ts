@@ -39,7 +39,7 @@ export interface CreatePaymentInput {
   allocations: PaymentAllocationInput[];
 }
 
-export async function getSupplierPayments(_companyId: string, filters?: PaymentFilters): Promise<{
+export async function getSupplierPayments(companyId: string, filters?: PaymentFilters): Promise<{
   payments: SupplierPayment[];
   total: number;
 }> {
@@ -96,7 +96,7 @@ export async function getSupplierPayments(_companyId: string, filters?: PaymentF
   }
 }
 
-export async function getSupplierPaymentById(_companyId: string, 
+export async function getSupplierPaymentById(companyId: string, 
   id: string
 ): Promise<(SupplierPayment & { allocations: PaymentAllocation[] }) | null> {
   try {
@@ -121,7 +121,7 @@ export async function getSupplierPaymentById(_companyId: string,
   }
 }
 
-export async function createSupplierPayment(_companyId: string, 
+export async function createSupplierPayment(companyId: string, 
   input: CreatePaymentInput,
   userId: string
 ): Promise<SupplierPayment> {
@@ -180,7 +180,7 @@ export async function createSupplierPayment(_companyId: string,
   }
 }
 
-export async function processSupplierPayment(_companyId: string, 
+export async function processSupplierPayment(companyId: string, 
   id: string,
   userId: string
 ): Promise<SupplierPayment> {
@@ -257,7 +257,7 @@ export async function processSupplierPayment(_companyId: string,
   }
 }
 
-export async function approveSupplierPayment(_companyId: string, 
+export async function approveSupplierPayment(companyId: string, 
   id: string,
   userId: string
 ): Promise<SupplierPayment> {

@@ -132,7 +132,7 @@ const fmtDate = (d: string | null | undefined): string => {
   return d;
 };
 
-export async function sendInvoiceEmail(_companyId: string, 
+export async function sendInvoiceEmail(companyId: string, 
   invoiceId: string,
   recipientEmail: string
 ): Promise<EmailResult> {

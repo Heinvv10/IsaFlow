@@ -45,7 +45,7 @@ export interface DRCResult {
  * Apply DRC VAT to a supplier invoice.
  * Creates a journal entry: DR Input VAT, CR Output VAT.
  */
-export async function applyDRCVat(_companyId: string, 
+export async function applyDRCVat(companyId: string, 
   supplierInvoiceId: string,
   userId: string
 ): Promise<DRCResult> {
@@ -110,7 +110,7 @@ export async function applyDRCVat(_companyId: string,
 /**
  * Get all DRC-eligible supplier invoices (not yet processed).
  */
-export async function getDRCEligibleInvoices(_companyId: string): Promise<Array<{
+export async function getDRCEligibleInvoices(companyId: string): Promise<Array<{
   id: string; invoiceNumber: string; supplierName: string;
   totalAmount: number; vatAmount: number; invoiceDate: string;
 }>> {
@@ -138,7 +138,7 @@ export async function getDRCEligibleInvoices(_companyId: string): Promise<Array<
 /**
  * Get DRC VAT history (already processed).
  */
-export async function getDRCHistory(_companyId: string): Promise<Array<{
+export async function getDRCHistory(companyId: string): Promise<Array<{
   id: string; invoiceNumber: string; supplierName: string;
   totalAmount: number; invoiceDate: string;
 }>> {

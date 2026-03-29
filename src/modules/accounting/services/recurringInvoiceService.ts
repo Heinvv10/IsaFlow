@@ -13,7 +13,7 @@ import type {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
 
-export async function getRecurringInvoices(_companyId: string, filters?: {
+export async function getRecurringInvoices(companyId: string, filters?: {
   status?: string;
   clientId?: string;
   limit?: number;
@@ -56,7 +56,7 @@ export async function getRecurringInvoices(_companyId: string, filters?: {
   return { items: rows.map(mapRow), total: Number(countRows[0]?.cnt || 0) };
 }
 
-export async function createRecurringInvoice(_companyId: string, 
+export async function createRecurringInvoice(companyId: string, 
   input: RecurringInvoiceCreateInput,
   userId: string
 ): Promise<RecurringInvoice> {
@@ -85,7 +85,7 @@ export async function createRecurringInvoice(_companyId: string,
   return mapRow(rows[0]!);
 }
 
-export async function updateRecurringStatus(_companyId: string, 
+export async function updateRecurringStatus(companyId: string, 
   id: string,
   status: 'paused' | 'active' | 'cancelled'
 ): Promise<void> {
@@ -93,7 +93,7 @@ export async function updateRecurringStatus(_companyId: string,
   log.info('Updated recurring invoice status', { id, status }, 'accounting');
 }
 
-export async function generateInvoiceFromRecurring(_companyId: string, 
+export async function generateInvoiceFromRecurring(companyId: string, 
   id: string,
   userId: string
 ): Promise<string> {

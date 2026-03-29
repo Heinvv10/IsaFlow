@@ -20,7 +20,7 @@ interface CreditNoteFilters {
   offset?: number;
 }
 
-export async function getCreditNotes(_companyId: string, filters?: CreditNoteFilters): Promise<{
+export async function getCreditNotes(companyId: string, filters?: CreditNoteFilters): Promise<{
   creditNotes: CreditNote[];
   total: number;
 }> {
@@ -66,7 +66,7 @@ export async function getCreditNotes(_companyId: string, filters?: CreditNoteFil
   }
 }
 
-export async function getCreditNoteById(_companyId: string, id: string): Promise<CreditNote | null> {
+export async function getCreditNoteById(companyId: string, id: string): Promise<CreditNote | null> {
   const rows = (await sql`
     SELECT cn.*, c.company_name AS client_name, COALESCE(s.company_name, s.name) AS supplier_name,
       COALESCE(ci.invoice_number, si.invoice_number) AS invoice_number
@@ -80,7 +80,7 @@ export async function getCreditNoteById(_companyId: string, id: string): Promise
   return rows.length > 0 ? mapRow(rows[0]) : null;
 }
 
-export async function createCreditNote(_companyId: string, 
+export async function createCreditNote(companyId: string, 
   input: CreditNoteCreateInput,
   userId: string
 ): Promise<CreditNote> {
@@ -112,7 +112,7 @@ export async function createCreditNote(_companyId: string,
   }
 }
 
-export async function approveCreditNote(_companyId: string, id: string, userId: string): Promise<CreditNote> {
+export async function approveCreditNote(companyId: string, id: string, userId: string): Promise<CreditNote> {
   try {
     const cnRows = (await sql`SELECT * FROM credit_notes WHERE id = ${id}`) as Row[];
     if (cnRows.length === 0) throw new Error(`Credit note ${id} not found`);
@@ -196,7 +196,7 @@ export async function approveCreditNote(_companyId: string, id: string, userId: 
   }
 }
 
-export async function cancelCreditNote(_companyId: string, 
+export async function cancelCreditNote(companyId: string, 
   id: string,
   userId: string,
   reason?: string

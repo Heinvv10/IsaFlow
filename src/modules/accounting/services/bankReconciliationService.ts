@@ -19,7 +19,7 @@ type Row = any;
 // ── Import ───────────────────────────────────────────────────────────────────
 
 export async function importBankStatement(
-  _companyId: string,
+  companyId: string,
   csvContent: string,
   bankAccountId: string,
   statementDate: string,
@@ -95,7 +95,7 @@ export async function importBankStatement(
  * Reuses the same INSERT logic as importBankStatement so behaviour is identical.
  */
 export async function importParsedTransactions(
-  _companyId: string,
+  companyId: string,
   parseResult: BankCsvParseResult,
   bankAccountId: string,
   statementDate: string,
@@ -154,7 +154,7 @@ interface BankTxFilters {
   offset?: number;
 }
 
-export async function getBankTransactions(_companyId: string, filters?: BankTxFilters): Promise<{
+export async function getBankTransactions(companyId: string, filters?: BankTxFilters): Promise<{
   transactions: BankTransaction[];
   total: number;
 }> {
@@ -245,7 +245,7 @@ export async function getBankTransactions(_companyId: string, filters?: BankTxFi
 
 // ── Match / Unmatch ──────────────────────────────────────────────────────────
 
-export async function matchTransaction(_companyId: string, 
+export async function matchTransaction(companyId: string, 
   bankTxId: string,
   journalLineId: string,
   reconciliationId?: string
@@ -286,7 +286,7 @@ export async function matchTransaction(_companyId: string,
   }
 }
 
-export async function unmatchTransaction(_companyId: string, bankTxId: string): Promise<BankTransaction> {
+export async function unmatchTransaction(companyId: string, bankTxId: string): Promise<BankTransaction> {
   try {
     const existing = (await sql`SELECT reconciliation_id FROM bank_transactions WHERE id = ${bankTxId}::UUID`) as Row[];
     const reconId = existing[0]?.reconciliation_id ? String(existing[0].reconciliation_id) : null;
@@ -315,7 +315,7 @@ export async function unmatchTransaction(_companyId: string, bankTxId: string): 
   }
 }
 
-export async function excludeTransaction(_companyId: string, bankTxId: string, reason?: string): Promise<BankTransaction> {
+export async function excludeTransaction(companyId: string, bankTxId: string, reason?: string): Promise<BankTransaction> {
   try {
     const rows = (await sql`
       UPDATE bank_transactions
@@ -338,7 +338,7 @@ export async function excludeTransaction(_companyId: string, bankTxId: string, r
  * Delete bank transactions — only imported (unallocated) transactions can be deleted.
  * Matched/reconciled transactions must be unmatched first.
  */
-export async function deleteTransactions(_companyId: string, bankTxIds: string[]): Promise<number> {
+export async function deleteTransactions(companyId: string, bankTxIds: string[]): Promise<number> {
   if (bankTxIds.length === 0) return 0;
   try {
     const result = (await sql`
@@ -361,7 +361,7 @@ export async function deleteTransactions(_companyId: string, bankTxIds: string[]
  * Mark a batch of imported transactions as 'matched' without creating journal entries.
  * Used for the Bulk Accept toolbar action — accepts transactions that don't need GL allocation.
  */
-export async function bulkAcceptTransactions(_companyId: string, ids: string[]): Promise<number> {
+export async function bulkAcceptTransactions(companyId: string, ids: string[]): Promise<number> {
   if (ids.length === 0) return 0;
   try {
     // Move both imported (unallocated) and allocated transactions to reviewed
@@ -380,7 +380,7 @@ export async function bulkAcceptTransactions(_companyId: string, ids: string[]):
 
 // ── Auto-Match ───────────────────────────────────────────────────────────────
 
-export async function autoMatchTransactions(_companyId: string, 
+export async function autoMatchTransactions(companyId: string, 
   bankAccountId: string,
   reconciliationId?: string
 ): Promise<AutoMatchResult> {
@@ -461,7 +461,7 @@ export async function autoMatchTransactions(_companyId: string,
 
 // ── Reconciliation CRUD ──────────────────────────────────────────────────────
 
-export async function getReconciliations(_companyId: string, bankAccountId?: string): Promise<BankReconciliation[]> {
+export async function getReconciliations(companyId: string, bankAccountId?: string): Promise<BankReconciliation[]> {
   try {
     let rows: Row[];
     if (bankAccountId) {
@@ -491,7 +491,7 @@ export async function getReconciliations(_companyId: string, bankAccountId?: str
   }
 }
 
-export async function getReconciliationById(_companyId: string, id: string): Promise<BankReconciliation | null> {
+export async function getReconciliationById(companyId: string, id: string): Promise<BankReconciliation | null> {
   try {
     const rows = (await sql`
       SELECT br.*, ga.account_name AS bank_account_name,
@@ -509,7 +509,7 @@ export async function getReconciliationById(_companyId: string, id: string): Pro
 }
 
 export async function startReconciliation(
-  _companyId: string,
+  companyId: string,
   bankAccountId: string,
   statementDate: string,
   statementBalance: number,
@@ -558,9 +558,9 @@ export async function startReconciliation(
   }
 }
 
-export async function completeReconciliation(_companyId: string, id: string, userId: string): Promise<BankReconciliation> {
+export async function completeReconciliation(companyId: string, id: string, userId: string): Promise<BankReconciliation> {
   try {
-    const recon = await getReconciliationById(_companyId, id);
+    const recon = await getReconciliationById(companyId, id);
     if (!recon) throw new Error(`Reconciliation ${id} not found`);
     if (recon.status === 'completed') throw new Error('Reconciliation already completed');
     if (Math.abs(recon.difference) > 0.01) {
@@ -590,7 +590,7 @@ export async function completeReconciliation(_companyId: string, id: string, use
 // ── Adjustment Entry ─────────────────────────────────────────────────────────
 
 export async function createAdjustmentEntry(
-  _companyId: string,
+  companyId: string,
   reconciliationId: string,
   bankAccountId: string,
   contraAccountId: string,
@@ -609,10 +609,10 @@ export async function createAdjustmentEntry(
           { glAccountId: bankAccountId, debit: 0, credit: Math.abs(amount), description },
         ];
 
-    const recon = await getReconciliationById(_companyId, reconciliationId);
+    const recon = await getReconciliationById(companyId, reconciliationId);
     if (!recon) throw new Error(`Reconciliation ${reconciliationId} not found`);
 
-    const je = await createJournalEntry(_companyId, {
+    const je = await createJournalEntry(companyId, {
       entryDate: recon.statementDate,
       description: `Bank recon adjustment: ${description}`,
       source: 'auto_bank_recon',
@@ -653,7 +653,7 @@ async function glAccountByCode(code: string): Promise<string> {
  *   customer → DR Bank, CR Accounts Receivable (1120) (receipt in)
  */
 export async function allocateTransaction(
-  _companyId: string,
+  companyId: string,
   bankTxId: string,
   contraAccountId: string,
   userId: string,
@@ -766,7 +766,7 @@ export async function allocateTransaction(
     l.glAccountId === bankAccountId ? l : { ...l, costCenterId: cc1Id || l.costCenterId, buId: buId || l.buId }
   );
 
-  const je = await createJournalEntry(_companyId, {
+  const je = await createJournalEntry(companyId, {
     entryDate: txDate,
     description: entryDesc,
     source,
@@ -839,7 +839,7 @@ export interface SplitLine {
  * Each split line may carry its own VAT treatment.
  * The sum of all line amounts must equal Math.abs(tx.amount).
  */
-export async function splitAllocateTransaction(_companyId: string, 
+export async function splitAllocateTransaction(companyId: string, 
   bankTxId: string,
   lines: SplitLine[],
   userId: string,
@@ -930,7 +930,7 @@ export async function splitAllocateTransaction(_companyId: string,
     journalLines.unshift({ glAccountId: bankAccountId, debit: totalAmount, credit: 0, description: entryDesc });
   }
 
-  const je = await createJournalEntry(_companyId, {
+  const je = await createJournalEntry(companyId, {
     entryDate: txDate,
     description: entryDesc,
     source: 'auto_bank_recon',
@@ -975,7 +975,7 @@ export async function splitAllocateTransaction(_companyId: string,
  * - If a journal entry was created, it is reversed via reverseJournalEntry.
  * - The bank transaction is reset to 'imported' with all links cleared.
  */
-export async function reverseReconciledTransaction(_companyId: string, bankTxId: string, userId: string): Promise<void> {
+export async function reverseReconciledTransaction(companyId: string, bankTxId: string, userId: string): Promise<void> {
   // 1. Fetch the bank transaction
   const txRows = (await sql`
     SELECT * FROM bank_transactions WHERE id = ${bankTxId}::UUID
