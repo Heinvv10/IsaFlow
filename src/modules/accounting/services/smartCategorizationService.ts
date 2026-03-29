@@ -50,7 +50,7 @@ function toConfidenceLevel(score: number): ConfidenceLevel {
 
 // ── Core: Categorize a single transaction ────────────────────────────────────
 
-export async function categorizeBankTransaction(_companyId: string, 
+export async function categorizeBankTransaction(companyId: string, 
   tx: CategorizationInput
 ): Promise<CategorizationResult | null> {
   const description = (tx.description || '').toUpperCase().trim();
@@ -273,7 +273,7 @@ async function matchFromHistory(
 
 // ── Learn from user allocation ───────────────────────────────────────────────
 
-export async function learnFromAllocation(_companyId: string, 
+export async function learnFromAllocation(companyId: string, 
   txId: string,
   glAccountId: string,
   category: string,
@@ -357,7 +357,7 @@ function extractLearningPattern(description: string): string {
 
 // ── Bulk categorize ──────────────────────────────────────────────────────────
 
-export async function bulkCategorize(_companyId: string, 
+export async function bulkCategorize(companyId: string, 
   transactionIds: string[]
 ): Promise<BulkCategorizationResult> {
   if (transactionIds.length === 0) {
@@ -412,7 +412,7 @@ export async function bulkCategorize(_companyId: string,
 
 // ── Categorize all uncategorized transactions for a bank account ──────────────
 
-export async function smartCategorizeForAccount(_companyId: string, 
+export async function smartCategorizeForAccount(companyId: string, 
   bankAccountId: string
 ): Promise<BulkCategorizationResult> {
   // Get all uncategorized transactions for this bank account

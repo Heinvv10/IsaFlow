@@ -28,14 +28,14 @@ export interface ExchangeRate {
 
 // ── Currencies ──────────────────────────────────────────────────────────────
 
-export async function getCurrencies(_companyId: string, activeOnly = true): Promise<Currency[]> {
+export async function getCurrencies(companyId: string, activeOnly = true): Promise<Currency[]> {
   const rows = activeOnly
     ? ((await sql`SELECT * FROM currencies WHERE is_active = true ORDER BY code`) as Row[])
     : ((await sql`SELECT * FROM currencies ORDER BY code`) as Row[]);
   return rows.map(mapCurrency);
 }
 
-export async function createCurrency(_companyId: string, input: {
+export async function createCurrency(companyId: string, input: {
   code: string; name: string; symbol: string; decimalPlaces?: number;
 }): Promise<Currency> {
   const rows = (await sql`
@@ -47,13 +47,13 @@ export async function createCurrency(_companyId: string, input: {
   return mapCurrency(rows[0]!);
 }
 
-export async function toggleCurrency(_companyId: string, code: string, isActive: boolean): Promise<void> {
+export async function toggleCurrency(companyId: string, code: string, isActive: boolean): Promise<void> {
   await sql`UPDATE currencies SET is_active = ${isActive} WHERE code = ${code}`;
 }
 
 // ── Exchange Rates ──────────────────────────────────────────────────────────
 
-export async function getExchangeRates(_companyId: string, filters?: {
+export async function getExchangeRates(companyId: string, filters?: {
   fromCurrency?: string; toCurrency?: string; limit?: number;
 }): Promise<ExchangeRate[]> {
   const limit = filters?.limit || 100;
@@ -80,7 +80,7 @@ export async function getExchangeRates(_companyId: string, filters?: {
   return rows.map(mapRate);
 }
 
-export async function getLatestRate(_companyId: string, 
+export async function getLatestRate(companyId: string, 
   fromCurrency: string, toCurrency: string, asOfDate?: string
 ): Promise<number | null> {
   const date = asOfDate || new Date().toISOString().split('T')[0]!;
@@ -93,7 +93,7 @@ export async function getLatestRate(_companyId: string,
   return rows[0] ? Number(rows[0].rate) : null;
 }
 
-export async function setExchangeRate(_companyId: string, input: {
+export async function setExchangeRate(companyId: string, input: {
   fromCurrency: string; toCurrency: string; rate: number;
   effectiveDate: string; source?: string;
 }, userId: string): Promise<ExchangeRate> {
@@ -112,11 +112,11 @@ export async function setExchangeRate(_companyId: string, input: {
   return mapRate(rows[0]!);
 }
 
-export async function convertAmount(_companyId: string, 
+export async function convertAmount(companyId: string, 
   amount: number, fromCurrency: string, toCurrency: string, asOfDate?: string
 ): Promise<{ converted: number; rate: number } | null> {
   if (fromCurrency === toCurrency) return { converted: amount, rate: 1 };
-  const rate = await getLatestRate(_companyId, fromCurrency, toCurrency, asOfDate);
+  const rate = await getLatestRate(companyId, fromCurrency, toCurrency, asOfDate);
   if (rate === null) return null;
   return { converted: Math.round(amount * rate * 100) / 100, rate };
 }

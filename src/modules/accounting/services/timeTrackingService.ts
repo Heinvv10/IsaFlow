@@ -85,7 +85,7 @@ async function query(text: string, params: unknown[]): Promise<Row[]> {
 }
 
 export async function getTimeEntries(
-  _companyId: string,
+  companyId: string,
   filters?: {
     userId?: string;
     customerId?: string;
@@ -102,7 +102,7 @@ export async function getTimeEntries(
   const offset = filters?.offset || 0;
 
   const conditions: string[] = ['te.company_id = $1::UUID'];
-  const params: unknown[] = [_companyId];
+  const params: unknown[] = [companyId];
   let idx = 2;
 
   if (filters?.userId) {
@@ -165,21 +165,21 @@ export async function getTimeEntries(
 }
 
 export async function getTimeEntry(
-  _companyId: string,
+  companyId: string,
   id: string,
 ): Promise<TimeEntry | null> {
   const rows = (await sql`
     SELECT te.*, c.company_name AS customer_name
     FROM time_entries te
     LEFT JOIN clients c ON c.id = te.customer_id
-    WHERE te.id = ${id}::UUID AND te.company_id = ${_companyId}::UUID
+    WHERE te.id = ${id}::UUID AND te.company_id = ${companyId}::UUID
   `) as Row[];
   if (!rows.length) return null;
   return mapEntry(rows[0]);
 }
 
 export async function createTimeEntry(
-  _companyId: string,
+  companyId: string,
   input: TimeEntryInput,
   userId: string,
 ): Promise<TimeEntry> {
@@ -189,7 +189,7 @@ export async function createTimeEntry(
       company_id, user_id, project_name, task_description, entry_date,
       hours, rate, billable, customer_id, notes
     ) VALUES (
-      ${_companyId}::UUID, ${userId}::UUID, ${input.projectName || null},
+      ${companyId}::UUID, ${userId}::UUID, ${input.projectName || null},
       ${input.taskDescription}, ${entryDate}::DATE,
       ${input.hours}, ${input.rate ?? null},
       ${input.billable !== false}, ${input.customerId || null}::UUID,
@@ -202,13 +202,13 @@ export async function createTimeEntry(
 }
 
 export async function updateTimeEntry(
-  _companyId: string,
+  companyId: string,
   id: string,
   input: Partial<TimeEntryInput>,
 ): Promise<TimeEntry> {
   const existing = (await sql`
     SELECT status FROM time_entries
-    WHERE id = ${id}::UUID AND company_id = ${_companyId}::UUID
+    WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
   `) as Row[];
   if (!existing.length) throw new Error('Time entry not found');
   if (existing[0].status !== 'draft') throw new Error('Only draft entries can be edited');
@@ -224,7 +224,7 @@ export async function updateTimeEntry(
       customer_id = COALESCE(${input.customerId ?? null}::UUID, customer_id),
       notes = COALESCE(${input.notes ?? null}, notes),
       updated_at = NOW()
-    WHERE id = ${id}::UUID AND company_id = ${_companyId}::UUID
+    WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
     RETURNING *
   `) as Row[];
 
@@ -233,31 +233,31 @@ export async function updateTimeEntry(
 }
 
 export async function deleteTimeEntry(
-  _companyId: string,
+  companyId: string,
   id: string,
 ): Promise<void> {
   const existing = (await sql`
     SELECT status FROM time_entries
-    WHERE id = ${id}::UUID AND company_id = ${_companyId}::UUID
+    WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
   `) as Row[];
   if (!existing.length) throw new Error('Time entry not found');
   if (existing[0].status !== 'draft') throw new Error('Only draft entries can be deleted');
 
   await sql`
     DELETE FROM time_entries
-    WHERE id = ${id}::UUID AND company_id = ${_companyId}::UUID
+    WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
   `;
   log.info('Deleted time entry', { id }, 'accounting');
 }
 
 export async function submitEntries(
-  _companyId: string,
+  companyId: string,
   ids: string[],
 ): Promise<number> {
   if (!ids.length) return 0;
   const result = (await sql`
     UPDATE time_entries SET status = 'submitted', updated_at = NOW()
-    WHERE company_id = ${_companyId}::UUID
+    WHERE company_id = ${companyId}::UUID
       AND id = ANY(${ids}::UUID[])
       AND status = 'draft'
   `) as Row[];
@@ -267,13 +267,13 @@ export async function submitEntries(
 }
 
 export async function approveEntries(
-  _companyId: string,
+  companyId: string,
   ids: string[],
 ): Promise<number> {
   if (!ids.length) return 0;
   const result = (await sql`
     UPDATE time_entries SET status = 'approved', updated_at = NOW()
-    WHERE company_id = ${_companyId}::UUID
+    WHERE company_id = ${companyId}::UUID
       AND id = ANY(${ids}::UUID[])
       AND status = 'submitted'
   `) as Row[];
@@ -283,12 +283,12 @@ export async function approveEntries(
 }
 
 export async function getTimeSummary(
-  _companyId: string,
+  companyId: string,
   filters?: { dateFrom?: string; dateTo?: string; userId?: string },
 ): Promise<TimeSummary> {
   // Build conditions for summary queries
   const conditions: string[] = ['company_id = $1::UUID'];
-  const params: unknown[] = [_companyId];
+  const params: unknown[] = [companyId];
   let idx = 2;
 
   if (filters?.dateFrom) {
@@ -371,7 +371,7 @@ export async function getTimeSummary(
 }
 
 export async function getUninvoicedEntries(
-  _companyId: string,
+  companyId: string,
   customerId?: string,
 ): Promise<TimeEntry[]> {
   let rows: Row[];
@@ -380,7 +380,7 @@ export async function getUninvoicedEntries(
       SELECT te.*, c.company_name AS customer_name
       FROM time_entries te
       LEFT JOIN clients c ON c.id = te.customer_id
-      WHERE te.company_id = ${_companyId}::UUID
+      WHERE te.company_id = ${companyId}::UUID
         AND te.status = 'approved'
         AND te.billable = true
         AND te.invoiced = false
@@ -392,7 +392,7 @@ export async function getUninvoicedEntries(
       SELECT te.*, c.company_name AS customer_name
       FROM time_entries te
       LEFT JOIN clients c ON c.id = te.customer_id
-      WHERE te.company_id = ${_companyId}::UUID
+      WHERE te.company_id = ${companyId}::UUID
         AND te.status = 'approved'
         AND te.billable = true
         AND te.invoiced = false
@@ -403,7 +403,7 @@ export async function getUninvoicedEntries(
 }
 
 export async function markAsInvoiced(
-  _companyId: string,
+  companyId: string,
   entryIds: string[],
   invoiceId: string,
 ): Promise<number> {
@@ -414,7 +414,7 @@ export async function markAsInvoiced(
       invoice_id = ${invoiceId}::UUID,
       status = 'invoiced',
       updated_at = NOW()
-    WHERE company_id = ${_companyId}::UUID
+    WHERE company_id = ${companyId}::UUID
       AND id = ANY(${entryIds}::UUID[])
       AND status = 'approved'
       AND billable = true

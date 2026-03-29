@@ -54,14 +54,14 @@ export interface ApprovalCheckResult {
 
 // ── Rule CRUD ────────────────────────────────────────────────────────────────
 
-export async function listRules(_companyId?: string): Promise<ApprovalRule[]> {
+export async function listRules(companyId?: string): Promise<ApprovalRule[]> {
   const rows = (await sql`
     SELECT * FROM approval_rules ORDER BY priority ASC, name ASC
   `) as Row[];
   return rows.map(mapRule);
 }
 
-export async function createRule(_companyId: string, input: {
+export async function createRule(companyId: string, input: {
   name: string;
   documentType: DocumentType;
   conditionField?: string;
@@ -81,7 +81,7 @@ export async function createRule(_companyId: string, input: {
   return mapRule(rows[0]);
 }
 
-export async function updateRule(_companyId: string, id: string, input: Partial<{
+export async function updateRule(companyId: string, id: string, input: Partial<{
   name: string;
   conditionField: string;
   conditionOperator: string;
@@ -104,7 +104,7 @@ export async function updateRule(_companyId: string, id: string, input: Partial<
   return mapRule(rows[0]);
 }
 
-export async function deleteRule(_companyId: string, id: string): Promise<void> {
+export async function deleteRule(companyId: string, id: string): Promise<void> {
   await sql`DELETE FROM approval_rules WHERE id = ${id}::UUID`;
 }
 
@@ -112,7 +112,7 @@ export async function deleteRule(_companyId: string, id: string): Promise<void> 
 
 /** Check if a document requires approval based on active rules */
 export async function checkApproval(
-  _companyId: string,
+  companyId: string,
   documentType: DocumentType,
   documentId: string,
   amount: number
@@ -175,7 +175,7 @@ export async function checkApproval(
 // ── Approval Requests ────────────────────────────────────────────────────────
 
 /** Create an approval request for a document */
-export async function requestApproval(_companyId: string, input: {
+export async function requestApproval(companyId: string, input: {
   ruleId: string;
   documentType: DocumentType;
   documentId: string;
@@ -199,7 +199,7 @@ export async function requestApproval(_companyId: string, input: {
 }
 
 /** List approval requests with optional status filter */
-export async function listRequests(_companyId: string, status?: ApprovalStatus): Promise<ApprovalRequest[]> {
+export async function listRequests(companyId: string, status?: ApprovalStatus): Promise<ApprovalRequest[]> {
   const rows = status
     ? (await sql`
         SELECT ar.*, rl.name AS rule_name,
@@ -226,7 +226,7 @@ export async function listRequests(_companyId: string, status?: ApprovalStatus):
 }
 
 /** Approve or reject a request */
-export async function decideRequest(_companyId: string, 
+export async function decideRequest(companyId: string, 
   requestId: string,
   decision: 'approved' | 'rejected',
   decidedBy: string,
@@ -247,7 +247,7 @@ export async function decideRequest(_companyId: string,
 }
 
 /** Get pending approval count for dashboard badge */
-export async function getPendingCount(_companyId?: string): Promise<number> {
+export async function getPendingCount(companyId?: string): Promise<number> {
   const rows = (await sql`
     SELECT COUNT(*) AS count FROM approval_requests WHERE status = 'pending'
   `) as Row[];

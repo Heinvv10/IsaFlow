@@ -13,7 +13,7 @@ import type { JournalLineInput } from '../types/gl.types';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
 
-export async function getWriteOffs(_companyId: string, filters?: {
+export async function getWriteOffs(companyId: string, filters?: {
   status?: string;
   clientId?: string;
   limit?: number;
@@ -62,7 +62,7 @@ export async function getWriteOffs(_companyId: string, filters?: {
   return { items: rows.map(mapRow), total: Number(countRows[0]?.cnt || 0) };
 }
 
-export async function createWriteOff(_companyId: string, 
+export async function createWriteOff(companyId: string, 
   input: WriteOffCreateInput,
   userId: string
 ): Promise<CustomerWriteOff> {
@@ -90,7 +90,7 @@ export async function createWriteOff(_companyId: string,
   return mapRow(rows[0]!);
 }
 
-export async function approveWriteOff(_companyId: string, id: string, userId: string): Promise<CustomerWriteOff> {
+export async function approveWriteOff(companyId: string, id: string, userId: string): Promise<CustomerWriteOff> {
   const woRows = (await sql`
     SELECT wo.*, ci.invoice_number FROM customer_write_offs wo
     LEFT JOIN customer_invoices ci ON ci.id = wo.invoice_id
@@ -142,7 +142,7 @@ export async function approveWriteOff(_companyId: string, id: string, userId: st
   return mapRow(updated[0]!);
 }
 
-export async function cancelWriteOff(_companyId: string, id: string): Promise<void> {
+export async function cancelWriteOff(companyId: string, id: string): Promise<void> {
   await sql`UPDATE customer_write_offs SET status = 'cancelled' WHERE id = ${id} AND status = 'draft'`;
 }
 

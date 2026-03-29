@@ -25,7 +25,7 @@ interface PaymentFilters {
   offset?: number;
 }
 
-export async function getCustomerPayments(_companyId: string, filters?: PaymentFilters): Promise<{
+export async function getCustomerPayments(companyId: string, filters?: PaymentFilters): Promise<{
   payments: CustomerPayment[];
   total: number;
 }> {
@@ -71,7 +71,7 @@ export async function getCustomerPayments(_companyId: string, filters?: PaymentF
   }
 }
 
-export async function getCustomerPaymentById(_companyId: string, 
+export async function getCustomerPaymentById(companyId: string, 
   id: string
 ): Promise<(CustomerPayment & { allocations: CustomerPaymentAllocation[] }) | null> {
   try {
@@ -96,7 +96,7 @@ export async function getCustomerPaymentById(_companyId: string,
   }
 }
 
-export async function createCustomerPayment(_companyId: string, 
+export async function createCustomerPayment(companyId: string, 
   input: CustomerPaymentCreateInput,
   userId: string
 ): Promise<CustomerPayment> {
@@ -147,7 +147,7 @@ export async function createCustomerPayment(_companyId: string,
   }
 }
 
-export async function confirmCustomerPayment(_companyId: string, 
+export async function confirmCustomerPayment(companyId: string, 
   id: string,
   userId: string
 ): Promise<CustomerPayment> {
@@ -211,7 +211,7 @@ export async function confirmCustomerPayment(_companyId: string,
   }
 }
 
-export async function cancelCustomerPayment(_companyId: string, 
+export async function cancelCustomerPayment(companyId: string, 
   id: string,
   userId: string,
   reason?: string
@@ -260,7 +260,7 @@ export async function cancelCustomerPayment(_companyId: string,
   }
 }
 
-export async function postCustomerInvoiceToGL(_companyId: string, invoiceId: string, userId: string): Promise<string> {
+export async function postCustomerInvoiceToGL(companyId: string, invoiceId: string, userId: string): Promise<string> {
   try {
     const invRows = (await sql`
       SELECT ci.*, c.company_name AS client_name

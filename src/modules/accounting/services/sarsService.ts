@@ -109,7 +109,7 @@ export interface SARSSubmission {
  * Output VAT comes from customer_invoices; input VAT from supplier_invoices.
  * GL account codes 2120 (Output VAT) and 1140 (Input VAT) are cross-referenced.
  */
-export async function generateVAT201(_companyId: string, 
+export async function generateVAT201(companyId: string, 
   periodStart: string,
   periodEnd: string
 ): Promise<VAT201Data> {
@@ -262,7 +262,7 @@ export async function generateVAT201(_companyId: string,
  * Generate EMP201 (monthly PAYE/UIF/SDL) data from payroll tables.
  * Handles missing payroll tables gracefully by returning zero-filled data.
  */
-export async function generateEMP201(_companyId: string, 
+export async function generateEMP201(companyId: string, 
   periodStart: string,
   periodEnd: string
 ): Promise<EMP201Data> {
@@ -401,7 +401,7 @@ export async function generateEMP201(_companyId: string,
 
 /** Save a SARS submission as draft */
 export async function saveDraftSubmission(
-  _companyId: string,
+  companyId: string,
   formType: string,
   periodStart: string,
   periodEnd: string,
@@ -420,7 +420,7 @@ export async function saveDraftSubmission(
 }
 
 /** List all submissions, most recent first */
-export async function listSubmissions(_companyId: string, 
+export async function listSubmissions(companyId: string, 
   formType?: string
 ): Promise<SARSSubmission[]> {
   let rows: Row[];
@@ -441,7 +441,7 @@ export async function listSubmissions(_companyId: string,
 }
 
 /** Get a single submission by ID */
-export async function getSubmission(_companyId: string, id: string): Promise<SARSSubmission | null> {
+export async function getSubmission(companyId: string, id: string): Promise<SARSSubmission | null> {
   const rows = (await sql`
     SELECT * FROM sars_submissions WHERE id = ${id}
   `) as Row[];
@@ -451,7 +451,7 @@ export async function getSubmission(_companyId: string, id: string): Promise<SAR
 }
 
 /** Mark a submission as submitted with a SARS reference */
-export async function markSubmitted(_companyId: string, 
+export async function markSubmitted(companyId: string, 
   id: string,
   reference: string
 ): Promise<SARSSubmission> {
@@ -635,7 +635,7 @@ export function getComplianceCalendar(year?: number): ComplianceEvent[] {
  * Load compliance events from the database (if any exist), merged with
  * the static calendar. DB events can override status (e.g. marked completed).
  */
-export async function getComplianceCalendarWithDB(_companyId: string, year?: number): Promise<ComplianceEvent[]> {
+export async function getComplianceCalendarWithDB(companyId: string, year?: number): Promise<ComplianceEvent[]> {
   const staticEvents = getComplianceCalendar(year);
 
   try {

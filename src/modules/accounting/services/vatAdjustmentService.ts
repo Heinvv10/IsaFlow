@@ -13,7 +13,7 @@ import type { JournalLineInput } from '../types/gl.types';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
 
-export async function getVATAdjustments(_companyId: string, filters?: {
+export async function getVATAdjustments(companyId: string, filters?: {
   status?: string;
   limit?: number;
   offset?: number;
@@ -42,7 +42,7 @@ export async function getVATAdjustments(_companyId: string, filters?: {
   return { items: rows.map(mapRow), total: Number(countRows[0]?.cnt || 0) };
 }
 
-export async function createVATAdjustment(_companyId: string, 
+export async function createVATAdjustment(companyId: string, 
   input: VATAdjustmentCreateInput,
   userId: string
 ): Promise<VATAdjustment> {
@@ -59,7 +59,7 @@ export async function createVATAdjustment(_companyId: string,
   return mapRow(rows[0]!);
 }
 
-export async function approveVATAdjustment(_companyId: string, 
+export async function approveVATAdjustment(companyId: string, 
   id: string,
   userId: string
 ): Promise<VATAdjustment> {
@@ -114,7 +114,7 @@ export async function approveVATAdjustment(_companyId: string,
   return mapRow(updated[0]!);
 }
 
-export async function cancelVATAdjustment(_companyId: string, id: string): Promise<void> {
+export async function cancelVATAdjustment(companyId: string, id: string): Promise<void> {
   await sql`UPDATE vat_adjustments SET status = 'cancelled' WHERE id = ${id} AND status = 'draft'`;
 }
 

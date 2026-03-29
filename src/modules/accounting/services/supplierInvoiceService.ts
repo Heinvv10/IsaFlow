@@ -28,7 +28,7 @@ interface InvoiceFilters {
   offset?: number;
 }
 
-export async function getSupplierInvoices(_companyId: string, filters?: InvoiceFilters): Promise<{
+export async function getSupplierInvoices(companyId: string, filters?: InvoiceFilters): Promise<{
   invoices: SupplierInvoice[];
   total: number;
 }> {
@@ -91,7 +91,7 @@ export async function getSupplierInvoices(_companyId: string, filters?: InvoiceF
   }
 }
 
-export async function getSupplierInvoiceById(_companyId: string, 
+export async function getSupplierInvoiceById(companyId: string, 
   id: string
 ): Promise<(SupplierInvoice & { items: SupplierInvoiceItem[] }) | null> {
   try {
@@ -118,7 +118,7 @@ export async function getSupplierInvoiceById(_companyId: string,
   }
 }
 
-export async function createSupplierInvoice(_companyId: string, 
+export async function createSupplierInvoice(companyId: string, 
   input: SupplierInvoiceCreateInput,
   userId: string
 ): Promise<SupplierInvoice> {
@@ -186,7 +186,7 @@ export async function createSupplierInvoice(_companyId: string,
   }
 }
 
-export async function approveSupplierInvoice(_companyId: string, 
+export async function approveSupplierInvoice(companyId: string, 
   id: string,
   userId: string
 ): Promise<SupplierInvoice> {
@@ -262,7 +262,7 @@ export async function approveSupplierInvoice(_companyId: string,
   }
 }
 
-export async function cancelSupplierInvoice(_companyId: string, id: string): Promise<SupplierInvoice> {
+export async function cancelSupplierInvoice(companyId: string, id: string): Promise<SupplierInvoice> {
   try {
     const invoice = await getSupplierInvoiceById('', id);
     if (!invoice) throw new Error(`Supplier invoice ${id} not found`);
@@ -279,19 +279,19 @@ export async function cancelSupplierInvoice(_companyId: string, id: string): Pro
   }
 }
 
-export async function performThreeWayMatch(_companyId: string, invoiceId: string) {
+export async function performThreeWayMatch(companyId: string, invoiceId: string) {
   try {
     const invoice = await getSupplierInvoiceById('', invoiceId);
     if (!invoice) throw new Error(`Invoice ${invoiceId} not found`);
     if (!invoice.purchaseOrderId) throw new Error('Invoice has no linked PO');
 
     const poItems = (await sql`
-      SELECT * FROM purchase_order_items WHERE purchase_order_id = ${invoice.purchaseOrderId}
+      SELECT * FROM po_items WHERE purchase_order_id = ${invoice.purchaseOrderId}
     `) as Row[];
 
     const grnItems = invoice.grnId
       ? ((await sql`
-          SELECT * FROM goods_receipt_items WHERE grn_id = ${invoice.grnId}
+          SELECT * FROM grn_items WHERE grn_id = ${invoice.grnId}
         `) as Row[])
       : [];
 

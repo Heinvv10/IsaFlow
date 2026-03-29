@@ -13,7 +13,7 @@ import type { JournalLineInput } from '../types/gl.types';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
 
-export async function getAdjustments(_companyId: string, filters?: {
+export async function getAdjustments(companyId: string, filters?: {
   entityType?: string;
   status?: string;
   limit?: number;
@@ -58,7 +58,7 @@ export async function getAdjustments(_companyId: string, filters?: {
   return { items, total: Number(countRows[0]?.cnt || 0) };
 }
 
-export async function createAdjustment(_companyId: string, 
+export async function createAdjustment(companyId: string, 
   input: AdjustmentCreateInput,
   userId: string
 ): Promise<AccountingAdjustment> {
@@ -78,7 +78,7 @@ export async function createAdjustment(_companyId: string,
   return mapRow(rows[0]!);
 }
 
-export async function approveAdjustment(_companyId: string, id: string, userId: string): Promise<AccountingAdjustment> {
+export async function approveAdjustment(companyId: string, id: string, userId: string): Promise<AccountingAdjustment> {
   const adjRows = (await sql`SELECT * FROM accounting_adjustments WHERE id = ${id}`) as Row[];
   if (!adjRows[0]) throw new Error('Adjustment not found');
   if (adjRows[0].status !== 'draft') throw new Error('Adjustment is not in draft status');
@@ -133,7 +133,7 @@ export async function approveAdjustment(_companyId: string, id: string, userId: 
   return mapRow(updated[0]!);
 }
 
-export async function cancelAdjustment(_companyId: string, id: string): Promise<void> {
+export async function cancelAdjustment(companyId: string, id: string): Promise<void> {
   await sql`UPDATE accounting_adjustments SET status = 'cancelled' WHERE id = ${id} AND status = 'draft'`;
 }
 

@@ -13,7 +13,7 @@ import type { JournalLineInput } from '../types/gl.types';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
 
-export async function getBatches(_companyId: string, filters?: {
+export async function getBatches(companyId: string, filters?: {
   status?: string;
   limit?: number;
   offset?: number;
@@ -42,13 +42,13 @@ export async function getBatches(_companyId: string, filters?: {
   return { items: rows.map(mapRow), total: Number(countRows[0]?.cnt || 0) };
 }
 
-export async function getBatchById(_companyId: string, id: string): Promise<SupplierPaymentBatch | null> {
+export async function getBatchById(companyId: string, id: string): Promise<SupplierPaymentBatch | null> {
   const rows = (await sql`SELECT * FROM supplier_payment_batches WHERE id = ${id}`) as Row[];
   if (!rows[0]) return null;
   return mapRow(rows[0]);
 }
 
-export async function createBatch(_companyId: string, 
+export async function createBatch(companyId: string, 
   input: BatchPaymentCreateInput,
   userId: string
 ): Promise<SupplierPaymentBatch> {
@@ -103,13 +103,13 @@ export async function createBatch(_companyId: string,
   return result!;
 }
 
-export async function approveBatch(_companyId: string, id: string, _userId: string): Promise<void> {
+export async function approveBatch(companyId: string, id: string, _userId: string): Promise<void> {
   await sql`UPDATE supplier_payment_batches SET status = 'approved' WHERE id = ${id} AND status = 'draft'`;
   await sql`UPDATE supplier_payments SET status = 'approved' WHERE batch_id = ${id}::UUID AND status = 'draft'`;
   log.info('Approved batch', { id }, 'accounting');
 }
 
-export async function processBatch(_companyId: string, id: string, userId: string): Promise<void> {
+export async function processBatch(companyId: string, id: string, userId: string): Promise<void> {
   const batch = await getBatchById('', id);
   if (!batch) throw new Error('Batch not found');
   if (batch.status !== 'approved') throw new Error('Batch must be approved first');
@@ -170,7 +170,7 @@ export async function processBatch(_companyId: string, id: string, userId: strin
   log.info('Processed batch', { id, journalEntryId: je.id }, 'accounting');
 }
 
-export async function cancelBatch(_companyId: string, id: string): Promise<void> {
+export async function cancelBatch(companyId: string, id: string): Promise<void> {
   await sql`UPDATE supplier_payment_batches SET status = 'cancelled' WHERE id = ${id} AND status = 'draft'`;
   await sql`UPDATE supplier_payments SET status = 'cancelled' WHERE batch_id = ${id}::UUID AND status = 'draft'`;
 }

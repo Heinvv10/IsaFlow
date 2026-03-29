@@ -25,8 +25,8 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
         SELECT g.delivery_date AS move_date, 'GRN' AS move_type,
           g.grn_number AS reference, si.name AS item_name, si.item_code,
           gi.quantity_received AS qty_in, 0 AS qty_out
-        FROM goods_receipt_items gi
-        JOIN goods_receipt_notes g ON g.id = gi.grn_id
+        FROM grn_items gi
+        JOIN goods_received_notes g ON g.id = gi.grn_id
         JOIN stock_items si ON si.id = gi.stock_item_id
         WHERE gi.stock_item_id = ${itemId}
           AND g.delivery_date >= ${from} AND g.delivery_date <= ${to}
@@ -36,8 +36,8 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
         SELECT g.delivery_date AS move_date, 'GRN' AS move_type,
           g.grn_number AS reference, si.name AS item_name, si.item_code,
           gi.quantity_received AS qty_in, 0 AS qty_out
-        FROM goods_receipt_items gi
-        JOIN goods_receipt_notes g ON g.id = gi.grn_id
+        FROM grn_items gi
+        JOIN goods_received_notes g ON g.id = gi.grn_id
         JOIN stock_items si ON si.id = gi.stock_item_id
         WHERE g.delivery_date IS NOT NULL
           AND g.delivery_date >= ${from} AND g.delivery_date <= ${to}
