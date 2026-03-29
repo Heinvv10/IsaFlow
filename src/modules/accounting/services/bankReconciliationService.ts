@@ -703,7 +703,7 @@ export async function allocateTransaction(
   if (allocType === 'supplier' && entityId) {
     // Supplier payment: DR Accounts Payable, CR Bank (+ VAT Input if applicable)
     const apAccountId = await glAccountByCode('2110');
-    const supRows = (await sql`SELECT name FROM suppliers WHERE id = ${Number(entityId)}`) as Row[];
+    const supRows = (await sql`SELECT name FROM suppliers WHERE id = ${entityId}::UUID`) as Row[];
     const supName = supRows.length > 0 ? String(supRows[0]!.name) : `Supplier #${entityId}`;
     allocEntityName = supName;
     entryDesc = description || `Payment to ${supName}`;
@@ -719,8 +719,8 @@ export async function allocateTransaction(
   } else if (allocType === 'customer' && entityId) {
     // Customer receipt: DR Bank, CR Accounts Receivable (+ VAT Output if applicable)
     const arAccountId = await glAccountByCode('1120');
-    const custRows = (await sql`SELECT company_name FROM clients WHERE id = ${entityId}::UUID`) as Row[];
-    const custName = custRows.length > 0 ? String(custRows[0]!.company_name) : `Customer #${entityId}`;
+    const custRows = (await sql`SELECT name FROM customers WHERE id = ${entityId}::UUID`) as Row[];
+    const custName = custRows.length > 0 ? String(custRows[0]!.name) : `Customer #${entityId}`;
     allocEntityName = custName;
     entryDesc = description || `Receipt from ${custName}`;
     source = 'auto_payment';
