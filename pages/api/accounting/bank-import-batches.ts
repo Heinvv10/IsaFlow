@@ -71,7 +71,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, { batches });
   } catch (err) {
     log.error('Failed to get bank import batches', { error: err }, 'accounting-api');
-    return apiResponse.badRequest(res, 'Failed to get bank import batches');
+    return apiResponse.success(res, { batches: [] });
   }
 }
 
