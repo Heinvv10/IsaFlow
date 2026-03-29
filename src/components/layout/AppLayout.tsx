@@ -29,7 +29,6 @@ import { SidebarNav } from '@/components/layout/SidebarNav';
 
 const AccountingNav = dynamic(
   () => import('@/components/accounting/AccountingNav').then(mod => ({ default: mod.AccountingNav })),
-  { ssr: false }
 );
 
 const SIDEBAR_COLLAPSED_KEY = 'accounting-sidebar-collapsed';

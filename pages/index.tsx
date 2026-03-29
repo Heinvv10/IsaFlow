@@ -576,7 +576,7 @@ export default function LandingPage() {
                   <li><a href="#features" className="hover:text-white transition-colors">Features</a></li>
                   <li><a href="#pricing" className="hover:text-white transition-colors">Pricing</a></li>
                   <li><a href={`${APP_URL}/login`} className="hover:text-white transition-colors">Sign In</a></li>
-                  <li><a href="#" className="hover:text-white transition-colors">API Documentation</a></li>
+                  <li><span className="opacity-50 cursor-default" title="Coming soon">API Documentation</span></li>
                 </ul>
               </div>
 
@@ -585,9 +585,9 @@ export default function LandingPage() {
                 <h4 className="text-sm font-semibold text-white mb-4">Resources</h4>
                 <ul className="space-y-2.5 text-sm">
                   <li><a href="#faq" className="hover:text-white transition-colors">FAQ</a></li>
-                  <li><a href="#" className="hover:text-white transition-colors">Help Centre</a></li>
-                  <li><a href="#" className="hover:text-white transition-colors">Blog</a></li>
-                  <li><a href="#" className="hover:text-white transition-colors">SARS Compliance Guide</a></li>
+                  <li><span className="opacity-50 cursor-default" title="Coming soon">Help Centre</span></li>
+                  <li><span className="opacity-50 cursor-default" title="Coming soon">Blog</span></li>
+                  <li><span className="opacity-50 cursor-default" title="Coming soon">SARS Compliance Guide</span></li>
                 </ul>
               </div>
 
@@ -595,10 +595,10 @@ export default function LandingPage() {
               <div>
                 <h4 className="text-sm font-semibold text-white mb-4">Company</h4>
                 <ul className="space-y-2.5 text-sm">
-                  <li><a href="#" className="hover:text-white transition-colors">About</a></li>
+                  <li><span className="opacity-50 cursor-default" title="Coming soon">About</span></li>
                   <li><a href="#contact" className="hover:text-white transition-colors">Contact</a></li>
-                  <li><a href="#" className="hover:text-white transition-colors">Privacy Policy</a></li>
-                  <li><a href="#" className="hover:text-white transition-colors">Terms of Service</a></li>
+                  <li><span className="opacity-50 cursor-default" title="Coming soon">Privacy Policy</span></li>
+                  <li><span className="opacity-50 cursor-default" title="Coming soon">Terms of Service</span></li>
                 </ul>
               </div>
             </div>

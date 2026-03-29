@@ -105,10 +105,10 @@ export async function getAccountByCode(code: string): Promise<GLAccount | null> 
   }
 }
 
-export async function createAccount(_companyId: string, input: CreateAccountInput): Promise<GLAccount> {
+export async function createAccount(companyId: string, input: CreateAccountInput): Promise<GLAccount> {
   try {
     const existing = await sql`
-      SELECT id FROM gl_accounts WHERE account_code = ${input.accountCode}
+      SELECT id FROM gl_accounts WHERE account_code = ${input.accountCode} AND company_id = ${companyId}
     `;
     if ((existing as unknown[]).length > 0) {
       throw new Error(`Account code ${input.accountCode} already exists`);
@@ -127,10 +127,10 @@ export async function createAccount(_companyId: string, input: CreateAccountInpu
 
     const rows = await sql`
       INSERT INTO gl_accounts (
-        account_code, account_name, account_type, account_subtype,
+        company_id, account_code, account_name, account_type, account_subtype,
         parent_account_id, description, normal_balance, level
       ) VALUES (
-        ${input.accountCode}, ${input.accountName}, ${input.accountType},
+        ${companyId}, ${input.accountCode}, ${input.accountName}, ${input.accountType},
         ${input.accountSubtype || null}, ${input.parentAccountId || null},
         ${input.description || null}, ${input.normalBalance}, ${level}
       )

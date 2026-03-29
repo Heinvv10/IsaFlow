@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Users, Loader2, AlertCircle, Plus, Search } from 'lucide-react';
 import Link from 'next/link';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface EmployeeListItem {
   id: string;
@@ -61,7 +62,7 @@ export default function EmployeesPage() {
       const params = new URLSearchParams();
       if (debouncedSearch) params.set('q', debouncedSearch);
       if (statusFilter) params.set('status', statusFilter);
-      const res = await fetch(`/api/payroll/employees?${params}`);
+      const res = await apiFetch(`/api/payroll/employees?${params}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       setEmployees((json.data ?? json) as EmployeeListItem[]);

@@ -5,7 +5,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import {
@@ -24,7 +24,7 @@ const GENERATORS: Record<string, typeof generateStandardBankACB> = {
   capitec: generateCapitecEFT,
 };
 
-async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
+async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
 
   const { batchId, bank } = req.body;
@@ -48,7 +48,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   // Build EFT header and payments
   const header: EFTBatchHeader = {
-    companyName: String(batches[0].company_name || 'IsaFlow'),
+    companyName: String(batches[0].company_name || (await sql`SELECT name FROM companies WHERE id = ${req.companyId} LIMIT 1` as Row[])[0]?.name || 'Unknown Company'),
     bankAccountNumber: String(batches[0].bank_account_number || ''),
     branchCode: String(batches[0].bank_branch_code || ''),
     accountType: 'current',

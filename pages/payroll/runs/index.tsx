@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { CalendarDays, Loader2, AlertCircle, Plus } from 'lucide-react';
 import Link from 'next/link';
+import { apiFetch } from '@/lib/apiFetch';
 
 interface PayrollRunItem {
   id: string;
@@ -52,7 +53,7 @@ export default function PayrollRunsPage() {
     setIsLoading(true);
     setError('');
     try {
-      const res = await fetch('/api/payroll/payroll-runs');
+      const res = await apiFetch('/api/payroll/payroll-runs');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       setRuns((json.data ?? json) as PayrollRunItem[]);
