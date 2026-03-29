@@ -222,25 +222,49 @@ export default function PayrollRunDetailPage() {
             </div>
           )}
 
+          {/* Payroll Documents */}
+          <div className="mb-6">
+            <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-3">Documents</h2>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+              {[
+                { type: 'batch-payslips', label: 'All Payslips', icon: '📄' },
+                { type: 'pay-register', label: 'Pay Register', icon: '📋' },
+                { type: 'emp201', label: 'EMP201 Return', icon: '🏛️' },
+                { type: 'leave-report', label: 'Leave Report', icon: '🗓️' },
+                { type: 'remuneration', label: 'Bank Payments', icon: '🏦' },
+              ].map(d => (
+                <a
+                  key={d.type}
+                  href={`/api/payroll/payroll-documents?runId=${run.id}&type=${d.type}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-[var(--ff-border-primary)] text-[var(--ff-text-secondary)] hover:bg-teal-500/10 hover:border-teal-500/30 hover:text-teal-400 text-xs font-medium transition-colors"
+                >
+                  <span>{d.icon}</span>
+                  <Download className="h-3 w-3" />
+                  {d.label}
+                </a>
+              ))}
+              <button
+                onClick={() => {
+                  for (const slip of run.payslips) {
+                    window.open(`/api/payroll/payslip-pdf?id=${slip.id}`, '_blank');
+                  }
+                }}
+                className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-[var(--ff-border-primary)] text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)] text-xs font-medium transition-colors"
+              >
+                <span>📑</span>
+                <Download className="h-3 w-3" />
+                Individual Slips
+              </button>
+            </div>
+          </div>
+
           {/* Payslips Table */}
           <div className="mb-6 flex items-center justify-between">
             <h2 className="text-lg font-semibold text-[var(--ff-text-primary)]">
               Payslips ({run.payslips.length})
             </h2>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => {
-                  // Download all payslips by opening each in new tab
-                  for (const slip of run.payslips) {
-                    window.open(`/api/payroll/payslip-pdf?id=${slip.id}`, '_blank');
-                  }
-                }}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--ff-border-primary)] text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)] text-xs font-medium transition-colors"
-              >
-                <Download className="h-3 w-3" />
-                Download All Payslips
-              </button>
-            </div>
           </div>
 
           <div className="rounded-lg border border-[var(--ff-border-primary)] overflow-hidden bg-[var(--ff-surface-primary)]">
