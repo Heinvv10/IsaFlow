@@ -29,7 +29,7 @@ export default function NewCustomerInvoicePage() {
   const [lines, setLines] = useState<LineItem[]>([{ key: '1', description: '', quantity: 1, unitPrice: 0, incomeType: 'other' }]);
 
   useEffect(() => {
-    apiFetch('/api/clients', { credentials: 'include' }).then(r => r.json()).then(json => {
+    apiFetch('/api/accounting/customers', { credentials: 'include' }).then(r => r.json()).then(json => {
       const d = json.data || json;
       setClients(Array.isArray(d) ? d : d.clients || []);
     }).catch(() => { /* reference data load failure — non-critical, client dropdown will be empty */ });

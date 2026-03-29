@@ -31,21 +31,10 @@ export interface CostCentreInput {
   ccType?: CcType;
 }
 
-export async function getCostCentres(_companyId: string, activeOnly = false, ccType?: CcType): Promise<CostCentre[]> {
-  let rows: Row[];
-  if (ccType === 'cc1') {
-    rows = activeOnly
-      ? ((await sql`SELECT * FROM cost_centres WHERE cc_type = 'cc1' AND is_active = true ORDER BY code`) as Row[])
-      : ((await sql`SELECT * FROM cost_centres WHERE cc_type = 'cc1' ORDER BY code`) as Row[]);
-  } else if (ccType === 'cc2') {
-    rows = activeOnly
-      ? ((await sql`SELECT * FROM cost_centres WHERE cc_type = 'cc2' AND is_active = true ORDER BY code`) as Row[])
-      : ((await sql`SELECT * FROM cost_centres WHERE cc_type = 'cc2' ORDER BY code`) as Row[]);
-  } else {
-    rows = activeOnly
-      ? ((await sql`SELECT * FROM cost_centres WHERE is_active = true ORDER BY code`) as Row[])
-      : ((await sql`SELECT * FROM cost_centres ORDER BY code`) as Row[]);
-  }
+export async function getCostCentres(_companyId: string, activeOnly = false, _ccType?: CcType): Promise<CostCentre[]> {
+  const rows = activeOnly
+    ? ((await sql`SELECT * FROM cost_centres WHERE is_active = true ORDER BY code`) as Row[])
+    : ((await sql`SELECT * FROM cost_centres ORDER BY code`) as Row[]);
   return rows.map(mapRow);
 }
 
@@ -54,12 +43,10 @@ export async function getCostCentre(id: string): Promise<CostCentre | null> {
   return rows[0] ? mapRow(rows[0]) : null;
 }
 
-export async function createCostCentre(_companyId: string, input: CostCentreInput, userId: string): Promise<CostCentre> {
-  const ccType: CcType = input.ccType || 'cc1';
+export async function createCostCentre(_companyId: string, input: CostCentreInput, _userId: string): Promise<CostCentre> {
   const rows = (await sql`
-    INSERT INTO cost_centres (code, name, description, department, cc_type, created_by)
-    VALUES (${input.code}, ${input.name}, ${input.description || null},
-            ${input.department || null}, ${ccType}, ${userId}::UUID)
+    INSERT INTO cost_centres (code, name, description)
+    VALUES (${input.code}, ${input.name}, ${input.description || null})
     RETURNING *
   `) as Row[];
   log.info('Created cost centre', { id: rows[0].id, code: input.code }, 'accounting');

@@ -63,13 +63,13 @@ export default function NewBankTransactionPage() {
           .filter(a => a.accountSubtype !== 'bank')
           .map(a => ({ id: a.id, code: a.accountCode ?? a.code, name: a.accountName ?? a.name })));
       }),
-      apiFetch('/api/suppliers?status=active').then(r => r.json()).then(json => {
+      apiFetch('/api/accounting/suppliers-list?status=active').then(r => r.json()).then(json => {
         if (!mounted) return;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const list: any[] = Array.isArray(json.data) ? json.data : [];
         setSuppliers(list.map(s => ({ id: String(s.id), name: s.name, code: s.code })));
       }),
-      apiFetch('/api/clients').then(r => r.json()).then(json => {
+      apiFetch('/api/accounting/customers').then(r => r.json()).then(json => {
         if (!mounted) return;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const list: any[] = Array.isArray(json.data) ? json.data : [];

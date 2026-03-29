@@ -46,7 +46,7 @@ export default function RecurringInvoicesPage() {
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
-    apiFetch('/api/clients', { credentials: 'include' }).then(r => r.json()).then(res => {
+    apiFetch('/api/accounting/customers', { credentials: 'include' }).then(r => r.json()).then(res => {
       const d = res.data || res;
       setClients(Array.isArray(d) ? d : d.clients || []);
     });

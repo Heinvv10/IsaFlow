@@ -29,7 +29,7 @@ export default function BusinessUnitsPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await apiFetch('/api/departments', { credentials: 'include' });
+    const res = await apiFetch('/api/accounting/cost-centres', { credentials: 'include' });
     const json = await res.json();
     const rows: BusinessUnit[] = (json.data || []).map((d: BusinessUnit) => ({
       id: d.id, name: d.name, code: d.code,
@@ -55,7 +55,7 @@ export default function BusinessUnitsPage() {
         const json = await res.json();
         if (!res.ok) throw new Error(json.message || 'Failed');
       } else {
-        const res = await apiFetch('/api/departments', {
+        const res = await apiFetch('/api/accounting/cost-centres', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify({ name: form.name, code: form.code, description: form.description }),
