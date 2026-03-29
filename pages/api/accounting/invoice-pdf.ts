@@ -31,12 +31,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     res.status(200).end(pdfBuffer);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to generate PDF';
-    log.error('Invoice PDF generation failed', { invoiceId, error: message }, 'invoice-pdf-api');
+    const stack = err instanceof Error ? err.stack : '';
+    log.error('Invoice PDF generation failed', { invoiceId, error: message, stack }, 'invoice-pdf-api');
 
     if (message.includes('not found')) {
       return apiResponse.notFound(res, 'Invoice', invoiceId);
     }
-    return apiResponse.internalError(res, err, 'Failed to generate invoice PDF');
+    return apiResponse.internalError(res, err, `Failed to generate invoice PDF: ${message}`);
   }
 }
 

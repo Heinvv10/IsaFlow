@@ -123,9 +123,9 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
            c.vat_number AS client_vat,
            c.billing_address AS client_address,
            c.contact_person AS client_contact,
-           p.project_name
+           p.name AS project_name
     FROM customer_invoices ci
-    LEFT JOIN customers c ON c.id = ci.client_id
+    LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
     LEFT JOIN projects p ON p.id = ci.project_id
     WHERE ci.id = ${invoiceId}::UUID
   `) as Row[];
@@ -452,7 +452,7 @@ export async function generateCreditNotePdf(companyId: string, creditNoteId: str
            s.name AS supplier_name,
            ci.invoice_number AS original_invoice_number
     FROM credit_notes cn
-    LEFT JOIN customers c ON c.id = cn.client_id
+    LEFT JOIN customers c ON c.id = COALESCE(cn.client_id, cn.customer_id)
     LEFT JOIN suppliers s ON s.id = cn.supplier_id
     LEFT JOIN customer_invoices ci ON ci.id = cn.customer_invoice_id
     WHERE cn.id = ${creditNoteId}::UUID
