@@ -47,7 +47,7 @@ export default function DepreciationPage() {
 
   const loadAssets = useCallback(async () => {
     try {
-      const res = await apiFetch('/api/assets?status=available,assigned,in_maintenance&limit=500', {
+      const res = await apiFetch('/api/accounting/assets?status=available,assigned,in_maintenance&limit=200', {
         credentials: 'include',
       });
       const json = await res.json();

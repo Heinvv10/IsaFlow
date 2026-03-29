@@ -207,8 +207,8 @@ export async function listRequests(_companyId: string, status?: ApprovalStatus):
                u2.first_name || ' ' || u2.last_name AS decided_by_name
         FROM approval_requests ar
         LEFT JOIN approval_rules rl ON rl.id = ar.rule_id
-        LEFT JOIN users u1 ON u1.id = ar.requested_by
-        LEFT JOIN users u2 ON u2.id = ar.decided_by
+        LEFT JOIN users u1 ON u1.id = ar.requested_by::TEXT
+        LEFT JOIN users u2 ON u2.id = ar.decided_by::TEXT
         WHERE ar.status = ${status}
         ORDER BY ar.created_at DESC
       `) as Row[]
@@ -218,8 +218,8 @@ export async function listRequests(_companyId: string, status?: ApprovalStatus):
                u2.first_name || ' ' || u2.last_name AS decided_by_name
         FROM approval_requests ar
         LEFT JOIN approval_rules rl ON rl.id = ar.rule_id
-        LEFT JOIN users u1 ON u1.id = ar.requested_by
-        LEFT JOIN users u2 ON u2.id = ar.decided_by
+        LEFT JOIN users u1 ON u1.id = ar.requested_by::TEXT
+        LEFT JOIN users u2 ON u2.id = ar.decided_by::TEXT
         ORDER BY ar.created_at DESC
       `) as Row[];
   return rows.map(mapRequest);
