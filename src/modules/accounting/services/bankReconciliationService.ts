@@ -166,20 +166,9 @@ export async function getBankTransactions(_companyId: string, filters?: BankTxFi
 
     if (filters?.reconciliationId) {
       rows = (await sql`
-        SELECT bt.*, ga.account_name AS bank_account_name,
-               ga2.account_name AS suggested_gl_account_name,
-               ga2.account_code AS suggested_gl_account_code,
-               COALESCE(s2.name, s2.company_name) AS suggested_supplier_name,
-               c2.company_name AS suggested_client_name,
-               cc1.name AS cc1_name, cc2t.name AS cc2_name, dept.name AS bu_name
+        SELECT bt.*, ga.account_name AS bank_account_name
         FROM bank_transactions bt
         LEFT JOIN gl_accounts ga ON ga.id = bt.bank_account_id
-        LEFT JOIN gl_accounts ga2 ON ga2.id = bt.suggested_gl_account_id
-        LEFT JOIN suppliers s2 ON s2.id = bt.suggested_supplier_id
-        LEFT JOIN clients c2 ON c2.id = bt.suggested_client_id
-        LEFT JOIN cost_centres cc1 ON cc1.id = bt.cc1_id
-        LEFT JOIN cost_centres cc2t ON cc2t.id = bt.cc2_id
-        LEFT JOIN departments dept ON dept.id = bt.bu_id
         WHERE bt.reconciliation_id = ${filters.reconciliationId}::UUID
         ORDER BY bt.transaction_date DESC, bt.amount DESC
         LIMIT ${limit} OFFSET ${offset}
@@ -200,20 +189,9 @@ export async function getBankTransactions(_companyId: string, filters?: BankTxFi
         ? ['imported', 'allocated']
         : [filters.status];
       rows = (await sql`
-        SELECT bt.*, ga.account_name AS bank_account_name,
-               ga2.account_name AS suggested_gl_account_name,
-               ga2.account_code AS suggested_gl_account_code,
-               COALESCE(s2.name, s2.company_name) AS suggested_supplier_name,
-               c2.company_name AS suggested_client_name,
-               cc1.name AS cc1_name, cc2t.name AS cc2_name, dept.name AS bu_name
+        SELECT bt.*, ga.account_name AS bank_account_name
         FROM bank_transactions bt
         LEFT JOIN gl_accounts ga ON ga.id = bt.bank_account_id
-        LEFT JOIN gl_accounts ga2 ON ga2.id = bt.suggested_gl_account_id
-        LEFT JOIN suppliers s2 ON s2.id = bt.suggested_supplier_id
-        LEFT JOIN clients c2 ON c2.id = bt.suggested_client_id
-        LEFT JOIN cost_centres cc1 ON cc1.id = bt.cc1_id
-        LEFT JOIN cost_centres cc2t ON cc2t.id = bt.cc2_id
-        LEFT JOIN departments dept ON dept.id = bt.bu_id
         WHERE bt.bank_account_id = ${filters.bankAccountId}::UUID
           AND bt.status = ANY(${statusArr}::TEXT[])
           AND bt.transaction_date >= ${fromDateVal}
@@ -236,20 +214,9 @@ export async function getBankTransactions(_companyId: string, filters?: BankTxFi
       `) as Row[];
     } else if (filters?.bankAccountId) {
       rows = (await sql`
-        SELECT bt.*, ga.account_name AS bank_account_name,
-               ga2.account_name AS suggested_gl_account_name,
-               ga2.account_code AS suggested_gl_account_code,
-               COALESCE(s2.name, s2.company_name) AS suggested_supplier_name,
-               c2.company_name AS suggested_client_name,
-               cc1.name AS cc1_name, cc2t.name AS cc2_name, dept.name AS bu_name
+        SELECT bt.*, ga.account_name AS bank_account_name
         FROM bank_transactions bt
         LEFT JOIN gl_accounts ga ON ga.id = bt.bank_account_id
-        LEFT JOIN gl_accounts ga2 ON ga2.id = bt.suggested_gl_account_id
-        LEFT JOIN suppliers s2 ON s2.id = bt.suggested_supplier_id
-        LEFT JOIN clients c2 ON c2.id = bt.suggested_client_id
-        LEFT JOIN cost_centres cc1 ON cc1.id = bt.cc1_id
-        LEFT JOIN cost_centres cc2t ON cc2t.id = bt.cc2_id
-        LEFT JOIN departments dept ON dept.id = bt.bu_id
         WHERE bt.bank_account_id = ${filters.bankAccountId}::UUID
         ORDER BY bt.transaction_date DESC, bt.amount DESC
         LIMIT ${limit} OFFSET ${offset}
@@ -260,20 +227,9 @@ export async function getBankTransactions(_companyId: string, filters?: BankTxFi
       `) as Row[];
     } else {
       rows = (await sql`
-        SELECT bt.*, ga.account_name AS bank_account_name,
-               ga2.account_name AS suggested_gl_account_name,
-               ga2.account_code AS suggested_gl_account_code,
-               COALESCE(s2.name, s2.company_name) AS suggested_supplier_name,
-               c2.company_name AS suggested_client_name,
-               cc1.name AS cc1_name, cc2t.name AS cc2_name, dept.name AS bu_name
+        SELECT bt.*, ga.account_name AS bank_account_name
         FROM bank_transactions bt
         LEFT JOIN gl_accounts ga ON ga.id = bt.bank_account_id
-        LEFT JOIN gl_accounts ga2 ON ga2.id = bt.suggested_gl_account_id
-        LEFT JOIN suppliers s2 ON s2.id = bt.suggested_supplier_id
-        LEFT JOIN clients c2 ON c2.id = bt.suggested_client_id
-        LEFT JOIN cost_centres cc1 ON cc1.id = bt.cc1_id
-        LEFT JOIN cost_centres cc2t ON cc2t.id = bt.cc2_id
-        LEFT JOIN departments dept ON dept.id = bt.bu_id
         ORDER BY bt.transaction_date DESC, bt.amount DESC
         LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
