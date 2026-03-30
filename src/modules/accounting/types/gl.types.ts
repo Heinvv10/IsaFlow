@@ -58,7 +58,8 @@ export type GLEntrySource =
   | 'auto_recurring'
   | 'auto_purchase_order'
   | 'auto_depreciation'
-  | 'auto_payroll';
+  | 'auto_payroll'
+  | 'auto_migration';
 
 // ── Recurring Journals ────────────────────────────────────────────────────────
 
