@@ -480,33 +480,40 @@ export async function markSubmitted(companyId: string,
 
 /**
  * Return SA tax periods for the current tax year.
- * VAT: Bi-monthly periods (Cat A) — Jan/Feb, Mar/Apr, May/Jun, Jul/Aug, Sep/Oct, Nov/Dec
+ * VAT: Bi-monthly periods — Category A (odd: Jan/Feb...) or Category B (even: Feb/Mar...)
  * PAYE: Monthly periods
  */
-export function getTaxPeriods(year?: number): TaxPeriod[] {
+export function getTaxPeriods(year?: number, alignment: 'odd' | 'even' = 'odd'): TaxPeriod[] {
   const y = year || new Date().getFullYear();
   const periods: TaxPeriod[] = [];
-
-  // VAT bi-monthly periods (Category A — most common)
-  const vatPeriods: Array<{ start: string; end: string; label: string }> = [
-    { start: `${y}-01-01`, end: `${y}-02-28`, label: `Jan–Feb ${y}` },
-    { start: `${y}-03-01`, end: `${y}-04-30`, label: `Mar–Apr ${y}` },
-    { start: `${y}-05-01`, end: `${y}-06-30`, label: `May–Jun ${y}` },
-    { start: `${y}-07-01`, end: `${y}-08-31`, label: `Jul–Aug ${y}` },
-    { start: `${y}-09-01`, end: `${y}-10-31`, label: `Sep–Oct ${y}` },
-    { start: `${y}-11-01`, end: `${y}-12-31`, label: `Nov–Dec ${y}` },
+  const monthNames = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
   ];
 
-  // Handle leap year for Feb
-  if (isLeapYear(y) && vatPeriods[0]) {
-    vatPeriods[0].end = `${y}-02-29`;
-  }
+  // VAT bi-monthly periods
+  // Category A (odd): Jan-Feb, Mar-Apr, May-Jun, Jul-Aug, Sep-Oct, Nov-Dec
+  // Category B (even): Feb-Mar, Apr-May, Jun-Jul, Aug-Sep, Oct-Nov, Dec-Jan
+  const startMonths = alignment === 'even' ? [2, 4, 6, 8, 10, 12] : [1, 3, 5, 7, 9, 11];
+
+  const vatPeriods: Array<{ start: string; end: string; label: string }> = startMonths.map(sm => {
+    const endMonth = sm + 1;
+    const startYear = y;
+    const endYear = endMonth > 12 ? y + 1 : y;
+    const em = endMonth > 12 ? 1 : endMonth;
+    const lastDay = new Date(endYear, em, 0).getDate(); // handles leap year automatically
+    return {
+      start: `${startYear}-${pad(sm)}-01`,
+      end: `${endYear}-${pad(em)}-${pad(lastDay)}`,
+      label: `${monthNames[sm - 1]}–${monthNames[em - 1]} ${endYear !== startYear ? startYear + '/' + endYear : startYear}`,
+    };
+  });
 
   for (const vp of vatPeriods) {
     const endDate = new Date(vp.end);
     // VAT201 due by 25th of month following end of period
     const dueMonth = endDate.getMonth() + 2; // +1 for next month, +1 because getMonth is 0-indexed
-    const dueYear = dueMonth > 12 ? y + 1 : y;
+    const dueYear = dueMonth > 12 ? endDate.getFullYear() + 1 : endDate.getFullYear();
     const dueM = dueMonth > 12 ? dueMonth - 12 : dueMonth;
     const dueDate = `${dueYear}-${pad(dueM)}-25`;
 
@@ -520,7 +527,7 @@ export function getTaxPeriods(year?: number): TaxPeriod[] {
   }
 
   // PAYE monthly periods
-  const monthNames = [
+  const payeMonthNames = [
     'January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December',
   ];
@@ -541,7 +548,7 @@ export function getTaxPeriods(year?: number): TaxPeriod[] {
       periodStart,
       periodEnd,
       dueDate,
-      label: `EMP201 — ${monthNames[m - 1]} ${y}`,
+      label: `EMP201 — ${payeMonthNames[m - 1]} ${y}`,
     });
   }
 
@@ -556,13 +563,15 @@ export function getTaxPeriods(year?: number): TaxPeriod[] {
  * Build a compliance calendar with upcoming SARS deadlines.
  * Includes VAT201, EMP201, EMP501, IRP5/IT3(a), and Provisional Tax (IRP6).
  */
-export function getComplianceCalendar(year?: number): ComplianceEvent[] {
+export function getComplianceCalendar(year?: number, alignment: 'odd' | 'even' = 'odd'): ComplianceEvent[] {
   const y = year || new Date().getFullYear();
   const events: ComplianceEvent[] = [];
 
   // VAT201 deadlines — due 25th of month following bi-monthly period end
-  const vatEndMonths = [2, 4, 6, 8, 10, 12];
-  const vatLabels = ['Jan–Feb', 'Mar–Apr', 'May–Jun', 'Jul–Aug', 'Sep–Oct', 'Nov–Dec'];
+  const vatEndMonths = alignment === 'even' ? [3, 5, 7, 9, 11, 1] : [2, 4, 6, 8, 10, 12];
+  const vatLabels = alignment === 'even'
+    ? ['Feb–Mar', 'Apr–May', 'Jun–Jul', 'Aug–Sep', 'Oct–Nov', 'Dec–Jan']
+    : ['Jan–Feb', 'Mar–Apr', 'May–Jun', 'Jul–Aug', 'Sep–Oct', 'Nov–Dec'];
 
   for (let i = 0; i < vatEndMonths.length; i++) {
     const endMonth = vatEndMonths[i] as number;
@@ -579,7 +588,7 @@ export function getComplianceCalendar(year?: number): ComplianceEvent[] {
   }
 
   // EMP201 deadlines — due 7th of each following month
-  const monthNames = [
+  const calMonthNames = [
     'January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December',
   ];
@@ -592,7 +601,7 @@ export function getComplianceCalendar(year?: number): ComplianceEvent[] {
     events.push({
       eventType: 'EMP201_DUE',
       dueDate: `${dueYear}-${pad(dueM)}-07`,
-      description: `EMP201 (PAYE/UIF/SDL) for ${monthNames[m - 1]} ${y}`,
+      description: `EMP201 (PAYE/UIF/SDL) for ${calMonthNames[m - 1]} ${y}`,
       status: getDeadlineStatus(`${dueYear}-${pad(dueM)}-07`),
     });
   }

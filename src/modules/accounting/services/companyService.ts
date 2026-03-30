@@ -35,6 +35,7 @@ export interface Company {
   bankAccountType: string;
   financialYearStart: number;
   vatPeriod: string;
+  vatPeriodAlignment: 'odd' | 'even';
   defaultCurrency: string;
   isActive: boolean;
   createdAt: string;
@@ -147,6 +148,7 @@ export async function createCompany(input: {
   bankAccountType?: string;
   financialYearStart?: number;
   vatPeriod?: string;
+  vatPeriodAlignment?: 'odd' | 'even';
   defaultCurrency?: string;
 }, userId: string): Promise<Company> {
   const rows = (await sql`
@@ -156,7 +158,7 @@ export async function createCompany(input: {
       address_line1, address_line2, city, province, postal_code, country,
       logo_data,
       bank_name, bank_account_number, bank_branch_code, bank_account_type,
-      financial_year_start, vat_period, default_currency
+      financial_year_start, vat_period, vat_period_alignment, default_currency
     ) VALUES (
       ${input.name}, ${input.name}, ${input.tradingName || null}, ${input.registrationNumber || null},
       ${input.vatNumber || null}, ${input.taxNumber || null}, ${input.email || null}, ${input.phone || null},
@@ -166,7 +168,7 @@ export async function createCompany(input: {
       ${input.logoData || null},
       ${input.bankName || null}, ${input.bankAccountNumber || null}, ${input.bankBranchCode || null},
       ${input.bankAccountType || 'current'},
-      ${input.financialYearStart ?? 3}, ${input.vatPeriod || 'bi-monthly'}, ${input.defaultCurrency || 'ZAR'}
+      ${input.financialYearStart ?? 3}, ${input.vatPeriod || 'bi-monthly'}, ${input.vatPeriodAlignment || 'odd'}, ${input.defaultCurrency || 'ZAR'}
     ) RETURNING *
   `) as Row[];
 
@@ -206,6 +208,7 @@ export async function updateCompany(id: string, input: Partial<Record<string, un
       bank_account_type = COALESCE(${v('bankAccountType') ?? null}, bank_account_type),
       financial_year_start = COALESCE(${v('financialYearStart') ?? null}, financial_year_start),
       vat_period = COALESCE(${v('vatPeriod') ?? null}, vat_period),
+      vat_period_alignment = COALESCE(${v('vatPeriodAlignment') ?? null}, vat_period_alignment),
       default_currency = COALESCE(${v('defaultCurrency') ?? null}, default_currency),
       lockdown_enabled = COALESCE(${v('lockdownEnabled') ?? null}, lockdown_enabled),
       lockdown_date = COALESCE(${v('lockdownDate') ?? null}::date, lockdown_date),
@@ -330,6 +333,7 @@ function mapCompany(r: Row): Company {
     bankAccountType: r.bank_account_type,
     financialYearStart: r.financial_year_start,
     vatPeriod: r.vat_period,
+    vatPeriodAlignment: r.vat_period_alignment ?? 'odd',
     defaultCurrency: r.default_currency,
     isActive: r.is_active,
     createdAt: r.created_at,
