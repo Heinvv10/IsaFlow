@@ -28,7 +28,9 @@ export default function CustomerAllocationsPage() {
     setLoading(true);
     const res = await apiFetch('/api/accounting/customer-payments?unallocated=true', { credentials: 'include' });
     const json = await res.json();
-    const d = json.data; setPayments(Array.isArray(d) ? d : d?.items || d?.payments || []);
+    const d = json.data;
+    const raw: Payment[] = Array.isArray(d) ? d : d?.items || d?.payments || [];
+    setPayments(raw.map(p => ({ ...p, amount: Number(p.amount), allocatedAmount: Number(p.allocatedAmount) })));
     setLoading(false);
   }, []);
 
@@ -38,7 +40,8 @@ export default function CustomerAllocationsPage() {
     setSelected(p); setAllocs({}); setMsg(''); setLoadingInv(true);
     const res = await apiFetch(`/api/accounting/customer-invoices?client_id=${p.clientId}&status=approved`, { credentials: 'include' });
     const json = await res.json();
-    setInvoices(json.data?.items || json.data || []);
+    const inv: Invoice[] = json.data?.items || json.data || [];
+    setInvoices(inv.map(i => ({ ...i, total: Number(i.total), outstanding: Number(i.outstanding) })));
     setLoadingInv(false);
   };
 

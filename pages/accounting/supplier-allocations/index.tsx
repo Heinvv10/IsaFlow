@@ -27,7 +27,9 @@ export default function SupplierAllocationsPage() {
     setLoading(true);
     const res = await apiFetch('/api/accounting/supplier-payments?unallocated=true', { credentials: 'include' });
     const json = await res.json();
-    setPayments((() => { const d = json.data; return Array.isArray(d) ? d : d?.items || d?.payments || d?.invoices || []; })());
+    const d = json.data;
+    const raw: Payment[] = Array.isArray(d) ? d : d?.items || d?.payments || d?.invoices || [];
+    setPayments(raw.map(p => ({ ...p, amount: Number(p.amount), allocatedAmount: Number(p.allocatedAmount) })));
     setLoading(false);
   }, []);
 
@@ -37,7 +39,8 @@ export default function SupplierAllocationsPage() {
     setSelected(p); setAllocs({}); setMsg(''); setLoadingInv(true);
     const res = await apiFetch(`/api/accounting/supplier-invoices?supplier_id=${p.supplierId}&status=approved`, { credentials: 'include' });
     const json = await res.json();
-    setInvoices((() => { const d = json.data; return Array.isArray(d) ? d : d?.items || d?.payments || d?.invoices || []; })());
+    const rawInv: Invoice[] = (() => { const d = json.data; return Array.isArray(d) ? d : d?.items || d?.payments || d?.invoices || []; })();
+    setInvoices(rawInv.map(i => ({ ...i, total: Number(i.total), outstanding: Number(i.outstanding) })));
     setLoadingInv(false);
   };
 

@@ -212,7 +212,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         ${extracted.totalAmount},
         ${extracted.vatAmount},
         'pending',
-        ${user?.id || null}::uuid
+        ${user?.id || null}
       )
       RETURNING *
     ` as Record<string, unknown>[];

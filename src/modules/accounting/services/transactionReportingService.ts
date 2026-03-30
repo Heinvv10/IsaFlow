@@ -39,7 +39,7 @@ export async function getCustomerReport(companyId: string,
     const rows = (await sql`
       SELECT
         c.id AS client_id,
-        c.company_name AS client_name,
+        c.name AS client_name,
         COUNT(DISTINCT ci.id) AS invoice_count,
         COALESCE(SUM(ci.total_amount), 0) AS total_invoiced,
         COALESCE(SUM(ci.amount_paid), 0) AS total_paid
@@ -48,7 +48,7 @@ export async function getCustomerReport(companyId: string,
         AND ci.invoice_date >= ${periodStart}
         AND ci.invoice_date <= ${periodEnd}
         AND ci.status NOT IN ('draft', 'cancelled')
-      GROUP BY c.id, c.company_name
+      GROUP BY c.id, c.name
       HAVING COUNT(ci.id) > 0
       ORDER BY COALESCE(SUM(ci.total_amount), 0) DESC
     `) as Row[];

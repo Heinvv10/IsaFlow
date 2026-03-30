@@ -91,7 +91,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       ${invoiceInput.taxAmount}, ${invoiceInput.totalAmount},
       ${invoiceInput.paymentTerms || 'net30'}, ${invoiceInput.reference || null},
       ${approvalRoute === 'auto_approve' ? 'approved' : 'draft'},
-      ${userId}::uuid
+      ${userId}
     ) RETURNING id, invoice_number, status
   `) as Row[];
 
