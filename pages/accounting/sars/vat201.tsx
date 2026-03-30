@@ -92,8 +92,7 @@ export default function VAT201Page() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [showOutput, setShowOutput] = useState(false);
-  const [showInput, setShowInput] = useState(false);
+  const [viewMode, setViewMode] = useState<'summary' | 'detail'>('summary');
   const [sarsRef, setSarsRef] = useState('');
   const [savedId, setSavedId] = useState('');
   const [showSubmitModal, setShowSubmitModal] = useState(false);
@@ -329,45 +328,107 @@ export default function VAT201Page() {
           {/* VAT201 Form */}
           {data && (
             <>
-              <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)]">
-                <div className="px-4 py-3 border-b border-[var(--ff-border-light)]">
-                  <h2 className="text-lg font-semibold text-[var(--ff-text-primary)]">
-                    VAT201 — {formatDate(data.periodStart)} to {formatDate(data.periodEnd)}
-                  </h2>
+              {/* View Toggle */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-1">
+                  <button
+                    onClick={() => setViewMode('summary')}
+                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                      viewMode === 'summary'
+                        ? 'bg-teal-600 text-white'
+                        : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'
+                    }`}
+                  >
+                    Summary
+                  </button>
+                  <button
+                    onClick={() => setViewMode('detail')}
+                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                      viewMode === 'detail'
+                        ? 'bg-teal-600 text-white'
+                        : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'
+                    }`}
+                  >
+                    Detail
+                  </button>
                 </div>
+                <span className="text-xs text-[var(--ff-text-tertiary)]">
+                  {viewMode === 'summary' ? 'SARS VAT201 box totals' : `${data.outputInvoices.length + data.inputInvoices.length} transactions`}
+                </span>
+              </div>
 
-                <div className="divide-y divide-[var(--ff-border-light)]">
-                  {/* Output Section */}
-                  <div className="px-4 py-2 bg-teal-500/5">
-                    <p className="text-xs font-semibold text-teal-500 uppercase tracking-wider">Output VAT (Sales)</p>
+              {viewMode === 'summary' ? (
+                /* ── SUMMARY VIEW ── */
+                <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)]">
+                  <div className="px-4 py-3 border-b border-[var(--ff-border-light)]">
+                    <h2 className="text-lg font-semibold text-[var(--ff-text-primary)]">
+                      VAT201 — {formatDate(data.periodStart)} to {formatDate(data.periodEnd)}
+                    </h2>
                   </div>
-                  <FormRow field="1" label="Standard-rated supplies (15%)" amount={data.field1_standardRatedSupplies} />
-                  <FormRow field="2" label="Zero-rated supplies" amount={data.field2_zeroRatedSupplies} />
-                  <FormRow field="3" label="Exempt supplies" amount={data.field3_exemptSupplies} />
-                  <FormRow field="4" label="Total imports" amount={data.field4_totalImports} />
-                  <FormRow field="5" label="Output VAT (Field 1 x 15%)" amount={data.field5_outputVAT} highlight />
 
-                  {/* Input Section */}
-                  <div className="px-4 py-2 bg-blue-500/5">
-                    <p className="text-xs font-semibold text-blue-500 uppercase tracking-wider">Input VAT (Purchases)</p>
-                  </div>
-                  <FormRow field="6" label="Capital goods" amount={data.field6_capitalGoods} />
-                  <FormRow field="7" label="Other goods" amount={data.field7_otherGoods} />
-                  <FormRow field="8" label="Services" amount={data.field8_services} />
-                  <FormRow field="9" label="Imports" amount={data.field9_imports} />
-                  <FormRow field="10" label="Total input VAT" amount={data.field10_totalInputVAT} highlight />
+                  <div className="divide-y divide-[var(--ff-border-light)]">
+                    <div className="px-4 py-2 bg-teal-500/5">
+                      <p className="text-xs font-semibold text-teal-500 uppercase tracking-wider">Output VAT (Sales)</p>
+                    </div>
+                    <FormRow field="1" label="Standard-rated supplies (15%)" amount={data.field1_standardRatedSupplies} />
+                    <FormRow field="2" label="Zero-rated supplies" amount={data.field2_zeroRatedSupplies} />
+                    <FormRow field="3" label="Exempt supplies" amount={data.field3_exemptSupplies} />
+                    <FormRow field="4" label="Total imports" amount={data.field4_totalImports} />
+                    <FormRow field="5" label="Output VAT (Field 1 x 15%)" amount={data.field5_outputVAT} highlight />
 
-                  {/* Result */}
-                  <div className="px-4 py-2 bg-[var(--ff-bg-primary)]">
-                    <p className="text-xs font-semibold text-[var(--ff-text-secondary)] uppercase tracking-wider">Result</p>
-                  </div>
-                  <div className="px-4 py-3 flex items-center justify-between bg-[var(--ff-bg-primary)]/50">
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm font-mono text-[var(--ff-text-tertiary)] w-8">11</span>
-                      <span className="text-sm font-semibold text-[var(--ff-text-primary)]">
-                        {data.field11_vatPayableOrRefundable >= 0 ? 'VAT Payable to SARS' : 'VAT Refundable from SARS'}
+                    <div className="px-4 py-2 bg-blue-500/5">
+                      <p className="text-xs font-semibold text-blue-500 uppercase tracking-wider">Input VAT (Purchases)</p>
+                    </div>
+                    <FormRow field="6" label="Capital goods" amount={data.field6_capitalGoods} />
+                    <FormRow field="7" label="Other goods" amount={data.field7_otherGoods} />
+                    <FormRow field="8" label="Services" amount={data.field8_services} />
+                    <FormRow field="9" label="Imports" amount={data.field9_imports} />
+                    <FormRow field="10" label="Total input VAT" amount={data.field10_totalInputVAT} highlight />
+
+                    <div className="px-4 py-2 bg-[var(--ff-bg-primary)]">
+                      <p className="text-xs font-semibold text-[var(--ff-text-secondary)] uppercase tracking-wider">Result</p>
+                    </div>
+                    <div className="px-4 py-3 flex items-center justify-between bg-[var(--ff-bg-primary)]/50">
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-mono text-[var(--ff-text-tertiary)] w-8">11</span>
+                        <span className="text-sm font-semibold text-[var(--ff-text-primary)]">
+                          {data.field11_vatPayableOrRefundable >= 0 ? 'VAT Payable to SARS' : 'VAT Refundable from SARS'}
+                        </span>
+                      </div>
+                      <span className={`text-lg font-bold ${
+                        data.field11_vatPayableOrRefundable >= 0 ? 'text-red-400' : 'text-emerald-400'
+                      }`}>
+                        {fmt(Math.abs(data.field11_vatPayableOrRefundable))}
                       </span>
                     </div>
+                  </div>
+                </div>
+              ) : (
+                /* ── DETAIL VIEW ── */
+                <div className="space-y-4">
+                  {/* Output Transactions */}
+                  <TransactionTable
+                    title="Section A — Output Tax (Sales)"
+                    sectionColor="teal"
+                    invoices={data.outputInvoices}
+                    totalLabel="Total Output Tax (Box 13)"
+                    totalVat={data.field5_outputVAT}
+                  />
+
+                  {/* Input Transactions */}
+                  <TransactionTable
+                    title="Section B — Input Tax (Purchases)"
+                    sectionColor="blue"
+                    invoices={data.inputInvoices}
+                    totalLabel="Total Input Tax (Box 19)"
+                    totalVat={data.field10_totalInputVAT}
+                  />
+
+                  {/* Net Result Banner */}
+                  <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] px-4 py-3 flex items-center justify-between">
+                    <span className="text-sm font-semibold text-[var(--ff-text-primary)]">
+                      Net VAT — Box 20 ({data.field11_vatPayableOrRefundable >= 0 ? 'Payable to SARS' : 'Refundable from SARS'})
+                    </span>
                     <span className={`text-lg font-bold ${
                       data.field11_vatPayableOrRefundable >= 0 ? 'text-red-400' : 'text-emerald-400'
                     }`}>
@@ -375,21 +436,7 @@ export default function VAT201Page() {
                     </span>
                   </div>
                 </div>
-              </div>
-
-              {/* Invoice Breakdowns */}
-              <InvoiceBreakdown
-                title="Output Invoices (Sales)"
-                invoices={data.outputInvoices}
-                open={showOutput}
-                onToggle={() => setShowOutput(!showOutput)}
-              />
-              <InvoiceBreakdown
-                title="Input Invoices (Purchases)"
-                invoices={data.inputInvoices}
-                open={showInput}
-                onToggle={() => setShowInput(!showInput)}
-              />
+              )}
 
               {/* Actions */}
               <div className="flex items-center gap-3">
@@ -481,67 +528,83 @@ function FormRow({
   );
 }
 
-function InvoiceBreakdown({
+function TransactionTable({
   title,
+  sectionColor,
   invoices,
-  open,
-  onToggle,
+  totalLabel,
+  totalVat,
 }: {
   title: string;
+  sectionColor: 'teal' | 'blue';
   invoices: VAT201Invoice[];
-  open: boolean;
-  onToggle: () => void;
+  totalLabel: string;
+  totalVat: number;
 }) {
+  const colorClasses = sectionColor === 'teal'
+    ? { bg: 'bg-teal-500/5', text: 'text-teal-500', badge: 'bg-teal-500/10 text-teal-400', border: 'border-teal-500/20' }
+    : { bg: 'bg-blue-500/5', text: 'text-blue-500', badge: 'bg-blue-500/10 text-blue-400', border: 'border-blue-500/20' };
+
+  const totalNet = invoices.reduce((s, i) => s + i.totalExclVat, 0);
+  const totalVatCalc = invoices.reduce((s, i) => s + i.vatAmount, 0);
+  const totalGross = totalNet + totalVatCalc;
+
   return (
-    <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)]">
-      <button
-        onClick={onToggle}
-        className="w-full px-4 py-3 flex items-center justify-between hover:bg-[var(--ff-bg-primary)]/30"
-      >
-        <span className="text-sm font-medium text-[var(--ff-text-primary)]">
-          {title} ({invoices.length})
-        </span>
-        {open ? <ChevronDown className="h-4 w-4 text-[var(--ff-text-tertiary)]" /> : <ChevronRight className="h-4 w-4 text-[var(--ff-text-tertiary)]" />}
-      </button>
-      {open && (
-        <div className="border-t border-[var(--ff-border-light)]">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-[var(--ff-border-light)] text-left text-[var(--ff-text-secondary)]">
-                <th className="px-4 py-2">Invoice</th>
-                <th className="px-4 py-2">Counterparty</th>
-                <th className="px-4 py-2">Date</th>
-                <th className="px-4 py-2">VAT Type</th>
-                <th className="px-4 py-2 text-right">Excl. VAT</th>
-                <th className="px-4 py-2 text-right">VAT</th>
-              </tr>
-            </thead>
-            <tbody>
-              {invoices.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="px-4 py-4 text-center text-[var(--ff-text-tertiary)]">
-                    No invoices for this period.
-                  </td>
-                </tr>
-              )}
-              {invoices.map((inv) => (
-                <tr key={inv.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50">
-                  <td className="px-4 py-2 text-[var(--ff-text-primary)] font-medium">{inv.invoiceNumber}</td>
-                  <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{inv.counterpartyName}</td>
-                  <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{formatDate(inv.invoiceDate)}</td>
-                  <td className="px-4 py-2">
-                    <span className="inline-flex px-2 py-0.5 rounded text-xs font-medium bg-teal-500/10 text-teal-400">
-                      {inv.vatType}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2 text-right text-[var(--ff-text-primary)]">{fmt(inv.totalExclVat)}</td>
-                  <td className="px-4 py-2 text-right text-teal-400 font-medium">{fmt(inv.vatAmount)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+    <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
+      <div className={`px-4 py-2.5 ${colorClasses.bg} border-b ${colorClasses.border}`}>
+        <div className="flex items-center justify-between">
+          <p className={`text-xs font-semibold ${colorClasses.text} uppercase tracking-wider`}>{title}</p>
+          <span className="text-xs text-[var(--ff-text-tertiary)]">{invoices.length} transactions</span>
         </div>
-      )}
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-[var(--ff-border-light)] text-left text-[var(--ff-text-tertiary)] text-xs uppercase tracking-wider">
+              <th className="px-4 py-2.5">Date</th>
+              <th className="px-4 py-2.5">Invoice #</th>
+              <th className="px-4 py-2.5">Counterparty</th>
+              <th className="px-4 py-2.5">VAT Type</th>
+              <th className="px-4 py-2.5 text-right">Net (Excl.)</th>
+              <th className="px-4 py-2.5 text-right">VAT</th>
+              <th className="px-4 py-2.5 text-right">Gross (Incl.)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {invoices.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="px-4 py-6 text-center text-[var(--ff-text-tertiary)]">
+                  No transactions for this period.
+                </td>
+              </tr>
+            ) : invoices.map((inv) => (
+              <tr key={inv.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/30">
+                <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{formatDate(inv.invoiceDate)}</td>
+                <td className="px-4 py-2 text-[var(--ff-text-primary)] font-medium">{inv.invoiceNumber}</td>
+                <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{inv.counterpartyName}</td>
+                <td className="px-4 py-2">
+                  <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${colorClasses.badge}`}>
+                    {inv.vatType}
+                  </span>
+                </td>
+                <td className="px-4 py-2 text-right text-[var(--ff-text-primary)]">{fmt(inv.totalExclVat)}</td>
+                <td className="px-4 py-2 text-right text-[var(--ff-text-primary)]">{fmt(inv.vatAmount)}</td>
+                <td className="px-4 py-2 text-right text-[var(--ff-text-primary)]">{fmt(inv.totalExclVat + inv.vatAmount)}</td>
+              </tr>
+            ))}
+          </tbody>
+          {invoices.length > 0 && (
+            <tfoot>
+              <tr className={`${colorClasses.bg} font-semibold`}>
+                <td colSpan={4} className={`px-4 py-2.5 text-sm ${colorClasses.text}`}>{totalLabel}</td>
+                <td className="px-4 py-2.5 text-right text-[var(--ff-text-primary)]">{fmt(totalNet)}</td>
+                <td className={`px-4 py-2.5 text-right ${colorClasses.text} font-bold`}>{fmt(totalVatCalc)}</td>
+                <td className="px-4 py-2.5 text-right text-[var(--ff-text-primary)]">{fmt(totalGross)}</td>
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
     </div>
   );
 }
