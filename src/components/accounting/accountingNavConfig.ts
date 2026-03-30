@@ -383,6 +383,8 @@ export const TABS: Tab[] = [
         section: 'Settings',
         items: [
           { label: 'Company Settings', href: '/accounting/company-settings' },
+          { label: 'User Access', href: '/accounting/user-access' },
+          { label: 'My Account', href: '/accounting/my-account' },
         ],
       },
       {
@@ -554,8 +556,10 @@ export function getActiveTabId(
     pathname.startsWith('/accounting/document-capture') ||
     pathname.startsWith('/accounting/approvals') ||
     pathname.startsWith('/accounting/company-settings') ||
+    pathname.startsWith('/accounting/my-account') ||
     pathname.startsWith('/accounting/cash-flow-forecast') ||
-    pathname.startsWith('/accounting/time-tracking')
+    pathname.startsWith('/accounting/time-tracking') ||
+    pathname.startsWith('/accounting/user-access')
   ) {
     return 'tools';
   }

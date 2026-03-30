@@ -7,6 +7,8 @@
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { generateInvoicePdf } from './invoicePdfService';
+import { inviteEmailHtml, invoiceEmailHtml } from '@/lib/email-templates';
+import type { InviteEmailData, InvoiceEmailData } from '@/lib/email-templates';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
@@ -84,6 +86,7 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
         user: config.user,
         pass: config.pass,
       },
+      tls: { rejectUnauthorized: false }, // Xneelo shared hosting uses wildcard cert
     });
 
     const recipients = Array.isArray(options.to) ? options.to.join(', ') : options.to;
@@ -158,7 +161,7 @@ export async function sendInvoiceEmail(companyId: string,
   const pdfBuffer = await generateInvoicePdf('', invoiceId);
 
   // Build email HTML (table-based for email client compatibility)
-  const html = buildInvoiceEmailHtml({
+  const invoiceData: InvoiceEmailData = {
     invoiceNumber: invoice.invoice_number,
     clientName: invoice.client_name || 'Valued Customer',
     invoiceDate: fmtDate(invoice.invoice_date),
@@ -166,7 +169,8 @@ export async function sendInvoiceEmail(companyId: string,
     totalAmount: fmtZAR(Number(invoice.total_amount)),
     balanceDue: fmtZAR(balance),
     companyName,
-  });
+  };
+  const html = invoiceEmailHtml(invoiceData);
 
   // Send email with PDF attachment
   const result = await sendEmail({
@@ -203,128 +207,32 @@ export async function sendInvoiceEmail(companyId: string,
   return result;
 }
 
-// ─── Email HTML Template ────────────────────────────────────────────────────
+// ─── Invite Email ───────────────────────────────────────────────────────────
 
-interface InvoiceEmailData {
-  invoiceNumber: string;
-  clientName: string;
-  invoiceDate: string;
-  dueDate: string;
-  totalAmount: string;
-  balanceDue: string;
+export interface InviteEmailOptions {
+  recipientEmail: string;
+  inviteToken: string;
   companyName: string;
+  inviterName: string;
+  role: string;
+  baseUrl: string;
 }
 
-function buildInvoiceEmailHtml(data: InvoiceEmailData): string {
-  return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Invoice ${data.invoiceNumber}</title>
-</head>
-<body style="margin:0; padding:0; background-color:#f4f4f7; font-family:Arial, Helvetica, sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f7; padding:20px 0;">
-    <tr>
-      <td align="center">
-        <table width="600" cellpadding="0" cellspacing="0" style="background-color:#ffffff; border-radius:8px; overflow:hidden; box-shadow:0 2px 8px rgba(0,0,0,0.08);">
-          <!-- Header -->
-          <tr>
-            <td style="background-color:#14b8a6; padding:24px 32px;">
-              <table width="100%" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td>
-                    <h1 style="margin:0; color:#ffffff; font-size:24px; font-weight:bold;">${data.companyName}</h1>
-                  </td>
-                  <td align="right">
-                    <span style="color:#ffffff; font-size:14px; opacity:0.9;">TAX INVOICE</span>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
+export async function sendInviteEmail(options: InviteEmailOptions): Promise<EmailResult> {
+  const inviteUrl = `${options.baseUrl}/invite/${options.inviteToken}`;
 
-          <!-- Body -->
-          <tr>
-            <td style="padding:32px;">
-              <p style="margin:0 0 16px; color:#333333; font-size:16px;">
-                Dear ${data.clientName},
-              </p>
-              <p style="margin:0 0 24px; color:#555555; font-size:14px; line-height:1.6;">
-                Please find attached invoice <strong>${data.invoiceNumber}</strong> for your records.
-                We appreciate your continued business.
-              </p>
+  const inviteData: InviteEmailData = {
+    inviterName: options.inviterName,
+    companyName: options.companyName,
+    role: options.role,
+    inviteUrl,
+    recipientEmail: options.recipientEmail,
+  };
 
-              <!-- Invoice Summary Box -->
-              <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f8fafb; border:1px solid #e5e7eb; border-radius:6px; margin-bottom:24px;">
-                <tr>
-                  <td style="padding:20px;">
-                    <table width="100%" cellpadding="0" cellspacing="0">
-                      <tr>
-                        <td style="padding:4px 0;">
-                          <span style="color:#888888; font-size:12px; text-transform:uppercase;">Invoice Number</span><br>
-                          <span style="color:#333333; font-size:15px; font-weight:bold;">${data.invoiceNumber}</span>
-                        </td>
-                        <td align="right" style="padding:4px 0;">
-                          <span style="color:#888888; font-size:12px; text-transform:uppercase;">Invoice Date</span><br>
-                          <span style="color:#333333; font-size:15px;">${data.invoiceDate}</span>
-                        </td>
-                      </tr>
-                      <tr>
-                        <td colspan="2" style="padding:8px 0 0;">
-                          <hr style="border:none; border-top:1px solid #e5e7eb; margin:0;">
-                        </td>
-                      </tr>
-                      <tr>
-                        <td style="padding:8px 0 4px;">
-                          <span style="color:#888888; font-size:12px; text-transform:uppercase;">Due Date</span><br>
-                          <span style="color:#333333; font-size:15px;">${data.dueDate}</span>
-                        </td>
-                        <td align="right" style="padding:8px 0 4px;">
-                          <span style="color:#888888; font-size:12px; text-transform:uppercase;">Amount Due</span><br>
-                          <span style="color:#14b8a6; font-size:20px; font-weight:bold;">${data.balanceDue}</span>
-                        </td>
-                      </tr>
-                    </table>
-                  </td>
-                </tr>
-              </table>
-
-              <p style="margin:0 0 16px; color:#555555; font-size:14px; line-height:1.6;">
-                The full invoice is attached as a PDF document. Please use invoice number
-                <strong>${data.invoiceNumber}</strong> as your payment reference.
-              </p>
-
-              <p style="margin:0 0 8px; color:#555555; font-size:14px;">
-                If you have any questions regarding this invoice, please do not hesitate to contact us.
-              </p>
-            </td>
-          </tr>
-
-          <!-- Footer -->
-          <tr>
-            <td style="background-color:#f8fafb; padding:20px 32px; border-top:1px solid #e5e7eb;">
-              <table width="100%" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td>
-                    <p style="margin:0; color:#999999; font-size:12px;">
-                      ${data.companyName}<br>
-                      This is an automated email. Please do not reply directly.
-                    </p>
-                  </td>
-                  <td align="right">
-                    <p style="margin:0; color:#bbbbbb; font-size:11px;">
-                      Generated by IsaFlow
-                    </p>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`;
+  return sendEmail({
+    to: options.recipientEmail,
+    subject: `You've been invited to join ${options.companyName} on ISAFlow`,
+    html: inviteEmailHtml(inviteData),
+  });
 }
+

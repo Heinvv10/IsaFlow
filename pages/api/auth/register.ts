@@ -70,10 +70,39 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     `) as Row[];
 
     const user = rows[0];
+    const userId = String(user.id);
+    const normalizedEmail = (email as string).toLowerCase().trim();
 
-    log.info('User registered', { userId: String(user.id), email: user.email }, 'auth/register');
+    // Auto-accept any pending company invitations for this email
+    const pendingInvitations = (await sql`
+      SELECT id, company_id, role
+      FROM company_invitations
+      WHERE LOWER(email) = LOWER(${normalizedEmail})
+        AND accepted_at IS NULL
+        AND expires_at > NOW()
+    `) as Row[];
 
-    return apiResponse.created(res, { userId: String(user.id), email: user.email });
+    let invitationsAccepted = 0;
+    for (const inv of pendingInvitations) {
+      await sql`
+        INSERT INTO company_users (company_id, user_id, role, is_default)
+        VALUES (${inv.company_id as string}::UUID, ${userId}::UUID, ${inv.role as string}, false)
+        ON CONFLICT (company_id, user_id) DO NOTHING
+      `;
+      await sql`
+        UPDATE company_invitations SET accepted_at = NOW() WHERE id = ${inv.id as string}::UUID
+      `;
+      invitationsAccepted++;
+    }
+
+    if (invitationsAccepted > 0) {
+      await sql`UPDATE users SET onboarding_completed = true WHERE id = ${userId}`;
+      log.info('Onboarding skipped via invitation acceptance at registration', { userId, invitationsAccepted }, 'auth/register');
+    }
+
+    log.info('User registered', { userId, email: user.email as string, invitationsAccepted }, 'auth/register');
+
+    return apiResponse.created(res, { userId, email: user.email as string, invitationsAccepted });
   } catch (err) {
     log.error('Registration error', err instanceof Error ? { message: err.message } : { err }, 'auth/register');
     return apiResponse.internalError(res, err);

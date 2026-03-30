@@ -46,10 +46,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       await setDefaultCompany(userId, req.body.companyId);
       return apiResponse.success(res, { success: true });
     }
-    const { name, tradingName, registrationNumber, vatNumber, taxNumber, email, phone } = req.body;
+    const {
+      name, tradingName, registrationNumber, vatNumber, taxNumber, email, phone,
+      website, addressLine1, addressLine2, city, province, postalCode, country,
+      logoData, bankName, bankAccountNumber, bankBranchCode, bankAccountType,
+      financialYearStart, vatPeriod, defaultCurrency,
+    } = req.body;
     if (!name) return apiResponse.badRequest(res, 'name is required');
     const company = await createCompany(
-      { name, tradingName, registrationNumber, vatNumber, taxNumber, email, phone },
+      {
+        name, tradingName, registrationNumber, vatNumber, taxNumber, email, phone,
+        website, addressLine1, addressLine2, city, province, postalCode, country,
+        logoData, bankName, bankAccountNumber, bankBranchCode, bankAccountType,
+        financialYearStart, vatPeriod, defaultCurrency,
+      },
       userId
     );
     return apiResponse.success(res, company);
@@ -74,3 +84,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export default withAuth(withErrorHandler(handler as any));
+
+export const config = {
+  api: { bodyParser: { sizeLimit: '10mb' } },
+};

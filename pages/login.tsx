@@ -1,15 +1,21 @@
 /**
  * /login — Email + password sign-in page.
+ * Supports ?invite=[token] to show an invitation banner.
  * Redirects to /accounting on success; shows inline error on failure.
- * Unauthenticated users land here via middleware or manual navigation.
  */
 
-import { useState, FormEvent } from 'react';
+import { useState, useEffect, FormEvent } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
-import { BookOpen, Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, Building2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+
+interface InviteData {
+  companyName: string;
+  role: string;
+  invitedBy: string;
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -19,11 +25,29 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [inviteData, setInviteData] = useState<InviteData | null>(null);
+
+  const inviteToken =
+    typeof router.query.invite === 'string' ? router.query.invite : null;
 
   const returnTo =
     typeof router.query.returnTo === 'string' && router.query.returnTo.startsWith('/')
       ? router.query.returnTo
       : '/accounting';
+
+  // Load invite data when token is present
+  useEffect(() => {
+    if (!inviteToken) return;
+
+    fetch(`/api/invite/${inviteToken}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        if (json?.data) {
+          setInviteData(json.data as InviteData);
+        }
+      })
+      .catch(() => null);
+  }, [inviteToken]);
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -32,9 +56,11 @@ export default function LoginPage() {
 
     try {
       await login(email.trim().toLowerCase(), password);
+      // After login the API auto-accepts any pending invitations,
+      // so just redirect straight to accounting.
       await router.push(returnTo);
     } catch {
-      // Error is already set in AuthContext — no further action needed here
+      // Error is already set in AuthContext
     } finally {
       setSubmitting(false);
     }
@@ -51,6 +77,19 @@ export default function LoginPage() {
           <img src="/logo.png" alt="ISAFlow" className="h-16 w-auto brightness-0 invert mb-4" />
           <p className="text-sm text-gray-500 mt-1">Sign in to your account</p>
         </div>
+
+        {/* Invite banner */}
+        {inviteData && (
+          <div className="mb-4 px-4 py-3 bg-teal-900/30 border border-teal-700/50 rounded-lg flex items-start gap-3">
+            <Building2 className="h-4 w-4 text-teal-400 mt-0.5 flex-shrink-0" />
+            <p className="text-sm text-teal-300">
+              You&apos;ve been invited to join{' '}
+              <span className="font-medium text-white">{inviteData.companyName}</span>
+              {' '}as <span className="font-medium">{inviteData.role}</span>.
+              Sign in to accept.
+            </p>
+          </div>
+        )}
 
         {/* Registration success banner */}
         {router.query.registered === '1' && (
@@ -135,10 +174,10 @@ export default function LoginPage() {
               {isBusy ? (
                 <>
                   <LoadingSpinner size="sm" />
-                  <span>Signing in...</span>
+                  <span>Signing In...</span>
                 </>
               ) : (
-                'Sign in'
+                'Sign In'
               )}
             </button>
           </form>
@@ -147,7 +186,10 @@ export default function LoginPage() {
         {/* Footer link */}
         <p className="text-center text-sm text-gray-500 mt-6">
           Don&apos;t have an account?{' '}
-          <Link href="/register" className="text-teal-400 hover:text-teal-300 transition-colors">
+          <Link
+            href={inviteToken ? `/register?invite=${inviteToken}` : '/register'}
+            className="text-teal-400 hover:text-teal-300 transition-colors"
+          >
             Create one
           </Link>
         </p>

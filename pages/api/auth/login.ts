@@ -113,15 +113,48 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       maxAge: 30 * 24 * 60 * 60, // 30 days
     });
 
+    // Auto-accept any pending company invitations for this email
+    let invitationsAccepted = 0;
+    let onboardingCompleted = !!user.onboarding_completed;
+
+    const pendingInvitations = (await sql`
+      SELECT id, company_id, role
+      FROM company_invitations
+      WHERE LOWER(email) = LOWER(${authUser.email})
+        AND accepted_at IS NULL
+        AND expires_at > NOW()
+    `) as Row[];
+
+    for (const inv of pendingInvitations) {
+      await sql`
+        INSERT INTO company_users (company_id, user_id, role, is_default)
+        VALUES (${inv.company_id as string}::UUID, ${authUser.id}::UUID, ${inv.role as string}, false)
+        ON CONFLICT (company_id, user_id) DO NOTHING
+      `;
+      await sql`
+        UPDATE company_invitations SET accepted_at = NOW() WHERE id = ${inv.id as string}::UUID
+      `;
+      invitationsAccepted++;
+    }
+
+    if (invitationsAccepted > 0 && !onboardingCompleted) {
+      await sql`UPDATE users SET onboarding_completed = true WHERE id = ${authUser.id}`;
+      onboardingCompleted = true;
+      log.info('Onboarding skipped via invitation acceptance', { userId: authUser.id, invitationsAccepted }, 'auth/login');
+    }
+
     const cookies = [authCookieString];
-    if (user.onboarding_completed) {
+    if (onboardingCompleted) {
       cookies.push(`ff_onboarding_done=1; Path=/; Max-Age=${30 * 24 * 60 * 60}; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`);
     }
     res.setHeader('Set-Cookie', cookies);
 
     log.info('User logged in', { userId: authUser.id, email: authUser.email }, 'auth/login');
 
-    return apiResponse.success(res, { user: { ...authUser, onboardingCompleted: !!user.onboarding_completed } }, 'Login successful');
+    return apiResponse.success(res, {
+      user: { ...authUser, onboardingCompleted },
+      invitationsAccepted,
+    }, 'Login successful');
   } catch (err) {
     log.error('Login error', err instanceof Error ? { message: err.message } : { err }, 'auth/login');
     return apiResponse.internalError(res, err);

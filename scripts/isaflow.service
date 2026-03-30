@@ -7,7 +7,7 @@ Type=simple
 User=velo
 Group=velo
 WorkingDirectory=/home/velo/isaflow
-ExecStart=/usr/bin/node /home/velo/isaflow/node_modules/.bin/next start -p 3101
+ExecStart=/usr/bin/node /home/velo/isaflow/server.js
 Restart=on-failure
 RestartSec=5
 Environment=NODE_ENV=production
@@ -22,7 +22,7 @@ SyslogIdentifier=isaflow
 # Security
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/home/velo/isaflow
+ReadWritePaths=/home/velo/isaflow /tmp
 
 [Install]
 WantedBy=multi-user.target
