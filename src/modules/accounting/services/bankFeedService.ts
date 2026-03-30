@@ -11,6 +11,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import crypto from 'crypto';
+import { encryptToken, decryptToken } from '@/lib/encryption';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
@@ -380,7 +381,7 @@ export async function createConnection(input: {
       ${input.bankAccountId}::UUID, 'stitch', ${input.externalAccountId},
       ${input.bankName || null}, ${input.accountNumberMasked || null},
       ${input.branchCode || null}, ${input.accountType || null},
-      ${input.accessToken}, ${input.refreshToken}, ${expiresAt}::TIMESTAMPTZ,
+      ${encryptToken(input.accessToken)}, ${encryptToken(input.refreshToken)}, ${expiresAt}::TIMESTAMPTZ,
       'pending', ${input.createdBy}::UUID
     ) RETURNING *
   `) as Row[];
@@ -408,8 +409,8 @@ export async function syncTransactions(connectionId: string): Promise<SyncResult
   if (!conn[0]) throw new Error('Connection not found or inactive');
 
   const connection = conn[0];
-  let accessToken = connection.access_token;
-  const refreshToken = connection.refresh_token;
+  let accessToken = decryptToken(connection.access_token as string);
+  const refreshToken = decryptToken(connection.refresh_token as string);
   const externalAccountId = connection.external_account_id;
 
   // Refresh token if expired
@@ -421,8 +422,8 @@ export async function syncTransactions(connectionId: string): Promise<SyncResult
     const newExpiry = new Date(Date.now() + refreshed.expiresIn * 1000).toISOString();
     await sql`
       UPDATE bank_feed_connections SET
-        access_token = ${refreshed.accessToken},
-        refresh_token = ${refreshed.refreshToken},
+        access_token = ${encryptToken(refreshed.accessToken)},
+        refresh_token = ${encryptToken(refreshed.refreshToken)},
         token_expires_at = ${newExpiry}::TIMESTAMPTZ,
         updated_at = NOW()
       WHERE id = ${connectionId}::UUID

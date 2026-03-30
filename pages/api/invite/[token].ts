@@ -13,6 +13,12 @@ import { serialize } from 'cookie';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
 
+function maskEmail(email: string): string {
+  const [local, domain] = email.split('@');
+  if (!local || !domain) return '***@***';
+  return `${local[0]}***@${domain}`;
+}
+
 // ── GET: public token validation ──────────────────────────────────────────────
 
 async function handleGet(req: NextApiRequest, res: NextApiResponse) {
@@ -26,13 +32,9 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     SELECT
       ci.email,
       ci.role,
-      c.name  AS company_name,
-      u.first_name AS inviter_first,
-      u.last_name  AS inviter_last,
-      u.email      AS inviter_email
+      c.name AS company_name
     FROM company_invitations ci
     JOIN companies c ON c.id = ci.company_id
-    LEFT JOIN users u ON u.id::VARCHAR = ci.invited_by
     WHERE ci.token = ${token}
       AND ci.accepted_at IS NULL
       AND ci.expires_at > NOW()
@@ -44,16 +46,11 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const row = rows[0];
-  const inviterName =
-    row.inviter_first
-      ? `${row.inviter_first} ${row.inviter_last ?? ''}`.trim()
-      : (row.inviter_email ?? 'Someone');
 
   return apiResponse.success(res, {
-    email: row.email as string,
+    email: maskEmail(row.email as string),
     companyName: row.company_name as string,
     role: row.role as string,
-    invitedBy: inviterName,
   });
 }
 
