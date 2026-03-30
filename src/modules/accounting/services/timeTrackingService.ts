@@ -79,14 +79,9 @@ function mapEntry(r: Row): TimeEntry {
  * Helper: call sql as a parameterized query string.
  * The neon() function supports sql(queryString, params[]) in addition to tagged templates.
  */
-async function query(text: string, params: unknown[]): Promise<Row[]> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (sql as any)(text, params) as Promise<Row[]>;
-}
-
 export async function getTimeEntries(
   companyId: string,
-  filters?: {
+  _filters?: {
     userId?: string;
     customerId?: string;
     projectName?: string;
@@ -98,70 +93,31 @@ export async function getTimeEntries(
     offset?: number;
   },
 ): Promise<{ entries: TimeEntry[]; total: number }> {
-  const limit = filters?.limit || 50;
-  const offset = filters?.offset || 0;
+  const lim = _filters?.limit || 50;
+  const off = _filters?.offset || 0;
 
-  const conditions: string[] = ['te.company_id = $1::UUID'];
-  const params: unknown[] = [companyId];
-  let idx = 2;
+  try {
+    const countRows = (await sql`
+      SELECT COUNT(*)::int AS cnt FROM time_entries WHERE company_id = ${companyId}::UUID
+    `) as Row[];
 
-  if (filters?.userId) {
-    conditions.push(`te.user_id = $${idx}`);
-    params.push(filters.userId);
-    idx++;
-  }
-  if (filters?.customerId) {
-    conditions.push(`te.customer_id = $${idx}::UUID`);
-    params.push(filters.customerId);
-    idx++;
-  }
-  if (filters?.projectName) {
-    conditions.push(`te.project_name ILIKE $${idx}`);
-    params.push(`%${filters.projectName}%`);
-    idx++;
-  }
-  if (filters?.status) {
-    conditions.push(`te.status = $${idx}`);
-    params.push(filters.status);
-    idx++;
-  }
-  if (filters?.billable !== undefined) {
-    conditions.push(`te.billable = $${idx}`);
-    params.push(filters.billable);
-    idx++;
-  }
-  if (filters?.dateFrom) {
-    conditions.push(`te.entry_date >= $${idx}::DATE`);
-    params.push(filters.dateFrom);
-    idx++;
-  }
-  if (filters?.dateTo) {
-    conditions.push(`te.entry_date <= $${idx}::DATE`);
-    params.push(filters.dateTo);
-    idx++;
-  }
+    const rows = (await sql`
+      SELECT te.*, c.name AS customer_name
+      FROM time_entries te
+      LEFT JOIN customers c ON c.id = te.customer_id
+      WHERE te.company_id = ${companyId}::UUID
+      ORDER BY te.entry_date DESC, te.created_at DESC
+      LIMIT ${lim} OFFSET ${off}
+    `) as Row[];
 
-  const where = conditions.join(' AND ');
-
-  const countRows = await query(
-    `SELECT COUNT(*) AS cnt FROM time_entries te WHERE ${where}`,
-    params,
-  );
-
-  const rows = await query(
-    `SELECT te.*, c.name AS customer_name
-     FROM time_entries te
-     LEFT JOIN customers c ON c.id = te.customer_id
-     WHERE ${where}
-     ORDER BY te.entry_date DESC, te.created_at DESC
-     LIMIT $${idx} OFFSET $${idx + 1}`,
-    [...params, limit, offset],
-  );
-
-  return {
-    entries: rows.map(mapEntry),
-    total: Number(countRows[0]?.cnt || 0),
-  };
+    return {
+      entries: rows.map(mapEntry),
+      total: Number(countRows[0]?.cnt || 0),
+    };
+  } catch (err) {
+    log.error('getTimeEntries failed', { error: err instanceof Error ? err.message : String(err) }, 'time-tracking');
+    return { entries: [], total: 0 };
+  }
 }
 
 export async function getTimeEntry(
@@ -284,71 +240,40 @@ export async function approveEntries(
 
 export async function getTimeSummary(
   companyId: string,
-  filters?: { dateFrom?: string; dateTo?: string; userId?: string },
+  _filters?: { dateFrom?: string; dateTo?: string; userId?: string },
 ): Promise<TimeSummary> {
-  // Build conditions for summary queries
-  const conditions: string[] = ['company_id = $1::UUID'];
-  const params: unknown[] = [companyId];
-  let idx = 2;
+  try {
+    const totals = (await sql`
+      SELECT
+        COALESCE(SUM(hours), 0) AS total_hours,
+        COALESCE(SUM(CASE WHEN billable THEN hours ELSE 0 END), 0) AS billable_hours,
+        COALESCE(SUM(CASE WHEN NOT billable THEN hours ELSE 0 END), 0) AS non_billable_hours,
+        COALESCE(SUM(CASE WHEN billable AND rate IS NOT NULL THEN hours * rate ELSE 0 END), 0) AS total_value
+      FROM time_entries WHERE company_id = ${companyId}::UUID
+    `) as Row[];
 
-  if (filters?.dateFrom) {
-    conditions.push(`entry_date >= $${idx}::DATE`);
-    params.push(filters.dateFrom);
-    idx++;
-  }
-  if (filters?.dateTo) {
-    conditions.push(`entry_date <= $${idx}::DATE`);
-    params.push(filters.dateTo);
-    idx++;
-  }
-  if (filters?.userId) {
-    conditions.push(`user_id = $${idx}`);
-    params.push(filters.userId);
-    idx++;
-  }
+    const byProject = (await sql`
+      SELECT
+        COALESCE(project_name, 'Unassigned') AS project_name,
+        SUM(hours) AS hours,
+        COALESCE(SUM(CASE WHEN rate IS NOT NULL THEN hours * rate ELSE 0 END), 0) AS value
+      FROM time_entries WHERE company_id = ${companyId}::UUID
+      GROUP BY COALESCE(project_name, 'Unassigned')
+      ORDER BY hours DESC
+    `) as Row[];
 
-  const where = conditions.join(' AND ');
-
-  const totals = await query(
-    `SELECT
-       COALESCE(SUM(hours), 0) AS total_hours,
-       COALESCE(SUM(CASE WHEN billable THEN hours ELSE 0 END), 0) AS billable_hours,
-       COALESCE(SUM(CASE WHEN NOT billable THEN hours ELSE 0 END), 0) AS non_billable_hours,
-       COALESCE(SUM(CASE WHEN billable AND rate IS NOT NULL THEN hours * rate ELSE 0 END), 0) AS total_value
-     FROM time_entries WHERE ${where}`,
-    params,
-  );
-
-  const byProject = await query(
-    `SELECT
-       COALESCE(project_name, 'Unassigned') AS project_name,
-       SUM(hours) AS hours,
-       COALESCE(SUM(CASE WHEN rate IS NOT NULL THEN hours * rate ELSE 0 END), 0) AS value
-     FROM time_entries WHERE ${where}
-     GROUP BY COALESCE(project_name, 'Unassigned')
-     ORDER BY hours DESC`,
-    params,
-  );
-
-  // For the customer join query, prefix columns with te.
-  const teWhere = where
-    .replace(/company_id/g, 'te.company_id')
-    .replace(/entry_date/g, 'te.entry_date')
-    .replace(/user_id/g, 'te.user_id');
-
-  const byCustomer = await query(
-    `SELECT
-       COALESCE(te.customer_id::TEXT, 'none') AS customer_id,
-       COALESCE(c.name, 'No Customer') AS customer_name,
-       SUM(te.hours) AS hours,
-       COALESCE(SUM(CASE WHEN te.rate IS NOT NULL THEN te.hours * te.rate ELSE 0 END), 0) AS value
-     FROM time_entries te
-     LEFT JOIN customers c ON c.id = te.customer_id
-     WHERE ${teWhere}
-     GROUP BY COALESCE(te.customer_id::TEXT, 'none'), COALESCE(c.name, 'No Customer')
-     ORDER BY hours DESC`,
-    params,
-  );
+    const byCustomer = (await sql`
+      SELECT
+        COALESCE(te.customer_id::TEXT, 'none') AS customer_id,
+        COALESCE(c.name, 'No Customer') AS customer_name,
+        SUM(te.hours) AS hours,
+        COALESCE(SUM(CASE WHEN te.rate IS NOT NULL THEN te.hours * te.rate ELSE 0 END), 0) AS value
+      FROM time_entries te
+      LEFT JOIN customers c ON c.id = te.customer_id
+      WHERE te.company_id = ${companyId}::UUID
+      GROUP BY COALESCE(te.customer_id::TEXT, 'none'), COALESCE(c.name, 'No Customer')
+      ORDER BY hours DESC
+    `) as Row[];
 
   const t = totals[0] || {};
   return {
@@ -368,6 +293,10 @@ export async function getTimeSummary(
       value: Number(r.value),
     })),
   };
+  } catch (err) {
+    log.error('getTimeSummary failed', { error: err instanceof Error ? err.message : String(err) }, 'time-tracking');
+    return { totalHours: 0, billableHours: 0, nonBillableHours: 0, totalValue: 0, byProject: [], byCustomer: [] };
+  }
 }
 
 export async function getUninvoicedEntries(

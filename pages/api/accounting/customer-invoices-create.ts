@@ -50,11 +50,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const bpStart = billingPeriodStart || invDate;
   const bpEnd = billingPeriodEnd || invDate;
 
-  // Find project from client (use first project if exists)
-  const projRows = (await sql`
-    SELECT id FROM projects WHERE client_id = ${clientId}::UUID LIMIT 1
-  `) as Row[];
-  const projectId = projRows[0]?.id || clientId;
+  // Find project from client (optional — invoices don't require a project)
+  let projectId: string | null = null;
+  try {
+    const projRows = (await sql`
+      SELECT id FROM projects WHERE client_id = ${clientId}::UUID LIMIT 1
+    `) as Row[];
+    projectId = projRows[0]?.id || null;
+  } catch { /* projects table may not exist */ }
 
   const invRows = (await sql`
     INSERT INTO customer_invoices (
@@ -62,7 +65,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       subtotal, tax_rate, tax_amount, total_amount, invoice_date, due_date,
       notes, status, created_by
     ) VALUES (
-      ${companyId}, ${invoiceNumber}, ${projectId}::UUID, ${clientId}::UUID, ${bpStart}, ${bpEnd},
+      ${companyId}, ${invoiceNumber}, ${projectId}, ${clientId}::UUID, ${bpStart}, ${bpEnd},
       ${subtotal}, ${rate}, ${taxAmount}, ${totalAmount}, ${invDate},
       ${dueDate || null}, ${notes || null}, 'draft', ${userId}
     ) RETURNING id
