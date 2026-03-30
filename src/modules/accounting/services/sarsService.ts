@@ -124,13 +124,15 @@ export async function generateVAT201(companyId: string,
         ci.invoice_number,
         ci.invoice_date,
         ci.subtotal,
-        ci.vat_amount,
-        ci.total,
-        ci.vat_type,
-        c.name AS customer_name
+        ci.tax_amount,
+        ci.total_amount,
+        ci.tax_rate,
+        COALESCE(c.name, cl.name) AS customer_name
       FROM customer_invoices ci
       LEFT JOIN customers c ON c.id = ci.customer_id
-      WHERE ci.invoice_date >= ${periodStart}
+      LEFT JOIN clients cl ON cl.id = ci.client_id
+      WHERE ci.company_id = ${companyId}
+        AND ci.invoice_date >= ${periodStart}
         AND ci.invoice_date <= ${periodEnd}
         AND ci.status != 'cancelled'
       ORDER BY ci.invoice_date
@@ -148,13 +150,14 @@ export async function generateVAT201(companyId: string,
         si.invoice_number,
         si.invoice_date,
         si.subtotal,
-        si.vat_amount,
-        si.total,
-        si.vat_type,
+        si.tax_amount,
+        si.total_amount,
+        si.tax_rate,
         s.name AS supplier_name
       FROM supplier_invoices si
       LEFT JOIN suppliers s ON s.id = si.supplier_id
-      WHERE si.invoice_date >= ${periodStart}
+      WHERE si.company_id = ${companyId}
+        AND si.invoice_date >= ${periodStart}
         AND si.invoice_date <= ${periodEnd}
         AND si.status != 'cancelled'
       ORDER BY si.invoice_date
@@ -166,17 +169,17 @@ export async function generateVAT201(companyId: string,
   // Categorise customer invoices (output side)
   let field1_standardRated = 0;
   let field2_zeroRated = 0;
-  let field3_exempt = 0;
+  const field3_exempt = 0; // TODO: categorise exempt invoices when vat_type column added
 
   const outputInvoices: VAT201Invoice[] = customerInvoices.map((inv: Row) => {
     const subtotal = Number(inv.subtotal) || 0;
-    const vatAmt = Number(inv.vat_amount) || 0;
-    const vatType = String(inv.vat_type || 'standard').toLowerCase();
+    const vatAmt = Number(inv.tax_amount) || 0;
+    const taxRate = Number(inv.tax_rate) || 0;
+    // Determine VAT type from tax_rate: 0% = zero-rated, 15% = standard
+    const vatType = taxRate === 0 ? 'zero_rated' : 'standard';
 
-    if (vatType === 'zero_rated' || vatType === 'zero-rated' || vatType === 'zero') {
+    if (taxRate === 0) {
       field2_zeroRated += subtotal;
-    } else if (vatType === 'exempt') {
-      field3_exempt += subtotal;
     } else {
       field1_standardRated += subtotal;
     }
@@ -196,25 +199,19 @@ export async function generateVAT201(companyId: string,
   const field5_outputVAT = roundCents(field1_standardRated * SA_VAT_RATE);
 
   // Categorise supplier invoices (input side)
-  let field6_capitalGoods = 0;
+  const field6_capitalGoods = 0; // TODO: categorise when vat_type column added
   let field7_otherGoods = 0;
-  let field8_services = 0;
-  let field9_imports = 0;
+  const field8_services = 0; // TODO: categorise when vat_type column added
+  const field9_imports = 0; // TODO: categorise when vat_type column added
 
   const inputInvoices: VAT201Invoice[] = supplierInvoices.map((inv: Row) => {
-    const vatAmt = Number(inv.vat_amount) || 0;
+    const vatAmt = Number(inv.tax_amount) || 0;
     const subtotal = Number(inv.subtotal) || 0;
-    const vatType = String(inv.vat_type || 'standard').toLowerCase();
+    const taxRate = Number(inv.tax_rate) || 0;
+    const vatType = taxRate === 0 ? 'zero_rated' : 'standard';
 
-    // Categorise into input VAT fields based on vat_type metadata
-    if (vatType === 'capital' || vatType === 'capital_goods') {
-      field6_capitalGoods += vatAmt;
-    } else if (vatType === 'import' || vatType === 'imports') {
-      field9_imports += vatAmt;
-    } else if (vatType === 'services' || vatType === 'service') {
-      field8_services += vatAmt;
-    } else {
-      // Default: other goods and services
+    // All standard-rated supplier invoices go to "other goods" (field 7) by default
+    if (taxRate > 0) {
       field7_otherGoods += vatAmt;
     }
 
