@@ -10,7 +10,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
-import { createSession, mapSessionRow } from '@/modules/accounting/services/migrationService';
+import { createSession, completeSession, mapSessionRow } from '@/modules/accounting/services/migrationService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;
@@ -32,8 +32,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'POST') {
     const userId = (req as AuthenticatedNextApiRequest).user.id;
-    const { sourceSystem } = req.body as { sourceSystem?: string };
+    const { sourceSystem, sessionId, action } = req.body as {
+      sourceSystem?: string;
+      sessionId?: string;
+      action?: string;
+    };
 
+    // Handle "complete" action — mark session as completed
+    if (action === 'complete' && sessionId) {
+      const session = await completeSession(sessionId, companyId);
+      log.info('Migration session completed', { companyId, sessionId }, 'migration');
+      return apiResponse.success(res, { session });
+    }
+
+    // Default: create a new session
     if (!sourceSystem?.trim()) {
       return apiResponse.validationError(res, { sourceSystem: 'Source system is required' });
     }
