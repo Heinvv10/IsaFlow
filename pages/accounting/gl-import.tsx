@@ -132,8 +132,13 @@ export default function GlImportPage() {
           const cells = (row.values as (ExcelJS.CellValue | undefined)[]).slice(1);
           aoa.push(cells.map(c => {
             if (c == null) return '';
-            if (typeof c === 'object' && 'text' in c) return String((c as ExcelJS.CellRichTextValue).text ?? '');
             if (c instanceof Date) return c.toISOString().slice(0, 10);
+            if (typeof c === 'object' && 'richText' in c) {
+              return (c as unknown as { richText: Array<{ text: string }> }).richText.map(r => r.text).join('');
+            }
+            if (typeof c === 'object' && 'hyperlink' in c) {
+              return String((c as unknown as { text?: string }).text ?? '');
+            }
             return String(c).trim();
           }));
         });

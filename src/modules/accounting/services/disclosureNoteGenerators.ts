@@ -20,7 +20,7 @@ function fiscalRange(year: number): { start: string; end: string } {
 
 // ── Note 1: Accounting Policies ───────────────────────────────────────────────
 
-export async function noteAccountingPolicies(companyId: string, fiscalYear: number): Promise<DisclosureNote> {
+export async function noteAccountingPolicies(companyId: string, _fiscalYear: number): Promise<DisclosureNote> {
   const rows = await sql`
     SELECT depreciation_method, inventory_valuation_method, default_currency, vat_system_type
     FROM companies WHERE id = ${companyId}
