@@ -6,7 +6,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from './journalEntryService';
-import { getAccountByCode } from './chartOfAccountsService';
+import { getSystemAccount, getSystemAccountId } from './systemAccountResolver';
 import type { CreditNote, CreditNoteCreateInput, CreditNoteStatus } from '../types/ar.types';
 import type { JournalLineInput } from '../types/gl.types';
 
@@ -123,10 +123,9 @@ export async function approveCreditNote(companyId: string, id: string, userId: s
 
     if (String(cn.type) === 'customer') {
       // Customer CN: DR Revenue, CR Accounts Receivable
-      const revenueAccount = await getAccountByCode('4100');
-      const arAccount = await getAccountByCode('1120');
-      const vatAccount = await getAccountByCode('2120');
-      if (!revenueAccount || !arAccount) throw new Error('GL accounts 4100/1120 not found');
+      const revenueAccount = await getSystemAccount('default_revenue');
+      const arAccount = await getSystemAccount('receivable');
+      const vatAccount = await getSystemAccount('vat_output');
 
       lines = [
         { glAccountId: revenueAccount.id, debit: Number(cn.subtotal), credit: 0,
@@ -148,10 +147,9 @@ export async function approveCreditNote(companyId: string, id: string, userId: s
       }
     } else {
       // Supplier CN: DR Accounts Payable, CR Expense
-      const apAccount = await getAccountByCode('2110');
-      const expenseAccount = await getAccountByCode('5100');
-      const vatAccount = await getAccountByCode('1140');
-      if (!apAccount || !expenseAccount) throw new Error('GL accounts 2110/5100 not found');
+      const apAccount = await getSystemAccount('payable');
+      const expenseAccount = await getSystemAccount('default_expense');
+      const vatAccount = await getSystemAccount('vat_input');
 
       lines = [
         { glAccountId: apAccount.id, debit: Number(cn.total_amount), credit: 0,

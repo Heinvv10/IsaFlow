@@ -6,7 +6,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
-import { getAccountByCode } from './chartOfAccountsService';
+import { getSystemAccount, getSystemAccountId } from './systemAccountResolver';
 import { validatePaymentAllocations } from '../utils/paymentAllocation';
 import type {
   SupplierPayment,
@@ -190,12 +190,11 @@ export async function processSupplierPayment(companyId: string,
     if (payment.status !== 'approved') throw new Error(`Payment must be approved before processing`);
 
     // Auto-post GL entry: DR Accounts Payable, CR Bank
-    const apAccount = await getAccountByCode('2110');
+    const apAccount = await getSystemAccount('payable');
     const bankAccount = payment.bankAccountId
       ? ((await sql`SELECT * FROM gl_accounts WHERE id = ${payment.bankAccountId}`) as Row[])[0]
-      : await getAccountByCode('1110');
+      : await getSystemAccount('bank');
 
-    if (!apAccount) throw new Error('Accounts Payable account (2110) not found');
     if (!bankAccount) throw new Error('Bank account not found');
 
     const lines: JournalLineInput[] = [

@@ -7,6 +7,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { getSystemAccount } from './systemAccountResolver';
 import type {
   IncomeStatementReport,
   BalanceSheetReport,
@@ -194,9 +195,10 @@ async function fetchBalanceSheetData(companyId: string, asAtDate: string, costCe
 
   const retainedEarnings = await calculateRetainedEarnings(companyId, asAtDate, costCentreId);
   if (Math.abs(retainedEarnings) > 0.01) {
-    const existing = equity.find(e => e.accountCode === '3200');
+    const reAccount = await getSystemAccount('retained_earnings');
+    const existing = equity.find(e => e.accountCode === reAccount.accountCode);
     if (existing) existing.balance += retainedEarnings;
-    else equity.push({ accountCode: '3200', accountName: 'Retained Earnings (Current)', balance: retainedEarnings });
+    else equity.push({ accountCode: reAccount.accountCode, accountName: 'Retained Earnings (Current)', balance: retainedEarnings });
   }
 
   return { assets, liabilities, equity };
@@ -332,7 +334,8 @@ export async function getVATReturn(companyId: string,
         je.source_document_id,
         ga.account_code,
         ga.account_name,
-        ga.account_type
+        ga.account_type,
+        ga.account_subtype
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       JOIN gl_accounts ga        ON ga.id  = jl.gl_account_id
@@ -341,8 +344,7 @@ export async function getVATReturn(companyId: string,
         AND je.entry_date >= ${periodStart}
         AND je.entry_date <= ${periodEnd}
         AND (
-          ga.account_code IN ('1140', '2120')
-          OR ga.account_subtype = 'tax'
+          ga.account_subtype IN ('vat_input', 'vat_output', 'tax')
         )
       ORDER BY je.entry_date, je.entry_number
     `) as Row[];
@@ -366,7 +368,7 @@ export async function getVATReturn(companyId: string,
       const matching = vatLines.filter((l: Row) => {
         const isOutput =
           String(l.account_type) === 'liability' ||
-          String(l.account_code) === '2120';
+          String(l.account_subtype) === 'vat_output';
         const matchesType =
           l.vat_type != null && boxDef.vatTypes.includes(String(l.vat_type));
         return isOutput && matchesType;
@@ -384,7 +386,7 @@ export async function getVATReturn(companyId: string,
     const unclassifiedOutput = vatLines.filter((l: Row) => {
       const isOutput =
         String(l.account_type) === 'liability' ||
-        String(l.account_code) === '2120';
+        String(l.account_subtype) === 'vat_output';
       return isOutput && l.vat_type == null;
     });
     if (unclassifiedOutput.length > 0) {
@@ -403,7 +405,7 @@ export async function getVATReturn(companyId: string,
       const matching = vatLines.filter((l: Row) => {
         const isInput =
           String(l.account_type) === 'asset' ||
-          String(l.account_code) === '1140';
+          String(l.account_subtype) === 'vat_input';
         const matchesType =
           l.vat_type != null && boxDef.vatTypes.includes(String(l.vat_type));
         return isInput && matchesType;
@@ -421,7 +423,7 @@ export async function getVATReturn(companyId: string,
     const unclassifiedInput = vatLines.filter((l: Row) => {
       const isInput =
         String(l.account_type) === 'asset' ||
-        String(l.account_code) === '1140';
+        String(l.account_subtype) === 'vat_input';
       return isInput && l.vat_type == null;
     });
     if (unclassifiedInput.length > 0) {

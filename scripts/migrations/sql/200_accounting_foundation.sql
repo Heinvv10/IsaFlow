@@ -277,39 +277,39 @@ INSERT INTO gl_accounts (account_code, account_name, account_type, normal_balanc
   ('2200', 'Non-Current Liabilities', 'liability', 'credit', 2, 220, true, (SELECT id FROM gl_accounts WHERE account_code = '2000'))
 ON CONFLICT (account_code) DO NOTHING;
 
--- Level 3: Detail accounts
-INSERT INTO gl_accounts (account_code, account_name, account_type, normal_balance, level, display_order, is_system_account, parent_account_id) VALUES
+-- Level 3: Detail accounts (account_subtype enables code-independent lookup by system services)
+INSERT INTO gl_accounts (account_code, account_name, account_type, account_subtype, normal_balance, level, display_order, is_system_account, parent_account_id) VALUES
   -- Current Assets
-  ('1110', 'Bank - Primary', 'asset', 'debit', 3, 111, true, (SELECT id FROM gl_accounts WHERE account_code = '1100')),
-  ('1120', 'Accounts Receivable', 'asset', 'debit', 3, 112, true, (SELECT id FROM gl_accounts WHERE account_code = '1100')),
-  ('1130', 'Petty Cash', 'asset', 'debit', 3, 113, false, (SELECT id FROM gl_accounts WHERE account_code = '1100')),
-  ('1140', 'VAT Input', 'asset', 'debit', 3, 114, true, (SELECT id FROM gl_accounts WHERE account_code = '1100')),
+  ('1110', 'Bank - Primary', 'asset', 'bank', 'debit', 3, 111, true, (SELECT id FROM gl_accounts WHERE account_code = '1100')),
+  ('1120', 'Accounts Receivable', 'asset', 'receivable', 'debit', 3, 112, true, (SELECT id FROM gl_accounts WHERE account_code = '1100')),
+  ('1130', 'Petty Cash', 'asset', NULL, 'debit', 3, 113, false, (SELECT id FROM gl_accounts WHERE account_code = '1100')),
+  ('1140', 'VAT Input', 'asset', 'vat_input', 'debit', 3, 114, true, (SELECT id FROM gl_accounts WHERE account_code = '1100')),
   -- Non-Current Assets
-  ('1210', 'Equipment', 'asset', 'debit', 3, 121, false, (SELECT id FROM gl_accounts WHERE account_code = '1200')),
-  ('1220', 'Vehicles', 'asset', 'debit', 3, 122, false, (SELECT id FROM gl_accounts WHERE account_code = '1200')),
-  ('1230', 'Accumulated Depreciation', 'asset', 'credit', 3, 123, false, (SELECT id FROM gl_accounts WHERE account_code = '1200')),
+  ('1210', 'Equipment', 'asset', 'fixed_asset', 'debit', 3, 121, false, (SELECT id FROM gl_accounts WHERE account_code = '1200')),
+  ('1220', 'Vehicles', 'asset', 'fixed_asset', 'debit', 3, 122, false, (SELECT id FROM gl_accounts WHERE account_code = '1200')),
+  ('1230', 'Accumulated Depreciation', 'asset', 'accumulated_depreciation', 'credit', 3, 123, true, (SELECT id FROM gl_accounts WHERE account_code = '1200')),
   -- Current Liabilities
-  ('2110', 'Accounts Payable', 'liability', 'credit', 3, 211, true, (SELECT id FROM gl_accounts WHERE account_code = '2100')),
-  ('2120', 'VAT Output', 'liability', 'credit', 3, 212, true, (SELECT id FROM gl_accounts WHERE account_code = '2100')),
-  ('2130', 'Accrued Expenses', 'liability', 'credit', 3, 213, false, (SELECT id FROM gl_accounts WHERE account_code = '2100')),
+  ('2110', 'Accounts Payable', 'liability', 'payable', 'credit', 3, 211, true, (SELECT id FROM gl_accounts WHERE account_code = '2100')),
+  ('2120', 'VAT Output', 'liability', 'vat_output', 'credit', 3, 212, true, (SELECT id FROM gl_accounts WHERE account_code = '2100')),
+  ('2130', 'Accrued Expenses', 'liability', NULL, 'credit', 3, 213, false, (SELECT id FROM gl_accounts WHERE account_code = '2100')),
   -- Non-Current Liabilities
-  ('2210', 'Long-term Loans', 'liability', 'credit', 3, 221, false, (SELECT id FROM gl_accounts WHERE account_code = '2200')),
+  ('2210', 'Long-term Loans', 'liability', NULL, 'credit', 3, 221, false, (SELECT id FROM gl_accounts WHERE account_code = '2200')),
   -- Equity
-  ('3100', 'Share Capital', 'equity', 'credit', 3, 310, true, (SELECT id FROM gl_accounts WHERE account_code = '3000')),
-  ('3200', 'Retained Earnings', 'equity', 'credit', 3, 320, true, (SELECT id FROM gl_accounts WHERE account_code = '3000')),
+  ('3100', 'Share Capital', 'equity', 'equity', 'credit', 3, 310, true, (SELECT id FROM gl_accounts WHERE account_code = '3000')),
+  ('3200', 'Retained Earnings', 'equity', 'retained_earnings', 'credit', 3, 320, true, (SELECT id FROM gl_accounts WHERE account_code = '3000')),
   -- Revenue
-  ('4100', 'Activation Revenue', 'revenue', 'credit', 3, 410, false, (SELECT id FROM gl_accounts WHERE account_code = '4000')),
-  ('4200', 'Maintenance Revenue', 'revenue', 'credit', 3, 420, false, (SELECT id FROM gl_accounts WHERE account_code = '4000')),
-  ('4300', 'Other Income', 'revenue', 'credit', 3, 430, false, (SELECT id FROM gl_accounts WHERE account_code = '4000')),
+  ('4100', 'Activation Revenue', 'revenue', 'default_revenue', 'credit', 3, 410, true, (SELECT id FROM gl_accounts WHERE account_code = '4000')),
+  ('4200', 'Maintenance Revenue', 'revenue', 'revenue', 'credit', 3, 420, false, (SELECT id FROM gl_accounts WHERE account_code = '4000')),
+  ('4300', 'Other Income', 'revenue', 'other_income', 'credit', 3, 430, false, (SELECT id FROM gl_accounts WHERE account_code = '4000')),
   -- Expenses
-  ('5100', 'Materials & Supplies', 'expense', 'debit', 3, 510, false, (SELECT id FROM gl_accounts WHERE account_code = '5000')),
-  ('5200', 'Labour Costs', 'expense', 'debit', 3, 520, false, (SELECT id FROM gl_accounts WHERE account_code = '5000')),
-  ('5300', 'Subcontractor Costs', 'expense', 'debit', 3, 530, false, (SELECT id FROM gl_accounts WHERE account_code = '5000')),
-  ('5400', 'Transport & Fuel', 'expense', 'debit', 3, 540, false, (SELECT id FROM gl_accounts WHERE account_code = '5000')),
-  ('5500', 'Equipment Costs', 'expense', 'debit', 3, 550, false, (SELECT id FROM gl_accounts WHERE account_code = '5000')),
-  ('5600', 'Administrative Expenses', 'expense', 'debit', 3, 560, false, (SELECT id FROM gl_accounts WHERE account_code = '5000')),
-  ('5700', 'Bank Charges', 'expense', 'debit', 3, 570, false, (SELECT id FROM gl_accounts WHERE account_code = '5000')),
-  ('5800', 'Depreciation Expense', 'expense', 'debit', 3, 580, false, (SELECT id FROM gl_accounts WHERE account_code = '5000'))
+  ('5100', 'Materials & Supplies', 'expense', 'default_expense', 'debit', 3, 510, true, (SELECT id FROM gl_accounts WHERE account_code = '5000')),
+  ('5200', 'Labour Costs', 'expense', 'operating_expense', 'debit', 3, 520, false, (SELECT id FROM gl_accounts WHERE account_code = '5000')),
+  ('5300', 'Subcontractor Costs', 'expense', 'operating_expense', 'debit', 3, 530, false, (SELECT id FROM gl_accounts WHERE account_code = '5000')),
+  ('5400', 'Transport & Fuel', 'expense', 'operating_expense', 'debit', 3, 540, false, (SELECT id FROM gl_accounts WHERE account_code = '5000')),
+  ('5500', 'Equipment Costs', 'expense', 'operating_expense', 'debit', 3, 550, false, (SELECT id FROM gl_accounts WHERE account_code = '5000')),
+  ('5600', 'Administrative Expenses', 'expense', 'admin_expense', 'debit', 3, 560, true, (SELECT id FROM gl_accounts WHERE account_code = '5000')),
+  ('5700', 'Bank Charges', 'expense', 'operating_expense', 'debit', 3, 570, false, (SELECT id FROM gl_accounts WHERE account_code = '5000')),
+  ('5800', 'Depreciation Expense', 'expense', 'depreciation_expense', 'debit', 3, 580, true, (SELECT id FROM gl_accounts WHERE account_code = '5000'))
 ON CONFLICT (account_code) DO NOTHING;
 
 -- ── Seed Data: Fiscal Year 2026 ────────────────────────────────────────────

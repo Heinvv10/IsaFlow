@@ -6,7 +6,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
-import { getAccountByCode } from './chartOfAccountsService';
+import { getSystemAccount } from './systemAccountResolver';
 import type { VATAdjustment, VATAdjustmentCreateInput } from '../types/gl.types';
 import type { JournalLineInput } from '../types/gl.types';
 
@@ -71,14 +71,12 @@ export async function approveVATAdjustment(companyId: string,
   const amount = Number(va.amount);
   const isInput = va.adjustment_type === 'input';
 
-  // GL: Input → DR VAT Input (1140), CR Expense (5600)
-  //     Output → DR Expense (5600), CR VAT Output (2120)
+  // GL: Input → DR VAT Input, CR Expense
+  //     Output → DR Expense, CR VAT Output
   const vatAccount = isInput
-    ? await getAccountByCode('1140') // VAT Input
-    : await getAccountByCode('2120'); // VAT Output
-  const expenseAccount = await getAccountByCode('5600'); // Administrative
-
-  if (!vatAccount || !expenseAccount) throw new Error('Required GL accounts not found');
+    ? await getSystemAccount('vat_input')
+    : await getSystemAccount('vat_output');
+  const expenseAccount = await getSystemAccount('admin_expense');
 
   const lines: JournalLineInput[] = isInput
     ? [

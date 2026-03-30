@@ -10,6 +10,7 @@ import { parseOfxStatement } from '../utils/bankOfxParser';
 import { parseQifStatement } from '../utils/bankQifParser';
 import { runAutoMatch } from '../utils/autoMatch';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
+import { getSystemAccountId } from './systemAccountResolver';
 import type { BankTransaction, BankReconciliation, AutoMatchResult, BankFormat, BankCsvParseResult } from '../types/bank.types';
 import type { JournalLineInput } from '../types/gl.types';
 
@@ -636,7 +637,7 @@ export async function createAdjustmentEntry(
 
 export type AllocationType = 'account' | 'supplier' | 'customer';
 
-/** Look up a GL account by its code (e.g. '2110' for AP, '1120' for AR) */
+/** @deprecated Use getSystemAccountId() for system accounts, or direct SQL for user-chosen accounts */
 async function glAccountByCode(code: string): Promise<string> {
   const rows = (await sql`
     SELECT id FROM gl_accounts WHERE account_code = ${code} AND is_active = TRUE LIMIT 1
@@ -688,8 +689,8 @@ export async function allocateTransaction(
   const vatRate = hasVat ? 15 : 0;
   const netAmount = hasVat ? Math.round((totalAmount * 100 / 115) * 100) / 100 : totalAmount;
   const vatAmount = hasVat ? Math.round((totalAmount - netAmount) * 100) / 100 : 0;
-  // VAT accounts: 1140 VAT Input (expenses/payments), 2120 VAT Output (sales/receipts)
-  const vatAccountCode = isSpent ? '1140' : '2120';
+  // VAT accounts: Input (expenses/payments), Output (sales/receipts)
+  const vatAccountKey = isSpent ? 'vat_input' as const : 'vat_output' as const;
   const mapVatType = vatCode === 'standard' ? 'standard' as const
     : vatCode === 'zero_rated' ? 'zero_rated' as const
     : vatCode === 'exempt' ? 'exempt' as const
@@ -702,7 +703,7 @@ export async function allocateTransaction(
 
   if (allocType === 'supplier' && entityId) {
     // Supplier payment: DR Accounts Payable, CR Bank (+ VAT Input if applicable)
-    const apAccountId = await glAccountByCode('2110');
+    const apAccountId = await getSystemAccountId('payable');
     const supRows = (await sql`SELECT name FROM suppliers WHERE id = ${entityId}::UUID`) as Row[];
     const supName = supRows.length > 0 ? String(supRows[0]!.name) : `Supplier #${entityId}`;
     allocEntityName = supName;
@@ -713,12 +714,12 @@ export async function allocateTransaction(
       { glAccountId: bankAccountId, debit: 0, credit: totalAmount, description: entryDesc },
     ];
     if (hasVat) {
-      const vatAcctId = await glAccountByCode(vatAccountCode);
+      const vatAcctId = await getSystemAccountId(vatAccountKey);
       lines.splice(1, 0, { glAccountId: vatAcctId, debit: vatAmount, credit: 0, description: `VAT @ ${vatRate}%`, vatType: 'standard' });
     }
   } else if (allocType === 'customer' && entityId) {
     // Customer receipt: DR Bank, CR Accounts Receivable (+ VAT Output if applicable)
-    const arAccountId = await glAccountByCode('1120');
+    const arAccountId = await getSystemAccountId('receivable');
     const custRows = (await sql`SELECT name FROM customers WHERE id = ${entityId}::UUID`) as Row[];
     const custName = custRows.length > 0 ? String(custRows[0]!.name) : `Customer #${entityId}`;
     allocEntityName = custName;
@@ -729,7 +730,7 @@ export async function allocateTransaction(
       { glAccountId: arAccountId, debit: 0, credit: netAmount, description: entryDesc, vatType: mapVatType },
     ];
     if (hasVat) {
-      const vatAcctId = await glAccountByCode(vatAccountCode);
+      const vatAcctId = await getSystemAccountId(vatAccountKey);
       lines.push({ glAccountId: vatAcctId, debit: 0, credit: vatAmount, description: `VAT @ ${vatRate}%`, vatType: 'standard' });
     }
   } else {
@@ -745,7 +746,7 @@ export async function allocateTransaction(
         { glAccountId: contraAccountId, debit: 0, credit: netAmount, description: entryDesc, vatType: mapVatType },
       ];
       if (hasVat) {
-        const vatAcctId = await glAccountByCode(vatAccountCode);
+        const vatAcctId = await getSystemAccountId(vatAccountKey);
         lines.push({ glAccountId: vatAcctId, debit: 0, credit: vatAmount, description: `VAT @ ${vatRate}%`, vatType: 'standard' });
       }
     } else {
@@ -754,7 +755,7 @@ export async function allocateTransaction(
         { glAccountId: contraAccountId, debit: netAmount, credit: 0, description: entryDesc, vatType: mapVatType },
       ];
       if (hasVat) {
-        const vatAcctId = await glAccountByCode(vatAccountCode);
+        const vatAcctId = await getSystemAccountId(vatAccountKey);
         lines.push({ glAccountId: vatAcctId, debit: vatAmount, credit: 0, description: `VAT @ ${vatRate}%`, vatType: 'standard' });
       }
       lines.push({ glAccountId: bankAccountId, debit: 0, credit: totalAmount, description: entryDesc });
@@ -879,7 +880,7 @@ export async function splitAllocateTransaction(companyId: string,
     const hasVat = line.vatCode === 'standard';
     const netAmount = hasVat ? Math.round((lineAmount * 100 / 115) * 100) / 100 : lineAmount;
     const vatAmount = hasVat ? Math.round((lineAmount - netAmount) * 100) / 100 : 0;
-    const vatAccountCode = isSpent ? '1140' : '2120';
+    const vatAccountKey = isSpent ? 'vat_input' as const : 'vat_output' as const;
     const lineDesc = line.description || entryDesc;
     const mapVatType = line.vatCode === 'standard' ? 'standard' as const
       : line.vatCode === 'zero_rated' ? 'zero_rated' as const
@@ -895,7 +896,7 @@ export async function splitAllocateTransaction(companyId: string,
         vatType: mapVatType,
       });
       if (hasVat) {
-        const vatAcctId = await glAccountByCode(vatAccountCode);
+        const vatAcctId = await getSystemAccountId(vatAccountKey);
         journalLines.push({
           glAccountId: vatAcctId,
           debit: vatAmount, credit: 0,
@@ -912,7 +913,7 @@ export async function splitAllocateTransaction(companyId: string,
         vatType: mapVatType,
       });
       if (hasVat) {
-        const vatAcctId = await glAccountByCode(vatAccountCode);
+        const vatAcctId = await getSystemAccountId(vatAccountKey);
         journalLines.push({
           glAccountId: vatAcctId,
           debit: 0, credit: vatAmount,

@@ -673,7 +673,7 @@ export async function getConsolidatedBalanceSheet(
           WHERE gcm.group_id = ${groupId}::UUID
             AND gcm.company_id = ${member.companyId}::UUID
             AND ga.account_type = 'equity'
-            AND ga.account_code = '3200'
+            AND ga.account_subtype = 'retained_earnings'
           LIMIT 1
         `) as Row[];
 

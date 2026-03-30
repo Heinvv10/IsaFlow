@@ -6,7 +6,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
-import { getAccountByCode } from './chartOfAccountsService';
+import { getSystemAccount, getSystemAccountId } from './systemAccountResolver';
 import { validateThreeWayMatch } from '../utils/threeWayMatch';
 import type {
   SupplierInvoice,
@@ -198,16 +198,14 @@ export async function approveSupplierInvoice(companyId: string,
     }
 
     // Auto-post GL entry: DR Expense + DR VAT Input, CR Accounts Payable
-    const apAccount = await getAccountByCode('2110');
-    const vatAccount = await getAccountByCode('1140');
-    if (!apAccount) throw new Error('Accounts Payable account (2110) not found');
-    if (!vatAccount) throw new Error('VAT Input account (1140) not found');
+    const apAccount = await getSystemAccount('payable');
+    const vatAccount = await getSystemAccount('vat_input');
 
-    const defaultExpenseAccount = await getAccountByCode('5100');
+    const defaultExpenseAccount = await getSystemAccount('default_expense');
     const lines: JournalLineInput[] = [];
 
     for (const item of invoice.items) {
-      const glAccountId = item.glAccountId || defaultExpenseAccount?.id;
+      const glAccountId = item.glAccountId || defaultExpenseAccount.id;
       if (!glAccountId) throw new Error('No GL account for invoice item and no default expense account');
       lines.push({
         glAccountId,

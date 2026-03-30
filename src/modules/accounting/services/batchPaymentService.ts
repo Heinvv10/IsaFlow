@@ -6,7 +6,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
-import { getAccountByCode } from './chartOfAccountsService';
+import { getSystemAccount } from './systemAccountResolver';
 import type { SupplierPaymentBatch, BatchPaymentCreateInput } from '../types/ap.types';
 import type { JournalLineInput } from '../types/gl.types';
 
@@ -116,12 +116,11 @@ export async function processBatch(companyId: string, id: string, userId: string
 
   const totalAmount = batch.totalAmount;
 
-  // GL: DR AP (2110), CR Bank (1110 or specified)
-  const apAccount = await getAccountByCode('2110');
+  // GL: DR AP, CR Bank
+  const apAccount = await getSystemAccount('payable');
   const bankAccount = batch.bankAccountId
     ? { id: batch.bankAccountId }
-    : await getAccountByCode('1110');
-  if (!apAccount || !bankAccount) throw new Error('Required GL accounts not found');
+    : await getSystemAccount('bank');
 
   const lines: JournalLineInput[] = [
     { glAccountId: apAccount.id, debit: totalAmount, credit: 0,

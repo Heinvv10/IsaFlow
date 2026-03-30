@@ -8,7 +8,8 @@ import Link from 'next/link';
 import {
   BarChart3, PieChart, Banknote, Scale, DollarSign,
   Users, ShoppingCart, Landmark, BookOpen, Shield,
-  Clock, Receipt,
+  Clock, Receipt, TrendingUp, Layers, Activity,
+  LayoutDashboard, FolderOpen, GitBranch,
 } from 'lucide-react';
 
 interface ReportCard {
@@ -39,6 +40,13 @@ const reports: ReportCard[] = [
   // Analysis
   { title: 'Project Profitability', description: 'Revenue and costs by project', href: '/accounting/reports/project-profitability', icon: BarChart3, color: 'teal', category: 'Analysis' },
   { title: 'Audit Trail', description: 'Full journal entry audit log', href: '/accounting/reports/audit-trail', icon: Shield, color: 'amber', category: 'Analysis' },
+  // Analytics
+  { title: 'Financial Analysis', description: 'Deep-dive financial ratios and performance metrics', href: '/accounting/reports/financial-analysis', icon: TrendingUp, color: 'indigo', category: 'Analytics' },
+  { title: 'Waterfall Charts', description: 'Visual breakdown of cumulative financial changes', href: '/accounting/reports/waterfall', icon: Layers, color: 'violet', category: 'Analytics' },
+  { title: 'Trend Analysis', description: 'Month-on-month and year-on-year trend tracking', href: '/accounting/reports/trend-analysis', icon: Activity, color: 'cyan', category: 'Analytics' },
+  { title: 'Executive Dashboard', description: 'High-level KPIs and summary metrics for leadership', href: '/accounting/reports/executive-dashboard', icon: LayoutDashboard, color: 'blue', category: 'Analytics' },
+  { title: 'Report Packs', description: 'Bundled report sets for board and stakeholder distribution', href: '/accounting/reports/report-packs', icon: FolderOpen, color: 'amber', category: 'Analytics' },
+  { title: 'Three-Way Forecast', description: 'Integrated P&L, balance sheet, and cash flow projections', href: '/accounting/reports/three-way-forecast', icon: GitBranch, color: 'teal', category: 'Analytics' },
 ];
 
 const categories = [...new Set(reports.map(r => r.category))];
