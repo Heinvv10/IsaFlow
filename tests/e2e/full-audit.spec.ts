@@ -172,7 +172,7 @@ const GET_APIS = [
   '/api/accounting/cost-centres',
   '/api/accounting/currencies',
   '/api/accounting/stock-levels',
-  // '/api/accounting/time-entries', // Known issue: project_time_entries table missing
+  '/api/accounting/time-entries',
   '/api/accounting/vlm-status',
   '/api/accounting/compliance-alerts',
   // Reports
