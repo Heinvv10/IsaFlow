@@ -60,7 +60,7 @@ export async function importCustomers(
   const existing = existingRows.map(r => ({ id: String(r.id), name: String(r.name) }));
 
   for (let i = 0; i < customers.length; i++) {
-    const cust = customers[i];
+    const cust = customers[i]!;
     if (!cust.name?.trim()) {
       errors.push({ step: 'customers', row: i, field: 'name', message: 'Name is required' });
       skipped++;
@@ -131,7 +131,7 @@ export async function importSuppliers(
   const existing = existingRows.map(r => ({ id: String(r.id), name: String(r.name) }));
 
   for (let i = 0; i < suppliers.length; i++) {
-    const sup = suppliers[i];
+    const sup = suppliers[i]!;
     if (!sup.name?.trim()) {
       errors.push({ step: 'suppliers', row: i, field: 'name', message: 'Name is required' });
       skipped++;

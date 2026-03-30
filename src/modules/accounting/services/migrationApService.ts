@@ -47,7 +47,7 @@ export async function importAPInvoices(
   `) as Row[];
 
   for (let i = 0; i < invoices.length; i++) {
-    const inv = invoices[i];
+    const inv = invoices[i]!;
     try {
       const supplierId = matchContact(inv.supplierName, supRows);
       if (!supplierId) {
@@ -94,7 +94,7 @@ export async function importAPInvoices(
         source: 'auto_migration',
         sourceDocumentId: invoiceId,
         lines: journalLines,
-      });
+      }, userId);
       await postJournalEntry(companyId, entry.id, userId);
       imported++;
     } catch (err) {

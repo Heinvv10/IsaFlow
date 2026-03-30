@@ -107,7 +107,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   // Use pre-extracted data or attempt to parse from a VLM response string
-  let extracted = extractedRaw ? parsePayslipExtractionResponse(extractedRaw) : null;
+  const extracted = extractedRaw ? parsePayslipExtractionResponse(extractedRaw) : null;
 
   if (!extracted) {
     log.warn('No extracted payslip data provided — returning raw buffer analysis not available without VLM', {}, 'verify-payslip');
