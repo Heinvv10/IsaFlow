@@ -36,10 +36,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     fail: failCount,
   }, 'migration');
 
+  // Transform to shape expected by validate.tsx UI
+  const checks = results.map((r, i) => ({
+    id: `check-${i}`,
+    label: r.check,
+    passed: r.status !== 'fail',
+    detail: r.message + (r.detail ? ` — ${r.detail}` : ''),
+  }));
+
   return apiResponse.success(res, {
-    results,
+    sessionId,
+    checks,
+    allPassed: failCount === 0,
     summary: { pass: passCount, warn: warnCount, fail: failCount },
-    ready: failCount === 0,
   });
 }
 
