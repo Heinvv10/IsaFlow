@@ -34,6 +34,7 @@ interface Company {
   bankAccountType: string | null;
   financialYearStart: number;
   vatPeriod: string;
+  vatPeriodAlignment: 'odd' | 'even';
   defaultCurrency: string | null;
   // Lockdown
   lockdownEnabled: boolean;
@@ -272,6 +273,7 @@ export default function CompanySettingsPage() {
           bankAccountType: c.bankAccountType ?? c.bank_account_type ?? null,
           financialYearStart: c.financialYearStart ?? c.financial_year_start ?? 3,
           vatPeriod: c.vatPeriod ?? c.vat_period ?? 'bi-monthly',
+          vatPeriodAlignment: c.vatPeriodAlignment ?? c.vat_period_alignment ?? 'odd',
           defaultCurrency: c.defaultCurrency ?? c.default_currency ?? 'ZAR',
           // New fields
           lockdownEnabled: c.lockdownEnabled ?? c.lockdown_enabled ?? false,
@@ -913,6 +915,20 @@ export default function CompanySettingsPage() {
                   <option value="bi-monthly">Bi-Monthly</option>
                 </select>
               </div>
+              {company.vatPeriod === 'bi-monthly' && (
+                <div>
+                  <label className={LABEL_CLS}>Bi-Monthly Period Alignment</label>
+                  <select className={INPUT_CLS} value={company.vatPeriodAlignment || 'odd'} onChange={e => update('vatPeriodAlignment', e.target.value)}>
+                    <option value="odd">Odd months (Jan-Feb, Mar-Apr, May-Jun...)</option>
+                    <option value="even">Even months (Feb-Mar, Apr-May, Jun-Jul...)</option>
+                  </select>
+                  <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">
+                    {company.vatPeriodAlignment === 'even'
+                      ? 'Category B: periods start in even months (Feb, Apr, Jun, Aug, Oct, Dec)'
+                      : 'Category A: periods start in odd months (Jan, Mar, May, Jul, Sep, Nov)'}
+                  </p>
+                </div>
+              )}
             </div>
           </section>
         )}

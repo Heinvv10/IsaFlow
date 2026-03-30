@@ -4,12 +4,12 @@
  * save draft and mark submitted actions, CSV export.
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import {
   FileText, Loader2, Save, Send, Download,
-  ChevronLeft, ChevronDown, ChevronRight,
+  ChevronLeft, ChevronDown, ChevronRight, Calendar,
 } from 'lucide-react';
 import { formatDate } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
@@ -45,22 +45,45 @@ interface VAT201Data {
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
-function getDefaultPeriod(): { from: string; to: string } {
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+interface VATQuickPeriod {
+  label: string;
+  from: string;
+  to: string;
+}
+
+function pad2(n: number) { return String(n).padStart(2, '0'); }
+
+function buildVatPeriods(year: number, alignment: 'odd' | 'even'): VATQuickPeriod[] {
+  const startMonths = alignment === 'even' ? [2, 4, 6, 8, 10, 12] : [1, 3, 5, 7, 9, 11];
+  return startMonths.map(sm => {
+    const endMonth = sm + 1;
+    const endYear = endMonth > 12 ? year + 1 : year;
+    const em = endMonth > 12 ? 1 : endMonth;
+    const lastDay = new Date(endYear, em, 0).getDate();
+    return {
+      label: `${MONTH_NAMES[sm - 1]}–${MONTH_NAMES[em - 1]} ${endYear !== year ? year + '/' + endYear : year}`,
+      from: `${year}-${pad2(sm)}-01`,
+      to: `${endYear}-${pad2(em)}-${pad2(lastDay)}`,
+    };
+  });
+}
+
+function getDefaultPeriod(alignment: 'odd' | 'even' = 'odd'): { from: string; to: string } {
   const now = new Date();
-  const month = now.getMonth() + 1;
   const year = now.getFullYear();
-  // Bi-monthly VAT periods: Jan-Feb, Mar-Apr, etc.
-  const periodStart = month % 2 === 0 ? month - 1 : month;
-  const periodEnd = periodStart + 1;
-  const endDay = new Date(year, periodEnd, 0).getDate();
-  return {
-    from: `${year}-${String(periodStart).padStart(2, '0')}-01`,
-    to: `${year}-${String(periodEnd).padStart(2, '0')}-${String(endDay).padStart(2, '0')}`,
-  };
+  const periods = buildVatPeriods(year, alignment);
+  const today = now.toISOString().split('T')[0]!;
+  const current = periods.find(p => p.from <= today && p.to >= today);
+  return current || periods[0]!;
 }
 
 export default function VAT201Page() {
-  const defaults = getDefaultPeriod();
+  const [alignment, setAlignment] = useState<'odd' | 'even'>('odd');
+  const [vatPeriod, setVatPeriod] = useState<'monthly' | 'bi-monthly'>('bi-monthly');
+  const [quickPeriods, setQuickPeriods] = useState<VATQuickPeriod[]>([]);
+  const defaults = getDefaultPeriod(alignment);
   const [from, setFrom] = useState(defaults.from);
   const [to, setTo] = useState(defaults.to);
   const [data, setData] = useState<VAT201Data | null>(null);
@@ -74,6 +97,39 @@ export default function VAT201Page() {
   const [sarsRef, setSarsRef] = useState('');
   const [savedId, setSavedId] = useState('');
   const [showSubmitModal, setShowSubmitModal] = useState(false);
+
+  // Load company alignment setting
+  useEffect(() => {
+    (async () => {
+      const res = await apiFetch('/api/accounting/companies', { credentials: 'include' });
+      const json = await res.json();
+      if (res.ok && json.data) {
+        const c = Array.isArray(json.data) ? json.data[0] : json.data;
+        const a = c?.vatPeriodAlignment || c?.vat_period_alignment || 'odd';
+        const vp = c?.vatPeriod || c?.vat_period || 'bi-monthly';
+        setAlignment(a);
+        setVatPeriod(vp);
+        const year = new Date().getFullYear();
+        if (vp === 'monthly') {
+          const months: VATQuickPeriod[] = [];
+          for (let m = 1; m <= 12; m++) {
+            const lastDay = new Date(year, m, 0).getDate();
+            months.push({
+              label: `${MONTH_NAMES[m - 1]} ${year}`,
+              from: `${year}-${pad2(m)}-01`,
+              to: `${year}-${pad2(m)}-${pad2(lastDay)}`,
+            });
+          }
+          setQuickPeriods(months);
+        } else {
+          setQuickPeriods(buildVatPeriods(year, a));
+        }
+        const def = getDefaultPeriod(a);
+        setFrom(def.from);
+        setTo(def.to);
+      }
+    })();
+  }, []);
 
   const generate = useCallback(async () => {
     if (!from || !to) return;
@@ -189,7 +245,7 @@ export default function VAT201Page() {
               <div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">VAT201 Return</h1>
                 <p className="text-sm text-[var(--ff-text-secondary)]">
-                  Generate and submit bi-monthly VAT return to SARS
+                  SARS Value-Added Tax Declaration
                 </p>
               </div>
             </div>
@@ -212,10 +268,37 @@ export default function VAT201Page() {
 
           {/* Period Selector */}
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
-            <h2 className="text-sm font-medium text-[var(--ff-text-secondary)] mb-3">VAT Period</h2>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-medium text-[var(--ff-text-secondary)] flex items-center gap-2">
+                <Calendar className="h-4 w-4" /> VAT Period
+              </h2>
+              <span className="text-xs text-[var(--ff-text-tertiary)]">
+                {vatPeriod === 'monthly' ? 'Monthly' : alignment === 'even' ? 'Bi-Monthly (Category B)' : 'Bi-Monthly (Category A)'}
+              </span>
+            </div>
+
+            {/* Quick Period Buttons */}
+            {quickPeriods.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-4">
+                {quickPeriods.map(p => (
+                  <button
+                    key={p.from}
+                    onClick={() => { setFrom(p.from); setTo(p.to); }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                      from === p.from && to === p.to
+                        ? 'bg-teal-600 text-white border-teal-600'
+                        : 'border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] hover:border-teal-500/50 hover:text-[var(--ff-text-primary)]'
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div className="flex flex-wrap items-end gap-4">
               <div>
-                <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">From</label>
+                <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Period Start</label>
                 <input
                   type="date"
                   value={from}
@@ -224,7 +307,7 @@ export default function VAT201Page() {
                 />
               </div>
               <div>
-                <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">To</label>
+                <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Period End</label>
                 <input
                   type="date"
                   value={to}
