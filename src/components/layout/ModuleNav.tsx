@@ -79,7 +79,7 @@ export const ACCENT_CLASSES: Record<AccentColor, AccentTokens> = {
 };
 
 export interface ModuleNavProps {
-  tabs: Tab[];
+  tabs?: Tab[];
   getActiveTabId: (pathname: string, query: Record<string, string | string[] | undefined>) => string;
   accentColor: AccentColor;
 }
@@ -281,7 +281,7 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor }: ModuleNavProps)
   return (
     <nav ref={navRef} className="bg-gray-900 border-b border-gray-700 relative z-30">
       <div className="flex items-center gap-0 px-2">
-        {tabs.map(t => (
+        {(tabs ?? []).map(t => (
           <div key={t.id} className="relative">
             {t.href ? (
               <Link

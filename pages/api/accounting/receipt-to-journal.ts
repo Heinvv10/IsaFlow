@@ -88,7 +88,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     ) VALUES (
       ${companyId}, ${journalInput.entryDate}::date, ${period?.id || null}::uuid,
       ${journalInput.description}, 'auto_invoice',
-      ${autoPost ? 'posted' : 'draft'}, ${userId}::uuid
+      ${autoPost ? 'posted' : 'draft'}, ${userId}
     ) RETURNING id, status
   `) as Row[];
 

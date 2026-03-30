@@ -109,7 +109,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     ) VALUES (
       ${companyId}::uuid, ${documentId}::uuid, ${entityType}, ${entityId}::uuid,
       'vlm_document_match', ${JSON.stringify(result)}::jsonb,
-      ${result.discrepancies.length}, ${userId}::uuid
+      ${result.discrepancies.length}, ${userId}
     )
   `;
 

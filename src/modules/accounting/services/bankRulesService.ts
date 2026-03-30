@@ -25,6 +25,7 @@ export async function getRules(companyId: string): Promise<BankCategorisationRul
     LEFT JOIN gl_accounts ga ON ga.id = r.gl_account_id
     LEFT JOIN suppliers s ON s.id = r.supplier_id
     LEFT JOIN customers c ON c.id = r.client_id
+    WHERE r.company_id = ${companyId}::UUID
     ORDER BY r.priority ASC, r.rule_name ASC
   `) as Row[];
   return rows.map(mapRuleRow);
@@ -34,11 +35,11 @@ export async function createRule(companyId: string, input: RuleCreateInput, user
   const vatCode = input.vatCode || 'none';
   const rows = (await sql`
     INSERT INTO bank_categorisation_rules (
-      rule_name, match_field, match_type, match_pattern,
+      company_id, rule_name, match_field, match_type, match_pattern,
       gl_account_id, supplier_id, client_id, description_template,
       priority, auto_create_entry, vat_code, created_by
     ) VALUES (
-      ${input.ruleName}, ${input.matchField}, ${input.matchType}, ${input.matchPattern},
+      ${companyId}::UUID, ${input.ruleName}, ${input.matchField}, ${input.matchType}, ${input.matchPattern},
       ${input.glAccountId || null}::UUID, ${input.supplierId ? Number(input.supplierId) : null},
       ${input.clientId || null}::UUID,
       ${input.descriptionTemplate || null},
@@ -346,7 +347,7 @@ function mapRuleRow(row: Row): BankCategorisationRule {
     ruleName: String(row.rule_name),
     matchField: String(row.match_field) as BankCategorisationRule['matchField'],
     matchType: String(row.match_type) as BankCategorisationRule['matchType'],
-    matchPattern: String(row.match_pattern),
+    matchPattern: String(row.match_pattern ?? row.match_value ?? ''),
     glAccountId: row.gl_account_id ? String(row.gl_account_id) : undefined,
     supplierId: row.supplier_id ? String(row.supplier_id) : undefined,
     clientId: row.client_id ? String(row.client_id) : undefined,
