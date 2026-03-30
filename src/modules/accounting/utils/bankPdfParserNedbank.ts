@@ -25,7 +25,7 @@ const DATE_AT_START = /^(\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4})/;
  * Amount with optional Dr/Cr suffix (and optional thousand separators).
  * Also handles plain signed amounts.
  */
-const AMOUNT_WITH_SUFFIX = /([-]?\d{1,3}(?:[, ]\d{3})*(?:\.\d{2}))\s*(Dr|CR|Cr|dr)?/gi;
+const _AMOUNT_WITH_SUFFIX = /([-]?\d{1,3}(?:[, ]\d{3})*(?:\.\d{2}))\s*(Dr|CR|Cr|dr)?/gi;
 const PLAIN_AMOUNT = /[-]?\d{1,3}(?:[, ]\d{3})*(?:\.\d{2})/g;
 
 /** Extract the last one or two amounts from a string, respecting Dr/Cr suffixes. */
