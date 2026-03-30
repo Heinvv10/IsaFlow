@@ -35,6 +35,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         FROM customer_invoices ci
         LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
         WHERE ci.company_id = ${companyId}
+          AND ci.deleted_at IS NULL
           AND ci.status = ${status as string}
         ORDER BY ci.invoice_date DESC
         LIMIT ${Number(limit)} OFFSET ${Number(offset)}
@@ -50,6 +51,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         FROM customer_invoices ci
         LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
         WHERE ci.company_id = ${companyId}
+          AND ci.deleted_at IS NULL
           AND (ci.invoice_number ILIKE ${searchTerm} OR c.name ILIKE ${searchTerm})
         ORDER BY ci.invoice_date DESC
         LIMIT ${Number(limit)} OFFSET ${Number(offset)}
@@ -65,6 +67,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         FROM customer_invoices ci
         LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
         WHERE ci.company_id = ${companyId}
+          AND ci.deleted_at IS NULL
         ORDER BY ci.invoice_date DESC
         LIMIT ${Number(limit)} OFFSET ${Number(offset)}
       `;

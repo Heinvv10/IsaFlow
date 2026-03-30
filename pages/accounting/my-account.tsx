@@ -18,6 +18,7 @@ import {
   type PasswordForm,
   type Preferences,
 } from '@/components/accounting/my-account/AccountTabs';
+import { TwoFactorSection } from '@/components/accounting/my-account/TwoFactorSection';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -225,10 +226,13 @@ export default function MyAccountPage() {
               onChange={setProfile} onSave={() => void handleProfileSave()} />
           )}
           {activeTab === 'security' && (
-            <SecurityTab form={pwForm} saving={pwSaving}
-              showOld={showOld} showNew={showNew} showConfirm={showConfirm}
-              setShowOld={setShowOld} setShowNew={setShowNew} setShowConfirm={setShowConfirm}
-              onChange={setPwForm} onSave={() => void handlePasswordChange()} />
+            <div className="space-y-6">
+              <SecurityTab form={pwForm} saving={pwSaving}
+                showOld={showOld} showNew={showNew} showConfirm={showConfirm}
+                setShowOld={setShowOld} setShowNew={setShowNew} setShowConfirm={setShowConfirm}
+                onChange={setPwForm} onSave={() => void handlePasswordChange()} />
+              <TwoFactorSection />
+            </div>
           )}
           {activeTab === 'preferences' && (
             <PreferencesTab prefs={prefs} saving={prefsSaving} theme={theme}

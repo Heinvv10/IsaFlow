@@ -95,6 +95,7 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
           SELECT i.*, ic.name AS category_name
           FROM items i LEFT JOIN item_categories ic ON i.category_id = ic.id
           WHERE i.company_id = ${companyId}
+            AND i.deleted_at IS NULL
             AND (i.code ILIKE ${term} OR i.description ILIKE ${term})
             AND i.item_type = ${String(type)}
             AND i.category_id = ${String(category_id)}::UUID
@@ -106,6 +107,7 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
           SELECT i.*, ic.name AS category_name
           FROM items i LEFT JOIN item_categories ic ON i.category_id = ic.id
           WHERE i.company_id = ${companyId}
+            AND i.deleted_at IS NULL
             AND (i.code ILIKE ${term} OR i.description ILIKE ${term})
             AND i.item_type = ${String(type)}
             AND i.category_id = ${String(category_id)}::UUID
@@ -120,6 +122,7 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
           SELECT i.*, ic.name AS category_name
           FROM items i LEFT JOIN item_categories ic ON i.category_id = ic.id
           WHERE i.company_id = ${companyId}
+            AND i.deleted_at IS NULL
             AND (i.code ILIKE ${term} OR i.description ILIKE ${term})
             AND i.item_type = ${String(type)}
             AND i.is_active = ${isActive}
@@ -130,6 +133,7 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
           SELECT i.*, ic.name AS category_name
           FROM items i LEFT JOIN item_categories ic ON i.category_id = ic.id
           WHERE i.company_id = ${companyId}
+            AND i.deleted_at IS NULL
             AND (i.code ILIKE ${term} OR i.description ILIKE ${term})
             AND i.item_type = ${String(type)}
           ORDER BY i.code ASC LIMIT 500
@@ -143,6 +147,7 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
           SELECT i.*, ic.name AS category_name
           FROM items i LEFT JOIN item_categories ic ON i.category_id = ic.id
           WHERE i.company_id = ${companyId}
+            AND i.deleted_at IS NULL
             AND (i.code ILIKE ${term} OR i.description ILIKE ${term})
             AND i.is_active = ${isActive}
           ORDER BY i.code ASC LIMIT 500
@@ -152,6 +157,7 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
           SELECT i.*, ic.name AS category_name
           FROM items i LEFT JOIN item_categories ic ON i.category_id = ic.id
           WHERE i.company_id = ${companyId}
+            AND i.deleted_at IS NULL
             AND (i.code ILIKE ${term} OR i.description ILIKE ${term})
           ORDER BY i.code ASC LIMIT 500
         ` as Row[];
@@ -163,6 +169,7 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
           SELECT i.*, ic.name AS category_name
           FROM items i LEFT JOIN item_categories ic ON i.category_id = ic.id
           WHERE i.company_id = ${companyId}
+            AND i.deleted_at IS NULL
             AND i.item_type = ${String(type)}
             AND i.is_active = ${isActive}
           ORDER BY i.code ASC LIMIT 500
@@ -172,6 +179,7 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
           SELECT i.*, ic.name AS category_name
           FROM items i LEFT JOIN item_categories ic ON i.category_id = ic.id
           WHERE i.company_id = ${companyId}
+            AND i.deleted_at IS NULL
             AND i.item_type = ${String(type)}
           ORDER BY i.code ASC LIMIT 500
         ` as Row[];
@@ -183,6 +191,7 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
           SELECT i.*, ic.name AS category_name
           FROM items i LEFT JOIN item_categories ic ON i.category_id = ic.id
           WHERE i.company_id = ${companyId}
+            AND i.deleted_at IS NULL
             AND i.category_id = ${String(category_id)}::UUID
             AND i.is_active = ${isActive}
           ORDER BY i.code ASC LIMIT 500
@@ -192,6 +201,7 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
           SELECT i.*, ic.name AS category_name
           FROM items i LEFT JOIN item_categories ic ON i.category_id = ic.id
           WHERE i.company_id = ${companyId}
+            AND i.deleted_at IS NULL
             AND i.category_id = ${String(category_id)}::UUID
           ORDER BY i.code ASC LIMIT 500
         ` as Row[];
@@ -201,7 +211,9 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
       rows = await sql`
         SELECT i.*, ic.name AS category_name
         FROM items i LEFT JOIN item_categories ic ON i.category_id = ic.id
-        WHERE i.company_id = ${companyId} AND i.is_active = ${isActive}
+        WHERE i.company_id = ${companyId}
+          AND i.deleted_at IS NULL
+          AND i.is_active = ${isActive}
         ORDER BY i.code ASC LIMIT 500
       ` as Row[];
     } else {
@@ -209,6 +221,7 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
         SELECT i.*, ic.name AS category_name
         FROM items i LEFT JOIN item_categories ic ON i.category_id = ic.id
         WHERE i.company_id = ${companyId}
+          AND i.deleted_at IS NULL
         ORDER BY i.code ASC LIMIT 500
       ` as Row[];
     }

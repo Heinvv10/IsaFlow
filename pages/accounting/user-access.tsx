@@ -1,12 +1,11 @@
-/**
- * User Access Control — mirrors Sage Accounting "Control User Access".
- */
+/** User Access Control — WS-4.1 granular module-level permissions. */
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Users, UserPlus, Trash2, Shield, Mail, Clock, Copy, Check } from 'lucide-react';
+import { Users, UserPlus, Trash2, Shield, Mail, Clock, Copy, Check, ChevronDown } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { useAuth } from '@/contexts/AuthContext';
+import { PermissionsGrid } from '@/components/accounting/user-access/PermissionsGrid';
 
 interface CompanyUser { userId: string; name: string; email: string; role: string; joinedAt: string; }
 interface PendingInvitation {
@@ -33,6 +32,7 @@ export default function UserAccessPage() {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
 
   const myEntry = users.find((u) => u.userId === user?.id);
   const myRole = myEntry?.role ?? '';
@@ -44,11 +44,10 @@ export default function UserAccessPage() {
     try {
       const ur = await (await apiFetch('/api/accounting/company-users')).json();
       setUsers(ur.data ?? []);
-      // Always try fetching invitations — the API returns 403 for non-admins which is fine
       try {
         const ir = await (await apiFetch('/api/accounting/company-invitations')).json();
         setInvitations(ir.data ?? []);
-      } catch { /* non-admin — no access to invitations */ }
+      } catch { /* non-admin — no access */ }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load data.');
     } finally { setLoading(false); }
@@ -63,15 +62,22 @@ export default function UserAccessPage() {
 
   async function handleRoleChange(userId: string, role: string) {
     try {
-      const j = await (await apiFetch('/api/accounting/company-users', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, role }) })).json();
+      const j = await (await apiFetch('/api/accounting/company-users', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, role }),
+      })).json();
       setUsers(j.data ?? []); showFeedback('Role updated.');
     } catch (e) { showFeedback(e instanceof Error ? e.message : 'Update failed.'); }
   }
 
   async function handleRemove(userId: string) {
     try {
-      const j = await (await apiFetch('/api/accounting/company-users', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId }) })).json();
+      const j = await (await apiFetch('/api/accounting/company-users', {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      })).json();
       setUsers(j.data ?? []); showFeedback('User removed.');
+      if (expandedUserId === userId) setExpandedUserId(null);
     } catch (e) { showFeedback(e instanceof Error ? e.message : 'Remove failed.'); }
     finally { setConfirmRemove(null); }
   }
@@ -82,12 +88,11 @@ export default function UserAccessPage() {
     setInviting(true);
     try {
       const j = await (await apiFetch('/api/accounting/company-invitations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole }),
       })).json();
       if (j.data?.autoAdded) {
-        showFeedback(`${inviteEmail} was found and added directly to this company.`);
+        showFeedback(`${inviteEmail} was found and added directly.`);
         loadData();
       } else {
         showFeedback(`Invitation sent to ${inviteEmail}.`);
@@ -99,10 +104,13 @@ export default function UserAccessPage() {
     finally { setInviting(false); }
   }
 
-  async function handleCancelInvite(invitationId: string) {
+  async function handleCancelInvite(id: string) {
     try {
-      await apiFetch('/api/accounting/company-invitations', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ invitationId }) });
-      setInvitations((prev) => prev.filter((i) => i.id !== invitationId));
+      await apiFetch('/api/accounting/company-invitations', {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invitationId: id }),
+      });
+      setInvitations((prev) => prev.filter((i) => i.id !== id));
       showFeedback('Invitation cancelled.');
     } catch (e) { showFeedback(e instanceof Error ? e.message : 'Cancel failed.'); }
   }
@@ -115,25 +123,28 @@ export default function UserAccessPage() {
     });
   }
 
-  const fmt = (iso: string) => new Date(iso).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' });
+  function toggleExpand(userId: string) {
+    setExpandedUserId((prev) => (prev === userId ? null : userId));
+  }
+
+  const fmt = (iso: string) =>
+    new Date(iso).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' });
 
   return (
     <AppLayout>
       <div className="min-h-screen bg-gray-950 px-4 py-8 sm:px-8">
-        <div className="mx-auto max-w-4xl space-y-8">
+        <div className="mx-auto max-w-5xl space-y-8">
 
           <div className="flex items-center gap-3">
             <Shield className="h-7 w-7 text-teal-400" />
             <div>
               <h1 className="text-2xl font-bold text-white">User Access Control</h1>
-              <p className="text-sm text-gray-400">Manage who can access this company and what they can do.</p>
+              <p className="text-sm text-gray-400">Manage who can access this company and granular module permissions.</p>
             </div>
           </div>
 
           {feedback && <div className="rounded-lg border border-teal-700 bg-teal-900/40 px-4 py-3 text-sm text-teal-300">{feedback}</div>}
           {error && <div className="rounded-lg border border-red-700 bg-red-900/30 px-4 py-3 text-sm text-red-300">{error}</div>}
-
-          {/* Current Users */}
           <div className="rounded-xl border border-gray-800 bg-gray-900">
             <div className="flex items-center gap-2 border-b border-gray-800 px-6 py-4">
               <Users className="h-5 w-5 text-teal-400" />
@@ -142,64 +153,77 @@ export default function UserAccessPage() {
             {loading ? (
               <div className="px-6 py-10 text-center text-gray-500">Loading...</div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-gray-800 text-left text-gray-500">
-                      <th className="px-6 py-3 font-medium">Name</th>
-                      <th className="px-6 py-3 font-medium">Email</th>
-                      <th className="px-6 py-3 font-medium">Role</th>
-                      <th className="px-6 py-3 font-medium">Joined</th>
-                      {isAdmin && <th className="px-6 py-3 font-medium">Actions</th>}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-800">
-                    {users.map((u) => {
-                      const isSelf = u.userId === user?.id;
-                      const isLastOwner = u.role === 'owner' && ownerCount <= 1;
-                      return (
-                        <tr key={u.userId} className="hover:bg-gray-800/40">
-                          <td className="px-6 py-3 text-white">
-                            {u.name}{isSelf && <span className="ml-2 text-xs text-gray-500">(you)</span>}
-                          </td>
-                          <td className="px-6 py-3 text-gray-400">{u.email}</td>
-                          <td className="px-6 py-3">
-                            {isAdmin && !isSelf ? (
-                              <select value={u.role} onChange={(e) => handleRoleChange(u.userId, e.target.value)}
-                                className="rounded border border-gray-700 bg-gray-800 px-2 py-1 text-xs text-white focus:border-teal-500 focus:outline-none">
-                                {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-                              </select>
-                            ) : (
-                              <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${ROLE_BADGE[u.role] ?? 'bg-gray-700 text-gray-300'}`}>{u.role}</span>
-                            )}
-                          </td>
-                          <td className="px-6 py-3 text-gray-400">{fmt(u.joinedAt)}</td>
-                          {isAdmin && (
-                            <td className="px-6 py-3">
-                              {!isSelf && !isLastOwner && (
-                                confirmRemove === u.userId ? (
-                                  <span className="flex items-center gap-2">
-                                    <button onClick={() => handleRemove(u.userId)} className="text-xs text-red-400 hover:text-red-300">Confirm</button>
-                                    <button onClick={() => setConfirmRemove(null)} className="text-xs text-gray-500 hover:text-gray-300">Cancel</button>
-                                  </span>
-                                ) : (
-                                  <button onClick={() => setConfirmRemove(u.userId)} className="text-gray-500 hover:text-red-400">
-                                    <Trash2 className="h-4 w-4" />
-                                  </button>
-                                )
-                              )}
-                            </td>
+              <div>
+                {users.map((u) => {
+                  const isSelf = u.userId === user?.id;
+                  const isLastOwner = u.role === 'owner' && ownerCount <= 1;
+                  const isExpanded = expandedUserId === u.userId;
+                  return (
+                    <div key={u.userId} className="border-b border-gray-800 last:border-b-0">
+                      <div
+                        className="flex w-full items-center gap-2 px-6 py-3 hover:bg-gray-800/40 cursor-pointer text-sm"
+                        onClick={() => isAdmin && toggleExpand(u.userId)}
+                      >
+                        {/* Name */}
+                        <div className="flex-1 text-white min-w-0">
+                          <span className="font-medium">{u.name}</span>
+                          {isSelf && <span className="ml-2 text-xs text-gray-500">(you)</span>}
+                        </div>
+                        {/* Email */}
+                        <div className="hidden sm:block w-52 text-gray-400 truncate">{u.email}</div>
+                        {/* Role */}
+                        <div className="w-36">
+                          {isAdmin && !isSelf ? (
+                            <select
+                              value={u.role}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => handleRoleChange(u.userId, e.target.value)}
+                              className="rounded border border-gray-700 bg-gray-800 px-2 py-1 text-xs text-white focus:border-teal-500 focus:outline-none"
+                            >
+                              {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+                            </select>
+                          ) : (
+                            <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${ROLE_BADGE[u.role] ?? 'bg-gray-700 text-gray-300'}`}>
+                              {u.role}
+                            </span>
                           )}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                        </div>
+                        <div className="hidden md:block w-28 text-gray-400 text-xs">{fmt(u.joinedAt)}</div>
+                        {isAdmin && (
+                          <div className="flex items-center gap-3 w-20 justify-end" onClick={(e) => e.stopPropagation()}>
+                            {!isSelf && !isLastOwner && (
+                              confirmRemove === u.userId ? (
+                                <span className="flex items-center gap-2">
+                                  <button onClick={() => handleRemove(u.userId)} className="text-xs text-red-400 hover:text-red-300">Confirm</button>
+                                  <button onClick={() => setConfirmRemove(null)} className="text-xs text-gray-500 hover:text-gray-300">Cancel</button>
+                                </span>
+                              ) : (
+                                <button onClick={() => setConfirmRemove(u.userId)} className="text-gray-500 hover:text-red-400">
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              )
+                            )}
+                            <ChevronDown className={`h-4 w-4 text-gray-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                          </div>
+                        )}
+                      </div>
+
+                      {isAdmin && isExpanded && (
+                        <div className="border-t border-gray-800 bg-gray-950/60">
+                          <PermissionsGrid
+                            userId={u.userId}
+                            userRole={u.role}
+                            onFeedback={showFeedback}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
 
-          {/* Invite User (admin/owner only) */}
           {isAdmin && (
             <div className="rounded-xl border border-gray-800 bg-gray-900">
               <div className="flex items-center gap-2 border-b border-gray-800 px-6 py-4">
@@ -242,34 +266,21 @@ export default function UserAccessPage() {
                               <Clock className="h-3 w-3" />
                               <span>Expires {fmt(inv.expiresAt)}</span>
                               {inv.emailSentAt ? (
-                                <span className="inline-flex items-center gap-1 rounded-full bg-green-900/50 px-2 py-0.5 text-green-400">
-                                  <Mail className="h-3 w-3" />
-                                  Email sent
-                                </span>
+                                <span className="inline-flex items-center gap-1 rounded-full bg-green-900/50 px-2 py-0.5 text-green-400"><Mail className="h-3 w-3" />Email sent</span>
                               ) : inv.emailError ? (
-                                <span className="inline-flex items-center gap-1 rounded-full bg-red-900/50 px-2 py-0.5 text-red-400" title={inv.emailError}>
-                                  <Mail className="h-3 w-3" />
-                                  Email failed
-                                </span>
+                                <span className="inline-flex items-center gap-1 rounded-full bg-red-900/50 px-2 py-0.5 text-red-400" title={inv.emailError}><Mail className="h-3 w-3" />Email failed</span>
                               ) : (
-                                <span className="inline-flex items-center gap-1 rounded-full bg-orange-900/50 px-2 py-0.5 text-orange-400">
-                                  <Mail className="h-3 w-3" />
-                                  Email pending
-                                </span>
+                                <span className="inline-flex items-center gap-1 rounded-full bg-orange-900/50 px-2 py-0.5 text-orange-400"><Mail className="h-3 w-3" />Email pending</span>
                               )}
                             </div>
                           </div>
                         </div>
                         <div className="flex items-center gap-3">
-                          <button
-                            onClick={() => handleCopyLink(inv)}
-                            title="Copy invite link"
-                            className="flex items-center gap-1 text-xs text-gray-500 hover:text-teal-400 transition-colors"
-                          >
+                          <button onClick={() => handleCopyLink(inv)} title="Copy invite link"
+                            className="flex items-center gap-1 text-xs text-gray-500 hover:text-teal-400 transition-colors">
                             {copiedId === inv.id
                               ? <><Check className="h-3.5 w-3.5 text-teal-400" /><span className="text-teal-400">Copied</span></>
-                              : <><Copy className="h-3.5 w-3.5" /><span>Copy link</span></>
-                            }
+                              : <><Copy className="h-3.5 w-3.5" /><span>Copy link</span></>}
                           </button>
                           <button onClick={() => handleCancelInvite(inv.id)} className="text-xs text-gray-500 hover:text-red-400">Cancel</button>
                         </div>

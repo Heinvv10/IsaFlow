@@ -45,43 +45,52 @@ export async function getSupplierInvoices(companyId: string, filters?: InvoiceFi
         SELECT si.*, s.name AS supplier_name, NULL::text AS po_number
         FROM supplier_invoices si
         LEFT JOIN suppliers s ON s.id = si.supplier_id
-        WHERE si.status = ${filters.status} AND si.supplier_id = ${filters.supplierId}
+        WHERE si.deleted_at IS NULL
+          AND si.status = ${filters.status} AND si.supplier_id = ${filters.supplierId}
         ORDER BY si.invoice_date DESC LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
       countRows = (await sql`
         SELECT COUNT(*) AS cnt FROM supplier_invoices
-        WHERE status = ${filters.status} AND supplier_id = ${filters.supplierId}
+        WHERE deleted_at IS NULL
+          AND status = ${filters.status} AND supplier_id = ${filters.supplierId}
       `) as Row[];
     } else if (filters?.status) {
       rows = (await sql`
         SELECT si.*, s.name AS supplier_name, NULL::text AS po_number
         FROM supplier_invoices si
         LEFT JOIN suppliers s ON s.id = si.supplier_id
-        WHERE si.status = ${filters.status}
+        WHERE si.deleted_at IS NULL
+          AND si.status = ${filters.status}
         ORDER BY si.invoice_date DESC LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
       countRows = (await sql`
-        SELECT COUNT(*) AS cnt FROM supplier_invoices WHERE status = ${filters.status}
+        SELECT COUNT(*) AS cnt FROM supplier_invoices
+        WHERE deleted_at IS NULL AND status = ${filters.status}
       `) as Row[];
     } else if (filters?.supplierId) {
       rows = (await sql`
         SELECT si.*, s.name AS supplier_name, NULL::text AS po_number
         FROM supplier_invoices si
         LEFT JOIN suppliers s ON s.id = si.supplier_id
-        WHERE si.supplier_id = ${filters.supplierId}
+        WHERE si.deleted_at IS NULL
+          AND si.supplier_id = ${filters.supplierId}
         ORDER BY si.invoice_date DESC LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
       countRows = (await sql`
-        SELECT COUNT(*) AS cnt FROM supplier_invoices WHERE supplier_id = ${filters.supplierId}
+        SELECT COUNT(*) AS cnt FROM supplier_invoices
+        WHERE deleted_at IS NULL AND supplier_id = ${filters.supplierId}
       `) as Row[];
     } else {
       rows = (await sql`
         SELECT si.*, s.name AS supplier_name, NULL::text AS po_number
         FROM supplier_invoices si
         LEFT JOIN suppliers s ON s.id = si.supplier_id
+        WHERE si.deleted_at IS NULL
         ORDER BY si.invoice_date DESC LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
-      countRows = (await sql`SELECT COUNT(*) AS cnt FROM supplier_invoices`) as Row[];
+      countRows = (await sql`
+        SELECT COUNT(*) AS cnt FROM supplier_invoices WHERE deleted_at IS NULL
+      `) as Row[];
     }
 
     return { invoices: rows.map(mapInvoiceRow), total: Number(countRows[0]!.cnt) };
