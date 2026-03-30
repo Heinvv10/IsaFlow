@@ -10,9 +10,11 @@
  * 6. Data is mapped and previewed before import
  */
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
+import { useAuth } from '@/contexts/AuthContext';
 import {
   ArrowLeft, Download, CheckCircle2, AlertCircle,
   Loader2, Database, Users, Building2, FileText, ShieldCheck,
@@ -40,6 +42,8 @@ const INITIAL_STEPS: PullStep[] = [
 ];
 
 export default function SageAutoImportPage() {
+  const { user } = useAuth();
+  const router = useRouter();
   const [steps, setSteps] = useState<PullStep[]>(INITIAL_STEPS);
   const [connected, setConnected] = useState(false);
   const [pulling, setPulling] = useState(false);
@@ -47,6 +51,13 @@ export default function SageAutoImportPage() {
   const [sageWindow, setSageWindow] = useState<Window | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pulledData = useRef<Record<string, any>>({});
+
+  // Super admin only — redirect others
+  useEffect(() => {
+    if (user && user.role !== 'super_admin') {
+      router.replace('/accounting/migration');
+    }
+  }, [user, router]);
 
   const updateStep = useCallback((id: string, update: Partial<PullStep>) => {
     setSteps(prev => prev.map(s => s.id === id ? { ...s, ...update } : s));

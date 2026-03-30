@@ -7,6 +7,7 @@ import {
   Building2,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface StepsCompleted {
   coa?: boolean;
@@ -60,6 +61,7 @@ const STEPS: WizardStep[] = [
 ];
 
 export default function MigrationHubPage() {
+  const { user } = useAuth();
   const [session, setSession] = useState<MigrationSession | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -134,7 +136,7 @@ export default function MigrationHubPage() {
               <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
             </div>
           ) : !session ? (
-            <SourceSelection onSelect={selectSource} selecting={selecting} />
+            <SourceSelection onSelect={selectSource} selecting={selecting} isSuperAdmin={user?.role === 'super_admin'} />
           ) : (
             <div className="space-y-6">
               <SessionSummary session={session} onReset={() => setSession(null)} />
@@ -177,7 +179,7 @@ export default function MigrationHubPage() {
   );
 }
 
-function SourceSelection({ onSelect, selecting }: { onSelect: (s: string) => void; selecting: boolean }) {
+function SourceSelection({ onSelect, selecting, isSuperAdmin }: { onSelect: (s: string) => void; selecting: boolean; isSuperAdmin?: boolean }) {
   return (
     <div className="space-y-4">
       <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-6">
@@ -198,21 +200,24 @@ function SourceSelection({ onSelect, selecting }: { onSelect: (s: string) => voi
           ))}
         </div>
       </div>
-      <div className="bg-green-500/5 rounded-lg border border-green-500/20 p-5">
-        <div className="flex items-center gap-3 mb-2">
-          <span className="text-lg">⚡</span>
-          <h3 className="font-semibold text-[var(--ff-text-primary)]">Auto-Import from Sage</h3>
+      {isSuperAdmin && (
+        <div className="bg-green-500/5 rounded-lg border border-green-500/20 p-5">
+          <div className="flex items-center gap-3 mb-2">
+            <span className="text-lg">⚡</span>
+            <h3 className="font-semibold text-[var(--ff-text-primary)]">Auto-Import from Sage</h3>
+            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-400">Admin</span>
+          </div>
+          <p className="text-sm text-[var(--ff-text-secondary)] mb-3">
+            Already on Sage Business Cloud? Skip the CSV files — pull your data directly from your Sage account.
+          </p>
+          <Link
+            href="/accounting/migration/sage-auto"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-500 text-sm font-medium"
+          >
+            Auto-Import from Sage →
+          </Link>
         </div>
-        <p className="text-sm text-[var(--ff-text-secondary)] mb-3">
-          Already on Sage Business Cloud? Skip the CSV files — pull your data directly from your Sage account.
-        </p>
-        <Link
-          href="/accounting/migration/sage-auto"
-          className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-500 text-sm font-medium"
-        >
-          Auto-Import from Sage →
-        </Link>
-      </div>
+      )}
     </div>
   );
 }
