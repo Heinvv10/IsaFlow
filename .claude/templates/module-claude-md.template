@@ -1,0 +1,42 @@
+# Module: {MODULE_NAME}
+<!-- Keep under 50 lines - reference, don't duplicate -->
+
+## Purpose
+{ONE_LINE_DESCRIPTION}
+
+## Critical Rules
+- ALWAYS scope queries with `company_id` (multi-tenant safety)
+- ALWAYS use `sql` tagged templates from `@/lib/neon` (never string concat)
+- ALWAYS wrap API handlers with `withCompany(withErrorHandler(handler))`
+- NEVER use `console.log` — use `log` from `@/lib/logger`
+
+## Key Files
+| File | Purpose |
+|------|---------|
+| `{SERVICE_FILE}` | {SERVICE_PURPOSE} |
+| `{API_FILE}` | {API_PURPOSE} |
+| `{PAGE_FILE}` | {PAGE_PURPOSE} |
+
+## API Endpoints
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| {METHOD} | `/api/accounting/{ENDPOINT}` | {ENDPOINT_PURPOSE} |
+
+## Database Tables
+- `{PRIMARY_TABLE}` — {TABLE_PURPOSE}
+
+## Dependencies
+- **External:** {EXTERNAL_DEPS}
+- **Internal:** {INTERNAL_MODULES}
+
+## Common Patterns
+| Task | Pattern |
+|------|---------|
+| Create record | `POST /api/accounting/{resource}` with `withCompany` |
+| List records | `GET /api/accounting/{resource}?status=&search=&limit=&offset=` |
+| Update record | `PUT /api/accounting/{resource}` with `{ id, ...fields }` |
+
+## Testing
+```bash
+bun run vitest run tests/unit/{module}/
+```
