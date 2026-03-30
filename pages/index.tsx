@@ -11,6 +11,9 @@ import {
   BadgeCheck, Layers, RefreshCw, FileSearch,
   Package, Workflow, GitMerge, Briefcase,
   Warehouse, ScanLine, Bot, LineChart,
+  Search, KeyRound, ShieldCheck, Repeat, Upload,
+  History, Columns, Copy, Webhook, Archive,
+  FileSpreadsheet, GraduationCap, MousePointerClick,
 } from 'lucide-react';
 
 /* ------------------------------------------------------------------ */
@@ -36,6 +39,21 @@ const FEATURES = [
   { icon: GitMerge, title: 'Group Consolidation', desc: 'Multi-company management with consolidated reporting, intercompany transactions, and elimination adjustments.' },
   { icon: Globe, title: 'Customer Portal', desc: 'Self-service portal for customers to view invoices, download statements, make payments, and chat with support.' },
   { icon: ScanLine, title: 'Sage Migration', desc: 'Guided migration wizard to import chart of accounts, customers, suppliers, invoices, and opening balances from Sage.' },
+  { icon: History, title: 'Full Audit Trail', desc: 'Field-level change tracking on every financial record. See who changed what, when, and the before/after values. Append-only, tamper-proof audit log.' },
+  { icon: KeyRound, title: 'Two-Factor Auth', desc: 'TOTP-based 2FA with Google Authenticator support, backup codes, SMS fallback, and trusted device management for 30-day remember.' },
+  { icon: Search, title: 'Command Palette', desc: 'Press Ctrl+K to instantly search across all accounts, customers, suppliers, invoices, and transactions. Keyboard shortcuts for power users.' },
+  { icon: ShieldCheck, title: 'Granular Permissions', desc: 'Module-level access control with read/write/delete/export/approve per module. Account range restrictions and field masking for sensitive data.' },
+  { icon: FileSpreadsheet, title: 'Custom Report Builder', desc: 'Drag-and-drop report designer. Choose data sources, columns, filters, grouping, and totals. Save templates and schedule email delivery.' },
+  { icon: Upload, title: 'Excel Import Wizard', desc: '4-step import wizard for GL transactions. Upload Excel/CSV, map columns, validate with error highlighting, and import as draft or posted.' },
+  { icon: Repeat, title: 'Recurring Transactions', desc: 'Automated recurring journal entries, invoices, and bills. Daily, weekly, monthly, quarterly, or annual schedules with auto-post option.' },
+  { icon: Webhook, title: 'Webhooks & Integrations', desc: 'Outbound webhooks with HMAC-SHA256 signatures for CRM and third-party integration. Events for invoices, payments, customers, and more.' },
+  { icon: FileText, title: 'IFRS Disclosure Notes', desc: 'Auto-generate 7 standard IFRS disclosure notes from your data — PPE schedules, receivables, payables, revenue, cash, and taxation.' },
+  { icon: Layers, title: 'CaseWare Export', desc: 'Export trial balance in CaseWare-compatible CSV format. Configurable account mapping with auto-suggest. Seamless auditor handoff.' },
+  { icon: Archive, title: 'Data Archiving', desc: 'Archive historical data to maintain performance. Configurable retention periods (SA Companies Act compliant). View archived data read-only.' },
+  { icon: Copy, title: 'Duplicate Detection', desc: 'AI-powered duplicate detection for customers, suppliers, and items. Side-by-side comparison with merge wizard and transaction reassignment.' },
+  { icon: GraduationCap, title: 'Onboarding Tour', desc: 'Interactive guided tour for new users with spotlight highlights. Contextual tooltips on complex fields. Skip and restart anytime.' },
+  { icon: Columns, title: 'Debit/Credit Toggle', desc: 'Choose between split debit/credit columns or single net amount display. User preference saved and applied across all transaction views.' },
+  { icon: MousePointerClick, title: 'Xero/QB/Pastel Migration', desc: 'Import from Xero, QuickBooks, and Pastel with dedicated wizards. Account mapping, customer/supplier import, and balance verification.' },
 ];
 
 const DETAILED_FEATURES = [
@@ -76,10 +94,24 @@ const DETAILED_FEATURES = [
   },
   {
     badge: 'Analytics & Reporting',
-    title: '30+ reports with executive dashboards',
-    desc: 'From trial balances to AI-powered 3-way forecasts, ISAFlow gives you the insights you need. Executive dashboards, KPI scorecards, waterfall charts, trend analysis, and management packs — all exportable to PDF and CSV.',
-    bullets: ['Income Statement, Balance Sheet, Cash Flow, Trial Balance', 'Budget vs Actual with variance analysis', '3-way forecast (P&L + Balance Sheet + Cash Flow)', 'KPI scorecard with traffic-light scoring', 'Waterfall charts and trend analysis', 'Report packs for board, management, and monthly reviews'],
+    title: '30+ reports with a custom report builder',
+    desc: 'From trial balances to AI-powered 3-way forecasts, ISAFlow gives you the insights you need. Plus a drag-and-drop custom report builder to create exactly the report you want — with saved templates and scheduled email delivery.',
+    bullets: ['Income Statement, Balance Sheet, Cash Flow, Trial Balance', 'Budget vs Actual with variance analysis', 'Custom Report Builder — drag-and-drop columns, filters, grouping', 'KPI scorecard with traffic-light scoring', 'IFRS disclosure note auto-generation (7 note types)', 'CaseWare-compatible trial balance export for auditors'],
     imgKey: 'reports',
+  },
+  {
+    badge: 'Security & Governance',
+    title: 'Enterprise-grade trust and compliance',
+    desc: 'ISAFlow delivers the security and governance features that professional accountants demand. Full audit trail, two-factor authentication, granular permissions, and data archiving — everything needed to meet regulatory requirements and earn client confidence.',
+    bullets: ['Field-level audit trail — who changed what, when, with before/after values', 'Two-factor authentication (TOTP + backup codes + trusted devices)', 'Module-level permissions with read/write/delete/export/approve controls', 'Configurable approval workflows by document type and amount', 'Data archiving with SA Companies Act compliant retention periods', 'Command palette (Ctrl+K) and keyboard shortcuts for power users'],
+    imgKey: 'security',
+  },
+  {
+    badge: 'Migration & Integration',
+    title: 'Switch from any system in minutes',
+    desc: 'ISAFlow makes migration painless with dedicated import wizards for Sage, Xero, QuickBooks, and Pastel. Plus webhook integrations and Excel import for ongoing data connectivity.',
+    bullets: ['Sage, Xero, QuickBooks & Pastel migration wizards', 'Excel/CSV import wizard with column mapping and validation', 'Bank PDF parsers for FNB, Standard Bank, Nedbank, ABSA, Capitec', 'Outbound webhooks with HMAC-SHA256 for CRM integration', 'Recurring transaction templates (daily to annually)', 'Duplicate detection and merge wizard for data quality'],
+    imgKey: 'migration',
   },
 ];
 
@@ -96,6 +128,9 @@ const PRICING_TIERS = [
       'VAT Returns & SARS Compliance',
       '10 Financial Reports',
       'Inventory & Items',
+      'Full Audit Trail',
+      'Two-Factor Authentication',
+      'Command Palette & Keyboard Shortcuts',
       'Up to 2 users',
       'Email support',
     ],
@@ -115,9 +150,14 @@ const PRICING_TIERS = [
       'Recurring Invoices & Journals',
       'Batch Payments & EFT Generation',
       'All 30+ Reports & Executive Dashboard',
+      'Custom Report Builder',
       'Customer Portal',
       'Fixed Assets & Depreciation',
       'Approval Workflows',
+      'Granular Module Permissions',
+      'Excel Import Wizard',
+      'Duplicate Detection & Merge',
+      'Recurring Transaction Templates',
       'Up to 10 users',
       'Priority support',
     ],
@@ -136,9 +176,13 @@ const PRICING_TIERS = [
       'SARS eFiling (VAT201 + EMP201)',
       'AI Management Commentary & Forecasting',
       '3-Way Forecast (P&L + BS + Cash Flow)',
+      'IFRS Disclosure Note Generator',
+      'CaseWare Export & Account Mapping',
+      'Data Archiving & Retention Engine',
+      'Webhooks for CRM Integration',
+      'Sage, Xero, QuickBooks & Pastel Migration',
       'Cost Centres & Business Units',
       'Budget Management',
-      'Sage Migration Wizard',
       'Continuous Close Automation',
       'Unlimited users',
       'Dedicated account manager',
@@ -155,19 +199,21 @@ const TESTIMONIALS = [
 ];
 
 const FAQ_ITEMS = [
-  { q: 'Is ISAFlow SARS-compliant?', a: 'Yes. ISAFlow is built from the ground up for South African tax compliance. It supports all VAT types (standard 15%, zero-rated, exempt, DRC), generates VAT201 and EMP201 returns, tracks SARS submission deadlines, and maintains full audit trails.' },
-  { q: 'Can I import data from Sage or other systems?', a: 'Absolutely. ISAFlow includes a dedicated Sage Migration tool that imports your chart of accounts, ledger transactions, customer invoices, and supplier invoices. Pre/post-migration reconciliation ensures nothing is missed.' },
-  { q: 'Which banks are supported for statement import?', a: 'ISAFlow supports statement imports from FNB, Standard Bank, Nedbank, ABSA, and Capitec in CSV format, plus OFX, QIF, and PDF formats for other banks. Bank feeds via Stitch.money provide automatic transaction syncing.' },
-  { q: 'How does the smart categorisation work?', a: 'Our AI engine uses a multi-strategy approach: first checking your custom rules, then matching against 50+ pre-seeded SA merchant patterns, and finally learning from your historical categorisation decisions. Each suggestion comes with a confidence score so you always know how reliable it is.' },
-  { q: 'Is my data secure?', a: 'Your data is stored in Neon PostgreSQL with enterprise-grade encryption. All connections use SSL/TLS, passwords are hashed with bcrypt, and sessions are managed via signed JWT tokens. The application includes security headers against clickjacking, XSS, and other OWASP threats.' },
+  { q: 'Is ISAFlow SARS-compliant?', a: 'Yes. ISAFlow is built from the ground up for South African tax compliance. It supports all VAT types (standard 15%, zero-rated, exempt, DRC), generates VAT201 and EMP201 returns, tracks SARS submission deadlines, and maintains a field-level audit trail on every financial record.' },
+  { q: 'Can I import data from Sage or other systems?', a: 'Absolutely. ISAFlow includes dedicated migration wizards for Sage, Xero, QuickBooks, and Pastel. Import your chart of accounts, customers, suppliers, and opening balances with automatic account mapping and post-migration balance verification.' },
+  { q: 'Which banks are supported for statement import?', a: 'ISAFlow supports statement imports from FNB, Standard Bank, Nedbank, ABSA, and Capitec in CSV and PDF formats, plus OFX and QIF for other banks. Bank feeds via Stitch.money provide automatic transaction syncing. Our AI auto-detects the bank format.' },
+  { q: 'How does the audit trail work?', a: 'Every change to financial data is recorded with who made the change, when, and the exact before/after values for each field. The audit trail is append-only and tamper-proof. You can filter by entity, user, action, and date range, and export the full log to Excel.' },
+  { q: 'Is my data secure?', a: 'Enterprise-grade security: two-factor authentication (TOTP + backup codes), granular module-level permissions, field masking for sensitive data, SSL/TLS encryption, bcrypt password hashing, and signed JWT sessions. Plus configurable approval workflows for high-value transactions.' },
+  { q: 'Can I create custom reports?', a: 'Yes! The Custom Report Builder lets you choose any data source, drag-and-drop columns, add filters and grouping, and see results live. Save templates for reuse and schedule reports for email delivery. Plus 30+ pre-built reports and IFRS disclosure note auto-generation.' },
   { q: 'Can I try ISAFlow for free?', a: 'Yes! Every plan comes with a 14-day free trial — no credit card required. You get full access to all features in your selected tier so you can evaluate ISAFlow with your real data before committing.' },
+  { q: 'Does ISAFlow work with CaseWare?', a: 'Yes. ISAFlow exports trial balances in CaseWare-compatible CSV format. You can configure account mappings with auto-suggest based on account types, and the mapping is saved for reuse each financial year. Seamless auditor handoff without manual data re-entry.' },
 ];
 
 const STATS = [
   { value: '30+', label: 'Financial Reports' },
-  { value: '163', label: 'Feature Pages' },
-  { value: '91', label: 'Business Services' },
-  { value: '99.9%', label: 'Uptime SLA' },
+  { value: '185+', label: 'Feature Pages' },
+  { value: '110+', label: 'Business Services' },
+  { value: '260+', label: 'API Endpoints' },
 ];
 
 export default function LandingPage() {
