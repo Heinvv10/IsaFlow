@@ -42,7 +42,7 @@ export async function getCustomerReport(companyId: string,
         COUNT(DISTINCT ci.id) AS invoice_count,
         COALESCE(SUM(ci.total_amount), 0) AS total_invoiced,
         COALESCE(SUM(ci.amount_paid), 0) AS total_paid
-      FROM clients c
+      FROM customers c
       LEFT JOIN customer_invoices ci ON ci.client_id = c.id
         AND ci.invoice_date >= ${periodStart}
         AND ci.invoice_date <= ${periodEnd}

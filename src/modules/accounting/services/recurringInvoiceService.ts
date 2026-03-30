@@ -26,8 +26,8 @@ export async function getRecurringInvoices(companyId: string, filters?: {
 
   if (filters?.clientId) {
     rows = (await sql`
-      SELECT ri.*, c.company_name AS client_name
-      FROM recurring_invoices ri LEFT JOIN clients c ON c.id = ri.client_id
+      SELECT ri.*, c.name AS client_name
+      FROM recurring_invoices ri LEFT JOIN customers c ON c.id = ri.client_id
       WHERE ri.client_id = ${filters.clientId}::UUID
       ORDER BY ri.created_at DESC LIMIT ${limit} OFFSET ${offset}
     `) as Row[];
@@ -36,8 +36,8 @@ export async function getRecurringInvoices(companyId: string, filters?: {
     `) as Row[];
   } else if (filters?.status) {
     rows = (await sql`
-      SELECT ri.*, c.company_name AS client_name
-      FROM recurring_invoices ri LEFT JOIN clients c ON c.id = ri.client_id
+      SELECT ri.*, c.name AS client_name
+      FROM recurring_invoices ri LEFT JOIN customers c ON c.id = ri.client_id
       WHERE ri.status = ${filters.status}
       ORDER BY ri.created_at DESC LIMIT ${limit} OFFSET ${offset}
     `) as Row[];
@@ -46,8 +46,8 @@ export async function getRecurringInvoices(companyId: string, filters?: {
     `) as Row[];
   } else {
     rows = (await sql`
-      SELECT ri.*, c.company_name AS client_name
-      FROM recurring_invoices ri LEFT JOIN clients c ON c.id = ri.client_id
+      SELECT ri.*, c.name AS client_name
+      FROM recurring_invoices ri LEFT JOIN customers c ON c.id = ri.client_id
       ORDER BY ri.created_at DESC LIMIT ${limit} OFFSET ${offset}
     `) as Row[];
     countRows = (await sql`SELECT COUNT(*) AS cnt FROM recurring_invoices`) as Row[];

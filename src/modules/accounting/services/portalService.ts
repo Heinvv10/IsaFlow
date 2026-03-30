@@ -114,8 +114,8 @@ export async function getClientInvoices(clientId: string): Promise<PortalInvoice
 
 export async function getClientStatement(clientId: string, asOfDate: string): Promise<PortalStatement> {
   // Get client info
-  const clients = (await sql`SELECT company_name, email FROM clients WHERE id = ${clientId}::UUID`) as Row[];
-  const client = clients[0] || { company_name: 'Unknown', email: '' };
+  const clients = (await sql`SELECT name, email FROM customers WHERE id = ${clientId}::UUID`) as Row[];
+  const client = clients[0] || { name: 'Unknown', email: '' };
 
   // Get all transactions for this client
   const rows = (await sql`
@@ -149,7 +149,7 @@ export async function getClientStatement(clientId: string, asOfDate: string): Pr
   });
 
   return {
-    clientName: client.company_name,
+    clientName: client.name,
     clientEmail: client.email || '',
     asOfDate,
     openingBalance: 0,

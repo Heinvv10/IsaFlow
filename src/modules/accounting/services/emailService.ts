@@ -140,9 +140,9 @@ export async function sendInvoiceEmail(companyId: string,
   const invoiceRows = (await sql`
     SELECT ci.invoice_number, ci.invoice_date, ci.due_date,
            ci.total_amount, ci.amount_paid,
-           c.company_name AS client_name
+           c.name AS client_name
     FROM customer_invoices ci
-    LEFT JOIN clients c ON c.id = ci.client_id
+    LEFT JOIN customers c ON c.id = ci.client_id
     WHERE ci.id = ${invoiceId}::UUID
   `) as Row[];
 

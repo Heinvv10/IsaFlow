@@ -37,8 +37,8 @@ export async function getCustomerPayments(companyId: string, filters?: PaymentFi
 
     if (filters?.clientId) {
       rows = (await sql`
-        SELECT cp.*, c.company_name AS client_name
-        FROM customer_payments cp LEFT JOIN clients c ON c.id = cp.client_id
+        SELECT cp.*, c.name AS client_name
+        FROM customer_payments cp LEFT JOIN customers c ON c.id = cp.client_id
         WHERE cp.client_id = ${filters.clientId}::UUID
         ORDER BY cp.payment_date DESC LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
@@ -47,8 +47,8 @@ export async function getCustomerPayments(companyId: string, filters?: PaymentFi
       `) as Row[];
     } else if (filters?.status) {
       rows = (await sql`
-        SELECT cp.*, c.company_name AS client_name
-        FROM customer_payments cp LEFT JOIN clients c ON c.id = cp.client_id
+        SELECT cp.*, c.name AS client_name
+        FROM customer_payments cp LEFT JOIN customers c ON c.id = cp.client_id
         WHERE cp.status = ${filters.status}
         ORDER BY cp.payment_date DESC LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
@@ -57,8 +57,8 @@ export async function getCustomerPayments(companyId: string, filters?: PaymentFi
       `) as Row[];
     } else {
       rows = (await sql`
-        SELECT cp.*, c.company_name AS client_name
-        FROM customer_payments cp LEFT JOIN clients c ON c.id = cp.client_id
+        SELECT cp.*, c.name AS client_name
+        FROM customer_payments cp LEFT JOIN customers c ON c.id = cp.client_id
         ORDER BY cp.payment_date DESC LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
       countRows = (await sql`SELECT COUNT(*) AS cnt FROM customer_payments`) as Row[];
@@ -76,8 +76,8 @@ export async function getCustomerPaymentById(companyId: string,
 ): Promise<(CustomerPayment & { allocations: CustomerPaymentAllocation[] }) | null> {
   try {
     const rows = (await sql`
-      SELECT cp.*, c.company_name AS client_name
-      FROM customer_payments cp LEFT JOIN clients c ON c.id = cp.client_id
+      SELECT cp.*, c.name AS client_name
+      FROM customer_payments cp LEFT JOIN customers c ON c.id = cp.client_id
       WHERE cp.id = ${id}
     `) as Row[];
     if (rows.length === 0) return null;
@@ -263,8 +263,8 @@ export async function cancelCustomerPayment(companyId: string,
 export async function postCustomerInvoiceToGL(companyId: string, invoiceId: string, userId: string): Promise<string> {
   try {
     const invRows = (await sql`
-      SELECT ci.*, c.company_name AS client_name
-      FROM customer_invoices ci LEFT JOIN clients c ON c.id = ci.client_id
+      SELECT ci.*, c.name AS client_name
+      FROM customer_invoices ci LEFT JOIN customers c ON c.id = ci.client_id
       WHERE ci.id = ${invoiceId}::UUID
     `) as Row[];
     if (invRows.length === 0) throw new Error(`Invoice ${invoiceId} not found`);

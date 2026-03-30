@@ -114,7 +114,7 @@ export async function generatePayFastForm(
            ci.client_name, ci.status,
            c.email AS client_email
     FROM customer_invoices ci
-    LEFT JOIN clients c ON c.id = ci.client_id
+    LEFT JOIN customers c ON c.id = ci.client_id
     WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID
   `) as Row[];
 
