@@ -151,14 +151,14 @@ export async function createCompany(input: {
 }, userId: string): Promise<Company> {
   const rows = (await sql`
     INSERT INTO companies (
-      name, trading_name, registration_number, vat_number, tax_number,
+      name, registered_name, trading_name, registration_number, vat_number, tax_number,
       email, phone, website,
       address_line1, address_line2, city, province, postal_code, country,
       logo_data,
       bank_name, bank_account_number, bank_branch_code, bank_account_type,
       financial_year_start, vat_period, default_currency
     ) VALUES (
-      ${input.name}, ${input.tradingName || null}, ${input.registrationNumber || null},
+      ${input.name}, ${input.name}, ${input.tradingName || null}, ${input.registrationNumber || null},
       ${input.vatNumber || null}, ${input.taxNumber || null}, ${input.email || null}, ${input.phone || null},
       ${input.website || null},
       ${input.addressLine1 || null}, ${input.addressLine2 || null}, ${input.city || null},

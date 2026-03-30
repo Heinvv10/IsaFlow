@@ -23,6 +23,7 @@ import {
 import dynamic from 'next/dynamic';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useCompany } from '@/contexts/CompanyContext';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { CompanySwitcher } from '@/components/layout/CompanySwitcher';
 import { SidebarNav } from '@/components/layout/SidebarNav';
@@ -49,6 +50,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const router = useRouter();
   const { user, loading, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const { companyRole } = useCompany();
 
   // Nav mode preference
   const [navMode, setNavMode] = useState<NavMode>('top');
@@ -157,7 +159,7 @@ export function AppLayout({ children }: AppLayoutProps) {
               <p className="text-xs font-medium text-gray-900 dark:text-white truncate">
                 {user.firstName} {user.lastName}
               </p>
-              <p className="text-xs text-gray-500 truncate">{user.role}</p>
+              <p className="text-xs text-gray-500 truncate capitalize">{companyRole || user.role}</p>
             </div>
           </div>
         )}

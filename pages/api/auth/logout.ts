@@ -30,9 +30,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
   }
 
-  // Clear the auth cookie regardless
-  res.setHeader(
-    'Set-Cookie',
+  // Clear the auth cookie and onboarding cookie
+  const secureSuffix = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  res.setHeader('Set-Cookie', [
     serialize(AUTH_COOKIE_NAME, '', {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -40,8 +40,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       path: '/',
       maxAge: 0,
       expires: new Date(0),
-    })
-  );
+    }),
+    `ff_onboarding_done=; Path=/; Max-Age=0; SameSite=Lax${secureSuffix}`,
+  ]);
 
   log.info('User logged out', {}, 'auth/logout');
   return apiResponse.success(res, null, 'Logged out successfully');

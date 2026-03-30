@@ -135,6 +135,9 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
       setCompanies(list);
 
       if (list.length === 0) {
+        // User has no companies — clear any stale localStorage
+        localStorage.removeItem(STORAGE_KEY);
+        setActiveCompany(null);
         setLoading(false);
         return;
       }

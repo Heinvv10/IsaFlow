@@ -1,13 +1,13 @@
 /**
  * /register — Create a new ISAFlow account.
- * On success, redirects to /login with a success banner.
- * Matches the login page visual style exactly.
+ * Supports ?invite=[token] to pre-fill email and show an invite banner.
+ * On success, redirects to /login with a success banner (preserving invite token).
  */
 
-import { useState, FormEvent } from 'react';
+import { useState, useEffect, FormEvent } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
-import { Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, Building2 } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 
 interface StrengthResult {
@@ -45,22 +45,50 @@ function checkClientPasswordStrength(password: string): StrengthResult {
   return { score: 4, label: 'Strong', hint: '' };
 }
 
+interface InviteData {
+  email: string;
+  companyName: string;
+  role: string;
+}
+
 const STRENGTH_COLORS = ['bg-red-500', 'bg-red-500', 'bg-yellow-500', 'bg-green-500', 'bg-teal-500'];
 
 export default function RegisterPage() {
   const router = useRouter();
 
+  const inviteToken =
+    typeof router.query.invite === 'string' ? router.query.invite : null;
+
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
+  const [emailLocked, setEmailLocked] = useState(false);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [inviteData, setInviteData] = useState<InviteData | null>(null);
 
   const strength = password ? checkClientPasswordStrength(password) : null;
+
+  // Load invite data when token is present
+  useEffect(() => {
+    if (!inviteToken) return;
+
+    fetch(`/api/invite/${inviteToken}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        if (json?.data) {
+          const data = json.data as InviteData;
+          setInviteData(data);
+          setEmail(data.email);
+          setEmailLocked(true);
+        }
+      })
+      .catch(() => null);
+  }, [inviteToken]);
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -71,7 +99,13 @@ export default function RegisterPage() {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ firstName: firstName.trim(), lastName: lastName.trim(), email: email.trim().toLowerCase(), password, confirmPassword }),
+        body: JSON.stringify({
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          email: email.trim().toLowerCase(),
+          password,
+          confirmPassword,
+        }),
       });
 
       const data = await res.json();
@@ -81,7 +115,11 @@ export default function RegisterPage() {
         return;
       }
 
-      await router.push('/login?registered=1');
+      // Redirect to login, preserving invite token so the banner shows
+      const loginUrl = inviteToken
+        ? `/login?registered=1&invite=${inviteToken}`
+        : '/login?registered=1';
+      await router.push(loginUrl);
     } catch {
       setError('Network error. Please try again.');
     } finally {
@@ -101,15 +139,27 @@ export default function RegisterPage() {
           <p className="text-sm text-gray-500 mt-1">Create your account</p>
         </div>
 
+        {/* Invite banner */}
+        {inviteData && (
+          <div className="mb-4 px-4 py-3 bg-teal-900/30 border border-teal-700/50 rounded-lg flex items-start gap-3">
+            <Building2 className="h-4 w-4 text-teal-400 mt-0.5 flex-shrink-0" />
+            <p className="text-sm text-teal-300">
+              Create an account to join{' '}
+              <span className="font-medium text-white">{inviteData.companyName}</span>
+              {' '}as <span className="font-medium">{inviteData.role}</span>.
+            </p>
+          </div>
+        )}
+
         {/* Card */}
         <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 shadow-xl">
           <form onSubmit={(e) => void handleSubmit(e)} noValidate>
 
-            {/* First Name + Last Name (side-by-side) */}
+            {/* First Name + Last Name */}
             <div className="flex gap-3 mb-4">
               <div className="flex-1">
                 <label htmlFor="firstName" className="block text-xs font-medium text-gray-400 mb-1.5">
-                  First name
+                  First Name
                 </label>
                 <input
                   id="firstName"
@@ -125,7 +175,7 @@ export default function RegisterPage() {
               </div>
               <div className="flex-1">
                 <label htmlFor="lastName" className="block text-xs font-medium text-gray-400 mb-1.5">
-                  Last name
+                  Last Name
                 </label>
                 <input
                   id="lastName"
@@ -153,10 +203,20 @@ export default function RegisterPage() {
                 required
                 value={email}
                 onChange={e => { setError(''); setEmail(e.target.value); }}
-                disabled={submitting}
-                className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition"
+                disabled={submitting || emailLocked}
+                readOnly={emailLocked}
+                className={`w-full bg-gray-800 border rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition ${
+                  emailLocked
+                    ? 'border-teal-700/50 text-gray-400 cursor-not-allowed'
+                    : 'border-gray-600 disabled:opacity-50'
+                }`}
                 placeholder="you@example.com"
               />
+              {emailLocked && (
+                <p className="mt-1 text-xs text-gray-500">
+                  Email address is set by the invitation.
+                </p>
+              )}
             </div>
 
             {/* Password */}
@@ -252,7 +312,7 @@ export default function RegisterPage() {
               {submitting ? (
                 <>
                   <LoadingSpinner size="sm" />
-                  <span>Creating account...</span>
+                  <span>Creating Account...</span>
                 </>
               ) : (
                 'Create Account'
@@ -264,7 +324,10 @@ export default function RegisterPage() {
         {/* Footer link */}
         <p className="text-center text-sm text-gray-500 mt-6">
           Already have an account?{' '}
-          <Link href="/login" className="text-teal-400 hover:text-teal-300 transition-colors">
+          <Link
+            href={inviteToken ? `/login?invite=${inviteToken}` : '/login'}
+            className="text-teal-400 hover:text-teal-300 transition-colors"
+          >
             Sign in
           </Link>
         </p>
