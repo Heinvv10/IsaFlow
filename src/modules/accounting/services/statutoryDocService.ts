@@ -4,9 +4,9 @@
  * and compliance alerting based on expiry dates.
  */
 
-import { log } from '@/lib/logger';
+
 import { sql } from '@/lib/neon';
-import { extractStatutoryDocWithVlm, isVlmAvailable } from './vlmService';
+// import { extractStatutoryDocWithVlm, isVlmAvailable } from './vlmService';
 import type {
   ExtractedStatutoryDoc,
   ComplianceAlert,

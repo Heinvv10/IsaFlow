@@ -83,7 +83,7 @@ export async function getDebtorsSummary(companyId: string): Promise<DebtorSummar
     const rows = (await sql`
       SELECT
         ci.client_id,
-        c.company_name AS client_name,
+        c.name AS client_name,
         COUNT(ci.id)::int AS invoice_count,
         SUM(
           CASE WHEN ci.due_date IS NULL OR ci.due_date >= CURRENT_DATE
@@ -112,10 +112,10 @@ export async function getDebtorsSummary(companyId: string): Promise<DebtorSummar
         ) AS days90_plus,
         SUM(ci.total_amount - ci.amount_paid) AS total_outstanding
       FROM customer_invoices ci
-      JOIN clients c ON c.id = ci.client_id
+      JOIN customers c ON c.id = ci.client_id
       WHERE ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
         AND (ci.total_amount - ci.amount_paid) > 0
-      GROUP BY ci.client_id, c.company_name
+      GROUP BY ci.client_id, c.name
       ORDER BY total_outstanding DESC
     `) as Row[];
 
@@ -200,7 +200,7 @@ export async function getOverdueInvoices(companyId: string, daysOverdue?: number
         ci.id,
         ci.invoice_number,
         ci.client_id,
-        c.company_name AS client_name,
+        c.name AS client_name,
         ci.invoice_date,
         ci.due_date,
         ci.total_amount,
@@ -209,7 +209,7 @@ export async function getOverdueInvoices(companyId: string, daysOverdue?: number
         (CURRENT_DATE - ci.due_date)::int AS days_overdue,
         ci.status
       FROM customer_invoices ci
-      JOIN clients c ON c.id = ci.client_id
+      JOIN customers c ON c.id = ci.client_id
       WHERE ci.due_date IS NOT NULL
         AND ci.due_date < CURRENT_DATE
         AND (CURRENT_DATE - ci.due_date) >= ${minDays}

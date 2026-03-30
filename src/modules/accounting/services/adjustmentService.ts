@@ -46,11 +46,11 @@ export async function getAdjustments(companyId: string, filters?: {
   for (const row of rows) {
     const mapped = mapRow(row);
     if (row.entity_type === 'customer') {
-      const c = (await sql`SELECT company_name FROM clients WHERE id = ${row.entity_id}::UUID`) as Row[];
-      mapped.entityName = c[0]?.company_name ? String(c[0].company_name) : 'Unknown';
+      const c = (await sql`SELECT name FROM customers WHERE id = ${row.entity_id}::UUID`) as Row[];
+      mapped.entityName = c[0]?.name ? String(c[0].name) : 'Unknown';
     } else {
-      const s = (await sql`SELECT company_name FROM suppliers WHERE id = ${row.entity_id}::UUID`) as Row[];
-      mapped.entityName = s[0]?.company_name ? String(s[0].company_name) : 'Unknown';
+      const s = (await sql`SELECT name FROM suppliers WHERE id = ${row.entity_id}::UUID`) as Row[];
+      mapped.entityName = s[0]?.name ? String(s[0].name) : 'Unknown';
     }
     items.push(mapped);
   }

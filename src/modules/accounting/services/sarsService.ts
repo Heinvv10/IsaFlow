@@ -330,7 +330,7 @@ export async function generateEMP201(companyId: string,
     let totalUIFEmployer = 0;
     let totalSDL = 0;
     let totalGross = 0;
-    const _employeeIds = new Set<string>();
+    const _unusedEmployeeIds = new Set<string>();
 
     const payrollRuns: EMP201PayrollRun[] = runs.map((r: Row) => {
       const paye = Number(r.paye) || 0;

@@ -19,11 +19,11 @@ type Row = any;
 export async function getRules(companyId: string): Promise<BankCategorisationRule[]> {
   const rows = (await sql`
     SELECT r.*, ga.account_code AS gl_account_code, ga.account_name AS gl_account_name,
-           s.company_name AS supplier_name, c.company_name AS client_name
+           s.company_name AS supplier_name, c.name AS client_name
     FROM bank_categorisation_rules r
     LEFT JOIN gl_accounts ga ON ga.id = r.gl_account_id
     LEFT JOIN suppliers s ON s.id = r.supplier_id
-    LEFT JOIN clients c ON c.id = r.client_id
+    LEFT JOIN customers c ON c.id = r.client_id
     ORDER BY r.priority ASC, r.rule_name ASC
   `) as Row[];
   return rows.map(mapRuleRow);

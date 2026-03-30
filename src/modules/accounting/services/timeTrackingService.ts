@@ -149,9 +149,9 @@ export async function getTimeEntries(
   );
 
   const rows = await query(
-    `SELECT te.*, c.company_name AS customer_name
+    `SELECT te.*, c.name AS customer_name
      FROM time_entries te
-     LEFT JOIN clients c ON c.id = te.customer_id
+     LEFT JOIN customers c ON c.id = te.customer_id
      WHERE ${where}
      ORDER BY te.entry_date DESC, te.created_at DESC
      LIMIT $${idx} OFFSET $${idx + 1}`,
@@ -169,9 +169,9 @@ export async function getTimeEntry(
   id: string,
 ): Promise<TimeEntry | null> {
   const rows = (await sql`
-    SELECT te.*, c.company_name AS customer_name
+    SELECT te.*, c.name AS customer_name
     FROM time_entries te
-    LEFT JOIN clients c ON c.id = te.customer_id
+    LEFT JOIN customers c ON c.id = te.customer_id
     WHERE te.id = ${id}::UUID AND te.company_id = ${companyId}::UUID
   `) as Row[];
   if (!rows.length) return null;
@@ -339,13 +339,13 @@ export async function getTimeSummary(
   const byCustomer = await query(
     `SELECT
        COALESCE(te.customer_id::TEXT, 'none') AS customer_id,
-       COALESCE(c.company_name, 'No Customer') AS customer_name,
+       COALESCE(c.name, 'No Customer') AS customer_name,
        SUM(te.hours) AS hours,
        COALESCE(SUM(CASE WHEN te.rate IS NOT NULL THEN te.hours * te.rate ELSE 0 END), 0) AS value
      FROM time_entries te
-     LEFT JOIN clients c ON c.id = te.customer_id
+     LEFT JOIN customers c ON c.id = te.customer_id
      WHERE ${teWhere}
-     GROUP BY COALESCE(te.customer_id::TEXT, 'none'), COALESCE(c.company_name, 'No Customer')
+     GROUP BY COALESCE(te.customer_id::TEXT, 'none'), COALESCE(c.name, 'No Customer')
      ORDER BY hours DESC`,
     params,
   );
@@ -377,9 +377,9 @@ export async function getUninvoicedEntries(
   let rows: Row[];
   if (customerId) {
     rows = (await sql`
-      SELECT te.*, c.company_name AS customer_name
+      SELECT te.*, c.name AS customer_name
       FROM time_entries te
-      LEFT JOIN clients c ON c.id = te.customer_id
+      LEFT JOIN customers c ON c.id = te.customer_id
       WHERE te.company_id = ${companyId}::UUID
         AND te.status = 'approved'
         AND te.billable = true
@@ -389,9 +389,9 @@ export async function getUninvoicedEntries(
     `) as Row[];
   } else {
     rows = (await sql`
-      SELECT te.*, c.company_name AS customer_name
+      SELECT te.*, c.name AS customer_name
       FROM time_entries te
-      LEFT JOIN clients c ON c.id = te.customer_id
+      LEFT JOIN customers c ON c.id = te.customer_id
       WHERE te.company_id = ${companyId}::UUID
         AND te.status = 'approved'
         AND te.billable = true

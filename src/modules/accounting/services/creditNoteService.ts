@@ -32,10 +32,10 @@ export async function getCreditNotes(companyId: string, filters?: CreditNoteFilt
 
     if (filters?.type) {
       rows = (await sql`
-        SELECT cn.*, c.company_name AS client_name, COALESCE(s.company_name, s.name) AS supplier_name,
+        SELECT cn.*, c.name AS client_name, COALESCE(s.company_name, s.name) AS supplier_name,
           COALESCE(ci.invoice_number, si.invoice_number) AS invoice_number
         FROM credit_notes cn
-        LEFT JOIN clients c ON c.id = cn.client_id
+        LEFT JOIN customers c ON c.id = cn.client_id
         LEFT JOIN suppliers s ON s.id = cn.supplier_id
         LEFT JOIN customer_invoices ci ON ci.id = cn.customer_invoice_id
         LEFT JOIN supplier_invoices si ON si.id = cn.supplier_invoice_id
@@ -47,10 +47,10 @@ export async function getCreditNotes(companyId: string, filters?: CreditNoteFilt
       `) as Row[];
     } else {
       rows = (await sql`
-        SELECT cn.*, c.company_name AS client_name, COALESCE(s.company_name, s.name) AS supplier_name,
+        SELECT cn.*, c.name AS client_name, COALESCE(s.company_name, s.name) AS supplier_name,
           COALESCE(ci.invoice_number, si.invoice_number) AS invoice_number
         FROM credit_notes cn
-        LEFT JOIN clients c ON c.id = cn.client_id
+        LEFT JOIN customers c ON c.id = cn.client_id
         LEFT JOIN suppliers s ON s.id = cn.supplier_id
         LEFT JOIN customer_invoices ci ON ci.id = cn.customer_invoice_id
         LEFT JOIN supplier_invoices si ON si.id = cn.supplier_invoice_id
@@ -68,10 +68,10 @@ export async function getCreditNotes(companyId: string, filters?: CreditNoteFilt
 
 export async function getCreditNoteById(companyId: string, id: string): Promise<CreditNote | null> {
   const rows = (await sql`
-    SELECT cn.*, c.company_name AS client_name, COALESCE(s.company_name, s.name) AS supplier_name,
+    SELECT cn.*, c.name AS client_name, COALESCE(s.company_name, s.name) AS supplier_name,
       COALESCE(ci.invoice_number, si.invoice_number) AS invoice_number
     FROM credit_notes cn
-    LEFT JOIN clients c ON c.id = cn.client_id
+    LEFT JOIN customers c ON c.id = cn.client_id
     LEFT JOIN suppliers s ON s.id = cn.supplier_id
     LEFT JOIN customer_invoices ci ON ci.id = cn.customer_invoice_id
     LEFT JOIN supplier_invoices si ON si.id = cn.supplier_invoice_id

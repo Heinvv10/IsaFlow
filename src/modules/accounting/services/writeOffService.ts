@@ -26,9 +26,9 @@ export async function getWriteOffs(companyId: string, filters?: {
 
   if (filters?.clientId) {
     rows = (await sql`
-      SELECT wo.*, c.company_name AS client_name, ci.invoice_number
+      SELECT wo.*, c.name AS client_name, ci.invoice_number
       FROM customer_write_offs wo
-      LEFT JOIN clients c ON c.id = wo.client_id
+      LEFT JOIN customers c ON c.id = wo.client_id
       LEFT JOIN customer_invoices ci ON ci.id = wo.invoice_id
       WHERE wo.client_id = ${filters.clientId}::UUID
       ORDER BY wo.created_at DESC LIMIT ${limit} OFFSET ${offset}
@@ -38,9 +38,9 @@ export async function getWriteOffs(companyId: string, filters?: {
     `) as Row[];
   } else if (filters?.status) {
     rows = (await sql`
-      SELECT wo.*, c.company_name AS client_name, ci.invoice_number
+      SELECT wo.*, c.name AS client_name, ci.invoice_number
       FROM customer_write_offs wo
-      LEFT JOIN clients c ON c.id = wo.client_id
+      LEFT JOIN customers c ON c.id = wo.client_id
       LEFT JOIN customer_invoices ci ON ci.id = wo.invoice_id
       WHERE wo.status = ${filters.status}
       ORDER BY wo.created_at DESC LIMIT ${limit} OFFSET ${offset}
@@ -50,9 +50,9 @@ export async function getWriteOffs(companyId: string, filters?: {
     `) as Row[];
   } else {
     rows = (await sql`
-      SELECT wo.*, c.company_name AS client_name, ci.invoice_number
+      SELECT wo.*, c.name AS client_name, ci.invoice_number
       FROM customer_write_offs wo
-      LEFT JOIN clients c ON c.id = wo.client_id
+      LEFT JOIN customers c ON c.id = wo.client_id
       LEFT JOIN customer_invoices ci ON ci.id = wo.invoice_id
       ORDER BY wo.created_at DESC LIMIT ${limit} OFFSET ${offset}
     `) as Row[];

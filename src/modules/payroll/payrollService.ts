@@ -591,7 +591,7 @@ export async function completePayrollRun(
     const totalUifEmployee = Number(run.total_uif_employee);
     const totalUifEmployer = Number(run.total_uif_employer);
     const totalSdl = Number(run.total_sdl);
-    const _totalNet = Number(run.total_net);
+    const _unusedTotalNet = Number(run.total_net);
 
     // Look up GL account IDs by account code
     // We need: Salaries expense, PAYE payable, UIF payable, SDL payable, Bank

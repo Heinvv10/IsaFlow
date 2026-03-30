@@ -398,14 +398,14 @@ export async function getAgingBreakdown(companyId: string, type: 'ar' | 'ap'): P
 export async function getTopCustomers(companyId: string, limit: number): Promise<TopCustomer[]> {
   try {
     const rows = (await sql`
-      SELECT c.company_name AS name,
+      SELECT c.name AS name,
         COALESCE(SUM(ci.total_amount), 0) AS revenue,
         COUNT(ci.id) AS invoice_count
       FROM customer_invoices ci
-      JOIN clients c ON c.id = ci.client_id
+      JOIN customers c ON c.id = ci.client_id
       WHERE ci.status NOT IN ('cancelled', 'draft')
         AND ci.company_id = ${companyId}::UUID
-      GROUP BY c.id, c.company_name
+      GROUP BY c.id, c.name
       ORDER BY revenue DESC
       LIMIT ${limit}
     `) as Row[];
