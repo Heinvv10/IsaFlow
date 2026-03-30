@@ -198,6 +198,21 @@ function SourceSelection({ onSelect, selecting }: { onSelect: (s: string) => voi
           ))}
         </div>
       </div>
+      <div className="bg-green-500/5 rounded-lg border border-green-500/20 p-5">
+        <div className="flex items-center gap-3 mb-2">
+          <span className="text-lg">⚡</span>
+          <h3 className="font-semibold text-[var(--ff-text-primary)]">Auto-Import from Sage</h3>
+        </div>
+        <p className="text-sm text-[var(--ff-text-secondary)] mb-3">
+          Already on Sage Business Cloud? Skip the CSV files — pull your data directly from your Sage account.
+        </p>
+        <Link
+          href="/accounting/migration/sage-auto"
+          className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-500 text-sm font-medium"
+        >
+          Auto-Import from Sage →
+        </Link>
+      </div>
     </div>
   );
 }
