@@ -29,26 +29,66 @@ Everything is currently done via direct database access or one-off scripts.
 
 ## Architecture
 
-```
-/admin                          → Admin dashboard (super_admin only)
-/admin/companies                → Company management
-/admin/companies/[id]           → Company detail + actions
-/admin/users                    → User management
-/admin/users/[id]               → User detail + actions
-/admin/billing                  → Billing & subscriptions
-/admin/billing/plans            → Plan management
-/admin/billing/invoices         → Invoice history
-/admin/tools                    → Admin tools
-/admin/tools/sage-import        → Sage auto-import (moved from migration wizard)
-/admin/tools/migrations         → Run migrations for companies
-/admin/tools/announcements      → System-wide announcements
-/admin/audit                    → Audit trail & activity logs
-/admin/settings                 → Platform settings
+### Deployment: Separate App on `admin.isaflow.co.za`
 
-/api/admin/*                    → All admin API routes (super_admin gated)
+The admin platform is a **separate Next.js application** deployed to its own subdomain. It shares the same Neon database as the customer app but has its own codebase, deployment pipeline, and auth enforcement.
+
+**Why separate:**
+- Customer JS bundle never includes admin code (smaller, more secure)
+- Separate deployment — admin changes don't risk breaking the customer app
+- Enforced 2FA, IP whitelist possible at the infrastructure level
+- Customers can't discover admin routes exist
+- Own rate limits, logging, CSP headers
+
+**Repo structure:**
+```
+isaflow-admin/                    # Separate repo (or monorepo apps/admin)
+  pages/
+    index.tsx                     # Dashboard
+    companies/                    # Company management
+    users/                        # User management
+    billing/                      # Subscriptions, invoices, plans
+    tools/                        # Sage import, migrations, announcements
+    audit.tsx                     # Audit trail
+    settings.tsx                  # Platform settings
+    api/                          # All API routes
+  src/
+    modules/admin/                # Admin services
+    lib/                          # Shared DB connection (same Neon DB)
+    components/admin/             # Admin UI components
 ```
 
-All `/admin` routes and `/api/admin/*` endpoints require `super_admin` role.
+**Infrastructure:**
+```
+admin.isaflow.co.za  → Vercel/Cloudflare (separate project)
+app.isaflow.co.za    → Vercel/Cloudflare (customer app — unchanged)
+                        ↘ Same Neon PostgreSQL database ↙
+```
+
+**Auth:** Same `users` table and JWT system. Admin app rejects any user without `super_admin` role at the middleware level. Session cookies scoped to `admin.isaflow.co.za` domain.
+
+### Routes
+
+```
+admin.isaflow.co.za/                          → Dashboard
+admin.isaflow.co.za/companies                 → Company management
+admin.isaflow.co.za/companies/[id]            → Company detail + actions
+admin.isaflow.co.za/users                     → User management
+admin.isaflow.co.za/users/[id]                → User detail + actions
+admin.isaflow.co.za/billing                   → Billing & subscriptions
+admin.isaflow.co.za/billing/plans             → Plan management
+admin.isaflow.co.za/billing/invoices          → Invoice history
+admin.isaflow.co.za/tools                     → Admin tools
+admin.isaflow.co.za/tools/sage-import         → Sage auto-import
+admin.isaflow.co.za/tools/migrations          → Run migrations for companies
+admin.isaflow.co.za/tools/announcements       → System-wide announcements
+admin.isaflow.co.za/audit                     → Audit trail & activity logs
+admin.isaflow.co.za/settings                  → Platform settings
+
+admin.isaflow.co.za/api/*                     → All admin API routes
+```
+
+All routes require `super_admin` role. Unauthenticated requests redirect to login.
 
 ---
 
