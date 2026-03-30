@@ -51,7 +51,7 @@ export async function importChartOfAccounts(
   const sorted = [...accounts.filter(a => !a.parentCode), ...accounts.filter(a => a.parentCode)];
 
   for (let i = 0; i < sorted.length; i++) {
-    const acct = sorted[i];
+    const acct = sorted[i]!;
     try {
       let parentAccountId: string | null = null;
       if (acct.parentCode) {

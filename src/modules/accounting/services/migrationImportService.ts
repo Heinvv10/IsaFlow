@@ -54,7 +54,7 @@ export async function importOpeningBalances(
 
   const lines = [];
   for (let i = 0; i < balances.length; i++) {
-    const bal = balances[i];
+    const bal = balances[i]!;
     if (bal.debit === 0 && bal.credit === 0) continue;
 
     const acctRows = (await sql`
@@ -84,7 +84,7 @@ export async function importOpeningBalances(
     description: 'Opening balances — migration import',
     source: 'auto_migration',
     lines,
-  });
+  }, userId);
 
   await postJournalEntry(companyId, entry.id, userId);
 
@@ -119,7 +119,7 @@ export async function importARInvoices(
   `) as Row[];
 
   for (let i = 0; i < invoices.length; i++) {
-    const inv = invoices[i];
+    const inv = invoices[i]!;
     try {
       const customerId = matchContact(inv.customerName, custRows);
       if (!customerId) {
@@ -164,7 +164,7 @@ export async function importARInvoices(
         source: 'auto_migration',
         sourceDocumentId: invoiceId,
         lines: journalLines,
-      });
+      }, userId);
       await postJournalEntry(companyId, entry.id, userId);
       imported++;
     } catch (err) {

@@ -243,6 +243,6 @@ export function autoMapFields(
 function normalizeHeader(header: string): string {
   return header
     .toLowerCase()
-    .replace(/[\s_\-\.]+/g, '')   // strip spaces, underscores, dashes, dots
+    .replace(/[\s_\-.]+/g, '')    // strip spaces, underscores, dashes, dots
     .replace(/[^a-z0-9]/g, '');   // strip remaining non-alphanumeric
 }
