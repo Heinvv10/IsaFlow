@@ -11,6 +11,8 @@ import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
+import { cacheThrough, cache } from '@/lib/cache';
+import { CACHE_KEYS, CACHE_TTL } from '@/lib/cache-keys';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -23,10 +25,10 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
       const { q } = req.query;
       const searchTerm = typeof q === 'string' && q.trim() ? `%${q.trim()}%` : null;
 
-
       let rows: Row[];
 
       if (searchTerm) {
+        // Search queries are not cached — results change with every keystroke
         rows = (await sql`
           SELECT
             id, name, company_name, email, phone,
@@ -35,6 +37,7 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
             created_at
           FROM suppliers
           WHERE company_id = ${companyId}
+            AND deleted_at IS NULL
             AND (name ILIKE ${searchTerm}
             OR email ILIKE ${searchTerm}
             OR company_name ILIKE ${searchTerm}
@@ -43,17 +46,22 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
           LIMIT 200
         `) as Row[];
       } else {
-        rows = (await sql`
-          SELECT
-            id, name, company_name, email, phone,
-            contact_person, is_active,
-            vat_number, payment_terms,
-            created_at
-          FROM suppliers
-          WHERE company_id = ${companyId}
-          ORDER BY name ASC
-          LIMIT 200
-        `) as Row[];
+        rows = await cacheThrough(
+          CACHE_KEYS.suppliers(companyId),
+          async () => (await sql`
+            SELECT
+              id, name, company_name, email, phone,
+              contact_person, is_active,
+              vat_number, payment_terms,
+              created_at
+            FROM suppliers
+            WHERE company_id = ${companyId}
+              AND deleted_at IS NULL
+            ORDER BY name ASC
+            LIMIT 200
+          `) as Row[],
+          CACHE_TTL.REFERENCE_DATA,
+        );
       }
 
       return apiResponse.success(res, rows);
@@ -142,6 +150,7 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
           created_at
       `) as Row[];
 
+      cache.invalidate(CACHE_KEYS.suppliers(companyId));
       log.info('Supplier created', { id: rows[0]?.id, name: rows[0]?.name, module: 'accounting' });
       return apiResponse.success(res, rows[0]);
     } catch (err: unknown) {

@@ -9,6 +9,8 @@ import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
+import { cacheThrough, cache } from '@/lib/cache';
+import { CACHE_KEYS, CACHE_TTL } from '@/lib/cache-keys';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -24,6 +26,7 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
       let rows: Row[];
 
       if (searchTerm) {
+        // Search queries are not cached — results change with every keystroke
         rows = (await sql`
           SELECT
             id, name, email, phone, contact_person,
@@ -32,6 +35,7 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
             created_at
           FROM customers
           WHERE company_id = ${companyId}
+            AND deleted_at IS NULL
             AND (name ILIKE ${searchTerm}
             OR email ILIKE ${searchTerm}
             OR vat_number ILIKE ${searchTerm}
@@ -40,17 +44,22 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
           LIMIT 200
         `) as Row[];
       } else {
-        rows = (await sql`
-          SELECT
-            id, name, email, phone, contact_person,
-            payment_terms, credit_limit, is_active,
-            vat_number, registration_number,
-            created_at
-          FROM customers
-          WHERE company_id = ${companyId}
-          ORDER BY name ASC
-          LIMIT 200
-        `) as Row[];
+        rows = await cacheThrough(
+          CACHE_KEYS.customers(companyId),
+          async () => (await sql`
+            SELECT
+              id, name, email, phone, contact_person,
+              payment_terms, credit_limit, is_active,
+              vat_number, registration_number,
+              created_at
+            FROM customers
+            WHERE company_id = ${companyId}
+              AND deleted_at IS NULL
+            ORDER BY name ASC
+            LIMIT 200
+          `) as Row[],
+          CACHE_TTL.REFERENCE_DATA,
+        );
       }
 
       return apiResponse.success(res, rows);
@@ -122,6 +131,7 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
         RETURNING *
       `) as Row[];
 
+      cache.invalidate(CACHE_KEYS.customers(companyId));
       log.info('Customer created', { id: rows[0]?.id, name: rows[0]?.name, module: 'accounting' });
       return apiResponse.success(res, rows[0]);
     } catch (err: unknown) {

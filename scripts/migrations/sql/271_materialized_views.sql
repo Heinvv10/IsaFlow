@@ -1,0 +1,42 @@
+-- WS-5.1: Materialized Views for Group Reporting
+-- Migration: 271_materialized_views.sql
+--
+-- NOTE: The consolidated trial balance materialized view below requires the
+-- group_companies table from the Group Reporting module (planned for WS-7).
+-- That table does NOT yet exist. The view definition is provided here for
+-- completeness but is commented out.
+--
+-- Enable this block once migration 280_group_companies.sql (or similar) runs.
+
+-- ─── COMMENTED OUT — enable when group module tables exist ──────────────────
+--
+-- CREATE MATERIALIZED VIEW IF NOT EXISTS mv_consolidated_trial_balance AS
+-- SELECT
+--   gc.group_id,
+--   gc.company_id,
+--   ga.account_code,
+--   ga.account_name,
+--   ga.account_type,
+--   COALESCE(SUM(jl.debit), 0)                                   AS total_debit,
+--   COALESCE(SUM(jl.credit), 0)                                  AS total_credit,
+--   COALESCE(SUM(jl.debit), 0) - COALESCE(SUM(jl.credit), 0)    AS net_balance
+-- FROM group_companies gc
+-- JOIN gl_accounts ga
+--   ON ga.company_id = gc.company_id
+-- LEFT JOIN gl_journal_lines jl
+--   ON jl.gl_account_id = ga.id
+-- LEFT JOIN gl_journal_entries je
+--   ON je.id = jl.journal_entry_id
+--  AND je.status = 'posted'
+-- GROUP BY
+--   gc.group_id,
+--   gc.company_id,
+--   ga.account_code,
+--   ga.account_name,
+--   ga.account_type;
+--
+-- -- Unique index required for REFRESH MATERIALIZED VIEW CONCURRENTLY
+-- CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_ctb_pk
+--   ON mv_consolidated_trial_balance(group_id, company_id, account_code);
+--
+-- ─── END COMMENTED BLOCK ────────────────────────────────────────────────────

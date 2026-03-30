@@ -61,6 +61,15 @@ function parseAbsaDate(day: string, mon: string, year: string): string | null {
  *   - amount: "-1,234.56" or "1,234.56"
  *   - balance (optional): second numeric at end of line
  */
+/**
+ * Public entry point for the factory to call ABSA parsing without
+ * going through the full PDF extraction pipeline.
+ * Exposed as a named export so bankPdfParserFactory.ts can import it.
+ */
+export function parseAbsaPdfText(text: string): BankCsvParseResult {
+  return parseAbsaTextLines(text);
+}
+
 function parseAbsaTextLines(text: string): BankCsvParseResult {
   const result: BankCsvParseResult = {
     transactions: [],
@@ -186,9 +195,22 @@ export async function parseBankPdf(
     format: detectedFormat,
   }, 'accounting-pdf');
 
-  // Route to the appropriate parser based on detected format
+  // Route to the appropriate parser based on detected format.
+  // ABSA is handled directly; all other SA banks go through the factory.
   if (detectedFormat === 'absa') {
     return parseAbsaTextLines(text);
+  }
+
+  if (['fnb', 'standard_bank', 'nedbank', 'capitec'].includes(detectedFormat)) {
+    const { parseBankStatementText } = await import('./bankPdfParserFactory');
+    const factoryResult = parseBankStatementText(text, detectedFormat);
+    if (factoryResult.transactions.length > 0) {
+      return factoryResult;
+    }
+    // Factory found no transactions — fall through to ABSA pattern & VLM
+    log.warn('Factory parser returned no transactions, trying fallbacks', {
+      format: detectedFormat,
+    }, 'accounting-pdf');
   }
 
   // Fallback: attempt generic ABSA-style date-amount pattern for unknown formats

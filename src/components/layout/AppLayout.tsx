@@ -4,7 +4,7 @@
  * User preference persisted in localStorage.
  */
 
-import { useState, useEffect, useRef, ReactNode } from 'react';
+import { useState, useEffect, useRef, ReactNode, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import {
   BookOpen,
@@ -19,6 +19,7 @@ import {
   PanelTop,
   Download,
   X as XIcon,
+  Search,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { useAuth } from '@/contexts/AuthContext';
@@ -27,6 +28,11 @@ import { useCompany } from '@/contexts/CompanyContext';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { CompanySwitcher } from '@/components/layout/CompanySwitcher';
 import { SidebarNav } from '@/components/layout/SidebarNav';
+import { CommandPalette } from '@/components/layout/CommandPalette';
+import { ShortcutHelpOverlay } from '@/components/layout/ShortcutHelpOverlay';
+import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
+import type { ShortcutConfig } from '@/lib/keyboard-shortcuts';
+import { AccountingTour } from '@/components/onboarding/AccountingTour';
 
 const AccountingNav = dynamic(
   () => import('@/components/accounting/AccountingNav').then(mod => ({ default: mod.AccountingNav })),
@@ -51,6 +57,12 @@ export function AppLayout({ children }: AppLayoutProps) {
   const { user, loading, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { companyRole } = useCompany();
+
+  // Command palette
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+
+  // Shortcut help overlay
+  const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
 
   // Nav mode preference
   const [navMode, setNavMode] = useState<NavMode>('top');
@@ -94,6 +106,76 @@ export function AppLayout({ children }: AppLayoutProps) {
       localStorage.setItem(SIDEBAR_COLLAPSED_KEY, JSON.stringify(collapsed));
     }
   }, [collapsed, navMode, hydrated]);
+
+  // ─── Global keyboard shortcuts ────────────────────────────────────────────
+  const globalShortcuts = useMemo<ShortcutConfig[]>(() => [
+    {
+      key: 'ctrl+k',
+      label: 'Ctrl+K',
+      description: 'Open command palette',
+      category: 'global',
+      action: () => setCommandPaletteOpen(true),
+    },
+    {
+      key: '?',
+      label: '?',
+      description: 'Show keyboard shortcuts',
+      category: 'global',
+      action: () => setShortcutHelpOpen(true),
+    },
+    // Navigation sequences — press G then the second key within 1 second
+    {
+      key: 'g d',
+      label: 'G then D',
+      description: 'Go to Dashboard',
+      category: 'navigation',
+      action: () => { void router.push('/accounting'); },
+    },
+    {
+      key: 'g c',
+      label: 'G then C',
+      description: 'Go to Customers',
+      category: 'navigation',
+      action: () => { void router.push('/accounting?tab=customers'); },
+    },
+    {
+      key: 'g s',
+      label: 'G then S',
+      description: 'Go to Suppliers',
+      category: 'navigation',
+      action: () => { void router.push('/accounting?tab=suppliers'); },
+    },
+    {
+      key: 'g b',
+      label: 'G then B',
+      description: 'Go to Banking',
+      category: 'navigation',
+      action: () => { void router.push('/accounting?tab=banking'); },
+    },
+    {
+      key: 'g a',
+      label: 'G then A',
+      description: 'Go to Accounts',
+      category: 'navigation',
+      action: () => { void router.push('/accounting?tab=accounts'); },
+    },
+    {
+      key: 'g r',
+      label: 'G then R',
+      description: 'Go to Reports',
+      category: 'navigation',
+      action: () => { void router.push('/accounting?tab=reports'); },
+    },
+    {
+      key: 'g v',
+      label: 'G then V',
+      description: 'Go to VAT',
+      category: 'navigation',
+      action: () => { void router.push('/accounting?tab=vat'); },
+    },
+  ], [router]);
+
+  useKeyboardShortcuts(globalShortcuts);
 
   // Close mobile nav on route change
   useEffect(() => {
@@ -262,9 +344,41 @@ export function AppLayout({ children }: AppLayoutProps) {
           <img src="/logo.png" alt="ISAFlow" className="h-8 w-auto hidden sm:block dark:brightness-0 dark:invert" />
 
           {/* Company switcher */}
-          <CompanySwitcher />
+          <div data-tour="company-switcher">
+            <CompanySwitcher />
+          </div>
 
           <div className="flex-1" />
+
+          {/* Command palette trigger */}
+          <button
+            data-tour="command-palette"
+            onClick={() => setCommandPaletteOpen(true)}
+            className="
+              hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm
+              text-[var(--ff-text-tertiary)] bg-[var(--ff-bg-secondary)]
+              border border-[var(--ff-border-primary)]
+              hover:border-teal-400 hover:text-[var(--ff-text-primary)]
+              transition-colors
+            "
+            title="Search (Ctrl+K)"
+          >
+            <Search className="w-3.5 h-3.5" />
+            <span className="text-xs">Search</span>
+            <kbd className="ml-1 px-1 py-0.5 text-[10px] bg-[var(--ff-bg-primary)] border border-[var(--ff-border-primary)] rounded">
+              Ctrl+K
+            </kbd>
+          </button>
+
+          {/* Mobile search icon */}
+          <button
+            onClick={() => setCommandPaletteOpen(true)}
+            className="sm:hidden p-2 rounded-lg text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors"
+            title="Search"
+            aria-label="Open search"
+          >
+            <Search className="w-4 h-4" />
+          </button>
 
           {/* Nav mode toggle */}
           <button
@@ -318,6 +432,22 @@ export function AppLayout({ children }: AppLayoutProps) {
           {children}
         </main>
       </div>
+
+      {/* Command Palette */}
+      <CommandPalette
+        isOpen={commandPaletteOpen}
+        onClose={() => setCommandPaletteOpen(false)}
+      />
+
+      {/* Shortcut Help Overlay — triggered by '?' */}
+      <ShortcutHelpOverlay
+        isOpen={shortcutHelpOpen}
+        onClose={() => setShortcutHelpOpen(false)}
+        shortcuts={globalShortcuts}
+      />
+
+      {/* Onboarding Tour */}
+      <AccountingTour />
     </div>
   );
 }

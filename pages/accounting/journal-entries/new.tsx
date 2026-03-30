@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import type { GLAccount } from '@/modules/accounting/types/gl.types';
 import { apiFetch } from '@/lib/apiFetch';
+import { DescriptionAutocomplete } from '@/components/accounting/DescriptionAutocomplete';
 
 interface LineInput {
   key: string;
@@ -197,10 +198,10 @@ export default function NewJournalEntryPage() {
                   <label className="block text-sm font-medium text-[var(--ff-text-primary)] mb-1">
                     Description
                   </label>
-                  <input
-                    type="text"
+                  <DescriptionAutocomplete
                     value={description}
-                    onChange={e => setDescription(e.target.value)}
+                    onChange={setDescription}
+                    entityType="journal_entry"
                     placeholder="e.g. Monthly rent accrual"
                     className="ff-input"
                   />
@@ -254,10 +255,10 @@ export default function NewJournalEntryPage() {
                           </select>
                         </td>
                         <td className="px-4 py-2">
-                          <input
-                            type="text"
+                          <DescriptionAutocomplete
                             value={line.description}
-                            onChange={e => updateLine(line.key, 'description', e.target.value)}
+                            onChange={v => updateLine(line.key, 'description', v)}
+                            entityType="journal_entry"
                             placeholder="Line description"
                             className="ff-input text-sm py-1.5"
                           />

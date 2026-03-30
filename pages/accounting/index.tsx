@@ -37,6 +37,13 @@ import {
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
+import { DisplayModeToggle } from '@/components/accounting/DisplayModeToggle';
+import { useDisplayMode } from '@/hooks/useDisplayMode';
+import {
+  AccountCategorySidebar,
+  filterAccounts,
+  type AccountCategoryType,
+} from '@/components/accounting/AccountCategorySidebar';
 import type { GLAccount, GLAccountType, FiscalPeriod, JournalEntry, TrialBalanceRow } from '@/modules/accounting/types/gl.types';
 import { apiFetch } from '@/lib/apiFetch';
 
@@ -89,7 +96,7 @@ export default function AccountingPage() {
 
   return (
     <AppLayout>
-      <div className="min-h-screen bg-[var(--ff-bg-primary)]">
+      <div className="min-h-screen bg-[var(--ff-bg-primary)]" data-tour="dashboard">
         {/* Page Header */}
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
           <div className="px-6 py-4">
@@ -614,6 +621,8 @@ function ChartOfAccountsTab() {
   const [isLoading, setIsLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'flat' | 'tree'>('flat');
   const [filterType, setFilterType] = useState<string>('all');
+  const [sidebarType, setSidebarType] = useState<AccountCategoryType>('all');
+  const [sidebarPrefix, setSidebarPrefix] = useState('');
   const [showInactive, setShowInactive] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -717,9 +726,10 @@ function ChartOfAccountsTab() {
     }
   };
 
-  const filteredAccounts = filterType === 'all'
+  const baseFiltered = filterType === 'all'
     ? accounts
     : accounts.filter(a => a.accountType === filterType);
+  const filteredAccounts = filterAccounts(baseFiltered, sidebarType, sidebarPrefix);
 
   const accountTypeColor = (type: string) => {
     switch (type) {
@@ -736,7 +746,18 @@ function ChartOfAccountsTab() {
   const parentOptions = accounts.filter(a => a.isActive);
 
   return (
-    <div className="space-y-4">
+    <div className="flex gap-5">
+      {/* Account Category Sidebar (WS-6.2) */}
+      <AccountCategorySidebar
+        accounts={accounts}
+        selectedType={sidebarType}
+        searchPrefix={sidebarPrefix}
+        onSelectType={setSidebarType}
+        onSearchPrefixChange={setSidebarPrefix}
+      />
+
+      {/* Main content */}
+      <div className="flex-1 min-w-0 space-y-4">
       {/* Toolbar */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
@@ -938,6 +959,7 @@ function ChartOfAccountsTab() {
           </div>
         )}
       </div>
+      </div>
     </div>
   );
 }
@@ -1110,6 +1132,7 @@ function JournalEntriesTab() {
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const { displayMode, setDisplayMode } = useDisplayMode();
 
   useEffect(() => {
     loadEntries();
@@ -1146,6 +1169,7 @@ function JournalEntriesTab() {
             <option value="posted">Posted</option>
             <option value="reversed">Reversed</option>
           </select>
+          <DisplayModeToggle value={displayMode} onChange={setDisplayMode} />
         </div>
         <Link
           href="/accounting/journal-entries/new"

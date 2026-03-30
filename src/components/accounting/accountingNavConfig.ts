@@ -274,7 +274,14 @@ export const TABS: Tab[] = [
             section: 'Audit Reports',
             items: [
               { label: 'Opening Balances', href: '/accounting/opening-balances' },
-              { label: 'Audit Trail', href: '/accounting/reports/audit-trail' },
+              { label: 'Audit Trail', href: '/accounting/audit-log' },
+            ],
+          },
+          {
+            section: 'Compliance & Export',
+            items: [
+              { label: 'IFRS Disclosure Notes', href: '/accounting/reports/disclosure-notes' },
+              { label: 'CaseWare Export', href: '/accounting/reports/caseware-export' },
             ],
           },
         ],
@@ -334,7 +341,21 @@ export const TABS: Tab[] = [
           { label: 'Bank Transactions', href: '/accounting/reports/bank-transactions' },
           { label: 'Account Transactions', href: '/accounting/reports/account-transactions' },
           { label: 'VAT Return', href: '/accounting/reports/vat-return' },
-          { label: 'Audit Trail', href: '/accounting/reports/audit-trail' },
+          { label: 'Audit Trail', href: '/accounting/audit-log' },
+        ],
+      },
+      {
+        section: 'Compliance & Export',
+        items: [
+          { label: 'IFRS Disclosure Notes', href: '/accounting/reports/disclosure-notes' },
+          { label: 'CaseWare Export', href: '/accounting/reports/caseware-export' },
+        ],
+      },
+      {
+        section: 'Custom Reports',
+        items: [
+          { label: 'Report Builder', href: '/accounting/reports/builder' },
+          { label: 'My Reports', href: '/accounting/reports/my-reports' },
         ],
       },
     ],
@@ -371,6 +392,14 @@ export const TABS: Tab[] = [
         section: 'Workflows',
         items: [
           { label: 'Approvals', href: '/accounting/approvals' },
+          { label: 'Recurring Transactions', href: '/accounting/recurring-transactions' },
+          { label: 'Webhooks', href: '/accounting/webhooks' },
+        ],
+      },
+      {
+        section: 'Audit & Compliance',
+        items: [
+          { label: 'Audit Trail', href: '/accounting/audit-log' },
         ],
       },
       {
@@ -388,9 +417,23 @@ export const TABS: Tab[] = [
         ],
       },
       {
+        section: 'Data Quality',
+        items: [
+          { label: 'Duplicate Detection', href: '/accounting/duplicates' },
+        ],
+      },
+      {
+        section: 'Data Management',
+        items: [
+          { label: 'Data Archiving', href: '/accounting/data-archiving' },
+        ],
+      },
+      {
         section: 'Data Import',
         items: [
+          { label: 'Import Transactions', href: '/accounting/gl-import' },
           { label: 'Migration Wizard', href: '/accounting/migration' },
+          { label: 'Import from Xero / QuickBooks / Pastel', href: '/accounting/migration/external' },
           { label: 'Sage Migration', href: '/accounting/sage-migration' },
           { label: 'Bank Import', href: '/accounting/bank-reconciliation/import' },
         ],
@@ -539,8 +582,7 @@ export function getActiveTabId(
     pathname.startsWith('/accounting/year-end') ||
     pathname.startsWith('/accounting/cost-centres') ||
     pathname.startsWith('/accounting/business-units') ||
-    pathname.startsWith('/accounting/budgets') ||
-    pathname === '/accounting/reports/audit-trail'
+    pathname.startsWith('/accounting/budgets')
   ) {
     return 'accountants';
   }
@@ -559,7 +601,13 @@ export function getActiveTabId(
     pathname.startsWith('/accounting/my-account') ||
     pathname.startsWith('/accounting/cash-flow-forecast') ||
     pathname.startsWith('/accounting/time-tracking') ||
-    pathname.startsWith('/accounting/user-access')
+    pathname.startsWith('/accounting/user-access') ||
+    pathname.startsWith('/accounting/audit-log') ||
+    pathname.startsWith('/accounting/gl-import') ||
+    pathname.startsWith('/accounting/duplicates') ||
+    pathname.startsWith('/accounting/data-archiving') ||
+    pathname.startsWith('/accounting/webhooks') ||
+    pathname.startsWith('/accounting/recurring-transactions')
   ) {
     return 'tools';
   }

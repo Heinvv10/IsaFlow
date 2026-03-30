@@ -282,7 +282,7 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor }: ModuleNavProps)
     <nav ref={navRef} className="bg-gray-900 border-b border-gray-700 relative z-30">
       <div className="flex items-center gap-0 px-2">
         {(tabs ?? []).map(t => (
-          <div key={t.id} className="relative">
+          <div key={t.id} className="relative" data-tour={`nav-${t.id}`}>
             {t.href ? (
               <Link
                 href={t.href}

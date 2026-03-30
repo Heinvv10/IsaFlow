@@ -25,6 +25,10 @@ export interface AuthUser {
   onboardingCompleted?: boolean;
 }
 
+export interface TwoFactorChallenge {
+  tempToken: string;
+}
+
 interface AuthContextType {
   /** Currently authenticated user, or null if not logged in */
   user: AuthUser | null;
@@ -34,9 +38,13 @@ interface AuthContextType {
   error: string | null;
   /** True when a valid user session exists */
   isAuthenticated: boolean;
+  /** Set when login requires 2FA verification */
+  twoFactorChallenge: TwoFactorChallenge | null;
 
-  /** Sign in with email and password */
-  login: (email: string, password: string) => Promise<void>;
+  /** Sign in with email and password. Returns true if 2FA challenge was issued. */
+  login: (email: string, password: string, deviceFingerprint?: string) => Promise<boolean>;
+  /** Complete 2FA challenge during login */
+  completeTwoFactor: (code: string, trustDevice?: boolean, deviceFingerprint?: string, deviceName?: string) => Promise<void>;
   /** Sign out and redirect to /sign-in */
   logout: () => Promise<void>;
   /** Re-fetch the current user from /api/auth/me */
@@ -92,6 +100,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [twoFactorChallenge, setTwoFactorChallenge] = useState<TwoFactorChallenge | null>(null);
 
   /**
    * Fetch current session from the API
@@ -136,17 +145,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [checkAuth]);
 
   /**
-   * Sign in with email/password credentials
+   * Sign in with email/password credentials.
+   * If 2FA is enabled, sets twoFactorChallenge and does NOT set user.
+   * Returns true if a 2FA challenge was issued, false if login completed.
    */
-  const login = async (email: string, password: string) => {
+  const login = async (email: string, password: string, deviceFingerprint?: string): Promise<boolean> => {
     setLoading(true);
     setError(null);
+    setTwoFactorChallenge(null);
 
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, deviceFingerprint }),
         credentials: 'include',
       });
 
@@ -156,10 +168,63 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error(data.error?.message || data.message || 'Login failed');
       }
 
+      // 2FA required — store temp token for the challenge step
+      if (data.data?.requiresTwoFactor) {
+        setTwoFactorChallenge({ tempToken: data.data.tempToken as string });
+        return true;
+      }
+
+      const raw = data.data?.user ?? data.data ?? data.user;
+      setUser(raw ? mapApiUser(raw) : null);
+      return false;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Login failed';
+      setError(message);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /**
+   * Complete 2FA challenge — verify code and obtain full session.
+   */
+  const completeTwoFactor = async (
+    code: string,
+    trustDevice?: boolean,
+    deviceFingerprint?: string,
+    deviceName?: string
+  ) => {
+    if (!twoFactorChallenge) throw new Error('No 2FA challenge active');
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const res = await fetch('/api/auth/2fa-verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tempToken: twoFactorChallenge.tempToken,
+          code,
+          trustDevice,
+          deviceFingerprint,
+          deviceName,
+        }),
+        credentials: 'include',
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error?.message || data.message || 'Invalid code');
+      }
+
+      setTwoFactorChallenge(null);
       const raw = data.data?.user ?? data.data ?? data.user;
       setUser(raw ? mapApiUser(raw) : null);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Login failed';
+      const message = err instanceof Error ? err.message : 'Verification failed';
       setError(message);
       throw err;
     } finally {
@@ -216,7 +281,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loading,
     error,
     isAuthenticated: user !== null,
+    twoFactorChallenge,
     login,
+    completeTwoFactor,
     logout,
     refreshUser,
     clearError,
