@@ -10,6 +10,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { hashPassword, checkPasswordStrength } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { checkRateLimit } from '@/lib/rateLimit';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
@@ -17,6 +18,18 @@ type Row = any;
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method ?? 'unknown', ['POST']);
+  }
+
+  // Rate limit: 3 registrations per IP per 15 minutes
+  const rawIp = Array.isArray(req.headers['x-forwarded-for'])
+    ? req.headers['x-forwarded-for'][0]
+    : req.headers['x-forwarded-for'] ?? req.socket.remoteAddress;
+  const ip: string = rawIp ?? 'unknown';
+  if (checkRateLimit(ip, { windowMs: 15 * 60 * 1000, maxRequests: 3 })) {
+    return res.status(429).json({
+      success: false,
+      error: { code: 'RATE_LIMITED', message: 'Too many attempts. Please try again later.' },
+    });
   }
 
   const { firstName, lastName, email, password, confirmPassword } = req.body as {
@@ -45,7 +58,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   // Check password strength
   const strength = checkPasswordStrength(password);
-  if (strength.score < 2) {
+  if (!strength.isValid) {
     return apiResponse.badRequest(res, `Password too weak: ${strength.issues[0] || 'Please choose a stronger password'}`);
   }
 

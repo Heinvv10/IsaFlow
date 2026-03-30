@@ -38,11 +38,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (!question || typeof question !== 'string' || question.trim().length < 3) {
     return apiResponse.badRequest(res, 'Please ask a question (minimum 3 characters)');
   }
+  if (question.length > 500) {
+    return apiResponse.badRequest(res, 'Question is too long (maximum 500 characters)');
+  }
 
   const companyId = (req as any).companyId as string;
   const intent = classifyQueryIntent(question);
   const schemaDesc = buildSchemaDescription(SCHEMA_TABLES);
-  const prompt = buildTextToSQLPrompt(question, schemaDesc);
+  const prompt = buildTextToSQLPrompt(question, schemaDesc, companyId);
 
   // Call Claude
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -87,7 +90,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, { intent, message: `Generated SQL was rejected: ${validation.error}`, rows: [], columns: [], summary: 'Query rejected' });
     }
 
-    // Execute (read-only, with company scope)
+    // Verify company_id is scoped in generated SQL
+    if (!validation.sanitizedSQL.includes(companyId)) {
+      log.warn('NL query missing company_id scope — rejected', { question, companyId }, 'ai');
+      return apiResponse.success(res, { intent, message: 'Could not generate a properly scoped query. Please try again.', rows: [], columns: [], summary: 'Scope error' });
+    }
+
+    // Execute with statement timeout (set per-session before the query)
+    await sql`SET statement_timeout = '5000'`;
     const rows = await sql(validation.sanitizedSQL as any) as Row[];
     const formatted = formatQueryResult(rows as Record<string, unknown>[], question);
 

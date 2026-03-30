@@ -9,8 +9,8 @@ import type { JWTPayload, AuthUser, AuthRole } from './types';
 // Secret key for JWT signing - must be set in environment
 const getJWTSecret = (): Uint8Array => {
   const secret = process.env.JWT_SECRET;
-  if (!secret) {
-    throw new Error('JWT_SECRET environment variable is not set');
+  if (!secret || secret.length < 32) {
+    throw new Error('JWT_SECRET must be set and at least 32 characters');
   }
   return new TextEncoder().encode(secret);
 };

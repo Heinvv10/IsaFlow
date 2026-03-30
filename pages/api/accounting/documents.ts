@@ -6,6 +6,7 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import path from 'path';
 import { sql } from '@/lib/neon';
 import formidable from 'formidable';
 import fs from 'fs';
@@ -193,7 +194,8 @@ async function handlePost(
     }
 
     // Upload to VF Storage: accounting/{entity_type}/{entityId}_{filename}
-    const fileName = file.originalFilename || `document_${Date.now()}`;
+    const rawName = file.originalFilename || `document_${Date.now()}`;
+    const fileName = path.basename(rawName).replace(/[^a-zA-Z0-9._-]/g, '_');
     const storageName = `${entityId}_${fileName}`;
     const result = await vfStorage.uploadFile(buffer, 'accounting', entityType, storageName);
 

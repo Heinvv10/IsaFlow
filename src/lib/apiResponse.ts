@@ -280,13 +280,16 @@ export class ApiResponseHelper {
   static internalError(
     res: NextApiResponse,
     error: Error | unknown,
-    message = 'An internal error occurred'
+    detailedMessage?: string
   ): void {
     // Log the actual error for debugging
     log.error('Internal Server Error', error instanceof Error ? { message: error.message, stack: error.stack } : { error }, 'ApiResponse');
 
-    // In production, don't expose internal error details
+    // In production, never expose internal error details
     const isDevelopment = process.env.NODE_ENV === 'development';
+    const message = isDevelopment
+      ? (detailedMessage || 'An internal error occurred')
+      : 'An internal error occurred';
     const errorDetails = isDevelopment && error instanceof Error
       ? { stack: error.stack, originalMessage: error.message }
       : undefined;

@@ -424,7 +424,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     log.error('Payroll document generation failed', { runId, type, error: errMsg }, 'payroll');
-    return res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: `Failed to generate payroll document: ${errMsg}` } });
+    const clientMessage = process.env.NODE_ENV === 'development'
+      ? `Failed to generate payroll document: ${errMsg}`
+      : 'Failed to generate payroll document';
+    return res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: clientMessage } });
   }
 }
 

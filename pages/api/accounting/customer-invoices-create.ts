@@ -83,7 +83,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error('Invoice create failed', { error: msg });
-    return res.status(500).json({ success: false, error: { code: 'CREATE_FAILED', message: msg } });
+    const clientMessage = process.env.NODE_ENV === 'development' ? msg : 'Failed to create invoice';
+    return res.status(500).json({ success: false, error: { code: 'CREATE_FAILED', message: clientMessage } });
   }
 }
 

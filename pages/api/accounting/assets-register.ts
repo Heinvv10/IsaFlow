@@ -16,6 +16,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
   }
 
+  const companyId = (req as any).companyId as string;
   const { asOf } = req.query;
   const asOfDate = asOf ? String(asOf) : new Date().toISOString().split('T')[0];
 
@@ -25,7 +26,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       COALESCE(a.current_book_value, a.purchase_price) as net_book_value
     FROM assets a
     LEFT JOIN asset_categories ac ON a.category_id = ac.id
-    WHERE a.purchase_date <= ${asOfDate}
+    WHERE a.purchase_date <= ${asOfDate} AND a.company_id = ${companyId}::UUID
     ORDER BY a.category, a.asset_number
   ` as Row[];
 

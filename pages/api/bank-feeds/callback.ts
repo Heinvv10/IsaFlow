@@ -87,15 +87,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return res.redirect('/accounting/bank-accounts?feed_connected=true');
   }
 
-  // Return accounts for selection
-  return apiResponse.success(res, {
-    accounts,
-    tokens: {
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
-      expiresIn: tokens.expiresIn,
-    },
-  });
+  // Return accounts for selection — tokens are NOT returned to the client
+  return apiResponse.success(res, { accounts });
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

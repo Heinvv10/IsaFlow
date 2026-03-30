@@ -12,15 +12,16 @@ import { validateTimeEntry, calculateBillableAmount } from '@/modules/accounting
 type Row = Record<string, unknown>;
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
+  const companyId = (req as any).companyId as string;
   if (req.method === 'GET') {
     const { projectId, employeeId } = req.query;
     let rows: Row[];
     if (projectId) {
-      rows = await sql`SELECT t.*, e.first_name, e.last_name, p.name as project_name FROM project_time_entries t LEFT JOIN employees e ON t.employee_id = e.id LEFT JOIN projects p ON t.project_id = p.id WHERE t.project_id = ${String(projectId)} ORDER BY t.entry_date DESC` as Row[];
+      rows = await sql`SELECT t.*, e.first_name, e.last_name, p.name as project_name FROM project_time_entries t LEFT JOIN employees e ON t.employee_id = e.id LEFT JOIN projects p ON t.project_id = p.id WHERE t.project_id = ${String(projectId)} AND t.company_id = ${companyId}::UUID ORDER BY t.entry_date DESC LIMIT 200` as Row[];
     } else if (employeeId) {
-      rows = await sql`SELECT t.*, p.name as project_name FROM project_time_entries t LEFT JOIN projects p ON t.project_id = p.id WHERE t.employee_id = ${String(employeeId)} ORDER BY t.entry_date DESC LIMIT 200` as Row[];
+      rows = await sql`SELECT t.*, p.name as project_name FROM project_time_entries t LEFT JOIN projects p ON t.project_id = p.id WHERE t.employee_id = ${String(employeeId)} AND t.company_id = ${companyId}::UUID ORDER BY t.entry_date DESC LIMIT 200` as Row[];
     } else {
-      rows = await sql`SELECT t.*, e.first_name, e.last_name, p.name as project_name FROM project_time_entries t LEFT JOIN employees e ON t.employee_id = e.id LEFT JOIN projects p ON t.project_id = p.id ORDER BY t.entry_date DESC LIMIT 200` as Row[];
+      rows = await sql`SELECT t.*, e.first_name, e.last_name, p.name as project_name FROM project_time_entries t LEFT JOIN employees e ON t.employee_id = e.id LEFT JOIN projects p ON t.project_id = p.id WHERE t.company_id = ${companyId}::UUID ORDER BY t.entry_date DESC LIMIT 200` as Row[];
     }
     return apiResponse.success(res, rows);
   }
