@@ -6,6 +6,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
+import { getSystemAccountId } from './systemAccountResolver';
 import type {
   BankCategorisationRule, RuleCreateInput, RuleApplyResult,
 } from '../types/bank.types';
@@ -260,7 +261,7 @@ export async function applyRules(companyId: string,
         const hasVat = vatCode === 'standard';
         const netAmount = hasVat ? Math.round((totalAmount * 100 / 115) * 100) / 100 : totalAmount;
         const vatAmount = hasVat ? Math.round((totalAmount - netAmount) * 100) / 100 : 0;
-        const vatAccountCode = isDeposit ? '2120' : '1140';
+        const vatAccountKey = isDeposit ? 'vat_output' as const : 'vat_input' as const;
         const mapVatType = vatCode === 'standard' ? 'standard' as const
           : vatCode === 'zero_rated' ? 'zero_rated' as const
           : vatCode === 'exempt' ? 'exempt' as const
@@ -273,7 +274,7 @@ export async function applyRules(companyId: string,
             { glAccountId: String(rule.gl_account_id), debit: 0, credit: netAmount, description: entryDesc, vatType: mapVatType },
           ];
           if (hasVat) {
-            const vatAcctId = await glAccountByCode(vatAccountCode);
+            const vatAcctId = await getSystemAccountId(vatAccountKey);
             lines.splice(1, 0, { glAccountId: vatAcctId, debit: 0, credit: vatAmount, description: `VAT @ 15%`, vatType: 'standard' });
           }
         } else {
@@ -282,7 +283,7 @@ export async function applyRules(companyId: string,
             { glAccountId: bankAccountId, debit: 0, credit: totalAmount, description: entryDesc },
           ];
           if (hasVat) {
-            const vatAcctId = await glAccountByCode(vatAccountCode);
+            const vatAcctId = await getSystemAccountId(vatAccountKey);
             lines.splice(1, 0, { glAccountId: vatAcctId, debit: vatAmount, credit: 0, description: `VAT @ 15%`, vatType: 'standard' });
           }
         }

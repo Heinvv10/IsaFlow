@@ -14,14 +14,13 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
+import { getSystemAccountId } from './systemAccountResolver';
 import type { JournalLineInput } from '../types/gl.types';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
 
 const DEFAULT_VAT_RATE = 0.15; // SA VAT rate
-const VAT_INPUT_CODE = '1140';
-const VAT_OUTPUT_CODE = '2120';
 
 /** Load VAT rate from app_settings, falling back to 15% */
 async function getVatRate(): Promise<number> {
@@ -65,18 +64,9 @@ export async function applyDRCVat(companyId: string,
   const vatRate = await getVatRate();
   const vatAmount = Math.round(totalExclVat * vatRate * 100) / 100;
 
-  // Get VAT account IDs
-  const accounts = (await sql`
-    SELECT id, account_code FROM gl_accounts
-    WHERE account_code IN (${VAT_INPUT_CODE}, ${VAT_OUTPUT_CODE})
-  `) as Row[];
-
-  const inputVatId = accounts.find((a: Row) => a.account_code === VAT_INPUT_CODE)?.id;
-  const outputVatId = accounts.find((a: Row) => a.account_code === VAT_OUTPUT_CODE)?.id;
-
-  if (!inputVatId || !outputVatId) {
-    throw new Error('VAT GL accounts (1140/2120) not found in chart of accounts');
-  }
+  // Get VAT account IDs by subtype (code-independent)
+  const inputVatId = await getSystemAccountId('vat_input');
+  const outputVatId = await getSystemAccountId('vat_output');
 
   const description = `DRC VAT: ${inv.invoice_number} (R${vatAmount.toFixed(2)})`;
 

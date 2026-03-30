@@ -6,7 +6,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
-import { getAccountByCode } from './chartOfAccountsService';
+import { getSystemAccount } from './systemAccountResolver';
 import type { AccountingAdjustment, AdjustmentCreateInput } from '../types/ar.types';
 import type { JournalLineInput } from '../types/gl.types';
 
@@ -90,14 +90,11 @@ export async function approveAdjustment(companyId: string, id: string, userId: s
 
   // GL accounts
   const balanceAccount = isCustomer
-    ? await getAccountByCode('1120') // AR
-    : await getAccountByCode('2110'); // AP
-  const incomeAccount = await getAccountByCode('4300'); // Other Income
-  const expenseAccount = await getAccountByCode('5600'); // Administrative Expenses
-
-  if (!balanceAccount) throw new Error('Balance account not found');
-  const offsetAccount = isDebit ? incomeAccount : expenseAccount;
-  if (!offsetAccount) throw new Error('Offset account not found');
+    ? await getSystemAccount('receivable')
+    : await getSystemAccount('payable');
+  const offsetAccount = isDebit
+    ? await getSystemAccount('other_income')
+    : await getSystemAccount('admin_expense');
 
   const lines: JournalLineInput[] = isDebit
     ? [

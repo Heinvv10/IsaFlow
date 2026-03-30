@@ -6,7 +6,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
-import { getAccountByCode } from './chartOfAccountsService';
+import { getSystemAccount } from './systemAccountResolver';
 import type { CustomerWriteOff, WriteOffCreateInput } from '../types/ar.types';
 import type { JournalLineInput } from '../types/gl.types';
 
@@ -102,10 +102,9 @@ export async function approveWriteOff(companyId: string, id: string, userId: str
   const wo = woRows[0];
   const amount = Number(wo.amount);
 
-  // GL: DR Bad Debts Expense (5600), CR Accounts Receivable (1120)
-  const expenseAccount = await getAccountByCode('5600');
-  const arAccount = await getAccountByCode('1120');
-  if (!expenseAccount || !arAccount) throw new Error('Required GL accounts not found');
+  // GL: DR Bad Debts Expense, CR Accounts Receivable
+  const expenseAccount = await getSystemAccount('admin_expense');
+  const arAccount = await getSystemAccount('receivable');
 
   const lines: JournalLineInput[] = [
     { glAccountId: expenseAccount.id, debit: amount, credit: 0,

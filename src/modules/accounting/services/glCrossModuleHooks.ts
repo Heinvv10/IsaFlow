@@ -5,20 +5,10 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { getSystemAccountId } from './systemAccountResolver';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
-
-const ACCOUNTS = {
-  ACCUM_DEPRECIATION: '1230',
-  DEPRECIATION_EXPENSE: '5800',
-} as const;
-
-async function getAccountId(code: string): Promise<string> {
-  const rows = (await sql`SELECT id FROM gl_accounts WHERE account_code = ${code} LIMIT 1`) as Row[];
-  if (!rows[0]) throw new Error(`GL account ${code} not found`);
-  return String(rows[0].id);
-}
 
 // ── Asset Depreciation → GL ────────────────────────────────────────────────
 
@@ -40,8 +30,8 @@ export async function postAssetDepreciationToGL(
       return null;
     }
 
-    const depExpenseId = await getAccountId(ACCOUNTS.DEPRECIATION_EXPENSE);
-    const accumDepId = await getAccountId(ACCOUNTS.ACCUM_DEPRECIATION);
+    const depExpenseId = await getSystemAccountId('depreciation_expense');
+    const accumDepId = await getSystemAccountId('accumulated_depreciation');
 
     const entry = (await sql`
       INSERT INTO gl_journal_entries (

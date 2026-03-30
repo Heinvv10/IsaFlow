@@ -6,7 +6,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from './journalEntryService';
-import { getAccountByCode } from './chartOfAccountsService';
+import { getSystemAccount, getSystemAccountId } from './systemAccountResolver';
 import type {
   CustomerPayment,
   CustomerPaymentAllocation,
@@ -157,11 +157,10 @@ export async function confirmCustomerPayment(companyId: string,
     if (payment.status !== 'draft') throw new Error(`Cannot confirm payment with status: ${payment.status}`);
 
     // Auto-post GL: DR Bank, CR Accounts Receivable
-    const arAccount = await getAccountByCode('1120');
+    const arAccount = await getSystemAccount('receivable');
     const bankAccount = payment.bankAccountId
       ? ((await sql`SELECT id FROM gl_accounts WHERE id = ${payment.bankAccountId}`) as Row[])[0]
-      : await getAccountByCode('1110');
-    if (!arAccount) throw new Error('Accounts Receivable account (1120) not found');
+      : await getSystemAccount('bank');
     if (!bankAccount) throw new Error('Bank account not found');
 
     const lines: JournalLineInput[] = [
@@ -272,12 +271,9 @@ export async function postCustomerInvoiceToGL(companyId: string, invoiceId: stri
 
     if (inv.gl_journal_entry_id) return String(inv.gl_journal_entry_id);
 
-    const arAccount = await getAccountByCode('1120');
-    const revenueAccount = await getAccountByCode('4100');
-    const vatAccount = await getAccountByCode('2120');
-    if (!arAccount || !revenueAccount || !vatAccount) {
-      throw new Error('Required GL accounts (1120, 4100, 2120) not found');
-    }
+    const arAccount = await getSystemAccount('receivable');
+    const revenueAccount = await getSystemAccount('default_revenue');
+    const vatAccount = await getSystemAccount('vat_output');
 
     const lines: JournalLineInput[] = [
       { glAccountId: arAccount.id, debit: Number(inv.total_amount), credit: 0,
