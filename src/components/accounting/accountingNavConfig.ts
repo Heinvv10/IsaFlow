@@ -385,6 +385,14 @@ export const TABS: Tab[] = [
           { label: 'Company Settings', href: '/accounting/company-settings' },
         ],
       },
+      {
+        section: 'Data Import',
+        items: [
+          { label: 'Migration Wizard', href: '/accounting/migration' },
+          { label: 'Sage Migration', href: '/accounting/sage-migration' },
+          { label: 'Bank Import', href: '/accounting/bank-reconciliation/import' },
+        ],
+      },
     ],
   },
   {
@@ -414,7 +422,7 @@ export const TABS: Tab[] = [
       },
     ],
   },
-  { id: 'import', label: 'Data Import', href: '/accounting/sage-migration' },
+  { id: 'import', label: 'Data Import', href: '/accounting/migration' },
   {
     id: 'payroll', label: 'Payroll',
     items: [
@@ -446,6 +454,7 @@ export function getActiveTabId(
   query: Record<string, string | string[] | undefined>,
 ): string {
   if (pathname === '/accounting') return 'dashboard';
+  if (pathname.startsWith('/accounting/migration')) return 'import';
   if (pathname.startsWith('/accounting/sage-migration')) return 'import';
 
   // Customers
