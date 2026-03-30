@@ -10,6 +10,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { sql } from '@/lib/neon';
 import {
   listGroups,
   getGroup,
@@ -52,6 +53,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     if (action === 'mappings' && groupId) {
       const companyId = req.query.company_id as string | undefined;
+      if (companyId) {
+        const membership = await sql`SELECT 1 FROM company_users WHERE company_id = ${companyId}::UUID AND user_id = ${userId}::UUID LIMIT 1` as Record<string, unknown>[];
+        if (!membership[0]) return apiResponse.forbidden(res, 'Access denied to the specified company');
+      }
       const mappings = await getCoaMappings(groupId, companyId);
       return apiResponse.success(res, { items: mappings });
     }
@@ -59,6 +64,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (action === 'unmapped' && groupId) {
       const companyId = req.query.company_id as string;
       if (!companyId) return apiResponse.badRequest(res, 'company_id required');
+      const membership = await sql`SELECT 1 FROM company_users WHERE company_id = ${companyId}::UUID AND user_id = ${userId}::UUID LIMIT 1` as Record<string, unknown>[];
+      if (!membership[0]) return apiResponse.forbidden(res, 'Access denied to the specified company');
       const unmapped = await getUnmappedAccounts(groupId, companyId);
       return apiResponse.success(res, { items: unmapped });
     }

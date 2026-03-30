@@ -12,17 +12,17 @@ import { validatePurchaseOrder, calculatePOTotals, generatePONumber } from '@/mo
 type Row = Record<string, unknown>;
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const companyId = (req as any).companyId as string | undefined;
+  const companyId = (req as any).companyId as string;
 
   if (req.method === 'GET') {
     const { status, supplierId } = req.query;
     let rows: Row[];
     if (status) {
-      rows = await sql`SELECT po.*, s.name as supplier_name FROM purchase_orders po LEFT JOIN suppliers s ON po.supplier_id = s.id WHERE po.status = ${String(status)} ORDER BY po.created_at DESC LIMIT 200` as Row[];
+      rows = await sql`SELECT po.*, s.name as supplier_name FROM purchase_orders po LEFT JOIN suppliers s ON po.supplier_id = s.id WHERE po.company_id = ${companyId}::UUID AND po.status = ${String(status)} ORDER BY po.created_at DESC LIMIT 200` as Row[];
     } else if (supplierId) {
-      rows = await sql`SELECT po.*, s.name as supplier_name FROM purchase_orders po LEFT JOIN suppliers s ON po.supplier_id = s.id WHERE po.supplier_id = ${String(supplierId)} ORDER BY po.created_at DESC LIMIT 200` as Row[];
+      rows = await sql`SELECT po.*, s.name as supplier_name FROM purchase_orders po LEFT JOIN suppliers s ON po.supplier_id = s.id WHERE po.company_id = ${companyId}::UUID AND po.supplier_id = ${String(supplierId)} ORDER BY po.created_at DESC LIMIT 200` as Row[];
     } else {
-      rows = await sql`SELECT po.*, s.name as supplier_name FROM purchase_orders po LEFT JOIN suppliers s ON po.supplier_id = s.id ORDER BY po.created_at DESC LIMIT 200` as Row[];
+      rows = await sql`SELECT po.*, s.name as supplier_name FROM purchase_orders po LEFT JOIN suppliers s ON po.supplier_id = s.id WHERE po.company_id = ${companyId}::UUID ORDER BY po.created_at DESC LIMIT 200` as Row[];
     }
     return apiResponse.success(res, rows);
   }
@@ -33,7 +33,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (!validation.success) return apiResponse.validationError(res, Object.fromEntries((validation.errors || []).map(e => [e.field, e.message])));
 
     const totals = calculatePOTotals(body.items);
-    const countRes = await sql`SELECT COUNT(*) as cnt FROM purchase_orders` as Row[];
+    const countRes = await sql`SELECT COUNT(*) as cnt FROM purchase_orders WHERE company_id = ${companyId}::UUID` as Row[];
     const poNumber = generatePONumber(Number((countRes[0] as any)?.cnt || 0));
 
     const inserted = await sql`

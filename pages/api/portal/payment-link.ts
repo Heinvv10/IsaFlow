@@ -7,7 +7,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { createPaymentLink, getPaymentLink } from '@/modules/accounting/services/portalService';
 import { generatePayFastForm } from '@/modules/accounting/services/paymentGatewayService';
 import { sql } from '@/lib/neon';
@@ -69,6 +69,27 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!invoiceId || !clientId || !amount) {
       return apiResponse.badRequest(res, 'invoiceId, clientId, and amount are required');
     }
+
+    // Resolve the authenticated user's company
+    const userId = (req as AuthenticatedNextApiRequest).user.id;
+    const companyRows = (await sql`
+      SELECT company_id FROM company_users
+      WHERE user_id = ${userId}
+      ORDER BY is_default DESC, created_at ASC
+      LIMIT 1
+    `) as Row[];
+    if (companyRows.length === 0) {
+      return apiResponse.badRequest(res, 'No company assigned to this user');
+    }
+    const companyId = companyRows[0]!.company_id as string;
+
+    // Verify invoice belongs to this company
+    const invoice = (await sql`
+      SELECT id FROM customer_invoices
+      WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
+    `) as Row[];
+    if (invoice.length === 0) return apiResponse.notFound(res, 'Invoice not found');
+
     const token = await createPaymentLink(invoiceId, clientId, Number(amount));
     return apiResponse.success(res, { token, url: `/portal/pay/${token}` });
   }

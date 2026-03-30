@@ -73,7 +73,7 @@ export function checkPasswordStrength(password: string): {
   return {
     score: Math.min(score, 4),
     issues,
-    isValid: password.length >= 8 && issues.length <= 2,
+    isValid: score >= 3 && issues.length === 0,
   };
 }
 

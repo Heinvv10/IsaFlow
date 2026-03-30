@@ -10,12 +10,13 @@ type Row = Record<string, unknown>;
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
+  const companyId = (req as any).companyId as string;
   const { belowReorder } = req.query;
   let rows: Row[];
   if (belowReorder === 'true') {
-    rows = await sql`SELECT p.id, p.code, p.name, p.current_stock, p.reorder_level, p.reorder_quantity, p.avg_cost, p.selling_price, p.unit, p.category FROM products p WHERE p.is_active = true AND p.product_type = 'inventory' AND p.current_stock <= p.reorder_level ORDER BY p.current_stock ASC` as Row[];
+    rows = await sql`SELECT p.id, p.code, p.name, p.current_stock, p.reorder_level, p.reorder_quantity, p.avg_cost, p.selling_price, p.unit, p.category FROM products p WHERE p.is_active = true AND p.product_type = 'inventory' AND p.current_stock <= p.reorder_level AND p.company_id = ${companyId}::UUID ORDER BY p.current_stock ASC` as Row[];
   } else {
-    rows = await sql`SELECT p.id, p.code, p.name, p.current_stock, p.reorder_level, p.reorder_quantity, p.avg_cost, p.selling_price, p.unit, p.category, (p.current_stock * p.avg_cost) as stock_value FROM products p WHERE p.is_active = true AND p.product_type = 'inventory' ORDER BY p.name` as Row[];
+    rows = await sql`SELECT p.id, p.code, p.name, p.current_stock, p.reorder_level, p.reorder_quantity, p.avg_cost, p.selling_price, p.unit, p.category, (p.current_stock * p.avg_cost) as stock_value FROM products p WHERE p.is_active = true AND p.product_type = 'inventory' AND p.company_id = ${companyId}::UUID ORDER BY p.name` as Row[];
   }
   const summary = {
     totalProducts: rows.length,

@@ -12,15 +12,16 @@ import { validateLeaveApplication } from '@/modules/accounting/services/leaveSer
 type Row = Record<string, unknown>;
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
+  const companyId = (req as any).companyId as string;
   if (req.method === 'GET') {
     const { employeeId, status } = req.query;
     let rows: Row[];
     if (employeeId) {
-      rows = await sql`SELECT la.*, e.first_name, e.last_name, lt.name as leave_type_name FROM leave_applications la JOIN employees e ON la.employee_id = e.id JOIN leave_types lt ON la.leave_type_id = lt.id WHERE la.employee_id = ${String(employeeId)} ORDER BY la.start_date DESC` as Row[];
+      rows = await sql`SELECT la.*, e.first_name, e.last_name, lt.name as leave_type_name FROM leave_applications la JOIN employees e ON la.employee_id = e.id JOIN leave_types lt ON la.leave_type_id = lt.id WHERE la.employee_id = ${String(employeeId)} AND la.company_id = ${companyId}::UUID ORDER BY la.start_date DESC` as Row[];
     } else if (status) {
-      rows = await sql`SELECT la.*, e.first_name, e.last_name, lt.name as leave_type_name FROM leave_applications la JOIN employees e ON la.employee_id = e.id JOIN leave_types lt ON la.leave_type_id = lt.id WHERE la.status = ${String(status)} ORDER BY la.start_date DESC` as Row[];
+      rows = await sql`SELECT la.*, e.first_name, e.last_name, lt.name as leave_type_name FROM leave_applications la JOIN employees e ON la.employee_id = e.id JOIN leave_types lt ON la.leave_type_id = lt.id WHERE la.status = ${String(status)} AND la.company_id = ${companyId}::UUID ORDER BY la.start_date DESC` as Row[];
     } else {
-      rows = await sql`SELECT la.*, e.first_name, e.last_name, lt.name as leave_type_name FROM leave_applications la JOIN employees e ON la.employee_id = e.id JOIN leave_types lt ON la.leave_type_id = lt.id ORDER BY la.created_at DESC LIMIT 200` as Row[];
+      rows = await sql`SELECT la.*, e.first_name, e.last_name, lt.name as leave_type_name FROM leave_applications la JOIN employees e ON la.employee_id = e.id JOIN leave_types lt ON la.leave_type_id = lt.id WHERE la.company_id = ${companyId}::UUID ORDER BY la.created_at DESC LIMIT 200` as Row[];
     }
     return apiResponse.success(res, rows);
   }

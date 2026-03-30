@@ -25,8 +25,10 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
       FROM employees e
       LEFT JOIN payslips ps ON ps.employee_id = e.id
       LEFT JOIN payroll_runs pr ON ps.payroll_run_id = pr.id AND EXTRACT(YEAR FROM pr.period_end) = ${yr}
+      WHERE e.company_id = ${req.companyId}::UUID
       GROUP BY e.id, e.first_name, e.last_name, e.id_number, e.tax_number
       ORDER BY e.last_name
+      LIMIT 500
     ` as Row[];
     return apiResponse.success(res, rows);
   }
@@ -36,8 +38,8 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
     if (!employeeId) return apiResponse.badRequest(res, 'employeeId is required');
     const yr = taxYear || new Date().getFullYear();
 
-    // Get employee
-    const employees = await sql`SELECT * FROM employees WHERE id = ${employeeId}` as Row[];
+    // Get employee — scoped to company
+    const employees = await sql`SELECT * FROM employees WHERE id = ${employeeId} AND company_id = ${req.companyId}::UUID` as Row[];
     if (!employees[0]) return apiResponse.notFound(res, 'Employee', employeeId);
     const emp = employees[0] as any;
 

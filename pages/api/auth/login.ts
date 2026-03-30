@@ -14,6 +14,8 @@ import { signToken } from '@/lib/auth/jwt';
 import { createSession } from '@/lib/auth/session';
 import { AUTH_COOKIE_NAME } from '@/lib/auth/middleware';
 import type { AuthRole } from '@/lib/auth/types';
+import { get2FAStatus, isTrustedDevice } from '@/modules/auth/services/twoFactorService';
+import { checkRateLimit } from '@/lib/rateLimit';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
@@ -23,7 +25,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return apiResponse.methodNotAllowed(res, req.method ?? 'unknown', ['POST']);
   }
 
-  const { email, password } = req.body as { email?: string; password?: string };
+  // Rate limit: 5 attempts per IP per 15 minutes
+  const rawIp = Array.isArray(req.headers['x-forwarded-for'])
+    ? req.headers['x-forwarded-for'][0]
+    : req.headers['x-forwarded-for'] ?? req.socket.remoteAddress;
+  const ip: string = rawIp ?? 'unknown';
+  if (checkRateLimit(ip, { windowMs: 15 * 60 * 1000, maxRequests: 5 })) {
+    return res.status(429).json({
+      success: false,
+      error: { code: 'RATE_LIMITED', message: 'Too many attempts. Please try again later.' },
+    });
+  }
+
+  const { email, password, deviceFingerprint } = req.body as {
+    email?: string;
+    password?: string;
+    deviceFingerprint?: string;
+  };
 
   if (!email || !password) {
     return apiResponse.badRequest(res, 'Email and password are required');
@@ -33,7 +51,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Look up user by email
     const rows = (await sql`
       SELECT id, email, password_hash, first_name, last_name, role,
-             is_active, permissions, profile_picture, department, onboarding_completed
+             is_active, permissions, profile_picture, department, onboarding_completed,
+             failed_login_attempts, locked_until
       FROM users
       WHERE email = ${email.toLowerCase().trim()}
       LIMIT 1
@@ -57,13 +76,73 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
 
+    // Check account lockout
+    if (user.locked_until) {
+      const lockedUntil = user.locked_until instanceof Date ? user.locked_until : new Date(user.locked_until as string);
+      if (lockedUntil > new Date()) {
+        const minutesRemaining = Math.ceil((lockedUntil.getTime() - Date.now()) / 60000);
+        return res.status(403).json({
+          success: false,
+          error: {
+            code: 'ACCOUNT_LOCKED',
+            message: `Account locked due to too many failed attempts. Try again in ${minutesRemaining} minute(s).`,
+          },
+        });
+      }
+    }
+
     // Verify password
     const passwordValid = await verifyPassword(password, user.password_hash as string);
     if (!passwordValid) {
+      // Increment failed attempts; lock after 10 failures
+      const attempts = ((user.failed_login_attempts as number) ?? 0) + 1;
+      if (attempts >= 10) {
+        await sql`
+          UPDATE users
+          SET failed_login_attempts = ${attempts},
+              locked_until = NOW() + INTERVAL '30 minutes'
+          WHERE id = ${user.id as string}
+        `;
+        log.warn('Account locked after failed attempts', { userId: user.id, attempts }, 'auth/login');
+      } else {
+        await sql`
+          UPDATE users SET failed_login_attempts = ${attempts} WHERE id = ${user.id as string}
+        `;
+      }
       return res.status(401).json({
         success: false,
         error: { code: 'INVALID_CREDENTIALS', message: 'Invalid email or password' },
       });
+    }
+
+    // Check 2FA before creating a full session
+    const twoFAStatus = await get2FAStatus(String(user.id));
+    if (twoFAStatus.enabled) {
+      // Check if device is already trusted
+      const trusted = deviceFingerprint
+        ? await isTrustedDevice(String(user.id), deviceFingerprint)
+        : false;
+
+      if (!trusted) {
+        // Issue a short-lived temp token (5 min) — no DB session yet
+        const tempAuthUser = {
+          id: String(user.id),
+          userId: String(user.id),
+          email: user.email as string,
+          firstName: (user.first_name as string) || '',
+          lastName: (user.last_name as string) || '',
+          name: '',
+          role: user.role as AuthRole,
+          permissions: [],
+          isActive: true,
+        };
+        const tempToken = await signToken(tempAuthUser, '2fa-pending', '5m');
+        log.info('2FA required — temp token issued', { userId: user.id }, 'auth/login');
+        return res.status(200).json({
+          success: true,
+          data: { requiresTwoFactor: true, tempToken },
+        });
+      }
     }
 
     const firstName = (user.first_name as string) || '';
@@ -89,6 +168,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       : req.headers['x-forwarded-for'] ?? req.socket.remoteAddress;
     const userAgent = req.headers['user-agent'];
 
+    // Reset failed login attempts on successful password verification
+    await sql`
+      UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = ${authUser.id}
+    `;
+
     // Create session first, then sign token with the real sessionId
     // We pass a temporary token to createSession, then update the hash
     const tempToken = await signToken(authUser, 'pending');
@@ -104,13 +188,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       UPDATE user_sessions SET token_hash = ${finalHash} WHERE id = ${Number(session.id)}
     `;
 
-    // Set HttpOnly cookie
+    // Set HttpOnly cookie — 8h session, always secure
     const authCookieString = serialize(AUTH_COOKIE_NAME, finalToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: true,
       sameSite: 'strict',
       path: '/',
-      maxAge: 30 * 24 * 60 * 60, // 30 days
+      maxAge: 8 * 60 * 60, // 8 hours
     });
 
     // Auto-accept any pending company invitations for this email

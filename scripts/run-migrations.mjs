@@ -68,7 +68,8 @@ async function runMigrations() {
   console.log('Seeding admin user...');
   try {
     const bcrypt = await import('bcryptjs');
-    const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
+    const adminPassword = process.env.ADMIN_PASSWORD;
+    if (!adminPassword) throw new Error('ADMIN_PASSWORD environment variable is required');
     const hash = await bcrypt.hash(adminPassword, 12);
     await client.query(`
       INSERT INTO users (id, email, password_hash, first_name, last_name, role, permissions, is_active)

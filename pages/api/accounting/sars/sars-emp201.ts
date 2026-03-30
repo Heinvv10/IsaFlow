@@ -9,6 +9,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
+import { isValidDate } from '@/lib/validation';
 import {
   generateEMP201,
   saveDraftSubmission,
@@ -25,6 +26,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!from || !to) {
       return apiResponse.badRequest(res, 'from and to query parameters are required (YYYY-MM-DD)');
     }
+    if (!isValidDate(from) || !isValidDate(to)) {
+      return apiResponse.badRequest(res, 'from and to must be valid dates in YYYY-MM-DD format');
+    }
 
     try {
       const emp201 = await generateEMP201(companyId, from, to);
@@ -40,6 +44,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     if (!periodStart || !periodEnd) {
       return apiResponse.badRequest(res, 'periodStart and periodEnd are required');
+    }
+    if (!isValidDate(periodStart) || !isValidDate(periodEnd)) {
+      return apiResponse.badRequest(res, 'periodStart and periodEnd must be valid dates in YYYY-MM-DD format');
     }
 
     try {

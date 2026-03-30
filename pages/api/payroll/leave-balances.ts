@@ -10,13 +10,14 @@ type Row = Record<string, unknown>;
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
+  const companyId = (req as any).companyId as string;
   const { employeeId, year } = req.query;
   const yr = year ? Number(year) : new Date().getFullYear();
   if (employeeId) {
-    const rows = await sql`SELECT lb.*, lt.name as leave_type_name FROM leave_balances lb JOIN leave_types lt ON lb.leave_type_id = lt.id WHERE lb.employee_id = ${String(employeeId)} AND lb.year = ${yr} ORDER BY lt.name` as Row[];
+    const rows = await sql`SELECT lb.*, lt.name as leave_type_name FROM leave_balances lb JOIN leave_types lt ON lb.leave_type_id = lt.id JOIN employees e ON lb.employee_id = e.id WHERE lb.employee_id = ${String(employeeId)} AND e.company_id = ${companyId}::UUID AND lb.year = ${yr} ORDER BY lt.name` as Row[];
     return apiResponse.success(res, rows);
   }
-  const rows = await sql`SELECT lb.*, lt.name as leave_type_name, e.first_name, e.last_name FROM leave_balances lb JOIN leave_types lt ON lb.leave_type_id = lt.id JOIN employees e ON lb.employee_id = e.id WHERE lb.year = ${yr} ORDER BY e.last_name, lt.name` as Row[];
+  const rows = await sql`SELECT lb.*, lt.name as leave_type_name, e.first_name, e.last_name FROM leave_balances lb JOIN leave_types lt ON lb.leave_type_id = lt.id JOIN employees e ON lb.employee_id = e.id WHERE e.company_id = ${companyId}::UUID AND lb.year = ${yr} ORDER BY e.last_name, lt.name` as Row[];
   return apiResponse.success(res, rows);
 }
 export default withCompany(withErrorHandler(handler as any));

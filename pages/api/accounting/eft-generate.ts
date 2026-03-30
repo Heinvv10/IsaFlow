@@ -27,20 +27,21 @@ const GENERATORS: Record<string, typeof generateStandardBankACB> = {
 async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
 
+  const { companyId } = req;
   const { batchId, bank } = req.body;
   if (!batchId) return apiResponse.badRequest(res, 'batchId is required');
   if (!bank || !GENERATORS[bank]) return apiResponse.badRequest(res, `Invalid bank. Supported: ${Object.keys(GENERATORS).join(', ')}`);
 
-  // Get batch details
-  const batches = await sql`SELECT * FROM supplier_payment_batches WHERE id = ${batchId}` as Row[];
+  // Get batch details — scoped to company
+  const batches = await sql`SELECT * FROM supplier_payment_batches WHERE id = ${batchId} AND company_id = ${companyId}::UUID` as Row[];
   if (!batches[0]) return apiResponse.notFound(res, 'Batch', batchId);
 
-  // Get payments in batch
+  // Get payments in batch — scoped to company via batch ownership already validated above
   const payments = await sql`
     SELECT sp.*, s.name as supplier_name, s.bank_account_number, s.bank_branch_code, s.bank_account_type, s.bank_name
     FROM supplier_payments sp
     JOIN suppliers s ON sp.supplier_id = s.id
-    WHERE sp.batch_id = ${batchId}
+    WHERE sp.batch_id = ${batchId} AND sp.company_id = ${companyId}::UUID
     ORDER BY sp.created_at
   ` as Row[];
 
