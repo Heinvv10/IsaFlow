@@ -13,6 +13,7 @@ import {
   Wrench,
   ScrollText,
   Settings,
+  BarChart2,
   ChevronRight,
   List,
   FileText,
@@ -51,8 +52,9 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Announcements',  href: '/admin/tools/announcements', icon: Megaphone },
     ],
   },
-  { label: 'Audit Trail', href: '/admin/audit',     icon: ScrollText },
-  { label: 'Settings',    href: '/admin/settings',  icon: Settings,   disabled: true },
+  { label: 'Audit Trail', href: '/admin/audit',      icon: ScrollText },
+  { label: 'Analytics',  href: '/admin/analytics',  icon: BarChart2 },
+  { label: 'Settings',   href: '/admin/settings',   icon: Settings },
 ];
 
 export function AdminNav() {

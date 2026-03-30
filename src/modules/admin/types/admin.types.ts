@@ -218,3 +218,33 @@ export interface Announcement {
   created_by: string;
   created_at: string;
 }
+
+export interface PlatformHealth {
+  active_users_24h: number;
+  active_users_7d: number;
+  active_users_30d: number;
+  total_api_calls_24h: number;
+  error_count_24h: number;
+  error_rate_percent: number;
+  db_size_mb: number;
+  top_companies_by_size: Array<{ company_id: string; company_name: string; size_mb: number }>;
+}
+
+export interface UsageAnalytics {
+  dau: number;
+  wau: number;
+  mau: number;
+  stickiness_percent: number;
+  top_pages: Array<{ path: string; views: number }>;
+  feature_adoption: Array<{ feature: string; adoption_percent: number; user_count: number }>;
+  revenue_by_plan: Array<{ plan_name: string; mrr_cents: number; company_count: number }>;
+  churn_signals: Array<{ company_id: string; company_name: string; days_inactive: number; last_login: string | null }>;
+}
+
+export interface PlatformSettings {
+  maintenance_mode: boolean;
+  registration_enabled: boolean;
+  default_trial_days: number;
+  max_companies_per_user: number;
+  smtp_configured: boolean;
+}
