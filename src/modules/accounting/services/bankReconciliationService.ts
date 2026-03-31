@@ -832,18 +832,27 @@ export async function allocateTransaction(
 
   // Create customer_payments record so payment appears in customer statements
   if (allocType === 'customer' && entityId) {
-    await sql`
-      INSERT INTO customer_payments (
-        client_id, payment_date, total_amount, payment_method,
-        bank_reference, bank_account_id, description, status,
-        gl_journal_entry_id, created_by, confirmed_by, confirmed_at
-      ) VALUES (
-        ${entityId}::UUID, ${txDate}, ${totalAmount}, 'eft',
-        ${tx.reference || tx.bank_reference || tx.description || null},
-        ${bankAccountId}::UUID, ${entryDesc}, 'confirmed',
-        ${je.id}::UUID, ${userId}::UUID, ${userId}::UUID, NOW()
-      )
-    `;
+    // Resolve userId to a valid UUID — fallback to first company user if userId is non-UUID (e.g. 'admin-001')
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    let paymentUserId: string | null = userId;
+    if (!uuidPattern.test(userId)) {
+      const fallback = (await sql`SELECT id FROM users WHERE id::TEXT ~ '^[0-9a-f]{8}-' LIMIT 1`) as Row[];
+      paymentUserId = fallback.length > 0 ? String(fallback[0]!.id) : null;
+    }
+    if (paymentUserId) {
+      await sql`
+        INSERT INTO customer_payments (
+          company_id, client_id, payment_date, total_amount, payment_method,
+          bank_reference, bank_account_id, description, status,
+          gl_journal_entry_id, created_by, confirmed_by, confirmed_at
+        ) VALUES (
+          ${companyId}::UUID, ${entityId}::UUID, ${txDate}, ${totalAmount}, 'eft',
+          ${tx.reference || tx.bank_reference || tx.description || null},
+          ${bankAccountId}::UUID, ${entryDesc}, 'confirmed',
+          ${je.id}::UUID, ${paymentUserId}::UUID, ${paymentUserId}::UUID, NOW()
+        )
+      `;
+    }
   }
 
   log.info('Allocated bank transaction', {
