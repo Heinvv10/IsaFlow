@@ -139,116 +139,127 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Extract entity name from description for targeted filtering
     const extractedEntity = extractEntityName(txDesc);
 
+    // Direction-based logic:
+    // Positive amount (receipt/deposit) → show customer invoices only
+    // Negative amount (payment/debit)   → show supplier invoices & POs only
+    // Journal lines always shown as fallback
+    const isReceipt = txAmount > 0;
+
     const candidates: MatchCandidate[] = [];
 
-    // ── 1. Supplier invoices ─────────────────────────────────────────────────
-    // First try to find the specific supplier, then query their invoices
-    const allSupplierInvRows = (await sql`
-      SELECT si.id, si.invoice_number, COALESCE(s.company_name, s.name) AS supplier_name,
-             si.total_amount, si.invoice_date
-      FROM supplier_invoices si
-      JOIN suppliers s ON s.id = si.supplier_id
-      WHERE si.status IN ('approved', 'partially_paid')
-        AND si.company_id = ${companyId}
-      ORDER BY ABS(si.total_amount - ${absAmount}::NUMERIC) ASC
-      LIMIT 50
-    `) as Row[];
+    // ── 1. Supplier invoices (payments only) ────────────────────────────────
+    if (!isReceipt) {
+      const allSupplierInvRows = (await sql`
+        SELECT si.id, si.invoice_number, COALESCE(s.company_name, s.name) AS supplier_name,
+               si.total_amount, si.invoice_date
+        FROM supplier_invoices si
+        JOIN suppliers s ON s.id = si.supplier_id
+        WHERE si.status IN ('approved', 'partially_paid')
+          AND si.company_id = ${companyId}
+        ORDER BY ABS(si.total_amount - ${absAmount}::NUMERIC) ASC
+        LIMIT 50
+      `) as Row[];
 
-    // Filter to matched entity if possible, otherwise show top by amount
-    let supplierInvRows = allSupplierInvRows;
-    if (extractedEntity) {
-      const filtered = allSupplierInvRows.filter((r: Row) =>
-        entityNameMatches(String(r.supplier_name), extractedEntity));
-      if (filtered.length > 0) supplierInvRows = filtered;
+      // Filter to matched entity if possible
+      let supplierInvRows = allSupplierInvRows;
+      if (extractedEntity) {
+        const filtered = allSupplierInvRows.filter((r: Row) =>
+          entityNameMatches(String(r.supplier_name), extractedEntity));
+        if (filtered.length > 0) supplierInvRows = filtered;
+      }
+
+      for (const row of supplierInvRows.slice(0, 20)) {
+        const label = `${String(row.supplier_name)} — Inv ${String(row.invoice_number)}`;
+        const candAmount = Number(row.total_amount);
+        const candDate = fmtDate(row.invoice_date);
+        const score = scoreAmount(txAmount, candAmount)
+          + scoreDate(txDate, candDate)
+          + scoreDescription(txDesc, label);
+        candidates.push({
+          type: 'supplier_invoice',
+          id: String(row.id),
+          label,
+          amount: candAmount,
+          date: candDate,
+          score,
+        });
+      }
     }
 
-    for (const row of supplierInvRows.slice(0, 20)) {
-      const label = `${String(row.supplier_name)} — Inv ${String(row.invoice_number)}`;
-      const candAmount = Number(row.total_amount);
-      const candDate = fmtDate(row.invoice_date);
-      const score = scoreAmount(txAmount, candAmount)
-        + scoreDate(txDate, candDate)
-        + scoreDescription(txDesc, label);
-      candidates.push({
-        type: 'supplier_invoice',
-        id: String(row.id),
-        label,
-        amount: candAmount,
-        date: candDate,
-        score,
-      });
+    // ── 2. Customer invoices (receipts only) ─────────────────────────────────
+    if (isReceipt) {
+      const allCustInvRows = (await sql`
+        SELECT ci.id, ci.invoice_number, c.name AS customer_name,
+               ci.total_amount, ci.invoice_date, ci.amount_paid
+        FROM customer_invoices ci
+        JOIN customers c ON c.id = ci.customer_id
+        WHERE ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
+          AND ci.company_id = ${companyId}
+        ORDER BY ABS(ci.total_amount - ci.amount_paid - ${absAmount}::NUMERIC) ASC
+        LIMIT 50
+      `) as Row[];
+
+      let custInvRows = allCustInvRows;
+      if (extractedEntity) {
+        const filtered = allCustInvRows.filter((r: Row) =>
+          entityNameMatches(String(r.customer_name), extractedEntity));
+        if (filtered.length > 0) custInvRows = filtered;
+      }
+
+      for (const row of custInvRows.slice(0, 20)) {
+        const label = `${String(row.customer_name)} — Inv ${String(row.invoice_number)}`;
+        const balance = Number(row.total_amount) - Number(row.amount_paid || 0);
+        const candDate = fmtDate(row.invoice_date);
+        const score = scoreAmount(txAmount, balance)
+          + scoreDate(txDate, candDate)
+          + scoreDescription(txDesc, label);
+        candidates.push({
+          type: 'customer_invoice',
+          id: String(row.id),
+          label,
+          amount: balance,
+          date: candDate,
+          score,
+        });
+      }
     }
 
-    // ── 2. Customer invoices (for incoming payments / EFT REC) ───────────────
-    const allCustInvRows = (await sql`
-      SELECT ci.id, ci.invoice_number, c.name AS customer_name,
-             ci.total_amount, ci.invoice_date, ci.amount_paid
-      FROM customer_invoices ci
-      JOIN customers c ON c.id = ci.customer_id
-      WHERE ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
-        AND ci.company_id = ${companyId}
-      ORDER BY ABS(ci.total_amount - ci.amount_paid - ${absAmount}::NUMERIC) ASC
-      LIMIT 50
-    `) as Row[];
+    // ── 3. Purchase orders (payments only) ───────────────────────────────────
+    if (!isReceipt) {
+      const allPoRows = (await sql`
+        SELECT po.id, po.po_number, COALESCE(s.company_name, s.name) AS supplier_name,
+               po.total, po.created_at
+        FROM purchase_orders po
+        JOIN suppliers s ON s.id = po.supplier_id
+        WHERE po.status IN ('approved', 'partially_paid')
+          AND po.company_id = ${companyId}
+        ORDER BY ABS(po.total - ${absAmount}::NUMERIC) ASC
+        LIMIT 50
+      `) as Row[];
 
-    let custInvRows = allCustInvRows;
-    if (extractedEntity) {
-      const filtered = allCustInvRows.filter((r: Row) =>
-        entityNameMatches(String(r.customer_name), extractedEntity));
-      if (filtered.length > 0) custInvRows = filtered;
-    }
+      let poRows = allPoRows;
+      if (extractedEntity) {
+        const filtered = allPoRows.filter((r: Row) =>
+          entityNameMatches(String(r.supplier_name), extractedEntity));
+        if (filtered.length > 0) poRows = filtered;
+      }
 
-    for (const row of custInvRows.slice(0, 20)) {
-      const label = `${String(row.customer_name)} — Inv ${String(row.invoice_number)}`;
-      const balance = Number(row.total_amount) - Number(row.amount_paid || 0);
-      const candDate = fmtDate(row.invoice_date);
-      const score = scoreAmount(txAmount, balance)
-        + scoreDate(txDate, candDate)
-        + scoreDescription(txDesc, label);
-      candidates.push({
-        type: 'customer_invoice',
-        id: String(row.id),
-        label,
-        amount: balance,
-        date: candDate,
-        score,
-      });
-    }
-
-    // ── 3. Purchase orders ───────────────────────────────────────────────────
-    const allPoRows = (await sql`
-      SELECT po.id, po.po_number, COALESCE(s.company_name, s.name) AS supplier_name,
-             po.total, po.created_at
-      FROM purchase_orders po
-      JOIN suppliers s ON s.id = po.supplier_id
-      WHERE po.status IN ('approved', 'partially_paid')
-        AND po.company_id = ${companyId}
-      ORDER BY ABS(po.total - ${absAmount}::NUMERIC) ASC
-      LIMIT 50
-    `) as Row[];
-
-    let poRows = allPoRows;
-    if (extractedEntity) {
-      const filtered = allPoRows.filter((r: Row) =>
-        entityNameMatches(String(r.supplier_name), extractedEntity));
-      if (filtered.length > 0) poRows = filtered;
-    }
-
-    for (const row of poRows.slice(0, 20)) {
-      const label = `${String(row.supplier_name)} — PO ${String(row.po_number)}`;
-      const candAmount = Number(row.total);
-      const candDate = fmtDate(row.created_at);
-      const score = scoreAmount(txAmount, candAmount)
-        + scoreDate(txDate, candDate)
-        + scoreDescription(txDesc, label);
-      candidates.push({
-        type: 'purchase_order',
-        id: String(row.id),
-        label,
-        amount: candAmount,
-        date: candDate,
-        score,
-      });
+      for (const row of poRows.slice(0, 20)) {
+        const label = `${String(row.supplier_name)} — PO ${String(row.po_number)}`;
+        const candAmount = Number(row.total);
+        const candDate = fmtDate(row.created_at);
+        const score = scoreAmount(txAmount, candAmount)
+          + scoreDate(txDate, candDate)
+          + scoreDescription(txDesc, label);
+        candidates.push({
+          type: 'purchase_order',
+          id: String(row.id),
+          label,
+          amount: candAmount,
+          date: candDate,
+          score,
+        });
+      }
     }
 
     // ── 4. GL journal lines ──────────────────────────────────────────────────
