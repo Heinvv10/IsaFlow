@@ -119,7 +119,36 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       });
     }
 
-    // ── 2. Purchase orders ───────────────────────────────────────────────────
+    // ── 2. Customer invoices (for incoming payments / EFT REC) ────────────────
+    const custInvRows = (await sql`
+      SELECT ci.id, ci.invoice_number, c.name AS customer_name,
+             ci.total_amount, ci.invoice_date, ci.amount_paid
+      FROM customer_invoices ci
+      JOIN customers c ON c.id = ci.customer_id
+      WHERE ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
+        AND ci.company_id = ${companyId}
+      ORDER BY ABS(ci.total_amount - ci.amount_paid - ${absAmount}::NUMERIC) ASC
+      LIMIT 20
+    `) as Row[];
+
+    for (const row of custInvRows) {
+      const label = `${String(row.customer_name)} — Inv ${String(row.invoice_number)}`;
+      const balance = Number(row.total_amount) - Number(row.amount_paid || 0);
+      const candDate = fmtDate(row.invoice_date);
+      const score = scoreAmount(txAmount, balance)
+        + scoreDate(txDate, candDate)
+        + scoreDescription(txDesc, label);
+      candidates.push({
+        type: 'customer_invoice',
+        id: String(row.id),
+        label,
+        amount: balance,
+        date: candDate,
+        score,
+      });
+    }
+
+    // ── 3. Purchase orders ───────────────────────────────────────────────────
     const poRows = (await sql`
       SELECT po.id, po.po_number, s.company_name AS supplier_name,
              po.total_amount, po.created_at
@@ -127,6 +156,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       JOIN suppliers s ON s.id = po.supplier_id
       WHERE po.status IN ('approved', 'partially_paid')
         AND po.bank_transaction_id IS NULL
+        AND po.company_id = ${companyId}
       ORDER BY ABS(po.total_amount - ${absAmount}::NUMERIC) ASC
       LIMIT 20
     `) as Row[];
@@ -148,7 +178,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       });
     }
 
-    // ── 3. GL journal lines ──────────────────────────────────────────────────
+    // ── 4. GL journal lines ──────────────────────────────────────────────────
     const jlRows = (await sql`
       SELECT jl.id, jl.description, jl.debit, jl.credit, je.entry_date
       FROM gl_journal_lines jl

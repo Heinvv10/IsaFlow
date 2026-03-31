@@ -246,10 +246,10 @@ export default function BankTransactionsPage() {
   };
 
   // Fire-and-forget: persist dropdown selection to DB so it survives page refresh
-  const saveSelection = (txId: string, type: AllocType, entityId: string) => {
+  const saveSelection = (txId: string, type: AllocType, entityId: string, vatCode?: string) => {
     apiFetch('/api/accounting/bank-transactions-action', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-      body: JSON.stringify({ action: 'save_selection', bankTransactionId: txId, selectionType: type, selectionEntityId: entityId || null }),
+      body: JSON.stringify({ action: 'save_selection', bankTransactionId: txId, selectionType: type, selectionEntityId: entityId || null, vatCode: vatCode || null }),
     }).catch(() => { /* fire-and-forget: selection persist failure is non-critical, selection still shown in UI */ });
   };
 
@@ -818,13 +818,16 @@ export default function BankTransactionsPage() {
                   ...prev,
                   [txId]: { ...prev[txId], type, entityId, label, vatCode },
                 }));
-                saveSelection(txId, type as AllocType, entityId);
+                saveSelection(txId, type as AllocType, entityId, vatCode);
               }}
-              onRowVatChange={(txId, vatCode) =>
+              onRowVatChange={(txId, vatCode) => {
                 setRowSelections(prev => ({
                   ...prev,
                   [txId]: { ...prev[txId], type: prev[txId]?.type || 'account', entityId: prev[txId]?.entityId || '', label: prev[txId]?.label || '', vatCode },
-                }))
+                }));
+                const sel = rowSelections[txId];
+                if (sel?.entityId) saveSelection(txId, sel.type, sel.entityId, vatCode);
+              }
               }
               onRowDimensionChange={(txId, cc1Id, cc2Id, buId) => {
                 setRowSelections(prev => ({ ...prev, [txId]: { ...prev[txId], type: prev[txId]?.type || 'account', entityId: prev[txId]?.entityId || '', label: prev[txId]?.label || '', vatCode: prev[txId]?.vatCode || 'none', cc1Id: cc1Id || undefined, cc2Id: cc2Id || undefined, buId: buId || undefined } }));

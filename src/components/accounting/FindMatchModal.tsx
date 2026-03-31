@@ -6,7 +6,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { X, Search, CheckCircle, FileText, ShoppingCart, BookOpen, Loader2 } from 'lucide-react';
+import { X, Search, CheckCircle, FileText, ShoppingCart, BookOpen, Loader2, Users } from 'lucide-react';
 import { notify } from '@/utils/toast';
 import { apiFetch } from '@/lib/apiFetch';
 import type { MatchCandidate, CandidateType } from '@/modules/accounting/types/bank-match.types';
@@ -30,13 +30,15 @@ function fmtCurrency(n: number): string {
 }
 
 const TYPE_META: Record<CandidateType, { label: string; icon: typeof FileText; colour: string }> = {
-  supplier_invoice: { label: 'Invoice', icon: FileText, colour: 'text-blue-400 bg-blue-400/10' },
+  supplier_invoice: { label: 'Supplier Inv', icon: FileText, colour: 'text-blue-400 bg-blue-400/10' },
+  customer_invoice: { label: 'Customer Inv', icon: Users, colour: 'text-teal-400 bg-teal-400/10' },
   purchase_order: { label: 'PO', icon: ShoppingCart, colour: 'text-amber-400 bg-amber-400/10' },
   journal_line: { label: 'Journal', icon: BookOpen, colour: 'text-purple-400 bg-purple-400/10' },
 };
 
-const GROUP_ORDER: CandidateType[] = ['supplier_invoice', 'purchase_order', 'journal_line'];
+const GROUP_ORDER: CandidateType[] = ['customer_invoice', 'supplier_invoice', 'purchase_order', 'journal_line'];
 const GROUP_TITLES: Record<CandidateType, string> = {
+  customer_invoice: 'Customer Invoices',
   supplier_invoice: 'Supplier Invoices',
   purchase_order: 'Purchase Orders',
   journal_line: 'Journal Lines',
@@ -89,7 +91,7 @@ export function FindMatchModal({ transaction, onClose, onMatch }: Props) {
   const grouped = GROUP_ORDER.reduce<Record<CandidateType, MatchCandidate[]>>((acc, type) => {
     acc[type] = filtered.filter(c => c.type === type);
     return acc;
-  }, { supplier_invoice: [], purchase_order: [], journal_line: [] });
+  }, { customer_invoice: [], supplier_invoice: [], purchase_order: [], journal_line: [] });
 
   const handleConfirm = async () => {
     if (!selected) return;

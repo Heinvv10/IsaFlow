@@ -121,11 +121,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         if (!bankTransactionId) return apiResponse.badRequest(res, 'bankTransactionId required');
         const selType: string = req.body.selectionType || 'account';
         const selEntityId: string | null = req.body.selectionEntityId || null;
+        const selVatCode: string | null = req.body.vatCode || null;
         await sql`
           UPDATE bank_transactions
           SET suggested_gl_account_id = ${selType === 'account' && selEntityId ? selEntityId : null}::UUID,
-              suggested_supplier_id = ${selType === 'supplier' && selEntityId ? Number(selEntityId) : null},
+              suggested_supplier_id = ${selType === 'supplier' && selEntityId ? selEntityId : null}::UUID,
               suggested_client_id = ${selType === 'customer' && selEntityId ? selEntityId : null}::UUID,
+              suggested_vat_code = ${selVatCode},
               updated_at = NOW()
           WHERE id = ${bankTransactionId}::UUID AND status = 'imported' AND company_id = ${companyId}
         `;
