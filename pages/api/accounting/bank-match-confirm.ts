@@ -170,6 +170,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, { matched: true, candidateType, candidateId });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Match confirmation failed';
+    const stack = err instanceof Error ? err.stack : '';
+    console.error('[MATCH-CONFIRM-ERROR]', message, stack);
     log.error('Failed to confirm bank match', { bankTransactionId, candidateType, candidateId, error: err }, 'accounting-api');
     return apiResponse.badRequest(res, message);
   }
