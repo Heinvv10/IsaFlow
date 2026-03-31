@@ -222,12 +222,15 @@ export function FindMatchModal({ transaction, onClose, onMatch }: Props) {
                           </span>
                         </div>
 
-                        {/* Date + score bar */}
+                        {/* Date + match reason + score */}
                         <div className="flex items-center gap-3 mt-1.5">
                           <span className="text-[10px] text-[var(--ff-text-tertiary)]">{c.date}</span>
+                          {c.matchReason && (
+                            <span className="text-[10px] text-teal-400 truncate">{c.matchReason}</span>
+                          )}
                           <div className="flex-1 h-1 rounded-full bg-[var(--ff-bg-secondary)] overflow-hidden">
                             <div
-                              className="h-full rounded-full bg-blue-500"
+                              className={`h-full rounded-full ${c.score >= 90 ? 'bg-teal-500' : c.score >= 50 ? 'bg-blue-500' : 'bg-[var(--ff-text-tertiary)]'}`}
                               style={{ width: `${Math.min(100, c.score)}%` }}
                             />
                           </div>
