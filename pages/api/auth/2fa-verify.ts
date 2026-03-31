@@ -16,11 +16,12 @@ import { log } from '@/lib/logger';
 import type { AuthRole } from '@/lib/auth/types';
 import { createHash } from 'crypto';
 import { checkRateLimit } from '@/lib/rateLimit';
+import { withErrorHandler } from '@/lib/api-error-handler';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method ?? 'unknown', ['POST']);
   }
@@ -165,3 +166,5 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return apiResponse.internalError(res, err);
   }
 }
+
+export default withErrorHandler(handler as any);

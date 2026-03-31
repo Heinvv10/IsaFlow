@@ -3,7 +3,7 @@
  * Customer Payment Service
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from './journalEntryService';
 import { getSystemAccount, getSystemAccountId } from './systemAccountResolver';
@@ -118,29 +118,33 @@ export async function createCustomerPayment(companyId: string,
       throw new Error(`Allocations total R${totalAllocated.toFixed(2)} does not match payment R${input.totalAmount.toFixed(2)}`);
     }
 
-    const rows = (await sql`
-      INSERT INTO customer_payments (
-        client_id, payment_date, total_amount, payment_method,
-        bank_reference, bank_account_id, description, project_id, created_by
-      ) VALUES (
-        ${input.clientId}::UUID, ${input.paymentDate}, ${input.totalAmount},
-        ${input.paymentMethod || 'eft'}, ${input.bankReference || null},
-        ${input.bankAccountId || null}, ${input.description || null},
-        ${input.projectId || null}, ${userId}::UUID
-      ) RETURNING *
-    `) as Row[];
+    const paymentRow = await withTransaction(async (tx) => {
+      const rows = (await tx`
+        INSERT INTO customer_payments (
+          client_id, payment_date, total_amount, payment_method,
+          bank_reference, bank_account_id, description, project_id, created_by
+        ) VALUES (
+          ${input.clientId}::UUID, ${input.paymentDate}, ${input.totalAmount},
+          ${input.paymentMethod || 'eft'}, ${input.bankReference || null},
+          ${input.bankAccountId || null}, ${input.description || null},
+          ${input.projectId || null}, ${userId}::UUID
+        ) RETURNING *
+      `) as Row[];
 
-    const paymentId = String(rows[0]!.id);
+      const paymentId = String(rows[0]!.id);
 
-    for (const alloc of input.allocations) {
-      await sql`
-        INSERT INTO customer_payment_allocations (payment_id, invoice_id, amount_allocated)
-        VALUES (${paymentId}::UUID, ${alloc.invoiceId}::UUID, ${alloc.amount})
-      `;
-    }
+      for (const alloc of input.allocations) {
+        await tx`
+          INSERT INTO customer_payment_allocations (payment_id, invoice_id, amount_allocated)
+          VALUES (${paymentId}::UUID, ${alloc.invoiceId}::UUID, ${alloc.amount})
+        `;
+      }
 
-    log.info('Created customer payment', { paymentId, totalAmount: input.totalAmount }, 'accounting');
-    return mapPaymentRow(rows[0]!);
+      return rows[0] as Row;
+    });
+
+    log.info('Created customer payment', { paymentId: String(paymentRow.id), totalAmount: input.totalAmount }, 'accounting');
+    return mapPaymentRow(paymentRow);
   } catch (err) {
     log.error('Failed to create customer payment', { error: err }, 'accounting');
     throw err;
@@ -179,31 +183,35 @@ export async function confirmCustomerPayment(companyId: string,
     }, userId);
     await postJournalEntry('', je.id, userId);
 
-    // Update invoice balances
-    for (const alloc of payment.allocations) {
-      await sql`
-        UPDATE customer_invoices SET amount_paid = amount_paid + ${alloc.amountAllocated}
-        WHERE id = ${alloc.invoiceId}::UUID
-      `;
-      await sql`
-        UPDATE customer_invoices SET status = CASE
-          WHEN (total_amount - amount_paid) <= 0.01 THEN 'paid'
-          WHEN amount_paid > 0 THEN 'partially_paid'
-          ELSE status
-        END, paid_at = CASE WHEN (total_amount - amount_paid) <= 0.01 THEN NOW() ELSE paid_at END
-        WHERE id = ${alloc.invoiceId}::UUID
-      `;
-    }
+    // Update invoice balances and mark payment confirmed atomically
+    const updated = await withTransaction(async (tx) => {
+      for (const alloc of payment.allocations) {
+        await tx`
+          UPDATE customer_invoices SET amount_paid = amount_paid + ${alloc.amountAllocated}
+          WHERE id = ${alloc.invoiceId}::UUID
+        `;
+        await tx`
+          UPDATE customer_invoices SET status = CASE
+            WHEN (total_amount - amount_paid) <= 0.01 THEN 'paid'
+            WHEN amount_paid > 0 THEN 'partially_paid'
+            ELSE status
+          END, paid_at = CASE WHEN (total_amount - amount_paid) <= 0.01 THEN NOW() ELSE paid_at END
+          WHERE id = ${alloc.invoiceId}::UUID
+        `;
+      }
 
-    const updated = (await sql`
-      UPDATE customer_payments
-      SET status = 'confirmed', confirmed_by = ${userId}::UUID, confirmed_at = NOW(),
-          gl_journal_entry_id = ${je.id}::UUID
-      WHERE id = ${id} RETURNING *
-    `) as Row[];
+      const rows = (await tx`
+        UPDATE customer_payments
+        SET status = 'confirmed', confirmed_by = ${userId}::UUID, confirmed_at = NOW(),
+            gl_journal_entry_id = ${je.id}::UUID
+        WHERE id = ${id} RETURNING *
+      `) as Row[];
+
+      return rows[0] as Row;
+    });
 
     log.info('Confirmed customer payment', { id, journalEntryId: je.id }, 'accounting');
-    return mapPaymentRow(updated[0]!);
+    return mapPaymentRow(updated);
   } catch (err) {
     log.error('Failed to confirm customer payment', { id, error: err }, 'accounting');
     throw err;

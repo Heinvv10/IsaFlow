@@ -4,7 +4,7 @@
  * Subscription operations are in billingService.ts.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { InvoiceListItem, PaginatedResult } from '../types/admin.types';
 
@@ -133,36 +133,40 @@ export async function createInvoice(data: {
   } = data;
 
   // Sequential invoice number: INV-YYYYMM-XXXX
-  const yyyymm = new Date().toISOString().slice(0, 7).replace('-', '');
-  const prefix = `INV-${yyyymm}-`;
+  // Wrapped in a transaction to prevent race conditions on sequence generation.
+  const id = await withTransaction(async (tx) => {
+    const yyyymm = new Date().toISOString().slice(0, 7).replace('-', '');
+    const prefix = `INV-${yyyymm}-`;
 
-  const seqRows = await sql`
-    SELECT COUNT(*) AS count FROM admin_invoices
-    WHERE invoice_number LIKE ${prefix + '%'}
-  `;
-  const seq = parseInt((seqRows[0] as Row).count as string, 10) + 1;
-  const invoice_number = `${prefix}${String(seq).padStart(4, '0')}`;
+    const seqRows = (await tx`
+      SELECT COUNT(*) AS count FROM admin_invoices
+      WHERE invoice_number LIKE ${prefix + '%'}
+    `) as Row[];
+    const seq = parseInt((seqRows[0] as Row).count as string, 10) + 1;
+    const invoice_number = `${prefix}${String(seq).padStart(4, '0')}`;
 
-  const rows = await sql`
-    INSERT INTO admin_invoices (
-      company_id, subscription_id, invoice_number, status,
-      subtotal_cents, tax_cents, total_cents, currency,
-      due_date, line_items, notes, created_at
-    ) VALUES (
-      ${company_id}::uuid,
-      ${subscription_id}::uuid,
-      ${invoice_number}, 'draft',
-      ${subtotal_cents}, ${tax_cents}, ${total_cents}, 'ZAR',
-      ${due_date}::date,
-      ${JSON.stringify(line_items)}::jsonb,
-      ${notes},
-      NOW()
-    )
-    RETURNING id
-  `;
+    const rows = (await tx`
+      INSERT INTO admin_invoices (
+        company_id, subscription_id, invoice_number, status,
+        subtotal_cents, tax_cents, total_cents, currency,
+        due_date, line_items, notes, created_at
+      ) VALUES (
+        ${company_id}::uuid,
+        ${subscription_id}::uuid,
+        ${invoice_number}, 'draft',
+        ${subtotal_cents}, ${tax_cents}, ${total_cents}, 'ZAR',
+        ${due_date}::date,
+        ${JSON.stringify(line_items)}::jsonb,
+        ${notes},
+        NOW()
+      )
+      RETURNING id
+    `) as Row[];
 
-  const id = (rows[0] as Row).id as string;
-  log.info('createInvoice', { id, invoice_number, company_id }, 'InvoiceService');
+    log.info('createInvoice', { id: (rows[0] as Row).id, invoice_number, company_id }, 'InvoiceService');
+    return (rows[0] as Row).id as string;
+  });
+
   return id;
 }
 

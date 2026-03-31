@@ -3,7 +3,7 @@
  * Supplier Payment Service
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
 import { getSystemAccount, getSystemAccountId } from './systemAccountResolver';
@@ -147,33 +147,37 @@ export async function createSupplierPayment(companyId: string,
       throw new Error(`Invalid allocations: ${validation.errors.join('; ')}`);
     }
 
-    const paymentRows = (await sql`
-      INSERT INTO supplier_payments (
-        supplier_id, payment_date, total_amount, payment_method,
-        bank_account_id, reference, description, created_by
-      ) VALUES (
-        ${input.supplierId}, ${input.paymentDate}, ${input.totalAmount},
-        ${input.paymentMethod || 'eft'}, ${input.bankAccountId || null},
-        ${input.reference || null}, ${input.description || null}, ${userId}::UUID
-      ) RETURNING *
-    `) as Row[];
+    const paymentRow = await withTransaction(async (tx) => {
+      const rows = (await tx`
+        INSERT INTO supplier_payments (
+          supplier_id, payment_date, total_amount, payment_method,
+          bank_account_id, reference, description, created_by
+        ) VALUES (
+          ${input.supplierId}, ${input.paymentDate}, ${input.totalAmount},
+          ${input.paymentMethod || 'eft'}, ${input.bankAccountId || null},
+          ${input.reference || null}, ${input.description || null}, ${userId}::UUID
+        ) RETURNING *
+      `) as Row[];
 
-    const paymentId = String(paymentRows[0]!.id);
+      const paymentId = String(rows[0]!.id);
 
-    for (const alloc of input.allocations) {
-      await sql`
-        INSERT INTO payment_allocations (payment_id, invoice_id, amount_allocated)
-        VALUES (${paymentId}::UUID, ${alloc.invoiceId}::UUID, ${alloc.amount})
-      `;
-    }
+      for (const alloc of input.allocations) {
+        await tx`
+          INSERT INTO payment_allocations (payment_id, invoice_id, amount_allocated)
+          VALUES (${paymentId}::UUID, ${alloc.invoiceId}::UUID, ${alloc.amount})
+        `;
+      }
+
+      return rows[0] as Row;
+    });
 
     log.info('Created supplier payment', {
-      paymentId,
-      paymentNumber: String(paymentRows[0]!.payment_number),
+      paymentId: String(paymentRow.id),
+      paymentNumber: String(paymentRow.payment_number),
       totalAmount: input.totalAmount,
     }, 'accounting');
 
-    return mapPaymentRow(paymentRows[0]!);
+    return mapPaymentRow(paymentRow);
   } catch (err) {
     log.error('Failed to create supplier payment', { error: err }, 'accounting');
     throw err;
@@ -222,34 +226,37 @@ export async function processSupplierPayment(companyId: string,
 
     await postJournalEntry('', journalEntry.id, userId);
 
-    // Update invoice balances from allocations
-    for (const alloc of payment.allocations) {
-      await sql`
-        UPDATE supplier_invoices
-        SET amount_paid = amount_paid + ${alloc.amountAllocated}
-        WHERE id = ${alloc.invoiceId}
-      `;
-      // Update status based on new balance
-      await sql`
-        UPDATE supplier_invoices SET status = CASE
-          WHEN (total_amount - amount_paid) <= 0.01 THEN 'paid'
-          WHEN amount_paid > 0 THEN 'partially_paid'
-          ELSE status
-        END
-        WHERE id = ${alloc.invoiceId}
-      `;
-    }
+    // Update invoice balances and mark payment processed atomically
+    const updated = await withTransaction(async (tx) => {
+      for (const alloc of payment.allocations) {
+        await tx`
+          UPDATE supplier_invoices
+          SET amount_paid = amount_paid + ${alloc.amountAllocated}
+          WHERE id = ${alloc.invoiceId}
+        `;
+        await tx`
+          UPDATE supplier_invoices SET status = CASE
+            WHEN (total_amount - amount_paid) <= 0.01 THEN 'paid'
+            WHEN amount_paid > 0 THEN 'partially_paid'
+            ELSE status
+          END
+          WHERE id = ${alloc.invoiceId}
+        `;
+      }
 
-    const updated = (await sql`
-      UPDATE supplier_payments
-      SET status = 'processed', processed_at = NOW(),
-          gl_journal_entry_id = ${journalEntry.id}::UUID
-      WHERE id = ${id}
-      RETURNING *
-    `) as Row[];
+      const rows = (await tx`
+        UPDATE supplier_payments
+        SET status = 'processed', processed_at = NOW(),
+            gl_journal_entry_id = ${journalEntry.id}::UUID
+        WHERE id = ${id}
+        RETURNING *
+      `) as Row[];
+
+      return rows[0] as Row;
+    });
 
     log.info('Processed supplier payment', { id, journalEntryId: journalEntry.id }, 'accounting');
-    return mapPaymentRow(updated[0]!);
+    return mapPaymentRow(updated);
   } catch (err) {
     log.error('Failed to process supplier payment', { id, error: err }, 'accounting');
     throw err;

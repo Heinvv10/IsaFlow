@@ -9,14 +9,17 @@ import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
+import { withErrorHandler } from '@/lib/api-error-handler';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const companyId = (req as CompanyApiRequest).companyId;
+
   if (req.method === 'GET') {
     try {
       const rows = await sql`
         SELECT id, item_code, name AS item_name, uom, category,
           qty_available AS current_quantity, standard_cost
-        FROM stock_items WHERE is_active = true ORDER BY name
+        FROM stock_items WHERE company_id = ${companyId} AND is_active = true ORDER BY name
       `;
       return apiResponse.success(res, rows);
     } catch (err) {
@@ -43,7 +46,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (!reason) return apiResponse.badRequest(res, 'reason is required');
 
       const [item] = await sql`
-        SELECT id, name, qty_available FROM stock_items WHERE id = ${itemId}
+        SELECT id, name, qty_available FROM stock_items WHERE id = ${itemId} AND company_id = ${companyId}
       `;
       if (!item) return apiResponse.notFound(res, 'Stock item', itemId);
 
@@ -55,7 +58,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         return apiResponse.badRequest(res, `Cannot decrease by ${qty} — current qty is ${currentQty}`);
       }
 
-      await sql`UPDATE stock_items SET qty_available = ${newQty} WHERE id = ${itemId}`;
+      await sql`UPDATE stock_items SET qty_available = ${newQty} WHERE id = ${itemId} AND company_id = ${companyId}`;
 
       log.info('Stock item adjusted', { itemId, adjustmentType, quantity: qty, newQty });
 
@@ -76,4 +79,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'POST']);
 }
 
-export default withCompany(handler);
+export default withCompany(withErrorHandler(handler as any));

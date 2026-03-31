@@ -9,6 +9,7 @@ import type { AuthenticatedNextApiRequest } from '@/lib/auth/middleware';
 import { apiResponse } from '@/lib/apiResponse';
 import { get2FAStatus } from '@/modules/auth/services/twoFactorService';
 import { log } from '@/lib/logger';
+import { withErrorHandler } from '@/lib/api-error-handler';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -26,4 +27,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(handler);
+export default withAuth(withErrorHandler(handler as any));

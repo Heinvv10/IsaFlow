@@ -52,7 +52,7 @@ export async function applyDRCVat(companyId: string,
   const invoices = (await sql`
     SELECT si.id, si.invoice_number, si.total_amount, si.is_drc
     FROM supplier_invoices si
-    WHERE si.id = ${supplierInvoiceId}::UUID
+    WHERE si.id = ${supplierInvoiceId}::UUID AND si.company_id = ${companyId}
   `) as Row[];
 
   if (!invoices[0]) throw new Error('Supplier invoice not found');
@@ -87,7 +87,7 @@ export async function applyDRCVat(companyId: string,
 
   // Mark invoice as DRC processed
   await sql`
-    UPDATE supplier_invoices SET is_drc = true WHERE id = ${supplierInvoiceId}::UUID
+    UPDATE supplier_invoices SET is_drc = true WHERE id = ${supplierInvoiceId}::UUID AND company_id = ${companyId}
   `;
 
   log.info('Applied DRC VAT', {
@@ -109,7 +109,8 @@ export async function getDRCEligibleInvoices(companyId: string): Promise<Array<{
            s.company_name as supplier_name
     FROM supplier_invoices si
     LEFT JOIN suppliers s ON s.id = si.supplier_id
-    WHERE si.status IN ('approved', 'partially_paid', 'paid')
+    WHERE si.company_id = ${companyId}
+      AND si.status IN ('approved', 'partially_paid', 'paid')
       AND (si.is_drc IS NULL OR si.is_drc = false)
     ORDER BY si.invoice_date DESC
   `) as Row[];
@@ -137,7 +138,7 @@ export async function getDRCHistory(companyId: string): Promise<Array<{
            s.company_name as supplier_name
     FROM supplier_invoices si
     LEFT JOIN suppliers s ON s.id = si.supplier_id
-    WHERE si.is_drc = true
+    WHERE si.company_id = ${companyId} AND si.is_drc = true
     ORDER BY si.invoice_date DESC
   `) as Row[];
 

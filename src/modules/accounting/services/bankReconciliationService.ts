@@ -231,10 +231,11 @@ export async function getBankTransactions(companyId: string, filters?: BankTxFil
         SELECT bt.*, ga.account_name AS bank_account_name
         FROM bank_transactions bt
         LEFT JOIN gl_accounts ga ON ga.id = bt.bank_account_id
+        WHERE bt.company_id = ${companyId}
         ORDER BY bt.transaction_date DESC, bt.amount DESC
         LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
-      countRows = (await sql`SELECT COUNT(*) AS cnt FROM bank_transactions`) as Row[];
+      countRows = (await sql`SELECT COUNT(*) AS cnt FROM bank_transactions WHERE company_id = ${companyId}`) as Row[];
     }
 
     return { transactions: rows.map(mapTxRow), total: Number(countRows[0]!.cnt) };
@@ -472,7 +473,7 @@ export async function getReconciliations(companyId: string, bankAccountId?: stri
           (SELECT COUNT(*) FROM bank_transactions WHERE reconciliation_id = br.id AND status = 'imported') AS unmatched_count
         FROM bank_reconciliations br
         LEFT JOIN gl_accounts ga ON ga.id = br.bank_account_id
-        WHERE br.bank_account_id = ${bankAccountId}::UUID
+        WHERE br.company_id = ${companyId} AND br.bank_account_id = ${bankAccountId}::UUID
         ORDER BY br.statement_date DESC
       `) as Row[];
     } else {
@@ -482,6 +483,7 @@ export async function getReconciliations(companyId: string, bankAccountId?: stri
           (SELECT COUNT(*) FROM bank_transactions WHERE reconciliation_id = br.id AND status = 'imported') AS unmatched_count
         FROM bank_reconciliations br
         LEFT JOIN gl_accounts ga ON ga.id = br.bank_account_id
+        WHERE br.company_id = ${companyId}
         ORDER BY br.statement_date DESC
       `) as Row[];
     }
@@ -500,7 +502,7 @@ export async function getReconciliationById(companyId: string, id: string): Prom
         (SELECT COUNT(*) FROM bank_transactions WHERE reconciliation_id = br.id AND status = 'imported') AS unmatched_count
       FROM bank_reconciliations br
       LEFT JOIN gl_accounts ga ON ga.id = br.bank_account_id
-      WHERE br.id = ${id}::UUID
+      WHERE br.id = ${id}::UUID AND br.company_id = ${companyId}
     `) as Row[];
     return rows.length > 0 ? mapReconRow(rows[0]!) : null;
   } catch (err) {
@@ -531,10 +533,10 @@ export async function startReconciliation(
 
     const rows = (await sql`
       INSERT INTO bank_reconciliations (
-        bank_account_id, statement_date, statement_balance, gl_balance,
+        company_id, bank_account_id, statement_date, statement_balance, gl_balance,
         reconciled_balance, started_by
       ) VALUES (
-        ${bankAccountId}::UUID, ${statementDate}, ${statementBalance},
+        ${companyId}, ${bankAccountId}::UUID, ${statementDate}, ${statementBalance},
         ${glBalance}, ${glBalance}, ${userId}::UUID
       ) RETURNING *
     `) as Row[];
@@ -577,7 +579,7 @@ export async function completeReconciliation(companyId: string, id: string, user
     const rows = (await sql`
       UPDATE bank_reconciliations
       SET status = 'completed', completed_by = ${userId}::UUID, completed_at = NOW()
-      WHERE id = ${id}::UUID RETURNING *
+      WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING *
     `) as Row[];
 
     log.info('Completed bank reconciliation', { id }, 'accounting');

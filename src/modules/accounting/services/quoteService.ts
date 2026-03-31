@@ -108,32 +108,37 @@ export async function getQuotes(companyId: string, filters?: QuoteFilters): Prom
     const pattern = `%${filters.search}%`;
     rows = (await sql`
       SELECT * FROM customer_quotes
-      WHERE (quote_number ILIKE ${pattern} OR customer_name ILIKE ${pattern})
+      WHERE company_id = ${companyId}
+        AND (quote_number ILIKE ${pattern} OR customer_name ILIKE ${pattern})
       ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}
     `) as Row[];
     countRows = (await sql`
       SELECT COUNT(*) AS cnt FROM customer_quotes
-      WHERE (quote_number ILIKE ${pattern} OR customer_name ILIKE ${pattern})
+      WHERE company_id = ${companyId}
+        AND (quote_number ILIKE ${pattern} OR customer_name ILIKE ${pattern})
     `) as Row[];
   } else if (filters?.status) {
     rows = (await sql`
-      SELECT * FROM customer_quotes WHERE status = ${filters.status}
+      SELECT * FROM customer_quotes WHERE company_id = ${companyId} AND status = ${filters.status}
       ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}
     `) as Row[];
     countRows = (await sql`
-      SELECT COUNT(*) AS cnt FROM customer_quotes WHERE status = ${filters.status}
+      SELECT COUNT(*) AS cnt FROM customer_quotes WHERE company_id = ${companyId} AND status = ${filters.status}
     `) as Row[];
   } else {
     rows = (await sql`
-      SELECT * FROM customer_quotes ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}
+      SELECT * FROM customer_quotes WHERE company_id = ${companyId} ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}
     `) as Row[];
-    countRows = (await sql`SELECT COUNT(*) AS cnt FROM customer_quotes`) as Row[];
+    countRows = (await sql`SELECT COUNT(*) AS cnt FROM customer_quotes WHERE company_id = ${companyId}`) as Row[];
   }
   return { quotes: rows.map(mapQuote), total: Number(countRows[0]?.cnt || 0) };
 }
 
 export async function getQuote(companyId: string, id: string): Promise<Quote | null> {
-  const rows = (await sql`SELECT * FROM customer_quotes WHERE id = ${id}::UUID`) as Row[];
+  // companyId may be empty string for internal calls — skip company filter in that case
+  const rows = companyId
+    ? (await sql`SELECT * FROM customer_quotes WHERE id = ${id}::UUID AND company_id = ${companyId}`) as Row[]
+    : (await sql`SELECT * FROM customer_quotes WHERE id = ${id}::UUID`) as Row[];
   if (rows.length === 0) return null;
   const quote = mapQuote(rows[0]);
   const lineRows = (await sql`
@@ -149,9 +154,9 @@ export async function createQuote(companyId: string, input: QuoteInput, userId?:
   const qd = input.quoteDate || new Date().toISOString().split('T')[0];
 
   const rows = (await sql`
-    INSERT INTO customer_quotes (quote_number, client_id, customer_name, quote_date, expiry_date,
+    INSERT INTO customer_quotes (company_id, quote_number, client_id, customer_name, quote_date, expiry_date,
       subtotal, tax_amount, total, notes, terms, created_by)
-    VALUES (${quoteNumber}, ${input.clientId || null}, ${input.customerName}, ${qd},
+    VALUES (${companyId}, ${quoteNumber}, ${input.clientId || null}, ${input.customerName}, ${qd},
       ${input.expiryDate || null}, ${subtotal}, ${taxAmount}, ${total},
       ${input.notes || null}, ${input.terms || null}, ${userId || null})
     RETURNING *
@@ -198,24 +203,24 @@ export async function updateQuote(companyId: string, id: string, input: QuoteInp
 }
 
 export async function deleteQuote(companyId: string, id: string): Promise<boolean> {
-  const rows = (await sql`DELETE FROM customer_quotes WHERE id = ${id}::UUID AND status = 'draft' RETURNING id`) as Row[];
+  const rows = (await sql`DELETE FROM customer_quotes WHERE id = ${id}::UUID AND company_id = ${companyId} AND status = 'draft' RETURNING id`) as Row[];
   return rows.length > 0;
 }
 
 export async function updateQuoteStatus(companyId: string, id: string, status: string): Promise<Quote | null> {
-  await sql`UPDATE customer_quotes SET status = ${status}, updated_at = NOW() WHERE id = ${id}::UUID`;
+  await sql`UPDATE customer_quotes SET status = ${status}, updated_at = NOW() WHERE id = ${id}::UUID AND company_id = ${companyId}`;
   log.info('Quote status changed', { id, status });
   return getQuote('', id);
 }
 
 export async function convertToInvoice(companyId: string, id: string, userId?: string): Promise<{ quote: Quote; invoiceId: string } | null> {
-  const quote = await getQuote('', id);
+  const quote = await getQuote(companyId, id);
   if (!quote || quote.status !== 'accepted') return null;
 
   // Create invoice from quote
   const invRows = (await sql`
-    INSERT INTO customer_invoices (client_id, invoice_date, due_date, subtotal, tax_amount, total, notes, status, created_by)
-    VALUES (${quote.clientId}, ${quote.quoteDate}, ${quote.expiryDate || quote.quoteDate}, ${quote.subtotal},
+    INSERT INTO customer_invoices (company_id, client_id, invoice_date, due_date, subtotal, tax_amount, total, notes, status, created_by)
+    VALUES (${companyId}, ${quote.clientId}, ${quote.quoteDate}, ${quote.expiryDate || quote.quoteDate}, ${quote.subtotal},
       ${quote.taxAmount}, ${quote.total}, ${'Converted from ' + quote.quoteNumber}, 'draft', ${userId || null})
     RETURNING id
   `) as Row[];

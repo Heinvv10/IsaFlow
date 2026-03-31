@@ -113,7 +113,8 @@ export async function getDebtorsSummary(companyId: string): Promise<DebtorSummar
         SUM(ci.total_amount - ci.amount_paid) AS total_outstanding
       FROM customer_invoices ci
       JOIN customers c ON c.id = ci.client_id
-      WHERE ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
+      WHERE ci.company_id = ${companyId}
+        AND ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
         AND (ci.total_amount - ci.amount_paid) > 0
       GROUP BY ci.client_id, c.name
       ORDER BY total_outstanding DESC
@@ -158,7 +159,8 @@ export async function getDebtorDetail(companyId: string, clientId: string): Prom
           ELSE GREATEST(0, (CURRENT_DATE - ci.due_date)::int)
         END AS days_overdue
       FROM customer_invoices ci
-      WHERE ci.client_id = ${clientId}::UUID
+      WHERE ci.company_id = ${companyId}
+        AND ci.client_id = ${clientId}::UUID
         AND ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
         AND (ci.total_amount - ci.amount_paid) > 0
       ORDER BY ci.due_date ASC NULLS LAST, ci.invoice_date ASC
@@ -210,7 +212,8 @@ export async function getOverdueInvoices(companyId: string, daysOverdue?: number
         ci.status
       FROM customer_invoices ci
       JOIN customers c ON c.id = ci.client_id
-      WHERE ci.due_date IS NOT NULL
+      WHERE ci.company_id = ${companyId}
+        AND ci.due_date IS NOT NULL
         AND ci.due_date < CURRENT_DATE
         AND (CURRENT_DATE - ci.due_date) >= ${minDays}
         AND ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
@@ -257,7 +260,8 @@ export async function getCollectionStats(companyId: string): Promise<CollectionS
         COUNT(DISTINCT ci.client_id)::int                                AS client_count,
         COUNT(CASE WHEN ci.due_date < CURRENT_DATE THEN 1 END)::int      AS overdue_count
       FROM customer_invoices ci
-      WHERE ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
+      WHERE ci.company_id = ${companyId}
+        AND ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
         AND (ci.total_amount - ci.amount_paid) > 0
     `) as Row[];
 
@@ -266,7 +270,8 @@ export async function getCollectionStats(companyId: string): Promise<CollectionS
         SUM(ci.total_amount)  AS invoiced,
         SUM(ci.amount_paid)   AS collected
       FROM customer_invoices ci
-      WHERE ci.status NOT IN ('draft', 'cancelled')
+      WHERE ci.company_id = ${companyId}
+        AND ci.status NOT IN ('draft', 'cancelled')
     `) as Row[];
 
     const r = rows[0] ?? {};

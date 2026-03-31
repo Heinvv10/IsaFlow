@@ -8,11 +8,13 @@ import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
+import { withErrorHandler } from '@/lib/api-error-handler';
 
-export default withCompany(async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
 
   try {
+    const companyId = (req as CompanyApiRequest).companyId;
     const format = req.query.format as string;
     const lowStockOnly = req.query.low_stock === 'true';
 
@@ -20,7 +22,7 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
       SELECT id, item_code, name, category, uom, qty_available,
         COALESCE(min_stock_level, 0) AS min_stock_level
       FROM stock_items
-      WHERE is_active = true
+      WHERE company_id = ${companyId} AND is_active = true
       ORDER BY name
     `;
 
@@ -55,4 +57,6 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
     log.error('Item quantities report error', { error: message });
     return apiResponse.badRequest(res, 'Failed to generate report');
   }
-});
+}
+
+export default withCompany(withErrorHandler(handler as any));

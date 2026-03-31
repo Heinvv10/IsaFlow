@@ -30,8 +30,8 @@ export interface ExchangeRate {
 
 export async function getCurrencies(companyId: string, activeOnly = true): Promise<Currency[]> {
   const rows = activeOnly
-    ? ((await sql`SELECT * FROM currencies WHERE is_active = true ORDER BY code`) as Row[])
-    : ((await sql`SELECT * FROM currencies ORDER BY code`) as Row[]);
+    ? ((await sql`SELECT * FROM currencies WHERE company_id = ${companyId} AND is_active = true ORDER BY code`) as Row[])
+    : ((await sql`SELECT * FROM currencies WHERE company_id = ${companyId} ORDER BY code`) as Row[]);
   return rows.map(mapCurrency);
 }
 
@@ -39,8 +39,8 @@ export async function createCurrency(companyId: string, input: {
   code: string; name: string; symbol: string; decimalPlaces?: number;
 }): Promise<Currency> {
   const rows = (await sql`
-    INSERT INTO currencies (code, name, symbol, decimal_places)
-    VALUES (${input.code.toUpperCase()}, ${input.name}, ${input.symbol}, ${input.decimalPlaces || 2})
+    INSERT INTO currencies (company_id, code, name, symbol, decimal_places)
+    VALUES (${companyId}, ${input.code.toUpperCase()}, ${input.name}, ${input.symbol}, ${input.decimalPlaces || 2})
     RETURNING *
   `) as Row[];
   log.info('Created currency', { code: input.code }, 'accounting');
@@ -48,7 +48,7 @@ export async function createCurrency(companyId: string, input: {
 }
 
 export async function toggleCurrency(companyId: string, code: string, isActive: boolean): Promise<void> {
-  await sql`UPDATE currencies SET is_active = ${isActive} WHERE code = ${code}`;
+  await sql`UPDATE currencies SET is_active = ${isActive} WHERE code = ${code} AND company_id = ${companyId}`;
 }
 
 // ── Exchange Rates ──────────────────────────────────────────────────────────
@@ -61,7 +61,8 @@ export async function getExchangeRates(companyId: string, filters?: {
   if (filters?.fromCurrency && filters?.toCurrency) {
     const rows = (await sql`
       SELECT * FROM exchange_rates
-      WHERE from_currency = ${filters.fromCurrency} AND to_currency = ${filters.toCurrency}
+      WHERE company_id = ${companyId}
+        AND from_currency = ${filters.fromCurrency} AND to_currency = ${filters.toCurrency}
       ORDER BY effective_date DESC LIMIT ${limit}
     `) as Row[];
     return rows.map(mapRate);
@@ -69,13 +70,13 @@ export async function getExchangeRates(companyId: string, filters?: {
   if (filters?.fromCurrency) {
     const rows = (await sql`
       SELECT * FROM exchange_rates
-      WHERE from_currency = ${filters.fromCurrency}
+      WHERE company_id = ${companyId} AND from_currency = ${filters.fromCurrency}
       ORDER BY effective_date DESC LIMIT ${limit}
     `) as Row[];
     return rows.map(mapRate);
   }
   const rows = (await sql`
-    SELECT * FROM exchange_rates ORDER BY effective_date DESC LIMIT ${limit}
+    SELECT * FROM exchange_rates WHERE company_id = ${companyId} ORDER BY effective_date DESC LIMIT ${limit}
   `) as Row[];
   return rows.map(mapRate);
 }
@@ -86,7 +87,8 @@ export async function getLatestRate(companyId: string,
   const date = asOfDate || new Date().toISOString().split('T')[0]!;
   const rows = (await sql`
     SELECT rate FROM exchange_rates
-    WHERE from_currency = ${fromCurrency} AND to_currency = ${toCurrency}
+    WHERE company_id = ${companyId}
+      AND from_currency = ${fromCurrency} AND to_currency = ${toCurrency}
       AND effective_date <= ${date}::DATE
     ORDER BY effective_date DESC LIMIT 1
   `) as Row[];
@@ -98,10 +100,10 @@ export async function setExchangeRate(companyId: string, input: {
   effectiveDate: string; source?: string;
 }, userId: string): Promise<ExchangeRate> {
   const rows = (await sql`
-    INSERT INTO exchange_rates (from_currency, to_currency, rate, effective_date, source, created_by)
-    VALUES (${input.fromCurrency}, ${input.toCurrency}, ${input.rate},
+    INSERT INTO exchange_rates (company_id, from_currency, to_currency, rate, effective_date, source, created_by)
+    VALUES (${companyId}, ${input.fromCurrency}, ${input.toCurrency}, ${input.rate},
             ${input.effectiveDate}::DATE, ${input.source || 'manual'}, ${userId}::UUID)
-    ON CONFLICT (from_currency, to_currency, effective_date)
+    ON CONFLICT (company_id, from_currency, to_currency, effective_date)
     DO UPDATE SET rate = EXCLUDED.rate, source = EXCLUDED.source, created_by = EXCLUDED.created_by
     RETURNING *
   `) as Row[];

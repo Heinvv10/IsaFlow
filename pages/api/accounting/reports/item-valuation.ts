@@ -8,11 +8,13 @@ import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
+import { withErrorHandler } from '@/lib/api-error-handler';
 
-export default withCompany(async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
 
   try {
+    const companyId = (req as CompanyApiRequest).companyId;
     const format = req.query.format as string;
     const category = req.query.category as string | undefined;
 
@@ -22,7 +24,7 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
         SELECT id, item_code, name, category, uom, qty_available, standard_cost,
           (COALESCE(qty_available, 0) * COALESCE(standard_cost, 0)) AS stock_value
         FROM stock_items
-        WHERE is_active = true AND category = ${category}
+        WHERE company_id = ${companyId} AND is_active = true AND category = ${category}
         ORDER BY stock_value DESC
       `;
     } else {
@@ -30,7 +32,7 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
         SELECT id, item_code, name, category, uom, qty_available, standard_cost,
           (COALESCE(qty_available, 0) * COALESCE(standard_cost, 0)) AS stock_value
         FROM stock_items
-        WHERE is_active = true
+        WHERE company_id = ${companyId} AND is_active = true
         ORDER BY stock_value DESC
       `;
     }
@@ -62,4 +64,6 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
     log.error('Item valuation report error', { error: message });
     return apiResponse.badRequest(res, 'Failed to generate report');
   }
-});
+}
+
+export default withCompany(withErrorHandler(handler as any));

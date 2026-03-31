@@ -15,13 +15,20 @@ interface Row { id: string; itemCode: string; name: string; category: string; uo
 export default function ItemValuationReport() {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await apiFetch('/api/accounting/reports/item-valuation', { credentials: 'include' });
-    const json = await res.json();
-    setRows(json.data || []);
-    setLoading(false);
+    setError('');
+    try {
+      const res = await apiFetch('/api/accounting/reports/item-valuation', { credentials: 'include' });
+      const json = await res.json();
+      setRows(json.data || []);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load data');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -59,6 +66,7 @@ export default function ItemValuationReport() {
           </div>
         </div>
         <div className="p-6 space-y-4">
+          {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">{error}</div>}
           {/* Category summary */}
           {!loading && Object.keys(byCategory).length > 1 && (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

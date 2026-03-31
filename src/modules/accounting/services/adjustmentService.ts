@@ -27,18 +27,19 @@ export async function getAdjustments(companyId: string, filters?: {
   if (filters?.entityType) {
     rows = (await sql`
       SELECT * FROM accounting_adjustments
-      WHERE entity_type = ${filters.entityType}
+      WHERE company_id = ${companyId} AND entity_type = ${filters.entityType}
       ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}
     `) as Row[];
     countRows = (await sql`
-      SELECT COUNT(*) AS cnt FROM accounting_adjustments WHERE entity_type = ${filters.entityType}
+      SELECT COUNT(*) AS cnt FROM accounting_adjustments
+      WHERE company_id = ${companyId} AND entity_type = ${filters.entityType}
     `) as Row[];
   } else {
     rows = (await sql`
-      SELECT * FROM accounting_adjustments
+      SELECT * FROM accounting_adjustments WHERE company_id = ${companyId}
       ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}
     `) as Row[];
-    countRows = (await sql`SELECT COUNT(*) AS cnt FROM accounting_adjustments`) as Row[];
+    countRows = (await sql`SELECT COUNT(*) AS cnt FROM accounting_adjustments WHERE company_id = ${companyId}`) as Row[];
   }
 
   // Resolve entity names
@@ -64,10 +65,10 @@ export async function createAdjustment(companyId: string,
 ): Promise<AccountingAdjustment> {
   const rows = (await sql`
     INSERT INTO accounting_adjustments (
-      entity_type, entity_id, adjustment_type, amount, reason,
+      company_id, entity_type, entity_id, adjustment_type, amount, reason,
       adjustment_date, created_by
     ) VALUES (
-      ${input.entityType}, ${input.entityId}::UUID, ${input.adjustmentType},
+      ${companyId}, ${input.entityType}, ${input.entityId}::UUID, ${input.adjustmentType},
       ${input.amount}, ${input.reason},
       ${input.adjustmentDate || new Date().toISOString().split('T')[0]},
       ${userId}::UUID
@@ -79,7 +80,7 @@ export async function createAdjustment(companyId: string,
 }
 
 export async function approveAdjustment(companyId: string, id: string, userId: string): Promise<AccountingAdjustment> {
-  const adjRows = (await sql`SELECT * FROM accounting_adjustments WHERE id = ${id}`) as Row[];
+  const adjRows = (await sql`SELECT * FROM accounting_adjustments WHERE id = ${id} AND company_id = ${companyId}`) as Row[];
   if (!adjRows[0]) throw new Error('Adjustment not found');
   if (adjRows[0].status !== 'draft') throw new Error('Adjustment is not in draft status');
 
@@ -123,7 +124,7 @@ export async function approveAdjustment(companyId: string, id: string, userId: s
     UPDATE accounting_adjustments
     SET status = 'approved', approved_by = ${userId}::UUID, approved_at = NOW(),
         gl_journal_entry_id = ${je.id}::UUID
-    WHERE id = ${id} RETURNING *
+    WHERE id = ${id} AND company_id = ${companyId} RETURNING *
   `) as Row[];
 
   log.info('Approved adjustment', { id, journalEntryId: je.id }, 'accounting');
@@ -131,7 +132,7 @@ export async function approveAdjustment(companyId: string, id: string, userId: s
 }
 
 export async function cancelAdjustment(companyId: string, id: string): Promise<void> {
-  await sql`UPDATE accounting_adjustments SET status = 'cancelled' WHERE id = ${id} AND status = 'draft'`;
+  await sql`UPDATE accounting_adjustments SET status = 'cancelled' WHERE id = ${id} AND company_id = ${companyId} AND status = 'draft'`;
 }
 
 function mapRow(row: Row): AccountingAdjustment {

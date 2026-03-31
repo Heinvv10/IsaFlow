@@ -12,7 +12,7 @@ import { ScanAndFillButton } from '@/components/accounting/ScanAndFillButton';
 import { fuzzyMatchClient } from '@/modules/accounting/utils/fuzzyMatch';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 
-interface Client { id: string; company_name: string }
+interface Client { id: string; name: string }
 interface OutstandingInvoice {
   id: string;
   invoice_number: string;
@@ -180,7 +180,7 @@ export default function NewCustomerPaymentPage() {
                   required
                 >
                   <option value="">Select client...</option>
-                  {clients.map(c => <option key={c.id} value={c.id}>{c.company_name}</option>)}
+                  {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
 

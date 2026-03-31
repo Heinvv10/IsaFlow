@@ -21,6 +21,9 @@ interface Account {
   name: string;
 }
 
+// TODO: fetch from /api/accounting/company-settings when dynamic VAT rates are supported
+const DEFAULT_VAT_RATE = 0.15;
+
 const VAT_OPTIONS = [
   { value: 'standard', label: 'Standard (15%)' },
   { value: 'zero', label: 'Zero Rated (0%)' },
@@ -97,14 +100,14 @@ export default function NewItemPage() {
       // Auto-calculate inclusive price from exclusive (VAT 15%)
       if (field === 'selling_price_excl') {
         const excl = Number(value) || 0;
-        const vatRate = next.vat_on_sales === 'standard' ? 0.15 : 0;
+        const vatRate = next.vat_on_sales === 'standard' ? DEFAULT_VAT_RATE : 0;
         next.selling_price_incl = (excl * (1 + vatRate)).toFixed(2);
       }
 
       // Auto-calculate exclusive price from inclusive
       if (field === 'selling_price_incl') {
         const incl = Number(value) || 0;
-        const vatRate = next.vat_on_sales === 'standard' ? 0.15 : 0;
+        const vatRate = next.vat_on_sales === 'standard' ? DEFAULT_VAT_RATE : 0;
         const excl = vatRate > 0 ? incl / (1 + vatRate) : incl;
         next.selling_price_excl = excl.toFixed(2);
         const cost = Number(next.cost_price) || 0;

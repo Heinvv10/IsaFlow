@@ -3,7 +3,7 @@
  * Phase 1 Sage Alignment: Auto-generate customer invoices on schedule
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type {
   RecurringInvoice,
@@ -28,29 +28,31 @@ export async function getRecurringInvoices(companyId: string, filters?: {
     rows = (await sql`
       SELECT ri.*, c.name AS client_name
       FROM recurring_invoices ri LEFT JOIN customers c ON c.id = ri.client_id
-      WHERE ri.client_id = ${filters.clientId}::UUID
+      WHERE ri.company_id = ${companyId} AND ri.client_id = ${filters.clientId}::UUID
       ORDER BY ri.created_at DESC LIMIT ${limit} OFFSET ${offset}
     `) as Row[];
     countRows = (await sql`
-      SELECT COUNT(*) AS cnt FROM recurring_invoices WHERE client_id = ${filters.clientId}::UUID
+      SELECT COUNT(*) AS cnt FROM recurring_invoices
+      WHERE company_id = ${companyId} AND client_id = ${filters.clientId}::UUID
     `) as Row[];
   } else if (filters?.status) {
     rows = (await sql`
       SELECT ri.*, c.name AS client_name
       FROM recurring_invoices ri LEFT JOIN customers c ON c.id = ri.client_id
-      WHERE ri.status = ${filters.status}
+      WHERE ri.company_id = ${companyId} AND ri.status = ${filters.status}
       ORDER BY ri.created_at DESC LIMIT ${limit} OFFSET ${offset}
     `) as Row[];
     countRows = (await sql`
-      SELECT COUNT(*) AS cnt FROM recurring_invoices WHERE status = ${filters.status}
+      SELECT COUNT(*) AS cnt FROM recurring_invoices WHERE company_id = ${companyId} AND status = ${filters.status}
     `) as Row[];
   } else {
     rows = (await sql`
       SELECT ri.*, c.name AS client_name
       FROM recurring_invoices ri LEFT JOIN customers c ON c.id = ri.client_id
+      WHERE ri.company_id = ${companyId}
       ORDER BY ri.created_at DESC LIMIT ${limit} OFFSET ${offset}
     `) as Row[];
-    countRows = (await sql`SELECT COUNT(*) AS cnt FROM recurring_invoices`) as Row[];
+    countRows = (await sql`SELECT COUNT(*) AS cnt FROM recurring_invoices WHERE company_id = ${companyId}`) as Row[];
   }
 
   return { items: rows.map(mapRow), total: Number(countRows[0]?.cnt || 0) };
@@ -69,11 +71,11 @@ export async function createRecurringInvoice(companyId: string,
 
   const rows = (await sql`
     INSERT INTO recurring_invoices (
-      template_name, client_id, project_id, frequency, next_run_date,
+      company_id, template_name, client_id, project_id, frequency, next_run_date,
       end_date, description, line_items, subtotal, tax_rate, tax_amount,
       total_amount, payment_terms, created_by
     ) VALUES (
-      ${input.templateName}, ${input.clientId}::UUID,
+      ${companyId}, ${input.templateName}, ${input.clientId}::UUID,
       ${input.projectId || null}, ${input.frequency}, ${input.nextRunDate},
       ${input.endDate || null}, ${input.description || null},
       ${JSON.stringify(input.lineItems)}::JSONB, ${subtotal}, ${taxRate},
@@ -89,7 +91,7 @@ export async function updateRecurringStatus(companyId: string,
   id: string,
   status: 'paused' | 'active' | 'cancelled'
 ): Promise<void> {
-  await sql`UPDATE recurring_invoices SET status = ${status} WHERE id = ${id}`;
+  await sql`UPDATE recurring_invoices SET status = ${status} WHERE id = ${id} AND company_id = ${companyId}`;
   log.info('Updated recurring invoice status', { id, status }, 'accounting');
 }
 
@@ -97,36 +99,40 @@ export async function generateInvoiceFromRecurring(companyId: string,
   id: string,
   userId: string
 ): Promise<string> {
-  const rows = (await sql`SELECT * FROM recurring_invoices WHERE id = ${id}`) as Row[];
+  const rows = (await sql`SELECT * FROM recurring_invoices WHERE id = ${id} AND company_id = ${companyId}`) as Row[];
   if (!rows[0]) throw new Error('Recurring invoice not found');
   const ri = rows[0];
   if (ri.status !== 'active') throw new Error('Recurring invoice is not active');
-
-  const inv = (await sql`
-    INSERT INTO customer_invoices (
-      client_id, project_id, invoice_date, due_date, subtotal,
-      tax_amount, total_amount, status, description, created_by
-    ) VALUES (
-      ${ri.client_id}::UUID, ${ri.project_id || null},
-      CURRENT_DATE, CURRENT_DATE + INTERVAL '30 days',
-      ${Number(ri.subtotal)}, ${Number(ri.tax_amount)}, ${Number(ri.total_amount)},
-      'approved', ${ri.description || ri.template_name}, ${userId}::UUID
-    ) RETURNING id
-  `) as Row[];
 
   const nextDate = advanceDate(String(ri.next_run_date), String(ri.frequency));
   const endDate = ri.end_date ? String(ri.end_date) : null;
   const newStatus = endDate && nextDate > endDate ? 'completed' : 'active';
 
-  await sql`
-    UPDATE recurring_invoices
-    SET last_run_date = CURRENT_DATE, next_run_date = ${nextDate}::DATE,
-        run_count = run_count + 1, status = ${newStatus}
-    WHERE id = ${id}
-  `;
+  const invoiceId = await withTransaction(async (tx) => {
+    const inv = (await tx`
+      INSERT INTO customer_invoices (
+        client_id, project_id, invoice_date, due_date, subtotal,
+        tax_amount, total_amount, status, description, created_by
+      ) VALUES (
+        ${ri.client_id}::UUID, ${ri.project_id || null},
+        CURRENT_DATE, CURRENT_DATE + INTERVAL '30 days',
+        ${Number(ri.subtotal)}, ${Number(ri.tax_amount)}, ${Number(ri.total_amount)},
+        'approved', ${ri.description || ri.template_name}, ${userId}::UUID
+      ) RETURNING id
+    `) as Row[];
 
-  log.info('Generated invoice from recurring', { recurringId: id, invoiceId: inv[0]?.id }, 'accounting');
-  return String(inv[0]!.id);
+    await tx`
+      UPDATE recurring_invoices
+      SET last_run_date = CURRENT_DATE, next_run_date = ${nextDate}::DATE,
+          run_count = run_count + 1, status = ${newStatus}
+      WHERE id = ${id}
+    `;
+
+    return String(inv[0]!.id);
+  });
+
+  log.info('Generated invoice from recurring', { recurringId: id, invoiceId }, 'accounting');
+  return invoiceId;
 }
 
 function advanceDate(dateStr: string, frequency: string): string {

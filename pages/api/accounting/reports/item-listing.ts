@@ -8,11 +8,13 @@ import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
+import { withErrorHandler } from '@/lib/api-error-handler';
 
-export default withCompany(async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
 
   try {
+    const companyId = (req as CompanyApiRequest).companyId;
     const category = req.query.category as string | undefined;
     const search = req.query.search as string | undefined;
     const format = req.query.format as string;
@@ -24,14 +26,15 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
         SELECT id, item_code, name, description, category, uom,
           list_price, standard_cost, qty_available, is_active
         FROM stock_items
-        WHERE category = ${category} AND (name ILIKE ${like} OR item_code ILIKE ${like})
+        WHERE company_id = ${companyId}
+          AND category = ${category} AND (name ILIKE ${like} OR item_code ILIKE ${like})
         ORDER BY name
       `;
     } else if (category) {
       rows = await sql`
         SELECT id, item_code, name, description, category, uom,
           list_price, standard_cost, qty_available, is_active
-        FROM stock_items WHERE category = ${category}
+        FROM stock_items WHERE company_id = ${companyId} AND category = ${category}
         ORDER BY name
       `;
     } else if (search) {
@@ -39,14 +42,15 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
       rows = await sql`
         SELECT id, item_code, name, description, category, uom,
           list_price, standard_cost, qty_available, is_active
-        FROM stock_items WHERE name ILIKE ${like} OR item_code ILIKE ${like}
+        FROM stock_items
+        WHERE company_id = ${companyId} AND (name ILIKE ${like} OR item_code ILIKE ${like})
         ORDER BY name
       `;
     } else {
       rows = await sql`
         SELECT id, item_code, name, description, category, uom,
           list_price, standard_cost, qty_available, is_active
-        FROM stock_items ORDER BY name
+        FROM stock_items WHERE company_id = ${companyId} ORDER BY name
       `;
     }
 
@@ -79,4 +83,6 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
     log.error('Item listing report error', { error: message });
     return apiResponse.badRequest(res, 'Failed to generate item listing');
   }
-});
+}
+
+export default withCompany(withErrorHandler(handler as any));

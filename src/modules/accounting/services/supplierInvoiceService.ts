@@ -3,7 +3,7 @@
  * Supplier Invoice Service
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
 import { getSystemAccount, getSystemAccountId } from './systemAccountResolver';
@@ -151,44 +151,48 @@ export async function createSupplierInvoice(companyId: string,
 
     const dueDate = input.dueDate || calculateDueDate(input.invoiceDate, input.paymentTerms);
 
-    const rows = (await sql`
-      INSERT INTO supplier_invoices (
-        invoice_number, supplier_id, purchase_order_id, grn_id,
-        invoice_date, due_date, subtotal, tax_rate, tax_amount,
-        total_amount, payment_terms, reference, project_id,
-        cost_center_id, notes, created_by
-      ) VALUES (
-        ${input.invoiceNumber}, ${input.supplierId},
-        ${input.purchaseOrderId || null}, ${input.grnId || null},
-        ${input.invoiceDate}, ${dueDate || null},
-        ${subtotal}, ${invoiceTaxRate}, ${totalTax}, ${totalAmount},
-        ${input.paymentTerms || null}, ${input.reference || null},
-        ${input.projectId || null}, ${input.costCenterId || null},
-        ${input.notes || null}, ${userId}::UUID
-      ) RETURNING *
-    `) as Row[];
-
-    const invoiceId = String(rows[0]!.id);
-
-    for (const item of computedItems) {
-      await sql`
-        INSERT INTO supplier_invoice_items (
-          supplier_invoice_id, po_item_id, description, quantity,
-          unit_price, tax_rate, tax_amount, line_total,
-          gl_account_id, project_id, cost_center_id, vat_classification
+    const invoiceRow = await withTransaction(async (tx) => {
+      const rows = (await tx`
+        INSERT INTO supplier_invoices (
+          invoice_number, supplier_id, purchase_order_id, grn_id,
+          invoice_date, due_date, subtotal, tax_rate, tax_amount,
+          total_amount, payment_terms, reference, project_id,
+          cost_center_id, notes, created_by
         ) VALUES (
-          ${invoiceId}::UUID, ${item.poItemId || null}, ${item.description},
-          ${item.quantity}, ${item.unitPrice}, ${item.taxRate},
-          ${item.taxAmount}, ${item.lineTotal},
-          ${item.glAccountId || null}, ${item.projectId || null},
-          ${item.costCenterId || null},
-          ${item.vatClassification || (item.taxRate > 0 ? 'standard' : 'zero_rated')}
-        )
-      `;
-    }
+          ${input.invoiceNumber}, ${input.supplierId},
+          ${input.purchaseOrderId || null}, ${input.grnId || null},
+          ${input.invoiceDate}, ${dueDate || null},
+          ${subtotal}, ${invoiceTaxRate}, ${totalTax}, ${totalAmount},
+          ${input.paymentTerms || null}, ${input.reference || null},
+          ${input.projectId || null}, ${input.costCenterId || null},
+          ${input.notes || null}, ${userId}::UUID
+        ) RETURNING *
+      `) as Row[];
 
-    log.info('Created supplier invoice', { invoiceId, invoiceNumber: input.invoiceNumber }, 'accounting');
-    return mapInvoiceRow(rows[0]!);
+      const invoiceId = String(rows[0]!.id);
+
+      for (const item of computedItems) {
+        await tx`
+          INSERT INTO supplier_invoice_items (
+            supplier_invoice_id, po_item_id, description, quantity,
+            unit_price, tax_rate, tax_amount, line_total,
+            gl_account_id, project_id, cost_center_id, vat_classification
+          ) VALUES (
+            ${invoiceId}::UUID, ${item.poItemId || null}, ${item.description},
+            ${item.quantity}, ${item.unitPrice}, ${item.taxRate},
+            ${item.taxAmount}, ${item.lineTotal},
+            ${item.glAccountId || null}, ${item.projectId || null},
+            ${item.costCenterId || null},
+            ${item.vatClassification || (item.taxRate > 0 ? 'standard' : 'zero_rated')}
+          )
+        `;
+      }
+
+      return rows[0] as Row;
+    });
+
+    log.info('Created supplier invoice', { invoiceId: String(invoiceRow.id), invoiceNumber: input.invoiceNumber }, 'accounting');
+    return mapInvoiceRow(invoiceRow);
   } catch (err) {
     log.error('Failed to create supplier invoice', { error: err }, 'accounting');
     throw err;

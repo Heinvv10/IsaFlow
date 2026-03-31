@@ -8,8 +8,9 @@ import { sql } from '@/lib/neon';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
+import { withErrorHandler } from '@/lib/api-error-handler';
 
-export default withCompany(async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
 
   try {
@@ -61,4 +62,6 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
     log.error('sales-by-customer report error', { error: message });
     return apiResponse.error(res, ErrorCode.INTERNAL_ERROR, 'Failed to generate report');
   }
-});
+}
+
+export default withCompany(withErrorHandler(handler as any));

@@ -13,16 +13,23 @@ interface Row { date: string; type: string; reference: string; itemCode: string;
 export default function ItemMovementReport() {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const today = new Date();
   const [from, setFrom] = useState(new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0]);
   const [to, setTo] = useState(today.toISOString().split('T')[0]);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await apiFetch(`/api/accounting/reports/item-movement?from=${from}&to=${to}`, { credentials: 'include' });
-    const json = await res.json();
-    setRows(json.data || []);
-    setLoading(false);
+    setError('');
+    try {
+      const res = await apiFetch(`/api/accounting/reports/item-movement?from=${from}&to=${to}`, { credentials: 'include' });
+      const json = await res.json();
+      setRows(json.data || []);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load data');
+    } finally {
+      setLoading(false);
+    }
   }, [from, to]);
 
   useEffect(() => { load(); }, [load]);
@@ -51,6 +58,7 @@ export default function ItemMovementReport() {
           </div>
         </div>
         <div className="p-6">
+          {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">{error}</div>}
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
             {loading ? (
               <div className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin text-[var(--ff-text-tertiary)] mx-auto" /></div>

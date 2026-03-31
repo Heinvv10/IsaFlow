@@ -111,7 +111,30 @@ export function parseSQLResponse(response: string): ParsedSQL | null {
 // SQL VALIDATION
 // ═══════════════════════════════════════════════════════════════════════════
 
-const FORBIDDEN_KEYWORDS = ['INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'TRUNCATE', 'CREATE', 'GRANT', 'REVOKE', 'EXEC', 'EXECUTE', 'UNION', 'INFORMATION_SCHEMA', 'PG_CATALOG', 'COPY', 'PG_READ_FILE', 'PG_LS_DIR', 'INTO OUTFILE', 'LOAD_FILE'];
+// DML/DDL keywords that must never appear in a read-only query
+const FORBIDDEN_KEYWORDS = [
+  'INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'TRUNCATE', 'CREATE',
+  'GRANT', 'REVOKE', 'EXEC', 'EXECUTE', 'UNION', 'INFORMATION_SCHEMA',
+  'PG_CATALOG', 'INTO OUTFILE', 'LOAD_FILE',
+  // PostgreSQL administrative / file-access / control keywords
+  'COPY', 'DO', 'CALL', 'PREPARE', 'LISTEN', 'NOTIFY', 'LOAD', 'IMPORT',
+  // PostgreSQL file-access and server-control functions
+  'PG_READ_FILE', 'PG_READ_BINARY_FILE', 'PG_LS_DIR',
+  'LO_IMPORT', 'LO_EXPORT', 'PG_SLEEP',
+  // Runtime configuration manipulation
+  'CURRENT_SETTING', 'SET_CONFIG', 'PG_TERMINATE_BACKEND', 'PG_CANCEL_BACKEND',
+];
+
+// Dangerous function-call patterns that warrant a separate regex sweep
+const FORBIDDEN_PATTERNS: Array<{ label: string; regex: RegExp }> = [
+  // Any pg_ function invocation (covers pg_read_file, pg_ls_dir, etc.)
+  { label: 'pg_ function call', regex: /\bpg_\w+\s*\(/i },
+  // dblink — cross-database tunnelling
+  { label: 'dblink call', regex: /\bdblink\s*\(/i },
+  // COPY with TO or FROM (data exfiltration / injection)
+  { label: 'COPY TO/FROM', regex: /\bCOPY\b[\s\S]*?\b(TO|FROM)\b/i },
+];
+
 const MAX_LIMIT = 100;
 
 export function validateGeneratedSQL(sql: string): SQLValidation {
@@ -126,12 +149,18 @@ export function validateGeneratedSQL(sql: string): SQLValidation {
     return { valid: false, error: 'Query must be a SELECT statement', sanitizedSQL: '' };
   }
 
-  // Check for forbidden keywords
+  // Check for forbidden keywords using word-boundary, case-insensitive match
   for (const kw of FORBIDDEN_KEYWORDS) {
-    // Match keyword as whole word (not inside column names)
     const regex = new RegExp(`\\b${kw}\\b`, 'i');
     if (regex.test(sql)) {
       return { valid: false, error: `Forbidden keyword: ${kw}`, sanitizedSQL: '' };
+    }
+  }
+
+  // Check for dangerous function-call patterns
+  for (const { label, regex } of FORBIDDEN_PATTERNS) {
+    if (regex.test(sql)) {
+      return { valid: false, error: `Forbidden pattern detected: ${label}`, sanitizedSQL: '' };
     }
   }
 

@@ -9,6 +9,7 @@ import type { AuthenticatedNextApiRequest } from '@/lib/auth/middleware';
 import { apiResponse } from '@/lib/apiResponse';
 import { getTrustedDevices, removeTrustedDevice } from '@/modules/auth/services/twoFactorService';
 import { log } from '@/lib/logger';
+import { withErrorHandler } from '@/lib/api-error-handler';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { user } = req as AuthenticatedNextApiRequest;
@@ -42,4 +43,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method ?? 'unknown', ['GET', 'DELETE']);
 }
 
-export default withAuth(handler);
+export default withAuth(withErrorHandler(handler as any));
