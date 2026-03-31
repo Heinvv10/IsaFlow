@@ -17,6 +17,15 @@ import type {
   VatType,
 } from '../types/gl.types';
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Resolve a userId to a valid UUID — handles non-UUID IDs like 'admin-001' */
+async function resolveUserUuid(userId: string): Promise<string> {
+  if (UUID_PATTERN.test(userId)) return userId;
+  const rows = (await sql`SELECT id FROM users WHERE id::TEXT ~ '^[0-9a-f]{8}-' LIMIT 1`) as { id: string }[];
+  return rows.length > 0 ? String(rows[0]!.id) : '00000000-0000-0000-0000-000000000000';
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
 
@@ -162,6 +171,8 @@ export async function createJournalEntry(companyId: string,
       }
     }
 
+    const safeUserId = await resolveUserUuid(userId);
+
     const entryRow = await withTransaction(async (tx) => {
       const rows = (await tx`
         INSERT INTO gl_journal_entries (
@@ -170,7 +181,7 @@ export async function createJournalEntry(companyId: string,
         ) VALUES (
           ${input.entryDate}, ${fiscalPeriodId || null},
           ${input.description || null}, ${input.source || 'manual'},
-          ${input.sourceDocumentId || null}, ${userId}::UUID
+          ${input.sourceDocumentId || null}, ${safeUserId}::UUID
         )
         RETURNING *
       `) as Row[];
@@ -236,9 +247,10 @@ export async function postJournalEntry(companyId: string, id: string, userId: st
       }
     }
 
+    const safePostUserId = await resolveUserUuid(userId);
     const rows = (await sql`
       UPDATE gl_journal_entries
-      SET status = 'posted', posted_by = ${userId}::UUID, posted_at = NOW()
+      SET status = 'posted', posted_by = ${safePostUserId}::UUID, posted_at = NOW()
       WHERE id = ${id}
       RETURNING *
     `) as Row[];
