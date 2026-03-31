@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
-import ExcelJS from 'exceljs';
+import type ExcelJS from 'exceljs';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
@@ -120,6 +120,7 @@ export default function GlImportPage() {
           return;
         }
         const buffer = data instanceof ArrayBuffer ? data : new TextEncoder().encode(data as string).buffer;
+        const ExcelJS = (await import('exceljs')).default;
         const wb = new ExcelJS.Workbook();
         await wb.xlsx.load(buffer);
         const ws = wb.worksheets[0];

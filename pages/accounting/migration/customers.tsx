@@ -3,7 +3,6 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Upload, Download, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
-import Papa from 'papaparse';
 
 const CUSTOMER_FIELDS = [
   'name', 'email', 'phone', 'vat_number', 'registration_number',
@@ -36,9 +35,10 @@ export default function CustomersImportPage() {
   const [error, setError] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const handleFile = (file: File) => {
+  const handleFile = async (file: File) => {
     setError('');
     setImportResult(null);
+    const Papa = (await import('papaparse')).default;
     Papa.parse<Record<string, string>>(file, {
       header: true,
       skipEmptyLines: true,

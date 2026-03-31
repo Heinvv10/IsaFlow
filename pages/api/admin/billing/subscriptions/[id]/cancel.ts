@@ -4,8 +4,8 @@
  */
 
 import type { NextApiResponse } from 'next';
-import { withAuth, withRole, type AuthenticatedNextApiRequest } from '@/lib/auth';
-import { withErrorHandler } from '@/lib/api-error-handler';
+import { type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { cancelSubscription } from '@/modules/admin/services/billingService';
@@ -48,5 +48,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withRole('super_admin')(withErrorHandler(handler as any) as any) as any);
+export default withAdmin(handler);

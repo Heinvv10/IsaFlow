@@ -3,7 +3,6 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Upload, Download, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
-import Papa from 'papaparse';
 
 const COA_FIELDS = ['account_code', 'account_name', 'account_type', 'normal_balance', 'parent_code', 'description'] as const;
 type CoaField = typeof COA_FIELDS[number];
@@ -73,9 +72,10 @@ export default function ChartOfAccountsPage() {
     setSystemMap(detected);
   }, []);
 
-  const handleFile = (file: File) => {
+  const handleFile = async (file: File) => {
     setError('');
     setImportResult(null);
+    const Papa = (await import('papaparse')).default;
     Papa.parse<Record<string, string>>(file, {
       header: true,
       skipEmptyLines: true,

@@ -3,7 +3,6 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Upload, Download, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
-import Papa from 'papaparse';
 
 interface BalanceRow {
   accountCode: string;
@@ -30,9 +29,10 @@ export default function OpeningBalancesPage() {
   const difference = Math.abs(totalDebit - totalCredit);
   const isBalanced = difference < 0.01;
 
-  const handleFile = (file: File) => {
+  const handleFile = async (file: File) => {
     setError('');
     setImportResult(null);
+    const Papa = (await import('papaparse')).default;
     Papa.parse<Record<string, string>>(file, {
       header: true,
       skipEmptyLines: true,

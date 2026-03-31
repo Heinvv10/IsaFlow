@@ -16,7 +16,7 @@ const getJWTSecret = (): Uint8Array => {
 };
 
 // Token expiration times
-const ACCESS_TOKEN_EXPIRY = '24h'; // 24 hours
+const ACCESS_TOKEN_EXPIRY = '8h'; // 8 hours — matches cookie maxAge
 const _REFRESH_TOKEN_EXPIRY = '30d'; // 30 days – reserved for future refresh-token flow
 
 /**
