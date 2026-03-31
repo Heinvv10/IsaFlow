@@ -3,7 +3,6 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Upload, Download, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
-import Papa from 'papaparse';
 
 const AR_FIELDS = [
   'invoice_number', 'customer_name', 'invoice_date', 'due_date',
@@ -66,6 +65,7 @@ export default function ArInvoicesPage() {
     setError('');
     setImportResult(null);
     if (customers.length === 0) await loadCustomers();
+    const Papa = (await import('papaparse')).default;
     Papa.parse<Record<string, string>>(file, {
       header: true,
       skipEmptyLines: true,

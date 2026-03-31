@@ -45,7 +45,11 @@ export function buildSchemaDescription(tables: SchemaTable[]): string {
 // TEXT-TO-SQL PROMPT
 // ═══════════════════════════════════════════════════════════════════════════
 
-export function buildTextToSQLPrompt(question: string, schemaDesc: string): string {
+export function buildTextToSQLPrompt(question: string, schemaDesc: string, companyId?: string): string {
+  const companyFilter = companyId
+    ? `CRITICAL: Every query MUST include WHERE company_id = '${companyId}' on ALL tables that have a company_id column. Never omit this filter — omitting it is a security violation.`
+    : '';
+
   return `You are a South African accounting database assistant. Generate a read-only PostgreSQL SELECT query to answer the user's question.
 
 Database Schema:
@@ -60,6 +64,7 @@ Rules:
 - Format dates as YYYY-MM-DD
 - Limit results to 100 rows max unless the user asks for a specific count
 - Use table aliases for readability
+${companyFilter}
 
 Respond in JSON format:
 {"sql": "SELECT ...", "explanation": "Brief explanation of what this query returns"}`;
@@ -106,7 +111,7 @@ export function parseSQLResponse(response: string): ParsedSQL | null {
 // SQL VALIDATION
 // ═══════════════════════════════════════════════════════════════════════════
 
-const FORBIDDEN_KEYWORDS = ['INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'TRUNCATE', 'CREATE', 'GRANT', 'REVOKE', 'EXEC', 'EXECUTE'];
+const FORBIDDEN_KEYWORDS = ['INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'TRUNCATE', 'CREATE', 'GRANT', 'REVOKE', 'EXEC', 'EXECUTE', 'UNION', 'INFORMATION_SCHEMA', 'PG_CATALOG', 'COPY', 'PG_READ_FILE', 'PG_LS_DIR', 'INTO OUTFILE', 'LOAD_FILE'];
 const MAX_LIMIT = 100;
 
 export function validateGeneratedSQL(sql: string): SQLValidation {

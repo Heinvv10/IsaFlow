@@ -132,8 +132,22 @@ class Logger {
         window.__appLogs.shift();
       }
     } else {
-      // Node.js environment - could write to file or send to logging service
-      // For now, just store in process (could be extended)
+      // Node.js environment — always write to stdout/stderr for systemd/journald visibility
+      const jsonLine = JSON.stringify({
+        level,
+        message,
+        timestamp,
+        component,
+        ...(data !== undefined ? { data } : {}),
+      }) + '\n';
+
+      if (level === 'error' || level === 'warn') {
+        process.stderr.write(jsonLine);
+      } else {
+        process.stdout.write(jsonLine);
+      }
+
+      // Supplementary in-memory storage
       if (!process.__appLogs) process.__appLogs = [];
       process.__appLogs.push(logEntry);
 

@@ -4,6 +4,7 @@ import {
   useEffect,
   useState,
   useCallback,
+  useMemo,
   ReactNode,
 } from 'react';
 import { useAuth } from './AuthContext';
@@ -204,13 +205,10 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
     }
   }, [companies, loadCompanyDetails]);
 
-  const value: CompanyContextType = {
-    activeCompany,
-    companies,
-    loading,
-    companyRole,
-    switchCompany,
-  };
+  const value = useMemo<CompanyContextType>(
+    () => ({ activeCompany, companies, loading, companyRole, switchCompany }),
+    [activeCompany, companies, loading, companyRole, switchCompany],
+  );
 
   return <CompanyContext.Provider value={value}>{children}</CompanyContext.Provider>;
 }
