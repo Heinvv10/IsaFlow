@@ -11,6 +11,8 @@ export interface MatchCandidate {
   label: string;
   amount: number;
   date: string;
-  /** Composite match score 0–100 (amount 50 + date 30 + description 20) */
+  /** Composite match score 0–100+ (amount + date + description + bonuses) */
   score: number;
+  /** Human-readable reason why this candidate matched */
+  matchReason?: string;
 }
