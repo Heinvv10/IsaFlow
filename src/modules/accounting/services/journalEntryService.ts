@@ -173,40 +173,38 @@ export async function createJournalEntry(companyId: string,
 
     const safeUserId = await resolveUserUuid(userId);
 
-    const entryRow = await withTransaction(async (tx) => {
-      const rows = (await tx`
-        INSERT INTO gl_journal_entries (
-          company_id, entry_date, fiscal_period_id, description, source,
-          source_document_id, created_by
+    // Use HTTP-based sql (not Pool/WebSocket withTransaction) for reliability
+    const rows = (await sql`
+      INSERT INTO gl_journal_entries (
+        company_id, entry_date, fiscal_period_id, description, source,
+        source_document_id, created_by
+      ) VALUES (
+        ${companyId}::UUID, ${input.entryDate}, ${fiscalPeriodId || null},
+        ${input.description || null}, ${input.source || 'manual'},
+        ${input.sourceDocumentId || null}, ${safeUserId}::UUID
+      )
+      RETURNING *
+    `) as Row[];
+
+    const entryRow = rows[0] as Row;
+    const entryId = String(entryRow.id);
+
+    for (const line of input.lines) {
+      await sql`
+        INSERT INTO gl_journal_lines (
+          journal_entry_id, gl_account_id, debit, credit,
+          description, project_id, cost_center_id, bu_id, vat_type
         ) VALUES (
-          ${companyId}::UUID, ${input.entryDate}, ${fiscalPeriodId || null},
-          ${input.description || null}, ${input.source || 'manual'},
-          ${input.sourceDocumentId || null}, ${safeUserId}::UUID
+          ${entryId}::UUID, ${line.glAccountId}::UUID,
+          ${line.debit}, ${line.credit},
+          ${line.description || null},
+          ${line.projectId || null},
+          ${line.costCenterId || null},
+          ${line.buId || null},
+          ${line.vatType || null}
         )
-        RETURNING *
-      `) as Row[];
-
-      const entryId = String(rows[0].id);
-
-      for (const line of input.lines) {
-        await tx`
-          INSERT INTO gl_journal_lines (
-            journal_entry_id, gl_account_id, debit, credit,
-            description, project_id, cost_center_id, bu_id, vat_type
-          ) VALUES (
-            ${entryId}::UUID, ${line.glAccountId}::UUID,
-            ${line.debit}, ${line.credit},
-            ${line.description || null},
-            ${line.projectId || null},
-            ${line.costCenterId || null},
-            ${line.buId || null},
-            ${line.vatType || null}
-          )
-        `;
-      }
-
-      return rows[0] as Row;
-    });
+      `;
+    }
 
     log.info('Created journal entry', {
       entryId: String(entryRow.id),
