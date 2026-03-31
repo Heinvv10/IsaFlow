@@ -1,7 +1,12 @@
 /**
  * Bank Match Candidates API
  * GET /api/accounting/bank-match-candidates?bankTransactionId=<uuid>
- * Returns scored candidate matches from supplier invoices, purchase orders, and GL journal lines.
+ * Returns scored candidate matches from supplier invoices, customer invoices,
+ * purchase orders, and GL journal lines.
+ *
+ * Smart entity matching: extracts supplier/customer name from the transaction
+ * description (e.g. "EFT REC VUMATEL HOLDINGS" → Vumatel Holdings) and only
+ * returns invoices/POs for that entity. Falls back to showing all if no match.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -10,7 +15,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
-import type { CandidateType, MatchCandidate } from '@/modules/accounting/types/bank-match.types';
+import type { MatchCandidate } from '@/modules/accounting/types/bank-match.types';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
@@ -58,6 +63,49 @@ function fmtDate(val: unknown): string {
   return val ? String(val).split('T')[0]! : '';
 }
 
+/**
+ * Strip common bank description prefixes to extract the entity name.
+ * e.g. "EFT REC VUMATEL HOLDINGS" → "VUMATEL HOLDINGS"
+ *      "EFT PMT BIDVEST CLEANING" → "BIDVEST CLEANING"
+ *      "DEBIT ORDER SARS" → "SARS"
+ */
+const DESC_PREFIXES = [
+  'EFT REC', 'EFT PMT', 'EFT PAYMENT', 'EFT RECEIPT',
+  'PAYMENT TO', 'PAYMENT FROM', 'PMT TO', 'PMT FROM',
+  'DEBIT ORDER', 'DEBI ORDER', 'STOP ORDER',
+  'MAGTAPE', 'INTERNET TRF', 'CASH DEPOSIT',
+];
+
+function extractEntityName(description: string): string {
+  let cleaned = description.toUpperCase().trim();
+  // Strip prefixes
+  for (const prefix of DESC_PREFIXES) {
+    if (cleaned.startsWith(prefix)) {
+      cleaned = cleaned.slice(prefix.length).trim();
+      break;
+    }
+  }
+  // Strip trailing date patterns like "2027/03" or reference numbers
+  cleaned = cleaned.replace(/\s+\d{4}\/\d{2}$/, '').trim();
+  cleaned = cleaned.replace(/\s+\d{6,}$/, '').trim();
+  // Strip common suffixes like (PTY) LTD, (SOC)
+  cleaned = cleaned.replace(/\s*\(PTY\)\s*(LTD)?/gi, '').trim();
+  cleaned = cleaned.replace(/\s*\(SOC\)/gi, '').trim();
+  return cleaned;
+}
+
+/**
+ * Check if a customer/supplier name fuzzy-matches the extracted entity name.
+ * Uses word overlap — if any significant word from the entity appears in the name, it's a match.
+ */
+function entityNameMatches(entityName: string, extractedName: string): boolean {
+  if (!entityName || !extractedName) return false;
+  const entityWords = entityName.toUpperCase().split(/\W+/).filter(w => w.length > 2);
+  const extractedWords = new Set(extractedName.toUpperCase().split(/\W+/).filter(w => w.length > 2));
+  // At least one significant word must match
+  return entityWords.some(w => extractedWords.has(w));
+}
+
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
@@ -88,21 +136,33 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const txDesc = String(tx.description ?? tx.reference ?? '');
     const absAmount = Math.abs(txAmount);
 
+    // Extract entity name from description for targeted filtering
+    const extractedEntity = extractEntityName(txDesc);
+
     const candidates: MatchCandidate[] = [];
 
     // ── 1. Supplier invoices ─────────────────────────────────────────────────
-    const invoiceRows = (await sql`
-      SELECT si.id, si.invoice_number, s.company_name AS supplier_name,
+    // First try to find the specific supplier, then query their invoices
+    const allSupplierInvRows = (await sql`
+      SELECT si.id, si.invoice_number, COALESCE(s.company_name, s.name) AS supplier_name,
              si.total_amount, si.invoice_date
       FROM supplier_invoices si
       JOIN suppliers s ON s.id = si.supplier_id
       WHERE si.status IN ('approved', 'partially_paid')
         AND si.company_id = ${companyId}
       ORDER BY ABS(si.total_amount - ${absAmount}::NUMERIC) ASC
-      LIMIT 20
+      LIMIT 50
     `) as Row[];
 
-    for (const row of invoiceRows) {
+    // Filter to matched entity if possible, otherwise show top by amount
+    let supplierInvRows = allSupplierInvRows;
+    if (extractedEntity) {
+      const filtered = allSupplierInvRows.filter((r: Row) =>
+        entityNameMatches(String(r.supplier_name), extractedEntity));
+      if (filtered.length > 0) supplierInvRows = filtered;
+    }
+
+    for (const row of supplierInvRows.slice(0, 20)) {
       const label = `${String(row.supplier_name)} — Inv ${String(row.invoice_number)}`;
       const candAmount = Number(row.total_amount);
       const candDate = fmtDate(row.invoice_date);
@@ -119,8 +179,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       });
     }
 
-    // ── 2. Customer invoices (for incoming payments / EFT REC) ────────────────
-    const custInvRows = (await sql`
+    // ── 2. Customer invoices (for incoming payments / EFT REC) ───────────────
+    const allCustInvRows = (await sql`
       SELECT ci.id, ci.invoice_number, c.name AS customer_name,
              ci.total_amount, ci.invoice_date, ci.amount_paid
       FROM customer_invoices ci
@@ -128,10 +188,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       WHERE ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
         AND ci.company_id = ${companyId}
       ORDER BY ABS(ci.total_amount - ci.amount_paid - ${absAmount}::NUMERIC) ASC
-      LIMIT 20
+      LIMIT 50
     `) as Row[];
 
-    for (const row of custInvRows) {
+    let custInvRows = allCustInvRows;
+    if (extractedEntity) {
+      const filtered = allCustInvRows.filter((r: Row) =>
+        entityNameMatches(String(r.customer_name), extractedEntity));
+      if (filtered.length > 0) custInvRows = filtered;
+    }
+
+    for (const row of custInvRows.slice(0, 20)) {
       const label = `${String(row.customer_name)} — Inv ${String(row.invoice_number)}`;
       const balance = Number(row.total_amount) - Number(row.amount_paid || 0);
       const candDate = fmtDate(row.invoice_date);
@@ -149,7 +216,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     // ── 3. Purchase orders ───────────────────────────────────────────────────
-    const poRows = (await sql`
+    const allPoRows = (await sql`
       SELECT po.id, po.po_number, COALESCE(s.company_name, s.name) AS supplier_name,
              po.total, po.created_at
       FROM purchase_orders po
@@ -157,10 +224,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       WHERE po.status IN ('approved', 'partially_paid')
         AND po.company_id = ${companyId}
       ORDER BY ABS(po.total - ${absAmount}::NUMERIC) ASC
-      LIMIT 20
+      LIMIT 50
     `) as Row[];
 
-    for (const row of poRows) {
+    let poRows = allPoRows;
+    if (extractedEntity) {
+      const filtered = allPoRows.filter((r: Row) =>
+        entityNameMatches(String(r.supplier_name), extractedEntity));
+      if (filtered.length > 0) poRows = filtered;
+    }
+
+    for (const row of poRows.slice(0, 20)) {
       const label = `${String(row.supplier_name)} — PO ${String(row.po_number)}`;
       const candAmount = Number(row.total);
       const candDate = fmtDate(row.created_at);
@@ -214,6 +288,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     log.info('Fetched bank match candidates', {
       bankTransactionId,
+      extractedEntity: extractedEntity || '(none)',
       count: candidates.length,
     }, 'accounting-api');
 
