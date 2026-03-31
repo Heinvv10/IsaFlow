@@ -120,7 +120,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     } else if (candidateType === 'purchase_order') {
       // Look up the PO to derive the supplier entity id
       const poRows = (await sql`
-        SELECT id, supplier_id, total_amount FROM purchase_orders WHERE id = ${candidateId}::UUID
+        SELECT id, supplier_id, total FROM purchase_orders WHERE id = ${candidateId}::UUID
       `) as Row[];
       if (poRows.length === 0) {
         return apiResponse.notFound(res, 'Purchase order', candidateId);
@@ -139,20 +139,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         supplierId,
       );
 
-      // Link PO to bank transaction and mark as paid
+      // Mark PO as paid
       await sql`
         UPDATE purchase_orders
-        SET bank_transaction_id = ${bankTransactionId}::UUID,
-            status = 'paid',
+        SET status = 'paid',
             updated_at = NOW()
         WHERE id = ${candidateId}::UUID
-      `;
-
-      // Link bank transaction back to the PO
-      await sql`
-        UPDATE bank_transactions
-        SET linked_po_id = ${candidateId}::UUID, updated_at = NOW()
-        WHERE id = ${bankTransactionId}::UUID
       `;
 
       log.info('Confirmed match: purchase order', { bankTransactionId, candidateId }, 'accounting-api');

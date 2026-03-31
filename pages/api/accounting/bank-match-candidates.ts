@@ -150,20 +150,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     // ── 3. Purchase orders ───────────────────────────────────────────────────
     const poRows = (await sql`
-      SELECT po.id, po.po_number, s.company_name AS supplier_name,
-             po.total_amount, po.created_at
+      SELECT po.id, po.po_number, COALESCE(s.company_name, s.name) AS supplier_name,
+             po.total, po.created_at
       FROM purchase_orders po
       JOIN suppliers s ON s.id = po.supplier_id
       WHERE po.status IN ('approved', 'partially_paid')
-        AND po.bank_transaction_id IS NULL
         AND po.company_id = ${companyId}
-      ORDER BY ABS(po.total_amount - ${absAmount}::NUMERIC) ASC
+      ORDER BY ABS(po.total - ${absAmount}::NUMERIC) ASC
       LIMIT 20
     `) as Row[];
 
     for (const row of poRows) {
       const label = `${String(row.supplier_name)} — PO ${String(row.po_number)}`;
-      const candAmount = Number(row.total_amount);
+      const candAmount = Number(row.total);
       const candDate = fmtDate(row.created_at);
       const score = scoreAmount(txAmount, candAmount)
         + scoreDate(txDate, candDate)
