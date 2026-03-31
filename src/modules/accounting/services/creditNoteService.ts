@@ -3,7 +3,7 @@
  * Credit Note Service (Customer & Supplier)
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from './journalEntryService';
 import { getSystemAccount, getSystemAccountId } from './systemAccountResolver';
@@ -39,11 +39,11 @@ export async function getCreditNotes(companyId: string, filters?: CreditNoteFilt
         LEFT JOIN suppliers s ON s.id = cn.supplier_id
         LEFT JOIN customer_invoices ci ON ci.id = cn.customer_invoice_id
         LEFT JOIN supplier_invoices si ON si.id = cn.supplier_invoice_id
-        WHERE cn.type = ${filters.type}
+        WHERE cn.company_id = ${companyId} AND cn.type = ${filters.type}
         ORDER BY cn.credit_date DESC LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
       countRows = (await sql`
-        SELECT COUNT(*) AS cnt FROM credit_notes WHERE type = ${filters.type}
+        SELECT COUNT(*) AS cnt FROM credit_notes WHERE company_id = ${companyId} AND type = ${filters.type}
       `) as Row[];
     } else {
       rows = (await sql`
@@ -54,9 +54,10 @@ export async function getCreditNotes(companyId: string, filters?: CreditNoteFilt
         LEFT JOIN suppliers s ON s.id = cn.supplier_id
         LEFT JOIN customer_invoices ci ON ci.id = cn.customer_invoice_id
         LEFT JOIN supplier_invoices si ON si.id = cn.supplier_invoice_id
+        WHERE cn.company_id = ${companyId}
         ORDER BY cn.credit_date DESC LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
-      countRows = (await sql`SELECT COUNT(*) AS cnt FROM credit_notes`) as Row[];
+      countRows = (await sql`SELECT COUNT(*) AS cnt FROM credit_notes WHERE company_id = ${companyId}`) as Row[];
     }
 
     return { creditNotes: rows.map(mapRow), total: Number(countRows[0]!.cnt) };
@@ -75,7 +76,7 @@ export async function getCreditNoteById(companyId: string, id: string): Promise<
     LEFT JOIN suppliers s ON s.id = cn.supplier_id
     LEFT JOIN customer_invoices ci ON ci.id = cn.customer_invoice_id
     LEFT JOIN supplier_invoices si ON si.id = cn.supplier_invoice_id
-    WHERE cn.id = ${id}::UUID
+    WHERE cn.id = ${id}::UUID AND cn.company_id = ${companyId}
   `) as Row[];
   return rows.length > 0 ? mapRow(rows[0]) : null;
 }
@@ -114,7 +115,7 @@ export async function createCreditNote(companyId: string,
 
 export async function approveCreditNote(companyId: string, id: string, userId: string): Promise<CreditNote> {
   try {
-    const cnRows = (await sql`SELECT * FROM credit_notes WHERE id = ${id}`) as Row[];
+    const cnRows = (await sql`SELECT * FROM credit_notes WHERE id = ${id} AND company_id = ${companyId}`) as Row[];
     if (cnRows.length === 0) throw new Error(`Credit note ${id} not found`);
     const cn = cnRows[0]!;
     if (String(cn.status) !== 'draft') throw new Error(`Cannot approve credit note with status: ${cn.status}`);
@@ -137,14 +138,6 @@ export async function approveCreditNote(companyId: string, id: string, userId: s
       }
       lines.push({ glAccountId: arAccount.id, debit: 0, credit: Number(cn.total_amount),
         description: `AR credit: ${cn.credit_note_number}` });
-
-      // Reduce invoice balance
-      if (cn.customer_invoice_id) {
-        await sql`
-          UPDATE customer_invoices SET amount_paid = amount_paid + ${Number(cn.total_amount)}
-          WHERE id = ${cn.customer_invoice_id}::UUID
-        `;
-      }
     } else {
       // Supplier CN: DR Accounts Payable, CR Expense
       const apAccount = await getSystemAccount('payable');
@@ -161,14 +154,6 @@ export async function approveCreditNote(companyId: string, id: string, userId: s
       }
       lines.push({ glAccountId: expenseAccount.id, debit: 0, credit: Number(cn.subtotal),
         description: `Expense credit: ${cn.credit_note_number}` });
-
-      // Reduce supplier invoice balance
-      if (cn.supplier_invoice_id) {
-        await sql`
-          UPDATE supplier_invoices SET amount_paid = amount_paid + ${Number(cn.total_amount)}
-          WHERE id = ${cn.supplier_invoice_id}::UUID
-        `;
-      }
     }
 
     const je = await createJournalEntry('', {
@@ -180,14 +165,31 @@ export async function approveCreditNote(companyId: string, id: string, userId: s
     }, userId);
     await postJournalEntry('', je.id, userId);
 
-    const updated = (await sql`
-      UPDATE credit_notes SET status = 'approved', approved_by = ${userId}::UUID,
-        approved_at = NOW(), gl_journal_entry_id = ${je.id}::UUID
-      WHERE id = ${id} RETURNING *
-    `) as Row[];
+    // Update invoice balance and credit note status atomically
+    const updated = await withTransaction(async (tx) => {
+      if (String(cn.type) === 'customer' && cn.customer_invoice_id) {
+        await tx`
+          UPDATE customer_invoices SET amount_paid = amount_paid + ${Number(cn.total_amount)}
+          WHERE id = ${cn.customer_invoice_id}::UUID
+        `;
+      } else if (String(cn.type) === 'supplier' && cn.supplier_invoice_id) {
+        await tx`
+          UPDATE supplier_invoices SET amount_paid = amount_paid + ${Number(cn.total_amount)}
+          WHERE id = ${cn.supplier_invoice_id}::UUID
+        `;
+      }
+
+      const rows = (await tx`
+        UPDATE credit_notes SET status = 'approved', approved_by = ${userId}::UUID,
+          approved_at = NOW(), gl_journal_entry_id = ${je.id}::UUID
+        WHERE id = ${id} RETURNING *
+      `) as Row[];
+
+      return rows[0] as Row;
+    });
 
     log.info('Approved credit note', { id, journalEntryId: je.id }, 'accounting');
-    return mapRow(updated[0]!);
+    return mapRow(updated);
   } catch (err) {
     log.error('Failed to approve credit note', { id, error: err }, 'accounting');
     throw err;
@@ -200,7 +202,7 @@ export async function cancelCreditNote(companyId: string,
   reason?: string
 ): Promise<CreditNote> {
   try {
-    const cnRows = (await sql`SELECT * FROM credit_notes WHERE id = ${id}`) as Row[];
+    const cnRows = (await sql`SELECT * FROM credit_notes WHERE id = ${id} AND company_id = ${companyId}`) as Row[];
     if (cnRows.length === 0) throw new Error(`Credit note ${id} not found`);
     const cn = cnRows[0]!;
     if (String(cn.status) !== 'approved') {

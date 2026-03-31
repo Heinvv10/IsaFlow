@@ -6,19 +6,13 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import crypto from 'crypto';
+import { WEBHOOK_EVENTS } from '@/modules/accounting/constants/webhookEvents';
+
+export { WEBHOOK_EVENTS };
+export type { WebhookEvent } from '@/modules/accounting/constants/webhookEvents';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
-
-export const WEBHOOK_EVENTS = [
-  'customer.created', 'customer.updated',
-  'supplier.created', 'supplier.updated',
-  'invoice.created', 'invoice.posted', 'invoice.paid',
-  'payment.received', 'payment.made',
-  'journal_entry.posted', 'journal_entry.reversed',
-] as const;
-
-export type WebhookEvent = typeof WEBHOOK_EVENTS[number];
 
 export interface Webhook {
   id: string;

@@ -8,8 +8,9 @@ import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
+import { withErrorHandler } from '@/lib/api-error-handler';
 
-export default withCompany(async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
 
   try {
@@ -62,4 +63,6 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
     log.error('Sales by item report error', { error: message });
     return apiResponse.badRequest(res, 'Failed to generate report');
   }
-});
+}
+
+export default withCompany(withErrorHandler(handler as any));

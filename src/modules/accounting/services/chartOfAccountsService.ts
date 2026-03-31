@@ -95,7 +95,7 @@ export async function getAccountTree(companyId: string, includeInactive = false)
 
 export async function getAccountById(companyId: string, id: string): Promise<GLAccount | null> {
   try {
-    const rows = await sql`SELECT * FROM gl_accounts WHERE id = ${id}`;
+    const rows = await sql`SELECT * FROM gl_accounts WHERE id = ${id} AND company_id = ${companyId}`;
     const arr = rows as { [key: string]: unknown }[];
     return arr.length > 0 ? mapRow(arr[0]!) : null;
   } catch (err) {
@@ -156,7 +156,7 @@ export async function createAccount(companyId: string, input: CreateAccountInput
 
 export async function updateAccount(companyId: string, id: string, input: UpdateAccountInput): Promise<GLAccount> {
   try {
-    const account = await sql`SELECT * FROM gl_accounts WHERE id = ${id}` as {
+    const account = await sql`SELECT * FROM gl_accounts WHERE id = ${id} AND company_id = ${companyId}` as {
       is_system_account: boolean;
     }[];
     if (account.length === 0) throw new Error(`Account ${id} not found`);
@@ -172,7 +172,7 @@ export async function updateAccount(companyId: string, id: string, input: Update
         is_active = COALESCE(${input.isActive ?? null}, is_active),
         display_order = COALESCE(${input.displayOrder ?? null}, display_order),
         default_vat_code = COALESCE(${input.defaultVatCode || null}, default_vat_code)
-      WHERE id = ${id}
+      WHERE id = ${id} AND company_id = ${companyId}
       RETURNING *
     `;
     cache.invalidatePrefix(`${companyId}:gl-accounts`);
@@ -199,7 +199,7 @@ export async function deleteAccount(companyId: string, id: string): Promise<void
       throw new Error('Cannot delete account with active child accounts');
     }
 
-    await sql`UPDATE gl_accounts SET is_active = false WHERE id = ${id}`;
+    await sql`UPDATE gl_accounts SET is_active = false WHERE id = ${id} AND company_id = ${companyId}`;
     cache.invalidatePrefix(`${companyId}:gl-accounts`);
   } catch (err) {
     log.error('Failed to delete account', { id, error: err }, 'accounting');

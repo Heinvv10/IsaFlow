@@ -8,8 +8,9 @@ import { sql } from '@/lib/neon';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
+import { withErrorHandler } from '@/lib/api-error-handler';
 
-export default withCompany(async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
 
   try {
@@ -21,7 +22,7 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
     const rows = await sql`
       SELECT
         si.supplier_id,
-        s.company_name AS supplier_name,
+        COALESCE(s.name, s.company_name) AS supplier_name,
         COUNT(si.id)::int AS invoice_count,
         COALESCE(SUM(si.total_amount), 0)::numeric AS total_purchases,
         COALESCE(SUM(si.amount_paid), 0)::numeric AS payments_made,
@@ -61,4 +62,6 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
     log.error('purchases-by-supplier report error', { error: message });
     return apiResponse.error(res, ErrorCode.INTERNAL_ERROR, 'Failed to generate report');
   }
-});
+}
+
+export default withCompany(withErrorHandler(handler as any));

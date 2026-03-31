@@ -14,7 +14,7 @@ import type { ExtractedDocument } from '@/modules/accounting/types/documentCaptu
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
-interface Client { id: string; company_name: string }
+interface Client { id: string; name: string }
 interface LineItem { key: string; description: string; quantity: number; unitPrice: number; incomeType: string }
 
 export default function NewCustomerInvoicePage() {
@@ -120,7 +120,7 @@ export default function NewCustomerInvoicePage() {
                 <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">Client *</label>
                 <select value={form.clientId} onChange={e => setForm(p => ({ ...p, clientId: e.target.value }))} className="ff-select w-full text-sm">
                   <option value="">Select client...</option>
-                  {clients.map(c => <option key={c.id} value={c.id}>{c.company_name}</option>)}
+                  {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
               <div>

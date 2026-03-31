@@ -19,18 +19,25 @@ export default function SupplierAllocationsPage() {
   const [selected, setSelected] = useState<Payment | null>(null);
   const [allocs, setAllocs] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [loadingInv, setLoadingInv] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
 
   const loadPayments = useCallback(async () => {
     setLoading(true);
-    const res = await apiFetch('/api/accounting/supplier-payments?unallocated=true', { credentials: 'include' });
-    const json = await res.json();
-    const d = json.data;
-    const raw: Payment[] = Array.isArray(d) ? d : d?.items || d?.payments || d?.invoices || [];
-    setPayments(raw.map(p => ({ ...p, amount: Number(p.amount), allocatedAmount: Number(p.allocatedAmount) })));
-    setLoading(false);
+    setError('');
+    try {
+      const res = await apiFetch('/api/accounting/supplier-payments?unallocated=true', { credentials: 'include' });
+      const json = await res.json();
+      const d = json.data;
+      const raw: Payment[] = Array.isArray(d) ? d : d?.items || d?.payments || d?.invoices || [];
+      setPayments(raw.map(p => ({ ...p, amount: Number(p.amount), allocatedAmount: Number(p.allocatedAmount) })));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load data');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => { loadPayments(); }, [loadPayments]);
@@ -82,6 +89,7 @@ export default function SupplierAllocationsPage() {
         </div>
 
         <div className="p-6 space-y-4">
+          {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">{error}</div>}
           {!loading && payments.length > 0 && (
             <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
               <p className="text-xs text-[var(--ff-text-tertiary)] uppercase">Total Unallocated</p>

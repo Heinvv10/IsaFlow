@@ -55,8 +55,9 @@ export interface ApprovalCheckResult {
 // ── Rule CRUD ────────────────────────────────────────────────────────────────
 
 export async function listRules(companyId?: string): Promise<ApprovalRule[]> {
+  if (!companyId) return [];
   const rows = (await sql`
-    SELECT * FROM approval_rules ORDER BY priority ASC, name ASC
+    SELECT * FROM approval_rules WHERE company_id = ${companyId} ORDER BY priority ASC, name ASC
   `) as Row[];
   return rows.map(mapRule);
 }
@@ -70,9 +71,9 @@ export async function createRule(companyId: string, input: {
   approverRole?: string;
 }): Promise<ApprovalRule> {
   const rows = (await sql`
-    INSERT INTO approval_rules (name, document_type, condition_field, condition_operator, condition_value, approver_role)
+    INSERT INTO approval_rules (company_id, name, document_type, condition_field, condition_operator, condition_value, approver_role)
     VALUES (
-      ${input.name}, ${input.documentType},
+      ${companyId}, ${input.name}, ${input.documentType},
       ${input.conditionField || 'total'}, ${input.conditionOperator || 'greater_than'},
       ${input.conditionValue || 0}, ${input.approverRole || 'admin'}
     ) RETURNING *
@@ -98,14 +99,14 @@ export async function updateRule(companyId: string, id: string, input: Partial<{
       approver_role = COALESCE(${input.approverRole ?? null}, approver_role),
       is_active = COALESCE(${input.isActive ?? null}, is_active),
       updated_at = NOW()
-    WHERE id = ${id}::UUID RETURNING *
+    WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING *
   `) as Row[];
   if (!rows[0]) throw new Error(`Rule ${id} not found`);
   return mapRule(rows[0]);
 }
 
 export async function deleteRule(companyId: string, id: string): Promise<void> {
-  await sql`DELETE FROM approval_rules WHERE id = ${id}::UUID`;
+  await sql`DELETE FROM approval_rules WHERE id = ${id}::UUID AND company_id = ${companyId}`;
 }
 
 // ── Approval Check ───────────────────────────────────────────────────────────
@@ -122,7 +123,8 @@ export async function checkApproval(
     SELECT ar.*, rl.name AS rule_name
     FROM approval_requests ar
     LEFT JOIN approval_rules rl ON rl.id = ar.rule_id
-    WHERE ar.document_type = ${documentType}
+    WHERE ar.company_id = ${companyId}
+      AND ar.document_type = ${documentType}
       AND ar.document_id = ${documentId}::UUID
       AND ar.status = 'pending'
     LIMIT 1
@@ -139,7 +141,8 @@ export async function checkApproval(
   // Find matching active rules
   const rules = (await sql`
     SELECT * FROM approval_rules
-    WHERE document_type = ${documentType}
+    WHERE company_id = ${companyId}
+      AND document_type = ${documentType}
       AND is_active = true
     ORDER BY priority ASC
   `) as Row[];
@@ -184,9 +187,9 @@ export async function requestApproval(companyId: string, input: {
   requestedBy: string;
 }): Promise<ApprovalRequest> {
   const rows = (await sql`
-    INSERT INTO approval_requests (rule_id, document_type, document_id, document_reference, amount, requested_by)
+    INSERT INTO approval_requests (company_id, rule_id, document_type, document_id, document_reference, amount, requested_by)
     VALUES (
-      ${input.ruleId}::UUID, ${input.documentType}, ${input.documentId}::UUID,
+      ${companyId}, ${input.ruleId}::UUID, ${input.documentType}, ${input.documentId}::UUID,
       ${input.documentReference || null}, ${input.amount || null}, ${input.requestedBy}::UUID
     ) RETURNING *
   `) as Row[];
@@ -209,7 +212,7 @@ export async function listRequests(companyId: string, status?: ApprovalStatus): 
         LEFT JOIN approval_rules rl ON rl.id = ar.rule_id
         LEFT JOIN users u1 ON u1.id = ar.requested_by::TEXT
         LEFT JOIN users u2 ON u2.id = ar.decided_by::TEXT
-        WHERE ar.status = ${status}
+        WHERE ar.company_id = ${companyId} AND ar.status = ${status}
         ORDER BY ar.created_at DESC
       `) as Row[]
     : (await sql`
@@ -220,6 +223,7 @@ export async function listRequests(companyId: string, status?: ApprovalStatus): 
         LEFT JOIN approval_rules rl ON rl.id = ar.rule_id
         LEFT JOIN users u1 ON u1.id = ar.requested_by::TEXT
         LEFT JOIN users u2 ON u2.id = ar.decided_by::TEXT
+        WHERE ar.company_id = ${companyId}
         ORDER BY ar.created_at DESC
       `) as Row[];
   return rows.map(mapRequest);
@@ -238,7 +242,7 @@ export async function decideRequest(companyId: string,
       decided_by = ${decidedBy}::UUID,
       decided_at = NOW(),
       decision_notes = ${notes || null}
-    WHERE id = ${requestId}::UUID AND status = 'pending'
+    WHERE id = ${requestId}::UUID AND company_id = ${companyId} AND status = 'pending'
     RETURNING *
   `) as Row[];
   if (!rows[0]) throw new Error(`Request ${requestId} not found or already decided`);
@@ -248,8 +252,9 @@ export async function decideRequest(companyId: string,
 
 /** Get pending approval count for dashboard badge */
 export async function getPendingCount(companyId?: string): Promise<number> {
+  if (!companyId) return 0;
   const rows = (await sql`
-    SELECT COUNT(*) AS count FROM approval_requests WHERE status = 'pending'
+    SELECT COUNT(*) AS count FROM approval_requests WHERE company_id = ${companyId} AND status = 'pending'
   `) as Row[];
   return Number(rows[0]?.count ?? 0);
 }

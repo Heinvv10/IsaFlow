@@ -8,11 +8,13 @@ import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
+import { withErrorHandler } from '@/lib/api-error-handler';
 
-export default withCompany(async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
 
   try {
+    const companyId = (req as CompanyApiRequest).companyId;
     const from = (req.query.from as string) || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
     const to = (req.query.to as string) || new Date().toISOString().split('T')[0];
     const format = req.query.format as string;
@@ -26,7 +28,8 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
       FROM po_items poi
       JOIN purchase_orders po ON po.id = poi.purchase_order_id
       JOIN stock_items si ON si.id = poi.stock_item_id
-      WHERE po.order_date >= ${from}
+      WHERE si.company_id = ${companyId}
+        AND po.order_date >= ${from}
         AND po.order_date <= ${to}
       GROUP BY si.id, si.item_code, si.name, si.category
       ORDER BY total_cost DESC
@@ -59,4 +62,6 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
     log.error('Purchases by item report error', { error: message });
     return apiResponse.badRequest(res, 'Failed to generate report');
   }
-});
+}
+
+export default withCompany(withErrorHandler(handler as any));

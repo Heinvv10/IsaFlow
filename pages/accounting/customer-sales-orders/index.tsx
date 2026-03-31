@@ -44,6 +44,7 @@ export default function CustomerSalesOrdersPage() {
   const [orders, setOrders] = useState<SalesOrder[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [tab, setTab] = useState<string>('all');
   const [search, setSearch] = useState('');
   const [showNew, setShowNew] = useState(false);
@@ -63,15 +64,21 @@ export default function CustomerSalesOrdersPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const params = new URLSearchParams();
-    if (tab !== 'all') params.set('status', tab);
-    if (search) params.set('search', search);
-    const res = await apiFetch(`/api/accounting/customer-sales-orders?${params}`);
-    const json = await res.json();
-    const d = json.data || json;
-    setOrders(d.orders || []);
-    setTotal(d.total || 0);
-    setLoading(false);
+    setError('');
+    try {
+      const params = new URLSearchParams();
+      if (tab !== 'all') params.set('status', tab);
+      if (search) params.set('search', search);
+      const res = await apiFetch(`/api/accounting/customer-sales-orders?${params}`);
+      const json = await res.json();
+      const d = json.data || json;
+      setOrders(d.orders || []);
+      setTotal(d.total || 0);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load data');
+    } finally {
+      setLoading(false);
+    }
   }, [tab, search]);
 
   useEffect(() => {
@@ -144,6 +151,7 @@ export default function CustomerSalesOrdersPage() {
         </div>
 
         <div className="p-6 space-y-4">
+          {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">{error}</div>}
           {/* Tabs + Search */}
           <div className="flex items-center justify-between gap-4">
             <div className="flex gap-1">

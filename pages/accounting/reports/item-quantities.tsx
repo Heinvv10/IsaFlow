@@ -13,15 +13,22 @@ interface Row { id: string; itemCode: string; name: string; category: string; uo
 export default function ItemQuantitiesReport() {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [showLowOnly, setShowLowOnly] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const params = showLowOnly ? '?low_stock=true' : '';
-    const res = await apiFetch(`/api/accounting/reports/item-quantities${params}`, { credentials: 'include' });
-    const json = await res.json();
-    setRows(json.data || []);
-    setLoading(false);
+    setError('');
+    try {
+      const params = showLowOnly ? '?low_stock=true' : '';
+      const res = await apiFetch(`/api/accounting/reports/item-quantities${params}`, { credentials: 'include' });
+      const json = await res.json();
+      setRows(json.data || []);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load data');
+    } finally {
+      setLoading(false);
+    }
   }, [showLowOnly]);
 
   useEffect(() => { load(); }, [load]);
@@ -54,6 +61,7 @@ export default function ItemQuantitiesReport() {
           </div>
         </div>
         <div className="p-6 space-y-4">
+          {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">{error}</div>}
           {!loading && lowCount > 0 && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-500/10 text-amber-400 text-sm">
               <AlertTriangle className="h-4 w-4" /> {lowCount} item(s) at or below minimum stock level

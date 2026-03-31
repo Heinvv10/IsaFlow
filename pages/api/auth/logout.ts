@@ -10,8 +10,9 @@ import { apiResponse } from '@/lib/apiResponse';
 import { verifyToken } from '@/lib/auth/jwt';
 import { deleteSession } from '@/lib/auth/session';
 import { AUTH_COOKIE_NAME } from '@/lib/auth/middleware';
+import { withErrorHandler } from '@/lib/api-error-handler';
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method ?? 'unknown', ['POST']);
   }
@@ -47,3 +48,5 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   log.info('User logged out', {}, 'auth/logout');
   return apiResponse.success(res, null, 'Logged out successfully');
 }
+
+export default withErrorHandler(handler as any);

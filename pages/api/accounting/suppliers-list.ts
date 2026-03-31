@@ -13,11 +13,12 @@ import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { cacheThrough, cache } from '@/lib/cache';
 import { CACHE_KEYS, CACHE_TTL } from '@/lib/cache-keys';
+import { withErrorHandler } from '@/lib/api-error-handler';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
 
-export default withCompany(async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;
   // ─── GET: List suppliers ────────────────────────────────────────────────────
   if (req.method === 'GET') {
@@ -161,4 +162,6 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
   }
 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST']);
-});
+}
+
+export default withCompany(withErrorHandler(handler as any));

@@ -3,7 +3,7 @@
  * Phase 1 Sage Alignment: Scheduled automated journal entries
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
 import type { RecurringJournal, RecurringJournalCreateInput, JournalLineInput } from '../types/gl.types';
@@ -23,18 +23,18 @@ export async function getRecurringJournals(companyId: string, filters?: {
 
   if (filters?.status) {
     rows = (await sql`
-      SELECT * FROM recurring_journals WHERE status = ${filters.status}
+      SELECT * FROM recurring_journals WHERE company_id = ${companyId} AND status = ${filters.status}
       ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}
     `) as Row[];
     countRows = (await sql`
-      SELECT COUNT(*) AS cnt FROM recurring_journals WHERE status = ${filters.status}
+      SELECT COUNT(*) AS cnt FROM recurring_journals WHERE company_id = ${companyId} AND status = ${filters.status}
     `) as Row[];
   } else {
     rows = (await sql`
-      SELECT * FROM recurring_journals
+      SELECT * FROM recurring_journals WHERE company_id = ${companyId}
       ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}
     `) as Row[];
-    countRows = (await sql`SELECT COUNT(*) AS cnt FROM recurring_journals`) as Row[];
+    countRows = (await sql`SELECT COUNT(*) AS cnt FROM recurring_journals WHERE company_id = ${companyId}`) as Row[];
   }
 
   return { items: rows.map(mapRow), total: Number(countRows[0]?.cnt || 0) };
@@ -53,10 +53,10 @@ export async function createRecurringJournal(companyId: string,
 
   const rows = (await sql`
     INSERT INTO recurring_journals (
-      template_name, description, frequency, next_run_date,
+      company_id, template_name, description, frequency, next_run_date,
       end_date, lines, total_amount, created_by
     ) VALUES (
-      ${input.templateName}, ${input.description || null}, ${input.frequency},
+      ${companyId}, ${input.templateName}, ${input.description || null}, ${input.frequency},
       ${input.nextRunDate}, ${input.endDate || null},
       ${JSON.stringify(input.lines)}::JSONB, ${totalDebit}, ${userId}::UUID
     ) RETURNING *
@@ -70,7 +70,7 @@ export async function updateRecurringJournalStatus(companyId: string,
   id: string,
   status: 'paused' | 'active' | 'cancelled'
 ): Promise<void> {
-  await sql`UPDATE recurring_journals SET status = ${status} WHERE id = ${id}`;
+  await sql`UPDATE recurring_journals SET status = ${status} WHERE id = ${id} AND company_id = ${companyId}`;
   log.info('Updated recurring journal status', { id, status }, 'accounting');
 }
 
@@ -78,7 +78,7 @@ export async function generateJournalFromRecurring(companyId: string,
   id: string,
   userId: string
 ): Promise<string> {
-  const rows = (await sql`SELECT * FROM recurring_journals WHERE id = ${id}`) as Row[];
+  const rows = (await sql`SELECT * FROM recurring_journals WHERE id = ${id} AND company_id = ${companyId}`) as Row[];
   if (!rows[0]) throw new Error('Recurring journal not found');
   const rj = rows[0];
   if (rj.status !== 'active') throw new Error('Recurring journal is not active');
@@ -93,17 +93,20 @@ export async function generateJournalFromRecurring(companyId: string,
   }, userId);
   await postJournalEntry('', je.id, userId);
 
-  // Advance next run date
+  // Advance next run date and mark last run atomically so a failure here
+  // doesn't leave an orphaned GL entry with the recurring template unadvanced.
   const nextDate = advanceDate(String(rj.next_run_date), String(rj.frequency));
   const endDate = rj.end_date ? String(rj.end_date) : null;
   const newStatus = endDate && nextDate > endDate ? 'completed' : 'active';
 
-  await sql`
-    UPDATE recurring_journals
-    SET last_run_date = CURRENT_DATE, next_run_date = ${nextDate}::DATE,
-        run_count = run_count + 1, status = ${newStatus}
-    WHERE id = ${id}
-  `;
+  await withTransaction(async (tx) => {
+    await tx`
+      UPDATE recurring_journals
+      SET last_run_date = CURRENT_DATE, next_run_date = ${nextDate}::DATE,
+          run_count = run_count + 1, status = ${newStatus}
+      WHERE id = ${id}
+    `;
+  });
 
   log.info('Generated journal from recurring', { recurringId: id, journalId: je.id }, 'accounting');
   return je.id;

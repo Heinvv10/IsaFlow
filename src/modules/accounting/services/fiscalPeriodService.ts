@@ -16,12 +16,12 @@ export async function getFiscalPeriods(companyId: string, fiscalYear?: number): 
     if (fiscalYear) {
       rows = (await sql`
         SELECT * FROM fiscal_periods
-        WHERE fiscal_year = ${fiscalYear}
+        WHERE company_id = ${companyId} AND fiscal_year = ${fiscalYear}
         ORDER BY period_number
       `) as Row[];
     } else {
       rows = (await sql`
-        SELECT * FROM fiscal_periods
+        SELECT * FROM fiscal_periods WHERE company_id = ${companyId}
         ORDER BY fiscal_year DESC, period_number
       `) as Row[];
     }
@@ -34,7 +34,7 @@ export async function getFiscalPeriods(companyId: string, fiscalYear?: number): 
 
 export async function getFiscalPeriodById(id: string): Promise<FiscalPeriod | null> {
   try {
-    const rows = (await sql`SELECT * FROM fiscal_periods WHERE id = ${id}`) as Row[];
+    const rows = (await sql`SELECT * FROM fiscal_periods WHERE id = ${id}`) as Row[]; // NOTE: id-only lookup used internally — callers must ensure companyId scoping
     return rows.length > 0 ? mapRow(rows[0]) : null;
   } catch (err) {
     log.error('Failed to get fiscal period', { id, error: err }, 'accounting');
@@ -46,7 +46,8 @@ export async function getCurrentFiscalPeriod(companyId: string): Promise<FiscalP
   try {
     const rows = (await sql`
       SELECT * FROM fiscal_periods
-      WHERE start_date <= CURRENT_DATE AND end_date >= CURRENT_DATE
+      WHERE company_id = ${companyId}
+        AND start_date <= CURRENT_DATE AND end_date >= CURRENT_DATE
       LIMIT 1
     `) as Row[];
     return rows.length > 0 ? mapRow(rows[0]) : null;
@@ -59,7 +60,7 @@ export async function getCurrentFiscalPeriod(companyId: string): Promise<FiscalP
 export async function createFiscalYear(companyId: string, year: number): Promise<FiscalPeriod[]> {
   try {
     const existing = (await sql`
-      SELECT COUNT(*) AS cnt FROM fiscal_periods WHERE fiscal_year = ${year}
+      SELECT COUNT(*) AS cnt FROM fiscal_periods WHERE company_id = ${companyId} AND fiscal_year = ${year}
     `) as Row[];
     if (Number(existing[0].cnt) > 0) {
       throw new Error(`Fiscal year ${year} already exists`);
@@ -78,8 +79,8 @@ export async function createFiscalYear(companyId: string, year: number): Promise
       const endDate = `${year}-${String(periodNum).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 
       const rows = (await sql`
-        INSERT INTO fiscal_periods (period_name, period_number, fiscal_year, start_date, end_date)
-        VALUES (${months[i]! + ' ' + year}, ${periodNum}, ${year}, ${startDate}, ${endDate})
+        INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date)
+        VALUES (${companyId}, ${months[i]! + ' ' + year}, ${periodNum}, ${year}, ${startDate}, ${endDate})
         RETURNING *
       `) as Row[];
       periods.push(mapRow(rows[0]));
@@ -101,7 +102,8 @@ export async function closePeriod(companyId: string, id: string, userId: string)
 
     const openPrior = (await sql`
       SELECT COUNT(*) AS cnt FROM fiscal_periods
-      WHERE fiscal_year = ${period.fiscalYear}
+      WHERE company_id = ${companyId}
+        AND fiscal_year = ${period.fiscalYear}
         AND period_number < ${period.periodNumber}
         AND status = 'open'
     `) as Row[];
@@ -112,7 +114,7 @@ export async function closePeriod(companyId: string, id: string, userId: string)
     const rows = (await sql`
       UPDATE fiscal_periods
       SET status = 'closed', closed_by = ${userId}::UUID, closed_at = NOW()
-      WHERE id = ${id}
+      WHERE id = ${id} AND company_id = ${companyId}
       RETURNING *
     `) as Row[];
     return mapRow(rows[0]);
@@ -129,7 +131,7 @@ export async function lockPeriod(companyId: string, id: string): Promise<FiscalP
     if (period.status !== 'closed') throw new Error('Period must be closed before locking');
 
     const rows = (await sql`
-      UPDATE fiscal_periods SET status = 'locked' WHERE id = ${id} RETURNING *
+      UPDATE fiscal_periods SET status = 'locked' WHERE id = ${id} AND company_id = ${companyId} RETURNING *
     `) as Row[];
     return mapRow(rows[0]);
   } catch (err) {
@@ -148,7 +150,7 @@ export async function reopenPeriod(companyId: string, id: string): Promise<Fisca
     const rows = (await sql`
       UPDATE fiscal_periods
       SET status = 'open', closed_by = NULL, closed_at = NULL
-      WHERE id = ${id}
+      WHERE id = ${id} AND company_id = ${companyId}
       RETURNING *
     `) as Row[];
     return mapRow(rows[0]);

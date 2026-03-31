@@ -25,18 +25,20 @@ export async function getVATAdjustments(companyId: string, filters?: {
 
   if (filters?.status) {
     rows = (await sql`
-      SELECT * FROM vat_adjustments WHERE status = ${filters.status}
+      SELECT * FROM vat_adjustments
+      WHERE company_id = ${companyId} AND status = ${filters.status}
       ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}
     `) as Row[];
     countRows = (await sql`
-      SELECT COUNT(*) AS cnt FROM vat_adjustments WHERE status = ${filters.status}
+      SELECT COUNT(*) AS cnt FROM vat_adjustments
+      WHERE company_id = ${companyId} AND status = ${filters.status}
     `) as Row[];
   } else {
     rows = (await sql`
-      SELECT * FROM vat_adjustments
+      SELECT * FROM vat_adjustments WHERE company_id = ${companyId}
       ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}
     `) as Row[];
-    countRows = (await sql`SELECT COUNT(*) AS cnt FROM vat_adjustments`) as Row[];
+    countRows = (await sql`SELECT COUNT(*) AS cnt FROM vat_adjustments WHERE company_id = ${companyId}`) as Row[];
   }
 
   return { items: rows.map(mapRow), total: Number(countRows[0]?.cnt || 0) };
@@ -48,9 +50,9 @@ export async function createVATAdjustment(companyId: string,
 ): Promise<VATAdjustment> {
   const rows = (await sql`
     INSERT INTO vat_adjustments (
-      adjustment_date, vat_period, adjustment_type, amount, reason, created_by
+      company_id, adjustment_date, vat_period, adjustment_type, amount, reason, created_by
     ) VALUES (
-      ${input.adjustmentDate}, ${input.vatPeriod || null},
+      ${companyId}, ${input.adjustmentDate}, ${input.vatPeriod || null},
       ${input.adjustmentType}, ${input.amount}, ${input.reason}, ${userId}::UUID
     ) RETURNING *
   `) as Row[];
@@ -63,7 +65,7 @@ export async function approveVATAdjustment(companyId: string,
   id: string,
   userId: string
 ): Promise<VATAdjustment> {
-  const vaRows = (await sql`SELECT * FROM vat_adjustments WHERE id = ${id}`) as Row[];
+  const vaRows = (await sql`SELECT * FROM vat_adjustments WHERE id = ${id} AND company_id = ${companyId}`) as Row[];
   if (!vaRows[0]) throw new Error('VAT adjustment not found');
   if (vaRows[0].status !== 'draft') throw new Error('VAT adjustment is not in draft status');
 
@@ -105,7 +107,7 @@ export async function approveVATAdjustment(companyId: string,
     UPDATE vat_adjustments
     SET status = 'approved', approved_by = ${userId}::UUID, approved_at = NOW(),
         gl_journal_entry_id = ${je.id}::UUID
-    WHERE id = ${id} RETURNING *
+    WHERE id = ${id} AND company_id = ${companyId} RETURNING *
   `) as Row[];
 
   log.info('Approved VAT adjustment', { id, journalEntryId: je.id }, 'accounting');
@@ -113,7 +115,7 @@ export async function approveVATAdjustment(companyId: string,
 }
 
 export async function cancelVATAdjustment(companyId: string, id: string): Promise<void> {
-  await sql`UPDATE vat_adjustments SET status = 'cancelled' WHERE id = ${id} AND status = 'draft'`;
+  await sql`UPDATE vat_adjustments SET status = 'cancelled' WHERE id = ${id} AND company_id = ${companyId} AND status = 'draft'`;
 }
 
 function mapRow(row: Row): VATAdjustment {

@@ -3,7 +3,7 @@
  * Phase 1 Sage Alignment: Bulk supplier payment processing
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
 import { getSystemAccount } from './systemAccountResolver';
@@ -25,25 +25,30 @@ export async function getBatches(companyId: string, filters?: {
 
   if (filters?.status) {
     rows = (await sql`
-      SELECT * FROM supplier_payment_batches WHERE status = ${filters.status}
+      SELECT * FROM supplier_payment_batches
+      WHERE company_id = ${companyId} AND status = ${filters.status}
       ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}
     `) as Row[];
     countRows = (await sql`
-      SELECT COUNT(*) AS cnt FROM supplier_payment_batches WHERE status = ${filters.status}
+      SELECT COUNT(*) AS cnt FROM supplier_payment_batches
+      WHERE company_id = ${companyId} AND status = ${filters.status}
     `) as Row[];
   } else {
     rows = (await sql`
-      SELECT * FROM supplier_payment_batches
+      SELECT * FROM supplier_payment_batches WHERE company_id = ${companyId}
       ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}
     `) as Row[];
-    countRows = (await sql`SELECT COUNT(*) AS cnt FROM supplier_payment_batches`) as Row[];
+    countRows = (await sql`SELECT COUNT(*) AS cnt FROM supplier_payment_batches WHERE company_id = ${companyId}`) as Row[];
   }
 
   return { items: rows.map(mapRow), total: Number(countRows[0]?.cnt || 0) };
 }
 
 export async function getBatchById(companyId: string, id: string): Promise<SupplierPaymentBatch | null> {
-  const rows = (await sql`SELECT * FROM supplier_payment_batches WHERE id = ${id}`) as Row[];
+  // companyId may be empty string when called internally after creating a batch — skip filter in that case
+  const rows = companyId
+    ? (await sql`SELECT * FROM supplier_payment_batches WHERE id = ${id} AND company_id = ${companyId}`) as Row[]
+    : (await sql`SELECT * FROM supplier_payment_batches WHERE id = ${id}`) as Row[];
   if (!rows[0]) return null;
   return mapRow(rows[0]);
 }
@@ -52,59 +57,60 @@ export async function createBatch(companyId: string,
   input: BatchPaymentCreateInput,
   userId: string
 ): Promise<SupplierPaymentBatch> {
-  let totalAmount = 0;
   const paymentMethod = input.paymentMethod || 'eft';
+  const batchDate = input.batchDate || new Date().toISOString().split('T')[0]!;
 
-  // Create batch record first
-  const batchRows = (await sql`
-    INSERT INTO supplier_payment_batches (
-      batch_date, payment_method, bank_account_id, notes,
-      payment_count, total_amount, created_by
-    ) VALUES (
-      ${input.batchDate || new Date().toISOString().split('T')[0]},
-      ${paymentMethod}, ${input.bankAccountId || null}, ${input.notes || null},
-      ${input.payments.length}, 0, ${userId}::UUID
-    ) RETURNING *
-  `) as Row[];
-
-  const batchId = String(batchRows[0]!.id);
-
-  // Create individual payments linked to batch
-  for (const p of input.payments) {
-    const payTotal = p.invoiceAllocations.reduce((s, a) => s + a.amount, 0);
-    totalAmount += payTotal;
-
-    const payRows = (await sql`
-      INSERT INTO supplier_payments (
-        supplier_id, payment_date, total_amount, payment_method,
-        status, batch_id, created_by
+  const batchId = await withTransaction(async (tx) => {
+    const batchRows = (await tx`
+      INSERT INTO supplier_payment_batches (
+        batch_date, payment_method, bank_account_id, notes,
+        payment_count, total_amount, created_by
       ) VALUES (
-        ${p.supplierId}::UUID, ${input.batchDate || new Date().toISOString().split('T')[0]},
-        ${payTotal}, ${paymentMethod}, 'draft', ${batchId}::UUID, ${userId}::UUID
+        ${batchDate}, ${paymentMethod}, ${input.bankAccountId || null},
+        ${input.notes || null}, ${input.payments.length}, 0, ${userId}::UUID
       ) RETURNING id
     `) as Row[];
 
-    const paymentId = String(payRows[0]!.id);
-    for (const alloc of p.invoiceAllocations) {
-      await sql`
-        INSERT INTO payment_allocations (payment_id, invoice_id, amount_allocated)
-        VALUES (${paymentId}::UUID, ${alloc.invoiceId}::UUID, ${alloc.amount})
-      `;
+    const id = String(batchRows[0]!.id);
+    let totalAmount = 0;
+
+    for (const p of input.payments) {
+      const payTotal = p.invoiceAllocations.reduce((s: number, a: { amount: number }) => s + a.amount, 0);
+      totalAmount += payTotal;
+
+      const payRows = (await tx`
+        INSERT INTO supplier_payments (
+          supplier_id, payment_date, total_amount, payment_method,
+          status, batch_id, created_by
+        ) VALUES (
+          ${p.supplierId}::UUID, ${batchDate},
+          ${payTotal}, ${paymentMethod}, 'draft', ${id}::UUID, ${userId}::UUID
+        ) RETURNING id
+      `) as Row[];
+
+      const paymentId = String(payRows[0]!.id);
+      for (const alloc of p.invoiceAllocations) {
+        await tx`
+          INSERT INTO payment_allocations (payment_id, invoice_id, amount_allocated)
+          VALUES (${paymentId}::UUID, ${alloc.invoiceId}::UUID, ${alloc.amount})
+        `;
+      }
     }
-  }
 
-  // Update batch total
-  await sql`
-    UPDATE supplier_payment_batches SET total_amount = ${totalAmount} WHERE id = ${batchId}
-  `;
+    await tx`
+      UPDATE supplier_payment_batches SET total_amount = ${totalAmount} WHERE id = ${id}
+    `;
 
-  log.info('Created batch payment', { batchId, paymentCount: input.payments.length, totalAmount }, 'accounting');
+    return id;
+  });
+
+  log.info('Created batch payment', { batchId, paymentCount: input.payments.length }, 'accounting');
   const result = await getBatchById('', batchId);
   return result!;
 }
 
 export async function approveBatch(companyId: string, id: string, _userId: string): Promise<void> {
-  await sql`UPDATE supplier_payment_batches SET status = 'approved' WHERE id = ${id} AND status = 'draft'`;
+  await sql`UPDATE supplier_payment_batches SET status = 'approved' WHERE id = ${id} AND company_id = ${companyId} AND status = 'draft'`;
   await sql`UPDATE supplier_payments SET status = 'approved' WHERE batch_id = ${id}::UUID AND status = 'draft'`;
   log.info('Approved batch', { id }, 'accounting');
 }
@@ -138,39 +144,41 @@ export async function processBatch(companyId: string, id: string, userId: string
   }, userId);
   await postJournalEntry('', je.id, userId);
 
-  // Update all linked payments and their invoices
-  const payments = (await sql`
-    SELECT sp.id, pa.invoice_id, pa.amount_allocated
-    FROM supplier_payments sp
-    JOIN payment_allocations pa ON pa.payment_id = sp.id
-    WHERE sp.batch_id = ${id}::UUID
-  `) as Row[];
+  // Update all linked payments and their invoices atomically
+  await withTransaction(async (tx) => {
+    const payments = (await tx`
+      SELECT sp.id, pa.invoice_id, pa.amount_allocated
+      FROM supplier_payments sp
+      JOIN payment_allocations pa ON pa.payment_id = sp.id
+      WHERE sp.batch_id = ${id}::UUID
+    `) as Row[];
 
-  for (const p of payments) {
-    await sql`
-      UPDATE supplier_invoices
-      SET amount_paid = amount_paid + ${Number(p.amount_allocated)},
-          status = CASE
-            WHEN (total_amount - amount_paid - ${Number(p.amount_allocated)}) <= 0.01 THEN 'paid'
-            WHEN amount_paid + ${Number(p.amount_allocated)} > 0 THEN 'partially_paid'
-            ELSE status END
-      WHERE id = ${p.invoice_id}::UUID
+    for (const p of payments) {
+      await tx`
+        UPDATE supplier_invoices
+        SET amount_paid = amount_paid + ${Number(p.amount_allocated)},
+            status = CASE
+              WHEN (total_amount - amount_paid - ${Number(p.amount_allocated)}) <= 0.01 THEN 'paid'
+              WHEN amount_paid + ${Number(p.amount_allocated)} > 0 THEN 'partially_paid'
+              ELSE status END
+        WHERE id = ${p.invoice_id}::UUID
+      `;
+    }
+
+    await tx`UPDATE supplier_payments SET status = 'processed' WHERE batch_id = ${id}::UUID`;
+    await tx`
+      UPDATE supplier_payment_batches
+      SET status = 'processed', processed_by = ${userId}::UUID, processed_at = NOW(),
+          gl_journal_entry_id = ${je.id}::UUID
+      WHERE id = ${id}
     `;
-  }
-
-  await sql`UPDATE supplier_payments SET status = 'processed' WHERE batch_id = ${id}::UUID`;
-  await sql`
-    UPDATE supplier_payment_batches
-    SET status = 'processed', processed_by = ${userId}::UUID, processed_at = NOW(),
-        gl_journal_entry_id = ${je.id}::UUID
-    WHERE id = ${id}
-  `;
+  });
 
   log.info('Processed batch', { id, journalEntryId: je.id }, 'accounting');
 }
 
 export async function cancelBatch(companyId: string, id: string): Promise<void> {
-  await sql`UPDATE supplier_payment_batches SET status = 'cancelled' WHERE id = ${id} AND status = 'draft'`;
+  await sql`UPDATE supplier_payment_batches SET status = 'cancelled' WHERE id = ${id} AND company_id = ${companyId} AND status = 'draft'`;
   await sql`UPDATE supplier_payments SET status = 'cancelled' WHERE batch_id = ${id}::UUID AND status = 'draft'`;
 }
 

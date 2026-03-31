@@ -3,7 +3,7 @@
  * Journal Entry Service
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { validateJournalEntry } from '../utils/doubleEntry';
 import type {
@@ -162,44 +162,48 @@ export async function createJournalEntry(companyId: string,
       }
     }
 
-    const entryRows = (await sql`
-      INSERT INTO gl_journal_entries (
-        entry_date, fiscal_period_id, description, source,
-        source_document_id, created_by
-      ) VALUES (
-        ${input.entryDate}, ${fiscalPeriodId || null},
-        ${input.description || null}, ${input.source || 'manual'},
-        ${input.sourceDocumentId || null}, ${userId}::UUID
-      )
-      RETURNING *
-    `) as Row[];
-
-    const entryId = String(entryRows[0].id);
-
-    for (const line of input.lines) {
-      await sql`
-        INSERT INTO gl_journal_lines (
-          journal_entry_id, gl_account_id, debit, credit,
-          description, project_id, cost_center_id, bu_id, vat_type
+    const entryRow = await withTransaction(async (tx) => {
+      const rows = (await tx`
+        INSERT INTO gl_journal_entries (
+          entry_date, fiscal_period_id, description, source,
+          source_document_id, created_by
         ) VALUES (
-          ${entryId}::UUID, ${line.glAccountId}::UUID,
-          ${line.debit}, ${line.credit},
-          ${line.description || null},
-          ${line.projectId || null},
-          ${line.costCenterId || null},
-          ${line.buId || null},
-          ${line.vatType || null}
+          ${input.entryDate}, ${fiscalPeriodId || null},
+          ${input.description || null}, ${input.source || 'manual'},
+          ${input.sourceDocumentId || null}, ${userId}::UUID
         )
-      `;
-    }
+        RETURNING *
+      `) as Row[];
+
+      const entryId = String(rows[0].id);
+
+      for (const line of input.lines) {
+        await tx`
+          INSERT INTO gl_journal_lines (
+            journal_entry_id, gl_account_id, debit, credit,
+            description, project_id, cost_center_id, bu_id, vat_type
+          ) VALUES (
+            ${entryId}::UUID, ${line.glAccountId}::UUID,
+            ${line.debit}, ${line.credit},
+            ${line.description || null},
+            ${line.projectId || null},
+            ${line.costCenterId || null},
+            ${line.buId || null},
+            ${line.vatType || null}
+          )
+        `;
+      }
+
+      return rows[0] as Row;
+    });
 
     log.info('Created journal entry', {
-      entryId,
-      entryNumber: String(entryRows[0].entry_number),
+      entryId: String(entryRow.id),
+      entryNumber: String(entryRow.entry_number),
       lineCount: input.lines.length,
     }, 'accounting');
 
-    return mapEntryRow(entryRows[0]);
+    return mapEntryRow(entryRow);
   } catch (err) {
     log.error('Failed to create journal entry', { error: err }, 'accounting');
     throw err;

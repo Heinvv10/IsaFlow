@@ -21,7 +21,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const companyId = (req as any).companyId as string;
 
   // Get captured document
-  const docs = await sql`SELECT * FROM captured_documents WHERE id = ${documentId}` as Row[];
+  const docs = await sql`SELECT * FROM captured_documents WHERE id = ${documentId} AND company_id = ${companyId}` as Row[];
   if (!docs[0]) return apiResponse.notFound(res, 'Document', documentId);
 
   const doc = docs[0] as any;

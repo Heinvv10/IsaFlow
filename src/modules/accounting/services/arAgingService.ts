@@ -16,12 +16,13 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
     const asAt = asAtDate ? new Date(asAtDate) : new Date();
 
     const rows = (await sql`
-      SELECT ci.id, ci.client_id AS entity_id, c.name AS entity_name,
+      SELECT ci.id, COALESCE(ci.client_id, ci.customer_id) AS entity_id, c.name AS entity_name,
         ci.due_date, ci.total_amount, ci.amount_paid,
         (ci.total_amount - ci.amount_paid) AS balance
       FROM customer_invoices ci
-      JOIN customers c ON c.id = ci.client_id
-      WHERE ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
+      JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
+      WHERE ci.company_id = ${companyId}
+        AND ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
         AND (ci.total_amount - ci.amount_paid) > 0
         AND ci.due_date IS NOT NULL
       ORDER BY ci.due_date
@@ -44,7 +45,8 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
         -cn.total_amount AS balance
       FROM credit_notes cn
       JOIN customers c ON c.id = cn.client_id
-      WHERE cn.type = 'customer' AND cn.status = 'approved'
+      WHERE cn.company_id = ${companyId}
+        AND cn.type = 'customer' AND cn.status = 'approved'
         AND cn.customer_invoice_id IS NULL
     `) as Row[];
 
@@ -74,16 +76,17 @@ export async function getARAgingDetail(companyId: string,
   try {
     const asAt = asAtDate ? new Date(asAtDate) : new Date();
 
-    const clientRows = (await sql`SELECT id, name AS name FROM customers WHERE id = ${clientId}::UUID`) as Row[];
+    const clientRows = (await sql`SELECT id, name AS name FROM customers WHERE id = ${clientId}::UUID AND company_id = ${companyId}`) as Row[];
     if (clientRows.length === 0) throw new Error(`Client ${clientId} not found`);
 
     const rows = (await sql`
-      SELECT ci.id, ci.client_id AS entity_id, c.name AS entity_name,
+      SELECT ci.id, COALESCE(ci.client_id, ci.customer_id) AS entity_id, c.name AS entity_name,
         ci.due_date, ci.invoice_number, ci.total_amount, ci.amount_paid,
         (ci.total_amount - ci.amount_paid) AS balance
       FROM customer_invoices ci
-      JOIN customers c ON c.id = ci.client_id
-      WHERE ci.client_id = ${clientId}::UUID
+      JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
+      WHERE ci.company_id = ${companyId}
+        AND COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID
         AND ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
         AND (ci.total_amount - ci.amount_paid) > 0
         AND ci.due_date IS NOT NULL

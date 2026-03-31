@@ -8,11 +8,13 @@ import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
+import { withErrorHandler } from '@/lib/api-error-handler';
 
-export default withCompany(async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
 
   try {
+    const companyId = (req as CompanyApiRequest).companyId;
     const from = (req.query.from as string) || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
     const to = (req.query.to as string) || new Date().toISOString().split('T')[0];
     const itemId = req.query.item_id as string | undefined;
@@ -28,7 +30,8 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
         FROM grn_items gi
         JOIN goods_received_notes g ON g.id = gi.grn_id
         JOIN stock_items si ON si.id = gi.stock_item_id
-        WHERE gi.stock_item_id = ${itemId}
+        WHERE si.company_id = ${companyId}
+          AND gi.stock_item_id = ${itemId}
           AND g.delivery_date >= ${from} AND g.delivery_date <= ${to}
       `;
     } else {
@@ -39,7 +42,8 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
         FROM grn_items gi
         JOIN goods_received_notes g ON g.id = gi.grn_id
         JOIN stock_items si ON si.id = gi.stock_item_id
-        WHERE g.delivery_date IS NOT NULL
+        WHERE si.company_id = ${companyId}
+          AND g.delivery_date IS NOT NULL
           AND g.delivery_date >= ${from} AND g.delivery_date <= ${to}
       `;
     }
@@ -85,4 +89,6 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
     log.error('Item movement report error', { error: message });
     return apiResponse.badRequest(res, 'Failed to generate report');
   }
-});
+}
+
+export default withCompany(withErrorHandler(handler as any));

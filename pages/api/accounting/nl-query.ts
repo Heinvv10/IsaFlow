@@ -90,15 +90,25 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, { intent, message: `Generated SQL was rejected: ${validation.error}`, rows: [], columns: [], summary: 'Query rejected' });
     }
 
-    // Verify company_id is scoped in generated SQL
-    if (!validation.sanitizedSQL.includes(companyId)) {
+    // Verify company_id appears in an actual "company_id = '<uuid>'" predicate,
+    // not just anywhere in the string (e.g. a comment, alias, or lucky substring).
+    const scopeRegex = new RegExp(`company_id\\s*=\\s*'${companyId}'`, 'i');
+    if (!scopeRegex.test(validation.sanitizedSQL)) {
       log.warn('NL query missing company_id scope — rejected', { question, companyId }, 'ai');
       return apiResponse.success(res, { intent, message: 'Could not generate a properly scoped query. Please try again.', rows: [], columns: [], summary: 'Scope error' });
     }
 
-    // Execute with statement timeout (set per-session before the query)
-    await sql`SET statement_timeout = '5000'`;
-    const rows = await sql(validation.sanitizedSQL as any) as Row[];
+    // Execute inside a transaction so SET LOCAL applies to the same connection.
+    // Neon HTTP driver is stateless — each top-level sql`` call is a separate
+    // HTTP request, so a bare SET statement_timeout would have no effect on the
+    // next call.  sql.transaction() batches both statements into a single HTTP
+    // request, guaranteeing SET LOCAL is honoured for the query that follows it.
+    const [, rows] = await sql.transaction(
+      (txn) => [
+        txn`SET LOCAL statement_timeout = '5000'`,
+        txn.unsafe(validation.sanitizedSQL) as any,
+      ]
+    ) as [unknown, Row[]];
     const formatted = formatQueryResult(rows as Record<string, unknown>[], question);
 
     log.info('NL query executed', { question, intent, rowCount: formatted.rowCount }, 'ai');

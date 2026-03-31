@@ -10,8 +10,9 @@ import { apiResponse } from '@/lib/apiResponse';
 import { verifyToken } from '@/lib/auth/jwt';
 import { getUserAndValidateSession, AUTH_COOKIE_NAME } from '@/lib/auth/middleware';
 import { createHash } from 'crypto';
+import { withErrorHandler } from '@/lib/api-error-handler';
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method ?? 'unknown', ['GET']);
   }
@@ -54,3 +55,5 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return apiResponse.internalError(res, err);
   }
 }
+
+export default withErrorHandler(handler as any);

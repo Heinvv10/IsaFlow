@@ -47,7 +47,7 @@ export interface HistoricalCashFlow {
 // ── Historical Analysis ──────────────────────────────────────────────────────
 
 /** Get current total cash balance across all bank accounts */
-async function getCurrentCashBalance(): Promise<number> {
+async function getCurrentCashBalance(companyId: string): Promise<number> {
   const rows = (await sql`
     SELECT COALESCE(SUM(
       CASE WHEN ga.account_subtype IN ('bank', 'cash')
@@ -56,13 +56,15 @@ async function getCurrentCashBalance(): Promise<number> {
            FROM gl_journal_lines jl
            JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
            WHERE jl.gl_account_id = ga.id
-             AND je.status = 'posted'),
+             AND je.status = 'posted'
+             AND je.company_id = ${companyId}),
           0)
         ELSE 0
       END
     ), 0) AS total_cash
     FROM gl_accounts ga
-    WHERE ga.account_type = 'asset'
+    WHERE ga.company_id = ${companyId}
+      AND ga.account_type = 'asset'
       AND ga.account_subtype IN ('bank', 'cash')
       AND ga.is_active = true
   `) as Row[];
@@ -70,7 +72,7 @@ async function getCurrentCashBalance(): Promise<number> {
 }
 
 /** Get monthly cash inflows and outflows for the last N months */
-async function getHistoricalCashFlows(months: number): Promise<HistoricalCashFlow[]> {
+async function getHistoricalCashFlows(companyId: string, months: number): Promise<HistoricalCashFlow[]> {
   // Compute the start date in JS to avoid interval arithmetic in tagged templates
   const startDate = new Date();
   startDate.setMonth(startDate.getMonth() - months);
@@ -85,7 +87,8 @@ async function getHistoricalCashFlows(months: number): Promise<HistoricalCashFlo
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-      WHERE je.status = 'posted'
+      WHERE je.company_id = ${companyId}
+        AND je.status = 'posted'
         AND ga.account_type = 'asset'
         AND ga.account_subtype IN ('bank', 'cash')
         AND je.entry_date >= ${startStr}::DATE
@@ -109,11 +112,12 @@ async function getHistoricalCashFlows(months: number): Promise<HistoricalCashFlo
 }
 
 /** Get known future receivables (unpaid customer invoices) */
-async function getExpectedReceivables(): Promise<Array<{ dueDate: string; amount: number }>> {
+async function getExpectedReceivables(companyId: string): Promise<Array<{ dueDate: string; amount: number }>> {
   const rows = (await sql`
     SELECT due_date, SUM(total_amount - COALESCE(amount_paid, 0)) AS amount_due
     FROM customer_invoices
-    WHERE status IN ('sent', 'overdue', 'approved')
+    WHERE company_id = ${companyId}
+      AND status IN ('sent', 'overdue', 'approved')
       AND due_date >= CURRENT_DATE
       AND (total_amount - COALESCE(amount_paid, 0)) > 0
     GROUP BY due_date
@@ -127,11 +131,12 @@ async function getExpectedReceivables(): Promise<Array<{ dueDate: string; amount
 }
 
 /** Get known future payables (unpaid supplier invoices) */
-async function getExpectedPayables(): Promise<Array<{ dueDate: string; amount: number }>> {
+async function getExpectedPayables(companyId: string): Promise<Array<{ dueDate: string; amount: number }>> {
   const rows = (await sql`
     SELECT due_date, SUM(total_amount - COALESCE(amount_paid, 0)) AS amount_due
     FROM supplier_invoices
-    WHERE status IN ('approved', 'received', 'overdue')
+    WHERE company_id = ${companyId}
+      AND status IN ('approved', 'received', 'overdue')
       AND due_date >= CURRENT_DATE
       AND (total_amount - COALESCE(amount_paid, 0)) > 0
     GROUP BY due_date
@@ -145,11 +150,12 @@ async function getExpectedPayables(): Promise<Array<{ dueDate: string; amount: n
 }
 
 /** Get recurring invoice amounts for projection */
-async function getRecurringRevenue(): Promise<number> {
+async function getRecurringRevenue(companyId: string): Promise<number> {
   const rows = (await sql`
     SELECT COALESCE(SUM(total_amount), 0) AS monthly_recurring
     FROM recurring_invoices
-    WHERE status = 'active'
+    WHERE company_id = ${companyId}
+      AND status = 'active'
       AND frequency = 'monthly'
   `) as Row[];
   return Number(rows[0]?.monthly_recurring ?? 0);
@@ -170,11 +176,11 @@ export async function generateForecast(companyId: string,
   alertThreshold = 0
 ): Promise<CashFlowForecastResult> {
   const [currentBalance, historical, receivables, payables, recurringRevenue] = await Promise.all([
-    getCurrentCashBalance(),
-    getHistoricalCashFlows(12),
-    getExpectedReceivables(),
-    getExpectedPayables(),
-    getRecurringRevenue(),
+    getCurrentCashBalance(companyId),
+    getHistoricalCashFlows(companyId, 12),
+    getExpectedReceivables(companyId),
+    getExpectedPayables(companyId),
+    getRecurringRevenue(companyId),
   ]);
 
   // Calculate historical averages
@@ -286,5 +292,5 @@ export async function generateForecast(companyId: string,
 
 /** Get historical cash flow data for chart display */
 export async function getHistoricalForChart(companyId: string, months = 6): Promise<HistoricalCashFlow[]> {
-  return getHistoricalCashFlows(months);
+  return getHistoricalCashFlows(companyId, months);
 }

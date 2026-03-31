@@ -16,12 +16,21 @@ interface Receipt { id: string; paymentNumber: string; clientName: string; date:
 export default function UnallocatedReceiptsReport() {
   const [items, setItems] = useState<Receipt[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   const load = useCallback(async () => {
-    const res = await apiFetch('/api/accounting/customer-payments?unallocated=true', { credentials: 'include' });
-    const json = await res.json();
-    const d = json.data; setItems(Array.isArray(d) ? d : d?.items || d?.payments || []);
-    setLoading(false);
+    setLoading(true);
+    setError('');
+    try {
+      const res = await apiFetch('/api/accounting/customer-payments?unallocated=true', { credentials: 'include' });
+      const json = await res.json();
+      const d = json.data;
+      setItems(Array.isArray(d) ? d : d?.items || d?.payments || []);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load data');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -48,6 +57,7 @@ export default function UnallocatedReceiptsReport() {
         </div>
 
         <div className="p-6 space-y-4">
+          {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">{error}</div>}
           {!loading && items.length > 0 && (
             <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4 inline-block">
               <p className="text-xs text-[var(--ff-text-tertiary)] uppercase">Total Unallocated</p>

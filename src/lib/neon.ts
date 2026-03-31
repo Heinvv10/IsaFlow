@@ -4,7 +4,7 @@
  * Uses @neondatabase/serverless with retry logic and proper config
  */
 
-import { neon, neonConfig } from '@neondatabase/serverless';
+import { neon, neonConfig, Pool } from '@neondatabase/serverless';
 import { log } from '@/lib/logger';
 
 // Enable connection caching for better performance
@@ -121,6 +121,70 @@ export async function transaction(
       'Neon'
     );
     throw error;
+  }
+}
+
+/**
+ * Execute a sequential, multi-step transaction using a dedicated pool client.
+ *
+ * Unlike `transaction()` above (which batches static queries in a single HTTP
+ * round-trip), `withTransaction` allows intermediate `await` calls inside the
+ * callback — necessary when later queries depend on IDs returned by earlier
+ * inserts (INSERT … RETURNING id → INSERT … WHERE fk = id).
+ *
+ * The pool client issues genuine BEGIN / COMMIT / ROLLBACK, giving full ACID
+ * guarantees. Any error thrown inside `fn` triggers an automatic ROLLBACK.
+ *
+ * @example
+ * const invoiceId = await withTransaction(async (tx) => {
+ *   const [row] = await tx`INSERT INTO invoices (total) VALUES (${total}) RETURNING id`;
+ *   await tx`INSERT INTO invoice_items (invoice_id) VALUES (${row.id})`;
+ *   return String(row.id);
+ * });
+ */
+let _pool: Pool | null = null;
+
+function getPool(): Pool {
+  if (!_pool) {
+    _pool = new Pool({ connectionString: getDatabaseUrl() });
+  }
+  return _pool;
+}
+
+// Type for a transaction-scoped sql tagged-template function
+type TxSql = (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]>;
+
+export async function withTransaction<T>(fn: (tx: TxSql) => Promise<T>): Promise<T> {
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Wrap the pool client's parameterised query as a tagged-template function
+    // so callers can use tx`SELECT ...` instead of raw client.query strings.
+    const tx: TxSql = async (strings, ...values) => {
+      let text = '';
+      strings.forEach((s, i) => {
+        text += s;
+        if (i < values.length) text += `$${i + 1}`;
+      });
+      const result = await client.query(text, values as unknown[]);
+      return result.rows as unknown[];
+    };
+
+    const result = await fn(tx);
+    await client.query('COMMIT');
+    return result;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    log.error(
+      'withTransaction rolled back',
+      error instanceof Error ? { message: error.message } : { error },
+      'Neon'
+    );
+    throw error;
+  } finally {
+    client.release();
   }
 }
 

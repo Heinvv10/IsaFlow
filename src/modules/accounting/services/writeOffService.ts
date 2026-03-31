@@ -30,11 +30,12 @@ export async function getWriteOffs(companyId: string, filters?: {
       FROM customer_write_offs wo
       LEFT JOIN customers c ON c.id = wo.client_id
       LEFT JOIN customer_invoices ci ON ci.id = wo.invoice_id
-      WHERE wo.client_id = ${filters.clientId}::UUID
+      WHERE wo.company_id = ${companyId} AND wo.client_id = ${filters.clientId}::UUID
       ORDER BY wo.created_at DESC LIMIT ${limit} OFFSET ${offset}
     `) as Row[];
     countRows = (await sql`
-      SELECT COUNT(*) AS cnt FROM customer_write_offs WHERE client_id = ${filters.clientId}::UUID
+      SELECT COUNT(*) AS cnt FROM customer_write_offs
+      WHERE company_id = ${companyId} AND client_id = ${filters.clientId}::UUID
     `) as Row[];
   } else if (filters?.status) {
     rows = (await sql`
@@ -42,11 +43,12 @@ export async function getWriteOffs(companyId: string, filters?: {
       FROM customer_write_offs wo
       LEFT JOIN customers c ON c.id = wo.client_id
       LEFT JOIN customer_invoices ci ON ci.id = wo.invoice_id
-      WHERE wo.status = ${filters.status}
+      WHERE wo.company_id = ${companyId} AND wo.status = ${filters.status}
       ORDER BY wo.created_at DESC LIMIT ${limit} OFFSET ${offset}
     `) as Row[];
     countRows = (await sql`
-      SELECT COUNT(*) AS cnt FROM customer_write_offs WHERE status = ${filters.status}
+      SELECT COUNT(*) AS cnt FROM customer_write_offs
+      WHERE company_id = ${companyId} AND status = ${filters.status}
     `) as Row[];
   } else {
     rows = (await sql`
@@ -54,9 +56,10 @@ export async function getWriteOffs(companyId: string, filters?: {
       FROM customer_write_offs wo
       LEFT JOIN customers c ON c.id = wo.client_id
       LEFT JOIN customer_invoices ci ON ci.id = wo.invoice_id
+      WHERE wo.company_id = ${companyId}
       ORDER BY wo.created_at DESC LIMIT ${limit} OFFSET ${offset}
     `) as Row[];
-    countRows = (await sql`SELECT COUNT(*) AS cnt FROM customer_write_offs`) as Row[];
+    countRows = (await sql`SELECT COUNT(*) AS cnt FROM customer_write_offs WHERE company_id = ${companyId}`) as Row[];
   }
 
   return { items: rows.map(mapRow), total: Number(countRows[0]?.cnt || 0) };
@@ -68,7 +71,8 @@ export async function createWriteOff(companyId: string,
 ): Promise<CustomerWriteOff> {
   // Validate amount against invoice balance
   const invRows = (await sql`
-    SELECT total_amount, amount_paid FROM customer_invoices WHERE id = ${input.invoiceId}::UUID
+    SELECT total_amount, amount_paid FROM customer_invoices
+    WHERE id = ${input.invoiceId}::UUID AND company_id = ${companyId}
   `) as Row[];
   if (!invRows[0]) throw new Error('Invoice not found');
   const balance = Number(invRows[0].total_amount) - Number(invRows[0].amount_paid);
@@ -78,9 +82,9 @@ export async function createWriteOff(companyId: string,
 
   const rows = (await sql`
     INSERT INTO customer_write_offs (
-      client_id, invoice_id, amount, reason, write_off_date, created_by
+      company_id, client_id, invoice_id, amount, reason, write_off_date, created_by
     ) VALUES (
-      ${input.clientId}::UUID, ${input.invoiceId}::UUID, ${input.amount},
+      ${companyId}, ${input.clientId}::UUID, ${input.invoiceId}::UUID, ${input.amount},
       ${input.reason}, ${input.writeOffDate || new Date().toISOString().split('T')[0]},
       ${userId}::UUID
     ) RETURNING *
@@ -94,7 +98,7 @@ export async function approveWriteOff(companyId: string, id: string, userId: str
   const woRows = (await sql`
     SELECT wo.*, ci.invoice_number FROM customer_write_offs wo
     LEFT JOIN customer_invoices ci ON ci.id = wo.invoice_id
-    WHERE wo.id = ${id}
+    WHERE wo.id = ${id} AND wo.company_id = ${companyId}
   `) as Row[];
   if (!woRows[0]) throw new Error('Write-off not found');
   if (woRows[0].status !== 'draft') throw new Error('Write-off is not in draft status');
@@ -134,7 +138,7 @@ export async function approveWriteOff(companyId: string, id: string, userId: str
     UPDATE customer_write_offs
     SET status = 'approved', approved_by = ${userId}::UUID, approved_at = NOW(),
         gl_journal_entry_id = ${je.id}::UUID
-    WHERE id = ${id} RETURNING *
+    WHERE id = ${id} AND company_id = ${companyId} RETURNING *
   `) as Row[];
 
   log.info('Approved write-off', { id, journalEntryId: je.id }, 'accounting');
@@ -142,7 +146,7 @@ export async function approveWriteOff(companyId: string, id: string, userId: str
 }
 
 export async function cancelWriteOff(companyId: string, id: string): Promise<void> {
-  await sql`UPDATE customer_write_offs SET status = 'cancelled' WHERE id = ${id} AND status = 'draft'`;
+  await sql`UPDATE customer_write_offs SET status = 'cancelled' WHERE id = ${id} AND company_id = ${companyId} AND status = 'draft'`;
 }
 
 function mapRow(row: Row): CustomerWriteOff {

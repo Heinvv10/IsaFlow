@@ -33,8 +33,8 @@ export interface CostCentreInput {
 
 export async function getCostCentres(companyId: string, activeOnly = false, _ccType?: CcType): Promise<CostCentre[]> {
   const rows = activeOnly
-    ? ((await sql`SELECT * FROM cost_centres WHERE is_active = true ORDER BY code`) as Row[])
-    : ((await sql`SELECT * FROM cost_centres ORDER BY code`) as Row[]);
+    ? ((await sql`SELECT * FROM cost_centres WHERE company_id = ${companyId} AND is_active = true ORDER BY code`) as Row[])
+    : ((await sql`SELECT * FROM cost_centres WHERE company_id = ${companyId} ORDER BY code`) as Row[]);
   return rows.map(mapRow);
 }
 
@@ -45,8 +45,8 @@ export async function getCostCentre(id: string): Promise<CostCentre | null> {
 
 export async function createCostCentre(companyId: string, input: CostCentreInput, _userId: string): Promise<CostCentre> {
   const rows = (await sql`
-    INSERT INTO cost_centres (code, name, description)
-    VALUES (${input.code}, ${input.name}, ${input.description || null})
+    INSERT INTO cost_centres (company_id, code, name, description)
+    VALUES (${companyId}, ${input.code}, ${input.name}, ${input.description || null})
     RETURNING *
   `) as Row[];
   log.info('Created cost centre', { id: rows[0].id, code: input.code }, 'accounting');
@@ -60,14 +60,14 @@ export async function updateCostCentre(companyId: string, id: string, input: Par
       name = COALESCE(${input.name || null}, name),
       description = COALESCE(${input.description || null}, description),
       department = COALESCE(${input.department || null}, department)
-    WHERE id = ${id}::UUID RETURNING *
+    WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING *
   `) as Row[];
   if (!rows[0]) throw new Error(`Cost centre ${id} not found`);
   return mapRow(rows[0]);
 }
 
 export async function toggleCostCentre(companyId: string, id: string, isActive: boolean): Promise<void> {
-  await sql`UPDATE cost_centres SET is_active = ${isActive} WHERE id = ${id}::UUID`;
+  await sql`UPDATE cost_centres SET is_active = ${isActive} WHERE id = ${id}::UUID AND company_id = ${companyId}`;
 }
 
 export async function deleteCostCentre(companyId: string, id: string): Promise<void> {
@@ -78,7 +78,7 @@ export async function deleteCostCentre(companyId: string, id: string): Promise<v
   if (Number(usage[0]?.cnt) > 0) {
     throw new Error('Cannot delete cost centre that is used in journal entries. Deactivate instead.');
   }
-  await sql`DELETE FROM cost_centres WHERE id = ${id}::UUID`;
+  await sql`DELETE FROM cost_centres WHERE id = ${id}::UUID AND company_id = ${companyId}`;
 }
 
 function mapRow(row: Row): CostCentre {

@@ -16,6 +16,9 @@ interface Invoice {
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
+// TODO: fetch from /api/accounting/company-settings when dynamic VAT rates are supported
+const DEFAULT_VAT_RATE = 0.15;
+
 export default function DRCVatPage() {
   const [eligible, setEligible] = useState<Invoice[]>([]);
   const [history, setHistory] = useState<Invoice[]>([]);
@@ -118,7 +121,7 @@ export default function DRCVatPage() {
                     <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{inv.supplierName}</td>
                     <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{inv.invoiceDate}</td>
                     <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{fmt(inv.totalAmount)}</td>
-                    <td className="px-4 py-3 text-right text-rose-400 font-medium">{fmt(inv.vatAmount || inv.totalAmount * 0.15)}</td>
+                    <td className="px-4 py-3 text-right text-rose-400 font-medium">{fmt(inv.vatAmount || inv.totalAmount * DEFAULT_VAT_RATE)}</td>
                     {tab === 'eligible' && (
                       <td className="px-4 py-3">
                         <button onClick={() => applyDRC(inv.id)} disabled={busy === inv.id}

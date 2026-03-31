@@ -11,11 +11,12 @@ import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
+import { withErrorHandler } from '@/lib/api-error-handler';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
 
-export default withCompany(async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;
 
   try {
@@ -72,4 +73,6 @@ export default withCompany(async function handler(req: NextApiRequest, res: Next
     log.error('supplier-categories API error', { error: message });
     return apiResponse.internalError(res, err, 'Failed to process request');
   }
-});
+}
+
+export default withCompany(withErrorHandler(handler as any));
