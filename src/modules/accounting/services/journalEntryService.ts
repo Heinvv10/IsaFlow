@@ -176,10 +176,10 @@ export async function createJournalEntry(companyId: string,
     const entryRow = await withTransaction(async (tx) => {
       const rows = (await tx`
         INSERT INTO gl_journal_entries (
-          entry_date, fiscal_period_id, description, source,
+          company_id, entry_date, fiscal_period_id, description, source,
           source_document_id, created_by
         ) VALUES (
-          ${input.entryDate}, ${fiscalPeriodId || null},
+          ${companyId}::UUID, ${input.entryDate}, ${fiscalPeriodId || null},
           ${input.description || null}, ${input.source || 'manual'},
           ${input.sourceDocumentId || null}, ${safeUserId}::UUID
         )
