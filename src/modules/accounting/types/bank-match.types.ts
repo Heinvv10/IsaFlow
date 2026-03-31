@@ -3,7 +3,7 @@
  * Imported by both the API routes and the FindMatchModal component.
  */
 
-export type CandidateType = 'supplier_invoice' | 'purchase_order' | 'journal_line';
+export type CandidateType = 'supplier_invoice' | 'customer_invoice' | 'purchase_order' | 'journal_line';
 
 export interface MatchCandidate {
   type: CandidateType;

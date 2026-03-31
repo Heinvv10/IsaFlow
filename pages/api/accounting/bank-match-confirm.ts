@@ -43,7 +43,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!candidateType) return apiResponse.badRequest(res, 'candidateType is required');
   if (!candidateId) return apiResponse.badRequest(res, 'candidateId is required');
 
-  const validTypes: CandidateType[] = ['supplier_invoice', 'purchase_order', 'journal_line'];
+  const validTypes: CandidateType[] = ['supplier_invoice', 'customer_invoice', 'purchase_order', 'journal_line'];
   if (!validTypes.includes(candidateType)) {
     return apiResponse.badRequest(res, `candidateType must be one of: ${validTypes.join(', ')}`);
   }
@@ -78,6 +78,45 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       `;
 
       log.info('Confirmed match: supplier invoice', { bankTransactionId, candidateId }, 'accounting-api');
+    } else if (candidateType === 'customer_invoice') {
+      // Look up the customer invoice to derive the customer entity id
+      const ciRows = (await sql`
+        SELECT id, customer_id, total_amount, amount_paid FROM customer_invoices WHERE id = ${candidateId}::UUID AND company_id = ${companyId}
+      `) as Row[];
+      if (ciRows.length === 0) {
+        return apiResponse.notFound(res, 'Customer invoice', candidateId);
+      }
+      const ci = ciRows[0]!;
+      const customerId = String(ci.customer_id);
+
+      // Allocate the bank transaction against the AR account for this customer
+      await allocateTransaction(
+        companyId,
+        bankTransactionId,
+        '',
+        userId,
+        undefined,
+        'customer',
+        customerId,
+      );
+
+      // Update invoice — mark as paid or partially paid based on amount
+      const tx = (await sql`SELECT amount FROM bank_transactions WHERE id = ${bankTransactionId}::UUID`) as Row[];
+      const paymentAmount = Math.abs(Number(tx[0]?.amount ?? 0));
+      const balance = Number(ci.total_amount) - Number(ci.amount_paid || 0);
+      const newPaid = Number(ci.amount_paid || 0) + paymentAmount;
+      const newStatus = paymentAmount >= balance ? 'paid' : 'partially_paid';
+
+      await sql`
+        UPDATE customer_invoices
+        SET amount_paid = ${newPaid}::NUMERIC,
+            status = ${newStatus},
+            paid_at = ${newStatus === 'paid' ? new Date().toISOString() : null},
+            updated_at = NOW()
+        WHERE id = ${candidateId}::UUID
+      `;
+
+      log.info('Confirmed match: customer invoice', { bankTransactionId, candidateId, newStatus }, 'accounting-api');
     } else if (candidateType === 'purchase_order') {
       // Look up the PO to derive the supplier entity id
       const poRows = (await sql`

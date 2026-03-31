@@ -165,11 +165,19 @@ export async function getBankTransactions(companyId: string, filters?: BankTxFil
     let rows: Row[];
     let countRows: Row[];
 
+    // JOINs to resolve suggestion display names so allocations persist across page refresh
+    // sga = suggested GL account, ss = suggested supplier, sc = suggested client
     if (filters?.reconciliationId) {
       rows = (await sql`
-        SELECT bt.*, ga.account_name AS bank_account_name
+        SELECT bt.*, ga.account_name AS bank_account_name,
+               sga.account_name AS suggested_gl_account_name, sga.account_code AS suggested_gl_account_code,
+               COALESCE(ss.company_name, ss.name) AS suggested_supplier_name,
+               sc.name AS suggested_client_name
         FROM bank_transactions bt
         LEFT JOIN gl_accounts ga ON ga.id = bt.bank_account_id
+        LEFT JOIN gl_accounts sga ON sga.id = bt.suggested_gl_account_id
+        LEFT JOIN suppliers ss ON ss.id = bt.suggested_supplier_id
+        LEFT JOIN customers sc ON sc.id = bt.suggested_client_id
         WHERE bt.reconciliation_id = ${filters.reconciliationId}::UUID
         ORDER BY bt.transaction_date DESC, bt.amount DESC
         LIMIT ${limit} OFFSET ${offset}
@@ -179,7 +187,7 @@ export async function getBankTransactions(companyId: string, filters?: BankTxFil
         WHERE reconciliation_id = ${filters.reconciliationId}::UUID
       `) as Row[];
     } else if (filters?.bankAccountId && filters?.status) {
-      // 🟢 WORKING: date range + amount range + full-text search via always-present params (no conditional SQL fragments)
+      // date range + amount range + full-text search via always-present params (no conditional SQL fragments)
       const searchPattern = filters.search ? `%${filters.search}%` : '%';
       const fromDateVal = filters.fromDate || '1900-01-01';
       const toDateVal = filters.toDate || '2099-12-31';
@@ -190,9 +198,15 @@ export async function getBankTransactions(companyId: string, filters?: BankTxFil
         ? ['imported', 'allocated']
         : [filters.status];
       rows = (await sql`
-        SELECT bt.*, ga.account_name AS bank_account_name
+        SELECT bt.*, ga.account_name AS bank_account_name,
+               sga.account_name AS suggested_gl_account_name, sga.account_code AS suggested_gl_account_code,
+               COALESCE(ss.company_name, ss.name) AS suggested_supplier_name,
+               sc.name AS suggested_client_name
         FROM bank_transactions bt
         LEFT JOIN gl_accounts ga ON ga.id = bt.bank_account_id
+        LEFT JOIN gl_accounts sga ON sga.id = bt.suggested_gl_account_id
+        LEFT JOIN suppliers ss ON ss.id = bt.suggested_supplier_id
+        LEFT JOIN customers sc ON sc.id = bt.suggested_client_id
         WHERE bt.bank_account_id = ${filters.bankAccountId}::UUID
           AND bt.status = ANY(${statusArr}::TEXT[])
           AND bt.transaction_date >= ${fromDateVal}
@@ -215,9 +229,15 @@ export async function getBankTransactions(companyId: string, filters?: BankTxFil
       `) as Row[];
     } else if (filters?.bankAccountId) {
       rows = (await sql`
-        SELECT bt.*, ga.account_name AS bank_account_name
+        SELECT bt.*, ga.account_name AS bank_account_name,
+               sga.account_name AS suggested_gl_account_name, sga.account_code AS suggested_gl_account_code,
+               COALESCE(ss.company_name, ss.name) AS suggested_supplier_name,
+               sc.name AS suggested_client_name
         FROM bank_transactions bt
         LEFT JOIN gl_accounts ga ON ga.id = bt.bank_account_id
+        LEFT JOIN gl_accounts sga ON sga.id = bt.suggested_gl_account_id
+        LEFT JOIN suppliers ss ON ss.id = bt.suggested_supplier_id
+        LEFT JOIN customers sc ON sc.id = bt.suggested_client_id
         WHERE bt.bank_account_id = ${filters.bankAccountId}::UUID
         ORDER BY bt.transaction_date DESC, bt.amount DESC
         LIMIT ${limit} OFFSET ${offset}
@@ -228,9 +248,15 @@ export async function getBankTransactions(companyId: string, filters?: BankTxFil
       `) as Row[];
     } else {
       rows = (await sql`
-        SELECT bt.*, ga.account_name AS bank_account_name
+        SELECT bt.*, ga.account_name AS bank_account_name,
+               sga.account_name AS suggested_gl_account_name, sga.account_code AS suggested_gl_account_code,
+               COALESCE(ss.company_name, ss.name) AS suggested_supplier_name,
+               sc.name AS suggested_client_name
         FROM bank_transactions bt
         LEFT JOIN gl_accounts ga ON ga.id = bt.bank_account_id
+        LEFT JOIN gl_accounts sga ON sga.id = bt.suggested_gl_account_id
+        LEFT JOIN suppliers ss ON ss.id = bt.suggested_supplier_id
+        LEFT JOIN customers sc ON sc.id = bt.suggested_client_id
         WHERE bt.company_id = ${companyId}
         ORDER BY bt.transaction_date DESC, bt.amount DESC
         LIMIT ${limit} OFFSET ${offset}
