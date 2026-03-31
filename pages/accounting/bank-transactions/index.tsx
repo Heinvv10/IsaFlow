@@ -952,6 +952,7 @@ export default function BankTransactionsPage() {
         <CreateEntityModal
           type={createEntityType}
           transactionDescription={transactions.find(t => t.id === createEntityTxId)?.description}
+          existingAccounts={glAccounts}
           onClose={() => { setCreateEntityTxId(null); setCreateEntityType(null); }}
           onCreated={(entity) => {
             const label = entity.code ? `${entity.code} ${entity.name}` : entity.name;
