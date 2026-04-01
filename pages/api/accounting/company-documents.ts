@@ -169,7 +169,7 @@ async function extractStatutoryDocData(fileData: string, docType: string, docId:
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withAuth(withErrorHandler(handler));
 
 export const config = {
   api: { bodyParser: { sizeLimit: '50mb' } },

@@ -4,7 +4,7 @@
  * Supplier invoices → AP supplier_invoices
  */
 
-import { sql } from '@/lib/neon';
+import { sql, transaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { MigrationRun } from './sageMigrationService';
 import { startRun, completeRun, failRun } from './sageMigrationService';
@@ -22,44 +22,52 @@ export async function importLedgerTransactions(companyId: string, userId: string
   const runId = await startRun('ledger_import', userId);
 
   try {
-    const groups = (await sql`
-      SELECT slt.document_number, slt.transaction_date, slt.description,
-        COUNT(*) AS line_count
+    // Fetch all pending lines in a single SELECT — eliminates N+1 per-group queries
+    const allLines = (await sql`
+      SELECT slt.id, slt.document_number, slt.transaction_date, slt.description,
+        slt.debit, slt.credit, slt.reference, slt.ff_project_id,
+        sa.gl_account_id
       FROM sage_ledger_transactions slt
       JOIN sage_accounts sa ON sa.sage_account_id = slt.sage_account_id
       WHERE slt.migration_status = 'pending'
         AND sa.gl_account_id IS NOT NULL
-      GROUP BY slt.document_number, slt.transaction_date, slt.description
-      ORDER BY slt.transaction_date
+      ORDER BY slt.transaction_date, slt.document_number
     `) as Row[];
 
+    // Group lines in JavaScript rather than with a separate query per group
+    const groupMap = new Map<string, { document_number: string; transaction_date: unknown; description: string; lines: Row[] }>();
+    for (const line of allLines) {
+      const key = `${line.document_number}::${String(line.transaction_date)}`;
+      if (!groupMap.has(key)) {
+        groupMap.set(key, {
+          document_number: line.document_number,
+          transaction_date: line.transaction_date,
+          description: line.description,
+          lines: [],
+        });
+      }
+      groupMap.get(key)!.lines.push(line);
+    }
+
+    const groups = Array.from(groupMap.values());
     let succeeded = 0;
     let failed = 0;
     let skipped = 0;
 
     for (const group of groups) {
       try {
-        const lines = (await sql`
-          SELECT slt.id, slt.sage_account_id, slt.debit, slt.credit,
-            slt.description, slt.reference, slt.ff_project_id,
-            sa.gl_account_id
-          FROM sage_ledger_transactions slt
-          JOIN sage_accounts sa ON sa.sage_account_id = slt.sage_account_id
-          WHERE slt.document_number = ${group.document_number}
-            AND slt.transaction_date = ${group.transaction_date}
-            AND slt.migration_status = 'pending'
-            AND sa.gl_account_id IS NOT NULL
-        `) as Row[];
-
+        const lines = group.lines;
         if (lines.length === 0) { skipped++; continue; }
 
         const totalDebit = lines.reduce((s: number, l: Row) => s + Number(l.debit || 0), 0);
         const totalCredit = lines.reduce((s: number, l: Row) => s + Number(l.credit || 0), 0);
 
         if (Math.abs(totalDebit - totalCredit) > 0.02) {
-          for (const line of lines) {
-            await sql`UPDATE sage_ledger_transactions SET migration_status = 'failed' WHERE id = ${line.id}`;
-          }
+          await transaction((txSql) =>
+            lines.map(line => txSql`
+              UPDATE sage_ledger_transactions SET migration_status = 'failed' WHERE id = ${line.id}
+            `)
+          );
           failed++;
           continue;
         }
@@ -80,31 +88,33 @@ export async function importLedgerTransactions(companyId: string, userId: string
 
         const entryId = String(entry[0].id);
 
-        for (const line of lines) {
-          const debit = Number(line.debit || 0);
-          const credit = Number(line.credit || 0);
-          if (debit === 0 && credit === 0) continue;
-
-          const projectId = line.ff_project_id || null;
-          if (projectId) {
-            await sql`
-              INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description, project_id)
-              VALUES (${entryId}::UUID, ${line.gl_account_id}::UUID, ${debit}, ${credit},
-                ${line.description || group.description || ''}, ${projectId}::UUID)
-            `;
-          } else {
-            await sql`
-              INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description)
-              VALUES (${entryId}::UUID, ${line.gl_account_id}::UUID, ${debit}, ${credit},
-                ${line.description || group.description || ''})
-            `;
-          }
-
-          await sql`
-            UPDATE sage_ledger_transactions
-            SET migration_status = 'imported', gl_journal_entry_id = ${entryId}::UUID
-            WHERE id = ${line.id}
-          `;
+        // Batch all line inserts + status updates into one HTTP round-trip
+        const activeLines = lines.filter(l => Number(l.debit || 0) !== 0 || Number(l.credit || 0) !== 0);
+        if (activeLines.length > 0) {
+          await transaction((txSql) =>
+            activeLines.flatMap(line => {
+              const debit = Number(line.debit || 0);
+              const credit = Number(line.credit || 0);
+              const projectId = line.ff_project_id || null;
+              const lineInsert = projectId
+                ? txSql`
+                    INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description, project_id)
+                    VALUES (${entryId}::UUID, ${line.gl_account_id}::UUID, ${debit}, ${credit},
+                      ${line.description || group.description || ''}, ${projectId}::UUID)
+                  `
+                : txSql`
+                    INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description)
+                    VALUES (${entryId}::UUID, ${line.gl_account_id}::UUID, ${debit}, ${credit},
+                      ${line.description || group.description || ''})
+                  `;
+              const statusUpdate = txSql`
+                UPDATE sage_ledger_transactions
+                SET migration_status = 'imported', gl_journal_entry_id = ${entryId}::UUID
+                WHERE id = ${line.id}
+              `;
+              return [lineInsert, statusUpdate];
+            })
+          );
         }
 
         succeeded++;

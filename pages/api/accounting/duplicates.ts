@@ -38,9 +38,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, { duplicates });
   } catch (err) {
     log.error('Duplicate detection failed', { error: err, companyId, entityType: entity_type }, 'duplicates-api');
-    return apiResponse.badRequest(res, 'Failed to detect duplicates');
+    return apiResponse.internalError(res, err, 'Failed to detect duplicates');
   }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withCompany(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler));

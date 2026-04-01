@@ -62,4 +62,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   return apiResponse.success(res, { scenarios, weekly, narrative, alerts: allAlerts, aiGenerated: !!narrative });
 }
-export default withCompany(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler));

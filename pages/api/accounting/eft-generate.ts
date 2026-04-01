@@ -87,4 +87,4 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   });
 }
 
-export default withCompany(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler));

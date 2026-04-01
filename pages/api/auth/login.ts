@@ -246,4 +246,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withErrorHandler(handler as any);
+export default withErrorHandler(handler);

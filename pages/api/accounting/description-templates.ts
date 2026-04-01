@@ -57,4 +57,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method ?? 'unknown', ['GET', 'POST', 'DELETE']);
 }
 
-export default withCompany(withErrorHandler(handler as any) as any);
+export default withCompany(withErrorHandler(handler) as any);

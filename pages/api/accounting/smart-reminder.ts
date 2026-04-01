@@ -35,4 +35,4 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
 
   return apiResponse.success(res, { message, tone, escalation, plan, debtor: { name: c.name, outstanding, overdueDays: oldestDue, invoiceCount } });
 }
-export default withCompany(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler));

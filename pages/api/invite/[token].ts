@@ -32,9 +32,11 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     SELECT
       ci.email,
       ci.role,
-      c.name AS company_name
+      c.name AS company_name,
+      COALESCE(u.first_name || ' ' || u.last_name, u.email) AS invited_by_name
     FROM company_invitations ci
     JOIN companies c ON c.id = ci.company_id
+    LEFT JOIN users u ON u.id = ci.invited_by
     WHERE ci.token = ${token}
       AND ci.accepted_at IS NULL
       AND ci.expires_at > NOW()
@@ -51,6 +53,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     email: maskEmail(row.email as string),
     companyName: row.company_name as string,
     role: row.role as string,
+    invitedBy: (row.invited_by_name as string) || 'Someone',
   });
 }
 

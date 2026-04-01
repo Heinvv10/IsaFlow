@@ -48,9 +48,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     });
   } catch (err) {
     log.error('Failed to get trial balance', { error: err }, 'accounting-api');
-    return apiResponse.badRequest(res, 'Failed to get trial balance');
+    return apiResponse.internalError(res, err, 'Failed to get trial balance');
   }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withCompany(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler));

@@ -13,4 +13,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const deadlines = calculateComplianceDeadlines(year);
   return apiResponse.success(res, { year, deadlines, total: deadlines.length });
 }
-export default withCompany(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler));

@@ -20,4 +20,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const rows = await sql`SELECT lb.*, lt.name as leave_type_name, e.first_name, e.last_name FROM leave_balances lb JOIN leave_types lt ON lb.leave_type_id = lt.id JOIN employees e ON lb.employee_id = e.id WHERE e.company_id = ${companyId}::UUID AND lb.year = ${yr} ORDER BY e.last_name, lt.name` as Row[];
   return apiResponse.success(res, rows);
 }
-export default withCompany(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler));

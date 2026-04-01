@@ -14,8 +14,11 @@ export interface CompanyApiRequest extends AuthenticatedNextApiRequest {
   companyRole: string;
 }
 
+// Accept handlers that declare a more specific req type (e.g. CompanyApiRequest,
+// AuthenticatedNextApiRequest) — the cast inside withCompany is safe because
+// by the time handler is called, the request has been enriched with those fields.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type CompanyHandler = (req: NextApiRequest, res: NextApiResponse<any>) => any;
+type CompanyHandler = (req: any, res: NextApiResponse<any>) => any;
 
 /**
  * Middleware that requires authentication AND resolves the active company.

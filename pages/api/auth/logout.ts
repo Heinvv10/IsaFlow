@@ -49,4 +49,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, null, 'Logged out successfully');
 }
 
-export default withErrorHandler(handler as any);
+export default withErrorHandler(handler);

@@ -150,6 +150,6 @@ export default withCompany(withErrorHandler(async (req: NextApiRequest, res: Nex
     });
   } catch (err) {
     log.error('Supplier statement detail failed', { error: err }, 'accounting-api');
-    return apiResponse.badRequest(res, 'Failed to load supplier statement');
+    return apiResponse.internalError(res, err, 'Failed to load supplier statement');
   }
 }));

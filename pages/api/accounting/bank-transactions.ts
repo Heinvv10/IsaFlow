@@ -38,9 +38,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, result);
   } catch (err) {
     log.error('Failed to get bank transactions', { error: err }, 'accounting-api');
-    return apiResponse.badRequest(res, 'Failed to get bank transactions');
+    return apiResponse.internalError(res, err, 'Failed to get bank transactions');
   }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withCompany(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler));

@@ -74,4 +74,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     duplicates, patterns, alerts, scannedTransactions: transactions.length,
   });
 }
-export default withCompany(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler));

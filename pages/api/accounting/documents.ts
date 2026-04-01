@@ -355,4 +355,4 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, { id: row.id, deleted: true });
 }
 
-export default withCompany(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler));

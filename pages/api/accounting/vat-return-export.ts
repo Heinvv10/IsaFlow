@@ -70,9 +70,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return res.status(200).send(csv);
   } catch (err) {
     log.error('Failed to export VAT return', { error: err }, 'accounting-api');
-    return apiResponse.badRequest(res, 'Failed to export VAT return');
+    return apiResponse.internalError(res, err, 'Failed to export VAT return');
   }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withCompany(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler));

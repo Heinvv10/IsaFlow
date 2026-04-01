@@ -42,7 +42,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, result);
     } catch (err) {
       log.error('Failed to get audit log', { error: err }, 'audit-log-api');
-      return apiResponse.badRequest(res, 'Failed to get audit log');
+      return apiResponse.internalError(res, err, 'Failed to get audit log');
     }
   }
 
@@ -50,4 +50,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withCompany(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler));

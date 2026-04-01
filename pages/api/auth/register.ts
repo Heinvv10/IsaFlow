@@ -5,12 +5,17 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { serialize } from 'cookie';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { hashPassword, checkPasswordStrength } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { checkRateLimit } from '@/lib/rateLimit';
+import { signToken } from '@/lib/auth/jwt';
+import { createSession } from '@/lib/auth/session';
+import { AUTH_COOKIE_NAME } from '@/lib/auth/middleware';
+import type { AuthRole } from '@/lib/auth/types';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
@@ -32,12 +37,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     });
   }
 
-  const { firstName, lastName, email, password, confirmPassword } = req.body as {
+  const { firstName, lastName, email, password, confirmPassword, inviteToken } = req.body as {
     firstName?: string;
     lastName?: string;
     email?: string;
     password?: string;
     confirmPassword?: string;
+    inviteToken?: string;
   };
 
   // Validate all fields present
@@ -86,7 +92,34 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const userId = String(user.id);
     const normalizedEmail = (email as string).toLowerCase().trim();
 
-    // Auto-accept any pending company invitations for this email
+    // Auto-accept pending invitations: by token (if provided) + by email match
+    let invitationsAccepted = 0;
+
+    // 1. Accept the specific invite by token (from invite link flow)
+    if (inviteToken && typeof inviteToken === 'string') {
+      const tokenInvites = (await sql`
+        SELECT id, company_id, role
+        FROM company_invitations
+        WHERE token = ${inviteToken}
+          AND accepted_at IS NULL
+          AND expires_at > NOW()
+        LIMIT 1
+      `) as Row[];
+
+      for (const inv of tokenInvites) {
+        await sql`
+          INSERT INTO company_users (company_id, user_id, role, is_default)
+          VALUES (${inv.company_id as string}::UUID, ${userId}::UUID, ${inv.role as string}, false)
+          ON CONFLICT (company_id, user_id) DO NOTHING
+        `;
+        await sql`
+          UPDATE company_invitations SET accepted_at = NOW() WHERE id = ${inv.id as string}::UUID
+        `;
+        invitationsAccepted++;
+      }
+    }
+
+    // 2. Also accept any other pending invitations matching by email
     const pendingInvitations = (await sql`
       SELECT id, company_id, role
       FROM company_invitations
@@ -95,7 +128,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         AND expires_at > NOW()
     `) as Row[];
 
-    let invitationsAccepted = 0;
     for (const inv of pendingInvitations) {
       await sql`
         INSERT INTO company_users (company_id, user_id, role, is_default)
@@ -108,18 +140,66 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       invitationsAccepted++;
     }
 
-    if (invitationsAccepted > 0) {
+    const onboardingCompleted = invitationsAccepted > 0;
+    if (onboardingCompleted) {
       await sql`UPDATE users SET onboarding_completed = true WHERE id = ${userId}`;
       log.info('Onboarding skipped via invitation acceptance at registration', { userId, invitationsAccepted }, 'auth/register');
     }
 
     log.info('User registered', { userId, email: user.email as string, invitationsAccepted }, 'auth/register');
 
-    return apiResponse.created(res, { userId, email: user.email as string, invitationsAccepted });
+    // Auto-login: create session and set auth cookie
+    const authUser = {
+      id: userId,
+      userId,
+      email: normalizedEmail,
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      name: `${firstName.trim()} ${lastName.trim()}`.trim(),
+      role: 'viewer' as AuthRole,
+      permissions: [] as string[],
+      isActive: true,
+    };
+
+    const ipAddress = Array.isArray(req.headers['x-forwarded-for'])
+      ? req.headers['x-forwarded-for'][0]
+      : req.headers['x-forwarded-for'] ?? req.socket.remoteAddress;
+    const userAgent = req.headers['user-agent'];
+
+    const tempToken = await signToken(authUser, 'pending');
+    const session = await createSession(authUser.id, tempToken, ipAddress, userAgent);
+    const finalToken = await signToken(authUser, session.id);
+
+    const crypto = await import('crypto');
+    const finalHash = crypto.createHash('sha256').update(finalToken).digest('hex');
+    await sql`
+      UPDATE user_sessions SET token_hash = ${finalHash} WHERE id = ${Number(session.id)}
+    `;
+
+    const cookies = [
+      serialize(AUTH_COOKIE_NAME, finalToken, {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'strict',
+        path: '/',
+        maxAge: 8 * 60 * 60,
+      }),
+    ];
+    if (onboardingCompleted) {
+      cookies.push(`ff_onboarding_done=1; Path=/; Max-Age=${30 * 24 * 60 * 60}; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`);
+    }
+    res.setHeader('Set-Cookie', cookies);
+
+    return apiResponse.created(res, {
+      userId,
+      email: normalizedEmail,
+      invitationsAccepted,
+      autoLoggedIn: true,
+    });
   } catch (err) {
     log.error('Registration error', err instanceof Error ? { message: err.message } : { err }, 'auth/register');
     return apiResponse.internalError(res, err);
   }
 }
 
-export default withErrorHandler(handler as any);
+export default withErrorHandler(handler);

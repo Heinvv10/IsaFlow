@@ -86,7 +86,10 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
         user: config.user,
         pass: config.pass,
       },
-      tls: { rejectUnauthorized: false }, // Xneelo shared hosting uses wildcard cert
+      tls: {
+        // Allow self-signed certs in dev; enforce TLS validation in production
+        rejectUnauthorized: process.env.NODE_ENV === 'production',
+      },
     });
 
     const recipients = Array.isArray(options.to) ? options.to.join(', ') : options.to;

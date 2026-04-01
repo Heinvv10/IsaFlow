@@ -8,7 +8,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type AuthenticatedNextApiRequest, type CompanyApiRequest } from '@/lib/auth';
-import { getRules, createRule } from '@/modules/accounting/services/bankRulesService';
+import { getRules, createRule, applyRules } from '@/modules/accounting/services/bankRulesService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;
@@ -20,7 +20,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'POST') {
-    const { ruleName, matchField, matchType, matchPattern, glAccountId, supplierId, clientId, descriptionTemplate, priority, autoCreateEntry, vatCode } = req.body;
+    const { ruleName, matchField, matchType, matchPattern, glAccountId, supplierId, clientId, descriptionTemplate, priority, autoCreateEntry, vatCode, bankAccountId } = req.body;
     if (!ruleName || !matchField || !matchType || !matchPattern) {
       return apiResponse.badRequest(res, 'ruleName, matchField, matchType, and matchPattern are required');
     }
@@ -36,11 +36,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       autoCreateEntry: autoCreateEntry !== false,
       vatCode: vatCode || 'none',
     }, userId);
-    return apiResponse.success(res, rule);
+
+    // Auto-apply: immediately categorize matching transactions
+    let applied = 0;
+    if (bankAccountId) {
+      const result = await applyRules(companyId, bankAccountId, userId);
+      applied = result.applied;
+    }
+
+    return apiResponse.success(res, { ...rule, applied });
   }
 
   return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST']);
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withCompany(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler));

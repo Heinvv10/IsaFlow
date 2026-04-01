@@ -83,4 +83,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method ?? 'unknown', ['GET', 'PUT']);
 }
 
-export default withAuth(withErrorHandler(handler as any) as any);
+export default withAuth(withErrorHandler(handler) as any);
