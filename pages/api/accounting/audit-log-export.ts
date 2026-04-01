@@ -105,7 +105,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return;
     } catch (err) {
       log.error('Failed to export audit log', { error: err }, 'audit-log-export-api');
-      return apiResponse.badRequest(res, 'Failed to export audit log');
+      return apiResponse.internalError(res, err, 'Failed to export audit log');
     }
   }
 
@@ -113,4 +113,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withCompany(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler));

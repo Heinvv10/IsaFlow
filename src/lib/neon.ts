@@ -108,8 +108,8 @@ export async function transaction(
   queriesFn: (txSql: typeof sql) => Array<ReturnType<typeof sql>>
 ): Promise<unknown[]> {
   try {
-    const txClient = neon(getDatabaseUrl());
-    const results = await txClient.transaction(
+    // Reuse module-level sql client instead of creating a new neon() client per call
+    const results = await sql.transaction(
       (tx) => queriesFn(tx as unknown as typeof sql) as any,
       { isolationLevel: 'ReadCommitted' }
     );

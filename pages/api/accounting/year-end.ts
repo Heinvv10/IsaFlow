@@ -244,4 +244,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withCompany(withRole('admin')(withErrorHandler(handler as any)));
+export default withCompany(withRole('admin')(withErrorHandler(handler)));

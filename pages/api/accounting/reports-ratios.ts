@@ -44,4 +44,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const ratios = calculateFinancialRatios(data);
   return apiResponse.success(res, { ratios, financialData: data });
 }
-export default withCompany(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler));

@@ -68,11 +68,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     return apiResponse.success(res, result);
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to merge entities';
     log.error('Entity merge failed', { error: err, companyId, entityType, primaryId, duplicateId }, 'duplicates-api');
-    return apiResponse.badRequest(res, message);
+    return apiResponse.internalError(res, err, 'Failed to merge entities');
   }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withCompany(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler));

@@ -115,4 +115,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
 // Super admin only — ISAFlow internal tool
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withCompany(withRole('super_admin')(withErrorHandler(handler as any)) as any);
+export default withCompany(withRole('super_admin')(withErrorHandler(handler)) as any);

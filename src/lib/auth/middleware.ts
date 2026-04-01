@@ -24,11 +24,10 @@ export interface AuthenticatedNextApiRequest extends NextApiRequest {
   sessionId: string;
 }
 
-// Handler type that accepts both NextApiRequest and AuthenticatedNextApiRequest
-// This allows handlers wrapped in withErrorHandler (which use NextApiRequest) to work with withAuth
-// Using 'any' return type for flexibility with different response patterns
+// Accept handlers that declare a more specific req type (e.g. AuthenticatedNextApiRequest,
+// CompanyApiRequest) — safe because withAuth enriches the request before calling the handler.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AuthenticatedHandler = (req: NextApiRequest, res: NextApiResponse<any>) => any;
+type AuthenticatedHandler = (req: any, res: NextApiResponse<any>) => any;
 
 /**
  * Extract token from request (cookie or Authorization header)

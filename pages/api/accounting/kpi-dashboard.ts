@@ -61,11 +61,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       topExpenses,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to load KPI dashboard';
     log.error('Failed to load KPI dashboard', { error: err }, 'accounting-api');
-    return apiResponse.badRequest(res, message);
+    return apiResponse.internalError(res, err, 'Failed to load KPI dashboard');
   }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withCompany(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler));

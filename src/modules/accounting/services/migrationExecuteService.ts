@@ -3,7 +3,7 @@
  * Uses existing migrationCoaService and migrationContactService patterns.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, transaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { ParsedAccount, ParsedEntity, MigrationSource } from './migrationParserService';
 
@@ -46,37 +46,43 @@ export async function executeMigration(
   log.info('Starting migration execution', { companyId, source, accountCount: accounts.length }, 'migration');
 
   // 1. Import GL accounts
-  for (const acct of accounts) {
-    if (!acct.sourceCode && !acct.sourceName) continue;
+  const validAccounts = accounts.filter(acct => {
+    if (!acct.sourceCode && !acct.sourceName) return false;
     if (!acct.mappedType) {
       errors.push(`Account "${acct.sourceCode} ${acct.sourceName}": unmapped type "${acct.sourceType}" — skipped`);
-      continue;
+      return false;
     }
+    return true;
+  });
+
+  if (validAccounts.length > 0) {
     try {
-      await sql`
-        INSERT INTO gl_accounts (
-          company_id, account_code, account_name, account_type, account_subtype,
-          normal_balance, description, level, display_order, imported_from
-        ) VALUES (
-          ${companyId}::UUID,
-          ${acct.sourceCode || acct.sourceName.substring(0, 20)},
-          ${acct.sourceName},
-          ${acct.mappedType},
-          ${acct.mappedSubtype ?? null},
-          ${acct.mappedNormalBalance ?? 'debit'},
-          ${'Imported from ' + source},
-          3,
-          0,
-          ${source}
-        )
-        ON CONFLICT (company_id, account_code) DO UPDATE SET
-          account_name  = EXCLUDED.account_name,
-          account_type  = EXCLUDED.account_type,
-          imported_from = EXCLUDED.imported_from
-      `;
-      accountsImported++;
+      await transaction((txSql) =>
+        validAccounts.map(acct => txSql`
+          INSERT INTO gl_accounts (
+            company_id, account_code, account_name, account_type, account_subtype,
+            normal_balance, description, level, display_order, imported_from
+          ) VALUES (
+            ${companyId}::UUID,
+            ${acct.sourceCode || acct.sourceName.substring(0, 20)},
+            ${acct.sourceName},
+            ${acct.mappedType},
+            ${acct.mappedSubtype ?? null},
+            ${acct.mappedNormalBalance ?? 'debit'},
+            ${'Imported from ' + source},
+            3,
+            0,
+            ${source}
+          )
+          ON CONFLICT (company_id, account_code) DO UPDATE SET
+            account_name  = EXCLUDED.account_name,
+            account_type  = EXCLUDED.account_type,
+            imported_from = EXCLUDED.imported_from
+        `)
+      );
+      accountsImported = validAccounts.length;
     } catch (err) {
-      errors.push(`Account "${acct.sourceCode}": ${err instanceof Error ? err.message : String(err)}`);
+      errors.push(`Accounts batch: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -124,46 +130,50 @@ export async function executeMigration(
   }
 
   // 3. Import customers
-  for (const cust of customers) {
-    if (!cust.name?.trim()) continue;
+  const validCustomers = customers.filter(c => c.name?.trim());
+  if (validCustomers.length > 0) {
     try {
-      await sql`
-        INSERT INTO customers (company_id, name, email, phone, vat_number, billing_address)
-        VALUES (
-          ${companyId}::UUID,
-          ${cust.name},
-          ${cust.email ?? null},
-          ${cust.phone ?? null},
-          ${cust.vatNumber ?? null},
-          ${cust.address ?? null}
-        )
-        ON CONFLICT DO NOTHING
-      `;
-      customersImported++;
+      await transaction((txSql) =>
+        validCustomers.map(cust => txSql`
+          INSERT INTO customers (company_id, name, email, phone, vat_number, billing_address)
+          VALUES (
+            ${companyId}::UUID,
+            ${cust.name},
+            ${cust.email ?? null},
+            ${cust.phone ?? null},
+            ${cust.vatNumber ?? null},
+            ${cust.address ?? null}
+          )
+          ON CONFLICT DO NOTHING
+        `)
+      );
+      customersImported = validCustomers.length;
     } catch (err) {
-      errors.push(`Customer "${cust.name}": ${err instanceof Error ? err.message : String(err)}`);
+      errors.push(`Customers batch: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
   // 4. Import suppliers
-  for (const sup of suppliers) {
-    if (!sup.name?.trim()) continue;
+  const validSuppliers = suppliers.filter(s => s.name?.trim());
+  if (validSuppliers.length > 0) {
     try {
-      await sql`
-        INSERT INTO suppliers (company_id, name, email, phone, vat_number, billing_address)
-        VALUES (
-          ${companyId}::UUID,
-          ${sup.name},
-          ${sup.email ?? null},
-          ${sup.phone ?? null},
-          ${sup.vatNumber ?? null},
-          ${sup.address ?? null}
-        )
-        ON CONFLICT DO NOTHING
-      `;
-      suppliersImported++;
+      await transaction((txSql) =>
+        validSuppliers.map(sup => txSql`
+          INSERT INTO suppliers (company_id, name, email, phone, vat_number, billing_address)
+          VALUES (
+            ${companyId}::UUID,
+            ${sup.name},
+            ${sup.email ?? null},
+            ${sup.phone ?? null},
+            ${sup.vatNumber ?? null},
+            ${sup.address ?? null}
+          )
+          ON CONFLICT DO NOTHING
+        `)
+      );
+      suppliersImported = validSuppliers.length;
     } catch (err) {
-      errors.push(`Supplier "${sup.name}": ${err instanceof Error ? err.message : String(err)}`);
+      errors.push(`Suppliers batch: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 

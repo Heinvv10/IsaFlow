@@ -35,13 +35,21 @@ export interface ApiSuccessResponse<T = unknown> {
 export type ApiResponse<T = unknown> = ApiSuccessResponse<T> | ApiErrorResponse;
 
 /**
- * Wraps an API handler with error handling
- * Generic R extends NextApiRequest to support AuthenticatedNextApiRequest
+ * Wraps an API handler with error handling.
+ *
+ * Generic R extends NextApiRequest to support AuthenticatedNextApiRequest,
+ * CompanyApiRequest, or plain NextApiRequest without requiring `as any` casts.
+ * The handler's res parameter is typed as NextApiResponse<any> so callers that
+ * declare `res: NextApiResponse` (without a type argument) are assignable.
  */
-export function withErrorHandler<T = unknown, R extends NextApiRequest = NextApiRequest>(
-  handler: (req: R, res: NextApiResponse<ApiResponse<T>>) => Promise<void>
-) {
-  return async (req: R, res: NextApiResponse<ApiResponse<T>>) => {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function withErrorHandler<R extends NextApiRequest = NextApiRequest>(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  handler: (req: R, res: NextApiResponse<any>) => unknown
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+): (req: R, res: NextApiResponse<any>) => Promise<void | NextApiResponse<any>> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return async (req: R, res: NextApiResponse<any>) => {
     const startTime = Date.now();
 
     try {

@@ -36,7 +36,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, result);
     } catch (err) {
       log.error('Failed to get credit notes', { error: err }, 'accounting-api');
-      return apiResponse.badRequest(res, 'Failed to get credit notes');
+      return apiResponse.internalError(res, err, 'Failed to get credit notes');
     }
   }
 
@@ -67,9 +67,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
       return apiResponse.created(res, creditNote);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to create credit note';
       log.error('Failed to create credit note', { error: err }, 'accounting-api');
-      return apiResponse.badRequest(res, message);
+      return apiResponse.internalError(res, err, 'Failed to create credit note');
     }
   }
 
@@ -77,4 +76,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withCompany(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler));

@@ -36,4 +36,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, { suggestions });
 }
 
-export default withCompany(withErrorHandler(handler as any) as any);
+export default withCompany(withErrorHandler(handler) as any);

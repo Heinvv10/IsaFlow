@@ -3,7 +3,7 @@
  * Bank Reconciliation Service
  */
 
-import { sql } from '@/lib/neon';
+import { sql, transaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { detectBankFormat, parseFNBStatement, parseStandardBankStatement, parseNedbankStatement, parseABSAStatement, parseCapitecStatement } from '../utils/bankCsvParsers';
 import { parseOfxStatement } from '../utils/bankOfxParser';
@@ -62,8 +62,8 @@ export async function importBankStatement(
 
     const batchId = crypto.randomUUID();
 
-    for (const tx of parseResult.transactions) {
-      await sql`
+    await transaction((txSql) =>
+      parseResult.transactions.map(tx => txSql`
         INSERT INTO bank_transactions (
           bank_account_id, transaction_date, value_date, amount,
           description, reference, import_batch_id
@@ -71,8 +71,8 @@ export async function importBankStatement(
           ${bankAccountId}::UUID, ${tx.transactionDate}, ${tx.valueDate || null},
           ${tx.amount}, ${tx.description}, ${tx.reference || null}, ${batchId}::UUID
         )
-      `;
-    }
+      `)
+    );
 
     log.info('Imported bank statement', {
       batchId, format, count: parseResult.transactions.length,
@@ -108,8 +108,8 @@ export async function importParsedTransactions(
 
     const batchId = crypto.randomUUID();
 
-    for (const tx of parseResult.transactions) {
-      await sql`
+    await transaction((txSql) =>
+      parseResult.transactions.map(tx => txSql`
         INSERT INTO bank_transactions (
           bank_account_id, transaction_date, value_date, amount,
           description, reference, import_batch_id
@@ -117,8 +117,8 @@ export async function importParsedTransactions(
           ${bankAccountId}::UUID, ${tx.transactionDate}, ${tx.valueDate || null},
           ${tx.amount}, ${tx.description}, ${tx.reference || null}, ${batchId}::UUID
         )
-      `;
-    }
+      `)
+    );
 
     log.info('Imported parsed bank statement', {
       batchId,

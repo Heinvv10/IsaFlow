@@ -57,7 +57,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withAuth(withErrorHandler(handler as any));
+export default withAuth(withErrorHandler(handler));
 
 export const config = {
   api: { bodyParser: { sizeLimit: '10mb' } },

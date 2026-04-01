@@ -129,7 +129,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
               suggested_client_id = ${selType === 'customer' && selEntityId ? selEntityId : null}::UUID,
               suggested_vat_code = ${selVatCode},
               updated_at = NOW()
-          WHERE id = ${bankTransactionId}::UUID AND status = 'imported' AND company_id = ${companyId}
+          WHERE id = ${bankTransactionId}::UUID AND status IN ('imported', 'allocated') AND company_id = ${companyId}
         `;
         return apiResponse.success(res, { saved: true });
       }
@@ -161,4 +161,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withCompany(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler));

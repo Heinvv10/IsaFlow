@@ -90,4 +90,4 @@ async function buildMonthData(companyId: string, from: string, to: string): Prom
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withCompany(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler));

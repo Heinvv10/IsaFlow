@@ -12,4 +12,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const categories = await sql`SELECT * FROM product_categories WHERE is_active = true ORDER BY name` as Row[];
   return apiResponse.success(res, categories);
 }
-export default withCompany(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler));

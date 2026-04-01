@@ -52,8 +52,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return res.status(200).send(csvLines.join('\n'));
   } catch (err) {
     log.error('Opening balances export failed', { error: err });
-    return apiResponse.badRequest(res, 'Failed to export opening balances');
+    return apiResponse.internalError(res, err, 'Failed to export opening balances');
   }
 }
 
-export default withCompany(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler));

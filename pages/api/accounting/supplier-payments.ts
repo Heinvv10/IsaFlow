@@ -39,7 +39,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, result);
     } catch (err) {
       log.error('Failed to get supplier payments', { error: err }, 'accounting-api');
-      return apiResponse.badRequest(res, 'Failed to get supplier payments');
+      return apiResponse.internalError(res, err, 'Failed to get supplier payments');
     }
   }
 
@@ -64,9 +64,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
       return apiResponse.created(res, payment);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to create payment';
       log.error('Failed to create supplier payment', { error: err }, 'accounting-api');
-      return apiResponse.badRequest(res, message);
+      return apiResponse.internalError(res, err, 'Failed to create payment');
     }
   }
 
@@ -74,4 +73,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withCompany(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler));

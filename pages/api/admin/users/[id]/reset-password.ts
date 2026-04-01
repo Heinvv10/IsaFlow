@@ -35,10 +35,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         getIp(req)
       );
 
-      return apiResponse.success(res, { temporary_password: temporaryPassword });
+      log.info('Password reset performed', { userId }, 'admin-api');
+      return apiResponse.success(res, {
+        success: true,
+        message: 'Temporary password has been set. Deliver it to the user securely.',
+      });
     } catch (err) {
       log.error('Failed to reset user password', { userId, error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to reset user password');
+      return apiResponse.internalError(res, err, 'Failed to reset user password');
     }
   }
 

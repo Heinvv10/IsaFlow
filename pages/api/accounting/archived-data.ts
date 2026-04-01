@@ -28,9 +28,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, result);
   } catch (err) {
     log.error('Failed to get archived data', { companyId, error: err }, 'archived-data-api');
-    return apiResponse.badRequest(res, 'Failed to retrieve archived data');
+    return apiResponse.internalError(res, err, 'Failed to retrieve archived data');
   }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withCompany(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler));

@@ -126,4 +126,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withCompany(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler));

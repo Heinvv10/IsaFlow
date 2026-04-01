@@ -41,7 +41,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'POST') {
     try {
-      const { accountCode, accountName, accountType, accountSubtype, parentAccountId, description, normalBalance } = req.body;
+      const { accountCode, accountName, accountType, accountSubtype, parentAccountId, description, normalBalance, defaultVatCode } = req.body;
 
       if (!accountCode || !accountName || !accountType || !normalBalance) {
         return apiResponse.badRequest(res, 'accountCode, accountName, accountType, and normalBalance are required');
@@ -55,6 +55,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         parentAccountId,
         description,
         normalBalance,
+        defaultVatCode,
       });
 
       return apiResponse.success(res, account);
@@ -82,4 +83,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withCompany(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler));
