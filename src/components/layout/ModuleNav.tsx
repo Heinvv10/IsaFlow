@@ -11,7 +11,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, Settings } from 'lucide-react';
 import {
   isFlyout, isLinkActive,
   type Tab, type DropdownItem, type NavItem,
@@ -130,6 +130,21 @@ function SubMenuItems({ items, asPath, onClose, accent }: SubMenuItemsProps) {
     <>
       {items.map(item => {
         if (!isFlyout(item)) {
+          if (item.isSetting) {
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={onClose}
+                className={`flex items-center gap-2 px-4 py-2 text-sm border-t border-gray-700 mt-1 pt-2 whitespace-nowrap transition-colors ${
+                  isLinkActive(item.href, asPath) ? accent.activeLinkBg : 'text-gray-400 hover:text-white hover:bg-gray-700/50'
+                }`}
+              >
+                <Settings className="h-3.5 w-3.5 flex-shrink-0" />
+                {item.label}
+              </Link>
+            );
+          }
           return (
             <Link
               key={item.href}
@@ -203,7 +218,10 @@ function FlyoutDropdown({ tab, asPath, onClose, accent }: FlyoutDropdownProps) {
   const delayedClose = () => { timeoutRef.current = setTimeout(() => setHoveredSection(null), 150); };
   useEffect(() => () => clearTimer(), []);
 
-  const sections = (tab.items ?? []).filter(isFlyout);
+  const allSections = (tab.items ?? []).filter(isFlyout);
+  // Settings sections render inline (no flyout chevron) — all items are isSetting links
+  const settingsSections = allSections.filter(s => s.section === 'Settings');
+  const regularSections = allSections.filter(s => s.section !== 'Settings');
 
   return (
     <div className="absolute top-full left-0 z-40">
@@ -222,7 +240,7 @@ function FlyoutDropdown({ tab, asPath, onClose, accent }: FlyoutDropdownProps) {
           <div className="border-t border-gray-700 my-1" />
         )}
 
-        {sections.map(section => {
+        {regularSections.map(section => {
           const isHovered = hoveredSection === section.section;
           return (
             <div
@@ -241,6 +259,24 @@ function FlyoutDropdown({ tab, asPath, onClose, accent }: FlyoutDropdownProps) {
                 </div>
               )}
             </div>
+          );
+        })}
+
+        {/* Settings items — rendered inline with separator, no flyout */}
+        {settingsSections.flatMap(s => s.items).map(item => {
+          if (isFlyout(item)) return null;
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              onClick={onClose}
+              className={`flex items-center gap-2 px-4 py-2 text-sm border-t border-gray-700 mt-1 whitespace-nowrap transition-colors ${
+                isLinkActive(item.href, asPath) ? accent.activeLinkBg : 'text-gray-400 hover:text-white hover:bg-gray-700/50'
+              }`}
+            >
+              <Settings className="h-3.5 w-3.5 flex-shrink-0" />
+              {item.label}
+            </Link>
           );
         })}
       </div>

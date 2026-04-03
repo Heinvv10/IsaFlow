@@ -18,6 +18,7 @@ import {
   List,
   FileText,
   Megaphone,
+  Palette,
 } from 'lucide-react';
 
 interface NavItem {
@@ -54,6 +55,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   { label: 'Audit Trail', href: '/admin/audit',      icon: ScrollText },
   { label: 'Analytics',  href: '/admin/analytics',  icon: BarChart2 },
+  { label: 'Components', href: '/admin/components', icon: Palette },
   { label: 'Settings',   href: '/admin/settings',   icon: Settings },
 ];
 

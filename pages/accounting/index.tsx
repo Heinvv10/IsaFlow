@@ -57,6 +57,9 @@ import {
 } from '@/components/accounting/AccountCategorySidebar';
 import type { GLAccount, GLAccountType, FiscalPeriod, JournalEntry, TrialBalanceRow } from '@/modules/accounting/types/gl.types';
 import { apiFetch } from '@/lib/apiFetch';
+import { WidgetGrid } from '@/components/dashboard/WidgetGrid';
+import type { WidgetConfig } from '@/components/dashboard/widgetTypes';
+import { DEFAULT_WIDGET_LAYOUT } from '@/components/dashboard/widgetTypes';
 
 type AccountingTab = 'overview' | 'chart-of-accounts' | 'journal-entries' | 'fiscal-periods' | 'reports';
 
@@ -73,6 +76,8 @@ export default function AccountingPage() {
   const { activeCompany } = useCompany();
   const [activeTab, setActiveTab] = useState<AccountingTab>('overview');
   const [isMounted, setIsMounted] = useState(false);
+  const [widgetLayout, setWidgetLayout] = useState<WidgetConfig[]>(DEFAULT_WIDGET_LAYOUT);
+  const [editMode, setEditMode] = useState(false);
 
   useEffect(() => {
     setIsMounted(true);
@@ -91,6 +96,29 @@ export default function AccountingPage() {
     setActiveTab(tab);
     router.push({ pathname: '/accounting', query: { tab } }, undefined, { shallow: true });
   }, [router]);
+
+  // Load saved widget layout
+  useEffect(() => {
+    if (!isMounted) return;
+    apiFetch('/api/accounting/widget-layout')
+      .then(res => res.json())
+      .then((json: { data?: { layout?: WidgetConfig[] } }) => {
+        const layout = json.data?.layout;
+        if (Array.isArray(layout) && layout.length > 0) {
+          setWidgetLayout(layout);
+        }
+      })
+      .catch(err => log.error('Failed to load widget layout', { error: err }, 'accounting-page'));
+  }, [isMounted]);
+
+  const handleLayoutChange = useCallback((layout: WidgetConfig[]) => {
+    setWidgetLayout(layout);
+    apiFetch('/api/accounting/widget-layout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ layout }),
+    }).catch(err => log.error('Failed to save widget layout', { error: err }, 'accounting-page'));
+  }, []);
 
   if (!isMounted) {
     return (
@@ -123,15 +151,30 @@ export default function AccountingPage() {
                   </p>
                 </div>
               </div>
-              {activeTab === 'journal-entries' && (
-                <Link
-                  href="/accounting/journal-entries/new"
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium"
-                >
-                  <Plus className="h-4 w-4" />
-                  New Journal Entry
-                </Link>
-              )}
+              <div className="flex items-center gap-2">
+                {activeTab === 'journal-entries' && (
+                  <Link
+                    href="/accounting/journal-entries/new"
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium"
+                  >
+                    <Plus className="h-4 w-4" />
+                    New Journal Entry
+                  </Link>
+                )}
+                {activeTab === 'overview' && (
+                  <button
+                    onClick={() => setEditMode(m => !m)}
+                    className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm font-medium border ${
+                      editMode
+                        ? 'bg-teal-600 text-white border-teal-600 hover:bg-teal-700'
+                        : 'border-gray-300 dark:border-gray-600 text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:border-gray-400'
+                    }`}
+                  >
+                    <Pencil className="h-4 w-4" />
+                    {editMode ? 'Done' : 'Edit Dashboard'}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -161,6 +204,17 @@ export default function AccountingPage() {
             </nav>
           </div>
         </div>
+
+        {/* Adaptive Widget Dashboard (overview tab only) */}
+        {activeTab === 'overview' && (
+          <div className="px-6 py-4 border-b border-[var(--ff-border-light)]">
+            <WidgetGrid
+              widgets={widgetLayout}
+              editMode={editMode}
+              onLayoutChange={handleLayoutChange}
+            />
+          </div>
+        )}
 
         {/* Tab Content */}
         <div className="p-6">
