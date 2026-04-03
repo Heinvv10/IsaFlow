@@ -9,6 +9,8 @@
 export interface DropdownItem {
   label: string;
   href: string;
+  /** When true the item renders with a gear icon and a top separator. */
+  isSetting?: boolean;
 }
 
 export interface FlyoutSection {
@@ -82,6 +84,12 @@ export const TABS: Tab[] = [
           { label: 'Debtors Manager', href: '/accounting/debtors-manager' },
         ],
       },
+      {
+        section: 'Settings',
+        items: [
+          { label: 'Customer Settings', href: '/accounting/company-settings?tab=documents', isSetting: true },
+        ],
+      },
     ],
   },
   {
@@ -122,6 +130,12 @@ export const TABS: Tab[] = [
         section: 'Special',
         items: [
           { label: 'Opening Balances', href: '/accounting/opening-balances' },
+        ],
+      },
+      {
+        section: 'Settings',
+        items: [
+          { label: 'Supplier Settings', href: '/accounting/company-settings?tab=documents', isSetting: true },
         ],
       },
     ],
@@ -190,6 +204,12 @@ export const TABS: Tab[] = [
           { label: 'Bank Feeds', href: '/accounting/bank-feeds' },
         ],
       },
+      {
+        section: 'Settings',
+        items: [
+          { label: 'Banking Settings', href: '/accounting/company-settings?tab=general', isSetting: true },
+        ],
+      },
     ],
   },
   {
@@ -217,6 +237,12 @@ export const TABS: Tab[] = [
           { label: 'Fiscal Periods', href: '/accounting/fiscal-periods' },
         ],
       },
+      {
+        section: 'Settings',
+        items: [
+          { label: 'Accounting Settings', href: '/accounting/accounting-settings', isSetting: true },
+        ],
+      },
     ],
   },
   {
@@ -233,6 +259,12 @@ export const TABS: Tab[] = [
         items: [
           { label: 'VAT Adjustments', href: '/accounting/vat-adjustments' },
           { label: 'DRC VAT', href: '/accounting/drc-vat' },
+        ],
+      },
+      {
+        section: 'Settings',
+        items: [
+          { label: 'VAT Settings', href: '/accounting/company-settings?tab=vat', isSetting: true },
         ],
       },
     ],

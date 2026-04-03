@@ -2,6 +2,8 @@
  * LoadingSpinner — simple Tailwind CSS spinning circle indicator.
  */
 
+import { cn } from '@/utils/cn';
+
 interface LoadingSpinnerProps {
   /** Tailwind size variant */
   size?: 'sm' | 'md' | 'lg';
@@ -15,20 +17,19 @@ const SIZE_CLASSES = {
   lg: 'w-10 h-10 border-4',
 } as const;
 
-// 🟢 WORKING: Pure Tailwind spinner — no external dependencies
-export function LoadingSpinner({ size = 'md', className = '' }: LoadingSpinnerProps) {
+// WORKING: Pure Tailwind spinner — no external dependencies
+export function LoadingSpinner({ size = 'md', className }: LoadingSpinnerProps) {
   return (
     <div
       role="status"
       aria-label="Loading"
-      className={`
-        ${SIZE_CLASSES[size]}
-        rounded-full
-        border-gray-600
-        border-t-teal-500
-        animate-spin
-        ${className}
-      `}
+      className={cn(
+        SIZE_CLASSES[size],
+        'rounded-full animate-spin',
+        'border-gray-300 border-t-teal-500',
+        'dark:border-gray-600 dark:border-t-teal-400',
+        className
+      )}
     />
   );
 }

@@ -27,12 +27,14 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { useCompany } from '@/contexts/CompanyContext';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { CompanySwitcher } from '@/components/layout/CompanySwitcher';
+import { CreateNewMenu } from '@/components/layout/CreateNewMenu';
 import { SidebarNav } from '@/components/layout/SidebarNav';
 import { CommandPalette } from '@/components/layout/CommandPalette';
 import { ShortcutHelpOverlay } from '@/components/layout/ShortcutHelpOverlay';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import type { ShortcutConfig } from '@/lib/keyboard-shortcuts';
 import { AccountingTour } from '@/components/onboarding/AccountingTour';
+import { SetupGuideButton } from '@/components/onboarding/SetupGuideButton';
 
 const AccountingNav = dynamic(
   () => import('@/components/accounting/AccountingNav').then(mod => ({ default: mod.AccountingNav })),
@@ -350,6 +352,9 @@ export function AppLayout({ children }: AppLayoutProps) {
 
           <div className="flex-1" />
 
+          {/* Quick create menu */}
+          <CreateNewMenu />
+
           {/* Command palette trigger */}
           <button
             data-tour="command-palette"
@@ -379,6 +384,9 @@ export function AppLayout({ children }: AppLayoutProps) {
           >
             <Search className="w-4 h-4" />
           </button>
+
+          {/* Setup guide */}
+          <SetupGuideButton />
 
           {/* Nav mode toggle */}
           <button
