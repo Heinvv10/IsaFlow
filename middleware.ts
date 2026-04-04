@@ -43,9 +43,8 @@ const APP_HOSTS = ['app.isaflow.co.za'];
 const ADMIN_HOSTS = ['admin.isaflow.co.za'];
 
 /** Paths that bypass auth checks on the admin subdomain.
- *  NOTE: '/api/' is intentionally excluded — admin API routes must pass through
- *  the JWT check here (defense-in-depth alongside withAdmin on each handler).
- *  Only truly static/public paths are listed. */
+ *  NOTE: '/api/' routes pass through without rewriting (they use withAdmin
+ *  middleware on each handler for auth). Only page paths get rewritten. */
 const ADMIN_PASSTHROUGH = [
   '/_next',
   '/login',
@@ -78,12 +77,17 @@ export async function middleware(request: NextRequest) {
 
   // ── Admin subdomain handling ─────────────────────────────────────────────────
   if (isAdminHost) {
-    // Always passthrough for static assets, API routes, and login
-    if (ADMIN_PASSTHROUGH.some(p => pathname.startsWith(p))) {
+    // Always passthrough for static assets, login page, and API routes
+    // API routes must not be rewritten — they live at /api/*, not /admin/api/*
+    if (
+      ADMIN_PASSTHROUGH.some(p => pathname.startsWith(p)) ||
+      pathname.startsWith('/api/') ||
+      pathname.match(/\.\w+$/)  // static files (logo.png, etc.)
+    ) {
       return NextResponse.next();
     }
 
-    // Verify super_admin auth for all other paths
+    // Verify super_admin auth for all other paths (page navigations)
     const adminToken = request.cookies.get(AUTH_COOKIE_NAME)?.value;
     if (!adminToken) {
       const loginUrl = new URL('/login', request.url);
@@ -96,7 +100,7 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(new URL('/login', request.url));
     }
 
-    // Rewrite path: / → /admin, /companies → /admin/companies, etc.
+    // Rewrite page paths: / → /admin, /companies → /admin/companies, etc.
     if (!pathname.startsWith('/admin')) {
       const rewrittenUrl = request.nextUrl.clone();
       rewrittenUrl.pathname = pathname === '/' ? '/admin' : `/admin${pathname}`;
