@@ -57,9 +57,9 @@ import {
 } from '@/components/accounting/AccountCategorySidebar';
 import type { GLAccount, GLAccountType, FiscalPeriod, JournalEntry, TrialBalanceRow } from '@/modules/accounting/types/gl.types';
 import { apiFetch } from '@/lib/apiFetch';
-import { WidgetGrid } from '@/components/dashboard/WidgetGrid';
-import type { WidgetConfig } from '@/components/dashboard/widgetTypes';
-import { DEFAULT_WIDGET_LAYOUT } from '@/components/dashboard/widgetTypes';
+import { PAGE_REGISTRY, DEFAULT_QUICK_ACTIONS, type PageMeta } from '@/modules/accounting/constants/pageRegistry';
+import { type WidgetConfig, DEFAULT_WIDGET_LAYOUT } from '@/components/dashboard/widgetTypes';
+import { Users, Upload } from 'lucide-react';
 
 type AccountingTab = 'overview' | 'chart-of-accounts' | 'journal-entries' | 'fiscal-periods' | 'reports';
 
@@ -239,12 +239,31 @@ interface KPIData {
   topExpenses: { accountName: string; total: number; percentOfExpenses: number }[];
 }
 
+const ICON_MAP: Record<string, React.ElementType> = {
+  Plus, BarChart3, Landmark, FileText, CreditCard, TrendingUp,
+  BookOpen, FileSpreadsheet, Calculator, Calendar, Users, Upload,
+};
+
+const COLOR_MAP: Record<string, { bg: string; text: string; hover: string }> = {
+  teal:   { bg: 'bg-teal-500/10',   text: 'text-teal-500',   hover: 'hover:border-teal-500/50' },
+  blue:   { bg: 'bg-blue-500/10',   text: 'text-blue-500',   hover: 'hover:border-blue-500/50' },
+  indigo: { bg: 'bg-indigo-500/10', text: 'text-indigo-500', hover: 'hover:border-indigo-500/50' },
+  orange: { bg: 'bg-orange-500/10', text: 'text-orange-500', hover: 'hover:border-orange-500/50' },
+  purple: { bg: 'bg-purple-500/10', text: 'text-purple-500', hover: 'hover:border-purple-500/50' },
+  green:  { bg: 'bg-green-500/10',  text: 'text-green-500',  hover: 'hover:border-green-500/50' },
+  gray:   { bg: 'bg-gray-500/10',   text: 'text-gray-500',   hover: 'hover:border-gray-500/50' },
+};
+
 function OverviewTab() {
   const [data, setData] = useState<KPIData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [quickActions, setQuickActions] = useState<PageMeta[]>(
+    DEFAULT_QUICK_ACTIONS.map(p => PAGE_REGISTRY[p]).filter((p): p is PageMeta => !!p)
+  );
 
   useEffect(() => {
     loadKPIData();
+    loadQuickActions();
   }, []);
 
   const loadKPIData = async () => {
@@ -261,6 +280,30 @@ function OverviewTab() {
     }
   };
 
+  const loadQuickActions = async () => {
+    try {
+      const res = await apiFetch('/api/accounting/page-visits?limit=6', { credentials: 'include' });
+      const json = await res.json();
+      const rows = (json.data || []) as { page_path: string }[];
+      const tracked = rows
+        .map(r => PAGE_REGISTRY[r.page_path])
+        .filter((p): p is PageMeta => !!p);
+
+      if (tracked.length >= 6) {
+        setQuickActions(tracked.slice(0, 6));
+      } else if (tracked.length > 0) {
+        const seen = new Set(tracked.map(t => t.path));
+        const fill = DEFAULT_QUICK_ACTIONS
+          .filter(p => !seen.has(p))
+          .map(p => PAGE_REGISTRY[p])
+          .filter((p): p is PageMeta => !!p);
+        setQuickActions([...tracked, ...fill].slice(0, 6));
+      }
+    } catch {
+      // keep defaults
+    }
+  };
+
   const kpis = data?.kpis;
   const AGING_COLORS = ['#14b8a6', '#fbbf24', '#f97316', '#f43f5e'];
 
@@ -274,93 +317,28 @@ function OverviewTab() {
 
   return (
     <div className="space-y-6">
-      {/* Quick Actions */}
+      {/* Quick Actions — dynamic based on user usage */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Link
-          href="/accounting/journal-entries/new"
-          className="flex items-center gap-3 p-4 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] hover:border-teal-500/50 hover:shadow-md transition-all group no-underline"
-        >
-          <div className="p-2 rounded-lg bg-teal-500/10">
-            <Plus className="h-5 w-5 text-teal-500" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-medium text-[var(--ff-text-primary)]">New Journal Entry</p>
-            <p className="text-sm text-[var(--ff-text-secondary)]">Create a manual journal entry</p>
-          </div>
-          <ArrowRight className="h-4 w-4 text-[var(--ff-text-tertiary)] group-hover:text-teal-500 transition-colors" />
-        </Link>
-
-        <Link
-          href="/accounting/trial-balance"
-          className="flex items-center gap-3 p-4 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] hover:border-blue-500/50 hover:shadow-md transition-all group no-underline"
-        >
-          <div className="p-2 rounded-lg bg-blue-500/10">
-            <BarChart3 className="h-5 w-5 text-blue-500" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-medium text-[var(--ff-text-primary)]">Trial Balance</p>
-            <p className="text-sm text-[var(--ff-text-secondary)]">View trial balance report</p>
-          </div>
-          <ArrowRight className="h-4 w-4 text-[var(--ff-text-tertiary)] group-hover:text-blue-500 transition-colors" />
-        </Link>
-
-        <Link
-          href="/accounting/bank-reconciliation"
-          className="flex items-center gap-3 p-4 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] hover:border-indigo-500/50 hover:shadow-md transition-all group no-underline"
-        >
-          <div className="p-2 rounded-lg bg-indigo-500/10">
-            <Landmark className="h-5 w-5 text-indigo-500" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-medium text-[var(--ff-text-primary)]">Bank Reconciliation</p>
-            <p className="text-sm text-[var(--ff-text-secondary)]">Match statements to GL entries</p>
-          </div>
-          <ArrowRight className="h-4 w-4 text-[var(--ff-text-tertiary)] group-hover:text-indigo-500 transition-colors" />
-        </Link>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Link
-          href="/accounting/supplier-invoices"
-          className="flex items-center gap-3 p-4 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] hover:border-orange-500/50 hover:shadow-md transition-all group no-underline"
-        >
-          <div className="p-2 rounded-lg bg-orange-500/10">
-            <FileText className="h-5 w-5 text-orange-500" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-medium text-[var(--ff-text-primary)]">Supplier Invoices</p>
-            <p className="text-sm text-[var(--ff-text-secondary)]">AP invoices, matching & approvals</p>
-          </div>
-          <ArrowRight className="h-4 w-4 text-[var(--ff-text-tertiary)] group-hover:text-orange-500 transition-colors" />
-        </Link>
-
-        <Link
-          href="/accounting/customer-payments"
-          className="flex items-center gap-3 p-4 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] hover:border-teal-500/50 hover:shadow-md transition-all group no-underline"
-        >
-          <div className="p-2 rounded-lg bg-teal-500/10">
-            <CreditCard className="h-5 w-5 text-teal-500" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-medium text-[var(--ff-text-primary)]">Customer Payments</p>
-            <p className="text-sm text-[var(--ff-text-secondary)]">Record & allocate payments</p>
-          </div>
-          <ArrowRight className="h-4 w-4 text-[var(--ff-text-tertiary)] group-hover:text-teal-500 transition-colors" />
-        </Link>
-
-        <Link
-          href="/accounting/ar-aging"
-          className="flex items-center gap-3 p-4 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] hover:border-teal-500/50 hover:shadow-md transition-all group no-underline"
-        >
-          <div className="p-2 rounded-lg bg-teal-500/10">
-            <TrendingUp className="h-5 w-5 text-teal-500" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-medium text-[var(--ff-text-primary)]">AR Aging Report</p>
-            <p className="text-sm text-[var(--ff-text-secondary)]">Outstanding receivables by age</p>
-          </div>
-          <ArrowRight className="h-4 w-4 text-[var(--ff-text-tertiary)] group-hover:text-teal-500 transition-colors" />
-        </Link>
+        {quickActions.map(action => {
+          const Icon = ICON_MAP[action.icon] || Plus;
+          const colors = COLOR_MAP[action.color] ?? COLOR_MAP['teal']!;
+          return (
+            <Link
+              key={action.path}
+              href={action.path}
+              className={`flex items-center gap-3 p-4 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] ${colors.hover} hover:shadow-md transition-all group no-underline`}
+            >
+              <div className={`p-2 rounded-lg ${colors.bg}`}>
+                <Icon className={`h-5 w-5 ${colors.text}`} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-[var(--ff-text-primary)]">{action.title}</p>
+                <p className="text-sm text-[var(--ff-text-secondary)]">{action.description}</p>
+              </div>
+              <ArrowRight className={`h-4 w-4 text-[var(--ff-text-tertiary)] group-hover:${colors.text} transition-colors`} />
+            </Link>
+          );
+        })}
       </div>
 
       {/* Row 1 — Key Metric Cards */}
