@@ -146,7 +146,12 @@ let _pool: Pool | null = null;
 
 function getPool(): Pool {
   if (!_pool) {
-    _pool = new Pool({ connectionString: getDatabaseUrl() });
+    _pool = new Pool({
+      connectionString: getDatabaseUrl(),
+      max: 10,
+      connectionTimeoutMillis: 10000,
+      idleTimeoutMillis: 30000,
+    });
   }
   return _pool;
 }

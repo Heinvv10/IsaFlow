@@ -4,7 +4,7 @@
  *   action: match | unmatch | exclude | auto_match | allocate | delete | update_notes
  */
 
-import type { NextApiRequest, NextApiResponse } from 'next';
+import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
@@ -24,16 +24,15 @@ import {
   type SplitLine,
 } from '@/modules/accounting/services/bankReconciliationService';
 
-async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
   }
 
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req;
 
   try {
     const { action, bankTransactionId, journalLineId, bankAccountId, reconciliationId, contraAccountId, description, allocationType, entityId, vatCode, excludeReason, cc1Id, cc2Id, buId } = req.body;
-    // @ts-expect-error — auth middleware attaches user
     const userId: string = req.user?.id || req.user?.userId || 'system';
 
     if (!action) return apiResponse.badRequest(res, 'action is required');

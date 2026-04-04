@@ -7,7 +7,7 @@
  * via the existing allocateTransaction service.
  */
 
-import type { NextApiRequest, NextApiResponse } from 'next';
+import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
@@ -37,13 +37,12 @@ interface ManualTxBody {
 
 // ── Handler ───────────────────────────────────────────────────────────────────
 
-async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
 
-  const { companyId } = req as CompanyApiRequest;
-  // @ts-expect-error — auth middleware attaches user
+  const { companyId } = req;
   const userId: string = req.user?.id ?? req.user?.userId ?? 'system';
 
   const body = req.body as ManualTxBody;

@@ -22,16 +22,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const periodsData: FinancialData[] = [];
   const periodLabels: string[] = [];
 
-  for (let i = months - 1; i >= 0; i--) {
-    const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+  const monthSlots = Array.from({ length: months }, (_, i) => {
+    const date = new Date(now.getFullYear(), now.getMonth() - (months - 1 - i), 1);
     const from = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-01`;
     const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
     const to = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${lastDay}`;
     const label = date.toLocaleDateString('en-ZA', { month: 'short', year: 'numeric' });
+    return { from, to, label };
+  });
 
-    const data = await buildMonthData(companyId, from, to);
-    periodsData.push(data);
-    periodLabels.push(label);
+  const results = await Promise.all(
+    monthSlots.map(({ from, to }) => buildMonthData(companyId, from, to))
+  );
+
+  for (let i = 0; i < monthSlots.length; i++) {
+    periodsData.push(results[i] as FinancialData);
+    periodLabels.push(monthSlots[i]!.label);
   }
 
   const trends = calculateRatioTrends(periodsData, periodLabels);

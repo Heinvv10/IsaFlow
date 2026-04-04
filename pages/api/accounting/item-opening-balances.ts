@@ -5,7 +5,7 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { sql } from '@/lib/neon';
+import { sql, transaction } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
@@ -41,14 +41,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         }
       }
 
-      for (const entry of items) {
-        await sql`
-          UPDATE stock_items
-          SET qty_available = ${Number(entry.quantity)},
-              standard_cost = ${Number(entry.unitCost)}
-          WHERE id = ${entry.itemId}
-        `;
-      }
+      await transaction((txSql) =>
+        items.map((entry) =>
+          txSql`
+            UPDATE stock_items
+            SET qty_available = ${Number(entry.quantity)},
+                standard_cost = ${Number(entry.unitCost)}
+            WHERE id = ${entry.itemId}
+          `
+        )
+      );
 
       log.info('Item opening balances set', { count: items.length });
       return apiResponse.success(res, { updated: items.length });

@@ -8,6 +8,7 @@ import Image from 'next/image';
 import { ShieldCheck, ShieldOff, Smartphone, Trash2, Loader2, RefreshCw, Copy, Check } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import toast from 'react-hot-toast';
+import { formatDisplayDate } from '@/utils/dateFormat';
 import { SECTION_CLS, LABEL_CLS, INPUT_CLS } from './AccountTabs';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -29,13 +30,6 @@ interface TrustedDevice {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 type SetupStep = 'idle' | 'qr' | 'verify' | 'backup' | 'disable';
-
-function formatDate(iso: string | null): string {
-  if (!iso) return 'Unknown';
-  return new Date(iso).toLocaleDateString('en-ZA', {
-    day: '2-digit', month: 'short', year: 'numeric',
-  });
-}
 
 // ── Backup Codes Display ──────────────────────────────────────────────────────
 
@@ -246,7 +240,7 @@ export function TwoFactorSection() {
               </h2>
               <p className="text-sm text-[var(--ff-text-secondary)] mt-0.5">
                 {enabled
-                  ? `Enabled via authenticator app${status?.verifiedAt ? ` since ${formatDate(status.verifiedAt)}` : ''}`
+                  ? `Enabled via authenticator app${status?.verifiedAt ? ` since ${formatDisplayDate(status.verifiedAt)}` : ''}`
                   : 'Add an extra layer of security to your account'
                 }
               </p>
@@ -402,8 +396,8 @@ export function TwoFactorSection() {
                       {device.deviceName ?? 'Unknown Device'}
                     </p>
                     <p className="text-xs text-[var(--ff-text-secondary)]">
-                      Trusted until {formatDate(device.trustedUntil)}
-                      {' · '}Last used {formatDate(device.lastUsedAt)}
+                      Trusted until {formatDisplayDate(device.trustedUntil)}
+                      {' · '}Last used {formatDisplayDate(device.lastUsedAt)}
                     </p>
                   </div>
                 </div>

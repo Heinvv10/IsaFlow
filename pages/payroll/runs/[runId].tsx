@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { apiFetch } from '@/lib/apiFetch';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { formatCurrency, formatDate } from '@/utils/formatters';
 import {
   CalendarDays, Loader2, AlertCircle, ArrowLeft,
   CheckCircle, RotateCcw, FileText, Download,
@@ -55,14 +56,6 @@ interface PayrollRunDetail {
   total_company_cost: number;
   journal_entry_id: string | null;
   payslips: Payslip[];
-}
-
-function formatCurrency(amount: number): string {
-  return `R ${amount.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-function formatDate(d: string): string {
-  return new Date(d).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 function StatusBadge({ status }: { status: string }) {

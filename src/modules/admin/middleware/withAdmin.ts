@@ -6,7 +6,8 @@
 
 import { withAuth, withRole, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import type { NextApiHandler, NextApiResponse } from 'next';
+import { checkRateLimit } from '@/lib/rateLimit';
+import type { NextApiHandler, NextApiRequest, NextApiResponse } from 'next';
 
 /**
  * Wraps a handler with:
@@ -20,14 +21,25 @@ import type { NextApiHandler, NextApiResponse } from 'next';
 export function withAdmin(
   handler: (req: AuthenticatedNextApiRequest, res: NextApiResponse) => Promise<void>
 ): NextApiHandler {
-  return withAuth(
-    withRole('super_admin')(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (async (req: AuthenticatedNextApiRequest, res: NextApiResponse) => {
-        return withErrorHandler(handler as any)(req, res);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      }) as any
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ) as any
-  ) as NextApiHandler;
+  const rateLimitedHandler = async (req: NextApiRequest, res: NextApiResponse) => {
+    const ip =
+      (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim() ??
+      req.socket.remoteAddress ??
+      'unknown';
+    const limited = checkRateLimit(`admin:${ip}`, { windowMs: 60000, maxRequests: 30 });
+    if (limited) {
+      res.status(429).json({
+        success: false,
+        error: { code: 'RATE_LIMITED', message: 'Too many requests. Please try again later.' },
+      });
+      return;
+    }
+    return handler(req as AuthenticatedNextApiRequest, res);
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const errorWrapped = withErrorHandler(rateLimitedHandler as any);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const roleWrapped = withRole('super_admin')(errorWrapped as any);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return withAuth(roleWrapped as any) as NextApiHandler;
 }

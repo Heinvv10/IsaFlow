@@ -8,6 +8,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { apiFetch } from '@/lib/apiFetch';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { formatCurrency } from '@/utils/formatters';
 import { CalendarDays, Loader2, ArrowLeft, Play, Users, AlertCircle } from 'lucide-react';
 import Link from 'next/link';
 import { notify } from '@/utils/toast';
@@ -51,10 +52,6 @@ interface PayrollRunResult {
   total_net: number;
   total_company_cost: number;
   payslips: PayslipResult[];
-}
-
-function formatCurrency(amount: number): string {
-  return `R ${amount.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function getDefaultPeriod(): { start: string; end: string } {

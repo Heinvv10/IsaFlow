@@ -9,6 +9,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -62,7 +63,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
     doc.text(
-      `Pay Period: ${formatDate(slip.period_start)} - ${formatDate(slip.period_end)}`,
+      `Pay Period: ${formatDisplayDate(slip.period_start)} - ${formatDisplayDate(slip.period_end)}`,
       pageWidth / 2, y, { align: 'center' }
     );
     y += 15;
@@ -123,7 +124,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     for (const [label, amount] of earnings) {
       if (Number(amount) > 0) {
         doc.text(String(label), margin, y);
-        doc.text(formatCurrency(Number(amount)), pageWidth - margin, y, { align: 'right' });
+        doc.text(formatAmountRaw(Number(amount)), pageWidth - margin, y, { align: 'right' });
         y += 5;
       }
     }
@@ -131,7 +132,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     y += 2;
     doc.setFont('helvetica', 'bold');
     doc.text('Gross Pay', margin, y);
-    doc.text(formatCurrency(Number(slip.gross_pay)), pageWidth - margin, y, { align: 'right' });
+    doc.text(formatAmountRaw(Number(slip.gross_pay)), pageWidth - margin, y, { align: 'right' });
     y += 8;
 
     // Divider
@@ -157,7 +158,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     for (const [label, amount] of deductions) {
       if (Number(amount) > 0) {
         doc.text(String(label), margin, y);
-        doc.text(formatCurrency(Number(amount)), pageWidth - margin, y, { align: 'right' });
+        doc.text(formatAmountRaw(Number(amount)), pageWidth - margin, y, { align: 'right' });
         y += 5;
       }
     }
@@ -166,7 +167,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const totalDed = Number(slip.paye || 0) + Number(slip.uif_employee || 0) + Number(slip.medical_aid || 0) + Number(slip.retirement_fund || 0) + Number(slip.other_deductions || 0);
     doc.setFont('helvetica', 'bold');
     doc.text('Total Deductions', margin, y);
-    doc.text(formatCurrency(totalDed), pageWidth - margin, y, { align: 'right' });
+    doc.text(formatAmountRaw(totalDed), pageWidth - margin, y, { align: 'right' });
     y += 10;
 
     // Net Pay
@@ -175,7 +176,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     doc.rect(margin, y - 2, pageWidth - 2 * margin, 12, 'F');
     doc.setFontSize(12);
     doc.text('NET PAY', margin + 5, y + 6);
-    doc.text(`R ${formatCurrency(Number(slip.net_pay))}`, pageWidth - margin - 5, y + 6, { align: 'right' });
+    doc.text(`R ${formatAmountRaw(Number(slip.net_pay))}`, pageWidth - margin - 5, y + 6, { align: 'right' });
     y += 18;
 
     // Employer costs
@@ -183,9 +184,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     doc.setFont('helvetica', 'normal');
     doc.text('Employer Contributions:', margin, y);
     y += 5;
-    doc.text(`UIF (Employer): R ${formatCurrency(Number(slip.uif_employer))}`, margin + 5, y);
+    doc.text(`UIF (Employer): R ${formatAmountRaw(Number(slip.uif_employer))}`, margin + 5, y);
     y += 5;
-    doc.text(`SDL: R ${formatCurrency(Number(slip.sdl))}`, margin + 5, y);
+    doc.text(`SDL: R ${formatAmountRaw(Number(slip.sdl))}`, margin + 5, y);
     y += 10;
 
     // YTD
@@ -196,11 +197,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
-    doc.text(`YTD Gross: R ${formatCurrency(Number(slip.ytd_gross))}`, margin, y);
+    doc.text(`YTD Gross: R ${formatAmountRaw(Number(slip.ytd_gross))}`, margin, y);
     y += 5;
-    doc.text(`YTD PAYE: R ${formatCurrency(Number(slip.ytd_paye))}`, margin, y);
+    doc.text(`YTD PAYE: R ${formatAmountRaw(Number(slip.ytd_paye))}`, margin, y);
     y += 5;
-    doc.text(`YTD UIF: R ${formatCurrency(Number(slip.ytd_uif))}`, margin, y);
+    doc.text(`YTD UIF: R ${formatAmountRaw(Number(slip.ytd_uif))}`, margin, y);
     y += 10;
 
     // Banking details
@@ -232,13 +233,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 }
 
-function formatCurrency(amount: number): string {
+function formatAmountRaw(amount: number): string {
   return amount.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-function formatDate(dateStr: string): string {
-  const d = new Date(dateStr);
-  return d.toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

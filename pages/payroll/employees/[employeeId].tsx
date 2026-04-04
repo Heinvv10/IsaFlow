@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { apiFetch } from '@/lib/apiFetch';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { formatCurrency, formatDate } from '@/utils/formatters';
 import { Users, Loader2, AlertCircle, ArrowLeft, Save, FileText } from 'lucide-react';
 import Link from 'next/link';
 import { notify } from '@/utils/toast';
@@ -57,14 +58,6 @@ interface EmployeeDetail {
   pay_structure: PayStructure | null;
   pay_history: PayStructure[];
   payslip_history: PayslipSummary[];
-}
-
-function formatCurrency(amount: number): string {
-  return `R ${amount.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-function formatDate(d: string): string {
-  return new Date(d).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 export default function EmployeeDetailPage() {

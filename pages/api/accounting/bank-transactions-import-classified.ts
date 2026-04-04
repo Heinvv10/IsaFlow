@@ -10,7 +10,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
-import { sql } from '@/lib/neon';
+import { sql, transaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
 interface ClassifiedBankTx {
@@ -72,70 +72,100 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     const batchId = crypto.randomUUID();
-    let inserted = 0;
     let skippedDuplicates = 0;
     const unresolvedCategories: string[] = [];
 
+    // Pre-normalise incoming transactions and drop zero-amount/empty rows
+    interface NormTx {
+      tx: ClassifiedBankTx;
+      amount: number;
+      txDate: string;
+      desc: string;
+    }
+    const normTxs: NormTx[] = [];
     for (const tx of transactions) {
       const debit = Number(tx.debit || 0);
       const credit = Number(tx.credit || 0);
-      // positive = deposit (credit), negative = withdrawal (debit)
       const amount = credit > 0 ? credit : -debit;
       if (amount === 0) continue;
-
       const txDate = String(tx.transactionDate).trim();
       const desc = String(tx.description || '').trim();
       if (!txDate || !desc) continue;
+      normTxs.push({ tx, amount, txDate, desc });
+    }
 
-      // Deduplicate: check for existing transaction with same date + amount + description
-      const dupeCheck = (await sql`
-        SELECT id FROM bank_transactions
-        WHERE bank_account_id = ${bankAccountId}::UUID
-          AND transaction_date = ${txDate}
-          AND amount = ${amount}
-          AND description = ${desc}
-          AND company_id = ${companyId}
-        LIMIT 1
-      `) as Row[];
+    // Fetch all existing fingerprints for this bank account in one query
+    const existingRows = (await sql`
+      SELECT transaction_date::text AS transaction_date, amount::text AS amount, description
+      FROM bank_transactions
+      WHERE bank_account_id = ${bankAccountId}::UUID AND company_id = ${companyId}
+    `) as Row[];
 
-      if (dupeCheck.length > 0) {
-        skippedDuplicates++;
-        continue;
-      }
+    const existingSet = new Set<string>(
+      existingRows.map((r: Row) => `${String(r.transaction_date)}|${String(r.amount)}|${String(r.description)}`)
+    );
 
-      // Resolve category → GL account
+    // Filter dupes in JS
+    const toInsert = normTxs.filter(({ txDate, amount, desc }) => {
+      const key = `${txDate}|${amount}|${desc}`;
+      if (existingSet.has(key)) { skippedDuplicates++; return false; }
+      return true;
+    });
+
+    // Resolve categories and collect unresolved ones
+    interface InsertRow {
+      txDate: string;
+      amount: number;
+      desc: string;
+      statementRef: string | null;
+      suggestedGlAccountId: string | null;
+      suggestedSupplierId: number | null;
+      category: string | null;
+      costCentre: string | null;
+    }
+    const insertRows: InsertRow[] = toInsert.map(({ tx, amount, txDate, desc }) => {
       const category = String(tx.category || '').trim();
-      const categoryLower = category.toLowerCase();
-      const mapping = categoryMap.get(categoryLower);
-      const suggestedGlAccountId = mapping?.glAccountId || null;
-      const suggestedSupplierId = mapping?.supplierId || null;
-
+      const mapping = categoryMap.get(category.toLowerCase());
       if (category && !mapping && !unresolvedCategories.includes(category)) {
         unresolvedCategories.push(category);
       }
+      const costCentre = [tx.costCentreT1, tx.costCentreT2].filter(Boolean).join(' > ').trim() || null;
+      return {
+        txDate,
+        amount,
+        desc,
+        statementRef: tx.statementRef || null,
+        suggestedGlAccountId: mapping?.glAccountId || null,
+        suggestedSupplierId: mapping?.supplierId || null,
+        category: category || null,
+        costCentre,
+      };
+    });
 
-      const costCentre = [tx.costCentreT1, tx.costCentreT2]
-        .filter(Boolean)
-        .join(' > ')
-        .trim() || null;
-
-      await sql`
-        INSERT INTO bank_transactions (
-          bank_account_id, transaction_date, amount, description,
-          reference, import_batch_id, status,
-          suggested_gl_account_id, suggested_supplier_id,
-          suggested_category, suggested_cost_centre,
-          company_id
-        ) VALUES (
-          ${bankAccountId}::UUID, ${txDate}, ${amount}, ${desc},
-          ${tx.statementRef || null}, ${batchId}::UUID, 'imported',
-          ${suggestedGlAccountId}::UUID, ${suggestedSupplierId},
-          ${category || null}, ${costCentre},
-          ${companyId}
+    // Batch INSERT all non-duplicate rows in a single transaction
+    if (insertRows.length > 0) {
+      await transaction((txSql) =>
+        insertRows.map((r) =>
+          txSql`
+            INSERT INTO bank_transactions (
+              bank_account_id, transaction_date, amount, description,
+              reference, import_batch_id, status,
+              suggested_gl_account_id, suggested_supplier_id,
+              suggested_category, suggested_cost_centre,
+              company_id
+            ) VALUES (
+              ${bankAccountId}::UUID, ${r.txDate}, ${r.amount}, ${r.desc},
+              ${r.statementRef}, ${batchId}::UUID, 'imported',
+              ${r.suggestedGlAccountId}::UUID, ${r.suggestedSupplierId},
+              ${r.category}, ${r.costCentre},
+              ${companyId}
+            )
+          `
         )
-      `;
-      inserted++;
+      );
     }
+
+    const inserted = insertRows.length;
 
     log.info('Imported classified bank transactions', {
       batchId, bankAccountId, inserted, skippedDuplicates,
