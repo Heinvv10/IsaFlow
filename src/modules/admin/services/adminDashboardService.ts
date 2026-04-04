@@ -7,9 +7,8 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DashboardStats, ActivityEvent } from '../types/admin.types';
+type Row = Record<string, unknown>;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
 
 function toISOString(value: unknown): string {
   if (value instanceof Date) return value.toISOString();

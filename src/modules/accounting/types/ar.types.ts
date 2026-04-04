@@ -29,6 +29,7 @@ export interface CustomerPayment {
   updatedAt: string;
   // Joined
   clientName?: string;
+  allocatedAmount?: number;
   allocations?: CustomerPaymentAllocation[];
 }
 

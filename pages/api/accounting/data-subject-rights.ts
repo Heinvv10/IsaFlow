@@ -12,9 +12,8 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany } from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import type { CompanyApiRequest } from '@/lib/auth/withCompany';
+type Row = Record<string, unknown>;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
 
 async function getUserPii(userId: string, companyId: string) {
   const userRows = (await sql`

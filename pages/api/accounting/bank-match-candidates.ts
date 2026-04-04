@@ -18,9 +18,8 @@ import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import type { MatchCandidate } from '@/modules/accounting/types/bank-match.types';
+type Row = Record<string, unknown>;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
 
 /* ── Scoring helpers ──────────────────────────────────────────────────────── */
 

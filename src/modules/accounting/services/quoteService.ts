@@ -5,8 +5,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
+type Row = Record<string, unknown>;
 
 export interface QuoteLine {
   id: string;
@@ -58,22 +57,22 @@ interface QuoteInput {
 
 function mapQuote(r: Row): Quote {
   return {
-    id: r.id, quoteNumber: r.quote_number, clientId: r.client_id,
-    customerName: r.customer_name, quoteDate: r.quote_date,
-    expiryDate: r.expiry_date, status: r.status,
+    id: String(r.id), quoteNumber: String(r.quote_number), clientId: r.client_id != null ? String(r.client_id) : null,
+    customerName: String(r.customer_name), quoteDate: String(r.quote_date),
+    expiryDate: r.expiry_date != null ? String(r.expiry_date) : null, status: String(r.status),
     subtotal: Number(r.subtotal), taxAmount: Number(r.tax_amount),
-    total: Number(r.total), notes: r.notes, terms: r.terms,
-    convertedInvoiceId: r.converted_invoice_id,
-    createdAt: r.created_at, updatedAt: r.updated_at,
+    total: Number(r.total), notes: r.notes != null ? String(r.notes) : null, terms: r.terms != null ? String(r.terms) : null,
+    convertedInvoiceId: r.converted_invoice_id != null ? String(r.converted_invoice_id) : null,
+    createdAt: String(r.created_at), updatedAt: String(r.updated_at),
   };
 }
 
 function mapLine(r: Row): QuoteLine {
   return {
-    id: r.id, quoteId: r.quote_id, lineNumber: r.line_number,
-    description: r.description, quantity: Number(r.quantity),
+    id: String(r.id), quoteId: String(r.quote_id), lineNumber: Number(r.line_number),
+    description: String(r.description), quantity: Number(r.quantity),
     unitPrice: Number(r.unit_price), taxRate: Number(r.tax_rate),
-    lineTotal: Number(r.line_total), accountId: r.account_id,
+    lineTotal: Number(r.line_total), accountId: r.account_id != null ? String(r.account_id) : null,
   };
 }
 
@@ -82,7 +81,7 @@ async function nextQuoteNumber(): Promise<string> {
     SELECT quote_number FROM customer_quotes ORDER BY created_at DESC LIMIT 1
   `) as Row[];
   if (rows.length === 0) return 'QUO-00001';
-  const last = rows[0].quote_number;
+  const last = String(rows[0]!.quote_number);
   const num = parseInt(last.replace('QUO-', ''), 10) || 0;
   return `QUO-${String(num + 1).padStart(5, '0')}`;
 }
@@ -140,7 +139,7 @@ export async function getQuote(companyId: string, id: string): Promise<Quote | n
     ? (await sql`SELECT * FROM customer_quotes WHERE id = ${id}::UUID AND company_id = ${companyId}`) as Row[]
     : (await sql`SELECT * FROM customer_quotes WHERE id = ${id}::UUID`) as Row[];
   if (rows.length === 0) return null;
-  const quote = mapQuote(rows[0]);
+  const quote = mapQuote(rows[0]!);
   const lineRows = (await sql`
     SELECT * FROM customer_quote_lines WHERE quote_id = ${id}::UUID ORDER BY line_number
   `) as Row[];
@@ -162,7 +161,7 @@ export async function createQuote(companyId: string, input: QuoteInput, userId?:
     RETURNING *
   `) as Row[];
 
-  const quote = mapQuote(rows[0]);
+  const quote = mapQuote(rows[0]!);
   for (let i = 0; i < input.lines.length; i++) {
     const l = input.lines[i];
     if (!l) continue;
@@ -224,7 +223,7 @@ export async function convertToInvoice(companyId: string, id: string, userId?: s
       ${quote.taxAmount}, ${quote.total}, ${'Converted from ' + quote.quoteNumber}, 'draft', ${userId || null})
     RETURNING id
   `) as Row[];
-  const invoiceId = invRows[0].id;
+  const invoiceId = String(invRows[0]!.id);
 
   // Copy lines
   for (const line of quote.lines || []) {

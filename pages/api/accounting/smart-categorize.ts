@@ -16,9 +16,8 @@ import {
   learnFromAllocation,
 } from '@/modules/accounting/services/smartCategorizationService';
 import { sql } from '@/lib/neon';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
+
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;

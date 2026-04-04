@@ -17,6 +17,7 @@ export interface CreateAccountInput {
   parentAccountId?: string;
   description?: string;
   normalBalance: 'debit' | 'credit';
+  defaultVatCode?: 'none' | 'standard' | 'zero_rated' | 'exempt';
 }
 
 export interface UpdateAccountInput {

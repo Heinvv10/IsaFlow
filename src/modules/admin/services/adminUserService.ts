@@ -15,8 +15,7 @@ import type {
   PaginatedResult,
 } from '../types/admin.types';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
+type Row = Record<string, unknown>;
 
 function toIso(value: unknown): string | null {
   if (value == null) return null;

@@ -22,8 +22,7 @@ export interface UserWithPermissions {
 }
 
 type Action = 'read' | 'write' | 'delete' | 'export' | 'approve';
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
+type Row = Record<string, unknown>;
 
 const FULL_ACCESS_ROLES = ['owner', 'admin'];
 

@@ -9,9 +9,8 @@ import { sql } from '@/lib/neon';
 import { generateInvoicePdf } from './invoicePdfService';
 import { inviteEmailHtml, invoiceEmailHtml } from '@/lib/email-templates';
 import type { InviteEmailData, InvoiceEmailData } from '@/lib/email-templates';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
+
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 

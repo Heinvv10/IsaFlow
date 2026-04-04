@@ -9,9 +9,8 @@ import { log } from '@/lib/logger';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth/middleware';
 import { serialize } from 'cookie';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
+
 
 function maskEmail(email: string): string {
   const [local, domain] = email.split('@');

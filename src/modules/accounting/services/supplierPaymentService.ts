@@ -17,9 +17,8 @@ import type {
   InvoiceForAllocation,
 } from '../types/ap.types';
 import type { JournalLineInput } from '../types/gl.types';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
+
 
 interface PaymentFilters {
   status?: PaymentStatus;

@@ -5,13 +5,12 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+type Row = any;
 
 // Re-export importers so API routes import from one place
 export { importLedgerTransactions, importSupplierInvoices } from './sageImportService';
 export { importCustomerInvoices } from './sageCustomerImportService';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
 
 // ── Types ───────────────────────────────────────────────────────────────────
 

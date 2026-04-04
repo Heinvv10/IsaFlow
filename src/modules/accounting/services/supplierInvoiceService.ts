@@ -16,9 +16,8 @@ import type {
   InvoiceMatchStatus,
 } from '../types/ap.types';
 import type { JournalLineInput, VatType } from '../types/gl.types';
+type Row = Record<string, unknown>;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
 
 interface InvoiceFilters {
   status?: SupplierInvoiceStatus;

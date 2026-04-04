@@ -7,8 +7,29 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fmtZAR, fmtDate, TEAL, getCompanyDetailsFromCompany, renderPageFooters } from './pdfShared';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
+type Row = Record<string, unknown>;
+
+interface InvoiceRow {
+  invoice_number: string;
+  invoice_date: string | Date;
+  due_date: string | Date | null;
+  billing_period_start: string | Date | null;
+  billing_period_end: string | Date | null;
+  client_name: string | null;
+  client_address: string | null;
+  client_contact: string | null;
+  client_email: string | null;
+  client_phone: string | null;
+  client_vat: string | null;
+  project_name: string | null;
+  subtotal: unknown;
+  tax_amount: unknown;
+  total_amount: unknown;
+  amount_paid: unknown;
+  tax_rate: unknown;
+  notes: string | null;
+}
+
 
 export async function generateInvoicePdf(companyId: string, invoiceId: string): Promise<Buffer> {
   const COMPANY = await getCompanyDetailsFromCompany(companyId);
@@ -29,7 +50,7 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
   `) as Row[];
 
   if (invoiceRows.length === 0) throw new Error(`Invoice not found: ${invoiceId}`);
-  const invoice = invoiceRows[0];
+  const invoice = invoiceRows[0]!;
 
   const items = (await sql`
     SELECT * FROM customer_invoice_items
@@ -63,10 +84,10 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
   doc.text('TAX INVOICE', MARGIN, 18);
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
-  doc.text(invoice.invoice_number || '', PAGE_W - MARGIN, 12, { align: 'right' });
+  doc.text(String(invoice.invoice_number || ''), PAGE_W - MARGIN, 12, { align: 'right' });
   doc.setFontSize(8);
-  doc.text(`Date: ${fmtDate(invoice.invoice_date)}`, PAGE_W - MARGIN, 18, { align: 'right' });
-  doc.text(`Due: ${fmtDate(invoice.due_date)}`, PAGE_W - MARGIN, 23, { align: 'right' });
+  doc.text(`Date: ${fmtDate(invoice.invoice_date as string | Date | null | undefined)}`, PAGE_W - MARGIN, 18, { align: 'right' });
+  doc.text(`Due: ${fmtDate(invoice.due_date as string | Date | null | undefined)}`, PAGE_W - MARGIN, 23, { align: 'right' });
 
   let y = 36;
 
@@ -94,7 +115,7 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
   doc.setFontSize(10);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(30, 30, 30);
-  doc.text(invoice.client_name || 'Unknown Client', rightX, ry);
+  doc.text(String(invoice.client_name || 'Unknown Client'), rightX, ry);
   ry += 5;
   doc.setFontSize(8);
   doc.setFont('helvetica', 'normal');
@@ -105,7 +126,7 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
     }
   }
   if (invoice.client_contact) { doc.text(`Attn: ${invoice.client_contact}`, rightX, ry); ry += 4; }
-  if (invoice.client_email) { doc.text(invoice.client_email, rightX, ry); ry += 4; }
+  if (invoice.client_email) { doc.text(String(invoice.client_email), rightX, ry); ry += 4; }
   if (invoice.client_phone) { doc.text(`Tel: ${invoice.client_phone}`, rightX, ry); ry += 4; }
   if (invoice.client_vat) { doc.text(`VAT No: ${invoice.client_vat}`, rightX, ry); ry += 4; }
 
@@ -116,10 +137,10 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
   doc.setDrawColor(210, 215, 225);
   doc.roundedRect(MARGIN, y, CONTENT_W, 12, 1.5, 1.5, 'FD');
   const refCols = [
-    { label: 'Invoice #', value: invoice.invoice_number || '' },
-    { label: 'Project', value: invoice.project_name || '—' },
-    { label: 'Period', value: invoice.billing_period_start ? `${fmtDate(invoice.billing_period_start)} - ${fmtDate(invoice.billing_period_end)}` : '—' },
-    { label: 'Terms', value: invoice.due_date ? `Due ${fmtDate(invoice.due_date)}` : 'On receipt' },
+    { label: 'Invoice #', value: String(invoice.invoice_number || '') },
+    { label: 'Project', value: String(invoice.project_name || '—') },
+    { label: 'Period', value: invoice.billing_period_start ? `${fmtDate(invoice.billing_period_start as string | Date | null)} - ${fmtDate(invoice.billing_period_end as string | Date | null)}` : '—' },
+    { label: 'Terms', value: invoice.due_date ? `Due ${fmtDate(invoice.due_date as string | Date | null)}` : 'On receipt' },
   ];
   const colW = CONTENT_W / refCols.length;
   refCols.forEach((col, i) => {
@@ -208,7 +229,7 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
     { label: 'Account Name', value: COMPANY.bankAccountName },
     { label: 'Account Number', value: COMPANY.bankAccountNumber },
     { label: 'Branch Code', value: COMPANY.bankBranchCode },
-    { label: 'Reference', value: invoice.invoice_number || '' },
+    { label: 'Reference', value: String(invoice.invoice_number || '') },
   ];
   doc.setFontSize(8);
   paymentDetails.forEach((pd) => {

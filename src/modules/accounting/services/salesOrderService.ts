@@ -5,8 +5,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
+type Row = Record<string, unknown>;
 
 export interface SalesOrderItem {
   id: string;
@@ -57,30 +56,30 @@ interface SalesOrderInput {
 
 function mapOrder(r: Row): SalesOrder {
   return {
-    id: r.id,
-    orderNumber: r.order_number,
-    customerId: r.customer_id,
-    customerName: r.customer_name || '',
-    orderDate: r.order_date,
-    deliveryDate: r.delivery_date,
-    reference: r.reference,
-    status: r.status,
+    id: String(r.id),
+    orderNumber: String(r.order_number),
+    customerId: r.customer_id != null ? String(r.customer_id) : null,
+    customerName: r.customer_name ? String(r.customer_name) : '',
+    orderDate: String(r.order_date),
+    deliveryDate: r.delivery_date != null ? String(r.delivery_date) : null,
+    reference: r.reference != null ? String(r.reference) : null,
+    status: String(r.status),
     subtotal: Number(r.subtotal),
     taxAmount: Number(r.tax_amount),
     totalAmount: Number(r.total_amount),
-    notes: r.notes,
-    internalNotes: r.internal_notes,
-    createdAt: r.created_at,
-    updatedAt: r.updated_at,
+    notes: r.notes != null ? String(r.notes) : null,
+    internalNotes: r.internal_notes != null ? String(r.internal_notes) : null,
+    createdAt: String(r.created_at),
+    updatedAt: String(r.updated_at),
   };
 }
 
 function mapItem(r: Row): SalesOrderItem {
   return {
-    id: r.id,
-    salesOrderId: r.sales_order_id,
-    lineNumber: r.line_number,
-    description: r.description,
+    id: String(r.id),
+    salesOrderId: String(r.sales_order_id),
+    lineNumber: Number(r.line_number),
+    description: String(r.description),
     quantity: Number(r.quantity),
     unitPrice: Number(r.unit_price),
     taxRate: Number(r.tax_rate),
@@ -99,8 +98,8 @@ async function nextOrderNumber(companyId: string): Promise<string> {
   `) as Row[];
 
   if (rows.length === 0) return 'SO-00001';
-  const num = Number(rows[0].current_number);
-  const prefix = rows[0].prefix || 'SO-';
+  const num = Number(rows[0]!.current_number);
+  const prefix = String(rows[0]!.prefix || 'SO-');
   return `${prefix}${String(num).padStart(5, '0')}`;
 }
 
@@ -198,7 +197,7 @@ export async function getSalesOrder(companyId: string, id: string): Promise<Sale
     WHERE so.id = ${id}::UUID AND so.company_id = ${companyId}::UUID
   `) as Row[];
   if (rows.length === 0) return null;
-  const order = mapOrder(rows[0]);
+  const order = mapOrder(rows[0]!);
   const itemRows = (await sql`
     SELECT * FROM customer_sales_order_items
     WHERE sales_order_id = ${id}::UUID ORDER BY line_number
@@ -224,7 +223,7 @@ export async function createSalesOrder(companyId: string, input: SalesOrderInput
     ) RETURNING *
   `) as Row[];
 
-  const order = mapOrder(rows[0]);
+  const order = mapOrder(rows[0]!);
   for (let i = 0; i < input.items.length; i++) {
     const item = input.items[i];
     if (!item) continue;

@@ -6,8 +6,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
+type Row = Record<string, unknown>;
 
 export interface AccountMapping {
   glAccountId: string;
@@ -81,13 +80,13 @@ export async function getAccountMappings(
   ` as Row[];
 
   return rows.map((r: Row) => ({
-    glAccountId: r.gl_account_id,
-    accountCode: r.account_code,
-    accountName: r.account_name,
-    accountType: r.account_type,
-    accountSubtype: r.account_subtype,
-    externalCode: r.external_code,
-    externalLabel: r.external_label,
+    glAccountId: String(r.gl_account_id),
+    accountCode: String(r.account_code),
+    accountName: String(r.account_name),
+    accountType: String(r.account_type),
+    accountSubtype: r.account_subtype != null ? String(r.account_subtype) : null,
+    externalCode: r.external_code != null ? String(r.external_code) : '',
+    externalLabel: r.external_label != null ? String(r.external_label) : '',
   }));
 }
 
@@ -156,13 +155,13 @@ export async function exportCaseWareTB(
     const net = debit - credit;
     const escapeCsv = (val: string) => `"${String(val).replace(/"/g, '""')}"`;
     csvLines.push([
-      escapeCsv(r.AccountCode ?? ''),
-      escapeCsv(r.AccountName ?? ''),
+      escapeCsv(String(r.AccountCode ?? '')),
+      escapeCsv(String(r.AccountName ?? '')),
       debit.toFixed(2),
       credit.toFixed(2),
       net.toFixed(2),
-      escapeCsv(r.CaseWareCode ?? ''),
-      escapeCsv(r.CaseWareLabel ?? ''),
+      escapeCsv(String(r.CaseWareCode ?? '')),
+      escapeCsv(String(r.CaseWareLabel ?? '')),
     ].join(','));
   }
 
@@ -184,6 +183,6 @@ export async function autoSuggestAllMappings(
     const suggestion = CASEWARE_SUGGESTIONS[`${r.account_type}:${r.account_subtype ?? ''}`]
       ?? CASEWARE_SUGGESTIONS[`${r.account_type}:`]
       ?? { code: 'Z99', label: 'Unclassified' };
-    return { glAccountId: r.id, code: suggestion.code, label: suggestion.label };
+    return { glAccountId: String(r.id), code: suggestion.code, label: suggestion.label };
   });
 }

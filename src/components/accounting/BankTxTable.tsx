@@ -79,6 +79,8 @@ interface Props {
   cc1Options: SelectOption[];
   cc2Options: SelectOption[];
   buOptions: SelectOption[];
+  showCC?: boolean;
+  showBU?: boolean;
   selectedIds: Set<string>;
   rowSelections: Record<string, RowSelection>;
   allSelected: boolean;

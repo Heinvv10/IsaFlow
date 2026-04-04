@@ -17,9 +17,8 @@ import type { AuthRole } from '@/lib/auth/types';
 import { createHash } from 'crypto';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { withErrorHandler } from '@/lib/api-error-handler';
+type Row = Record<string, unknown>;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {

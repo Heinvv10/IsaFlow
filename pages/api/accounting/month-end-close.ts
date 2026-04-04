@@ -4,9 +4,8 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { generateCloseChecklist, checkCompleteness, buildCloseProgressSummary } from '@/modules/accounting/services/monthEndCloseService';
+type Row = Record<string, unknown>;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
 
 async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {

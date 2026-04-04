@@ -9,9 +9,8 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { sql, transaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
+type Row = Record<string, unknown>;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const authReq = req as AuthenticatedNextApiRequest;

@@ -30,8 +30,7 @@ export interface DisclosureNote {
   id?: string;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
+type Row = Record<string, unknown>;
 
 // ── Main: Generate All Auto Notes ────────────────────────────────────────────
 
@@ -84,11 +83,11 @@ export async function getManualNotes(
   ` as Row[];
 
   return rows.map((r: Row) => ({
-    noteNumber: r.note_number,
-    title: r.title,
-    content: r.content,
+    noteNumber: r.note_number as number,
+    title: r.title as string,
+    content: r.content as string,
     source: 'manual' as const,
-    id: r.id,
+    id: r.id as string,
   }));
 }
 

@@ -6,9 +6,8 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getSystemAccount } from './systemAccountResolver';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
+
 
 interface TransactionRow {
   date: string;

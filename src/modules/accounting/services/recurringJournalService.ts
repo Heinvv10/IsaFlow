@@ -7,9 +7,8 @@ import { sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
 import type { RecurringJournal, RecurringJournalCreateInput, JournalLineInput } from '../types/gl.types';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
+
 
 export async function getRecurringJournals(companyId: string, filters?: {
   status?: string;

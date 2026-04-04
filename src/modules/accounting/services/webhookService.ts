@@ -7,12 +7,11 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import crypto from 'crypto';
 import { WEBHOOK_EVENTS } from '@/modules/accounting/constants/webhookEvents';
+type Row = any;
 
 export { WEBHOOK_EVENTS };
 export type { WebhookEvent } from '@/modules/accounting/constants/webhookEvents';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
 
 export interface Webhook {
   id: string;

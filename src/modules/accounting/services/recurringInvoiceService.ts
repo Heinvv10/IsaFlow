@@ -10,7 +10,6 @@ import type {
   RecurringInvoiceCreateInput,
 } from '../types/ar.types';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
 
 export async function getRecurringInvoices(companyId: string, filters?: {

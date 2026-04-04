@@ -10,9 +10,8 @@ import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
 import { getSystemAccountId } from './systemAccountResolver';
 import { updateSession, type ImportResult, type MigrationError } from './migrationService';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
+
 
 export interface OpeningBalanceRow {
   accountCode: string;

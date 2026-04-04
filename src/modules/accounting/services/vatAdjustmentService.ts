@@ -9,9 +9,8 @@ import { createJournalEntry, postJournalEntry } from './journalEntryService';
 import { getSystemAccount } from './systemAccountResolver';
 import type { VATAdjustment, VATAdjustmentCreateInput } from '../types/gl.types';
 import type { JournalLineInput } from '../types/gl.types';
+type Row = Record<string, unknown>;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
 
 export async function getVATAdjustments(companyId: string, filters?: {
   status?: string;

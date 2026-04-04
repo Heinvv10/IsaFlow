@@ -6,9 +6,8 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { VatType } from '../types/gl.types';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
+
 
 export interface ImportRow {
   date: string;          // YYYY-MM-DD

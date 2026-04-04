@@ -19,9 +19,8 @@ import {
   markInvitationEmailFailed,
 } from '@/modules/accounting/services/userAccessService';
 import { sendInviteEmail } from '@/modules/accounting/services/emailService';
+type Row = Record<string, unknown>;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
 
 const ADMIN_ROLES = ['owner', 'admin'];
 const BASE_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.isaflow.co.za';

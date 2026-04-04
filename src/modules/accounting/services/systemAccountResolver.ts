@@ -14,8 +14,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { GLAccount, GLAccountSubtype } from '../types/gl.types';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
+type Row = Record<string, unknown>;
 
 /**
  * Subtypes that the system requires for auto-posting and reporting.

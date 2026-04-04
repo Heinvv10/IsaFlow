@@ -14,9 +14,8 @@ import { sql } from '@/lib/neon';
 import { isVlmAvailable } from '@/modules/accounting/services/vlmService';
 import { extractStatutoryDocWithVlm } from '@/modules/accounting/services/vlmService';
 import { log } from '@/lib/logger';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
+
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const userId = (req as AuthenticatedNextApiRequest).user.id;
