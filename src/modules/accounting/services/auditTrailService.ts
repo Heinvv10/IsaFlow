@@ -7,9 +7,6 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
-
 export type AuditAction =
   | 'create'
   | 'update'
@@ -125,47 +122,48 @@ export async function getAuditLog(
     const dateTo = filters.dateTo ?? null;
     const search = filters.search ? `%${filters.search}%` : null;
 
-    const rows = (await sql`
-      SELECT *
-      FROM audit_log
-      WHERE company_id = ${companyId}::UUID
-        AND (${entityType}::VARCHAR IS NULL OR entity_type = ${entityType})
-        AND (${entityId}::UUID IS NULL OR entity_id = ${entityId}::UUID)
-        AND (${userId}::VARCHAR IS NULL OR user_id = ${userId})
-        AND (${action}::VARCHAR IS NULL OR action = ${action})
-        AND (${dateFrom}::TIMESTAMPTZ IS NULL OR created_at >= ${dateFrom}::TIMESTAMPTZ)
-        AND (${dateTo}::TIMESTAMPTZ IS NULL OR created_at <= ${dateTo}::TIMESTAMPTZ)
-        AND (
-          ${search}::VARCHAR IS NULL
-          OR user_email ILIKE ${search}
-          OR entity_ref ILIKE ${search}
-          OR entity_type ILIKE ${search}
-        )
-      ORDER BY created_at DESC
-      LIMIT ${limit} OFFSET ${offset}
-    `) as Row[];
-
-    const countRows = (await sql`
-      SELECT COUNT(*) AS cnt
-      FROM audit_log
-      WHERE company_id = ${companyId}::UUID
-        AND (${entityType}::VARCHAR IS NULL OR entity_type = ${entityType})
-        AND (${entityId}::UUID IS NULL OR entity_id = ${entityId}::UUID)
-        AND (${userId}::VARCHAR IS NULL OR user_id = ${userId})
-        AND (${action}::VARCHAR IS NULL OR action = ${action})
-        AND (${dateFrom}::TIMESTAMPTZ IS NULL OR created_at >= ${dateFrom}::TIMESTAMPTZ)
-        AND (${dateTo}::TIMESTAMPTZ IS NULL OR created_at <= ${dateTo}::TIMESTAMPTZ)
-        AND (
-          ${search}::VARCHAR IS NULL
-          OR user_email ILIKE ${search}
-          OR entity_ref ILIKE ${search}
-          OR entity_type ILIKE ${search}
-        )
-    `) as Row[];
+    const [rows, countRows] = await Promise.all([
+      sql`
+        SELECT *
+        FROM audit_log
+        WHERE company_id = ${companyId}::UUID
+          AND (${entityType}::VARCHAR IS NULL OR entity_type = ${entityType})
+          AND (${entityId}::UUID IS NULL OR entity_id = ${entityId}::UUID)
+          AND (${userId}::VARCHAR IS NULL OR user_id = ${userId})
+          AND (${action}::VARCHAR IS NULL OR action = ${action})
+          AND (${dateFrom}::TIMESTAMPTZ IS NULL OR created_at >= ${dateFrom}::TIMESTAMPTZ)
+          AND (${dateTo}::TIMESTAMPTZ IS NULL OR created_at <= ${dateTo}::TIMESTAMPTZ)
+          AND (
+            ${search}::VARCHAR IS NULL
+            OR user_email ILIKE ${search}
+            OR entity_ref ILIKE ${search}
+            OR entity_type ILIKE ${search}
+          )
+        ORDER BY created_at DESC
+        LIMIT ${limit} OFFSET ${offset}
+      ` as Promise<Record<string, unknown>[]>,
+      sql`
+        SELECT COUNT(*) AS cnt
+        FROM audit_log
+        WHERE company_id = ${companyId}::UUID
+          AND (${entityType}::VARCHAR IS NULL OR entity_type = ${entityType})
+          AND (${entityId}::UUID IS NULL OR entity_id = ${entityId}::UUID)
+          AND (${userId}::VARCHAR IS NULL OR user_id = ${userId})
+          AND (${action}::VARCHAR IS NULL OR action = ${action})
+          AND (${dateFrom}::TIMESTAMPTZ IS NULL OR created_at >= ${dateFrom}::TIMESTAMPTZ)
+          AND (${dateTo}::TIMESTAMPTZ IS NULL OR created_at <= ${dateTo}::TIMESTAMPTZ)
+          AND (
+            ${search}::VARCHAR IS NULL
+            OR user_email ILIKE ${search}
+            OR entity_ref ILIKE ${search}
+            OR entity_type ILIKE ${search}
+          )
+      ` as Promise<Record<string, unknown>[]>,
+    ]);
 
     return {
       items: rows.map(mapAuditRow),
-      total: Number(countRows[0].cnt),
+      total: Number(countRows[0]?.cnt ?? 0),
     };
   } catch (err) {
     log.error('Failed to get audit log', { companyId, filters, error: err }, 'audit-trail');
@@ -186,7 +184,8 @@ export async function getEntityHistory(
         AND entity_type = ${entityType}
         AND entity_id = ${entityId}::UUID
       ORDER BY created_at DESC
-    `) as Row[];
+      LIMIT 500
+    `) as Record<string, unknown>[];
     return rows.map(mapAuditRow);
   } catch (err) {
     log.error('Failed to get entity history', { companyId, entityType, entityId, error: err }, 'audit-trail');
@@ -224,7 +223,7 @@ export function diffObjects(
   return changes;
 }
 
-function mapAuditRow(row: Row): AuditLogItem {
+function mapAuditRow(row: Record<string, unknown>): AuditLogItem {
   return {
     id: String(row.id),
     companyId: String(row.company_id),
@@ -234,7 +233,7 @@ function mapAuditRow(row: Row): AuditLogItem {
     entityType: String(row.entity_type),
     entityId: String(row.entity_id),
     entityRef: row.entity_ref ? String(row.entity_ref) : null,
-    changes: row.changes ?? null,
+    changes: row.changes != null ? (row.changes as AuditChanges) : null,
     ipAddress: row.ip_address ? String(row.ip_address) : null,
     userAgent: row.user_agent ? String(row.user_agent) : null,
     sessionId: row.session_id ? String(row.session_id) : null,

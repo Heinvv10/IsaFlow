@@ -6,9 +6,6 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
-
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface Company {
@@ -124,12 +121,12 @@ export interface CompanyUser {
 // ── Company CRUD ─────────────────────────────────────────────────────────────
 
 export async function listCompanies(): Promise<Company[]> {
-  const rows = (await sql`SELECT * FROM companies WHERE is_active = true ORDER BY name`) as Row[];
+  const rows = (await sql`SELECT * FROM companies WHERE is_active = true ORDER BY name`) as Record<string, unknown>[];
   return rows.map(mapCompany);
 }
 
 export async function getCompany(id: string): Promise<Company | null> {
-  const rows = (await sql`SELECT * FROM companies WHERE id = ${id}::UUID`) as Row[];
+  const rows = (await sql`SELECT * FROM companies WHERE id = ${id}::UUID`) as Record<string, unknown>[];
   return rows[0] ? mapCompany(rows[0]) : null;
 }
 
@@ -177,16 +174,16 @@ export async function createCompany(input: {
       ${input.bankAccountType || 'current'},
       ${input.financialYearStart ?? 3}, ${input.vatPeriod || 'bi-monthly'}, ${input.vatPeriodAlignment || 'odd'}, ${input.defaultCurrency || 'ZAR'}
     ) RETURNING *
-  `) as Row[];
+  `) as Record<string, unknown>[];
 
   // Auto-assign creator as owner
   await sql`
     INSERT INTO company_users (company_id, user_id, role, is_default)
-    VALUES (${rows[0].id}::UUID, ${userId}, 'owner', false)
+    VALUES (${rows[0]!.id}::UUID, ${userId}, 'owner', false)
   `;
 
-  log.info('Company created', { id: rows[0].id, name: input.name }, 'accounting');
-  return mapCompany(rows[0]);
+  log.info('Company created', { id: rows[0]!.id, name: input.name }, 'accounting');
+  return mapCompany(rows[0]!);
 }
 
 export async function updateCompany(id: string, input: Partial<Record<string, unknown>>): Promise<Company> {
@@ -278,7 +275,7 @@ export async function updateCompany(id: string, input: Partial<Record<string, un
       social_x = COALESCE(${v('socialX') ?? null}, social_x),
       updated_at = NOW()
     WHERE id = ${id}::UUID RETURNING *
-  `) as Row[];
+  `) as Record<string, unknown>[];
   if (!rows[0]) throw new Error(`Company ${id} not found`);
   return mapCompany(rows[0]);
 }
@@ -292,12 +289,12 @@ export async function getUserCompanies(userId: string): Promise<CompanyUser[]> {
     JOIN companies c ON c.id = cu.company_id
     WHERE cu.user_id = ${userId} AND c.is_active = true
     ORDER BY cu.is_default DESC, c.name ASC
-  `) as Row[];
-  return rows.map((r: Row) => ({
-    companyId: r.company_id,
-    companyName: r.company_name,
-    role: r.role,
-    isDefault: r.is_default,
+  `) as Record<string, unknown>[];
+  return rows.map((r: Record<string, unknown>) => ({
+    companyId: String(r.company_id),
+    companyName: String(r.company_name),
+    role: String(r.role),
+    isDefault: Boolean(r.is_default),
   }));
 }
 
@@ -320,108 +317,112 @@ export async function removeUserFromCompany(companyId: string, userId: string): 
 
 // ── Mapper ───────────────────────────────────────────────────────────────────
 
-function mapCompany(r: Row): Company {
+function mapCompany(r: Record<string, unknown>): Company {
+  const str = (v: unknown): string => (v != null ? String(v) : '');
+  const strN = (v: unknown): string | null => (v != null ? String(v) : null);
+  const bool = (v: unknown, def: boolean): boolean => (v != null ? Boolean(v) : def);
+  const num = (v: unknown, def: number): number => (v != null ? Number(v) : def);
   return {
-    id: r.id,
-    name: r.name,
-    tradingName: r.trading_name,
-    registrationNumber: r.registration_number,
-    vatNumber: r.vat_number,
-    taxNumber: r.tax_number,
-    addressLine1: r.address_line1,
-    addressLine2: r.address_line2,
-    city: r.city,
-    province: r.province,
-    postalCode: r.postal_code,
-    country: r.country,
-    phone: r.phone,
-    email: r.email,
-    website: r.website,
-    logoUrl: r.logo_url,
-    logoData: r.logo_data || null,
-    bankName: r.bank_name,
-    bankAccountNumber: r.bank_account_number,
-    bankBranchCode: r.bank_branch_code,
-    bankAccountType: r.bank_account_type,
-    financialYearStart: r.financial_year_start,
-    vatPeriod: r.vat_period,
-    vatPeriodAlignment: r.vat_period_alignment ?? 'odd',
-    defaultCurrency: r.default_currency,
-    isActive: r.is_active,
-    createdAt: r.created_at,
+    id: str(r.id),
+    name: str(r.name),
+    tradingName: strN(r.trading_name),
+    registrationNumber: strN(r.registration_number),
+    vatNumber: strN(r.vat_number),
+    taxNumber: strN(r.tax_number),
+    addressLine1: strN(r.address_line1),
+    addressLine2: strN(r.address_line2),
+    city: strN(r.city),
+    province: strN(r.province),
+    postalCode: strN(r.postal_code),
+    country: str(r.country),
+    phone: strN(r.phone),
+    email: strN(r.email),
+    website: strN(r.website),
+    logoUrl: strN(r.logo_url),
+    logoData: strN(r.logo_data),
+    bankName: strN(r.bank_name),
+    bankAccountNumber: strN(r.bank_account_number),
+    bankBranchCode: strN(r.bank_branch_code),
+    bankAccountType: str(r.bank_account_type),
+    financialYearStart: num(r.financial_year_start, 3),
+    vatPeriod: str(r.vat_period),
+    vatPeriodAlignment: (r.vat_period_alignment != null ? String(r.vat_period_alignment) : 'odd') as 'odd' | 'even',
+    defaultCurrency: str(r.default_currency),
+    isActive: bool(r.is_active, true),
+    createdAt: str(r.created_at),
     // Lockdown
-    lockdownEnabled: r.lockdown_enabled ?? false,
-    lockdownDate: r.lockdown_date ? new Date(r.lockdown_date).toISOString().split('T')[0]! : null,
+    lockdownEnabled: bool(r.lockdown_enabled, false),
+    lockdownDate: r.lockdown_date != null ? new Date(r.lockdown_date as string | number | Date).toISOString().split('T')[0]! : null,
     // VAT system
-    vatSystemType: r.vat_system_type ?? 'invoice',
+    vatSystemType: r.vat_system_type != null ? String(r.vat_system_type) : 'invoice',
     // Entity & statutory
-    entityType: r.entity_type ?? 'company',
-    registeredName: r.registered_name,
-    taxOffice: r.tax_office,
-    contactName: r.contact_name,
-    fax: r.fax,
-    mobile: r.mobile,
+    entityType: r.entity_type != null ? String(r.entity_type) : 'company',
+    registeredName: strN(r.registered_name),
+    taxOffice: strN(r.tax_office),
+    contactName: strN(r.contact_name),
+    fax: strN(r.fax),
+    mobile: strN(r.mobile),
     // Physical address
-    physicalAddressLine1: r.physical_address_line1,
-    physicalAddressLine2: r.physical_address_line2,
-    physicalCity: r.physical_city,
-    physicalProvince: r.physical_province,
-    physicalPostalCode: r.physical_postal_code,
+    physicalAddressLine1: strN(r.physical_address_line1),
+    physicalAddressLine2: strN(r.physical_address_line2),
+    physicalCity: strN(r.physical_city),
+    physicalProvince: strN(r.physical_province),
+    physicalPostalCode: strN(r.physical_postal_code),
     // Tax practitioner
-    taxPractitionerRegNumber: r.tax_practitioner_reg_number,
-    taxPractitionerName: r.tax_practitioner_name,
+    taxPractitionerRegNumber: strN(r.tax_practitioner_reg_number),
+    taxPractitionerName: strN(r.tax_practitioner_name),
     // SARS contact
-    sarsContactFirstName: r.sars_contact_first_name,
-    sarsContactLastName: r.sars_contact_last_name,
-    sarsContactCapacity: r.sars_contact_capacity,
-    sarsContactNumber: r.sars_contact_number,
-    sarsContactTelephone: r.sars_contact_telephone,
+    sarsContactFirstName: strN(r.sars_contact_first_name),
+    sarsContactLastName: strN(r.sars_contact_last_name),
+    sarsContactCapacity: strN(r.sars_contact_capacity),
+    sarsContactNumber: strN(r.sars_contact_number),
+    sarsContactTelephone: strN(r.sars_contact_telephone),
     // Branding
-    logoPosition: r.logo_position ?? 'top-left',
-    logoOnEmails: r.logo_on_emails ?? true,
-    logoOnPortal: r.logo_on_portal ?? true,
+    logoPosition: r.logo_position != null ? String(r.logo_position) : 'top-left',
+    logoOnEmails: bool(r.logo_on_emails, true),
+    logoOnPortal: bool(r.logo_on_portal, true),
     // Regional
-    roundingType: r.rounding_type ?? 'none',
-    roundToNearest: parseFloat(r.round_to_nearest ?? '0'),
-    qtyDecimalPlaces: r.qty_decimal_places ?? 2,
-    valueDecimalPlaces: r.value_decimal_places ?? 2,
-    hoursDecimalPlaces: r.hours_decimal_places ?? 2,
-    costPriceDecimalPlaces: r.cost_price_decimal_places ?? 2,
-    sellingPriceDecimalPlaces: r.selling_price_decimal_places ?? 2,
-    currencySymbol: r.currency_symbol ?? 'R',
-    dateFormat: r.date_format ?? 'dd/mm/yyyy',
+    roundingType: r.rounding_type != null ? String(r.rounding_type) : 'none',
+    roundToNearest: parseFloat(r.round_to_nearest != null ? String(r.round_to_nearest) : '0'),
+    qtyDecimalPlaces: num(r.qty_decimal_places, 2),
+    valueDecimalPlaces: num(r.value_decimal_places, 2),
+    hoursDecimalPlaces: num(r.hours_decimal_places, 2),
+    costPriceDecimalPlaces: num(r.cost_price_decimal_places, 2),
+    sellingPriceDecimalPlaces: num(r.selling_price_decimal_places, 2),
+    currencySymbol: r.currency_symbol != null ? String(r.currency_symbol) : 'R',
+    dateFormat: r.date_format != null ? String(r.date_format) : 'dd/mm/yyyy',
     // Email toggles
-    emailUseForCommunication: r.email_use_for_communication ?? true,
-    emailAlwaysCc: r.email_always_cc ?? false,
-    emailUseServiceFrom: r.email_use_service_from ?? false,
+    emailUseForCommunication: bool(r.email_use_for_communication, true),
+    emailAlwaysCc: bool(r.email_always_cc, false),
+    emailUseServiceFrom: bool(r.email_use_service_from, false),
     // Customer & Supplier
-    warnDuplicateCustomerRef: r.warn_duplicate_customer_ref ?? true,
-    warnDuplicateSupplierInv: r.warn_duplicate_supplier_inv ?? true,
-    displayInactiveCustomersProcessing: r.display_inactive_customers_processing ?? false,
-    displayInactiveSuppliersProcessing: r.display_inactive_suppliers_processing ?? false,
-    displayInactiveCustomersReports: r.display_inactive_customers_reports ?? false,
-    displayInactiveSuppliersReports: r.display_inactive_suppliers_reports ?? false,
-    useInclusiveProcessing: r.use_inclusive_processing ?? true,
-    useAccountDefaultLineType: r.use_account_default_line_type ?? false,
+    warnDuplicateCustomerRef: bool(r.warn_duplicate_customer_ref, true),
+    warnDuplicateSupplierInv: bool(r.warn_duplicate_supplier_inv, true),
+    displayInactiveCustomersProcessing: bool(r.display_inactive_customers_processing, false),
+    displayInactiveSuppliersProcessing: bool(r.display_inactive_suppliers_processing, false),
+    displayInactiveCustomersReports: bool(r.display_inactive_customers_reports, false),
+    displayInactiveSuppliersReports: bool(r.display_inactive_suppliers_reports, false),
+    useInclusiveProcessing: bool(r.use_inclusive_processing, true),
+    useAccountDefaultLineType: bool(r.use_account_default_line_type, false),
     // Items
-    warnItemQtyBelowZero: r.warn_item_qty_below_zero ?? true,
-    blockItemQtyBelowZero: r.block_item_qty_below_zero ?? false,
-    warnItemCostZero: r.warn_item_cost_zero ?? false,
-    warnItemSellingBelowCost: r.warn_item_selling_below_cost ?? false,
-    displayInactiveItemsProcessing: r.display_inactive_items_processing ?? false,
-    displayInactiveItemsReports: r.display_inactive_items_reports ?? false,
-    salesOrdersReserveQty: r.sales_orders_reserve_qty ?? false,
-    displayInactiveBundles: r.display_inactive_bundles ?? false,
+    warnItemQtyBelowZero: bool(r.warn_item_qty_below_zero, true),
+    blockItemQtyBelowZero: bool(r.block_item_qty_below_zero, false),
+    warnItemCostZero: bool(r.warn_item_cost_zero, false),
+    warnItemSellingBelowCost: bool(r.warn_item_selling_below_cost, false),
+    displayInactiveItemsProcessing: bool(r.display_inactive_items_processing, false),
+    displayInactiveItemsReports: bool(r.display_inactive_items_reports, false),
+    salesOrdersReserveQty: bool(r.sales_orders_reserve_qty, false),
+    displayInactiveBundles: bool(r.display_inactive_bundles, false),
     // Ageing
-    ageingMonthly: r.ageing_monthly ?? true,
-    ageingBasedOn: r.ageing_based_on ?? 'invoice_date',
+    ageingMonthly: bool(r.ageing_monthly, true),
+    ageingBasedOn: r.ageing_based_on != null ? String(r.ageing_based_on) : 'invoice_date',
     // Org classification
-    industry: r.industry ?? null,
-    businessStructure: r.business_structure ?? null,
+    industry: strN(r.industry),
+    businessStructure: strN(r.business_structure),
     // Social media
-    socialFacebook: r.social_facebook ?? null,
-    socialLinkedin: r.social_linkedin ?? null,
-    socialX: r.social_x ?? null,
+    socialFacebook: strN(r.social_facebook),
+    socialLinkedin: strN(r.social_linkedin),
+    socialX: strN(r.social_x),
   };
 }
 
@@ -456,10 +457,10 @@ const DEFAULT_DOC_NUMBERS: { type: string; prefix: string }[] = [
 export async function getDocumentNumbers(companyId: string): Promise<DocumentNumber[]> {
   const rows = (await sql`
     SELECT * FROM company_document_numbers WHERE company_id = ${companyId}::UUID ORDER BY document_type
-  `) as Row[];
-  return rows.map((r: Row) => ({
-    id: r.id, companyId: r.company_id, documentType: r.document_type,
-    prefix: r.prefix, nextNumber: r.next_number, padding: r.padding,
+  `) as Record<string, unknown>[];
+  return rows.map((r: Record<string, unknown>) => ({
+    id: String(r.id), companyId: String(r.company_id), documentType: String(r.document_type),
+    prefix: String(r.prefix), nextNumber: Number(r.next_number), padding: Number(r.padding),
   }));
 }
 
@@ -498,8 +499,8 @@ export interface CompanyMessage {
 export async function getCompanyMessages(companyId: string): Promise<CompanyMessage[]> {
   const rows = (await sql`
     SELECT message_type, message FROM company_messages WHERE company_id = ${companyId}::UUID ORDER BY message_type
-  `) as Row[];
-  return rows.map((r: Row) => ({ messageType: r.message_type, message: r.message ?? '' }));
+  `) as Record<string, unknown>[];
+  return rows.map((r: Record<string, unknown>) => ({ messageType: String(r.message_type ?? ''), message: String(r.message ?? '') }));
 }
 
 export async function upsertCompanyMessage(companyId: string, messageType: string, message: string): Promise<void> {

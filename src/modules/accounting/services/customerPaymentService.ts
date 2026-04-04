@@ -15,8 +15,7 @@ import type {
 } from '../types/ar.types';
 import type { JournalLineInput } from '../types/gl.types';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
+type Row = Record<string, unknown>;
 
 interface PaymentFilters {
   status?: CustomerPaymentStatus;
@@ -32,36 +31,40 @@ export async function getCustomerPayments(companyId: string, filters?: PaymentFi
   try {
     const limit = filters?.limit || 50;
     const offset = filters?.offset || 0;
-    let rows: Row[];
-    let countRows: Row[];
+    let rows: Record<string, unknown>[];
+    let countRows: Record<string, unknown>[];
 
     if (filters?.clientId) {
       rows = (await sql`
-        SELECT cp.*, c.name AS client_name
+        SELECT cp.*, c.name AS client_name,
+          COALESCE((SELECT SUM(cpa.amount_allocated) FROM customer_payment_allocations cpa WHERE cpa.payment_id = cp.id), 0) AS allocated_amount
         FROM customer_payments cp LEFT JOIN customers c ON c.id = cp.client_id
-        WHERE cp.client_id = ${filters.clientId}::UUID
+        WHERE cp.client_id = ${filters.clientId}::UUID AND cp.company_id = ${companyId}
         ORDER BY cp.payment_date DESC LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
       countRows = (await sql`
-        SELECT COUNT(*) AS cnt FROM customer_payments WHERE client_id = ${filters.clientId}::UUID
+        SELECT COUNT(*) AS cnt FROM customer_payments WHERE client_id = ${filters.clientId}::UUID AND company_id = ${companyId}
       `) as Row[];
     } else if (filters?.status) {
       rows = (await sql`
-        SELECT cp.*, c.name AS client_name
+        SELECT cp.*, c.name AS client_name,
+          COALESCE((SELECT SUM(cpa.amount_allocated) FROM customer_payment_allocations cpa WHERE cpa.payment_id = cp.id), 0) AS allocated_amount
         FROM customer_payments cp LEFT JOIN customers c ON c.id = cp.client_id
-        WHERE cp.status = ${filters.status}
+        WHERE cp.status = ${filters.status} AND cp.company_id = ${companyId}
         ORDER BY cp.payment_date DESC LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
       countRows = (await sql`
-        SELECT COUNT(*) AS cnt FROM customer_payments WHERE status = ${filters.status}
+        SELECT COUNT(*) AS cnt FROM customer_payments WHERE status = ${filters.status} AND company_id = ${companyId}
       `) as Row[];
     } else {
       rows = (await sql`
-        SELECT cp.*, c.name AS client_name
+        SELECT cp.*, c.name AS client_name,
+          COALESCE((SELECT SUM(cpa.amount_allocated) FROM customer_payment_allocations cpa WHERE cpa.payment_id = cp.id), 0) AS allocated_amount
         FROM customer_payments cp LEFT JOIN customers c ON c.id = cp.client_id
+        WHERE cp.company_id = ${companyId}
         ORDER BY cp.payment_date DESC LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
-      countRows = (await sql`SELECT COUNT(*) AS cnt FROM customer_payments`) as Row[];
+      countRows = (await sql`SELECT COUNT(*) AS cnt FROM customer_payments WHERE company_id = ${companyId}`) as Row[];
     }
 
     return { payments: rows.map(mapPaymentRow), total: Number(countRows[0]!.cnt) };
@@ -78,7 +81,7 @@ export async function getCustomerPaymentById(companyId: string,
     const rows = (await sql`
       SELECT cp.*, c.name AS client_name
       FROM customer_payments cp LEFT JOIN customers c ON c.id = cp.client_id
-      WHERE cp.id = ${id}
+      WHERE cp.id = ${id} AND cp.company_id = ${companyId}
     `) as Row[];
     if (rows.length === 0) return null;
 
@@ -168,7 +171,7 @@ export async function confirmCustomerPayment(companyId: string,
     if (!bankAccount) throw new Error('Bank account not found');
 
     const lines: JournalLineInput[] = [
-      { glAccountId: bankAccount.id || String(bankAccount.id), debit: payment.totalAmount, credit: 0,
+      { glAccountId: String(bankAccount.id), debit: payment.totalAmount, credit: 0,
         description: `Customer payment ${payment.paymentNumber}` },
       { glAccountId: arAccount.id, debit: 0, credit: payment.totalAmount,
         description: `Customer payment ${payment.paymentNumber}` },
@@ -336,15 +339,18 @@ function mapPaymentRow(row: Row): CustomerPayment {
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
     clientName: row.client_name ? String(row.client_name) : undefined,
+    allocatedAmount: row.allocated_amount !== undefined ? Number(row.allocated_amount) : 0,
   };
 }
 
-function mapAllocationRow(row: Row): CustomerPaymentAllocation {
+function mapAllocationRow(row: Row): CustomerPaymentAllocation & { amount: number } {
+  const amt = Number(row.amount_allocated || row.amount || 0);
   return {
     id: String(row.id),
     paymentId: String(row.payment_id),
     invoiceId: String(row.invoice_id),
-    amountAllocated: Number(row.amount_allocated),
+    amountAllocated: amt,
+    amount: amt,
     createdAt: String(row.created_at),
     invoiceNumber: row.invoice_number ? String(row.invoice_number) : undefined,
   };

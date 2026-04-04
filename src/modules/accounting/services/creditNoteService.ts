@@ -10,9 +10,6 @@ import { getSystemAccount, getSystemAccountId } from './systemAccountResolver';
 import type { CreditNote, CreditNoteCreateInput, CreditNoteStatus } from '../types/ar.types';
 import type { JournalLineInput } from '../types/gl.types';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
-
 interface CreditNoteFilters {
   type?: 'customer' | 'supplier';
   status?: CreditNoteStatus;
@@ -27,8 +24,8 @@ export async function getCreditNotes(companyId: string, filters?: CreditNoteFilt
   try {
     const limit = filters?.limit || 50;
     const offset = filters?.offset || 0;
-    let rows: Row[];
-    let countRows: Row[];
+    let rows: Record<string, unknown>[];
+    let countRows: Record<string, unknown>[];
 
     if (filters?.type) {
       rows = (await sql`
@@ -41,10 +38,10 @@ export async function getCreditNotes(companyId: string, filters?: CreditNoteFilt
         LEFT JOIN supplier_invoices si ON si.id = cn.supplier_invoice_id
         WHERE cn.company_id = ${companyId} AND cn.type = ${filters.type}
         ORDER BY cn.credit_date DESC LIMIT ${limit} OFFSET ${offset}
-      `) as Row[];
+      `) as Record<string, unknown>[];
       countRows = (await sql`
         SELECT COUNT(*) AS cnt FROM credit_notes WHERE company_id = ${companyId} AND type = ${filters.type}
-      `) as Row[];
+      `) as Record<string, unknown>[];
     } else {
       rows = (await sql`
         SELECT cn.*, c.name AS client_name, COALESCE(s.company_name, s.name) AS supplier_name,
@@ -56,8 +53,8 @@ export async function getCreditNotes(companyId: string, filters?: CreditNoteFilt
         LEFT JOIN supplier_invoices si ON si.id = cn.supplier_invoice_id
         WHERE cn.company_id = ${companyId}
         ORDER BY cn.credit_date DESC LIMIT ${limit} OFFSET ${offset}
-      `) as Row[];
-      countRows = (await sql`SELECT COUNT(*) AS cnt FROM credit_notes WHERE company_id = ${companyId}`) as Row[];
+      `) as Record<string, unknown>[];
+      countRows = (await sql`SELECT COUNT(*) AS cnt FROM credit_notes WHERE company_id = ${companyId}`) as Record<string, unknown>[];
     }
 
     return { creditNotes: rows.map(mapRow), total: Number(countRows[0]!.cnt) };
@@ -77,8 +74,8 @@ export async function getCreditNoteById(companyId: string, id: string): Promise<
     LEFT JOIN customer_invoices ci ON ci.id = cn.customer_invoice_id
     LEFT JOIN supplier_invoices si ON si.id = cn.supplier_invoice_id
     WHERE cn.id = ${id}::UUID AND cn.company_id = ${companyId}
-  `) as Row[];
-  return rows.length > 0 ? mapRow(rows[0]) : null;
+  `) as Record<string, unknown>[];
+  return rows.length > 0 ? mapRow(rows[0]!) : null;
 }
 
 export async function createCreditNote(companyId: string, 
@@ -103,7 +100,7 @@ export async function createCreditNote(companyId: string,
         ${input.subtotal}, ${taxRate}, ${taxAmount}, ${totalAmount},
         ${input.projectId || null}, ${userId}::UUID
       ) RETURNING *
-    `) as Row[];
+    `) as Record<string, unknown>[];
 
     log.info('Created credit note', { id: String(rows[0]!.id), type: input.type }, 'accounting');
     return mapRow(rows[0]!);
@@ -115,7 +112,7 @@ export async function createCreditNote(companyId: string,
 
 export async function approveCreditNote(companyId: string, id: string, userId: string): Promise<CreditNote> {
   try {
-    const cnRows = (await sql`SELECT * FROM credit_notes WHERE id = ${id} AND company_id = ${companyId}`) as Row[];
+    const cnRows = (await sql`SELECT * FROM credit_notes WHERE id = ${id} AND company_id = ${companyId}`) as Record<string, unknown>[];
     if (cnRows.length === 0) throw new Error(`Credit note ${id} not found`);
     const cn = cnRows[0]!;
     if (String(cn.status) !== 'draft') throw new Error(`Cannot approve credit note with status: ${cn.status}`);
@@ -183,9 +180,9 @@ export async function approveCreditNote(companyId: string, id: string, userId: s
         UPDATE credit_notes SET status = 'approved', approved_by = ${userId}::UUID,
           approved_at = NOW(), gl_journal_entry_id = ${je.id}::UUID
         WHERE id = ${id} RETURNING *
-      `) as Row[];
+      `) as Record<string, unknown>[];
 
-      return rows[0] as Row;
+      return rows[0] as Record<string, unknown>;
     });
 
     log.info('Approved credit note', { id, journalEntryId: je.id }, 'accounting');
@@ -202,7 +199,7 @@ export async function cancelCreditNote(companyId: string,
   reason?: string
 ): Promise<CreditNote> {
   try {
-    const cnRows = (await sql`SELECT * FROM credit_notes WHERE id = ${id} AND company_id = ${companyId}`) as Row[];
+    const cnRows = (await sql`SELECT * FROM credit_notes WHERE id = ${id} AND company_id = ${companyId}`) as Record<string, unknown>[];
     if (cnRows.length === 0) throw new Error(`Credit note ${id} not found`);
     const cn = cnRows[0]!;
     if (String(cn.status) !== 'approved') {
@@ -242,7 +239,7 @@ export async function cancelCreditNote(companyId: string,
       SET status = 'cancelled', cancelled_by = ${userId}::UUID,
           cancelled_at = NOW(), cancel_reason = ${reason || null}
       WHERE id = ${id} RETURNING *
-    `) as Row[];
+    `) as Record<string, unknown>[];
 
     log.info('Cancelled credit note', { id, reason }, 'accounting');
     return mapRow(updated[0]!);
@@ -252,7 +249,7 @@ export async function cancelCreditNote(companyId: string,
   }
 }
 
-function mapRow(row: Row): CreditNote {
+function mapRow(row: Record<string, unknown>): CreditNote {
   return {
     id: String(row.id),
     creditNoteNumber: row.credit_note_number ? String(row.credit_note_number) : '',

@@ -10,8 +10,7 @@ import { getSystemAccount } from './systemAccountResolver';
 import type { SupplierPaymentBatch, BatchPaymentCreateInput } from '../types/ap.types';
 import type { JournalLineInput } from '../types/gl.types';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
+type Row = Record<string, unknown>;
 
 export async function getBatches(companyId: string, filters?: {
   status?: string;
@@ -28,17 +27,17 @@ export async function getBatches(companyId: string, filters?: {
       SELECT * FROM supplier_payment_batches
       WHERE company_id = ${companyId} AND status = ${filters.status}
       ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}
-    `) as Row[];
+    `) as Record<string, unknown>[];
     countRows = (await sql`
       SELECT COUNT(*) AS cnt FROM supplier_payment_batches
       WHERE company_id = ${companyId} AND status = ${filters.status}
-    `) as Row[];
+    `) as Record<string, unknown>[];
   } else {
     rows = (await sql`
       SELECT * FROM supplier_payment_batches WHERE company_id = ${companyId}
       ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}
-    `) as Row[];
-    countRows = (await sql`SELECT COUNT(*) AS cnt FROM supplier_payment_batches WHERE company_id = ${companyId}`) as Row[];
+    `) as Record<string, unknown>[];
+    countRows = (await sql`SELECT COUNT(*) AS cnt FROM supplier_payment_batches WHERE company_id = ${companyId}`) as Record<string, unknown>[];
   }
 
   return { items: rows.map(mapRow), total: Number(countRows[0]?.cnt || 0) };
@@ -48,7 +47,7 @@ export async function getBatchById(companyId: string, id: string): Promise<Suppl
   // companyId may be empty string when called internally after creating a batch — skip filter in that case
   const rows = companyId
     ? (await sql`SELECT * FROM supplier_payment_batches WHERE id = ${id} AND company_id = ${companyId}`) as Row[]
-    : (await sql`SELECT * FROM supplier_payment_batches WHERE id = ${id}`) as Row[];
+    : (await sql`SELECT * FROM supplier_payment_batches WHERE id = ${id}`) as Record<string, unknown>[];
   if (!rows[0]) return null;
   return mapRow(rows[0]);
 }
@@ -69,7 +68,7 @@ export async function createBatch(companyId: string,
         ${batchDate}, ${paymentMethod}, ${input.bankAccountId || null},
         ${input.notes || null}, ${input.payments.length}, 0, ${userId}::UUID
       ) RETURNING id
-    `) as Row[];
+    `) as Record<string, unknown>[];
 
     const id = String(batchRows[0]!.id);
     let totalAmount = 0;
@@ -86,7 +85,7 @@ export async function createBatch(companyId: string,
           ${p.supplierId}::UUID, ${batchDate},
           ${payTotal}, ${paymentMethod}, 'draft', ${id}::UUID, ${userId}::UUID
         ) RETURNING id
-      `) as Row[];
+      `) as Record<string, unknown>[];
 
       const paymentId = String(payRows[0]!.id);
       for (const alloc of p.invoiceAllocations) {
@@ -151,7 +150,7 @@ export async function processBatch(companyId: string, id: string, userId: string
       FROM supplier_payments sp
       JOIN payment_allocations pa ON pa.payment_id = sp.id
       WHERE sp.batch_id = ${id}::UUID
-    `) as Row[];
+    `) as Record<string, unknown>[];
 
     for (const p of payments) {
       await tx`
@@ -182,7 +181,7 @@ export async function cancelBatch(companyId: string, id: string): Promise<void> 
   await sql`UPDATE supplier_payments SET status = 'cancelled' WHERE batch_id = ${id}::UUID AND status = 'draft'`;
 }
 
-function mapRow(row: Row): SupplierPaymentBatch {
+function mapRow(row: Record<string, unknown>): SupplierPaymentBatch {
   return {
     id: String(row.id),
     batchNumber: row.batch_number ? String(row.batch_number) : '',
