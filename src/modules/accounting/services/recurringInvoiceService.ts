@@ -10,7 +10,7 @@ import type {
   RecurringInvoiceCreateInput,
 } from '../types/ar.types';
 
-type Row = any;
+type Row = Record<string, unknown>;
 
 export async function getRecurringInvoices(companyId: string, filters?: {
   status?: string;
@@ -158,7 +158,7 @@ function mapRow(row: Row): RecurringInvoice {
     runCount: Number(row.run_count),
     status: String(row.status) as RecurringInvoice['status'],
     description: row.description ? String(row.description) : undefined,
-    lineItems: Array.isArray(row.line_items) ? row.line_items : JSON.parse(row.line_items || '[]'),
+    lineItems: Array.isArray(row.line_items) ? row.line_items as RecurringInvoice['lineItems'] : JSON.parse(typeof row.line_items === 'string' ? row.line_items : '[]'),
     subtotal: Number(row.subtotal),
     taxRate: Number(row.tax_rate),
     taxAmount: Number(row.tax_amount),

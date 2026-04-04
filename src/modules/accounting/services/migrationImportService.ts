@@ -10,7 +10,7 @@ import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
 import { getSystemAccountId } from './systemAccountResolver';
 import { updateSession, type ImportResult, type MigrationError } from './migrationService';
-type Row = any;
+type Row = Record<string, unknown>;
 
 
 export interface OpeningBalanceRow {
@@ -67,7 +67,7 @@ export async function importOpeningBalances(
     }
 
     lines.push({
-      glAccountId: String(acctRows[0].id),
+      glAccountId: String(acctRows[0]!.id),
       debit: bal.debit ?? 0,
       credit: bal.credit ?? 0,
       description: `Opening balance — ${bal.accountCode}`,
@@ -147,7 +147,7 @@ export async function importARInvoices(
       `) as Row[];
 
       if (invRows.length === 0) { skipped++; continue; }
-      const invoiceId = String(invRows[0].id);
+      const invoiceId = String(invRows[0]!.id);
 
       const journalLines = [
         { glAccountId: arAccountId,      debit: inv.totalAmount, credit: 0,             description: `AR — ${inv.invoiceNumber}` },

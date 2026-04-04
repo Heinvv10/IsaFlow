@@ -16,7 +16,7 @@ import { signToken } from '@/lib/auth/jwt';
 import { createSession } from '@/lib/auth/session';
 import { AUTH_COOKIE_NAME } from '@/lib/auth/middleware';
 import type { AuthRole } from '@/lib/auth/types';
-type Row = any;
+type Row = Record<string, unknown>;
 
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -87,7 +87,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       RETURNING id, email
     `) as Row[];
 
-    const user = rows[0];
+    const user = rows[0]!;
     const userId = String(user.id);
     const normalizedEmail = (email as string).toLowerCase().trim();
 

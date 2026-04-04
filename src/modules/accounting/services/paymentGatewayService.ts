@@ -6,7 +6,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import crypto from 'crypto';
-type Row = any;
+type Row = Record<string, unknown>;
 
 
 // ── Config ──────────────────────────────────────────────────────────────────
@@ -119,8 +119,15 @@ export async function generatePayFastForm(
 
   if (!invoices[0]) throw new Error('Invoice not found');
 
-  const inv = invoices[0];
-  const balance = Number(inv.total_amount) - Number(inv.amount_paid || 0);
+  const invRow = invoices[0];
+  const inv = {
+    invoice_number: String(invRow.invoice_number ?? ''),
+    total_amount: Number(invRow.total_amount),
+    amount_paid: Number(invRow.amount_paid ?? 0),
+    client_name: invRow.client_name != null ? String(invRow.client_name) : null,
+    client_email: invRow.client_email != null ? String(invRow.client_email) : null,
+  };
+  const balance = inv.total_amount - inv.amount_paid;
   if (balance <= 0) throw new Error('Invoice is already fully paid');
 
   // Create payment transaction record
@@ -130,7 +137,7 @@ export async function generatePayFastForm(
     RETURNING id
   `) as Row[];
 
-  const transactionId = txRows[0].id as string;
+  const transactionId = String(txRows[0]!.id);
 
   // Build PayFast form fields
   const fields: Record<string, string> = {
@@ -152,7 +159,7 @@ export async function generatePayFastForm(
 
   // Add customer name if available
   if (inv.client_name) {
-    const nameParts = (inv.client_name as string).split(' ');
+    const nameParts = inv.client_name.split(' ');
     fields.name_first = (nameParts[0] || '').slice(0, 100);
     fields.name_last = (nameParts.slice(1).join(' ') || '').slice(0, 100);
   }
@@ -366,21 +373,21 @@ interface PaymentTransaction {
 
 function mapTransaction(r: Row): PaymentTransaction {
   return {
-    id: r.id,
-    companyId: r.company_id,
-    invoiceId: r.invoice_id,
-    gateway: r.gateway,
-    gatewayRef: r.gateway_ref,
+    id: String(r.id),
+    companyId: String(r.company_id),
+    invoiceId: r.invoice_id != null ? String(r.invoice_id) : null,
+    gateway: String(r.gateway),
+    gatewayRef: r.gateway_ref != null ? String(r.gateway_ref) : null,
     amount: Number(r.amount),
-    currency: r.currency,
-    status: r.status,
-    customerEmail: r.customer_email,
-    customerName: r.customer_name,
-    paymentMethod: r.payment_method,
-    metadata: r.metadata || {},
-    errorMessage: r.error_message,
-    paidAt: r.paid_at,
-    createdAt: r.created_at,
-    updatedAt: r.updated_at,
+    currency: String(r.currency),
+    status: String(r.status),
+    customerEmail: r.customer_email != null ? String(r.customer_email) : null,
+    customerName: r.customer_name != null ? String(r.customer_name) : null,
+    paymentMethod: r.payment_method != null ? String(r.payment_method) : null,
+    metadata: (r.metadata as Record<string, unknown>) || {},
+    errorMessage: r.error_message != null ? String(r.error_message) : null,
+    paidAt: r.paid_at != null ? String(r.paid_at) : null,
+    createdAt: String(r.created_at),
+    updatedAt: String(r.updated_at),
   };
 }

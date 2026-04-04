@@ -189,12 +189,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     `;
 
     // Set HttpOnly cookie — 8h session, always secure
+    const isProd = process.env.NODE_ENV === 'production';
     const authCookieString = serialize(AUTH_COOKIE_NAME, finalToken, {
       httpOnly: true,
       secure: true,
-      sameSite: 'strict',
+      sameSite: 'lax',
       path: '/',
       maxAge: 8 * 60 * 60, // 8 hours
+      ...(isProd ? { domain: '.isaflow.co.za' } : {}),
     });
 
     // Auto-accept any pending company invitations for this email
@@ -229,7 +231,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     const cookies = [authCookieString];
     if (onboardingCompleted) {
-      cookies.push(`ff_onboarding_done=1; Path=/; Max-Age=${30 * 24 * 60 * 60}; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`);
+      const domainSuffix = isProd ? '; Domain=.isaflow.co.za' : '';
+      cookies.push(`ff_onboarding_done=1; Path=/; Max-Age=${30 * 24 * 60 * 60}; SameSite=Lax${isProd ? '; Secure' : ''}${domainSuffix}`);
     }
     res.setHeader('Set-Cookie', cookies);
 

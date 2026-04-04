@@ -6,7 +6,7 @@
 import { sql, transaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { ParsedAccount, ParsedEntity, MigrationSource } from './migrationParserService';
-type Row = any;
+type Row = Record<string, unknown>;
 
 
 export interface ExecuteMigrationResult {
@@ -102,7 +102,7 @@ export async function executeMigration(
         ) RETURNING id
       `) as Row[];
 
-      const jeId = String(jeRows[0].id);
+      const jeId = String(jeRows[0]!.id);
 
       for (const acct of balanceAccounts) {
         const glRows = (await sql`
@@ -112,7 +112,7 @@ export async function executeMigration(
         `) as Row[];
 
         if (glRows.length === 0) continue;
-        const glId = String(glRows[0].id);
+        const glId = String(glRows[0]!.id);
         const isDebitNormal = acct.mappedNormalBalance === 'debit';
         const debit  = isDebitNormal && acct.openingBalance > 0 ? acct.openingBalance : 0;
         const credit = !isDebitNormal && acct.openingBalance > 0 ? acct.openingBalance : 0;
@@ -208,9 +208,9 @@ export async function verifyBalances(
       `) as Row[];
 
       const isaflowBalance = glRows.length > 0
-        ? (String(glRows[0].normal_balance) === 'debit'
-          ? Number(glRows[0].net_debit)
-          : -Number(glRows[0].net_debit))
+        ? (String(glRows[0]!.normal_balance) === 'debit'
+          ? Number(glRows[0]!.net_debit)
+          : -Number(glRows[0]!.net_debit))
         : 0;
 
       const difference = acct.openingBalance - isaflowBalance;

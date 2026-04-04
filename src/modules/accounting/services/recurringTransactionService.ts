@@ -5,7 +5,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-type Row = any;
+type Row = Record<string, unknown>;
 
 
 export interface RecurringTemplate {
@@ -47,7 +47,7 @@ function mapRow(row: Row): RecurringTemplate {
     companyId: String(row.company_id),
     name: String(row.name),
     entityType: String(row.entity_type) as RecurringTemplate['entityType'],
-    templateData: typeof row.template_data === 'object' ? row.template_data : JSON.parse(row.template_data || '{}'),
+    templateData: (row.template_data !== null && typeof row.template_data === 'object' ? row.template_data : JSON.parse(typeof row.template_data === 'string' ? row.template_data : '{}')) as Record<string, unknown>,
     frequency: String(row.frequency) as RecurringTemplate['frequency'],
     nextRunDate: row.next_run_date ? String(row.next_run_date) : null,
     lastRunDate: row.last_run_date ? String(row.last_run_date) : null,

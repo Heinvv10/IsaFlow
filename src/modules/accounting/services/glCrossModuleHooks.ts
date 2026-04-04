@@ -6,7 +6,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getSystemAccountId } from './systemAccountResolver';
-type Row = any;
+type Row = Record<string, unknown>;
 
 
 // ── Asset Depreciation → GL ────────────────────────────────────────────────
@@ -29,6 +29,10 @@ export async function postAssetDepreciationToGL(
       return null;
     }
 
+    const assetRow = asset[0];
+    const assetNumber = String(assetRow.asset_number ?? '');
+    const assetName = String(assetRow.name ?? '');
+
     const depExpenseId = await getSystemAccountId('depreciation_expense');
     const accumDepId = await getSystemAccountId('accumulated_depreciation');
 
@@ -36,23 +40,23 @@ export async function postAssetDepreciationToGL(
       INSERT INTO gl_journal_entries (
         company_id, entry_number, entry_date, description, source, status, created_by
       ) VALUES (
-        ${companyId}, ${`DEP-${asset[0].asset_number}-${new Date().toISOString().slice(0, 7)}`}, CURRENT_DATE,
-        ${`Depreciation: ${asset[0].name} (${asset[0].asset_number})`},
+        ${companyId}, ${`DEP-${assetNumber}-${new Date().toISOString().slice(0, 7)}`}, CURRENT_DATE,
+        ${`Depreciation: ${assetName} (${assetNumber})`},
         'auto_depreciation', 'posted', ${userId}
       ) RETURNING id
     `) as Row[];
 
-    const entryId = String(entry[0].id);
+    const entryId = String(entry[0]!.id);
 
     await sql`
       INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description)
       VALUES (${entryId}::UUID, ${depExpenseId}::UUID, ${depreciationAmount}, 0,
-        ${`Depreciation: ${asset[0].asset_number}`})
+        ${`Depreciation: ${assetNumber}`})
     `;
     await sql`
       INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description)
       VALUES (${entryId}::UUID, ${accumDepId}::UUID, 0, ${depreciationAmount},
-        ${`Depreciation: ${asset[0].asset_number}`})
+        ${`Depreciation: ${assetNumber}`})
     `;
 
     await sql`

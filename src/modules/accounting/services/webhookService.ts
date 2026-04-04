@@ -7,7 +7,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import crypto from 'crypto';
 import { WEBHOOK_EVENTS } from '@/modules/accounting/constants/webhookEvents';
-type Row = any;
+type Row = Record<string, unknown>;
 
 export { WEBHOOK_EVENTS };
 export type { WebhookEvent } from '@/modules/accounting/constants/webhookEvents';
@@ -65,7 +65,7 @@ function mapDelivery(row: Row): Delivery {
     id: String(row.id),
     webhookId: String(row.webhook_id),
     event: String(row.event),
-    payload: typeof row.payload === 'object' ? row.payload : JSON.parse(row.payload || '{}'),
+    payload: (row.payload !== null && typeof row.payload === 'object' ? row.payload : JSON.parse(typeof row.payload === 'string' ? row.payload : '{}')) as Record<string, unknown>,
     responseStatus: row.response_status != null ? Number(row.response_status) : null,
     responseBody: row.response_body ? String(row.response_body) : null,
     deliveredAt: String(row.delivered_at),

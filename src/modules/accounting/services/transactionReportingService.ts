@@ -6,7 +6,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getSystemAccount } from './systemAccountResolver';
-type Row = any;
+type Row = Record<string, unknown>;
 
 
 interface TransactionRow {
@@ -271,8 +271,8 @@ export async function getAccountTransactions(
       const c = Number(r.credit || 0);
       running += normalBal === 'debit' ? d - c : c - d;
       const rawDate = r.entry_date instanceof Date
-        ? r.entry_date.toISOString().split('T')[0]
-        : String(r.entry_date || '').split('T')[0];
+        ? (r.entry_date.toISOString().split('T')[0] ?? '')
+        : (String(r.entry_date || '').split('T')[0] ?? '');
       return {
         date: rawDate,
         entryNumber: String(r.entry_number),

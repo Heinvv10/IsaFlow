@@ -9,7 +9,7 @@ import { log } from '@/lib/logger';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth/middleware';
 import { serialize } from 'cookie';
-type Row = any;
+type Row = Record<string, unknown>;
 
 
 function maskEmail(email: string): string {
@@ -46,7 +46,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.notFound(res, 'Invitation');
   }
 
-  const row = rows[0];
+  const row = rows[0]!;
 
   return apiResponse.success(res, {
     email: maskEmail(row.email as string),
@@ -80,7 +80,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.notFound(res, 'Invitation');
   }
 
-  const inv = rows[0];
+  const inv = rows[0]!;
   const userId = authReq.user.id;
 
   // Verify invited email matches the logged-in user's email

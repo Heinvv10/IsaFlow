@@ -31,17 +31,28 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
   }
 
-  // Clear the auth cookie and onboarding cookie
-  const secureSuffix = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  // Clear the auth cookie and onboarding cookie on both domains
+  const isProd = process.env.NODE_ENV === 'production';
+  const secureSuffix = isProd ? '; Secure' : '';
+  const clearOpts = {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: 'lax' as const,
+    path: '/',
+    maxAge: 0,
+    expires: new Date(0),
+  };
   res.setHeader('Set-Cookie', [
+    // Clear auth cookie with .isaflow.co.za domain (for admin + app subdomains)
     serialize(AUTH_COOKIE_NAME, '', {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      path: '/',
-      maxAge: 0,
-      expires: new Date(0),
+      ...clearOpts,
+      ...(isProd ? { domain: '.isaflow.co.za' } : {}),
     }),
+    // Clear auth cookie without domain (host-scoped, backward compat)
+    serialize(AUTH_COOKIE_NAME, '', clearOpts),
+    // Clear onboarding cookie with domain
+    `ff_onboarding_done=; Path=/; Max-Age=0; SameSite=Lax${secureSuffix}${isProd ? '; Domain=.isaflow.co.za' : ''}`,
+    // Clear onboarding cookie without domain (host-scoped)
     `ff_onboarding_done=; Path=/; Max-Age=0; SameSite=Lax${secureSuffix}`,
   ]);
 

@@ -9,7 +9,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type AuthenticatedNextApiRequest, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
-type Row = any;
+type Row = Record<string, unknown>;
 
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -29,7 +29,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       SELECT MAX(CAST(SUBSTRING(invoice_number FROM '[0-9]+$') AS INTEGER)) as max_num
       FROM customer_invoices WHERE company_id = ${companyId} AND invoice_number LIKE 'INV-%'
     `) as Row[];
-    const nextNum = (Number(maxRows[0]?.max_num) || 0) + 1;
+    const nextNum = (Number(maxRows[0]?.['max_num']) || 0) + 1;
     const invoiceNumber = `INV-${String(nextNum).padStart(5, '0')}`;
 
     // Calculate totals
@@ -51,7 +51,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     let projectId: string | null = null;
     try {
       const projRows = (await sql`SELECT id FROM projects WHERE client_id = ${clientId}::UUID LIMIT 1`) as Row[];
-      projectId = projRows[0]?.id || null;
+      projectId = (projRows[0]?.['id'] as string | undefined) ?? null;
     } catch { /* projects table may not exist */ }
 
     const invRows = (await sql`
@@ -66,7 +66,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       ) RETURNING id
     `) as Row[];
 
-    const invoiceId = invRows[0].id;
+    const invoiceId = String(invRows[0]!.id);
 
     for (const item of items) {
       const qty = item.quantity || 1;

@@ -10,7 +10,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { verifyPassword, hashPassword, checkPasswordStrength } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-type Row = any;
+type Row = Record<string, unknown>;
 
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -52,7 +52,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.notFound(res, 'User');
   }
 
-  const currentHash: string = rows[0].password_hash;
+  const currentHash: string = String(rows[0]!.password_hash);
   const valid = await verifyPassword(oldPassword, currentHash);
 
   if (!valid) {

@@ -8,7 +8,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
-type Row = any;
+type Row = Record<string, unknown>;
 
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -34,7 +34,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (membership.length === 0) {
     return apiResponse.forbidden(res, 'You do not have access to this company');
   }
-  if (!['owner', 'admin'].includes(membership[0].role)) {
+  if (!['owner', 'admin'].includes(String(membership[0]!.role))) {
     return apiResponse.forbidden(res, 'Only owners and admins can update the company logo');
   }
 

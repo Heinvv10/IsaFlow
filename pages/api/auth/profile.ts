@@ -9,7 +9,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-type Row = any;
+type Row = Record<string, unknown>;
 
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -29,16 +29,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.notFound(res, 'User');
     }
 
-    const u = rows[0];
+    const u = rows[0]!;
     return apiResponse.success(res, {
-      id: u.id,
-      email: u.email,
-      firstName: u.first_name ?? '',
-      lastName: u.last_name ?? '',
-      phone: u.phone ?? '',
-      mobile: u.mobile ?? '',
-      role: u.role,
-      profilePicture: u.profile_picture ?? null,
+      id: String(u.id),
+      email: String(u.email),
+      firstName: u.first_name != null ? String(u.first_name) : '',
+      lastName: u.last_name != null ? String(u.last_name) : '',
+      phone: u.phone != null ? String(u.phone) : '',
+      mobile: u.mobile != null ? String(u.mobile) : '',
+      role: String(u.role),
+      profilePicture: u.profile_picture != null ? String(u.profile_picture) : null,
     });
   }
 
@@ -66,16 +66,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       RETURNING id, email, first_name, last_name, phone, mobile
     `) as Row[];
 
-    const u = rows[0];
+    const u = rows[0]!;
     log.info('Profile updated', { userId }, 'auth/profile');
 
     return apiResponse.success(res, {
-      id: u.id,
-      email: u.email,
-      firstName: u.first_name ?? '',
-      lastName: u.last_name ?? '',
-      phone: u.phone ?? '',
-      mobile: u.mobile ?? '',
+      id: String(u.id),
+      email: String(u.email),
+      firstName: u.first_name != null ? String(u.first_name) : '',
+      lastName: u.last_name != null ? String(u.last_name) : '',
+      phone: u.phone != null ? String(u.phone) : '',
+      mobile: u.mobile != null ? String(u.mobile) : '',
     }, 'Profile updated successfully');
   }
 
