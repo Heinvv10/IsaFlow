@@ -235,6 +235,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       log.info('Onboarding skipped via invitation acceptance', { userId: authUser.id, invitationsAccepted }, 'auth/login');
     }
 
+    // If user already belongs to a company, they're onboarded — fix stale DB flag
+    if (!onboardingCompleted) {
+      const companyCheck = (await sql`
+        SELECT 1 FROM company_users WHERE user_id = ${authUser.id}::UUID LIMIT 1
+      `) as Row[];
+      if (companyCheck.length > 0) {
+        await sql`UPDATE users SET onboarding_completed = true WHERE id = ${authUser.id}`;
+        onboardingCompleted = true;
+        log.info('Onboarding auto-completed — user already has a company', { userId: authUser.id }, 'auth/login');
+      }
+    }
+
     const cookies = [authCookieString];
     if (onboardingCompleted) {
       const domainSuffix = isProd ? '; Domain=.isaflow.co.za' : '';
