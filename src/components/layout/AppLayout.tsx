@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useRef, ReactNode, useMemo } from 'react';
 import { useRouter } from 'next/router';
+import { useTrackPageVisit } from '@/hooks/useTrackPageVisit';
 import {
   BookOpen,
   ChevronLeft,
@@ -59,6 +60,17 @@ export function AppLayout({ children }: AppLayoutProps) {
   const { user, loading, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { companyRole } = useCompany();
+
+  // Track page visits for usage-based quick actions
+  useTrackPageVisit();
+
+  // On admin subdomain, hide accounting-specific UI (nav, company switcher, etc.)
+  const [isAdminHost, setIsAdminHost] = useState(false);
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.location.hostname === 'admin.isaflow.co.za') {
+      setIsAdminHost(true);
+    }
+  }, []);
 
   // Command palette
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -345,15 +357,17 @@ export function AppLayout({ children }: AppLayoutProps) {
           {/* Logo (in top-nav mode, show logo here; in side mode it's in the sidebar) */}
           <img src="/logo.png" alt="ISAFlow" className="h-8 w-auto hidden sm:block dark:brightness-0 dark:invert" />
 
-          {/* Company switcher */}
-          <div data-tour="company-switcher">
-            <CompanySwitcher />
-          </div>
+          {/* Company switcher (hidden on admin subdomain) */}
+          {!isAdminHost && (
+            <div data-tour="company-switcher">
+              <CompanySwitcher />
+            </div>
+          )}
 
           <div className="flex-1" />
 
-          {/* Quick create menu */}
-          <CreateNewMenu />
+          {/* Quick create menu (hidden on admin subdomain) */}
+          {!isAdminHost && <CreateNewMenu />}
 
           {/* Command palette trigger */}
           <button
@@ -385,8 +399,8 @@ export function AppLayout({ children }: AppLayoutProps) {
             <Search className="w-4 h-4" />
           </button>
 
-          {/* Setup guide */}
-          <SetupGuideButton />
+          {/* Setup guide (hidden on admin subdomain) */}
+          {!isAdminHost && <SetupGuideButton />}
 
           {/* Nav mode toggle */}
           <button
@@ -428,8 +442,8 @@ export function AppLayout({ children }: AppLayoutProps) {
           )}
         </header>
 
-        {/* Horizontal nav bar (only in top mode) */}
-        {!showSidebar && (
+        {/* Horizontal nav bar (only in top mode, hidden on admin subdomain) */}
+        {!showSidebar && !isAdminHost && (
           <div className="relative z-40">
             <AccountingNav />
           </div>
