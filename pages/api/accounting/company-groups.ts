@@ -89,12 +89,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     const groups = (await sql`
-      SELECT DISTINCT cg.*, COUNT(cgm2.id) FILTER (WHERE cgm2.left_date IS NULL) AS member_count
+      SELECT cg.*, COUNT(cgm2.id) FILTER (WHERE cgm2.left_date IS NULL)::int AS member_count
       FROM company_groups cg
       JOIN company_group_members cgm ON cgm.group_id = cg.id
-      JOIN company_users cu ON cu.company_id = cgm.company_id
+      JOIN company_users cu ON cu.company_id::TEXT = cgm.company_id::TEXT
       LEFT JOIN company_group_members cgm2 ON cgm2.group_id = cg.id
-      WHERE cu.user_id = ${userId}::UUID AND cg.is_active = true
+      WHERE cu.user_id::TEXT = ${userId} AND cg.is_active = true
       GROUP BY cg.id
       ORDER BY cg.name
     `) as Record<string, unknown>[];

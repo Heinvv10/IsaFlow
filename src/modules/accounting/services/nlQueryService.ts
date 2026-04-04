@@ -123,8 +123,8 @@ const FORBIDDEN_KEYWORDS = [
   'LO_IMPORT', 'LO_EXPORT', 'PG_SLEEP',
   // Runtime configuration manipulation
   'CURRENT_SETTING', 'SET_CONFIG', 'PG_TERMINATE_BACKEND', 'PG_CANCEL_BACKEND',
-  // Additional hardening — analytics/admin surface
-  'LATERAL', 'WINDOW', 'GENERATE_SERIES', 'VACUUM', 'EXPLAIN',
+  // Additional hardening — admin surface
+  'VACUUM', 'EXPLAIN',
 ];
 
 // Dangerous function-call patterns that warrant a separate regex sweep
@@ -143,14 +143,44 @@ const FORBIDDEN_PATTERNS: Array<{ label: string; regex: RegExp }> = [
   { label: 'DO $$ block', regex: /\bDO\s*\$\$/i },
 ];
 
-// Tables that NL queries are permitted to access — accounting data only
+// Tables that NL queries are permitted to access — accounting & business data
 const ALLOWED_TABLES = new Set([
-  'gl_journal_entries', 'gl_journal_lines', 'gl_accounts',
-  'customer_invoices', 'customer_invoice_items', 'customers',
-  'supplier_invoices', 'supplier_invoice_items', 'suppliers',
-  'bank_transactions', 'bank_accounts',
-  'customer_payments', 'supplier_payments',
-  'items', 'vat_returns',
+  // General ledger
+  'gl_journal_entries', 'gl_journal_lines', 'gl_accounts', 'gl_account_balances',
+  'recurring_journals',
+  // Customers
+  'customers', 'customer_invoices', 'customer_invoice_items',
+  'customer_payments', 'customer_payment_allocations',
+  'customer_quotes', 'customer_quote_lines',
+  'customer_sales_orders', 'customer_sales_order_items',
+  'customer_write_offs', 'customer_categories', 'credit_notes',
+  'recurring_invoices', 'dunning_communications',
+  // Suppliers
+  'suppliers', 'supplier_invoices', 'supplier_invoice_items',
+  'supplier_payments', 'supplier_payment_allocations', 'supplier_payment_batches',
+  'supplier_purchase_orders', 'supplier_purchase_order_items',
+  'purchase_orders', 'supplier_categories',
+  // Banking
+  'bank_transactions', 'bank_accounts', 'bank_reconciliations',
+  'bank_categorisation_rules', 'bank_import_batches',
+  // Items & inventory
+  'items', 'item_categories', 'stock_items', 'stock_adjustments',
+  'products', 'product_categories',
+  // Tax & compliance
+  'vat_returns', 'vat_adjustments', 'sars_submissions',
+  // Assets
+  'assets', 'asset_categories', 'asset_depreciation_schedule', 'asset_disposals',
+  // Periods & budgets
+  'fiscal_periods', 'accounting_budgets', 'currencies', 'exchange_rates',
+  // Projects & time
+  'projects', 'project_time_entries', 'time_entries',
+  // Cost centres & business units
+  'cost_centres', 'business_units',
+  // Payroll (read-only summaries)
+  'payroll_runs', 'payslips', 'employees', 'leave_types',
+  'leave_balances', 'leave_applications',
+  // Documents
+  'captured_documents',
 ]);
 
 const MAX_LIMIT = 100;
