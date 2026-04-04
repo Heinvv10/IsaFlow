@@ -31,7 +31,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method || '', ['POST']);
   }
 
-  const form = formidable({ maxFileSize: 10 * 1024 * 1024, keepExtensions: true });
+  const ALLOWED_MIME_TYPES = [
+    'text/csv', 'text/plain',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/octet-stream', // some browsers send this for .csv
+  ];
+  const form = formidable({
+    maxFileSize: 10 * 1024 * 1024,
+    keepExtensions: true,
+    filter: (part) => !part.mimetype || ALLOWED_MIME_TYPES.includes(part.mimetype),
+  });
 
   const [fields, files] = await form.parse(req);
   const source = (Array.isArray(fields.source) ? fields.source[0] : fields.source) as string;

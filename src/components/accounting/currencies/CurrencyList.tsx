@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { Plus, Loader2, Check, X, Star } from 'lucide-react';
 import { notify } from '@/utils/toast';
 import { apiFetch } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import type { Currency } from '@/modules/accounting/services/currencyService';
 
 interface Props {
@@ -57,7 +58,8 @@ export function CurrencyList({ currencies, reportingCurrency, onRefresh }: Props
       setForm(EMPTY_FORM);
       setShowAdd(false);
       onRefresh();
-    } catch {
+    } catch (e) {
+      log.error('Currency operation failed', { error: e }, 'currencies');
       notify.error('Failed to create currency');
     } finally {
       setSaving(false);
@@ -78,7 +80,8 @@ export function CurrencyList({ currencies, reportingCurrency, onRefresh }: Props
       }
       notify.success(`${currency.code} ${!currency.isActive ? 'activated' : 'deactivated'}`);
       onRefresh();
-    } catch {
+    } catch (e) {
+      log.error('Currency operation failed', { error: e }, 'currencies');
       notify.error('Failed to update currency');
     } finally {
       setToggling(null);

@@ -4,7 +4,7 @@
  * Pure business logic (validation, calculations) stays in procurementService.ts.
  */
 
-import sql from '@/lib/neon';
+import sql, { withTransaction, TxSql } from '@/lib/neon';
 
 export interface PurchaseOrderItem {
   description: string;
@@ -51,8 +51,8 @@ function calcTotals(items: PurchaseOrderItem[]) {
   let subtotal = 0;
   let taxAmount = 0;
   for (const item of items) {
-    const lineTotal = item.quantity * item.unit_price;
-    const lineTax = lineTotal * (item.tax_rate / 100);
+    const lineTotal = Math.round(item.quantity * item.unit_price * 100) / 100;
+    const lineTax = Math.round(lineTotal * (item.tax_rate / 100) * 100) / 100;
     subtotal += lineTotal;
     taxAmount += lineTax;
   }
@@ -63,11 +63,16 @@ function calcTotals(items: PurchaseOrderItem[]) {
   };
 }
 
-async function insertLineItems(purchaseOrderId: string, items: PurchaseOrderItem[]) {
+async function insertLineItems(
+  purchaseOrderId: string,
+  items: PurchaseOrderItem[],
+  tx?: TxSql,
+) {
+  const exec = tx ?? sql;
   for (const item of items) {
     const lineTotal = item.quantity * item.unit_price;
     const lineTax = lineTotal * (item.tax_rate / 100);
-    await sql`
+    await exec`
       INSERT INTO supplier_purchase_order_items (
         purchase_order_id, description, quantity, unit_price, tax_rate,
         line_total, tax_amount
@@ -226,29 +231,38 @@ export async function updatePurchaseOrder(input: UpdatePurchaseOrderInput) {
     totalAmount = totals.totalAmount;
   }
 
-  const updated = await sql`
-    UPDATE supplier_purchase_orders SET
-      supplier_id    = COALESCE(${input.supplier_id ?? null}::UUID, supplier_id),
-      order_date     = COALESCE(${input.order_date ?? null}::DATE, order_date),
-      delivery_date  = COALESCE(${input.delivery_date ?? null}::DATE, delivery_date),
-      reference      = COALESCE(${input.reference ?? null}, reference),
-      notes          = COALESCE(${input.notes ?? null}, notes),
-      internal_notes = COALESCE(${input.internal_notes ?? null}, internal_notes),
-      subtotal       = COALESCE(${subtotal}, subtotal),
-      tax_amount     = COALESCE(${taxAmount}, tax_amount),
-      total_amount   = COALESCE(${totalAmount}, total_amount),
-      updated_at     = NOW()
-    WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
-    RETURNING *
-  `;
+  const { order: updated, items: orderItems } = await withTransaction(async (tx) => {
+    const rows = await tx`
+      UPDATE supplier_purchase_orders SET
+        supplier_id    = COALESCE(${input.supplier_id ?? null}::UUID, supplier_id),
+        order_date     = COALESCE(${input.order_date ?? null}::DATE, order_date),
+        delivery_date  = COALESCE(${input.delivery_date ?? null}::DATE, delivery_date),
+        reference      = COALESCE(${input.reference ?? null}, reference),
+        notes          = COALESCE(${input.notes ?? null}, notes),
+        internal_notes = COALESCE(${input.internal_notes ?? null}, internal_notes),
+        subtotal       = COALESCE(${subtotal}, subtotal),
+        tax_amount     = COALESCE(${taxAmount}, tax_amount),
+        total_amount   = COALESCE(${totalAmount}, total_amount),
+        updated_at     = NOW()
+      WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
+      RETURNING *
+    `;
 
-  if (items && items.length > 0) {
-    await sql`DELETE FROM supplier_purchase_order_items WHERE purchase_order_id = ${id}::UUID`;
-    await insertLineItems(id, items);
-  }
+    if (items && items.length > 0) {
+      await tx`DELETE FROM supplier_purchase_order_items WHERE purchase_order_id = ${id}::UUID`;
+      await insertLineItems(id, items, tx);
+    }
 
-  const orderItems = await fetchItems(id);
-  return { order: updated[0]!, items: orderItems };
+    const lineItems = await tx`
+      SELECT * FROM supplier_purchase_order_items
+      WHERE purchase_order_id = ${id}::UUID
+      ORDER BY created_at ASC
+    `;
+
+    return { order: rows[0]!, items: lineItems };
+  });
+
+  return { order: updated, items: orderItems };
 }
 
 export async function deletePurchaseOrder(id: string, companyId: string) {
@@ -260,8 +274,10 @@ export async function deletePurchaseOrder(id: string, companyId: string) {
   if (existing.length === 0) return { error: 'not_found' as const };
   if (existing[0]!.status !== 'draft') return { error: 'not_draft' as const };
 
-  await sql`DELETE FROM supplier_purchase_order_items WHERE purchase_order_id = ${id}::UUID`;
-  await sql`DELETE FROM supplier_purchase_orders WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`;
+  await withTransaction(async (tx) => {
+    await tx`DELETE FROM supplier_purchase_order_items WHERE purchase_order_id = ${id}::UUID`;
+    await tx`DELETE FROM supplier_purchase_orders WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`;
+  });
 
   return { deleted: true };
 }

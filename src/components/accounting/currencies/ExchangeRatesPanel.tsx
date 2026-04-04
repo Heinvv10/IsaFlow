@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { Save, ArrowRight, Loader2 } from 'lucide-react';
 import { notify } from '@/utils/toast';
 import { apiFetch } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import type { Currency, ExchangeRate } from '@/modules/accounting/services/currencyService';
 
 interface Props {
@@ -86,7 +87,8 @@ export function ExchangeRatesPanel({ currencies, exchangeRates, onRefresh }: Pro
       notify.success(`Rate ${rateForm.fromCurrency}/${rateForm.toCurrency} saved`);
       setRateForm(f => ({ ...f, rate: '' }));
       onRefresh();
-    } catch {
+    } catch (e) {
+      log.error('Exchange rate operation failed', { error: e }, 'currencies');
       notify.error('Failed to save exchange rate');
     } finally {
       setSavingRate(false);
@@ -119,7 +121,8 @@ export function ExchangeRatesPanel({ currencies, exchangeRates, onRefresh }: Pro
         return;
       }
       setConvertResult(json.data);
-    } catch {
+    } catch (e) {
+      log.error('Exchange rate operation failed', { error: e }, 'currencies');
       notify.error('Conversion failed');
     } finally {
       setConverting(false);

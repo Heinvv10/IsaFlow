@@ -5,6 +5,7 @@
 import { useState } from 'react';
 import { Plus, Loader2, Save } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import {
   CompanyGroup, GroupMember, SimpleCompany,
   INPUT_CLS, LABEL_CLS, BTN_PRIMARY, SECTION_CLS,
@@ -46,7 +47,8 @@ export function GroupDetailsTab({
       if (!res.ok) throw new Error('Create failed');
       onFlash('Group created', 'success');
       await onGroupRefresh();
-    } catch {
+    } catch (e) {
+      log.error('Group details operation failed', { error: e }, 'group');
       onFlash('Failed to create group', 'error');
     } finally {
       setSaving(false);
@@ -64,7 +66,8 @@ export function GroupDetailsTab({
       });
       if (!res.ok) throw new Error('Update failed');
       onFlash('Group updated', 'success');
-    } catch {
+    } catch (e) {
+      log.error('Group details operation failed', { error: e }, 'group');
       onFlash('Failed to update group', 'error');
     } finally {
       setSaving(false);

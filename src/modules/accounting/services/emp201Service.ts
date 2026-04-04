@@ -44,7 +44,7 @@ export async function generateEMP201(companyId: string,
   periodStart: string,
   periodEnd: string
 ): Promise<EMP201Data> {
-  log.info('Generating EMP201', { periodStart, periodEnd }, 'emp201Service');
+  log.info('Generating EMP201', { companyId, periodStart, periodEnd }, 'emp201Service');
 
   const emptyResult: EMP201Data = {
     periodStart,
@@ -90,7 +90,8 @@ export async function generateEMP201(companyId: string,
         COALESCE(SUM(ps.sdl), 0) AS sdl
       FROM payroll_runs pr
       LEFT JOIN payslips ps ON ps.payroll_run_id = pr.id
-      WHERE pr.run_date >= ${periodStart}
+      WHERE pr.company_id = ${companyId}::UUID
+        AND pr.run_date >= ${periodStart}
         AND pr.run_date <= ${periodEnd}
         AND pr.status != 'cancelled'
       GROUP BY pr.id, pr.run_date

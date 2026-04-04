@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Layers, Users, BookOpen, Link2, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { GroupDetailsTab } from '@/components/accounting/group/GroupDetailsTab';
 import { GroupCoaTab } from '@/components/accounting/group/GroupCoaTab';
 import { GroupMappingTab } from '@/components/accounting/group/GroupMappingTab';
@@ -70,8 +71,8 @@ export default function GroupSetupPage() {
       const res = await apiFetch('/api/accounting/companies?action=user-companies');
       const json = await res.json();
       setUserCompanies(json.data?.items ?? json.data ?? []);
-    } catch {
-      // Non-critical
+    } catch (e) {
+      log.warn('Group setup step failed', { error: e }, 'group');
     }
   }, []);
 

@@ -44,13 +44,13 @@ export async function getSupplierInvoices(companyId: string, filters?: InvoiceFi
         SELECT si.*, s.name AS supplier_name, NULL::text AS po_number
         FROM supplier_invoices si
         LEFT JOIN suppliers s ON s.id = si.supplier_id
-        WHERE si.deleted_at IS NULL
+        WHERE si.company_id = ${companyId}::UUID AND si.deleted_at IS NULL
           AND si.status = ${filters.status} AND si.supplier_id = ${filters.supplierId}
         ORDER BY si.invoice_date DESC LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
       countRows = (await sql`
         SELECT COUNT(*) AS cnt FROM supplier_invoices
-        WHERE deleted_at IS NULL
+        WHERE company_id = ${companyId}::UUID AND deleted_at IS NULL
           AND status = ${filters.status} AND supplier_id = ${filters.supplierId}
       `) as Row[];
     } else if (filters?.status) {
@@ -58,37 +58,37 @@ export async function getSupplierInvoices(companyId: string, filters?: InvoiceFi
         SELECT si.*, s.name AS supplier_name, NULL::text AS po_number
         FROM supplier_invoices si
         LEFT JOIN suppliers s ON s.id = si.supplier_id
-        WHERE si.deleted_at IS NULL
+        WHERE si.company_id = ${companyId}::UUID AND si.deleted_at IS NULL
           AND si.status = ${filters.status}
         ORDER BY si.invoice_date DESC LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
       countRows = (await sql`
         SELECT COUNT(*) AS cnt FROM supplier_invoices
-        WHERE deleted_at IS NULL AND status = ${filters.status}
+        WHERE company_id = ${companyId}::UUID AND deleted_at IS NULL AND status = ${filters.status}
       `) as Row[];
     } else if (filters?.supplierId) {
       rows = (await sql`
         SELECT si.*, s.name AS supplier_name, NULL::text AS po_number
         FROM supplier_invoices si
         LEFT JOIN suppliers s ON s.id = si.supplier_id
-        WHERE si.deleted_at IS NULL
+        WHERE si.company_id = ${companyId}::UUID AND si.deleted_at IS NULL
           AND si.supplier_id = ${filters.supplierId}
         ORDER BY si.invoice_date DESC LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
       countRows = (await sql`
         SELECT COUNT(*) AS cnt FROM supplier_invoices
-        WHERE deleted_at IS NULL AND supplier_id = ${filters.supplierId}
+        WHERE company_id = ${companyId}::UUID AND deleted_at IS NULL AND supplier_id = ${filters.supplierId}
       `) as Row[];
     } else {
       rows = (await sql`
         SELECT si.*, s.name AS supplier_name, NULL::text AS po_number
         FROM supplier_invoices si
         LEFT JOIN suppliers s ON s.id = si.supplier_id
-        WHERE si.deleted_at IS NULL
+        WHERE si.company_id = ${companyId}::UUID AND si.deleted_at IS NULL
         ORDER BY si.invoice_date DESC LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
       countRows = (await sql`
-        SELECT COUNT(*) AS cnt FROM supplier_invoices WHERE deleted_at IS NULL
+        SELECT COUNT(*) AS cnt FROM supplier_invoices WHERE company_id = ${companyId}::UUID AND deleted_at IS NULL
       `) as Row[];
     }
 
@@ -107,7 +107,7 @@ export async function getSupplierInvoiceById(companyId: string,
       SELECT si.*, s.name AS supplier_name, NULL::text AS po_number
       FROM supplier_invoices si
       LEFT JOIN suppliers s ON s.id = si.supplier_id
-      WHERE si.id = ${id}
+      WHERE si.id = ${id} AND si.company_id = ${companyId}::UUID
     `) as Row[];
     if (rows.length === 0) return null;
 
@@ -153,12 +153,12 @@ export async function createSupplierInvoice(companyId: string,
     const invoiceRow = await withTransaction(async (tx) => {
       const rows = (await tx`
         INSERT INTO supplier_invoices (
-          invoice_number, supplier_id, purchase_order_id, grn_id,
+          company_id, invoice_number, supplier_id, purchase_order_id, grn_id,
           invoice_date, due_date, subtotal, tax_rate, tax_amount,
           total_amount, payment_terms, reference, project_id,
           cost_center_id, notes, created_by
         ) VALUES (
-          ${input.invoiceNumber}, ${input.supplierId},
+          ${companyId}::UUID, ${input.invoiceNumber}, ${input.supplierId},
           ${input.purchaseOrderId || null}, ${input.grnId || null},
           ${input.invoiceDate}, ${dueDate || null},
           ${subtotal}, ${invoiceTaxRate}, ${totalTax}, ${totalAmount},
@@ -203,7 +203,7 @@ export async function approveSupplierInvoice(companyId: string,
   userId: string
 ): Promise<SupplierInvoice> {
   try {
-    const invoice = await getSupplierInvoiceById('', id);
+    const invoice = await getSupplierInvoiceById(companyId, id);
     if (!invoice) throw new Error(`Supplier invoice ${id} not found`);
     if (invoice.status !== 'draft' && invoice.status !== 'pending_approval') {
       throw new Error(`Cannot approve invoice with status: ${invoice.status}`);
@@ -246,7 +246,7 @@ export async function approveSupplierInvoice(companyId: string,
       description: `AP: ${invoice.invoiceNumber}`,
     });
 
-    const journalEntry = await createJournalEntry('', {
+    const journalEntry = await createJournalEntry(companyId, {
       entryDate: invoice.invoiceDate,
       description: `Supplier invoice ${invoice.invoiceNumber}`,
       source: 'auto_supplier_invoice',
@@ -254,13 +254,13 @@ export async function approveSupplierInvoice(companyId: string,
       lines,
     }, userId);
 
-    await postJournalEntry('', journalEntry.id, userId);
+    await postJournalEntry(companyId, journalEntry.id, userId);
 
     const updated = (await sql`
       UPDATE supplier_invoices
       SET status = 'approved', approved_by = ${userId}::UUID, approved_at = NOW(),
           gl_journal_entry_id = ${journalEntry.id}::UUID
-      WHERE id = ${id}
+      WHERE id = ${id} AND company_id = ${companyId}::UUID
       RETURNING *
     `) as Row[];
 
@@ -274,13 +274,13 @@ export async function approveSupplierInvoice(companyId: string,
 
 export async function cancelSupplierInvoice(companyId: string, id: string): Promise<SupplierInvoice> {
   try {
-    const invoice = await getSupplierInvoiceById('', id);
+    const invoice = await getSupplierInvoiceById(companyId, id);
     if (!invoice) throw new Error(`Supplier invoice ${id} not found`);
     if (invoice.status === 'paid' || invoice.status === 'partially_paid') {
       throw new Error('Cannot cancel invoice with payments');
     }
     const rows = (await sql`
-      UPDATE supplier_invoices SET status = 'cancelled' WHERE id = ${id} RETURNING *
+      UPDATE supplier_invoices SET status = 'cancelled' WHERE id = ${id} AND company_id = ${companyId}::UUID RETURNING *
     `) as Row[];
     return mapInvoiceRow(rows[0]!);
   } catch (err) {
@@ -291,7 +291,7 @@ export async function cancelSupplierInvoice(companyId: string, id: string): Prom
 
 export async function performThreeWayMatch(companyId: string, invoiceId: string) {
   try {
-    const invoice = await getSupplierInvoiceById('', invoiceId);
+    const invoice = await getSupplierInvoiceById(companyId, invoiceId);
     if (!invoice) throw new Error(`Invoice ${invoiceId} not found`);
     if (!invoice.purchaseOrderId) throw new Error('Invoice has no linked PO');
 
@@ -328,7 +328,7 @@ export async function performThreeWayMatch(companyId: string, invoiceId: string)
       : 'unmatched';
 
     await sql`
-      UPDATE supplier_invoices SET match_status = ${overallStatus} WHERE id = ${invoiceId}
+      UPDATE supplier_invoices SET match_status = ${overallStatus} WHERE id = ${invoiceId} AND company_id = ${companyId}::UUID
     `;
 
     return { invoiceId, matchStatus: overallStatus, itemResults: results };

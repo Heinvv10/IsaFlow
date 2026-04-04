@@ -52,40 +52,47 @@ export async function getSupplierPayments(companyId: string, filters?: PaymentFi
       rows = (await sql`
         SELECT sp.*, s.name AS supplier_name
         FROM supplier_payments sp LEFT JOIN suppliers s ON s.id = sp.supplier_id
-        WHERE sp.status = ${filters.status} AND sp.supplier_id = ${filters.supplierId}
+        WHERE sp.company_id = ${companyId}::UUID
+          AND sp.status = ${filters.status} AND sp.supplier_id = ${filters.supplierId}
         ORDER BY sp.payment_date DESC LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
       countRows = (await sql`
         SELECT COUNT(*) AS cnt FROM supplier_payments
-        WHERE status = ${filters.status} AND supplier_id = ${filters.supplierId}
+        WHERE company_id = ${companyId}::UUID
+          AND status = ${filters.status} AND supplier_id = ${filters.supplierId}
       `) as Row[];
     } else if (filters?.status) {
       rows = (await sql`
         SELECT sp.*, s.name AS supplier_name
         FROM supplier_payments sp LEFT JOIN suppliers s ON s.id = sp.supplier_id
-        WHERE sp.status = ${filters.status}
+        WHERE sp.company_id = ${companyId}::UUID AND sp.status = ${filters.status}
         ORDER BY sp.payment_date DESC LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
       countRows = (await sql`
-        SELECT COUNT(*) AS cnt FROM supplier_payments WHERE status = ${filters.status}
+        SELECT COUNT(*) AS cnt FROM supplier_payments
+        WHERE company_id = ${companyId}::UUID AND status = ${filters.status}
       `) as Row[];
     } else if (filters?.supplierId) {
       rows = (await sql`
         SELECT sp.*, s.name AS supplier_name
         FROM supplier_payments sp LEFT JOIN suppliers s ON s.id = sp.supplier_id
-        WHERE sp.supplier_id = ${filters.supplierId}
+        WHERE sp.company_id = ${companyId}::UUID AND sp.supplier_id = ${filters.supplierId}
         ORDER BY sp.payment_date DESC LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
       countRows = (await sql`
-        SELECT COUNT(*) AS cnt FROM supplier_payments WHERE supplier_id = ${filters.supplierId}
+        SELECT COUNT(*) AS cnt FROM supplier_payments
+        WHERE company_id = ${companyId}::UUID AND supplier_id = ${filters.supplierId}
       `) as Row[];
     } else {
       rows = (await sql`
         SELECT sp.*, s.name AS supplier_name
         FROM supplier_payments sp LEFT JOIN suppliers s ON s.id = sp.supplier_id
+        WHERE sp.company_id = ${companyId}::UUID
         ORDER BY sp.payment_date DESC LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
-      countRows = (await sql`SELECT COUNT(*) AS cnt FROM supplier_payments`) as Row[];
+      countRows = (await sql`
+        SELECT COUNT(*) AS cnt FROM supplier_payments WHERE company_id = ${companyId}::UUID
+      `) as Row[];
     }
 
     return { payments: rows.map(mapPaymentRow), total: Number(countRows[0]!.cnt) };
@@ -102,7 +109,7 @@ export async function getSupplierPaymentById(companyId: string,
     const rows = (await sql`
       SELECT sp.*, s.name AS supplier_name
       FROM supplier_payments sp LEFT JOIN suppliers s ON s.id = sp.supplier_id
-      WHERE sp.id = ${id}
+      WHERE sp.id = ${id} AND sp.company_id = ${companyId}::UUID
     `) as Row[];
     if (rows.length === 0) return null;
 
@@ -149,10 +156,10 @@ export async function createSupplierPayment(companyId: string,
     const paymentRow = await withTransaction(async (tx) => {
       const rows = (await tx`
         INSERT INTO supplier_payments (
-          supplier_id, payment_date, total_amount, payment_method,
+          company_id, supplier_id, payment_date, total_amount, payment_method,
           bank_account_id, reference, description, created_by
         ) VALUES (
-          ${input.supplierId}, ${input.paymentDate}, ${input.totalAmount},
+          ${companyId}::UUID, ${input.supplierId}, ${input.paymentDate}, ${input.totalAmount},
           ${input.paymentMethod || 'eft'}, ${input.bankAccountId || null},
           ${input.reference || null}, ${input.description || null}, ${userId}::UUID
         ) RETURNING *
@@ -188,7 +195,7 @@ export async function processSupplierPayment(companyId: string,
   userId: string
 ): Promise<SupplierPayment> {
   try {
-    const payment = await getSupplierPaymentById('', id);
+    const payment = await getSupplierPaymentById(companyId, id);
     if (!payment) throw new Error(`Payment ${id} not found`);
     if (payment.status !== 'approved') throw new Error(`Payment must be approved before processing`);
 
@@ -215,7 +222,7 @@ export async function processSupplierPayment(companyId: string,
       },
     ];
 
-    const journalEntry = await createJournalEntry('', {
+    const journalEntry = await createJournalEntry(companyId, {
       entryDate: payment.paymentDate,
       description: `Supplier payment ${payment.paymentNumber}`,
       source: 'auto_supplier_payment',
@@ -223,7 +230,7 @@ export async function processSupplierPayment(companyId: string,
       lines,
     }, userId);
 
-    await postJournalEntry('', journalEntry.id, userId);
+    await postJournalEntry(companyId, journalEntry.id, userId);
 
     // Update invoice balances and mark payment processed atomically
     const updated = await withTransaction(async (tx) => {
@@ -247,7 +254,7 @@ export async function processSupplierPayment(companyId: string,
         UPDATE supplier_payments
         SET status = 'processed', processed_at = NOW(),
             gl_journal_entry_id = ${journalEntry.id}::UUID
-        WHERE id = ${id}
+        WHERE id = ${id} AND company_id = ${companyId}::UUID
         RETURNING *
       `) as Row[];
 
@@ -267,14 +274,14 @@ export async function approveSupplierPayment(companyId: string,
   userId: string
 ): Promise<SupplierPayment> {
   try {
-    const payment = await getSupplierPaymentById('', id);
+    const payment = await getSupplierPaymentById(companyId, id);
     if (!payment) throw new Error(`Payment ${id} not found`);
     if (payment.status !== 'draft') throw new Error(`Cannot approve payment with status: ${payment.status}`);
 
     const rows = (await sql`
       UPDATE supplier_payments
       SET status = 'approved', approved_by = ${userId}::UUID, approved_at = NOW()
-      WHERE id = ${id}
+      WHERE id = ${id} AND company_id = ${companyId}::UUID
       RETURNING *
     `) as Row[];
 

@@ -37,6 +37,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const userId = (req as AuthenticatedNextApiRequest).user.id;
   const action = (req.query.action || req.body?.action) as string | undefined;
 
+  // Verify user belongs to at least one company in the group
+  async function verifyGroupAccess(gId: string): Promise<boolean> {
+    const rows = (await sql`
+      SELECT 1 FROM company_group_members cgm
+      JOIN company_users cu ON cu.company_id = cgm.company_id
+      WHERE cgm.group_id = ${gId}::UUID AND cu.user_id = ${userId}::UUID
+      LIMIT 1
+    `) as Record<string, unknown>[];
+    return rows.length > 0;
+  }
+
   // ── GET ────────────────────────────────────────────────────────────────────
   if (req.method === 'GET') {
     const groupId = req.query.group_id as string | undefined;
@@ -85,6 +96,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (action === 'add-member') {
       const { groupId, companyId, ownershipPct, consolidationMethod } = req.body;
       if (!groupId || !companyId) return apiResponse.badRequest(res, 'groupId and companyId required');
+      if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
       const member = await addMember(groupId, companyId, {
         ownershipPct: ownershipPct ?? 100,
         consolidationMethod: consolidationMethod ?? 'full',
@@ -97,6 +109,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (!groupId || !accountCode || !accountName || !accountType) {
         return apiResponse.badRequest(res, 'groupId, accountCode, accountName, accountType required');
       }
+      if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
       const account = await createGroupAccount(groupId, {
         accountCode, accountName, accountType, accountSubtype, parentAccountId, normalBalance, level, displayOrder,
       });
@@ -106,6 +119,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (action === 'auto-generate-coa') {
       const { groupId, sourceCompanyId } = req.body;
       if (!groupId || !sourceCompanyId) return apiResponse.badRequest(res, 'groupId and sourceCompanyId required');
+      if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
       const count = await autoGenerateGroupCOA(groupId, sourceCompanyId);
       return apiResponse.success(res, { accountsCreated: count });
     }
@@ -115,6 +129,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (!groupId || !companyId || !companyAccountId || !groupAccountId) {
         return apiResponse.badRequest(res, 'groupId, companyId, companyAccountId, groupAccountId required');
       }
+      if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
       const mapping = await setCoaMapping(groupId, companyId, companyAccountId, groupAccountId);
       return apiResponse.success(res, mapping);
     }
@@ -122,6 +137,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (action === 'auto-map') {
       const { groupId, companyId } = req.body;
       if (!groupId || !companyId) return apiResponse.badRequest(res, 'groupId and companyId required');
+      if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
       const count = await autoMapAccounts(groupId, companyId);
       return apiResponse.success(res, { mappedCount: count });
     }

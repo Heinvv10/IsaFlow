@@ -157,7 +157,7 @@ function getPool(): Pool {
 }
 
 // Type for a transaction-scoped sql tagged-template function
-type TxSql = (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]>;
+export type TxSql = (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]>;
 
 export async function withTransaction<T>(fn: (tx: TxSql) => Promise<T>): Promise<T> {
   const pool = getPool();

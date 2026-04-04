@@ -101,19 +101,19 @@ export default function SageAutoImportPage() {
         return;
       }
 
-      // Try direct evaluation via the sage window
-      try {
-        // This will only work if same-origin (won't work cross-domain)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const result = (sageWindow as any).eval(script);
-        if (result && typeof result.then === 'function') {
-          result.then(resolve).catch(reject);
-        } else {
-          resolve(result);
-        }
-      } catch {
-        reject(new Error('Cannot access Sage window — cross-origin restriction. Use the bookmarklet method instead.'));
-      }
+      // Cross-origin eval is not possible: accounting.sageone.co.za is a
+      // different origin from ISAFlow. Browsers block window.eval() (and any
+      // property access) on cross-origin windows with a SecurityError.
+      // The eval() call that was here has been removed — it can never succeed.
+      //
+      // The only viable paths are:
+      //   1. Bookmarklet: the user runs a script manually inside the Sage tab
+      //      (see the "Bookmarklet Method" section below).
+      //   2. Browser extension: an extension with "all_urls" permission can
+      //      inject content scripts into the Sage domain.
+      //   3. Server-side proxy: the user supplies session cookies and ISAFlow
+      //      proxies requests to the Sage API server-side.
+      reject(new Error('Cannot access Sage window — cross-origin restriction. Use the bookmarklet method instead.'));
     });
   }, [sageWindow]);
 

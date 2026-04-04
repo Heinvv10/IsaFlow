@@ -63,10 +63,10 @@ export async function importBankStatement(
     await transaction((txSql) =>
       parseResult.transactions.map(tx => txSql`
         INSERT INTO bank_transactions (
-          bank_account_id, transaction_date, value_date, amount,
+          company_id, bank_account_id, transaction_date, value_date, amount,
           description, reference, import_batch_id
         ) VALUES (
-          ${bankAccountId}::UUID, ${tx.transactionDate}, ${tx.valueDate || null},
+          ${companyId}::UUID, ${bankAccountId}::UUID, ${tx.transactionDate}, ${tx.valueDate || null},
           ${tx.amount}, ${tx.description}, ${tx.reference || null}, ${batchId}::UUID
         )
       `)
@@ -107,10 +107,10 @@ export async function importParsedTransactions(
     await transaction((txSql) =>
       parseResult.transactions.map(tx => txSql`
         INSERT INTO bank_transactions (
-          bank_account_id, transaction_date, value_date, amount,
+          company_id, bank_account_id, transaction_date, value_date, amount,
           description, reference, import_batch_id
         ) VALUES (
-          ${bankAccountId}::UUID, ${tx.transactionDate}, ${tx.valueDate || null},
+          ${companyId}::UUID, ${bankAccountId}::UUID, ${tx.transactionDate}, ${tx.valueDate || null},
           ${tx.amount}, ${tx.description}, ${tx.reference || null}, ${batchId}::UUID
         )
       `)

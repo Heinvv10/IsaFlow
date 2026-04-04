@@ -8,6 +8,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { sql } from '@/lib/neon';
 import {
   getConsolidatedTrialBalance,
   getConsolidatedIncomeStatement,
@@ -25,8 +26,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const action = (req.query.action || req.body?.action) as string | undefined;
   const groupId = req.query.group_id as string;
 
+  // Verify user belongs to at least one company in this group
+  async function verifyGroupAccess(gId: string): Promise<boolean> {
+    const rows = (await sql`
+      SELECT 1 FROM company_group_members cgm
+      JOIN company_users cu ON cu.company_id = cgm.company_id
+      WHERE cgm.group_id = ${gId}::UUID AND cu.user_id = ${userId}::UUID
+      LIMIT 1
+    `) as Record<string, unknown>[];
+    return rows.length > 0;
+  }
+
   if (req.method === 'GET') {
     if (!groupId) return apiResponse.badRequest(res, 'group_id required');
+    if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
 
     if (action === 'trial-balance') {
       const periodStart = req.query.period_start as string;
@@ -69,6 +82,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'POST') {
     if (!groupId && !req.body.groupId) return apiResponse.badRequest(res, 'groupId required');
     const gId = groupId || req.body.groupId;
+    if (!(await verifyGroupAccess(gId))) return apiResponse.forbidden(res, 'Access denied to this group');
 
     if (action === 'create-elimination') {
       const { adjustmentType, description, periodStart, periodEnd, lines } = req.body;
