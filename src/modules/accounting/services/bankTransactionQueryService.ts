@@ -101,7 +101,7 @@ export async function getBankTransactions(
   filters?: BankTxFilters
 ): Promise<{ transactions: BankTransaction[]; total: number }> {
   try {
-    const limit = filters?.limit || 100;
+    const limit = Math.min(filters?.limit || 100, 200);
     const offset = filters?.offset || 0;
     let rows: Row[];
     let countRows: Row[];
@@ -127,17 +127,24 @@ export async function getBankTransactions(
       } else {
         statusArr = [filters.status];
       }
+      // SAFETY INVARIANT: txTypeCond, allocTypeCond, hasSuggCond are built from
+      // fixed string literals keyed on validated enum values — no user input is
+      // interpolated directly. The final `extra` fragment is therefore safe.
       const txTypeCond = filters.txType === 'spent' ? 'AND bt.amount < 0'
         : filters.txType === 'received' ? 'AND bt.amount > 0' : '';
       const validAllocTypes = ['account', 'supplier', 'customer'] as const;
-      const allocTypeCond = filters.allocType && validAllocTypes.includes(filters.allocType as typeof validAllocTypes[number])
-        ? `AND bt.allocation_type = '${filters.allocType}'` : '';
+      // Validate allocType against strict allowlist before building SQL fragment
+      const safeAllocType = filters.allocType && validAllocTypes.includes(filters.allocType as typeof validAllocTypes[number])
+        ? filters.allocType : null;
+      const allocTypeCond = safeAllocType ? `AND bt.allocation_type = '${safeAllocType}'` : '';
       const hasSuggCond = filters.hasSuggestion === 'yes'
         ? 'AND (bt.suggested_gl_account_id IS NOT NULL OR bt.suggested_supplier_id IS NOT NULL OR bt.suggested_client_id IS NOT NULL)'
         : filters.hasSuggestion === 'no'
           ? 'AND bt.suggested_gl_account_id IS NULL AND bt.suggested_supplier_id IS NULL AND bt.suggested_client_id IS NULL'
           : '';
+      // sortDir is strictly validated — only 'ASC' or 'DESC' are possible
       const sortDir = filters.sortOrder === 'asc' ? 'ASC' : 'DESC';
+      if (sortDir !== 'ASC' && sortDir !== 'DESC') throw new Error('Invalid sort direction');
       const extra = [txTypeCond, allocTypeCond, hasSuggCond].filter(Boolean).join(' ');
       rows = (await sql`${TX_SELECT}
         WHERE bt.bank_account_id = ${filters.bankAccountId}::UUID
@@ -190,12 +197,12 @@ export async function matchTransaction(
         UPDATE bank_transactions
         SET status = 'matched', matched_journal_line_id = ${journalLineId}::UUID,
             reconciliation_id = ${reconciliationId}::UUID
-        WHERE id = ${bankTxId}::UUID RETURNING *`) as Row[];
+        WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID RETURNING *`) as Row[];
     } else {
       rows = (await sql`
         UPDATE bank_transactions
         SET status = 'matched', matched_journal_line_id = ${journalLineId}::UUID
-        WHERE id = ${bankTxId}::UUID RETURNING *`) as Row[];
+        WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID RETURNING *`) as Row[];
     }
     if (rows.length === 0) throw new Error(`Bank transaction ${bankTxId} not found`);
     log.info('Matched bank transaction', { bankTxId, journalLineId }, 'accounting');
@@ -212,7 +219,7 @@ export async function unmatchTransaction(companyId: string, bankTxId: string): P
       UPDATE bank_transactions
       SET status = 'imported', matched_journal_line_id = NULL,
           allocation_type = NULL, allocated_entity_name = NULL
-      WHERE id = ${bankTxId}::UUID RETURNING *`) as Row[];
+      WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID RETURNING *`) as Row[];
     if (rows.length === 0) throw new Error(`Bank transaction ${bankTxId} not found`);
     log.info('Unmatched bank transaction', { bankTxId }, 'accounting');
     return mapTxRow(rows[0]!);
@@ -228,7 +235,7 @@ export async function excludeTransaction(
   try {
     const rows = (await sql`
       UPDATE bank_transactions SET status = 'excluded', exclude_reason = ${reason || null}
-      WHERE id = ${bankTxId}::UUID RETURNING *`) as Row[];
+      WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID RETURNING *`) as Row[];
     if (rows.length === 0) throw new Error(`Bank transaction ${bankTxId} not found`);
     log.info('Excluded bank transaction', { bankTxId, reason }, 'accounting');
     return mapTxRow(rows[0]!);
@@ -244,7 +251,8 @@ export async function deleteTransactions(companyId: string, bankTxIds: string[])
   try {
     const result = (await sql`
       DELETE FROM bank_transactions
-      WHERE id = ANY(${bankTxIds}::UUID[]) AND status = 'imported'`) as Row[];
+      WHERE id = ANY(${bankTxIds}::UUID[]) AND status = 'imported'
+        AND company_id = ${companyId}::UUID`) as Row[];
     const deleted = result.length ?? bankTxIds.length;
     log.info('Deleted bank transactions', { count: deleted, ids: bankTxIds }, 'accounting');
     return deleted;
@@ -260,7 +268,8 @@ export async function bulkAcceptTransactions(companyId: string, ids: string[]): 
   try {
     const result = (await sql`
       UPDATE bank_transactions SET status = 'matched', updated_at = NOW()
-      WHERE id = ANY(${ids}::UUID[]) AND status IN ('imported', 'allocated')`) as Row[];
+      WHERE id = ANY(${ids}::UUID[]) AND status IN ('imported', 'allocated')
+        AND company_id = ${companyId}::UUID`) as Row[];
     const count = (result as unknown as { count?: number }).count ?? ids.length;
     log.info('Bulk accepted bank transactions', { count, ids }, 'accounting');
     return count;

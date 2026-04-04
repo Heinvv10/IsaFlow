@@ -10,12 +10,18 @@ import { apiResponse } from '@/lib/apiResponse';
 import { verifyPassword, hashPassword, checkPasswordStrength } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { checkRateLimit } from '@/lib/rateLimit';
 type Row = Record<string, unknown>;
 
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method ?? 'unknown', ['POST']);
+  }
+
+  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
+  if (checkRateLimit(`change-password:${ip}`, { maxRequests: 5, windowMs: 15 * 60 * 1000 })) {
+    return res.status(429).json({ success: false, error: 'Too many attempts. Try again later.' });
   }
 
   const authReq = req as AuthenticatedNextApiRequest;

@@ -69,7 +69,7 @@ export async function getJournalEntries(companyId: string, filters?: JournalEntr
   total: number;
 }> {
   try {
-    const limit = filters?.limit || 50;
+    const limit = Math.min(filters?.limit || 50, 200);
     const offset = filters?.offset || 0;
 
     let rows: Row[];

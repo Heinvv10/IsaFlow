@@ -55,7 +55,9 @@ export function withErrorHandler<R extends NextApiRequest = NextApiRequest>(
     try {
       // Set CORS headers - restrict to known origins
       const allowedOrigins = [
-        'https://fin.fibreflow.app',
+        'https://app.isaflow.co.za',
+        'https://admin.isaflow.co.za',
+        'https://isaflow.co.za',
         ...(process.env.NODE_ENV === 'development'
           ? ['http://localhost:3101', 'http://localhost:3004']
           : []),
@@ -63,6 +65,7 @@ export function withErrorHandler<R extends NextApiRequest = NextApiRequest>(
       const origin = req.headers.origin;
       if (origin && allowedOrigins.includes(origin)) {
         res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Vary', 'Origin');
         res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
         res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
       }

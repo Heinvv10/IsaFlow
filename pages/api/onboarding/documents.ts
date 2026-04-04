@@ -33,6 +33,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'documents array is required');
   }
 
+  const ALLOWED_DOC_MIMES = ['application/pdf', 'image/jpeg', 'image/png', 'image/gif'];
+  for (const doc of documents) {
+    if (doc.mimeType && !ALLOWED_DOC_MIMES.includes(doc.mimeType)) {
+      return apiResponse.badRequest(res, `File type ${doc.mimeType} not allowed`);
+    }
+  }
+
   // Validate company membership
   const membership = (await sql`
     SELECT role FROM company_users

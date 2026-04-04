@@ -10,11 +10,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { getARAging } from '@/modules/accounting/services/arAgingService';
-
-/** Escape a string value for safe embedding in a CSV cell. */
-function csvCell(value: string): string {
-  return `"${value.replace(/"/g, '""')}"`;
-}
+import { csvCell } from '@/lib/csv';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);

@@ -120,8 +120,12 @@ export async function listSubscriptions(filters: {
   const page = Math.max(1, filters.page ?? 1);
   const limit = Math.min(100, Math.max(1, filters.limit ?? 25));
   const offset = (page - 1) * limit;
-  const sortCol = ALLOWED_SUB_SORT[filters.sort_by ?? ''] ?? 's.created_at';
-  const sortDir = filters.sort_dir === 'asc' ? sql`ASC` : sql`DESC`;
+  const sortColKey = filters.sort_by ?? '';
+  if (sortColKey && !ALLOWED_SUB_SORT[sortColKey]) throw new Error(`Invalid sort column: ${sortColKey}`);
+  const sortCol = ALLOWED_SUB_SORT[sortColKey] ?? 's.created_at';
+  const rawDir = (filters.sort_dir ?? 'desc').toUpperCase();
+  if (rawDir !== 'ASC' && rawDir !== 'DESC') throw new Error('Invalid sort direction');
+  const sortDir = rawDir === 'ASC' ? sql`ASC` : sql`DESC`;
   const search = filters.search ? `%${filters.search}%` : null;
 
   const [countRow] = await sql`
@@ -218,6 +222,8 @@ export async function createSubscription(data: {
   return id;
 }
 
+const ALLOWED_STATUSES = ['active', 'trial', 'past_due', 'cancelled', 'suspended'];
+
 export async function updateSubscription(
   subscriptionId: string,
   data: {
@@ -229,6 +235,9 @@ export async function updateSubscription(
   }
 ): Promise<void> {
   const { plan_id, billing_cycle, discount_percent, status, notes } = data;
+  if (status && !ALLOWED_STATUSES.includes(status)) {
+    throw new Error(`Invalid subscription status: ${status}`);
+  }
 
   await sql`
     UPDATE subscriptions SET

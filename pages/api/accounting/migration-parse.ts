@@ -40,7 +40,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const form = formidable({
     maxFileSize: 10 * 1024 * 1024,
     keepExtensions: true,
-    filter: (part) => !part.mimetype || ALLOWED_MIME_TYPES.includes(part.mimetype),
+    filter: (part) => !!part.mimetype && ALLOWED_MIME_TYPES.includes(part.mimetype),
   });
 
   const [fields, files] = await form.parse(req);
@@ -69,22 +69,26 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const src = source as MigrationSource;
 
-  if (fileType === 'accounts') {
-    const parsed = parseAccountsFile(src, fileContent);
-    const mapped = autoMapAccounts(src, parsed);
-    log.info('Parsed accounts file', { source: src, count: mapped.length }, 'migration');
-    return apiResponse.success(res, { parsed: mapped, count: mapped.length });
-  }
+  try {
+    if (fileType === 'accounts') {
+      const parsed = parseAccountsFile(src, fileContent);
+      const mapped = autoMapAccounts(src, parsed);
+      log.info('Parsed accounts file', { source: src, count: mapped.length }, 'migration');
+      return apiResponse.success(res, { parsed: mapped, count: mapped.length });
+    }
 
-  if (fileType === 'customers') {
-    const parsed = parseCustomersFile(src, fileContent);
-    log.info('Parsed customers file', { source: src, count: parsed.length }, 'migration');
+    if (fileType === 'customers') {
+      const parsed = parseCustomersFile(src, fileContent);
+      log.info('Parsed customers file', { source: src, count: parsed.length }, 'migration');
+      return apiResponse.success(res, { parsed, count: parsed.length });
+    }
+
+    const parsed = parseSuppliersFile(src, fileContent);
+    log.info('Parsed suppliers file', { source: src, count: parsed.length }, 'migration');
     return apiResponse.success(res, { parsed, count: parsed.length });
+  } finally {
+    try { fs.unlinkSync(uploadedFile.filepath); } catch { /* ignore cleanup errors */ }
   }
-
-  const parsed = parseSuppliersFile(src, fileContent);
-  log.info('Parsed suppliers file', { source: src, count: parsed.length }, 'migration');
-  return apiResponse.success(res, { parsed, count: parsed.length });
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -22,10 +22,16 @@ export function withAdmin(
   handler: (req: AuthenticatedNextApiRequest, res: NextApiResponse) => Promise<void>
 ): NextApiHandler {
   const rateLimitedHandler = async (req: NextApiRequest, res: NextApiResponse) => {
-    const ip =
-      (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim() ??
-      req.socket.remoteAddress ??
-      'unknown';
+    // Use the last x-forwarded-for entry (proxy-appended) to prevent client IP spoofing.
+    const forwarded = req.headers['x-forwarded-for'];
+    const ip = (() => {
+      if (forwarded) {
+        const raw = Array.isArray(forwarded) ? forwarded[0] ?? '' : forwarded;
+        const ips = raw.split(',').map((s: string) => s.trim());
+        return ips[ips.length - 1] || req.socket.remoteAddress || 'unknown';
+      }
+      return req.socket.remoteAddress || 'unknown';
+    })();
     const limited = checkRateLimit(`admin:${ip}`, { windowMs: 60000, maxRequests: 30 });
     if (limited) {
       res.status(429).json({

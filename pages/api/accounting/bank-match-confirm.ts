@@ -93,7 +93,7 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
             balance = ${newBalance}::NUMERIC,
             status = ${newStatus},
             updated_at = NOW()
-        WHERE id = ${candidateId}::UUID
+        WHERE id = ${candidateId}::UUID AND company_id = ${companyId}::UUID
       `;
 
       log.info('Confirmed match: supplier invoice', {
@@ -130,7 +130,7 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
             status = ${newStatus},
             paid_at = ${newStatus === 'paid' ? new Date().toISOString() : null},
             updated_at = NOW()
-        WHERE id = ${candidateId}::UUID
+        WHERE id = ${candidateId}::UUID AND company_id = ${companyId}::UUID
       `;
 
       log.info('Confirmed match: customer invoice', {
@@ -154,7 +154,7 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
 
       await sql`
         UPDATE purchase_orders SET status = 'paid', updated_at = NOW()
-        WHERE id = ${candidateId}::UUID
+        WHERE id = ${candidateId}::UUID AND company_id = ${companyId}::UUID
       `;
 
       log.info('Confirmed match: purchase order', { bankTransactionId, candidateId }, 'accounting-api');

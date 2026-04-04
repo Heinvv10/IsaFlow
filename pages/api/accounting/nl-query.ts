@@ -8,6 +8,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { checkRateLimit } from '@/lib/rateLimit';
 import {
   buildTextToSQLPrompt, parseSQLResponse, validateGeneratedSQL,
   formatQueryResult, buildSchemaDescription, classifyQueryIntent,
@@ -34,6 +35,11 @@ const SCHEMA_TABLES: SchemaTable[] = [
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
 
+  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
+  if (checkRateLimit(`nl-query:${ip}`, { maxRequests: 30, windowMs: 15 * 60 * 1000 })) {
+    return res.status(429).json({ success: false, error: 'Rate limit exceeded' });
+  }
+
   const { question } = req.body;
   if (!question || typeof question !== 'string' || question.trim().length < 3) {
     return apiResponse.badRequest(res, 'Please ask a question (minimum 3 characters)');
@@ -58,19 +64,27 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 512,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
+    const aiAbort = new AbortController();
+    const aiTimeout = setTimeout(() => aiAbort.abort(), 10_000);
+    let response: Response;
+    try {
+      response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 512,
+          messages: [{ role: 'user', content: prompt }],
+        }),
+        signal: aiAbort.signal,
+      });
+    } finally {
+      clearTimeout(aiTimeout);
+    }
 
     if (!response.ok) {
       return apiResponse.success(res, { intent, message: 'AI service unavailable', rows: [], columns: [], summary: 'Service error' });

@@ -43,6 +43,9 @@ const MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024;
 /** Allowed MIME types derived from the data URL header */
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'application/pdf'];
 
+/** Magic-byte signatures for server-side MIME validation (attacker cannot spoof these) */
+const ALLOWED_ATTACHMENT_MIMES = ['image/jpeg', 'image/png', 'image/gif', 'application/pdf'];
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /** Extract the MIME type from a base64 data URL string */
@@ -99,10 +102,14 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, 'fileData (base64 data URL) is required');
     }
 
-    // Validate MIME type
+    // Validate MIME type against data URL header
     const mime = extractMime(fileData);
     if (!mime || !ALLOWED_MIME_TYPES.includes(mime)) {
       return apiResponse.badRequest(res, `File type not allowed. Accepted: ${ALLOWED_MIME_TYPES.join(', ')}`);
+    }
+    // Secondary allowlist check — attacker-controlled data URL cannot bypass this
+    if (!ALLOWED_ATTACHMENT_MIMES.includes(mime)) {
+      return apiResponse.badRequest(res, `File type ${mime} not allowed`);
     }
 
     // Validate file size

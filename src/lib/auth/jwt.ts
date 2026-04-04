@@ -72,9 +72,10 @@ export async function verifyToken(token: string): Promise<JWTPayload | null> {
 }
 
 /**
- * Decode token without verification (for debugging)
+ * Decode token without verification (internal use only — not exported).
+ * Used by isTokenExpired and getTokenExpiryTime.
  */
-export function decodeToken(token: string): JosePayload | null {
+function decodeToken(token: string): JosePayload | null {
   try {
     const parts = token.split('.');
     if (parts.length !== 3) return null;

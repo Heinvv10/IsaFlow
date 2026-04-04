@@ -7,6 +7,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
+import { checkRateLimit } from '@/lib/rateLimit';
 import {
   buildNarrativePrompt, parseNarrativeResponse, buildVarianceCommentary, buildTrendAnalysis,
   type ReportData, type NarrativeTone, type VarianceItem, type TrendPoint,
@@ -14,6 +15,11 @@ import {
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
+
+  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
+  if (checkRateLimit(`ai-narrative:${ip}`, { maxRequests: 30, windowMs: 15 * 60 * 1000 })) {
+    return res.status(429).json({ success: false, error: 'Rate limit exceeded' });
+  }
 
   const { reportData, tone = 'professional', variances, trends } = req.body as {
     reportData: ReportData; tone?: NarrativeTone;

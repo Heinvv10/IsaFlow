@@ -9,6 +9,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { getTrialBalance } from '@/modules/accounting/services/journalEntryService';
+import { csvCell } from '@/lib/csv';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
@@ -25,9 +26,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const csvLines = [
       'Account Code,Account Name,Account Type,Normal Balance,Debit,Credit',
       ...rows.map(r =>
-        `"${r.accountCode}","${r.accountName}","${r.accountType}","${r.normalBalance}",${r.debitBalance.toFixed(2)},${r.creditBalance.toFixed(2)}`
+        `${csvCell(r.accountCode)},${csvCell(r.accountName)},${csvCell(r.accountType)},${csvCell(r.normalBalance)},${r.debitBalance.toFixed(2)},${r.creditBalance.toFixed(2)}`
       ),
-      `"","TOTALS","","",${totalDebit.toFixed(2)},${totalCredit.toFixed(2)}`,
+      `${csvCell('')},${csvCell('TOTALS')},${csvCell('')},${csvCell('')},${totalDebit.toFixed(2)},${totalCredit.toFixed(2)}`,
     ];
 
     const csv = csvLines.join('\n');

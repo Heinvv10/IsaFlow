@@ -1,4 +1,3 @@
-import { sql } from '@/lib/neon';
 /**
  * Cash Flow Statement Export API
  * GET — export cash flow statement as CSV
@@ -12,17 +11,12 @@ import { sql } from '@/lib/neon';
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { sql } from '@/lib/neon';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
-
-
-/** Escape a value for CSV — wraps in double-quotes and escapes internal quotes. */
-function csvVal(value: string | number): string {
-  const str = String(value);
-  return `"${str.replace(/"/g, '""')}"`;
-}
+import { csvVal } from '@/lib/csv';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);

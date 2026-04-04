@@ -3,21 +3,12 @@
 -- All inserts use ON CONFLICT DO NOTHING to be safely re-runnable.
 
 -- ═══════════════════════════════════════════════════════════════════════════
--- Admin user: ensure admin@isaflow.co.za exists (E2E tests use this)
+-- REMOVED: demo admin seed (security risk)
+-- admin@isaflow.co.za with hardcoded bcrypt hash for 'admin123' removed.
+-- Create admin accounts through the secure invite flow instead.
 -- ═══════════════════════════════════════════════════════════════════════════
-INSERT INTO users (id, email, password_hash, first_name, last_name, role, permissions, is_active)
-VALUES (
-  'a0000000-0000-0000-0000-000000000001',
-  'admin@isaflow.co.za',
-  -- bcrypt hash for 'admin123' (cost 12)
-  '$2a$12$LJ3m4ys0qPbXFiRQGMDzFuTkfLQb7RqpM5xR1hTKqfCHxzWYWcGpq',
-  'Admin', 'User', 'super_admin', '["*"]'::jsonb, true
-) ON CONFLICT (email) DO NOTHING;
 
--- Link admin to default company
-INSERT INTO company_users (company_id, user_id, role, is_default)
-VALUES ('00000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'owner', true)
-ON CONFLICT DO NOTHING;
+-- REMOVED: company_users link for demo admin (see above)
 
 -- Also link the original admin
 INSERT INTO company_users (company_id, user_id, role, is_default)

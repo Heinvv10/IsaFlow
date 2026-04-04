@@ -84,25 +84,25 @@ export async function upsertBudget(companyId: string, input: BudgetInput, userId
 }
 
 export async function deleteBudget(companyId: string, id: string): Promise<void> {
-  await sql`DELETE FROM accounting_budgets WHERE id = ${id}::UUID`;
+  await sql`DELETE FROM accounting_budgets WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`;
 }
 
 export async function copyBudgets(companyId: string, fromYear: number, toYear: number, userId: string): Promise<number> {
   const existing = (await sql`
     SELECT gl_account_id, annual_amount,
            jan, feb, mar, apr, may, jun, jul, aug, sep, oct, nov, "dec", notes
-    FROM accounting_budgets WHERE fiscal_year = ${fromYear}
+    FROM accounting_budgets WHERE fiscal_year = ${fromYear} AND company_id = ${companyId}::UUID
   `) as Row[];
 
   let count = 0;
   for (const row of existing) {
     await sql`
       INSERT INTO accounting_budgets (
-        gl_account_id, fiscal_year, annual_amount,
+        company_id, gl_account_id, fiscal_year, annual_amount,
         jan, feb, mar, apr, may, jun, jul, aug, sep, oct, nov, "dec",
         notes, created_by
       ) VALUES (
-        ${row.gl_account_id}::UUID, ${toYear}, ${row.annual_amount},
+        ${companyId}::UUID, ${row.gl_account_id}::UUID, ${toYear}, ${row.annual_amount},
         ${row.jan}, ${row.feb}, ${row.mar}, ${row.apr},
         ${row.may}, ${row.jun}, ${row.jul}, ${row.aug},
         ${row.sep}, ${row.oct}, ${row.nov}, ${row.dec},

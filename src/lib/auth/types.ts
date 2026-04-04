@@ -17,6 +17,7 @@ export interface AuthUser {
   isActive: boolean;
   profilePicture?: string;
   department?: string;
+  mustChangePassword?: boolean;
 }
 
 export type AuthRole = 'super_admin' | 'admin' | 'manager' | 'storeman' | 'technician' | 'viewer' | 'system';

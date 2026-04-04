@@ -9,6 +9,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { csvCell } from '@/lib/csv';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
@@ -49,7 +50,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (format === 'csv') {
       const header = 'Item Code,Name,Category,PO Count,Qty Ordered,Total Cost,Avg Cost';
       const csvRows = data.map(r =>
-        `"${r.itemCode}","${r.name}","${r.category}",${r.poCount},${r.qtyOrdered},${r.totalCost.toFixed(2)},${r.avgCost.toFixed(2)}`
+        `${csvCell(r.itemCode)},${csvCell(r.name)},${csvCell(r.category)},${r.poCount},${r.qtyOrdered},${r.totalCost.toFixed(2)},${r.avgCost.toFixed(2)}`
       );
       res.setHeader('Content-Type', 'text/csv');
       res.setHeader('Content-Disposition', `attachment; filename="purchases-by-item-${from}-${to}.csv"`);
