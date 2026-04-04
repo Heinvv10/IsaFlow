@@ -4,12 +4,17 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { createHash } from 'crypto';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth/middleware';
 import { serialize } from 'cookie';
 type Row = Record<string, unknown>;
+
+function hashToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
 
 
 function maskEmail(email: string): string {
@@ -27,6 +32,8 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'Token is required');
   }
 
+  const tokenHash = hashToken(token);
+
   const rows = (await sql`
     SELECT
       ci.email,
@@ -36,7 +43,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     FROM company_invitations ci
     JOIN companies c ON c.id = ci.company_id
     LEFT JOIN users u ON u.id = ci.invited_by
-    WHERE ci.token = ${token}
+    WHERE ci.token = ${tokenHash}
       AND ci.accepted_at IS NULL
       AND ci.expires_at > NOW()
     LIMIT 1
@@ -66,11 +73,12 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'Token is required');
   }
 
-  // Look up the invitation
+  // Look up the invitation using the hashed token
+  const tokenHash = hashToken(token);
   const rows = (await sql`
     SELECT id, company_id, email, role
     FROM company_invitations
-    WHERE token = ${token}
+    WHERE token = ${tokenHash}
       AND accepted_at IS NULL
       AND expires_at > NOW()
     LIMIT 1
@@ -109,7 +117,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
   // Set the onboarding-done cookie so middleware stops redirecting
   const cookieStr = serialize('ff_onboarding_done', '1', {
-    httpOnly: false,
+    httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
     path: '/',

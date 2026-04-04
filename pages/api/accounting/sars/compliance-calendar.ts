@@ -9,7 +9,8 @@ import { calculateComplianceDeadlines } from '@/modules/accounting/services/sars
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
-  const year = Number(req.query.year) || new Date().getFullYear();
+  const parsedYear = Number(req.query.year);
+  const year = parsedYear >= 2000 && parsedYear <= 2100 ? parsedYear : new Date().getFullYear();
   const deadlines = calculateComplianceDeadlines(year);
   return apiResponse.success(res, { year, deadlines, total: deadlines.length });
 }

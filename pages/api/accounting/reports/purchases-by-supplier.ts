@@ -15,9 +15,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
 
   try {
-    const from = (req.query.from as string) || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
-    const to = (req.query.to as string) || new Date().toISOString().split('T')[0];
-    const format = req.query.format as string;
+    const from = (typeof req.query.from === 'string' ? req.query.from : null) || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
+    const to = (typeof req.query.to === 'string' ? req.query.to : null) || new Date().toISOString().split('T')[0];
+    const format = typeof req.query.format === 'string' ? req.query.format : undefined;
 
     const { companyId } = req as CompanyApiRequest;
     const rows = await sql`

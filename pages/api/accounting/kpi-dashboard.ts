@@ -40,7 +40,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const to = req.query.to
       ? String(req.query.to)
       : now.toISOString().slice(0, 10);
-    const months = req.query.months ? Number(req.query.months) : 6;
+    const months = Math.max(1, Math.min(Number(req.query.months) || 6, 120));
 
     const [kpis, revenueChart, cashFlowChart, arAging, apAging, topCustomers, topExpenses] =
       await Promise.all([

@@ -20,10 +20,12 @@ export interface VlmConfig {
 export function getVlmConfig(): VlmConfig | null {
   const baseUrl = process.env.VLLM_BASE_URL;
   if (!baseUrl) return null;
+  const apiKey = process.env.VLLM_API_KEY;
+  if (!apiKey) throw new Error('VLLM_API_KEY is not configured');
   return {
     baseUrl: baseUrl.replace(/\/+$/, ''),
     model: process.env.VLLM_MODEL || 'Qwen/Qwen3-VL-8B',
-    apiKey: process.env.VLLM_API_KEY || 'EMPTY',
+    apiKey,
     timeout: parseInt(process.env.VLLM_TIMEOUT || '120000', 10),
   };
 }
