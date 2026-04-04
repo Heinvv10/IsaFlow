@@ -105,6 +105,13 @@ export interface Company {
   // Ageing
   ageingMonthly: boolean;
   ageingBasedOn: string;
+  // Org classification
+  industry: string | null;
+  businessStructure: string | null;
+  // Social media
+  socialFacebook: string | null;
+  socialLinkedin: string | null;
+  socialX: string | null;
 }
 
 export interface CompanyUser {
@@ -264,6 +271,11 @@ export async function updateCompany(id: string, input: Partial<Record<string, un
       display_inactive_bundles = COALESCE(${v('displayInactiveBundles') ?? null}, display_inactive_bundles),
       ageing_monthly = COALESCE(${v('ageingMonthly') ?? null}, ageing_monthly),
       ageing_based_on = COALESCE(${v('ageingBasedOn') ?? null}, ageing_based_on),
+      industry = COALESCE(${v('industry') ?? null}, industry),
+      business_structure = COALESCE(${v('businessStructure') ?? null}, business_structure),
+      social_facebook = COALESCE(${v('socialFacebook') ?? null}, social_facebook),
+      social_linkedin = COALESCE(${v('socialLinkedin') ?? null}, social_linkedin),
+      social_x = COALESCE(${v('socialX') ?? null}, social_x),
       updated_at = NOW()
     WHERE id = ${id}::UUID RETURNING *
   `) as Row[];
@@ -403,6 +415,13 @@ function mapCompany(r: Row): Company {
     // Ageing
     ageingMonthly: r.ageing_monthly ?? true,
     ageingBasedOn: r.ageing_based_on ?? 'invoice_date',
+    // Org classification
+    industry: r.industry ?? null,
+    businessStructure: r.business_structure ?? null,
+    // Social media
+    socialFacebook: r.social_facebook ?? null,
+    socialLinkedin: r.social_linkedin ?? null,
+    socialX: r.social_x ?? null,
   };
 }
 

@@ -11,6 +11,7 @@ import { ProgressBar } from '@/components/ui/ProgressBar';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/utils/cn';
 import { SETUP_CATEGORIES, TOTAL_TASK_COUNT, type SetupTask } from './setupGuideConfig';
+import { DemoCompanyCTA } from './DemoCompanyCTA';
 
 // ─── Props ───────────────────────────────────────────────────────────────────
 
@@ -215,8 +216,13 @@ export function SetupGuideDrawer({ open, onClose, completedTasks, onMarkDone }: 
         ))}
       </div>
 
+      {/* Demo company CTA */}
+      <div className="mt-4">
+        <DemoCompanyCTA message="Want to explore first? Try our demo company with sample data." />
+      </div>
+
       {/* Footer */}
-      <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+      <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
         <Button variant="ghost" size="sm" onClick={onClose} className="w-full">
           Close guide
         </Button>

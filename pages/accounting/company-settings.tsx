@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Building2, Save, Loader2, AlertCircle, CheckCircle2, Upload, Trash2, Download, FileText, Lock, FileDigit, Settings2, Receipt, Palette } from 'lucide-react';
+import { Building2, Save, Loader2, AlertCircle, CheckCircle2, Upload, Trash2, Download, FileText, Lock, FileDigit, Settings2, Receipt, Palette, Layers } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
 
@@ -102,6 +102,13 @@ interface Company {
   // Ageing
   ageingMonthly: boolean;
   ageingBasedOn: string;
+  // Org classification
+  industry: string | null;
+  businessStructure: string | null;
+  // Social media
+  socialFacebook: string | null;
+  socialLinkedin: string | null;
+  socialX: string | null;
 }
 
 interface DocumentNumber {
@@ -173,6 +180,24 @@ const SUPPLIER_MSG_TYPES = [
   { key: 'msg_supplier_input_tax_adj', label: 'Input Tax Adjustment' },
 ];
 
+const INDUSTRIES = [
+  'Accounting & Financial Services', 'Agriculture', 'Automotive', 'Construction',
+  'Education', 'Engineering', 'Healthcare', 'Hospitality', 'Information Technology',
+  'Legal', 'Manufacturing', 'Mining', 'Property', 'Retail',
+  'Telecommunications', 'Transport & Logistics', 'Other',
+];
+
+const BUSINESS_STRUCTURES = [
+  { value: 'sole_proprietor', label: 'Sole Proprietor' },
+  { value: 'partnership', label: 'Partnership' },
+  { value: 'cc', label: 'Close Corporation (CC)' },
+  { value: 'pty_ltd', label: 'Private Company (Pty Ltd)' },
+  { value: 'ltd', label: 'Public Company (Ltd)' },
+  { value: 'npc', label: 'Non-Profit Organisation (NPC)' },
+  { value: 'trust', label: 'Trust' },
+  { value: 'other', label: 'Other' },
+];
+
 const ENTITY_TYPES = [
   { value: 'company', label: 'Company (Pty Ltd)' },
   { value: 'cc', label: 'Close Corporation (CC)' },
@@ -187,7 +212,7 @@ const INPUT_CLS = 'w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border 
 const LABEL_CLS = 'block text-xs font-medium text-[var(--ff-text-secondary)] mb-1';
 const SECTION_CLS = 'bg-[var(--ff-surface-primary)] border border-[var(--ff-border-primary)] rounded-xl p-6';
 
-type TabId = 'details' | 'general' | 'vat' | 'documents' | 'branding';
+type TabId = 'details' | 'general' | 'vat' | 'documents' | 'branding' | 'dimensions';
 
 const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: 'details', label: 'Company Details', icon: <Building2 className="h-4 w-4" /> },
@@ -195,6 +220,7 @@ const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: 'vat', label: 'VAT Settings', icon: <Receipt className="h-4 w-4" /> },
   { id: 'documents', label: 'Documents & Statements', icon: <FileDigit className="h-4 w-4" /> },
   { id: 'branding', label: 'Branding', icon: <Palette className="h-4 w-4" /> },
+  { id: 'dimensions', label: 'Dimensions', icon: <Layers className="h-4 w-4" /> },
 ];
 
 // ── Toggle Component ─────────────────────────────────────────────────────────
@@ -230,6 +256,11 @@ export default function CompanySettingsPage() {
   // Logo
   const [uploadingLogo, setUploadingLogo] = useState(false);
 
+  // Dimensions
+  const [enableCC, setEnableCC] = useState(false);
+  const [enableBU, setEnableBU] = useState(false);
+  const [dimLoaded, setDimLoaded] = useState(false);
+
   // Documents
   const [documents, setDocuments] = useState<CompanyDocument[]>([]);
   const [uploadingDoc, setUploadingDoc] = useState(false);
@@ -240,6 +271,21 @@ export default function CompanySettingsPage() {
 
   // Messages
   const [messages, setMessages] = useState<Record<string, string>>({});
+
+  // Physical address — "same as postal" UI toggle (pure client state)
+  const [physicalSameAsPostal, setPhysicalSameAsPostal] = useState(false);
+
+  // Document display fields
+  const [docDisplayFields, setDocDisplayFields] = useState<Record<string, boolean>>({
+    registrationNumber: true,
+    vatNumber: true,
+    companyDirectors: false,
+    physicalAddress: false,
+    phoneNumber: true,
+    emailAddress: true,
+    website: false,
+    socialMediaLinks: false,
+  });
 
   // ── Fetchers ─────────────────────────────────────────────────────────────
 
@@ -330,6 +376,11 @@ export default function CompanySettingsPage() {
           displayInactiveBundles: c.displayInactiveBundles ?? c.display_inactive_bundles ?? false,
           ageingMonthly: c.ageingMonthly ?? c.ageing_monthly ?? true,
           ageingBasedOn: c.ageingBasedOn ?? c.ageing_based_on ?? 'invoice_date',
+          industry: c.industry ?? null,
+          businessStructure: c.businessStructure ?? c.business_structure ?? null,
+          socialFacebook: c.socialFacebook ?? c.social_facebook ?? null,
+          socialLinkedin: c.socialLinkedin ?? c.social_linkedin ?? null,
+          socialX: c.socialX ?? c.social_x ?? null,
         });
       }
     } catch {
@@ -369,14 +420,41 @@ export default function CompanySettingsPage() {
     } catch { /* supplementary */ }
   }, []);
 
+  const fetchDimensionSettings = useCallback(async () => {
+    try {
+      const [ccRes, buRes] = await Promise.all([
+        apiFetch('/api/accounting/accounting-settings?key=enable_cost_centres'),
+        apiFetch('/api/accounting/accounting-settings?key=enable_business_units'),
+      ]);
+      const ccJson = await ccRes.json();
+      const buJson = await buRes.json();
+      setEnableCC(ccJson.data?.value === 'true');
+      setEnableBU(buJson.data?.value === 'true');
+      setDimLoaded(true);
+    } catch { /* defaults to false */ setDimLoaded(true); }
+  }, []);
+
+  const fetchDocDisplayFields = useCallback(async () => {
+    try {
+      const res = await apiFetch('/api/accounting/accounting-settings?key=document_display_fields');
+      const json = await res.json();
+      if (json.data?.value) {
+        const parsed = JSON.parse(json.data.value as string) as Record<string, boolean>;
+        setDocDisplayFields(prev => ({ ...prev, ...parsed }));
+      }
+    } catch { /* keep defaults */ }
+  }, []);
+
   useEffect(() => {
     if (activeCompany?.id) {
       void fetchCompany(activeCompany.id);
       void fetchDocuments(activeCompany.id);
       void fetchDocNumbers();
       void fetchMessages();
+      void fetchDimensionSettings();
+      void fetchDocDisplayFields();
     }
-  }, [activeCompany?.id, fetchCompany, fetchDocuments, fetchDocNumbers, fetchMessages]);
+  }, [activeCompany?.id, fetchCompany, fetchDocuments, fetchDocNumbers, fetchMessages, fetchDimensionSettings, fetchDocDisplayFields]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
@@ -416,6 +494,13 @@ export default function CompanySettingsPage() {
           body: JSON.stringify({ messages: msgArray }),
         });
       }
+
+      // Save document display fields
+      await apiFetch('/api/accounting/accounting-settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'document_display_fields', value: JSON.stringify(docDisplayFields) }),
+      });
 
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
@@ -583,6 +668,7 @@ export default function CompanySettingsPage() {
               {activeTab === 'vat' && renderVatTab()}
               {activeTab === 'documents' && renderDocumentsTab()}
               {activeTab === 'branding' && renderBrandingTab()}
+              {activeTab === 'dimensions' && renderDimensionsTab()}
             </div>
           </>
         ) : (
@@ -614,6 +700,20 @@ export default function CompanySettingsPage() {
                 {ENTITY_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
               </select>
             </div>
+            <div>
+              <label className={LABEL_CLS}>Industry</label>
+              <select className={INPUT_CLS} value={company.industry || ''} onChange={e => update('industry', e.target.value || null)}>
+                <option value="">Select industry...</option>
+                {INDUSTRIES.map(ind => <option key={ind} value={ind}>{ind}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={LABEL_CLS}>Business Structure</label>
+              <select className={INPUT_CLS} value={company.businessStructure || ''} onChange={e => update('businessStructure', e.target.value || null)}>
+                <option value="">Select structure...</option>
+                {BUSINESS_STRUCTURES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+              </select>
+            </div>
             <div><label className={LABEL_CLS}>Contact Name</label><input className={INPUT_CLS} value={company.contactName || ''} onChange={e => update('contactName', e.target.value)} /></div>
             <div><label className={LABEL_CLS}>Email</label><input type="email" className={INPUT_CLS} value={company.email || ''} onChange={e => update('email', e.target.value)} /></div>
             <div><label className={LABEL_CLS}>Phone</label><input className={INPUT_CLS} value={company.phone || ''} onChange={e => update('phone', e.target.value)} /></div>
@@ -640,16 +740,53 @@ export default function CompanySettingsPage() {
           </div>
         </section>
 
+        {/* Social Media */}
+        <section className={SECTION_CLS}>
+          <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-4">Social Media Links</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div><label className={LABEL_CLS}>Facebook URL</label><input className={INPUT_CLS} value={company.socialFacebook || ''} onChange={e => update('socialFacebook', e.target.value || null)} placeholder="https://facebook.com/yourpage" /></div>
+            <div><label className={LABEL_CLS}>LinkedIn URL</label><input className={INPUT_CLS} value={company.socialLinkedin || ''} onChange={e => update('socialLinkedin', e.target.value || null)} placeholder="https://linkedin.com/company/yourcompany" /></div>
+            <div><label className={LABEL_CLS}>X (Twitter) URL</label><input className={INPUT_CLS} value={company.socialX || ''} onChange={e => update('socialX', e.target.value || null)} placeholder="https://x.com/yourhandle" /></div>
+          </div>
+        </section>
+
         {/* Physical Address */}
         <section className={SECTION_CLS}>
           <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-4">Physical Address</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="md:col-span-2"><label className={LABEL_CLS}>Address Line 1</label><input className={INPUT_CLS} value={company.physicalAddressLine1 || ''} onChange={e => update('physicalAddressLine1', e.target.value)} /></div>
-            <div className="md:col-span-2"><label className={LABEL_CLS}>Address Line 2</label><input className={INPUT_CLS} value={company.physicalAddressLine2 || ''} onChange={e => update('physicalAddressLine2', e.target.value)} /></div>
-            <div><label className={LABEL_CLS}>City</label><input className={INPUT_CLS} value={company.physicalCity || ''} onChange={e => update('physicalCity', e.target.value)} /></div>
-            <div><label className={LABEL_CLS}>Province</label><input className={INPUT_CLS} value={company.physicalProvince || ''} onChange={e => update('physicalProvince', e.target.value)} /></div>
-            <div><label className={LABEL_CLS}>Postal Code</label><input className={INPUT_CLS} value={company.physicalPostalCode || ''} onChange={e => update('physicalPostalCode', e.target.value)} /></div>
-          </div>
+          <label className="flex items-center gap-2 mb-4 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={physicalSameAsPostal}
+              onChange={e => {
+                const checked = e.target.checked;
+                setPhysicalSameAsPostal(checked);
+                if (checked) {
+                  setCompany(prev => prev ? {
+                    ...prev,
+                    physicalAddressLine1: prev.addressLine1,
+                    physicalAddressLine2: prev.addressLine2,
+                    physicalCity: prev.city,
+                    physicalProvince: prev.province,
+                    physicalPostalCode: prev.postalCode,
+                  } : prev);
+                }
+              }}
+              className="h-4 w-4 accent-teal-500"
+            />
+            <span className="text-sm text-[var(--ff-text-secondary)]">Same as postal address</span>
+          </label>
+          {!physicalSameAsPostal && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="md:col-span-2"><label className={LABEL_CLS}>Address Line 1</label><input className={INPUT_CLS} value={company.physicalAddressLine1 || ''} onChange={e => update('physicalAddressLine1', e.target.value)} /></div>
+              <div className="md:col-span-2"><label className={LABEL_CLS}>Address Line 2</label><input className={INPUT_CLS} value={company.physicalAddressLine2 || ''} onChange={e => update('physicalAddressLine2', e.target.value)} /></div>
+              <div><label className={LABEL_CLS}>City</label><input className={INPUT_CLS} value={company.physicalCity || ''} onChange={e => update('physicalCity', e.target.value)} /></div>
+              <div><label className={LABEL_CLS}>Province</label><input className={INPUT_CLS} value={company.physicalProvince || ''} onChange={e => update('physicalProvince', e.target.value)} /></div>
+              <div><label className={LABEL_CLS}>Postal Code</label><input className={INPUT_CLS} value={company.physicalPostalCode || ''} onChange={e => update('physicalPostalCode', e.target.value)} /></div>
+            </div>
+          )}
+          {physicalSameAsPostal && (
+            <p className="text-sm text-[var(--ff-text-tertiary)]">Physical address will mirror the postal address above.</p>
+          )}
         </section>
 
         {/* Statutory Information */}
@@ -1007,6 +1144,105 @@ export default function CompanySettingsPage() {
             ))}
           </div>
         </section>
+
+        {/* Information displayed on documents */}
+        <section className={SECTION_CLS}>
+          <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-1">Information displayed on documents</h2>
+          <p className="text-xs text-[var(--ff-text-tertiary)] mb-4">Choose which company details appear on generated invoices, statements, and other documents.</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {([
+              { key: 'registrationNumber', label: 'Registration Number' },
+              { key: 'vatNumber', label: 'VAT Number' },
+              { key: 'companyDirectors', label: 'Company Directors' },
+              { key: 'physicalAddress', label: 'Physical Address' },
+              { key: 'phoneNumber', label: 'Phone Number' },
+              { key: 'emailAddress', label: 'Email Address' },
+              { key: 'website', label: 'Website' },
+              { key: 'socialMediaLinks', label: 'Social Media Links' },
+            ] as { key: string; label: string }[]).map(field => (
+              <label key={field.key} className="flex items-center gap-3 cursor-pointer p-2 rounded-lg hover:bg-[var(--ff-bg-primary)] transition-colors">
+                <input
+                  type="checkbox"
+                  checked={docDisplayFields[field.key] ?? false}
+                  onChange={e => setDocDisplayFields(prev => ({ ...prev, [field.key]: e.target.checked }))}
+                  className="h-4 w-4 accent-teal-500"
+                />
+                <span className="text-sm text-[var(--ff-text-primary)]">{field.label}</span>
+              </label>
+            ))}
+          </div>
+        </section>
+      </>
+    );
+  }
+
+  async function saveDimensionSetting(key: string, value: boolean) {
+    try {
+      await apiFetch('/api/accounting/accounting-settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, value: String(value) }),
+      });
+    } catch { /* ignore */ }
+  }
+
+  function renderDimensionsTab() {
+    return (
+      <>
+        <div className={SECTION_CLS}>
+          <h3 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-1">Reporting Dimensions</h3>
+          <p className="text-sm text-[var(--ff-text-secondary)] mb-6">
+            Enable cost centre and business unit tracking to tag transactions and filter reports by these dimensions.
+          </p>
+
+          {!dimLoaded ? (
+            <div className="flex items-center gap-2 text-[var(--ff-text-tertiary)]"><Loader2 className="h-4 w-4 animate-spin" /> Loading...</div>
+          ) : (
+            <div className="space-y-6">
+              {/* Cost Centres */}
+              <div className="flex items-start justify-between gap-4 p-4 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)]">
+                <div>
+                  <h4 className="text-sm font-semibold text-[var(--ff-text-primary)]">Cost Centre Tracking (CC1 & CC2)</h4>
+                  <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">
+                    CC1 is typically used for client or division-level tracking. CC2 for project or sub-division.
+                    Shows CC1 and CC2 columns on bank transactions, journal entries, and enables filtering on reports.
+                  </p>
+                  {enableCC && (
+                    <a href="/accounting/cost-centres" className="text-xs text-blue-400 hover:text-blue-300 mt-2 inline-block">
+                      Manage Cost Centres →
+                    </a>
+                  )}
+                </div>
+                <Toggle
+                  checked={enableCC}
+                  onChange={(v) => { setEnableCC(v); void saveDimensionSetting('enable_cost_centres', v); }}
+                  label=""
+                />
+              </div>
+
+              {/* Business Units */}
+              <div className="flex items-start justify-between gap-4 p-4 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)]">
+                <div>
+                  <h4 className="text-sm font-semibold text-[var(--ff-text-primary)]">Business Unit Tracking</h4>
+                  <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">
+                    Tag transactions by department or business unit. Shows a BU column on bank transactions and journal entries,
+                    and enables BU filtering on financial reports.
+                  </p>
+                  {enableBU && (
+                    <a href="/accounting/business-units" className="text-xs text-blue-400 hover:text-blue-300 mt-2 inline-block">
+                      Manage Business Units →
+                    </a>
+                  )}
+                </div>
+                <Toggle
+                  checked={enableBU}
+                  onChange={(v) => { setEnableBU(v); void saveDimensionSetting('enable_business_units', v); }}
+                  label=""
+                />
+              </div>
+            </div>
+          )}
+        </div>
       </>
     );
   }
