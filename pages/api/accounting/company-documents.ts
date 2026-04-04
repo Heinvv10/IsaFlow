@@ -14,7 +14,7 @@ import { sql } from '@/lib/neon';
 import { isVlmAvailable } from '@/modules/accounting/services/vlmService';
 import { extractStatutoryDocWithVlm } from '@/modules/accounting/services/vlmService';
 import { log } from '@/lib/logger';
-type Row = any;
+type Row = Record<string, unknown>;
 
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -40,19 +40,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         WHERE id = ${req.query.id as string}::UUID AND is_active = true
       `) as Row[];
       if (rows.length === 0) return apiResponse.notFound(res, 'Document');
-      const doc = rows[0];
-      if (!(await validateMembership(doc.company_id))) {
+      const doc = rows[0]!;
+      if (!(await validateMembership(String(doc.company_id)))) {
         return apiResponse.forbidden(res, 'You do not have access to this company');
       }
       return apiResponse.success(res, {
-        id: doc.id,
-        documentType: doc.document_type,
-        documentName: doc.document_name,
+        id: String(doc.id),
+        documentType: String(doc.document_type),
+        documentName: String(doc.document_name),
         fileData: doc.file_data,
-        mimeType: doc.mime_type,
+        mimeType: String(doc.mime_type),
         fileSize: doc.file_size,
         uploadedAt: doc.uploaded_at,
-        notes: doc.notes,
+        notes: doc.notes ?? null,
       });
     }
 
@@ -73,13 +73,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     return apiResponse.success(res, {
       items: rows.map((r: Row) => ({
-        id: r.id,
-        documentType: r.document_type,
-        documentName: r.document_name,
-        mimeType: r.mime_type,
+        id: String(r.id),
+        documentType: String(r.document_type),
+        documentName: String(r.document_name),
+        mimeType: String(r.mime_type),
         fileSize: r.file_size,
         uploadedAt: r.uploaded_at,
-        notes: r.notes,
+        notes: r.notes ?? null,
       })),
     });
   }
@@ -106,7 +106,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       RETURNING id
     `) as Row[];
 
-    const docId = rows[0].id as string;
+    const docId = String(rows[0]!.id);
 
     // Fire-and-forget VLM extraction for statutory documents
     if (isVlmAvailable() && fileData) {
@@ -128,7 +128,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       WHERE id = ${docId}::UUID AND is_active = true
     `) as Row[];
     if (rows.length === 0) return apiResponse.notFound(res, 'Document');
-    if (!(await validateMembership(rows[0].company_id))) {
+    if (!(await validateMembership(String(rows[0]!.company_id)))) {
       return apiResponse.forbidden(res, 'You do not have access to this company');
     }
 

@@ -5,7 +5,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-type Row = any;
+type Row = Record<string, unknown>;
 
 
 export interface ItemFilters {
@@ -213,7 +213,7 @@ export async function createItem(companyId: string, input: CreateItemInput): Pro
   ` as Row[];
 
   log.info('Item created', { code, description: input.description, companyId }, 'accounting');
-  return inserted[0];
+  return inserted[0]!;
 }
 
 export async function updateItem(companyId: string, input: UpdateItemInput): Promise<Row> {
@@ -247,7 +247,7 @@ export async function updateItem(companyId: string, input: UpdateItemInput): Pro
   ` as Row[];
 
   log.info('Item updated', { id, companyId }, 'accounting');
-  return updated[0];
+  return updated[0]!;
 }
 
 export async function softDeleteItem(companyId: string, itemId: string): Promise<void> {

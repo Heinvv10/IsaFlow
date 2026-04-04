@@ -9,7 +9,7 @@ import { createJournalEntry, postJournalEntry } from './journalEntryService';
 import { getSystemAccountId } from './systemAccountResolver';
 import { updateSession, type ImportResult, type MigrationError } from './migrationService';
 import { matchContact } from './migrationImportService';
-type Row = any;
+type Row = Record<string, unknown>;
 
 
 export interface APInvoiceRow {
@@ -75,7 +75,7 @@ export async function importAPInvoices(
       `) as Row[];
 
       if (invRows.length === 0) { skipped++; continue; }
-      const invoiceId = String(invRows[0].id);
+      const invoiceId = String(invRows[0]!.id);
 
       // Post GL: DR Expense + VAT Input, CR Payable
       const journalLines = [

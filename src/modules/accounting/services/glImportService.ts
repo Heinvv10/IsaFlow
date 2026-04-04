@@ -6,7 +6,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { VatType } from '../types/gl.types';
-type Row = any;
+type Row = Record<string, unknown>;
 
 
 export interface ImportRow {
@@ -114,8 +114,8 @@ export async function validateImportRows(
       } else {
         // Check if date falls within an open fiscal period
         const inOpenPeriod = periodRows.some((p: Row) => {
-          const start = new Date(p.start_date);
-          const end = new Date(p.end_date);
+          const start = new Date(String(p.start_date));
+          const end = new Date(String(p.end_date));
           return parsedDate >= start && parsedDate <= end;
         });
         if (!inOpenPeriod) {
@@ -247,7 +247,7 @@ export async function importJournalEntries(
           AND end_date >= ${firstRow.date}::DATE
         LIMIT 1
       `) as Row[];
-      const fiscalPeriodId = periodRows.length > 0 ? String(periodRows[0].id) : null;
+      const fiscalPeriodId = periodRows.length > 0 ? String(periodRows[0]!.id) : null;
 
       const description = firstRow.reference
         ? `${firstRow.reference}: ${firstRow.description}`
@@ -274,7 +274,7 @@ export async function importJournalEntries(
         RETURNING id
       `) as Row[];
 
-      const entryId = String(entryInsert[0].id);
+      const entryId = String(entryInsert[0]!.id);
       entriesCreated++;
 
       for (const row of groupRows) {

@@ -6,7 +6,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { FiscalPeriod, FiscalPeriodStatus } from '../types/gl.types';
-type Row = any;
+type Row = Record<string, unknown>;
 
 
 export async function getFiscalPeriods(companyId: string, fiscalYear?: number): Promise<FiscalPeriod[]> {
@@ -31,10 +31,10 @@ export async function getFiscalPeriods(companyId: string, fiscalYear?: number): 
   }
 }
 
-export async function getFiscalPeriodById(id: string): Promise<FiscalPeriod | null> {
+export async function getFiscalPeriodById(companyId: string, id: string): Promise<FiscalPeriod | null> {
   try {
-    const rows = (await sql`SELECT * FROM fiscal_periods WHERE id = ${id}`) as Row[]; // NOTE: id-only lookup used internally — callers must ensure companyId scoping
-    return rows.length > 0 ? mapRow(rows[0]) : null;
+    const rows = (await sql`SELECT * FROM fiscal_periods WHERE id = ${id} AND company_id = ${companyId}`) as Row[];
+    return rows.length > 0 ? mapRow(rows[0]!) : null;
   } catch (err) {
     log.error('Failed to get fiscal period', { id, error: err }, 'accounting');
     throw err;
@@ -49,7 +49,7 @@ export async function getCurrentFiscalPeriod(companyId: string): Promise<FiscalP
         AND start_date <= CURRENT_DATE AND end_date >= CURRENT_DATE
       LIMIT 1
     `) as Row[];
-    return rows.length > 0 ? mapRow(rows[0]) : null;
+    return rows.length > 0 ? mapRow(rows[0]!) : null;
   } catch (err) {
     log.error('Failed to get current fiscal period', { error: err }, 'accounting');
     throw err;
@@ -61,7 +61,7 @@ export async function createFiscalYear(companyId: string, year: number): Promise
     const existing = (await sql`
       SELECT COUNT(*) AS cnt FROM fiscal_periods WHERE company_id = ${companyId} AND fiscal_year = ${year}
     `) as Row[];
-    if (Number(existing[0].cnt) > 0) {
+    if (Number(existing[0]!.cnt) > 0) {
       throw new Error(`Fiscal year ${year} already exists`);
     }
 
@@ -82,7 +82,7 @@ export async function createFiscalYear(companyId: string, year: number): Promise
         VALUES (${companyId}, ${months[i]! + ' ' + year}, ${periodNum}, ${year}, ${startDate}, ${endDate})
         RETURNING *
       `) as Row[];
-      periods.push(mapRow(rows[0]));
+      periods.push(mapRow(rows[0]!));
     }
 
     return periods;
@@ -94,7 +94,7 @@ export async function createFiscalYear(companyId: string, year: number): Promise
 
 export async function closePeriod(companyId: string, id: string, userId: string): Promise<FiscalPeriod> {
   try {
-    const period = await getFiscalPeriodById(id);
+    const period = await getFiscalPeriodById(companyId, id);
     if (!period) throw new Error(`Fiscal period ${id} not found`);
     if (period.status === 'locked') throw new Error('Cannot close a locked period');
     if (period.status === 'closed') throw new Error('Period is already closed');
@@ -106,7 +106,7 @@ export async function closePeriod(companyId: string, id: string, userId: string)
         AND period_number < ${period.periodNumber}
         AND status = 'open'
     `) as Row[];
-    if (Number(openPrior[0].cnt) > 0) {
+    if (Number(openPrior[0]!.cnt) > 0) {
       throw new Error('Cannot close period while prior periods are still open');
     }
 
@@ -116,7 +116,7 @@ export async function closePeriod(companyId: string, id: string, userId: string)
       WHERE id = ${id} AND company_id = ${companyId}
       RETURNING *
     `) as Row[];
-    return mapRow(rows[0]);
+    return mapRow(rows[0]!);
   } catch (err) {
     log.error('Failed to close period', { id, error: err }, 'accounting');
     throw err;
@@ -125,14 +125,14 @@ export async function closePeriod(companyId: string, id: string, userId: string)
 
 export async function lockPeriod(companyId: string, id: string): Promise<FiscalPeriod> {
   try {
-    const period = await getFiscalPeriodById(id);
+    const period = await getFiscalPeriodById(companyId, id);
     if (!period) throw new Error(`Fiscal period ${id} not found`);
     if (period.status !== 'closed') throw new Error('Period must be closed before locking');
 
     const rows = (await sql`
       UPDATE fiscal_periods SET status = 'locked' WHERE id = ${id} AND company_id = ${companyId} RETURNING *
     `) as Row[];
-    return mapRow(rows[0]);
+    return mapRow(rows[0]!);
   } catch (err) {
     log.error('Failed to lock period', { id, error: err }, 'accounting');
     throw err;
@@ -141,7 +141,7 @@ export async function lockPeriod(companyId: string, id: string): Promise<FiscalP
 
 export async function reopenPeriod(companyId: string, id: string): Promise<FiscalPeriod> {
   try {
-    const period = await getFiscalPeriodById(id);
+    const period = await getFiscalPeriodById(companyId, id);
     if (!period) throw new Error(`Fiscal period ${id} not found`);
     if (period.status === 'locked') throw new Error('Cannot reopen a locked period');
     if (period.status === 'open') throw new Error('Period is already open');
@@ -152,7 +152,7 @@ export async function reopenPeriod(companyId: string, id: string): Promise<Fisca
       WHERE id = ${id} AND company_id = ${companyId}
       RETURNING *
     `) as Row[];
-    return mapRow(rows[0]);
+    return mapRow(rows[0]!);
   } catch (err) {
     log.error('Failed to reopen period', { id, error: err }, 'accounting');
     throw err;

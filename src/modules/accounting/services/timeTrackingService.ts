@@ -5,7 +5,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-type Row = any;
+type Row = Record<string, unknown>;
 
 
 export interface TimeEntry {
@@ -130,7 +130,7 @@ export async function getTimeEntry(
     WHERE te.id = ${id}::UUID AND te.company_id = ${companyId}::UUID
   `) as Row[];
   if (!rows.length) return null;
-  return mapEntry(rows[0]);
+  return mapEntry(rows[0]!);
 }
 
 export async function createTimeEntry(
@@ -166,7 +166,7 @@ export async function updateTimeEntry(
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
   `) as Row[];
   if (!existing.length) throw new Error('Time entry not found');
-  if (existing[0].status !== 'draft') throw new Error('Only draft entries can be edited');
+  if (String(existing[0]!.status) !== 'draft') throw new Error('Only draft entries can be edited');
 
   const rows = (await sql`
     UPDATE time_entries SET
@@ -196,7 +196,7 @@ export async function deleteTimeEntry(
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
   `) as Row[];
   if (!existing.length) throw new Error('Time entry not found');
-  if (existing[0].status !== 'draft') throw new Error('Only draft entries can be deleted');
+  if (String(existing[0]!.status) !== 'draft') throw new Error('Only draft entries can be deleted');
 
   await sql`
     DELETE FROM time_entries

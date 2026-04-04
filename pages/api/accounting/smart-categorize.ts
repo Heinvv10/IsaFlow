@@ -16,7 +16,7 @@ import {
   learnFromAllocation,
 } from '@/modules/accounting/services/smartCategorizationService';
 import { sql } from '@/lib/neon';
-type Row = any;
+type Row = Record<string, unknown>;
 
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -39,7 +39,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         return apiResponse.notFound(res, 'Transaction', txId);
       }
 
-      const tx = txRows[0];
+      const tx = txRows[0]!;
       const result = await categorizeBankTransaction(companyId, {
         description: String(tx.description || ''),
         amount: Number(tx.amount),

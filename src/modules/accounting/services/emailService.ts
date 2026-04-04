@@ -9,7 +9,7 @@ import { sql } from '@/lib/neon';
 import { generateInvoicePdf } from './invoicePdfService';
 import { inviteEmailHtml, invoiceEmailHtml } from '@/lib/email-templates';
 import type { InviteEmailData, InvoiceEmailData } from '@/lib/email-templates';
-type Row = any;
+type Row = Record<string, unknown>;
 
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -155,8 +155,16 @@ export async function sendInvoiceEmail(companyId: string,
     throw new Error(`Invoice not found: ${invoiceId}`);
   }
 
-  const invoice = invoiceRows[0];
-  const balance = Number(invoice.total_amount) - Number(invoice.amount_paid || 0);
+  const invoiceRow = invoiceRows[0]!;
+  const invoice = {
+    invoice_number: String(invoiceRow.invoice_number ?? ''),
+    invoice_date: invoiceRow.invoice_date != null ? String(invoiceRow.invoice_date) : null,
+    due_date: invoiceRow.due_date != null ? String(invoiceRow.due_date) : null,
+    total_amount: Number(invoiceRow.total_amount),
+    amount_paid: Number(invoiceRow.amount_paid ?? 0),
+    client_name: invoiceRow.client_name != null ? String(invoiceRow.client_name) : null,
+  };
+  const balance = invoice.total_amount - invoice.amount_paid;
   const companyName = 'IsaFlow';
 
   // Generate PDF
@@ -168,7 +176,7 @@ export async function sendInvoiceEmail(companyId: string,
     clientName: invoice.client_name || 'Valued Customer',
     invoiceDate: fmtDate(invoice.invoice_date),
     dueDate: fmtDate(invoice.due_date),
-    totalAmount: fmtZAR(Number(invoice.total_amount)),
+    totalAmount: fmtZAR(invoice.total_amount),
     balanceDue: fmtZAR(balance),
     companyName,
   };

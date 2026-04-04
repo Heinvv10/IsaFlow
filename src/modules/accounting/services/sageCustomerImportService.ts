@@ -9,7 +9,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { MigrationRun } from './sageMigrationService';
 import { startRun, completeRun, failRun } from './sageMigrationService';
-type Row = any;
+type Row = Record<string, unknown>;
 
 
 /**
@@ -81,7 +81,7 @@ export async function importCustomerInvoices(companyId: string, userId: string):
           ) RETURNING id
         `) as Row[];
 
-        const newInvoiceId = String(newInv[0].id);
+        const newInvoiceId = String(newInv[0]!.id);
 
         // Insert line items from raw_data
         const lines = rawData?.Lines;

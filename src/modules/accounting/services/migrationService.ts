@@ -10,7 +10,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-type Row = any;
+type Row = Record<string, unknown>;
 
 
 // ── Shared types (re-exported for consumers) ─────────────────────────────────
@@ -55,7 +55,7 @@ export function mapSessionRow(r: Row): MigrationSession {
   return {
     id: String(r.id),
     companyId: String(r.company_id),
-    sourceSystem: r.source_system ?? null,
+    sourceSystem: r.source_system != null ? String(r.source_system) : null,
     status: r.status as MigrationStatus,
     stepsCompleted: (r.steps_completed as Record<string, boolean>) ?? {},
     coaRecordsImported: Number(r.coa_records_imported ?? 0),
@@ -70,7 +70,7 @@ export function mapSessionRow(r: Row): MigrationSession {
     completedAt: r.completed_at
       ? (r.completed_at instanceof Date ? r.completed_at.toISOString() : String(r.completed_at))
       : null,
-    notes: r.notes ?? null,
+    notes: r.notes != null ? String(r.notes) : null,
   };
 }
 
@@ -87,7 +87,7 @@ export async function createSession(
     RETURNING *
   `) as Row[];
   log.info('Migration session created', { companyId, sourceSystem }, 'migration');
-  return mapSessionRow(rows[0]);
+  return mapSessionRow(rows[0]!);
 }
 
 export async function getSession(
@@ -98,7 +98,7 @@ export async function getSession(
     SELECT * FROM migration_sessions
     WHERE id = ${sessionId}::UUID AND company_id = ${companyId}::UUID
   `) as Row[];
-  return rows.length > 0 ? mapSessionRow(rows[0]) : null;
+  return rows.length > 0 ? mapSessionRow(rows[0]!) : null;
 }
 
 export async function listSessions(companyId: string): Promise<MigrationSession[]> {
@@ -137,7 +137,7 @@ export async function updateSession(
     WHERE id = ${sessionId}::UUID AND company_id = ${companyId}::UUID
     RETURNING *
   `) as Row[];
-  return mapSessionRow(rows[0]);
+  return mapSessionRow(rows[0]!);
 }
 
 export async function completeSession(
@@ -151,5 +151,5 @@ export async function completeSession(
     RETURNING *
   `) as Row[];
   log.info('Migration session completed', { sessionId, companyId }, 'migration');
-  return mapSessionRow(rows[0]);
+  return mapSessionRow(rows[0]!);
 }

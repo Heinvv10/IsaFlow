@@ -10,7 +10,6 @@ import type {
   AdminCompanyListItem,
   AdminCompanyDetail,
   AdminListFilters,
-  AdminUserCompany,
   PaginatedResult,
 } from '../types/admin.types';
 
@@ -262,23 +261,20 @@ export async function deleteCompany(companyId: string): Promise<void> {
 
 export async function getCompanyUsers(
   companyId: string
-): Promise<AdminUserCompany[]> {
+): Promise<{ id: string; name: string; email: string; role: string; last_login: string | null }[]> {
   const rows = await sql`
-    SELECT
-      cu.company_id,
-      c.name    AS company_name,
-      cu.role,
-      COALESCE(cu.is_default, false) AS is_default
-    FROM company_users cu
-    JOIN companies c ON c.id = cu.company_id
-    WHERE cu.company_id = ${companyId}
-    ORDER BY cu.role, c.name
+    SELECT u.id, COALESCE(u.first_name || ' ' || u.last_name, u.email) AS name, u.email, cu.role, u.last_login
+    FROM company_users cu JOIN users u ON u.id = cu.user_id
+    WHERE cu.company_id = ${companyId} ORDER BY cu.role, u.email
   `;
 
   return (rows as Row[]).map((r) => ({
-    company_id: r.company_id as string,
-    company_name: r.company_name as string,
+    id: r.id as string,
+    name: r.name as string,
+    email: r.email as string,
     role: r.role as string,
-    is_default: r.is_default as boolean,
+    last_login: r.last_login != null
+      ? (r.last_login instanceof Date ? r.last_login.toISOString() : r.last_login as string)
+      : null,
   }));
 }

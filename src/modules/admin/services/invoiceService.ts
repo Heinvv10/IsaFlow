@@ -172,15 +172,19 @@ export async function createInvoice(data: {
 export async function markInvoicePaid(
   invoiceId: string,
   paymentMethod: string
-): Promise<void> {
-  await sql`
+): Promise<boolean> {
+  const rows = await sql`
     UPDATE admin_invoices
     SET status         = 'paid',
         paid_at        = NOW(),
         payment_method = ${paymentMethod}
     WHERE id = ${invoiceId}
+      AND status IN ('sent', 'overdue')
+    RETURNING id
   `;
-  log.info('markInvoicePaid', { invoiceId, paymentMethod }, 'InvoiceService');
+  const updated = rows.length > 0;
+  log.info('markInvoicePaid', { invoiceId, paymentMethod, updated }, 'InvoiceService');
+  return updated;
 }
 
 export async function sendInvoice(invoiceId: string): Promise<void> {

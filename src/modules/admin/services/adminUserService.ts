@@ -195,10 +195,15 @@ export async function getUserDetail(
   };
 }
 
+const ALLOWED_ROLES = ['super_admin', 'admin', 'manager', 'storeman', 'technician', 'viewer'];
+
 export async function updateUser(
   userId: string,
   data: { first_name?: string; last_name?: string; role?: string; phone?: string }
 ): Promise<void> {
+  if (data.role && !ALLOWED_ROLES.includes(data.role)) {
+    throw new Error(`Invalid role: ${data.role}`);
+  }
   await sql`
     UPDATE users SET
       first_name = COALESCE(${data.first_name ?? null}, first_name),

@@ -17,7 +17,7 @@ import type {
   InvoiceForAllocation,
 } from '../types/ap.types';
 import type { JournalLineInput } from '../types/gl.types';
-type Row = any;
+type Row = Record<string, unknown>;
 
 
 interface PaymentFilters {
@@ -208,7 +208,7 @@ export async function processSupplierPayment(companyId: string,
         description: `Payment ${payment.paymentNumber} to supplier`,
       },
       {
-        glAccountId: bankAccount.id || String(bankAccount.id),
+        glAccountId: String(bankAccount.id),
         debit: 0,
         credit: payment.totalAmount,
         description: `Payment ${payment.paymentNumber} to supplier`,

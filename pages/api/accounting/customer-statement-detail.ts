@@ -10,7 +10,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
-type Row = any;
+type Row = Record<string, unknown>;
 
 
 
@@ -33,7 +33,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (clientRows.length === 0) {
       return apiResponse.notFound(res, 'Client', clientId);
     }
-    const client = clientRows[0];
+    const client = clientRows[0]!;
 
     // Get invoices
     const invoices = (await sql`
@@ -86,7 +86,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     for (const inv of invoices) {
       transactions.push({
-        id: inv.id,
+        id: inv.id as string,
         date: toISODate(inv.invoice_date),
         type: 'invoice',
         reference: String(inv.invoice_number),
@@ -99,7 +99,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     for (const pmt of payments) {
       transactions.push({
-        id: pmt.id,
+        id: pmt.id as string,
         date: toISODate(pmt.payment_date),
         type: 'payment',
         reference: String(pmt.payment_number),
@@ -112,7 +112,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     for (const cn of creditNotes) {
       transactions.push({
-        id: cn.id,
+        id: cn.id as string,
         date: toISODate(cn.credit_date),
         type: 'credit_note',
         reference: String(cn.credit_note_number),

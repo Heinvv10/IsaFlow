@@ -9,7 +9,7 @@ import { clearSystemAccountCache } from './systemAccountResolver';
 import { updateSession } from './migrationService';
 import type { ImportResult, MigrationError } from './migrationService';
 import type { GLAccountType } from '../types/gl.types';
-type Row = any;
+type Row = Record<string, unknown>;
 
 
 export interface AccountImportRow {
@@ -63,7 +63,7 @@ export async function importChartOfAccounts(
           skipped++;
           continue;
         }
-        parentAccountId = String(parentRows[0].id);
+        parentAccountId = String(parentRows[0]!.id);
       }
 
       const subtypeEntry = Object.entries(systemAccountMap).find(([, code]) => code === acct.accountCode);

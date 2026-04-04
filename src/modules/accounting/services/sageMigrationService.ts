@@ -5,7 +5,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-type Row = any;
+type Row = Record<string, unknown>;
 
 // Re-export importers so API routes import from one place
 export { importLedgerTransactions, importSupplierInvoices } from './sageImportService';
@@ -50,7 +50,7 @@ export async function startRun(runType: string, userId: string): Promise<string>
     VALUES (${runType}, 'running', ${userId})
     RETURNING id
   `) as Row[];
-  return String(rows[0].id);
+  return String(rows[0]!.id);
 }
 
 export async function completeRun(
@@ -63,7 +63,7 @@ export async function completeRun(
         succeeded = ${succeeded}, failed = ${failed}, skipped = ${skipped}, completed_at = NOW()
     WHERE id = ${runId}::UUID RETURNING *
   `) as Row[];
-  const r = rows[0];
+  const r = rows[0]!;
   return {
     id: String(r.id), runType: String(r.run_type), status: String(r.status),
     totalRecords: Number(r.total_records), processed: Number(r.processed),
@@ -132,7 +132,7 @@ export async function getMigrationStatus(companyId: string): Promise<MigrationSt
       ledger: {
         sageTotal: Number(ledgerStats[0]?.total || 0), imported: Number(ledgerStats[0]?.imported || 0),
         pending: Number(ledgerStats[0]?.pending || 0), failed: Number(ledgerStats[0]?.failed || 0),
-        dateRange: { earliest: ledgerStats[0]?.earliest || null, latest: ledgerStats[0]?.latest || null },
+        dateRange: { earliest: ledgerStats[0]?.earliest ? String(ledgerStats[0].earliest) : null, latest: ledgerStats[0]?.latest ? String(ledgerStats[0].latest) : null },
       },
       invoices: {
         sageTotal: Number(invoiceStats[0]?.total || 0), imported: Number(invoiceStats[0]?.imported || 0),

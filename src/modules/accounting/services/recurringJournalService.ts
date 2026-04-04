@@ -7,7 +7,7 @@ import { sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
 import type { RecurringJournal, RecurringJournalCreateInput, JournalLineInput } from '../types/gl.types';
-type Row = any;
+type Row = Record<string, unknown>;
 
 
 export async function getRecurringJournals(companyId: string, filters?: {
@@ -82,11 +82,11 @@ export async function generateJournalFromRecurring(companyId: string,
   const rj = rows[0];
   if (rj.status !== 'active') throw new Error('Recurring journal is not active');
 
-  const lines: JournalLineInput[] = Array.isArray(rj.lines) ? rj.lines : JSON.parse(rj.lines || '[]');
+  const lines: JournalLineInput[] = Array.isArray(rj.lines) ? rj.lines as JournalLineInput[] : JSON.parse(typeof rj.lines === 'string' ? rj.lines : '[]');
 
   const je = await createJournalEntry('', {
     entryDate: new Date().toISOString().split('T')[0]!,
-    description: rj.description || rj.template_name,
+    description: rj.description ? String(rj.description) : String(rj.template_name),
     source: 'auto_recurring',
     lines,
   }, userId);
@@ -133,7 +133,7 @@ function mapRow(row: Row): RecurringJournal {
     lastRunDate: row.last_run_date ? String(row.last_run_date) : undefined,
     runCount: Number(row.run_count),
     status: String(row.status) as RecurringJournal['status'],
-    lines: Array.isArray(row.lines) ? row.lines : JSON.parse(row.lines || '[]'),
+    lines: Array.isArray(row.lines) ? row.lines as JournalLineInput[] : JSON.parse(typeof row.lines === 'string' ? row.lines : '[]'),
     totalAmount: Number(row.total_amount),
     createdBy: String(row.created_by),
     createdAt: String(row.created_at),

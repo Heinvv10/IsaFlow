@@ -6,7 +6,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import bcrypt from 'bcryptjs';
-type Row = any;
+type Row = Record<string, unknown>;
 
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -62,7 +62,7 @@ export async function createPortalUser(input: {
     RETURNING *
   `) as Row[];
   log.info('Portal user created', { email: input.email }, 'portal');
-  return mapPortalUser(rows[0]);
+  return mapPortalUser(rows[0]!);
 }
 
 export async function authenticatePortalUser(email: string, password: string): Promise<PortalUser | null> {
@@ -71,10 +71,10 @@ export async function authenticatePortalUser(email: string, password: string): P
   `) as Row[];
   if (!rows[0]) return null;
 
-  const valid = await bcrypt.compare(password, rows[0].password_hash);
+  const valid = await bcrypt.compare(password, String(rows[0].password_hash));
   if (!valid) return null;
 
-  await sql`UPDATE portal_access SET last_login_at = NOW() WHERE id = ${rows[0].id}::UUID`;
+  await sql`UPDATE portal_access SET last_login_at = NOW() WHERE id = ${String(rows[0].id)}::UUID`;
   return mapPortalUser(rows[0]);
 }
 
@@ -100,14 +100,14 @@ export async function getClientInvoices(clientId: string): Promise<PortalInvoice
   `) as Row[];
 
   return rows.map((r: Row) => ({
-    id: r.id,
-    invoiceNumber: r.invoice_number,
-    invoiceDate: r.invoice_date,
-    dueDate: r.due_date,
+    id: String(r.id),
+    invoiceNumber: String(r.invoice_number),
+    invoiceDate: String(r.invoice_date),
+    dueDate: String(r.due_date),
     total: Number(r.total),
     amountPaid: Number(r.amount_paid),
     balance: Number(r.balance),
-    status: r.status,
+    status: String(r.status),
   }));
 }
 
@@ -138,9 +138,9 @@ export async function getClientStatement(clientId: string, asOfDate: string): Pr
     const credit = Number(r.credit);
     runningBalance += debit - credit;
     return {
-      date: r.date,
-      reference: r.reference || '',
-      description: r.description,
+      date: String(r.date),
+      reference: r.reference ? String(r.reference) : '',
+      description: String(r.description),
       debit,
       credit,
       balance: runningBalance,
@@ -148,8 +148,8 @@ export async function getClientStatement(clientId: string, asOfDate: string): Pr
   });
 
   return {
-    clientName: client.name,
-    clientEmail: client.email || '',
+    clientName: String(client.name),
+    clientEmail: client.email ? String(client.email) : '',
     asOfDate,
     openingBalance: 0,
     transactions,
@@ -165,7 +165,7 @@ export async function createPaymentLink(invoiceId: string, clientId: string, amo
     VALUES (${invoiceId}::UUID, ${clientId}::UUID, ${amount})
     RETURNING token
   `) as Row[];
-  return rows[0].token;
+  return String(rows[0]!.token);
 }
 
 export async function getPaymentLink(token: string): Promise<{
@@ -180,11 +180,11 @@ export async function getPaymentLink(token: string): Promise<{
   `) as Row[];
   if (!rows[0]) return null;
   return {
-    invoiceId: rows[0].invoice_id,
-    clientId: rows[0].client_id,
+    invoiceId: String(rows[0].invoice_id),
+    clientId: String(rows[0].client_id),
     amount: Number(rows[0].amount),
-    status: rows[0].status,
-    expiresAt: rows[0].expires_at,
+    status: String(rows[0].status),
+    expiresAt: String(rows[0].expires_at),
   };
 }
 
@@ -199,11 +199,11 @@ export async function markPaymentLinkPaid(token: string, reference: string): Pro
 
 function mapPortalUser(r: Row): PortalUser {
   return {
-    id: r.id,
-    clientId: r.client_id,
-    email: r.email,
-    name: r.name,
-    isActive: r.is_active,
-    lastLoginAt: r.last_login_at,
+    id: String(r.id),
+    clientId: String(r.client_id),
+    email: String(r.email),
+    name: String(r.name),
+    isActive: Boolean(r.is_active),
+    lastLoginAt: r.last_login_at ? String(r.last_login_at) : null,
   };
 }

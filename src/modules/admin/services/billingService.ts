@@ -32,9 +32,9 @@ export async function getBillingOverview(): Promise<BillingOverview> {
         COUNT(*) FILTER (WHERE s.status = 'past_due') AS past_due,
         COUNT(*) FILTER (WHERE s.status = 'trial')    AS trial,
         COALESCE(SUM(CASE
-          WHEN s.status NOT IN ('active','trial') THEN 0
-          WHEN s.billing_cycle = 'monthly' THEN p.monthly_price_cents
-          WHEN s.billing_cycle = 'annual'  THEN ROUND(p.annual_price_cents / 12.0)
+          WHEN s.status != 'active' THEN 0
+          WHEN s.billing_cycle = 'monthly' THEN ROUND(p.monthly_price_cents::numeric * (100 - COALESCE(s.discount_percent, 0)::numeric) / 100.0)
+          WHEN s.billing_cycle = 'annual'  THEN ROUND(p.annual_price_cents::numeric * (100 - COALESCE(s.discount_percent, 0)::numeric) / 1200.0)
           ELSE 0 END), 0) AS mrr_cents
       FROM subscriptions s INNER JOIN plans p ON p.id = s.plan_id
     `,

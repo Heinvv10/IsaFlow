@@ -105,9 +105,9 @@ export async function getAccountById(companyId: string, id: string): Promise<GLA
   }
 }
 
-export async function getAccountByCode(code: string): Promise<GLAccount | null> {
+export async function getAccountByCode(companyId: string, code: string): Promise<GLAccount | null> {
   try {
-    const rows = await sql`SELECT * FROM gl_accounts WHERE account_code = ${code}`;
+    const rows = await sql`SELECT * FROM gl_accounts WHERE company_id = ${companyId} AND account_code = ${code}`;
     const arr = rows as { [key: string]: unknown }[];
     return arr.length > 0 ? mapRow(arr[0]!) : null;
   } catch (err) {

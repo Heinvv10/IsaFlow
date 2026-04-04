@@ -72,7 +72,7 @@ export async function getAuditLog(
         al.ip_address,
         al.created_at
       FROM admin_audit_log al
-      LEFT JOIN users u ON u.id = al.admin_user_id
+      LEFT JOIN users u ON u.id = al.admin_user_id::text
       WHERE (
         ${filters.admin_user_id ? sql`al.admin_user_id = ${filters.admin_user_id}` : sql`TRUE`}
       )

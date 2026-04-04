@@ -8,7 +8,7 @@ import { sql, transaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { MigrationRun } from './sageMigrationService';
 import { startRun, completeRun, failRun } from './sageMigrationService';
-type Row = any;
+type Row = Record<string, unknown>;
 
 
 // ── Ledger Transaction Import ───────────────────────────────────────────────
@@ -39,9 +39,9 @@ export async function importLedgerTransactions(companyId: string, userId: string
       const key = `${line.document_number}::${String(line.transaction_date)}`;
       if (!groupMap.has(key)) {
         groupMap.set(key, {
-          document_number: line.document_number,
+          document_number: String(line.document_number),
           transaction_date: line.transaction_date,
-          description: line.description,
+          description: String(line.description ?? ''),
           lines: [],
         });
       }
@@ -85,7 +85,7 @@ export async function importLedgerTransactions(companyId: string, userId: string
           ) RETURNING id
         `) as Row[];
 
-        const entryId = String(entry[0].id);
+        const entryId = String(entry[0]!.id);
 
         // Batch all line inserts + status updates into one HTTP round-trip
         const activeLines = lines.filter(l => Number(l.debit || 0) !== 0 || Number(l.credit || 0) !== 0);
@@ -200,7 +200,7 @@ export async function importSupplierInvoices(companyId: string, userId: string):
           ) RETURNING id
         `) as Row[];
 
-        const newInvoiceId = String(newInv[0].id);
+        const newInvoiceId = String(newInv[0]!.id);
 
         // Insert line items from raw_data
         const lines = parseRawData(inv.raw_data, inv.line_items);

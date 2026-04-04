@@ -141,17 +141,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     const onboardingCompleted = !!user.onboarding_completed;
 
+    const isProd = process.env.NODE_ENV === 'production';
     const authCookieString = serialize(AUTH_COOKIE_NAME, finalToken, {
       httpOnly: true,
       secure: true,
-      sameSite: 'strict',
+      sameSite: 'lax',
       path: '/',
       maxAge: 8 * 60 * 60, // 8 hours
+      ...(isProd ? { domain: '.isaflow.co.za' } : {}),
     });
 
     const cookies = [authCookieString];
     if (onboardingCompleted) {
-      cookies.push(`ff_onboarding_done=1; Path=/; Max-Age=${30 * 24 * 60 * 60}; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`);
+      const domainSuffix = isProd ? '; Domain=.isaflow.co.za' : '';
+      cookies.push(`ff_onboarding_done=1; Path=/; Max-Age=${30 * 24 * 60 * 60}; SameSite=Lax${isProd ? '; Secure' : ''}${domainSuffix}`);
     }
     res.setHeader('Set-Cookie', cookies);
 
