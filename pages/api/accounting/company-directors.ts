@@ -50,6 +50,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, 'directors array is required');
     }
 
+    const ALLOWED_DOC_MIMES = ['application/pdf', 'image/jpeg', 'image/png', 'image/gif'];
+    for (const dir of directors) {
+      if (dir.idDocument?.data) {
+        // idDocument.data is a base64 data URL — extract MIME from the prefix
+        const mimeMatch = (dir.idDocument.data as string).match(/^data:([^;]+);base64,/);
+        const detectedMime = mimeMatch?.[1] ?? null;
+        if (detectedMime && !ALLOWED_DOC_MIMES.includes(detectedMime)) {
+          return apiResponse.badRequest(res, `File type ${detectedMime} not allowed for ID document`);
+        }
+      }
+    }
+
     // Replace all directors for this company
     await sql`DELETE FROM company_directors WHERE company_id = ${companyId}::UUID`;
 

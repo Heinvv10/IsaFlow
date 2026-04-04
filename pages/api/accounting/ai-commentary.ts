@@ -10,6 +10,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { checkRateLimit } from '@/lib/rateLimit';
 import {
   identifyKeyDrivers,
   assessRiskAreas,
@@ -22,6 +23,11 @@ type Row = Record<string, any>;
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method || '', ['POST']);
+
+  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
+  if (checkRateLimit(`ai-commentary:${ip}`, { maxRequests: 30, windowMs: 15 * 60 * 1000 })) {
+    return res.status(429).json({ success: false, error: 'Rate limit exceeded' });
+  }
 
   const { companyId } = req as CompanyApiRequest;
   const { from, to } = req.body as { from?: string; to?: string };

@@ -10,10 +10,16 @@ import { apiResponse } from '@/lib/apiResponse';
 import { generateTOTPSecret } from '@/modules/auth/services/twoFactorService';
 import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { checkRateLimit } from '@/lib/rateLimit';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method ?? 'unknown', ['POST']);
+  }
+
+  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
+  if (checkRateLimit(`2fa-setup:${ip}`, { maxRequests: 5, windowMs: 15 * 60 * 1000 })) {
+    return res.status(429).json({ success: false, error: 'Too many attempts. Try again later.' });
   }
 
   const { user } = req as AuthenticatedNextApiRequest;

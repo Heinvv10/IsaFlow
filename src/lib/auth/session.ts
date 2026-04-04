@@ -7,8 +7,12 @@ import { sql } from '@/lib/neon';
 import * as crypto from 'crypto';
 import type { Session } from './types';
 
-// Session expiry (30 days)
-const SESSION_EXPIRY_DAYS = 30;
+// Session expiry set to 1 day to approximate the 8h JWT ACCESS_TOKEN_EXPIRY.
+// TODO: Implement a proper refresh-token flow so DB sessions and JWTs share the
+// same expiry. Until then, the JWT expires first (8h) and the DB session row
+// is cleaned up lazily. Setting 30d here created a window where a revoked JWT
+// could not be fully invalidated via the session table.
+const SESSION_EXPIRY_DAYS = 1;
 
 /**
  * Create a hash of the token for storage

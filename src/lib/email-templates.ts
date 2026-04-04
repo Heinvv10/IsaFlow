@@ -4,6 +4,17 @@
  * Welcome and password reset templates: src/lib/email-templates-auth.ts
  */
 
+// ─── HTML Escape Helper ───────────────────────────────────────────────────────
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 // ─── Brand Constants ──────────────────────────────────────────────────────────
 
 export const BRAND = {
@@ -134,7 +145,7 @@ export function inviteEmailHtml(data: InviteEmailData): string {
         </h1>
         <p style="margin:0 0 24px; font-family:${BRAND.fontStack}; font-size:15px;
                   color:${BRAND.textSecondary}; line-height:1.6;">
-          <strong style="color:${BRAND.textBody};">${data.inviterName}</strong> has invited
+          <strong style="color:${BRAND.textBody};">${escapeHtml(data.inviterName)}</strong> has invited
           you to join their organisation on ISAFlow.
         </p>
         <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation"
@@ -152,7 +163,7 @@ export function inviteEmailHtml(data: InviteEmailData): string {
                 <tr>
                   <td style="padding:0 0 14px; font-family:${BRAND.fontStack}; font-size:15px;
                              font-weight:bold; color:${BRAND.textBody}; border-bottom:1px solid ${BRAND.borderColor};">
-                    ${data.companyName}
+                    ${escapeHtml(data.companyName)}
                   </td>
                 </tr>
                 <tr>
@@ -164,7 +175,7 @@ export function inviteEmailHtml(data: InviteEmailData): string {
                 <tr>
                   <td style="font-family:${BRAND.fontStack}; font-size:15px;
                              font-weight:bold; color:${BRAND.primaryTeal};">
-                    ${data.role}
+                    ${escapeHtml(data.role)}
                   </td>
                 </tr>
               </table>
@@ -234,11 +245,11 @@ export function invoiceEmailHtml(data: InvoiceEmailData): string {
         </p>
         <h1 style="margin:0 0 8px; font-family:${BRAND.fontStack}; font-size:24px;
                    font-weight:bold; color:${BRAND.textBody};">
-          ${data.invoiceNumber}
+          ${escapeHtml(data.invoiceNumber)}
         </h1>
         <p style="margin:0 0 28px; font-family:${BRAND.fontStack}; font-size:15px;
                   color:${BRAND.textSecondary}; line-height:1.6;">
-          Dear <strong style="color:${BRAND.textBody};">${data.clientName}</strong>,<br>
+          Dear <strong style="color:${BRAND.textBody};">${escapeHtml(data.clientName)}</strong>,<br>
           please find your invoice attached. A summary is shown below.
         </p>
         <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation"
@@ -250,7 +261,7 @@ export function invoiceEmailHtml(data: InvoiceEmailData): string {
                 <tr>
                   <td style="width:50%; padding:4px 0; font-family:${BRAND.fontStack};">
                     <span style="font-size:11px; color:${BRAND.textMuted}; text-transform:uppercase; letter-spacing:0.05em;">Invoice #</span><br>
-                    <span style="font-size:15px; font-weight:bold; color:${BRAND.textBody};">${data.invoiceNumber}</span>
+                    <span style="font-size:15px; font-weight:bold; color:${BRAND.textBody};">${escapeHtml(data.invoiceNumber)}</span>
                   </td>
                   <td style="width:50%; padding:4px 0; font-family:${BRAND.fontStack};" align="right">
                     <span style="font-size:11px; color:${BRAND.textMuted}; text-transform:uppercase; letter-spacing:0.05em;">Invoice Date</span><br>
@@ -281,13 +292,13 @@ export function invoiceEmailHtml(data: InvoiceEmailData): string {
         <p style="margin:0 0 16px; font-family:${BRAND.fontStack}; font-size:14px;
                   color:${BRAND.textSecondary}; line-height:1.6;">
           The full invoice is attached as a PDF. Please use
-          <strong style="color:${BRAND.textBody};">${data.invoiceNumber}</strong>
+          <strong style="color:${BRAND.textBody};">${escapeHtml(data.invoiceNumber)}</strong>
           as your payment reference.
         </p>
         <p style="margin:0; font-family:${BRAND.fontStack}; font-size:14px;
                   color:${BRAND.textSecondary}; line-height:1.6;">
           If you have any questions, please contact
-          <strong style="color:${BRAND.textBody};">${data.companyName}</strong> directly.
+          <strong style="color:${BRAND.textBody};">${escapeHtml(data.companyName)}</strong> directly.
         </p>
       </td>
     </tr>`;

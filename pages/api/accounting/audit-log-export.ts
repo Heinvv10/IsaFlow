@@ -13,15 +13,7 @@ import {
   logAudit,
   type AuditLogItem,
 } from '@/modules/accounting/services/auditTrailService';
-
-function escapeCsv(value: string | null | undefined): string {
-  if (value == null) return '';
-  const str = String(value);
-  if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-    return `"${str.replace(/"/g, '""')}"`;
-  }
-  return str;
-}
+import { escapeCsv } from '@/lib/csv';
 
 function formatChanges(item: AuditLogItem): string {
   if (!item.changes?.fields?.length) return '';

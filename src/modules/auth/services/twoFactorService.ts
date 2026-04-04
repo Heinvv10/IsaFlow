@@ -5,6 +5,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { encryptToken, decryptToken } from '@/lib/encryption';
 import * as OTPAuth from 'otpauth';
 import QRCode from 'qrcode';
 import { createHash, randomBytes } from 'crypto';
@@ -55,11 +56,12 @@ export async function generateTOTPSecret(
 
   const secret = totp.secret.base32;
   const uri = totp.toString();
+  const encryptedSecret = encryptToken(secret);
 
   // Upsert — replace any unverified pending setup
   await sql`
     INSERT INTO user_2fa (user_id, method, secret_encrypted, is_enabled, is_verified, updated_at)
-    VALUES (${userId}, 'totp', ${secret}, false, false, NOW())
+    VALUES (${userId}, 'totp', ${encryptedSecret}, false, false, NOW())
     ON CONFLICT (user_id, method)
     DO UPDATE SET
       secret_encrypted = EXCLUDED.secret_encrypted,
@@ -98,13 +100,14 @@ export async function verifyTOTPSetup(
     return { success: false };
   }
 
+  const plainSecret = decryptToken(row.secret_encrypted as string);
   const totp = new OTPAuth.TOTP({
     issuer: 'ISAFlow',
     label: `ISAFlow`,
     algorithm: 'SHA1',
     digits: 6,
     period: 30,
-    secret: OTPAuth.Secret.fromBase32(row.secret_encrypted as string),
+    secret: OTPAuth.Secret.fromBase32(plainSecret),
   });
 
   const delta = totp.validate({ token: code, window: 1 });
@@ -143,13 +146,14 @@ export async function verifyTOTPCode(userId: string, code: string): Promise<bool
   if (!row?.secret_encrypted) return false;
 
   // Check TOTP
+  const plainSecret = decryptToken(row.secret_encrypted as string);
   const totp = new OTPAuth.TOTP({
     issuer: 'ISAFlow',
     label: 'ISAFlow',
     algorithm: 'SHA1',
     digits: 6,
     period: 30,
-    secret: OTPAuth.Secret.fromBase32(row.secret_encrypted as string),
+    secret: OTPAuth.Secret.fromBase32(plainSecret),
   });
 
   const delta = totp.validate({ token: code, window: 1 });

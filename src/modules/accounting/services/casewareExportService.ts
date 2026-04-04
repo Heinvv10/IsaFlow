@@ -5,6 +5,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { escapeCsv } from '@/lib/csv';
 
 type Row = Record<string, unknown>;
 
@@ -153,7 +154,6 @@ export async function exportCaseWareTB(
     const debit = Number(r.debit) || 0;
     const credit = Number(r.credit) || 0;
     const net = debit - credit;
-    const escapeCsv = (val: string) => `"${String(val).replace(/"/g, '""')}"`;
     csvLines.push([
       escapeCsv(String(r.AccountCode ?? '')),
       escapeCsv(String(r.AccountName ?? '')),

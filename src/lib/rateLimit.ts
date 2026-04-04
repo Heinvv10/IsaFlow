@@ -1,5 +1,9 @@
 /**
  * In-memory rate limiter using LRU cache with TTL
+ *
+ * NOTE: This is a single-instance in-memory store. For multi-instance deployments
+ * (horizontal scaling), replace the LRUCache backing with a Redis store so rate
+ * limit counters are shared across all pods.
  */
 
 import { LRUCache } from 'lru-cache';
@@ -44,10 +48,20 @@ export function checkRateLimit(key: string, opts?: RateLimitOptions): boolean {
 }
 
 function getClientIp(req: NextApiRequest): string {
+  // In production behind nginx/Cloudflare, use the last proxy-added IP.
+  // x-forwarded-for format: client, proxy1, proxy2
+  // The FIRST entry is client-supplied and therefore spoofable.
+  // The LAST entry is appended by the closest trusted proxy (nginx/Cloudflare)
+  // and cannot be forged by the client.
+  // In a Cloudflare + nginx setup, the real IP is the second-to-last entry;
+  // using the last (nginx-appended) is still safe for rate limiting purposes.
   const forwarded = req.headers['x-forwarded-for'];
-  if (Array.isArray(forwarded)) return forwarded[0] ?? 'unknown';
-  if (typeof forwarded === 'string') return forwarded.split(',')[0]?.trim() ?? 'unknown';
-  return req.socket.remoteAddress ?? 'unknown';
+  if (forwarded) {
+    const raw = Array.isArray(forwarded) ? forwarded[0] ?? '' : forwarded;
+    const ips = raw.split(',').map(s => s.trim());
+    return ips[ips.length - 1] || req.socket.remoteAddress || 'unknown';
+  }
+  return req.socket.remoteAddress || 'unknown';
 }
 
 /**

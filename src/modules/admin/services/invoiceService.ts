@@ -39,8 +39,12 @@ export async function listInvoices(filters: {
   const page = Math.max(1, filters.page ?? 1);
   const limit = Math.min(100, Math.max(1, filters.limit ?? 25));
   const offset = (page - 1) * limit;
-  const sortCol = ALLOWED_SORT[filters.sort_by ?? ''] ?? 'i.created_at';
-  const sortDir = filters.sort_dir === 'asc' ? sql`ASC` : sql`DESC`;
+  const sortColKey = filters.sort_by ?? '';
+  if (sortColKey && !ALLOWED_SORT[sortColKey]) throw new Error(`Invalid sort column: ${sortColKey}`);
+  const sortCol = ALLOWED_SORT[sortColKey] ?? 'i.created_at';
+  const rawDir = (filters.sort_dir ?? 'desc').toUpperCase();
+  if (rawDir !== 'ASC' && rawDir !== 'DESC') throw new Error('Invalid sort direction');
+  const sortDir = rawDir === 'ASC' ? sql`ASC` : sql`DESC`;
   const search = filters.search ? `%${filters.search}%` : null;
 
   const [countRow] = await sql`

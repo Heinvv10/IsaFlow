@@ -21,7 +21,7 @@ type Row = Record<string, unknown>;
 
 interface InvoiceFilters {
   status?: SupplierInvoiceStatus;
-  supplierId?: number;
+  supplierId?: string;
   matchStatus?: InvoiceMatchStatus;
   limit?: number;
   offset?: number;
@@ -32,7 +32,7 @@ export async function getSupplierInvoices(companyId: string, filters?: InvoiceFi
   total: number;
 }> {
   try {
-    const limit = filters?.limit || 50;
+    const limit = Math.min(filters?.limit || 50, 200);
     const offset = filters?.offset || 0;
     let rows: Row[];
     let countRows: Row[];

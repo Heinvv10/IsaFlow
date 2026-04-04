@@ -7,7 +7,8 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { sql } from '@/lib/neon';
 import {
   listIntercompanyTransactions,
   createIntercompanyTransaction,
@@ -15,12 +16,24 @@ import {
   getIntercompanyReconciliation,
 } from '@/modules/accounting/services/groupCompanyService';
 
+async function verifyGroupAccess(groupId: string, userId: string): Promise<boolean> {
+  const rows = (await sql`
+    SELECT 1 FROM company_group_members cgm
+    JOIN company_users cu ON cu.company_id = cgm.company_id
+    WHERE cgm.group_id = ${groupId}::UUID AND cu.user_id = ${userId}::UUID
+    LIMIT 1
+  `) as Record<string, unknown>[];
+  return rows.length > 0;
+}
+
 async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const userId = (req as AuthenticatedNextApiRequest).user.id;
   const action = (req.query.action || req.body?.action) as string | undefined;
   const groupId = req.query.group_id as string;
 
   if (req.method === 'GET') {
     if (!groupId) return apiResponse.badRequest(res, 'group_id required');
+    if (!(await verifyGroupAccess(groupId, userId))) return apiResponse.forbidden(res, 'Access denied to this group');
 
     if (action === 'reconciliation') {
       const periodStart = req.query.period_start as string;
@@ -42,8 +55,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'POST') {
     if (action === 'match') {
-      const { sourceId, targetId } = req.body;
+      const { sourceId, targetId, groupId: matchGroupId } = req.body;
       if (!sourceId || !targetId) return apiResponse.badRequest(res, 'sourceId and targetId required');
+      if (!matchGroupId) return apiResponse.badRequest(res, 'groupId required');
+      if (!(await verifyGroupAccess(matchGroupId as string, userId))) return apiResponse.forbidden(res, 'Access denied to this group');
       await matchIntercompanyTransactions(sourceId, targetId);
       return apiResponse.success(res, { matched: true });
     }
@@ -53,6 +68,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!gId || !sourceCompanyId || !targetCompanyId || !transactionType || !amount || !transactionDate) {
       return apiResponse.badRequest(res, 'groupId, sourceCompanyId, targetCompanyId, transactionType, amount, transactionDate required');
     }
+    if (!(await verifyGroupAccess(gId as string, userId))) return apiResponse.forbidden(res, 'Access denied to this group');
     const tx = await createIntercompanyTransaction({
       groupId: gId,
       sourceCompanyId,

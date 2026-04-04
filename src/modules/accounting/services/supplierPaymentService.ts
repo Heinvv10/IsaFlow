@@ -43,7 +43,8 @@ export async function getSupplierPayments(companyId: string, filters?: PaymentFi
   total: number;
 }> {
   try {
-    const limit = filters?.limit || 50;
+    // TODO: Apply pagination cap to all list endpoints (M16)
+    const limit = Math.min(filters?.limit || 50, 200);
     const offset = filters?.offset || 0;
     let rows: Row[];
     let countRows: Row[];

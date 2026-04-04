@@ -38,8 +38,12 @@ export async function listUsers(
   const page = Math.max(1, filters.page ?? 1);
   const limit = Math.min(100, Math.max(1, filters.limit ?? 25));
   const offset = (page - 1) * limit;
-  const sortCol = ALLOWED_SORT_COLUMNS[filters.sort_by ?? ''] ?? 'u.created_at';
-  const sortDir = filters.sort_dir === 'asc' ? sql`ASC` : sql`DESC`;
+  const sortColKey = filters.sort_by ?? '';
+  if (sortColKey && !ALLOWED_SORT_COLUMNS[sortColKey]) throw new Error(`Invalid sort column: ${sortColKey}`);
+  const sortCol = ALLOWED_SORT_COLUMNS[sortColKey] ?? 'u.created_at';
+  const rawDir = (filters.sort_dir ?? 'desc').toUpperCase();
+  if (rawDir !== 'ASC' && rawDir !== 'DESC') throw new Error('Invalid sort direction');
+  const sortDir = rawDir === 'ASC' ? sql`ASC` : sql`DESC`;
 
   const searchPattern = filters.search ? `%${filters.search}%` : null;
 
@@ -195,12 +199,16 @@ export async function getUserDetail(
   };
 }
 
-const ALLOWED_ROLES = ['super_admin', 'admin', 'manager', 'storeman', 'technician', 'viewer'];
+// 'super_admin' is intentionally excluded — promotion via API is not permitted (H13)
+const ALLOWED_ROLES = ['admin', 'manager', 'storeman', 'technician', 'viewer'];
 
 export async function updateUser(
   userId: string,
   data: { first_name?: string; last_name?: string; role?: string; phone?: string }
 ): Promise<void> {
+  if (data.role === 'super_admin') {
+    throw new Error('Cannot promote to super_admin via API');
+  }
   if (data.role && !ALLOWED_ROLES.includes(data.role)) {
     throw new Error(`Invalid role: ${data.role}`);
   }
@@ -274,11 +282,16 @@ export async function forceLogout(userId: string): Promise<void> {
   log.info('forceLogout — sessions cleared', { userId }, 'AdminUserService');
 }
 
+const ALLOWED_COMPANY_ROLES = ['admin', 'accountant', 'bookkeeper', 'viewer'];
+
 export async function addUserToCompany(
   userId: string,
   companyId: string,
   role: string
 ): Promise<void> {
+  if (role && !ALLOWED_COMPANY_ROLES.includes(role)) {
+    throw new Error(`Invalid role: ${role}`);
+  }
   await sql`
     INSERT INTO company_users (user_id, company_id, role, created_at)
     VALUES (${userId}, ${companyId}, ${role}, NOW())

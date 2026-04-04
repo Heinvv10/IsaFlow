@@ -23,9 +23,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       const { status, supplier_id, match_status, limit, offset } = req.query;
       const result = await getSupplierInvoices(companyId, {
         status: status as SupplierInvoiceStatus | undefined,
-        supplierId: supplier_id ? Number(supplier_id) : undefined,
+        supplierId: supplier_id ? String(supplier_id) : undefined,
         matchStatus: match_status as 'unmatched' | 'po_matched' | 'grn_matched' | 'fully_matched' | undefined,
-        limit: limit ? Number(limit) : undefined,
+        limit: limit ? Math.min(Number(limit), 200) : undefined,
         offset: offset ? Number(offset) : undefined,
       });
       return apiResponse.success(res, result);

@@ -82,12 +82,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     if (groupId) {
+      if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
       const group = await getGroup(groupId);
       if (!group) return apiResponse.notFound(res, 'Group');
       return apiResponse.success(res, group);
     }
 
-    const groups = await listGroups();
+    const groups = (await sql`
+      SELECT DISTINCT cg.*, COUNT(cgm2.id) FILTER (WHERE cgm2.left_date IS NULL) AS member_count
+      FROM company_groups cg
+      JOIN company_group_members cgm ON cgm.group_id = cg.id
+      JOIN company_users cu ON cu.company_id = cgm.company_id
+      LEFT JOIN company_group_members cgm2 ON cgm2.group_id = cg.id
+      WHERE cu.user_id = ${userId}::UUID AND cg.is_active = true
+      GROUP BY cg.id
+      ORDER BY cg.name
+    `) as Record<string, unknown>[];
     return apiResponse.success(res, { items: groups });
   }
 
@@ -152,21 +162,26 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // ── PUT ────────────────────────────────────────────────────────────────────
   if (req.method === 'PUT') {
     if (action === 'update-member') {
-      const { memberId, ownershipPct, consolidationMethod } = req.body;
+      const { memberId, groupId: memberGroupId, ownershipPct, consolidationMethod } = req.body;
       if (!memberId) return apiResponse.badRequest(res, 'memberId required');
+      if (!memberGroupId) return apiResponse.badRequest(res, 'groupId required');
+      if (!(await verifyGroupAccess(memberGroupId))) return apiResponse.forbidden(res, 'Access denied to this group');
       await updateMember(memberId, { ownershipPct, consolidationMethod });
       return apiResponse.success(res, { updated: true });
     }
 
     if (action === 'update-group-account') {
-      const { accountId, ...updates } = req.body;
+      const { accountId, groupId: accountGroupId, ...updates } = req.body;
       if (!accountId) return apiResponse.badRequest(res, 'accountId required');
+      if (!accountGroupId) return apiResponse.badRequest(res, 'groupId required');
+      if (!(await verifyGroupAccess(accountGroupId))) return apiResponse.forbidden(res, 'Access denied to this group');
       const account = await updateGroupAccount(accountId, updates);
       return apiResponse.success(res, account);
     }
 
     const { groupId, ...updates } = req.body;
     if (!groupId) return apiResponse.badRequest(res, 'groupId required');
+    if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
     const group = await updateGroup(groupId, updates);
     return apiResponse.success(res, group);
   }
@@ -175,27 +190,37 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'DELETE') {
     if (action === 'remove-member') {
       const memberId = req.query.member_id as string;
+      const groupId = req.query.group_id as string;
       if (!memberId) return apiResponse.badRequest(res, 'member_id required');
+      if (!groupId) return apiResponse.badRequest(res, 'group_id required');
+      if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
       await removeMember(memberId);
       return apiResponse.success(res, { removed: true });
     }
 
     if (action === 'remove-mapping') {
       const mappingId = req.query.mapping_id as string;
+      const groupId = req.query.group_id as string;
       if (!mappingId) return apiResponse.badRequest(res, 'mapping_id required');
+      if (!groupId) return apiResponse.badRequest(res, 'group_id required');
+      if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
       await removeCoaMapping(mappingId);
       return apiResponse.success(res, { removed: true });
     }
 
     if (action === 'delete-group-account') {
       const accountId = req.query.account_id as string;
+      const groupId = req.query.group_id as string;
       if (!accountId) return apiResponse.badRequest(res, 'account_id required');
+      if (!groupId) return apiResponse.badRequest(res, 'group_id required');
+      if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
       await deleteGroupAccount(accountId);
       return apiResponse.success(res, { deleted: true });
     }
 
     const groupId = req.query.group_id as string;
     if (!groupId) return apiResponse.badRequest(res, 'group_id required');
+    if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
     await deleteGroup(groupId);
     return apiResponse.success(res, { deleted: true });
   }

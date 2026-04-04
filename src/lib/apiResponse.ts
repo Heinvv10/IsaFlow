@@ -327,7 +327,9 @@ export class ApiResponseHelper {
     headers = ['Content-Type', 'Authorization']
   ): void {
     const allowedOrigins = [
-      'https://fin.fibreflow.app',
+      'https://app.isaflow.co.za',
+      'https://admin.isaflow.co.za',
+      'https://isaflow.co.za',
       ...(process.env.NODE_ENV === 'development'
         ? ['http://localhost:3101', 'http://localhost:3004']
         : []),
@@ -335,6 +337,7 @@ export class ApiResponseHelper {
     const safeOrigin = origin && allowedOrigins.includes(origin) ? origin : '';
     if (!safeOrigin) return;
     res.setHeader('Access-Control-Allow-Origin', safeOrigin);
+    res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Methods', methods.join(', '));
     res.setHeader('Access-Control-Allow-Headers', headers.join(', '));
   }

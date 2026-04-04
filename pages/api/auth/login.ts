@@ -26,10 +26,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   // Rate limit: 5 attempts per IP per 15 minutes
-  const rawIp = Array.isArray(req.headers['x-forwarded-for'])
-    ? req.headers['x-forwarded-for'][0]
-    : req.headers['x-forwarded-for'] ?? req.socket.remoteAddress;
-  const ip: string = rawIp ?? 'unknown';
+  // Use the last x-forwarded-for entry (proxy-appended) to prevent client IP spoofing.
+  const ip: string = (() => {
+    const forwarded = req.headers['x-forwarded-for'];
+    if (forwarded) {
+      const raw = Array.isArray(forwarded) ? forwarded[0] ?? '' : forwarded;
+      const ips = raw.split(',').map((s: string) => s.trim());
+      return ips[ips.length - 1] || req.socket.remoteAddress || 'unknown';
+    }
+    return req.socket.remoteAddress || 'unknown';
+  })();
   if (checkRateLimit(ip, { windowMs: 15 * 60 * 1000, maxRequests: 5 })) {
     return res.status(429).json({
       success: false,
@@ -162,10 +168,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       department: user.department as string | undefined,
     };
 
-    // Sign JWT and create DB session
-    const ipAddress = Array.isArray(req.headers['x-forwarded-for'])
-      ? req.headers['x-forwarded-for'][0]
-      : req.headers['x-forwarded-for'] ?? req.socket.remoteAddress;
+    // Sign JWT and create DB session — reuse the already-resolved safe IP
+    const ipAddress = ip;
     const userAgent = req.headers['user-agent'];
 
     // Reset failed login attempts on successful password verification

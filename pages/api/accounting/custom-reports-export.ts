@@ -10,15 +10,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { runReport, type ReportConfig } from '@/modules/accounting/services/customReportService';
-
-function escapeCSV(val: unknown): string {
-  if (val === null || val === undefined) return '';
-  const str = String(val);
-  if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-    return `"${str.replace(/"/g, '""')}"`;
-  }
-  return str;
-}
+import { escapeCsv } from '@/lib/csv';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -58,9 +50,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const filename = `${reportName}_${new Date().toISOString().split('T')[0]}.csv`;
 
   // Build CSV
-  const headerRow = result.columns.map(c => escapeCSV(c.label)).join(',');
+  const headerRow = result.columns.map(c => escapeCsv(c.label)).join(',');
   const dataRows = result.rows.map(row =>
-    result.columns.map(c => escapeCSV(row[c.field])).join(','),
+    result.columns.map(c => escapeCsv(row[c.field])).join(','),
   );
 
   // Totals row
@@ -69,7 +61,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (hasTotals) {
     totalsRow = '\n' + result.columns.map(c => {
       const tv = result.totals[c.field];
-      if (tv !== undefined) return escapeCSV(tv.toFixed(2));
+      if (tv !== undefined) return escapeCsv(tv.toFixed(2));
       return '';
     }).join(',');
   }

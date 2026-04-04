@@ -123,17 +123,35 @@ const FORBIDDEN_KEYWORDS = [
   'LO_IMPORT', 'LO_EXPORT', 'PG_SLEEP',
   // Runtime configuration manipulation
   'CURRENT_SETTING', 'SET_CONFIG', 'PG_TERMINATE_BACKEND', 'PG_CANCEL_BACKEND',
+  // Additional hardening — analytics/admin surface
+  'LATERAL', 'WINDOW', 'GENERATE_SERIES', 'VACUUM', 'EXPLAIN',
 ];
 
 // Dangerous function-call patterns that warrant a separate regex sweep
 const FORBIDDEN_PATTERNS: Array<{ label: string; regex: RegExp }> = [
-  // Any pg_ function invocation (covers pg_read_file, pg_ls_dir, etc.)
-  { label: 'pg_ function call', regex: /\bpg_\w+\s*\(/i },
+  // Any pg_ identifier (function call or schema prefix — covers pg_read_file, pg_catalog, etc.)
+  { label: 'pg_ reference', regex: /\bpg_/i },
+  // information_schema reference
+  { label: 'information_schema reference', regex: /\binformation_schema\b/i },
   // dblink — cross-database tunnelling
   { label: 'dblink call', regex: /\bdblink\s*\(/i },
   // COPY with TO or FROM (data exfiltration / injection)
   { label: 'COPY TO/FROM', regex: /\bCOPY\b[\s\S]*?\b(TO|FROM)\b/i },
+  // SET statement (session variable manipulation)
+  { label: 'SET statement', regex: /\bSET\s+\w/i },
+  // Dollar-quoted DO blocks
+  { label: 'DO $$ block', regex: /\bDO\s*\$\$/i },
 ];
+
+// Tables that NL queries are permitted to access — accounting data only
+const ALLOWED_TABLES = new Set([
+  'gl_journal_entries', 'gl_journal_lines', 'gl_accounts',
+  'customer_invoices', 'customer_invoice_items', 'customers',
+  'supplier_invoices', 'supplier_invoice_items', 'suppliers',
+  'bank_transactions', 'bank_accounts',
+  'customer_payments', 'supplier_payments',
+  'items', 'vat_returns',
+]);
 
 const MAX_LIMIT = 100;
 
@@ -164,10 +182,19 @@ export function validateGeneratedSQL(sql: string): SQLValidation {
     }
   }
 
-  // Reject multiple statements
-  const statements = sql.split(';').filter(s => s.trim().length > 0);
-  if (statements.length > 1) {
+  // Reject any semicolons — prevents stacked queries entirely
+  if (sql.includes(';')) {
     return { valid: false, error: 'Multiple statements not allowed', sanitizedSQL: '' };
+  }
+
+  // Table allowlist — only accounting tables may appear in FROM / JOIN clauses
+  const tablePattern = /(?:FROM|JOIN)\s+(\w+)/gi;
+  let tableMatch: RegExpExecArray | null;
+  while ((tableMatch = tablePattern.exec(sql)) !== null) {
+    const tableName = tableMatch[1]!.toLowerCase();
+    if (!ALLOWED_TABLES.has(tableName)) {
+      return { valid: false, error: `Table '${tableMatch[1]}' not allowed`, sanitizedSQL: '' };
+    }
   }
 
   // Add LIMIT if not present

@@ -8,6 +8,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { checkRateLimit } from '@/lib/rateLimit';
 import {
   buildCategorizationPrompt,
   parseCategorizationResponse,
@@ -23,6 +24,11 @@ type Row = Record<string, unknown>;
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
+
+  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
+  if (checkRateLimit(`ai-categorize:${ip}`, { maxRequests: 30, windowMs: 15 * 60 * 1000 })) {
+    return res.status(429).json({ success: false, error: 'Rate limit exceeded' });
+  }
 
   const { transactionId, description, amount, date } = req.body;
   if (!description) return apiResponse.badRequest(res, 'Transaction description is required');

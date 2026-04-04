@@ -177,7 +177,7 @@ export async function createQuote(companyId: string, input: QuoteInput, userId?:
 }
 
 export async function updateQuote(companyId: string, id: string, input: QuoteInput): Promise<Quote | null> {
-  const existing = await getQuote('', id);
+  const existing = await getQuote(companyId, id);
   if (!existing || existing.status !== 'draft') return null;
   const { subtotal, taxAmount, total } = calcTotals(input.lines);
 
@@ -186,7 +186,7 @@ export async function updateQuote(companyId: string, id: string, input: QuoteInp
       quote_date = ${input.quoteDate || existing.quoteDate}, expiry_date = ${input.expiryDate || null},
       subtotal = ${subtotal}, tax_amount = ${taxAmount}, total = ${total},
       notes = ${input.notes || null}, terms = ${input.terms || null}, updated_at = NOW()
-    WHERE id = ${id}::UUID AND status = 'draft'
+    WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID AND status = 'draft'
   `;
   await sql`DELETE FROM customer_quote_lines WHERE quote_id = ${id}::UUID`;
   for (let i = 0; i < input.lines.length; i++) {
@@ -235,7 +235,7 @@ export async function convertToInvoice(companyId: string, id: string, userId?: s
       `;
     }
 
-    await tx`UPDATE customer_quotes SET status = 'converted', converted_invoice_id = ${newInvoiceId}::UUID, updated_at = NOW() WHERE id = ${id}::UUID`;
+    await tx`UPDATE customer_quotes SET status = 'converted', converted_invoice_id = ${newInvoiceId}::UUID, updated_at = NOW() WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`;
     return newInvoiceId;
   });
 

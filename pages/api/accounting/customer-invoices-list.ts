@@ -20,7 +20,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   try {
-    const { status, limit = '50', offset = '0', q } = req.query;
+    const { status, limit: limitParam = '50', offset = '0', q } = req.query;
+    const limit = Math.min(Number(limitParam), 200);
     const searchTerm = typeof q === 'string' && q.trim() ? `%${q.trim()}%` : null;
 
     let invoices;

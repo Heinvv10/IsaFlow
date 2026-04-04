@@ -69,6 +69,7 @@ export async function getUserAndValidateSession(
       u.is_active,
       u.profile_picture,
       u.department,
+      u.must_change_password,
       s.id as session_id
     FROM users u
     INNER JOIN user_sessions s ON s.user_id = u.id
@@ -98,6 +99,7 @@ export async function getUserAndValidateSession(
     isActive: row.is_active as boolean,
     profilePicture: row.profile_picture as string | undefined,
     department: row.department as string | undefined,
+    mustChangePassword: (row.must_change_password as boolean) || false,
   };
 }
 
@@ -149,6 +151,22 @@ export function withAuth(handler: AuthenticatedHandler): NextApiHandler {
       // Attach user and session to request
       (req as AuthenticatedNextApiRequest).user = user;
       (req as AuthenticatedNextApiRequest).sessionId = payload.sessionId;
+
+      // Enforce must_change_password: block all endpoints except the password-change allowlist
+      if (user.mustChangePassword) {
+        const allowedPaths = [
+          '/api/auth/change-password',
+          '/api/auth/me',
+          '/api/auth/logout',
+        ];
+        const url = req.url?.split('?')[0] ?? '';
+        if (!allowedPaths.includes(url)) {
+          return res.status(403).json({
+            error: 'Password change required',
+            code: 'MUST_CHANGE_PASSWORD',
+          });
+        }
+      }
 
       // Call the actual handler
       return handler(req as AuthenticatedNextApiRequest, res);

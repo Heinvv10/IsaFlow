@@ -25,7 +25,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         status: status as GLEntryStatus | undefined,
         source: source as GLEntrySource | undefined,
         fiscalPeriodId: fiscal_period_id as string | undefined,
-        limit: limit ? Number(limit) : undefined,
+        limit: limit ? Math.min(Number(limit), 200) : undefined,
         offset: offset ? Number(offset) : undefined,
       });
       return apiResponse.success(res, result);

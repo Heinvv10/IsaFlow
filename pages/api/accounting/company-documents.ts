@@ -90,6 +90,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!companyId || !documentType || !documentName || !fileData) {
       return apiResponse.badRequest(res, 'companyId, documentType, documentName, and fileData are required');
     }
+    const ALLOWED_DOC_MIMES = ['application/pdf', 'image/jpeg', 'image/png', 'image/gif'];
+    if (mimeType && !ALLOWED_DOC_MIMES.includes(mimeType as string)) {
+      return apiResponse.badRequest(res, `File type ${mimeType} not allowed`);
+    }
     if (!(await validateMembership(companyId))) {
       return apiResponse.forbidden(res, 'You do not have access to this company');
     }

@@ -7,7 +7,7 @@
 export * from './types';
 
 // JWT utilities
-export { signToken, verifyToken, decodeToken, isTokenExpired, getTokenExpiryTime } from './jwt';
+export { signToken, verifyToken, isTokenExpired, getTokenExpiryTime } from './jwt';
 
 // Password utilities
 export {
