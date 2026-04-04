@@ -12,9 +12,6 @@ import type {
 } from '../types/bank.types';
 import type { JournalLineInput } from '../types/gl.types';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
-
 // ── CRUD ────────────────────────────────────────────────────────────────────
 
 export async function getRules(companyId: string): Promise<BankCategorisationRule[]> {
@@ -27,7 +24,7 @@ export async function getRules(companyId: string): Promise<BankCategorisationRul
     LEFT JOIN customers c ON c.id = r.client_id
     WHERE r.company_id = ${companyId}::UUID
     ORDER BY r.priority ASC, r.rule_name ASC
-  `) as Row[];
+  `) as Record<string, unknown>[];
   return rows.map(mapRuleRow);
 }
 
@@ -40,14 +37,14 @@ export async function createRule(companyId: string, input: RuleCreateInput, user
       priority, auto_create_entry, vat_code, created_by
     ) VALUES (
       ${companyId}::UUID, ${input.ruleName}, ${input.matchField}, ${input.matchType}, ${input.matchPattern},
-      ${input.glAccountId || null}::UUID, ${input.supplierId ? Number(input.supplierId) : null},
+      ${input.glAccountId || null}::UUID, ${input.supplierId || null}::UUID,
       ${input.clientId || null}::UUID,
       ${input.descriptionTemplate || null},
-      ${input.priority || 100}, ${input.autoCreateEntry !== false}, ${vatCode}, ${userId}::UUID
+      ${input.priority || 100}, ${input.autoCreateEntry !== false}, ${vatCode}, ${userId}
     ) RETURNING *
-  `) as Row[];
-  log.info('Created bank rule', { id: rows[0].id, ruleName: input.ruleName }, 'accounting');
-  return mapRuleRow(rows[0]);
+  `) as Record<string, unknown>[];
+  log.info('Created bank rule', { id: rows[0]!.id, ruleName: input.ruleName }, 'accounting');
+  return mapRuleRow(rows[0]!);
 }
 
 export async function updateRule(companyId: string, id: string, input: Partial<RuleCreateInput>): Promise<BankCategorisationRule> {
@@ -58,14 +55,14 @@ export async function updateRule(companyId: string, id: string, input: Partial<R
       match_type = COALESCE(${input.matchType || null}, match_type),
       match_pattern = COALESCE(${input.matchPattern || null}, match_pattern),
       gl_account_id = COALESCE(${input.glAccountId || null}::UUID, gl_account_id),
-      supplier_id = COALESCE(${input.supplierId ? Number(input.supplierId) : null}, supplier_id),
+      supplier_id = COALESCE(${input.supplierId || null}::UUID, supplier_id),
       client_id = COALESCE(${input.clientId || null}::UUID, client_id),
       description_template = COALESCE(${input.descriptionTemplate || null}, description_template),
       priority = COALESCE(${input.priority || null}, priority),
       auto_create_entry = COALESCE(${input.autoCreateEntry ?? null}, auto_create_entry),
       vat_code = COALESCE(${input.vatCode || null}, vat_code)
     WHERE id = ${id}::UUID RETURNING *
-  `) as Row[];
+  `) as Record<string, unknown>[];
   if (!rows[0]) throw new Error(`Rule ${id} not found`);
   return mapRuleRow(rows[0]);
 }
@@ -94,9 +91,9 @@ export async function toggleRule(companyId: string, id: string, isActive: boolea
 async function glAccountByCode(code: string): Promise<string> {
   const rows = (await sql`
     SELECT id FROM gl_accounts WHERE account_code = ${code} AND is_active = TRUE LIMIT 1
-  `) as Row[];
+  `) as Record<string, unknown>[];
   if (rows.length === 0) throw new Error(`GL account ${code} not found`);
-  return String(rows[0].id);
+  return String(rows[0]!.id);
 }
 
 /** Convert rule match type to SQL ILIKE pattern */
@@ -120,15 +117,15 @@ export async function applyRules(companyId: string,
       SELECT * FROM bank_categorisation_rules
       WHERE is_active = true
       ORDER BY priority ASC
-    `) as Row[];
+    `) as Record<string, unknown>[];
 
     if (rules.length === 0) return { applied: 0, skipped: 0, entries: [] };
 
     let totalApplied = 0;
     const entries: RuleApplyResult['entries'] = [];
 
-    const autoCreateRules = rules.filter((r: Row) => Boolean(r.auto_create_entry));
-    const hasSuggestionRules = rules.some((r: Row) => !r.auto_create_entry);
+    const autoCreateRules = rules.filter((r: Record<string, unknown>) => Boolean(r.auto_create_entry));
+    const hasSuggestionRules = rules.some((r: Record<string, unknown>) => !r.auto_create_entry);
 
     if (hasSuggestionRules) {
       // Single-query approach: JOIN all suggestion-mode rules against all unmatched
@@ -187,7 +184,7 @@ export async function applyRules(companyId: string,
         FROM top_match tm
         WHERE bt.id = tm.tx_id
         RETURNING bt.id, tm.rule_name
-      `) as Row[];
+      `) as Record<string, unknown>[];
 
       for (const row of updated) {
         entries.push({ bankTxId: String(row.id), ruleName: String(row.rule_name), suggestion: true });
@@ -217,7 +214,7 @@ export async function applyRules(companyId: string,
       const field = String(rule.match_field);
       const ruleName = String(rule.rule_name);
 
-      let matchingTxs: Row[];
+      let matchingTxs: Record<string, unknown>[];
       if (field === 'description') {
         matchingTxs = (await sql`
           SELECT id, amount, transaction_date, description
@@ -227,7 +224,7 @@ export async function applyRules(companyId: string,
             AND matched_journal_line_id IS NULL
             AND description ILIKE ${pattern}
           ORDER BY transaction_date
-        `) as Row[];
+        `) as Record<string, unknown>[];
       } else if (field === 'reference') {
         matchingTxs = (await sql`
           SELECT id, amount, transaction_date, description, reference
@@ -237,7 +234,7 @@ export async function applyRules(companyId: string,
             AND matched_journal_line_id IS NULL
             AND reference ILIKE ${pattern}
           ORDER BY transaction_date
-        `) as Row[];
+        `) as Record<string, unknown>[];
       } else {
         matchingTxs = (await sql`
           SELECT id, amount, transaction_date, description, reference
@@ -247,7 +244,7 @@ export async function applyRules(companyId: string,
             AND matched_journal_line_id IS NULL
             AND (description ILIKE ${pattern} OR reference ILIKE ${pattern})
           ORDER BY transaction_date
-        `) as Row[];
+        `) as Record<string, unknown>[];
       }
 
       for (const tx of matchingTxs) {
@@ -291,8 +288,8 @@ export async function applyRules(companyId: string,
 
         const je = await createJournalEntry(companyId, {
           entryDate: tx.transaction_date instanceof Date
-            ? tx.transaction_date.toISOString().split('T')[0]
-            : String(tx.transaction_date).split('T')[0],
+            ? tx.transaction_date.toISOString().split('T')[0]!
+            : String(tx.transaction_date).split('T')[0]!,
           description: entryDesc,
           source: 'auto_bank_recon',
           lines,
@@ -303,7 +300,7 @@ export async function applyRules(companyId: string,
           SELECT id FROM gl_journal_lines
           WHERE journal_entry_id = ${je.id}::UUID AND gl_account_id = ${bankAccountId}::UUID
           LIMIT 1
-        `) as Row[];
+        `) as Record<string, unknown>[];
 
         if (bankLineRows[0]) {
           await sql`
@@ -328,8 +325,8 @@ export async function applyRules(companyId: string,
         AND status IN ('imported', 'allocated')
         AND suggested_gl_account_id IS NULL
         AND matched_journal_line_id IS NULL
-    `) as Row[];
-    const skipped = Number(remaining[0].cnt);
+    `) as Record<string, unknown>[];
+    const skipped = Number(remaining[0]?.cnt ?? 0);
 
     log.info('Applied bank rules', { bankAccountId, applied: totalApplied, skipped }, 'accounting');
     return { applied: totalApplied, skipped, entries };
@@ -341,7 +338,7 @@ export async function applyRules(companyId: string,
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-function mapRuleRow(row: Row): BankCategorisationRule {
+function mapRuleRow(row: Record<string, unknown>): BankCategorisationRule {
   return {
     id: String(row.id),
     ruleName: String(row.rule_name),

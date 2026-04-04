@@ -7,9 +7,6 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
-
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export type DocumentType = 'customer_invoice' | 'supplier_invoice' | 'payment' | 'journal_entry' | 'credit_note';
@@ -58,7 +55,7 @@ export async function listRules(companyId?: string): Promise<ApprovalRule[]> {
   if (!companyId) return [];
   const rows = (await sql`
     SELECT * FROM approval_rules WHERE company_id = ${companyId} ORDER BY priority ASC, name ASC
-  `) as Row[];
+  `) as Record<string, unknown>[];
   return rows.map(mapRule);
 }
 
@@ -77,9 +74,9 @@ export async function createRule(companyId: string, input: {
       ${input.conditionField || 'total'}, ${input.conditionOperator || 'greater_than'},
       ${input.conditionValue || 0}, ${input.approverRole || 'admin'}
     ) RETURNING *
-  `) as Row[];
-  log.info('Created approval rule', { id: rows[0].id, name: input.name }, 'accounting');
-  return mapRule(rows[0]);
+  `) as Record<string, unknown>[];
+  log.info('Created approval rule', { id: rows[0]!.id, name: input.name }, 'accounting');
+  return mapRule(rows[0]!);
 }
 
 export async function updateRule(companyId: string, id: string, input: Partial<{
@@ -100,7 +97,7 @@ export async function updateRule(companyId: string, id: string, input: Partial<{
       is_active = COALESCE(${input.isActive ?? null}, is_active),
       updated_at = NOW()
     WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING *
-  `) as Row[];
+  `) as Record<string, unknown>[];
   if (!rows[0]) throw new Error(`Rule ${id} not found`);
   return mapRule(rows[0]);
 }
@@ -128,13 +125,13 @@ export async function checkApproval(
       AND ar.document_id = ${documentId}::UUID
       AND ar.status = 'pending'
     LIMIT 1
-  `) as Row[];
+  `) as Record<string, unknown>[];
 
   if (existing.length > 0) {
     return {
       requiresApproval: true,
       matchedRule: null,
-      existingRequest: mapRequest(existing[0]),
+      existingRequest: mapRequest(existing[0]!),
     };
   }
 
@@ -145,7 +142,7 @@ export async function checkApproval(
       AND document_type = ${documentType}
       AND is_active = true
     ORDER BY priority ASC
-  `) as Row[];
+  `) as Record<string, unknown>[];
 
   for (const rule of rules) {
     const r = mapRule(rule);
@@ -192,13 +189,13 @@ export async function requestApproval(companyId: string, input: {
       ${companyId}, ${input.ruleId}::UUID, ${input.documentType}, ${input.documentId}::UUID,
       ${input.documentReference || null}, ${input.amount || null}, ${input.requestedBy}::UUID
     ) RETURNING *
-  `) as Row[];
+  `) as Record<string, unknown>[];
   log.info('Approval requested', {
-    id: rows[0].id,
+    id: rows[0]!.id,
     documentType: input.documentType,
     documentId: input.documentId,
   }, 'accounting');
-  return mapRequest(rows[0]);
+  return mapRequest(rows[0]!);
 }
 
 /** List approval requests with optional status filter */
@@ -214,7 +211,7 @@ export async function listRequests(companyId: string, status?: ApprovalStatus): 
         LEFT JOIN users u2 ON u2.id = ar.decided_by::TEXT
         WHERE ar.company_id = ${companyId} AND ar.status = ${status}
         ORDER BY ar.created_at DESC
-      `) as Row[]
+      `) as Record<string, unknown>[]
     : (await sql`
         SELECT ar.*, rl.name AS rule_name,
                u1.first_name || ' ' || u1.last_name AS requested_by_name,
@@ -225,7 +222,7 @@ export async function listRequests(companyId: string, status?: ApprovalStatus): 
         LEFT JOIN users u2 ON u2.id = ar.decided_by::TEXT
         WHERE ar.company_id = ${companyId}
         ORDER BY ar.created_at DESC
-      `) as Row[];
+      `) as Record<string, unknown>[];
   return rows.map(mapRequest);
 }
 
@@ -244,7 +241,7 @@ export async function decideRequest(companyId: string,
       decision_notes = ${notes || null}
     WHERE id = ${requestId}::UUID AND company_id = ${companyId} AND status = 'pending'
     RETURNING *
-  `) as Row[];
+  `) as Record<string, unknown>[];
   if (!rows[0]) throw new Error(`Request ${requestId} not found or already decided`);
   log.info('Approval decided', { id: requestId, decision }, 'accounting');
   return mapRequest(rows[0]);
@@ -255,43 +252,43 @@ export async function getPendingCount(companyId?: string): Promise<number> {
   if (!companyId) return 0;
   const rows = (await sql`
     SELECT COUNT(*) AS count FROM approval_requests WHERE company_id = ${companyId} AND status = 'pending'
-  `) as Row[];
+  `) as Record<string, unknown>[];
   return Number(rows[0]?.count ?? 0);
 }
 
 // ── Mappers ──────────────────────────────────────────────────────────────────
 
-function mapRule(r: Row): ApprovalRule {
+function mapRule(r: Record<string, unknown>): ApprovalRule {
   return {
-    id: r.id,
-    name: r.name,
-    documentType: r.document_type,
-    conditionField: r.condition_field,
-    conditionOperator: r.condition_operator,
+    id: String(r.id),
+    name: String(r.name),
+    documentType: String(r.document_type) as DocumentType,
+    conditionField: String(r.condition_field),
+    conditionOperator: String(r.condition_operator),
     conditionValue: Number(r.condition_value),
-    approverRole: r.approver_role,
-    isActive: r.is_active,
-    priority: r.priority,
-    createdAt: r.created_at,
+    approverRole: String(r.approver_role),
+    isActive: Boolean(r.is_active),
+    priority: Number(r.priority),
+    createdAt: String(r.created_at),
   };
 }
 
-function mapRequest(r: Row): ApprovalRequest {
+function mapRequest(r: Record<string, unknown>): ApprovalRequest {
   return {
-    id: r.id,
-    ruleId: r.rule_id,
-    ruleName: r.rule_name || undefined,
-    documentType: r.document_type,
-    documentId: r.document_id,
-    documentReference: r.document_reference,
+    id: String(r.id),
+    ruleId: String(r.rule_id),
+    ruleName: r.rule_name ? String(r.rule_name) : undefined,
+    documentType: String(r.document_type) as DocumentType,
+    documentId: String(r.document_id),
+    documentReference: r.document_reference != null ? String(r.document_reference) : null,
     amount: r.amount ? Number(r.amount) : null,
-    status: r.status,
-    requestedBy: r.requested_by,
-    requestedByName: r.requested_by_name || undefined,
-    requestedAt: r.requested_at,
-    decidedBy: r.decided_by,
-    decidedByName: r.decided_by_name || undefined,
-    decidedAt: r.decided_at,
-    decisionNotes: r.decision_notes,
+    status: String(r.status) as ApprovalStatus,
+    requestedBy: String(r.requested_by),
+    requestedByName: r.requested_by_name ? String(r.requested_by_name) : undefined,
+    requestedAt: String(r.requested_at),
+    decidedBy: r.decided_by != null ? String(r.decided_by) : null,
+    decidedByName: r.decided_by_name ? String(r.decided_by_name) : undefined,
+    decidedAt: r.decided_at != null ? String(r.decided_at) : null,
+    decisionNotes: r.decision_notes != null ? String(r.decision_notes) : null,
   };
 }

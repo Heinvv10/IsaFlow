@@ -27,7 +27,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, { session: null });
     }
 
-    return apiResponse.success(res, { session: mapSessionRow(rows[0]) });
+    return apiResponse.success(res, { session: mapSessionRow(rows[0]!) });
   }
 
   if (req.method === 'POST') {

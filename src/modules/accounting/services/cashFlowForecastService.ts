@@ -7,9 +7,6 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
-
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface CashFlowForecastPoint {
@@ -67,7 +64,7 @@ async function getCurrentCashBalance(companyId: string): Promise<number> {
       AND ga.account_type = 'asset'
       AND ga.account_subtype IN ('bank', 'cash')
       AND ga.is_active = true
-  `) as Row[];
+  `) as Record<string, unknown>[];
   return Number(rows[0]?.total_cash ?? 0);
 }
 
@@ -101,10 +98,10 @@ async function getHistoricalCashFlows(companyId: string, months: number): Promis
       (inflow - outflow) AS net
     FROM monthly
     ORDER BY month ASC
-  `) as Row[];
+  `) as Record<string, unknown>[];
 
-  return rows.map((r: Row) => ({
-    month: r.month,
+  return rows.map((r: Record<string, unknown>) => ({
+    month: String(r.month),
     inflow: Number(r.inflow),
     outflow: Number(r.outflow),
     net: Number(r.net),
@@ -122,10 +119,10 @@ async function getExpectedReceivables(companyId: string): Promise<Array<{ dueDat
       AND (total_amount - COALESCE(amount_paid, 0)) > 0
     GROUP BY due_date
     ORDER BY due_date ASC
-  `) as Row[];
+  `) as Record<string, unknown>[];
 
-  return rows.map((r: Row) => ({
-    dueDate: r.due_date,
+  return rows.map((r: Record<string, unknown>) => ({
+    dueDate: String(r.due_date),
     amount: Number(r.amount_due),
   }));
 }
@@ -141,10 +138,10 @@ async function getExpectedPayables(companyId: string): Promise<Array<{ dueDate: 
       AND (total_amount - COALESCE(amount_paid, 0)) > 0
     GROUP BY due_date
     ORDER BY due_date ASC
-  `) as Row[];
+  `) as Record<string, unknown>[];
 
-  return rows.map((r: Row) => ({
-    dueDate: r.due_date,
+  return rows.map((r: Record<string, unknown>) => ({
+    dueDate: String(r.due_date),
     amount: Number(r.amount_due),
   }));
 }
@@ -157,7 +154,7 @@ async function getRecurringRevenue(companyId: string): Promise<number> {
     WHERE company_id = ${companyId}
       AND status = 'active'
       AND frequency = 'monthly'
-  `) as Row[];
+  `) as Record<string, unknown>[];
   return Number(rows[0]?.monthly_recurring ?? 0);
 }
 
