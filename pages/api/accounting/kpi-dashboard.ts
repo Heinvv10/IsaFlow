@@ -32,9 +32,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const year = now.getFullYear();
     const month = now.getMonth() + 1;
 
+    // Default to start of financial year (12 months back from current month-end)
+    const fyStart = new Date(year, month - 13, 1); // ~12 months ago
     const from = req.query.from
       ? String(req.query.from)
-      : `${year}-${String(month).padStart(2, '0')}-01`;
+      : fyStart.toISOString().slice(0, 10);
     const to = req.query.to
       ? String(req.query.to)
       : now.toISOString().slice(0, 10);

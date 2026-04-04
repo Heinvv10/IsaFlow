@@ -402,7 +402,7 @@ export async function getTopCustomers(companyId: string, limit: number): Promise
         COALESCE(SUM(ci.total_amount), 0) AS revenue,
         COUNT(ci.id) AS invoice_count
       FROM customer_invoices ci
-      JOIN customers c ON c.id = ci.client_id
+      JOIN customers c ON c.id = ci.customer_id
       WHERE ci.status NOT IN ('cancelled', 'draft')
         AND ci.company_id = ${companyId}::UUID
       GROUP BY c.id, c.name

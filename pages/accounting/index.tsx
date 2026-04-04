@@ -161,20 +161,7 @@ export default function AccountingPage() {
                     New Journal Entry
                   </Link>
                 )}
-                {activeTab === 'overview' && (
-                  <button
-                    onClick={() => setEditMode(m => !m)}
-                    className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm font-medium border ${
-                      editMode
-                        ? 'bg-teal-600 text-white border-teal-600 hover:bg-teal-700'
-                        : 'border-gray-300 dark:border-gray-600 text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:border-gray-400'
-                    }`}
-                  >
-                    <Pencil className="h-4 w-4" />
-                    {editMode ? 'Done' : 'Edit Dashboard'}
-                  </button>
-                )}
-              </div>
+                </div>
             </div>
           </div>
 
@@ -205,17 +192,6 @@ export default function AccountingPage() {
           </div>
         </div>
 
-        {/* Adaptive Widget Dashboard (overview tab only) */}
-        {activeTab === 'overview' && (
-          <div className="px-6 py-4 border-b border-[var(--ff-border-light)]">
-            <WidgetGrid
-              widgets={widgetLayout}
-              editMode={editMode}
-              onLayoutChange={handleLayoutChange}
-            />
-          </div>
-        )}
-
         {/* Tab Content */}
         <div className="p-6">
           {activeTab === 'overview' && <OverviewTab />}
@@ -224,6 +200,7 @@ export default function AccountingPage() {
           {activeTab === 'fiscal-periods' && <FiscalPeriodsTab />}
           {activeTab === 'reports' && <ReportsTab />}
         </div>
+
       </div>
     </AppLayout>
   );
@@ -297,6 +274,95 @@ function OverviewTab() {
 
   return (
     <div className="space-y-6">
+      {/* Quick Actions */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Link
+          href="/accounting/journal-entries/new"
+          className="flex items-center gap-3 p-4 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] hover:border-teal-500/50 hover:shadow-md transition-all group no-underline"
+        >
+          <div className="p-2 rounded-lg bg-teal-500/10">
+            <Plus className="h-5 w-5 text-teal-500" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-medium text-[var(--ff-text-primary)]">New Journal Entry</p>
+            <p className="text-sm text-[var(--ff-text-secondary)]">Create a manual journal entry</p>
+          </div>
+          <ArrowRight className="h-4 w-4 text-[var(--ff-text-tertiary)] group-hover:text-teal-500 transition-colors" />
+        </Link>
+
+        <Link
+          href="/accounting/trial-balance"
+          className="flex items-center gap-3 p-4 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] hover:border-blue-500/50 hover:shadow-md transition-all group no-underline"
+        >
+          <div className="p-2 rounded-lg bg-blue-500/10">
+            <BarChart3 className="h-5 w-5 text-blue-500" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-medium text-[var(--ff-text-primary)]">Trial Balance</p>
+            <p className="text-sm text-[var(--ff-text-secondary)]">View trial balance report</p>
+          </div>
+          <ArrowRight className="h-4 w-4 text-[var(--ff-text-tertiary)] group-hover:text-blue-500 transition-colors" />
+        </Link>
+
+        <Link
+          href="/accounting/bank-reconciliation"
+          className="flex items-center gap-3 p-4 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] hover:border-indigo-500/50 hover:shadow-md transition-all group no-underline"
+        >
+          <div className="p-2 rounded-lg bg-indigo-500/10">
+            <Landmark className="h-5 w-5 text-indigo-500" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-medium text-[var(--ff-text-primary)]">Bank Reconciliation</p>
+            <p className="text-sm text-[var(--ff-text-secondary)]">Match statements to GL entries</p>
+          </div>
+          <ArrowRight className="h-4 w-4 text-[var(--ff-text-tertiary)] group-hover:text-indigo-500 transition-colors" />
+        </Link>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Link
+          href="/accounting/supplier-invoices"
+          className="flex items-center gap-3 p-4 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] hover:border-orange-500/50 hover:shadow-md transition-all group no-underline"
+        >
+          <div className="p-2 rounded-lg bg-orange-500/10">
+            <FileText className="h-5 w-5 text-orange-500" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-medium text-[var(--ff-text-primary)]">Supplier Invoices</p>
+            <p className="text-sm text-[var(--ff-text-secondary)]">AP invoices, matching & approvals</p>
+          </div>
+          <ArrowRight className="h-4 w-4 text-[var(--ff-text-tertiary)] group-hover:text-orange-500 transition-colors" />
+        </Link>
+
+        <Link
+          href="/accounting/customer-payments"
+          className="flex items-center gap-3 p-4 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] hover:border-teal-500/50 hover:shadow-md transition-all group no-underline"
+        >
+          <div className="p-2 rounded-lg bg-teal-500/10">
+            <CreditCard className="h-5 w-5 text-teal-500" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-medium text-[var(--ff-text-primary)]">Customer Payments</p>
+            <p className="text-sm text-[var(--ff-text-secondary)]">Record & allocate payments</p>
+          </div>
+          <ArrowRight className="h-4 w-4 text-[var(--ff-text-tertiary)] group-hover:text-teal-500 transition-colors" />
+        </Link>
+
+        <Link
+          href="/accounting/ar-aging"
+          className="flex items-center gap-3 p-4 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] hover:border-teal-500/50 hover:shadow-md transition-all group no-underline"
+        >
+          <div className="p-2 rounded-lg bg-teal-500/10">
+            <TrendingUp className="h-5 w-5 text-teal-500" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-medium text-[var(--ff-text-primary)]">AR Aging Report</p>
+            <p className="text-sm text-[var(--ff-text-secondary)]">Outstanding receivables by age</p>
+          </div>
+          <ArrowRight className="h-4 w-4 text-[var(--ff-text-tertiary)] group-hover:text-teal-500 transition-colors" />
+        </Link>
+      </div>
+
       {/* Row 1 — Key Metric Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Revenue */}
@@ -553,94 +619,6 @@ function OverviewTab() {
         </div>
       </div>
 
-      {/* Row 5 — Quick Actions */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Link
-          href="/accounting/journal-entries/new"
-          className="flex items-center gap-3 p-4 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] hover:border-teal-500/50 hover:shadow-md transition-all group no-underline"
-        >
-          <div className="p-2 rounded-lg bg-teal-500/10">
-            <Plus className="h-5 w-5 text-teal-500" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-medium text-[var(--ff-text-primary)]">New Journal Entry</p>
-            <p className="text-sm text-[var(--ff-text-secondary)]">Create a manual journal entry</p>
-          </div>
-          <ArrowRight className="h-4 w-4 text-[var(--ff-text-tertiary)] group-hover:text-teal-500 transition-colors" />
-        </Link>
-
-        <Link
-          href="/accounting/trial-balance"
-          className="flex items-center gap-3 p-4 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] hover:border-blue-500/50 hover:shadow-md transition-all group no-underline"
-        >
-          <div className="p-2 rounded-lg bg-blue-500/10">
-            <BarChart3 className="h-5 w-5 text-blue-500" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-medium text-[var(--ff-text-primary)]">Trial Balance</p>
-            <p className="text-sm text-[var(--ff-text-secondary)]">View trial balance report</p>
-          </div>
-          <ArrowRight className="h-4 w-4 text-[var(--ff-text-tertiary)] group-hover:text-blue-500 transition-colors" />
-        </Link>
-
-        <Link
-          href="/accounting/bank-reconciliation"
-          className="flex items-center gap-3 p-4 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] hover:border-indigo-500/50 hover:shadow-md transition-all group no-underline"
-        >
-          <div className="p-2 rounded-lg bg-indigo-500/10">
-            <Landmark className="h-5 w-5 text-indigo-500" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-medium text-[var(--ff-text-primary)]">Bank Reconciliation</p>
-            <p className="text-sm text-[var(--ff-text-secondary)]">Match statements to GL entries</p>
-          </div>
-          <ArrowRight className="h-4 w-4 text-[var(--ff-text-tertiary)] group-hover:text-indigo-500 transition-colors" />
-        </Link>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Link
-          href="/accounting/supplier-invoices"
-          className="flex items-center gap-3 p-4 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] hover:border-orange-500/50 hover:shadow-md transition-all group no-underline"
-        >
-          <div className="p-2 rounded-lg bg-orange-500/10">
-            <FileText className="h-5 w-5 text-orange-500" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-medium text-[var(--ff-text-primary)]">Supplier Invoices</p>
-            <p className="text-sm text-[var(--ff-text-secondary)]">AP invoices, matching & approvals</p>
-          </div>
-          <ArrowRight className="h-4 w-4 text-[var(--ff-text-tertiary)] group-hover:text-orange-500 transition-colors" />
-        </Link>
-
-        <Link
-          href="/accounting/customer-payments"
-          className="flex items-center gap-3 p-4 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] hover:border-teal-500/50 hover:shadow-md transition-all group no-underline"
-        >
-          <div className="p-2 rounded-lg bg-teal-500/10">
-            <CreditCard className="h-5 w-5 text-teal-500" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-medium text-[var(--ff-text-primary)]">Customer Payments</p>
-            <p className="text-sm text-[var(--ff-text-secondary)]">Record & allocate payments</p>
-          </div>
-          <ArrowRight className="h-4 w-4 text-[var(--ff-text-tertiary)] group-hover:text-teal-500 transition-colors" />
-        </Link>
-
-        <Link
-          href="/accounting/ar-aging"
-          className="flex items-center gap-3 p-4 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] hover:border-teal-500/50 hover:shadow-md transition-all group no-underline"
-        >
-          <div className="p-2 rounded-lg bg-teal-500/10">
-            <TrendingUp className="h-5 w-5 text-teal-500" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-medium text-[var(--ff-text-primary)]">AR Aging Report</p>
-            <p className="text-sm text-[var(--ff-text-secondary)]">Outstanding receivables by age</p>
-          </div>
-          <ArrowRight className="h-4 w-4 text-[var(--ff-text-tertiary)] group-hover:text-teal-500 transition-colors" />
-        </Link>
-      </div>
     </div>
   );
 }
