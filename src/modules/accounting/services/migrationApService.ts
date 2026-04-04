@@ -9,9 +9,8 @@ import { createJournalEntry, postJournalEntry } from './journalEntryService';
 import { getSystemAccountId } from './systemAccountResolver';
 import { updateSession, type ImportResult, type MigrationError } from './migrationService';
 import { matchContact } from './migrationImportService';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
+
 
 export interface APInvoiceRow {
   invoiceNumber: string;

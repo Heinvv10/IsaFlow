@@ -6,8 +6,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
+type Row = Record<string, unknown>;
 
 const COMPONENT = 'data-archiving';
 const MIN_RETENTION_YEARS = 5;
@@ -104,8 +103,8 @@ export async function getStorageStats(companyId: string): Promise<StorageStats[]
       {
         tableName: 'gl_journal_entries',
         rowCount: Number(jeRows[0]?.row_count ?? 0),
-        oldestDate: toISODate(jeRows[0]?.oldest_date ?? null),
-        newestDate: toISODate(jeRows[0]?.newest_date ?? null),
+        oldestDate: toISODate((jeRows[0]?.oldest_date ?? null) as string | Date | null),
+        newestDate: toISODate((jeRows[0]?.newest_date ?? null) as string | Date | null),
       },
       {
         tableName: 'gl_journal_lines',
@@ -116,20 +115,20 @@ export async function getStorageStats(companyId: string): Promise<StorageStats[]
       {
         tableName: 'bank_transactions',
         rowCount: Number(btRows[0]?.row_count ?? 0),
-        oldestDate: toISODate(btRows[0]?.oldest_date ?? null),
-        newestDate: toISODate(btRows[0]?.newest_date ?? null),
+        oldestDate: toISODate((btRows[0]?.oldest_date ?? null) as string | Date | null),
+        newestDate: toISODate((btRows[0]?.newest_date ?? null) as string | Date | null),
       },
       {
         tableName: 'customer_invoices',
         rowCount: Number(ciRows[0]?.row_count ?? 0),
-        oldestDate: toISODate(ciRows[0]?.oldest_date ?? null),
-        newestDate: toISODate(ciRows[0]?.newest_date ?? null),
+        oldestDate: toISODate((ciRows[0]?.oldest_date ?? null) as string | Date | null),
+        newestDate: toISODate((ciRows[0]?.newest_date ?? null) as string | Date | null),
       },
       {
         tableName: 'supplier_invoices',
         rowCount: Number(siRows[0]?.row_count ?? 0),
-        oldestDate: toISODate(siRows[0]?.oldest_date ?? null),
-        newestDate: toISODate(siRows[0]?.newest_date ?? null),
+        oldestDate: toISODate((siRows[0]?.oldest_date ?? null) as string | Date | null),
+        newestDate: toISODate((siRows[0]?.newest_date ?? null) as string | Date | null),
       },
     ];
 
@@ -275,7 +274,7 @@ export async function getArchiveRuns(companyId: string): Promise<ArchiveRun[]> {
 
     return rows.map((r: Row): ArchiveRun => ({
       id: r.id as string,
-      cutoffDate: toISODate(r.cutoff_date) ?? '',
+      cutoffDate: toISODate(r.cutoff_date as string | Date | null) ?? '',
       status: r.status as string,
       entriesArchived: Number(r.entries_archived ?? 0),
       linesArchived: Number(r.lines_archived ?? 0),

@@ -11,8 +11,7 @@ import { matchTransaction, mapTxRow, fmtDate } from './bankTransactionQueryServi
 import type { BankReconciliation, AutoMatchResult } from '../types/bank.types';
 import type { JournalLineInput } from '../types/gl.types';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
+type Row = Record<string, unknown>;
 
 // ── Reconciliation CRUD ───────────────────────────────────────────────────────
 

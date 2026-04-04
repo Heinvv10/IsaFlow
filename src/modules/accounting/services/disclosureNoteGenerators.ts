@@ -6,8 +6,7 @@
 import { sql } from '@/lib/neon';
 import type { DisclosureNote } from './disclosureNoteService';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
+type Row = Record<string, unknown>;
 
 function fmt(n: number | null | undefined): string {
   if (n == null) return '—';
@@ -70,7 +69,7 @@ export async function notePPE(companyId: string, fiscalYear: number): Promise<Di
   const headers = ['Category', 'Cost', 'Accum Depr', 'Carrying Value', 'Additions', 'Disposals', 'Depr Charge'];
   const tableRows: string[][] = rows.map((r: Row) => {
     const cv = (Number(r.total_cost) || 0) - (Number(r.total_accum_dep) || 0);
-    return [r.category ?? 'Uncategorised', fmt(r.total_cost), fmt(r.total_accum_dep), fmt(cv), fmt(r.additions), fmt(r.disposals), fmt(r.dep_charge)];
+    return [String(r.category ?? 'Uncategorised'), fmt(r.total_cost as number | null), fmt(r.total_accum_dep as number | null), fmt(cv), fmt(r.additions as number | null), fmt(r.disposals as number | null), fmt(r.dep_charge as number | null)];
   });
 
   const totalCost = rows.reduce((s: number, r: Row) => s + (Number(r.total_cost) || 0), 0);
@@ -127,7 +126,7 @@ export async function noteReceivables(companyId: string, fiscalYear: number): Pr
     content: `Trade receivables are carried at original invoice amount less any provision for doubtful debts assessed at the reporting date based on objective evidence of impairment.`,
     tables: [
       { headers: ['', 'Amount (R)'], rows: [['Gross trade receivables', fmt(gross)], ['Less: Provision for doubtful debts', fmt(0)], ['Net trade receivables', fmt(gross)]] },
-      { headers: ['Current', '30 days', '60 days', '90+ days', 'Total'], rows: [[fmt(r.current_amount), fmt(r.days_30), fmt(r.days_60), fmt(r.days_90_plus), fmt(gross)]] },
+      { headers: ['Current', '30 days', '60 days', '90+ days', 'Total'], rows: [[fmt(r.current_amount as number | null), fmt(r.days_30 as number | null), fmt(r.days_60 as number | null), fmt(r.days_90_plus as number | null), fmt(gross)]] },
     ],
     source: 'auto',
   };
@@ -167,7 +166,7 @@ export async function notePayables(companyId: string, fiscalYear: number): Promi
     content: `Trade and other payables are carried at cost which is the fair value of the consideration to be paid in the future for goods and services received, whether or not billed to the entity.`,
     tables: [
       { headers: ['', 'Amount (R)'], rows: [['Trade payables', fmt(gross)], ['Accrued liabilities', fmt(0)], ['Total trade and other payables', fmt(gross)]] },
-      { headers: ['Current', '30 days', '60+ days', 'Total'], rows: [[fmt(r.current_amount), fmt(r.days_30), fmt(r.days_60_plus), fmt(gross)]] },
+      { headers: ['Current', '30 days', '60+ days', 'Total'], rows: [[fmt(r.current_amount as number | null), fmt(r.days_30 as number | null), fmt(r.days_60_plus as number | null), fmt(gross)]] },
     ],
     source: 'auto',
   };
@@ -193,7 +192,7 @@ export async function noteRevenue(companyId: string, fiscalYear: number): Promis
   ` as Row[];
 
   const total = rows.reduce((s: number, r: Row) => s + (Number(r.net_amount) || 0), 0);
-  const tableRows: string[][] = rows.map((r: Row) => [r.account_name, r.account_code, fmt(r.net_amount)]);
+  const tableRows: string[][] = rows.map((r: Row) => [String(r.account_name), String(r.account_code), fmt(r.net_amount as number | null)]);
   tableRows.push(['Total Revenue', '', fmt(total)]);
 
   return {
@@ -224,7 +223,7 @@ export async function noteCash(companyId: string, fiscalYear: number): Promise<D
   ` as Row[];
 
   const total = rows.reduce((s: number, r: Row) => s + (Number(r.balance) || 0), 0);
-  const tableRows: string[][] = rows.map((r: Row) => [r.account_name, r.account_code, fmt(r.balance)]);
+  const tableRows: string[][] = rows.map((r: Row) => [String(r.account_name), String(r.account_code), fmt(r.balance as number | null)]);
   tableRows.push(['Total', '', fmt(total)]);
 
   return {

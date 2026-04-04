@@ -10,9 +10,8 @@ import { withCompany, type CompanyApiRequest, withRole, type AuthenticatedNextAp
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { postAssetDepreciationToGL } from '@/modules/accounting/services/glCrossModuleHooks';
+type Row = Record<string, unknown>;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);

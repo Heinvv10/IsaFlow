@@ -8,9 +8,8 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { validateSystemAccounts } from './systemAccountResolver';
+type Row = Record<string, unknown>;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
 
 export type ValidationStatus = 'pass' | 'fail' | 'warn';
 

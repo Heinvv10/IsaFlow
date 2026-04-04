@@ -11,8 +11,7 @@ import type {
   CompanyEffectiveFeature,
 } from '../types/admin.types';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
+type Row = Record<string, unknown>;
 
 function toIso(value: unknown): string {
   if (value instanceof Date) return value.toISOString();

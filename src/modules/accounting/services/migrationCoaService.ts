@@ -9,9 +9,8 @@ import { clearSystemAccountCache } from './systemAccountResolver';
 import { updateSession } from './migrationService';
 import type { ImportResult, MigrationError } from './migrationService';
 import type { GLAccountType } from '../types/gl.types';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
+
 
 export interface AccountImportRow {
   accountCode: string;

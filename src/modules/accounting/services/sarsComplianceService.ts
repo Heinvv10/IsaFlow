@@ -7,8 +7,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getComplianceCalendar } from './sarsTaxPeriodsService';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
+type Row = Record<string, unknown>;
 
 export type { TaxPeriod, ComplianceEvent } from './sarsTaxPeriodsService';
 export { getTaxPeriods, getComplianceCalendar } from './sarsTaxPeriodsService';
@@ -37,7 +36,7 @@ function mapSubmissionRow(row: Row): SARSSubmission {
     periodStart: String(row.period_start).slice(0, 10),
     periodEnd: String(row.period_end).slice(0, 10),
     status: String(row.status),
-    formData: row.form_data || {},
+    formData: (row.form_data as Record<string, unknown>) ?? {},
     submissionReference: row.submission_reference ? String(row.submission_reference) : null,
     submittedAt: row.submitted_at ? String(row.submitted_at) : null,
     submittedBy: row.submitted_by ? String(row.submitted_by) : null,
@@ -67,7 +66,7 @@ export async function saveDraftSubmission(
     RETURNING *
   `) as Row[];
 
-  return mapSubmissionRow(rows[0]);
+  return mapSubmissionRow(rows[0]!);
 }
 
 export async function listSubmissions(companyId: string,
@@ -96,7 +95,7 @@ export async function getSubmission(companyId: string, id: string): Promise<SARS
     SELECT * FROM sars_submissions WHERE id = ${id}
   `) as Row[];
   if (rows.length === 0) return null;
-  return mapSubmissionRow(rows[0]);
+  return mapSubmissionRow(rows[0]!);
 }
 
 export async function markSubmitted(companyId: string,
@@ -116,7 +115,7 @@ export async function markSubmitted(companyId: string,
   `) as Row[];
 
   if (rows.length === 0) throw new Error(`Submission ${id} not found`);
-  return mapSubmissionRow(rows[0]);
+  return mapSubmissionRow(rows[0]!);
 }
 
 // ---------------------------------------------------------------------------

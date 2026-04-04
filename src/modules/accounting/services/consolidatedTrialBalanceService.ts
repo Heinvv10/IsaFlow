@@ -7,8 +7,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
+type Row = Record<string, unknown>;
 
 // ── Shared Types ──────────────────────────────────────────────────────────────
 
@@ -120,8 +119,8 @@ export async function getPostedEliminations(
       `) as Row[];
       if (gaRows.length > 0) {
         allLines.push({
-          groupAccountId: String(gaRows[0].id), groupAccountCode: String(gaRows[0].account_code),
-          groupAccountName: String(gaRows[0].account_name),
+          groupAccountId: String(gaRows[0]!.id), groupAccountCode: String(gaRows[0]!.account_code),
+          groupAccountName: String(gaRows[0]!.account_name),
           debit: Number(line.debit || 0), credit: Number(line.credit || 0),
         });
       }

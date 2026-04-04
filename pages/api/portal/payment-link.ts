@@ -12,9 +12,8 @@ import { createPaymentLink, getPaymentLink } from '@/modules/accounting/services
 import { generatePayFastForm } from '@/modules/accounting/services/paymentGatewayService';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+type Row = Record<string, unknown>;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {

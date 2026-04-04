@@ -6,8 +6,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
+type Row = Record<string, unknown>;
 
 const MONTHS = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'] as const;
 
@@ -74,14 +73,14 @@ export async function upsertBudget(companyId: string, input: BudgetInput, userId
     SELECT b.*, ga.account_code, ga.account_name, ga.account_type
     FROM accounting_budgets b
     JOIN gl_accounts ga ON ga.id = b.gl_account_id
-    WHERE b.id = ${rows[0].id}::UUID
+    WHERE b.id = ${rows[0]!.id}::UUID
   `) as Row[];
 
   log.info('Upserted budget', {
     glAccountId: input.glAccountId, fiscalYear: input.fiscalYear,
     annualAmount: input.annualAmount,
   }, 'accounting');
-  return mapRow(result[0]);
+  return mapRow(result[0]!);
 }
 
 export async function deleteBudget(companyId: string, id: string): Promise<void> {

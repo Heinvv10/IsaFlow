@@ -11,8 +11,7 @@ import { mapTxRow } from './bankTransactionQueryService';
 import type { BankTransaction } from '../types/bank.types';
 import type { JournalLineInput } from '../types/gl.types';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
+type Row = Record<string, unknown>;
 
 export type AllocationType = 'account' | 'supplier' | 'customer';
 
@@ -42,8 +41,8 @@ export async function allocateTransaction(
   const totalAmount = Math.abs(Number(tx.amount));
   const bankAccountId = String(tx.bank_account_id);
   const txDate = tx.transaction_date instanceof Date
-    ? tx.transaction_date.toISOString().split('T')[0]
-    : String(tx.transaction_date).split('T')[0];
+    ? (tx.transaction_date.toISOString().split('T')[0] ?? '')
+    : (String(tx.transaction_date).split('T')[0] ?? '');
   const isSpent = Number(tx.amount) < 0;
 
   const hasVat = vatCode === 'standard';
@@ -57,7 +56,7 @@ export async function allocateTransaction(
 
   let lines: JournalLineInput[];
   let source: import('../types/gl.types').GLEntrySource;
-  let entryDesc: string;
+  let entryDesc = '';
   let allocEntityName: string | null = null;
 
   if (allocType === 'supplier' && entityId) {
@@ -92,8 +91,8 @@ export async function allocateTransaction(
     }
   } else {
     const acctRows = (await sql`SELECT account_code, account_name FROM gl_accounts WHERE id = ${contraAccountId}::UUID`) as Row[];
-    allocEntityName = acctRows.length > 0 ? `${acctRows[0]!.account_code} ${acctRows[0]!.account_name}` : null;
-    entryDesc = description || tx.description || 'Bank allocation';
+    allocEntityName = acctRows.length > 0 ? `${String(acctRows[0]!.account_code)} ${String(acctRows[0]!.account_name)}` : null;
+    entryDesc = description || String(tx.description || 'Bank allocation');
     source = 'auto_bank_recon';
     if (!isSpent) {
       lines = [
@@ -184,10 +183,10 @@ export async function splitAllocateTransaction(
 
   const bankAccountId = String(tx.bank_account_id);
   const txDate = tx.transaction_date instanceof Date
-    ? tx.transaction_date.toISOString().split('T')[0]
-    : String(tx.transaction_date).split('T')[0];
+    ? (tx.transaction_date.toISOString().split('T')[0] ?? '')
+    : (String(tx.transaction_date).split('T')[0] ?? '');
   const isSpent = Number(tx.amount) < 0;
-  const entryDesc = tx.description || 'Split bank allocation';
+  const entryDesc = String(tx.description || 'Split bank allocation');
   const journalLines: JournalLineInput[] = [];
 
   for (const line of lines) {

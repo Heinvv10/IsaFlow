@@ -23,9 +23,8 @@ import {
   matchTransaction,
 } from '@/modules/accounting/services/bankReconciliationService';
 import type { CandidateType } from '@/modules/accounting/types/bank-match.types';
+type Row = Record<string, unknown>;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
 
 async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {

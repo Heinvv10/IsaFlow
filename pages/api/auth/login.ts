@@ -17,9 +17,8 @@ import type { AuthRole } from '@/lib/auth/types';
 import { get2FAStatus, isTrustedDevice } from '@/modules/auth/services/twoFactorService';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { withErrorHandler } from '@/lib/api-error-handler';
+type Row = Record<string, unknown>;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {

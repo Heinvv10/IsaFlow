@@ -5,8 +5,7 @@ import { log } from '@/lib/logger';
 import crypto from 'crypto';
 import { encryptToken, decryptToken } from '@/lib/encryption';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
+type Row = Record<string, unknown>;
 
 const STITCH_AUTH_URL = 'https://secure.stitch.money/connect/authorize';
 export const STITCH_TOKEN_URL = 'https://secure.stitch.money/connect/token';
@@ -267,8 +266,8 @@ export async function createConnection(input: {
       'pending', ${input.createdBy}::UUID
     ) RETURNING *
   `) as Row[];
-  log.info('Bank feed connection created', { id: rows[0].id, bankName: input.bankName }, 'bank-feeds');
-  return mapConnection(rows[0]);
+  log.info('Bank feed connection created', { id: rows[0]!.id, bankName: input.bankName }, 'bank-feeds');
+  return mapConnection(rows[0]!);
 }
 
 export async function disconnectConnection(id: string): Promise<void> {
@@ -280,20 +279,20 @@ export async function disconnectConnection(id: string): Promise<void> {
 
 export function mapConnection(r: Row): BankFeedConnection {
   return {
-    id: r.id,
-    bankAccountId: r.bank_account_id,
-    bankAccountName: r.bank_account_name || undefined,
-    provider: r.provider,
-    externalAccountId: r.external_account_id,
-    bankName: r.bank_name,
-    accountNumberMasked: r.account_number_masked,
-    branchCode: r.branch_code,
-    accountType: r.account_type,
-    lastSyncAt: r.last_sync_at,
-    syncStatus: r.sync_status,
-    syncError: r.sync_error,
-    isActive: r.is_active,
-    createdAt: r.created_at,
+    id: String(r.id),
+    bankAccountId: String(r.bank_account_id),
+    bankAccountName: r.bank_account_name ? String(r.bank_account_name) : undefined,
+    provider: String(r.provider),
+    externalAccountId: r.external_account_id != null ? String(r.external_account_id) : null,
+    bankName: r.bank_name != null ? String(r.bank_name) : null,
+    accountNumberMasked: r.account_number_masked != null ? String(r.account_number_masked) : null,
+    branchCode: r.branch_code != null ? String(r.branch_code) : null,
+    accountType: r.account_type != null ? String(r.account_type) : null,
+    lastSyncAt: r.last_sync_at != null ? String(r.last_sync_at) : null,
+    syncStatus: String(r.sync_status),
+    syncError: r.sync_error != null ? String(r.sync_error) : null,
+    isActive: Boolean(r.is_active),
+    createdAt: String(r.created_at),
   };
 }
 

@@ -12,9 +12,8 @@ import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { Announcement } from '@/modules/admin/types/admin.types';
+type Row = Record<string, unknown>;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
 
 function toIso(v: unknown): string | null {
   if (v == null) return null;

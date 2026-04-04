@@ -11,8 +11,7 @@ import { log } from '@/lib/logger';
 import { fuzzyMatch } from '@/modules/accounting/utils/fuzzyMatcher';
 import { mergeEntities } from './duplicateMergeService';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
+type Row = Record<string, unknown>;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -63,14 +62,14 @@ async function detectCustomerDuplicates(companyId: string): Promise<DuplicatePai
   `) as Row[];
 
   const entities: DuplicateEntity[] = rows.map((r: Row) => ({
-    id: r.id,
-    name: r.name,
-    email: r.email,
-    vatNumber: r.vat_number,
-    phone: r.phone,
-    registrationNumber: r.registration_number,
-    contactPerson: r.contact_person,
-    billingAddress: r.billing_address,
+    id: r.id as string,
+    name: r.name as string,
+    email: r.email != null ? String(r.email) : undefined,
+    vatNumber: r.vat_number != null ? String(r.vat_number) : undefined,
+    phone: r.phone != null ? String(r.phone) : undefined,
+    registrationNumber: r.registration_number != null ? String(r.registration_number) : undefined,
+    contactPerson: r.contact_person != null ? String(r.contact_person) : undefined,
+    billingAddress: r.billing_address != null ? String(r.billing_address) : undefined,
   }));
 
   const pairs = findDuplicatePairs(entities, 'customer', 0.85);
@@ -91,14 +90,14 @@ async function detectSupplierDuplicates(companyId: string): Promise<DuplicatePai
   `) as Row[];
 
   const entities: DuplicateEntity[] = rows.map((r: Row) => ({
-    id: r.id,
-    name: r.name,
-    email: r.email,
-    vatNumber: r.vat_number,
-    phone: r.phone,
-    registrationNumber: r.registration_number,
-    contactPerson: r.contact_person,
-    address: r.address,
+    id: r.id as string,
+    name: r.name as string,
+    email: r.email != null ? String(r.email) : undefined,
+    vatNumber: r.vat_number != null ? String(r.vat_number) : undefined,
+    phone: r.phone != null ? String(r.phone) : undefined,
+    registrationNumber: r.registration_number != null ? String(r.registration_number) : undefined,
+    contactPerson: r.contact_person != null ? String(r.contact_person) : undefined,
+    address: r.address != null ? String(r.address) : undefined,
   }));
 
   const pairs = findDuplicatePairs(entities, 'supplier', 0.85);

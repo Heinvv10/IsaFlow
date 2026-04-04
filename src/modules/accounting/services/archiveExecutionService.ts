@@ -8,8 +8,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { logAudit } from './auditTrailService';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
+type Row = Record<string, unknown>;
 
 const COMPONENT = 'data-archiving';
 
@@ -32,7 +31,7 @@ export async function executeArchive(
     VALUES (${companyId}, ${userId}, ${cutoffDate}::date, 'running', NOW())
     RETURNING id
   `) as Row[];
-  const runId: string = runRows[0].id as string;
+  const runId: string = runRows[0]!.id as string;
 
   log.info('Archive run started', { companyId, runId, cutoffDate, userId }, COMPONENT);
 

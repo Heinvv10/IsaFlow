@@ -10,8 +10,7 @@ import { encryptToken, decryptToken } from '@/lib/encryption';
 import type { SyncResult, StitchTransaction } from './bankFeedConnectionService';
 import { refreshAccessToken, graphqlQuery } from './bankFeedConnectionService';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
+type Row = Record<string, unknown>;
 
 // ── Stitch transaction fetching ───────────────────────────────────────────────
 
@@ -83,7 +82,7 @@ export async function syncTransactions(connectionId: string): Promise<SyncResult
   const refreshToken = decryptToken(connection.refresh_token as string);
 
   // Refresh token if expired
-  if (new Date(connection.token_expires_at) <= new Date()) {
+  if (new Date(String(connection.token_expires_at)) <= new Date()) {
     log.info('Refreshing expired token', { connectionId }, 'bank-feeds');
     const refreshed = await refreshAccessToken(refreshToken);
     accessToken = refreshed.accessToken;
@@ -104,7 +103,7 @@ export async function syncTransactions(connectionId: string): Promise<SyncResult
     VALUES (${connectionId}::UUID, ${connection.last_sync_cursor ? 'incremental' : 'full'})
     RETURNING id
   `) as Row[];
-  const syncLogId = logRows[0].id;
+  const syncLogId = String(logRows[0]!.id);
 
   await sql`
     UPDATE bank_feed_connections SET sync_status = 'syncing', updated_at = NOW()
@@ -114,14 +113,14 @@ export async function syncTransactions(connectionId: string): Promise<SyncResult
   let totalFetched = 0;
   let totalImported = 0;
   let totalSkipped = 0;
-  let cursor: string | undefined = connection.last_sync_cursor || undefined;
+  let cursor: string | undefined = connection.last_sync_cursor ? String(connection.last_sync_cursor) : undefined;
 
   try {
     let hasMore = true;
     while (hasMore) {
       const result = await fetchStitchTransactions(
         accessToken,
-        connection.external_account_id,
+        String(connection.external_account_id),
         cursor,
         100,
       );
@@ -224,14 +223,14 @@ export async function getSyncHistory(
   `) as Row[];
 
   return rows.map((r: Row) => ({
-    id: r.id,
-    syncType: r.sync_type,
-    fetched: r.transactions_fetched,
-    imported: r.transactions_imported,
-    skipped: r.transactions_skipped,
-    startedAt: r.started_at,
-    completedAt: r.completed_at,
-    status: r.status,
-    error: r.error,
+    id: String(r.id),
+    syncType: String(r.sync_type),
+    fetched: Number(r.transactions_fetched),
+    imported: Number(r.transactions_imported),
+    skipped: Number(r.transactions_skipped),
+    startedAt: String(r.started_at),
+    completedAt: r.completed_at != null ? String(r.completed_at) : null,
+    status: String(r.status),
+    error: r.error != null ? String(r.error) : null,
   }));
 }

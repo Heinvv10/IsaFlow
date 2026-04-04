@@ -7,8 +7,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { toISODate, toStr } from './archiveQueryService';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
+type Row = Record<string, unknown>;
 
 const COMPONENT = 'data-archiving';
 
@@ -53,7 +52,7 @@ export async function getArchivedEntries(
     const items: ArchivedEntry[] = rows.map((r: Row): ArchivedEntry => ({
       id: r.id as string,
       entryNumber: r.entry_number as string | null,
-      entryDate: toISODate(r.entry_date) ?? '',
+      entryDate: toISODate(r.entry_date as string | Date | null) ?? '',
       description: r.description as string | null,
       status: r.status as string | null,
       source: r.source as string | null,

@@ -12,6 +12,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { sql, transaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
+type Row = Record<string, unknown>;
 
 interface ClassifiedBankTx {
   transactionDate: string;
@@ -26,8 +27,6 @@ interface ClassifiedBankTx {
   source?: string;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {

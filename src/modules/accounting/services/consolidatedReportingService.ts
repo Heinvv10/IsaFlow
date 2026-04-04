@@ -9,8 +9,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getGroupMembers } from './consolidatedTrialBalanceService';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
+type Row = Record<string, unknown>;
 
 // ── Re-exports ────────────────────────────────────────────────────────────────
 
@@ -66,7 +65,7 @@ async function findGroupAccountByType(groupId: string, companyId: string, accoun
       AND ga.company_id = ${companyId}::UUID AND ga.account_type = ${accountType}
     LIMIT 1
   `) as Row[];
-  return rows.length > 0 ? String(rows[0].group_account_id) : null;
+  return rows.length > 0 ? String(rows[0]!.group_account_id) : null;
 }
 
 async function findGroupAccountBySubtype(groupId: string, companyId: string, subtype: string): Promise<string | null> {
@@ -77,7 +76,7 @@ async function findGroupAccountBySubtype(groupId: string, companyId: string, sub
       AND ga.company_id = ${companyId}::UUID AND ga.account_subtype = ${subtype}
     LIMIT 1
   `) as Row[];
-  return rows.length > 0 ? String(rows[0].group_account_id) : null;
+  return rows.length > 0 ? String(rows[0]!.group_account_id) : null;
 }
 
 // ── Group Dashboard Stats ─────────────────────────────────────────────────────
@@ -139,8 +138,8 @@ export async function createEliminationAdjustment(
         ${input.sourceIntercompanyId ?? null}::UUID
       ) RETURNING *
     `) as Row[];
-    log.info('Created elimination adjustment', { groupId, id: rows[0].id }, 'accounting');
-    return mapAdjustmentRow(rows[0]);
+    log.info('Created elimination adjustment', { groupId, id: rows[0]!.id }, 'accounting');
+    return mapAdjustmentRow(rows[0]!);
   } catch (err) {
     log.error('Failed to create elimination adjustment', { groupId, error: err }, 'accounting');
     throw err;

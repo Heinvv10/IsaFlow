@@ -6,9 +6,8 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import bcrypt from 'bcryptjs';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
+
 
 // ── Types ────────────────────────────────────────────────────────────────────
 

@@ -16,9 +16,8 @@ import { signToken } from '@/lib/auth/jwt';
 import { createSession } from '@/lib/auth/session';
 import { AUTH_COOKIE_NAME } from '@/lib/auth/middleware';
 import type { AuthRole } from '@/lib/auth/types';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
+
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {

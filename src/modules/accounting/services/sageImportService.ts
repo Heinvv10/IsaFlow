@@ -8,9 +8,8 @@ import { sql, transaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { MigrationRun } from './sageMigrationService';
 import { startRun, completeRun, failRun } from './sageMigrationService';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
+
 
 // ── Ledger Transaction Import ───────────────────────────────────────────────
 

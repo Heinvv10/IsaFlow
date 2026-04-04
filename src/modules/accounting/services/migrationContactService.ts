@@ -7,9 +7,8 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { updateSession } from './migrationService';
 import type { ImportResult, MigrationError } from './migrationService';
+type Row = Record<string, unknown>;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
 
 export interface CustomerImportRow {
   name: string;

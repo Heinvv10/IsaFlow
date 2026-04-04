@@ -7,8 +7,7 @@ import crypto from 'crypto';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
+type Row = Record<string, unknown>;
 
 const VALID_ROLES = ['owner', 'admin', 'manager', 'viewer'] as const;
 type CompanyRole = (typeof VALID_ROLES)[number];
@@ -52,7 +51,7 @@ async function countOwners(companyId: string): Promise<number> {
     SELECT COUNT(*) AS cnt FROM company_users
     WHERE company_id = ${companyId}::UUID AND role = 'owner'
   `) as Row[];
-  return parseInt(rows[0]?.cnt ?? '0', 10);
+  return parseInt(String(rows[0]?.cnt ?? '0'), 10);
 }
 
 function toIso(val: Date | string | null): string | null {
@@ -79,11 +78,11 @@ export async function listCompanyUsers(companyId: string): Promise<CompanyUserRe
   `) as Row[];
 
   return rows.map((r: Row) => ({
-    userId: r.user_id,
-    name: `${r.first_name ?? ''} ${r.last_name ?? ''}`.trim() || r.email,
-    email: r.email,
-    role: r.role,
-    joinedAt: toIso(r.created_at) ?? '',
+    userId: r.user_id as string,
+    name: `${(r.first_name as string) ?? ''} ${(r.last_name as string) ?? ''}`.trim() || (r.email as string),
+    email: r.email as string,
+    role: r.role as string,
+    joinedAt: toIso(r.created_at as string | Date | null) ?? '',
   }));
 }
 
@@ -125,7 +124,7 @@ export async function removeCompanyUser(companyId: string, userId: string): Prom
     WHERE company_id = ${companyId}::UUID AND user_id = ${userId}::UUID
   `) as Row[];
 
-  if (rows[0]?.role === 'owner') {
+  if ((rows[0]?.role as string | undefined) === 'owner') {
     const ownerCount = await countOwners(companyId);
     if (ownerCount <= 1) {
       throw new Error('Cannot remove the last owner of the company.');
@@ -157,7 +156,7 @@ export async function createInvitation(
   `) as Row[];
 
   if (existing.length > 0) {
-    const existingUserId = existing[0].id as string;
+    const existingUserId = existing[0]!.id as string;
 
     // Check if already in company
     const alreadyMember = (await sql`
@@ -196,7 +195,7 @@ export async function createInvitation(
     RETURNING *
   `) as Row[];
 
-  const inv = rows[0];
+  const inv = rows[0]!;
   log.info('Invitation created', { companyId, email, role }, 'accounting');
   return {
     autoAdded: false,
@@ -252,16 +251,16 @@ export async function acceptInvitation(token: string, userId: string): Promise<v
     throw new Error('Invitation not found or has expired.');
   }
 
-  const inv = rows[0];
+  const inv = rows[0]!;
 
   await sql`
     INSERT INTO company_users (company_id, user_id, role)
-    VALUES (${inv.company_id}::UUID, ${userId}::UUID, ${inv.role})
+    VALUES (${inv.company_id as string}::UUID, ${userId}::UUID, ${inv.role as string})
     ON CONFLICT (company_id, user_id) DO NOTHING
   `;
 
   await sql`
-    UPDATE company_invitations SET accepted_at = NOW() WHERE id = ${inv.id}::UUID
+    UPDATE company_invitations SET accepted_at = NOW() WHERE id = ${inv.id as string}::UUID
   `;
 
   log.info('Invitation accepted', { token, userId, companyId: inv.company_id }, 'accounting');
@@ -271,15 +270,15 @@ export async function acceptInvitation(token: string, userId: string): Promise<v
 
 function mapInvitation(r: Row): PendingInvitation {
   return {
-    id: r.id,
-    companyId: r.company_id,
-    email: r.email,
-    role: r.role,
-    invitedBy: r.invited_by,
-    token: r.token,
-    expiresAt: toIso(r.expires_at) ?? '',
-    createdAt: toIso(r.created_at) ?? '',
-    emailSentAt: r.email_sent_at ? (toIso(r.email_sent_at) ?? null) : null,
-    emailError: r.email_error ?? null,
+    id: r.id as string,
+    companyId: r.company_id as string,
+    email: r.email as string,
+    role: r.role as string,
+    invitedBy: r.invited_by as string,
+    token: r.token as string,
+    expiresAt: toIso(r.expires_at as string | Date | null) ?? '',
+    createdAt: toIso(r.created_at as string | Date | null) ?? '',
+    emailSentAt: r.email_sent_at ? (toIso(r.email_sent_at as string | Date | null) ?? null) : null,
+    emailError: (r.email_error as string | null) ?? null,
   };
 }

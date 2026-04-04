@@ -6,9 +6,8 @@
 import { sql, transaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { ParsedAccount, ParsedEntity, MigrationSource } from './migrationParserService';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
+
 
 export interface ExecuteMigrationResult {
   accountsImported: number;

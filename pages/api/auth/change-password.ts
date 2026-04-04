@@ -10,9 +10,8 @@ import { apiResponse } from '@/lib/apiResponse';
 import { verifyPassword, hashPassword, checkPasswordStrength } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
+
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {

@@ -1,0 +1,143 @@
+/**
+ * PDF Shared Utilities — formatting helpers, company details, and branding constants.
+ * Used by invoicePdfBuilder and creditNotePdfBuilder.
+ */
+
+import { sql } from '@/lib/neon';
+import { log } from '@/lib/logger';
+
+type Row = Record<string, unknown>;
+
+// ── Formatting ────────────────────────────────────────────────────────────────
+
+export const fmtZAR = (amount: number): string =>
+  'R ' + Number(amount).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+
+export const fmtDate = (d: string | Date | null | undefined): string => {
+  if (!d) return '—';
+  const str = d instanceof Date ? d.toISOString() : String(d);
+  const parts = str.split('T')[0]?.split('-') ?? [];
+  if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  return str;
+};
+
+// ── Branding ──────────────────────────────────────────────────────────────────
+
+export const TEAL = { r: 20, g: 184, b: 166 }; // #14b8a6
+
+// ── Company Details ────────────────────────────────────────────────────────────
+
+export interface CompanyDetails {
+  name: string;
+  address: string;
+  phone: string;
+  email: string;
+  vatNumber: string;
+  bankName: string;
+  bankAccountName: string;
+  bankAccountNumber: string;
+  bankBranchCode: string;
+  bankReference: string;
+}
+
+const COMPANY_SETTINGS_KEYS = [
+  'company_name', 'company_address', 'company_phone', 'company_email',
+  'company_vat_number', 'bank_name', 'bank_account_name',
+  'bank_account_number', 'bank_branch_code',
+] as const;
+
+async function getCompanyDetailsFromSettings(): Promise<CompanyDetails> {
+  try {
+    const rows = await sql`
+      SELECT key, value FROM app_settings
+      WHERE key = ANY(${COMPANY_SETTINGS_KEYS as unknown as string[]})
+    `;
+    const settings: Record<string, string> = {};
+    for (const row of rows) {
+      settings[row.key as string] = String(row.value ?? '');
+    }
+    return {
+      name: settings.company_name || 'Company Name Not Set',
+      address: settings.company_address || '',
+      phone: settings.company_phone || '',
+      email: settings.company_email || '',
+      vatNumber: settings.company_vat_number || '',
+      bankName: settings.bank_name || '',
+      bankAccountName: settings.bank_account_name || '',
+      bankAccountNumber: settings.bank_account_number || '',
+      bankBranchCode: settings.bank_branch_code || '',
+      bankReference: '',
+    };
+  } catch {
+    log.warn('Failed to load company settings for PDF, using fallbacks', {}, 'pdfShared');
+    return {
+      name: 'Company Name Not Set',
+      address: '', phone: '', email: '', vatNumber: '',
+      bankName: '', bankAccountName: '', bankAccountNumber: '',
+      bankBranchCode: '', bankReference: '',
+    };
+  }
+}
+
+/**
+ * Load company details from the companies table, with fallback to app_settings.
+ */
+export async function getCompanyDetailsFromCompany(companyId: string): Promise<CompanyDetails> {
+  try {
+    const rows = await sql`
+      SELECT name, address_line1, address_line2, city, province, postal_code,
+             phone, email, vat_number,
+             bank_name, bank_account_number, bank_branch_code
+      FROM companies WHERE id = ${companyId}::UUID
+    `;
+    if (rows.length > 0) {
+      const c = rows[0] as Row;
+      const addressParts = [c.address_line1, c.address_line2, c.city, c.province, c.postal_code].filter(Boolean).map(String);
+      return {
+        name: c.name ? String(c.name) : 'Company Name Not Set',
+        address: addressParts.join(', '),
+        phone: c.phone ? String(c.phone) : '',
+        email: c.email ? String(c.email) : '',
+        vatNumber: c.vat_number ? String(c.vat_number) : '',
+        bankName: c.bank_name ? String(c.bank_name) : '',
+        bankAccountName: c.name ? String(c.name) : '',
+        bankAccountNumber: c.bank_account_number ? String(c.bank_account_number) : '',
+        bankBranchCode: c.bank_branch_code ? String(c.bank_branch_code) : '',
+        bankReference: '',
+      };
+    }
+  } catch {
+    log.warn('Failed to load company from companies table, trying app_settings', {}, 'pdfShared');
+  }
+  return getCompanyDetailsFromSettings();
+}
+
+// ── Page footer renderer ──────────────────────────────────────────────────────
+
+/**
+ * Render IsaFlow teal footer lines on every page of a jsPDF document.
+ */
+export function renderPageFooters(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  doc: any,
+  pageW: number,
+  pageH: number,
+  margin: number,
+): void {
+  const totalPages = (doc as { internal: { getNumberOfPages: () => number } })
+    .internal.getNumberOfPages();
+
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(150, 150, 150);
+
+    doc.setDrawColor(TEAL.r, TEAL.g, TEAL.b);
+    doc.setLineWidth(0.3);
+    doc.line(margin, pageH - 12, pageW - margin, pageH - 12);
+
+    doc.text(`Page ${i} of ${totalPages}`, pageW - margin, pageH - 7, { align: 'right' });
+    doc.text('Generated by IsaFlow', margin, pageH - 7);
+  }
+}

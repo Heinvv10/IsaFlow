@@ -16,8 +16,7 @@ import {
   type ConsolidatedBSTotals,
 } from './consolidatedTrialBalanceService';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
+type Row = Record<string, unknown>;
 
 export interface ConsolidatedIncomeStatement {
   groupId: string; periodStart: string; periodEnd: string;
@@ -214,10 +213,10 @@ export async function getConsolidatedBalanceSheet(
           LIMIT 1
         `) as Row[];
         if (reMapping.length > 0) {
-          const gaId = String(reMapping[0].group_account_id);
+          const gaId = String(reMapping[0]!.group_account_id);
           let entry = lineMap.get(gaId);
           if (!entry) {
-            entry = { groupAccountId: gaId, accountCode: String(reMapping[0].account_code), accountName: String(reMapping[0].account_name), entities: {}, eliminationAmount: 0, consolidatedAmount: 0, category: 'equity', normalBalance: String(reMapping[0].normal_balance) };
+            entry = { groupAccountId: gaId, accountCode: String(reMapping[0]!.account_code), accountName: String(reMapping[0]!.account_name), entities: {}, eliminationAmount: 0, consolidatedAmount: 0, category: 'equity', normalBalance: String(reMapping[0]!.normal_balance) };
             lineMap.set(gaId, entry);
           }
           entry.entities[member.companyId] = (entry.entities[member.companyId] || 0) + retainedEarnings;

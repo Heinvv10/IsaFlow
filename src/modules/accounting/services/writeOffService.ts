@@ -10,8 +10,7 @@ import { getSystemAccount } from './systemAccountResolver';
 import type { CustomerWriteOff, WriteOffCreateInput } from '../types/ar.types';
 import type { JournalLineInput } from '../types/gl.types';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
+type Row = Record<string, unknown>;
 
 export async function getWriteOffs(companyId: string, filters?: {
   status?: string;

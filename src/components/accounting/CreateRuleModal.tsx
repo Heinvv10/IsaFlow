@@ -26,6 +26,7 @@ interface Props {
   glAccounts: SelectOption[];
   suppliers?: SelectOption[];
   clients?: SelectOption[];
+  selection?: import('./BankTxTable').RowSelection | null;
   onClose: () => void;
   onCreated: () => void;
 }

@@ -17,8 +17,7 @@ import { createJournalEntry, postJournalEntry } from './journalEntryService';
 import { getSystemAccountId } from './systemAccountResolver';
 import type { JournalLineInput } from '../types/gl.types';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
+type Row = Record<string, unknown>;
 
 const DEFAULT_VAT_RATE = 0.15; // SA VAT rate
 

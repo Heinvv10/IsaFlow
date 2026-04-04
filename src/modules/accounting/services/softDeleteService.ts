@@ -239,8 +239,7 @@ export async function undoDelete(
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = any;
+type Row = Record<string, unknown>;
 
 /**
  * Hard-purge records that were soft-deleted more than 5 minutes ago.

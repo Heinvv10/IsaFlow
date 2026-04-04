@@ -26,6 +26,8 @@ export interface CategorizationResult {
   confidence: number;
   reason: string;
   strategy: CategorizationStrategy;
+  vatCode?: string;
+  vatReason?: string;
 }
 
 export type CategorizationStrategy = 'rules' | 'patterns' | 'llm';
