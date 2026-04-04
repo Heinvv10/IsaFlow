@@ -115,7 +115,7 @@ export async function generateVAT201(companyId: string,
 ): Promise<VAT201Data> {
   log.info('Generating VAT201', { periodStart, periodEnd }, 'sarsService');
 
-  // -- Output VAT: customer invoices in period --
+  // -- Output VAT: customer invoices in period, classified by vat_type from journal lines --
   let customerInvoices: Row[] = [];
   try {
     customerInvoices = (await sql`
@@ -127,7 +127,17 @@ export async function generateVAT201(companyId: string,
         ci.tax_amount,
         ci.total_amount,
         ci.tax_rate,
-        COALESCE(c.name, cl.name) AS customer_name
+        COALESCE(c.name, cl.name) AS customer_name,
+        COALESCE(
+          (
+            SELECT jl.vat_type
+            FROM gl_journal_lines jl
+            WHERE jl.journal_entry_id = ci.gl_journal_entry_id
+              AND jl.vat_type IS NOT NULL
+            LIMIT 1
+          ),
+          CASE WHEN ci.tax_rate = 0 THEN 'zero_rated' ELSE 'standard' END
+        ) AS vat_type
       FROM customer_invoices ci
       LEFT JOIN customers c ON c.id = ci.customer_id
       LEFT JOIN clients cl ON cl.id = ci.client_id
@@ -141,7 +151,7 @@ export async function generateVAT201(companyId: string,
     log.warn('Could not query customer_invoices for VAT201', { error: err }, 'sarsService');
   }
 
-  // -- Input VAT: supplier invoices in period --
+  // -- Input VAT: supplier invoices detail list --
   let supplierInvoices: Row[] = [];
   try {
     supplierInvoices = (await sql`
@@ -166,19 +176,38 @@ export async function generateVAT201(companyId: string,
     log.warn('Could not query supplier_invoices for VAT201', { error: err }, 'sarsService');
   }
 
+  // -- Input VAT totals by classification from supplier_invoice_items --
+  let supplierVatByClass: Row[] = [];
+  try {
+    supplierVatByClass = (await sql`
+      SELECT
+        COALESCE(sii.vat_classification, 'standard') AS classification,
+        COALESCE(SUM(sii.tax_amount), 0) AS vat_total
+      FROM supplier_invoice_items sii
+      JOIN supplier_invoices si ON si.id = sii.supplier_invoice_id
+      WHERE si.company_id = ${companyId}
+        AND si.invoice_date >= ${periodStart}
+        AND si.invoice_date <= ${periodEnd}
+        AND si.status != 'cancelled'
+      GROUP BY COALESCE(sii.vat_classification, 'standard')
+    `) as Row[];
+  } catch (err) {
+    log.warn('Could not query supplier_invoice_items for VAT201 classification', { error: err }, 'sarsService');
+  }
+
   // Categorise customer invoices (output side)
   let field1_standardRated = 0;
   let field2_zeroRated = 0;
-  const field3_exempt = 0; // TODO: categorise exempt invoices when vat_type column added
+  let field3_exempt = 0;
 
   const outputInvoices: VAT201Invoice[] = customerInvoices.map((inv: Row) => {
     const subtotal = Number(inv.subtotal) || 0;
     const vatAmt = Number(inv.tax_amount) || 0;
-    const taxRate = Number(inv.tax_rate) || 0;
-    // Determine VAT type from tax_rate: 0% = zero-rated, 15% = standard
-    const vatType = taxRate === 0 ? 'zero_rated' : 'standard';
+    const vatType = String(inv.vat_type || 'standard');
 
-    if (taxRate === 0) {
+    if (vatType === 'exempt' || vatType === 'no_vat') {
+      field3_exempt += subtotal;
+    } else if (vatType === 'zero_rated' || vatType === 'export') {
       field2_zeroRated += subtotal;
     } else {
       field1_standardRated += subtotal;
@@ -198,22 +227,41 @@ export async function generateVAT201(companyId: string,
   // Field 5: Output VAT = standard-rated supplies x 15%
   const field5_outputVAT = roundCents(field1_standardRated * SA_VAT_RATE);
 
-  // Categorise supplier invoices (input side)
-  const field6_capitalGoods = 0; // TODO: categorise when vat_type column added
+  // Categorise supplier VAT into fields 6/7/8/9 from aggregated item classifications
+  let field6_capitalGoods = 0;
   let field7_otherGoods = 0;
-  const field8_services = 0; // TODO: categorise when vat_type column added
-  const field9_imports = 0; // TODO: categorise when vat_type column added
+  let field8_services = 0;
+  let field9_imports = 0;
+
+  for (const row of supplierVatByClass) {
+    const cls = String(row.classification);
+    const amount = Number(row.vat_total) || 0;
+    if (cls === 'capital_goods') {
+      field6_capitalGoods += amount;
+    } else if (cls === 'services') {
+      field8_services += amount;
+    } else if (cls === 'imported' || cls === 'reverse_charge') {
+      field9_imports += amount;
+    } else {
+      // standard, zero_rated, bad_debt, no_vat, export, other → field 7
+      field7_otherGoods += amount;
+    }
+  }
+
+  // Fallback: if no item-level data exists, use invoice-level tax_amount for field7
+  if (supplierVatByClass.length === 0) {
+    for (const inv of supplierInvoices) {
+      const vatAmt = Number(inv.tax_amount) || 0;
+      const taxRate = Number(inv.tax_rate) || 0;
+      if (taxRate > 0) field7_otherGoods += vatAmt;
+    }
+  }
 
   const inputInvoices: VAT201Invoice[] = supplierInvoices.map((inv: Row) => {
     const vatAmt = Number(inv.tax_amount) || 0;
     const subtotal = Number(inv.subtotal) || 0;
     const taxRate = Number(inv.tax_rate) || 0;
     const vatType = taxRate === 0 ? 'zero_rated' : 'standard';
-
-    // All standard-rated supplier invoices go to "other goods" (field 7) by default
-    if (taxRate > 0) {
-      field7_otherGoods += vatAmt;
-    }
 
     return {
       id: String(inv.id),
@@ -426,11 +474,13 @@ export async function listSubmissions(companyId: string,
       SELECT * FROM sars_submissions
       WHERE form_type = ${formType}
       ORDER BY created_at DESC
+      LIMIT 500
     `) as Row[];
   } else {
     rows = (await sql`
       SELECT * FROM sars_submissions
       ORDER BY created_at DESC
+      LIMIT 500
     `) as Row[];
   }
 
