@@ -23,7 +23,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (status && status !== 'all') {
       rows = await sql`
         SELECT ci.invoice_number, c.name AS client_name,
-          ci.total_amount, ci.amount_paid, ci.status, ci.reference,
+          ci.total_amount, ci.amount_paid, ci.status,
           ci.invoice_date, ci.due_date, NULL as project_name
         FROM customer_invoices ci
         LEFT JOIN customers c ON c.id = ci.client_id
@@ -34,7 +34,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     } else {
       rows = await sql`
         SELECT ci.invoice_number, c.name AS client_name,
-          ci.total_amount, ci.amount_paid, ci.status, ci.reference,
+          ci.total_amount, ci.amount_paid, ci.status,
           ci.invoice_date, ci.due_date, NULL as project_name
         FROM customer_invoices ci
         LEFT JOIN customers c ON c.id = ci.client_id
@@ -44,7 +44,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     const csvLines = [
-      'Invoice #,Client,Project,Reference,Date,Due Date,Amount,Paid,Outstanding,Status',
+      'Invoice #,Client,Project,Date,Due Date,Amount,Paid,Outstanding,Status',
       ...rows.map((r: Record<string, unknown>) => {
         const total = Number(r.total_amount || 0);
         const paid = Number(r.amount_paid || 0);
@@ -52,7 +52,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           csvCell(String(r.invoice_number)),
           csvCell(String(r.client_name || '')),
           csvCell(String(r.project_name || '')),
-          csvCell(String(r.reference || '')),
           csvCell(String(r.invoice_date)),
           csvCell(String(r.due_date || '')),
           total.toFixed(2),

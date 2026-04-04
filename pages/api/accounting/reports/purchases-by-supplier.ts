@@ -34,7 +34,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         AND si.invoice_date >= ${from}
         AND si.invoice_date <= ${to}
         AND si.status != 'cancelled'
-      GROUP BY si.supplier_id, s.company_name
+      GROUP BY si.supplier_id, s.name, s.company_name
       ORDER BY total_purchases DESC
     `;
 
