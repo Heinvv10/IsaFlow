@@ -158,6 +158,7 @@ export function withAuth(handler: AuthenticatedHandler): NextApiHandler {
           '/api/auth/change-password',
           '/api/auth/me',
           '/api/auth/logout',
+          '/api/auth/preferences',
         ];
         const url = req.url?.split('?')[0] ?? '';
         if (!allowedPaths.includes(url)) {
