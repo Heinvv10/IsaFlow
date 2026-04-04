@@ -10,13 +10,14 @@ import { AlertCircle, Loader2, ChevronLeft, ChevronRight, ScrollText } from 'luc
 
 interface AuditEntry {
   id: string;
-  createdAt: string;
-  adminName: string;
+  admin_user_id: string;
+  admin_name: string;
   action: string;
-  targetType: string;
-  targetId: string;
-  details: string;
-  ipAddress: string | null;
+  target_type: string;
+  target_id: string;
+  details: string | Record<string, unknown>;
+  ip_address: string | null;
+  created_at: string;
 }
 
 interface PagedResponse {
@@ -58,7 +59,7 @@ export default function AdminAuditPage() {
       if (dateFrom)   params.set('from', dateFrom);
       if (dateTo)     params.set('to', dateTo);
       if (actionType) params.set('action', actionType);
-      if (targetType) params.set('targetType', targetType);
+      if (targetType) params.set('target_type', targetType);
       const res  = await apiFetch(`/api/admin/audit?${params}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Failed to load audit trail');
@@ -188,22 +189,24 @@ export default function AdminAuditPage() {
               {rows.map(row => (
                 <tr key={row.id} className="border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800/40">
                   <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap font-mono text-xs">
-                    {fmtDateTime(row.createdAt)}
+                    {fmtDateTime(row.created_at)}
                   </td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-200 font-medium">{row.adminName}</td>
+                  <td className="px-4 py-3 text-gray-700 dark:text-gray-200 font-medium">{row.admin_name}</td>
                   <td className="px-4 py-3">
                     <span className="px-2 py-0.5 rounded text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 capitalize">
-                      {row.action.replace('_', ' ')}
+                      {row.action.replaceAll('_', ' ')}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-300 capitalize">
-                    <span className="text-xs">{row.targetType}</span>
-                    {row.targetId && (
-                      <span className="block font-mono text-xs text-gray-400">{row.targetId.slice(0, 8)}…</span>
+                    <span className="text-xs">{row.target_type}</span>
+                    {row.target_id && (
+                      <span className="block font-mono text-xs text-gray-400">{row.target_id.slice(0, 8)}...</span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300 max-w-xs truncate">{row.details}</td>
-                  <td className="px-4 py-3 text-gray-400 font-mono text-xs whitespace-nowrap">{row.ipAddress ?? '—'}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300 max-w-xs truncate">
+                    {typeof row.details === 'string' ? row.details : JSON.stringify(row.details)}
+                  </td>
+                  <td className="px-4 py-3 text-gray-400 font-mono text-xs whitespace-nowrap">{row.ip_address ?? '\u2014'}</td>
                 </tr>
               ))}
             </tbody>
