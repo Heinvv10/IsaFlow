@@ -14,6 +14,8 @@ import {
   Users, ShoppingCart, Landmark, BookOpen,
   Clock, Receipt, TrendingUp, Layers, Activity,
   LayoutDashboard, FolderOpen, GitBranch, Star, AlignJustify,
+  BookMarked, UserCheck, Package, Truck, PackageSearch,
+  List, ArrowLeftRight, Gem, Inbox, Send,
 } from 'lucide-react';
 import { FavouriteButton } from '@/components/accounting/reports/FavouriteButton';
 import { useReportFavourites } from '@/hooks/useReportFavourites';
@@ -34,26 +36,43 @@ interface ReportCard {
 }
 
 const REPORT_DESCRIPTIONS: Record<string, string> = {
-  'income-statement': 'Revenue and expenses for a selected period',
-  'balance-sheet': 'Assets, liabilities, and equity at a point in time',
-  'cash-flow': 'Cash movements from operating, investing, and financing activities',
-  'trial-balance': 'All account balances in debit and credit columns',
-  'vat-return': 'VAT201 return calculation for SARS submission',
-  'budget-vs-actual': 'Compare budgeted vs actual figures with variance analysis',
-  'customer-reports': 'Sales by customer with outstanding balances',
-  'supplier-reports': 'Purchases by supplier with outstanding balances',
-  'bank-transactions': 'Bank account activity with running balance',
-  'account-transactions': 'GL account drill-down with running balance',
-  'ar-aging': 'Outstanding customer invoices by age bucket (30/60/90/120+ days)',
-  'ap-aging': 'Outstanding supplier invoices by age bucket (30/60/90/120+ days)',
-  'project-profitability': 'Revenue and costs tracked by project',
-  'audit-trail': 'Full journal entry audit log with user attribution',
-  'financial-analysis': 'Deep-dive financial ratios and performance metrics',
-  'waterfall': 'Visual breakdown of cumulative financial changes',
-  'trend-analysis': 'Month-on-month and year-on-year trend tracking',
-  'executive-dashboard': 'High-level KPIs and summary metrics for leadership',
-  'report-packs': 'Bundled report sets for board and stakeholder distribution',
-  'three-way-forecast': 'Integrated P&L, balance sheet, and cash flow projections',
+  // Financial Statements
+  'income-statement':        'Revenue and expenses for a selected period, with comparative analysis',
+  'balance-sheet':           'Assets, liabilities, and equity at a specific point in time',
+  'cash-flow':               'Cash movements from operating, investing, and financing activities',
+  'trial-balance':           'All ledger account balances presented in debit and credit columns',
+  // Tax & Budget
+  'vat-return':              'VAT201 return calculation and summary prepared for SARS submission',
+  'budget-vs-actual':        'Budgeted figures compared to actuals with variance and percentage analysis',
+  // Transaction Reports
+  'general-ledger':          'Complete transaction history across all accounts for a selected period',
+  'customer-reports':        'Sales totals and outstanding balances summarised by customer',
+  'supplier-reports':        'Purchase totals and outstanding balances summarised by supplier',
+  'bank-transactions':       'Bank account transactions with a running balance for reconciliation',
+  'account-transactions':    'Drill-down transaction history for a selected general ledger account',
+  'ar-aging':                'Outstanding customer invoices grouped by 30/60/90/120+ day aging buckets',
+  'ap-aging':                'Outstanding supplier invoices grouped by 30/60/90/120+ day aging buckets',
+  'unallocated-receipts':    'Customer receipts that have not yet been matched to an invoice',
+  'unallocated-payments':    'Supplier payments that have not yet been matched to an invoice',
+  // Analysis
+  'sales-by-customer':       'Invoice and receipt totals broken down by customer for a selected period',
+  'sales-by-item':           'Revenue and quantity sold per inventory item or service line',
+  'purchases-by-supplier':   'Purchase invoice totals broken down by supplier for a selected period',
+  'purchases-by-item':       'Purchase spend and quantity per inventory item or expense category',
+  'project-profitability':   'Revenue and costs tracked per project to show individual project margins',
+  // Inventory
+  'item-listing':            'Complete list of all inventory items with current cost and selling prices',
+  'item-movement':           'Stock movements showing goods received, sold, and adjusted per item',
+  'item-valuation':          'Current on-hand inventory value calculated at cost or weighted average',
+  // Analytics
+  'financial-analysis':      'Financial ratios and performance metrics for deep-dive business analysis',
+  'waterfall':               'Visual cumulative breakdown of how revenue builds to net profit',
+  'trend-analysis':          'Month-on-month and year-on-year trend tracking across key financial lines',
+  'executive-dashboard':     'High-level KPIs and summary metrics formatted for leadership review',
+  'report-packs':            'Bundled report sets for board meetings and stakeholder distribution',
+  'three-way-forecast':      'Integrated P&L, balance sheet, and cash flow projections',
+  // Audit
+  'audit-trail':             'Full journal entry log with timestamps and user attribution for compliance',
 };
 
 const reports: ReportCard[] = [
@@ -63,14 +82,24 @@ const reports: ReportCard[] = [
   { id: 'trial-balance',       title: 'Trial Balance',        description: REPORT_DESCRIPTIONS['trial-balance'],        href: '/accounting/trial-balance',                  icon: Scale,           color: 'purple', category: 'Financial Statements' },
   { id: 'vat-return',          title: 'VAT Return',           description: REPORT_DESCRIPTIONS['vat-return'],           href: '/accounting/reports/vat-return',             icon: DollarSign,      color: 'red',    category: 'Tax & Budget' },
   { id: 'budget-vs-actual',    title: 'Budget vs Actual',     description: REPORT_DESCRIPTIONS['budget-vs-actual'],     href: '/accounting/reports/budget-vs-actual',       icon: BarChart3,       color: 'amber',  category: 'Tax & Budget' },
-  { id: 'customer-reports',    title: 'Customer Report',      description: REPORT_DESCRIPTIONS['customer-reports'],     href: '/accounting/reports/customer-reports',       icon: Users,           color: 'blue',   category: 'Transaction Reports' },
-  { id: 'supplier-reports',    title: 'Supplier Report',      description: REPORT_DESCRIPTIONS['supplier-reports'],     href: '/accounting/reports/supplier-reports',       icon: ShoppingCart,    color: 'orange', category: 'Transaction Reports' },
+  { id: 'general-ledger',       title: 'General Ledger',       description: REPORT_DESCRIPTIONS['general-ledger'],       href: '/accounting/reports/general-ledger',         icon: BookMarked,      color: 'violet', category: 'Transaction Reports' },
   { id: 'bank-transactions',   title: 'Bank Transactions',    description: REPORT_DESCRIPTIONS['bank-transactions'],    href: '/accounting/reports/bank-transactions',      icon: Landmark,        color: 'cyan',   category: 'Transaction Reports' },
   { id: 'account-transactions', title: 'Account Transactions', description: REPORT_DESCRIPTIONS['account-transactions'], href: '/accounting/reports/account-transactions',  icon: BookOpen,        color: 'violet', category: 'Transaction Reports' },
   { id: 'ar-aging',            title: 'Aged Receivables',     description: REPORT_DESCRIPTIONS['ar-aging'],             href: '/accounting/ar-aging',                       icon: Clock,           color: 'rose',   category: 'Transaction Reports' },
   { id: 'ap-aging',            title: 'Aged Payables',        description: REPORT_DESCRIPTIONS['ap-aging'],             href: '/accounting/ap-aging',                       icon: Receipt,         color: 'pink',   category: 'Transaction Reports' },
+  { id: 'unallocated-receipts', title: 'Unallocated Receipts', description: REPORT_DESCRIPTIONS['unallocated-receipts'], href: '/accounting/reports/unallocated-receipts',  icon: Inbox,           color: 'amber',  category: 'Transaction Reports' },
+  { id: 'unallocated-payments', title: 'Unallocated Payments', description: REPORT_DESCRIPTIONS['unallocated-payments'], href: '/accounting/reports/unallocated-payments',  icon: Send,            color: 'orange', category: 'Transaction Reports' },
+  { id: 'sales-by-customer',   title: 'Sales by Customer',    description: REPORT_DESCRIPTIONS['sales-by-customer'],    href: '/accounting/reports/sales-by-customer',      icon: UserCheck,       color: 'blue',   category: 'Analysis' },
+  { id: 'sales-by-item',       title: 'Sales by Item',        description: REPORT_DESCRIPTIONS['sales-by-item'],        href: '/accounting/reports/sales-by-item',          icon: Package,         color: 'teal',   category: 'Analysis' },
+  { id: 'purchases-by-supplier', title: 'Purchases by Supplier', description: REPORT_DESCRIPTIONS['purchases-by-supplier'], href: '/accounting/reports/purchases-by-supplier', icon: Truck,          color: 'orange', category: 'Analysis' },
+  { id: 'purchases-by-item',   title: 'Purchases by Item',    description: REPORT_DESCRIPTIONS['purchases-by-item'],    href: '/accounting/reports/purchases-by-item',      icon: PackageSearch,   color: 'amber',  category: 'Analysis' },
+  { id: 'customer-reports',    title: 'Customer Report',      description: REPORT_DESCRIPTIONS['customer-reports'],     href: '/accounting/reports/customer-reports',       icon: Users,           color: 'blue',   category: 'Analysis' },
+  { id: 'supplier-reports',    title: 'Supplier Report',      description: REPORT_DESCRIPTIONS['supplier-reports'],     href: '/accounting/reports/supplier-reports',       icon: ShoppingCart,    color: 'orange', category: 'Analysis' },
   { id: 'project-profitability', title: 'Project Profitability', description: REPORT_DESCRIPTIONS['project-profitability'], href: '/accounting/reports/project-profitability', icon: BarChart3,     color: 'teal',   category: 'Analysis' },
   { id: 'audit-trail',         title: 'Audit Trail',          description: REPORT_DESCRIPTIONS['audit-trail'],          href: '/accounting/reports/audit-trail',            icon: BarChart3,       color: 'amber',  category: 'Analysis' },
+  { id: 'item-listing',        title: 'Item Listing',         description: REPORT_DESCRIPTIONS['item-listing'],         href: '/accounting/reports/item-listing',           icon: List,            color: 'blue',   category: 'Inventory' },
+  { id: 'item-movement',       title: 'Item Movement',        description: REPORT_DESCRIPTIONS['item-movement'],        href: '/accounting/reports/item-movement',          icon: ArrowLeftRight,  color: 'cyan',   category: 'Inventory' },
+  { id: 'item-valuation',      title: 'Item Valuation',       description: REPORT_DESCRIPTIONS['item-valuation'],       href: '/accounting/reports/item-valuation',         icon: Gem,             color: 'purple', category: 'Inventory' },
   { id: 'financial-analysis',  title: 'Financial Analysis',   description: REPORT_DESCRIPTIONS['financial-analysis'],   href: '/accounting/reports/financial-analysis',     icon: TrendingUp,      color: 'indigo', category: 'Analytics' },
   { id: 'waterfall',           title: 'Waterfall Charts',     description: REPORT_DESCRIPTIONS['waterfall'],            href: '/accounting/reports/waterfall',              icon: Layers,          color: 'violet', category: 'Analytics' },
   { id: 'trend-analysis',      title: 'Trend Analysis',       description: REPORT_DESCRIPTIONS['trend-analysis'],       href: '/accounting/reports/trend-analysis',         icon: Activity,        color: 'cyan',   category: 'Analytics' },
@@ -168,7 +197,7 @@ function ReportItem({ report, showDesc }: { report: ReportCard; showDesc: boolea
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function ReportsHubPage() {
-  const { favourites, isFavourite } = useReportFavourites();
+  const { favourites } = useReportFavourites();
   const { showDesc, toggle: toggleDesc } = useShowDescriptions();
 
   const favouriteReports = favourites
