@@ -146,6 +146,12 @@ function TwoFactorScreen({
   );
 }
 
+// ── Safe Redirect ─────────────────────────────────────────────────────────────
+
+function isSafeRedirect(url: string): boolean {
+  return url.startsWith('/') && !url.startsWith('//') && !url.startsWith('/\\');
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function LoginPage() {
@@ -161,10 +167,14 @@ export default function LoginPage() {
   const inviteToken =
     typeof router.query.invite === 'string' ? router.query.invite : null;
 
+  const isAdminHost =
+    typeof window !== 'undefined' && window.location.hostname === 'admin.isaflow.co.za';
+  const defaultRedirect = isAdminHost ? '/' : '/accounting';
+
   const returnTo =
-    typeof router.query.returnTo === 'string' && router.query.returnTo.startsWith('/')
+    typeof router.query.returnTo === 'string' && isSafeRedirect(router.query.returnTo)
       ? router.query.returnTo
-      : '/accounting';
+      : defaultRedirect;
 
   useEffect(() => {
     if (!inviteToken) return;

@@ -19,6 +19,8 @@ import { checkRateLimit } from '@/lib/rateLimit';
 import { withErrorHandler } from '@/lib/api-error-handler';
 type Row = Record<string, unknown>;
 
+// Real bcrypt hash of 'timing-safe-dummy' at cost 12, used for constant-time rejection.
+const TIMING_SAFE_HASH = '$2a$12$K4GByFHHbpZQKxVKzPEfXOdQuGfe0gPISQEFMEfcrrKjAXBgmC.Xq';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -68,7 +70,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     if (!user) {
       // Constant-time failure — avoid timing attacks
-      await verifyPassword(password, '$2a$12$placeholder.hash.to.prevent.timing.attacks');
+      await verifyPassword(password, TIMING_SAFE_HASH);
       return res.status(401).json({
         success: false,
         error: { code: 'INVALID_CREDENTIALS', message: 'Invalid email or password' },

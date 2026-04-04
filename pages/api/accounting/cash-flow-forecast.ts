@@ -15,8 +15,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const { companyId } = req as CompanyApiRequest;
-  const months = Math.min(Number(req.query.months) || 6, 24);
-  const threshold = Number(req.query.threshold) || 0;
+  const months = Math.max(1, Math.min(Number(req.query.months) || 6, 24));
+  const threshold = Math.max(0, Number(req.query.threshold) || 0);
   const includeHistory = req.query.history !== 'false';
 
   try {

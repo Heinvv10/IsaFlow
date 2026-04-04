@@ -42,7 +42,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const strength = checkPasswordStrength(newPassword);
-  if (strength.score < 2) {
+  if (!strength.isValid) {
     return apiResponse.badRequest(
       res,
       `Password too weak: ${strength.issues[0] ?? 'Please choose a stronger password'}`

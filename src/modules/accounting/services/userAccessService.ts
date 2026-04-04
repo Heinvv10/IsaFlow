@@ -42,6 +42,11 @@ export interface InvitationResult {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/** Hash an invite token with SHA-256 before DB storage/lookup. */
+function hashToken(token: string): string {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
 function isValidRole(role: string): role is CompanyRole {
   return (VALID_ROLES as readonly string[]).includes(role);
 }
@@ -179,12 +184,14 @@ export async function createInvitation(
   }
 
   // Create invitation row — upsert on (company_id, email) to allow re-invite
-  const token = crypto.randomBytes(32).toString('hex');
+  // The raw token is returned to the caller (for email links); only the hash is stored.
+  const rawToken = crypto.randomBytes(32).toString('hex');
+  const tokenHash = hashToken(rawToken);
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
   const rows = (await sql`
     INSERT INTO company_invitations (company_id, email, role, invited_by, token, expires_at)
-    VALUES (${companyId}::UUID, ${email}, ${role}, ${invitedBy}, ${token}, ${expiresAt}::TIMESTAMPTZ)
+    VALUES (${companyId}::UUID, ${email}, ${role}, ${invitedBy}, ${tokenHash}, ${expiresAt}::TIMESTAMPTZ)
     ON CONFLICT (company_id, email) DO UPDATE SET
       role = EXCLUDED.role,
       invited_by = EXCLUDED.invited_by,
@@ -197,9 +204,11 @@ export async function createInvitation(
 
   const inv = rows[0]!;
   log.info('Invitation created', { companyId, email, role }, 'accounting');
+  // Expose the raw token to the caller so it can be embedded in the invite email link.
+  // The DB only ever holds the SHA-256 hash.
   return {
     autoAdded: false,
-    invitation: mapInvitation(inv),
+    invitation: { ...mapInvitation(inv), token: rawToken },
   };
 }
 
@@ -239,9 +248,10 @@ export async function cancelInvitation(invitationId: string, companyId: string):
 }
 
 export async function acceptInvitation(token: string, userId: string): Promise<void> {
+  const tokenHash = hashToken(token);
   const rows = (await sql`
     SELECT * FROM company_invitations
-    WHERE token = ${token}
+    WHERE token = ${tokenHash}
       AND accepted_at IS NULL
       AND expires_at > NOW()
     LIMIT 1

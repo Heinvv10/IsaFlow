@@ -33,11 +33,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
     // Download single doc
     if (req.query.id && req.query.download === '1') {
+      const docDownloadId = typeof req.query.id === 'string' ? req.query.id : undefined;
+      if (!docDownloadId) return apiResponse.badRequest(res, 'id must be a single value');
       const rows = (await sql`
         SELECT id, company_id, document_type, document_name, file_data,
                mime_type, file_size, uploaded_at, notes
         FROM company_documents
-        WHERE id = ${req.query.id as string}::UUID AND is_active = true
+        WHERE id = ${docDownloadId}::UUID AND is_active = true
       `) as Row[];
       if (rows.length === 0) return apiResponse.notFound(res, 'Document');
       const doc = rows[0]!;
@@ -57,7 +59,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     // List docs for a company
-    const companyId = req.query.companyId as string;
+    const companyId = typeof req.query.companyId === 'string' ? req.query.companyId : undefined;
     if (!companyId) return apiResponse.badRequest(res, 'companyId is required');
     if (!(await validateMembership(companyId))) {
       return apiResponse.forbidden(res, 'You do not have access to this company');
@@ -124,7 +126,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   // ── DELETE (soft) ──
   if (req.method === 'DELETE') {
-    const docId = req.query.id as string;
+    const docId = typeof req.query.id === 'string' ? req.query.id : undefined;
     if (!docId) return apiResponse.badRequest(res, 'id is required');
 
     const rows = (await sql`

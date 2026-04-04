@@ -13,7 +13,8 @@ type Row = Record<string, unknown>;
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
 
-  const taxYear = Number(req.query.taxYear) || new Date().getFullYear();
+  const parsedTaxYear = Number(req.query.taxYear);
+  const taxYear = parsedTaxYear >= 2000 && parsedTaxYear <= 2100 ? parsedTaxYear : new Date().getFullYear();
 
   // Get monthly totals from payroll runs
   const rows = await sql`

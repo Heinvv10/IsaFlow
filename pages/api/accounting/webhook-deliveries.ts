@@ -16,7 +16,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
   const { companyId } = req as CompanyApiRequest;
   const webhookId = req.query.webhook_id as string;
-  const limit = req.query.limit ? Number(req.query.limit) : 50;
+  const limit = Math.max(1, Math.min(Number(req.query.limit) || 50, 500));
 
   if (!webhookId) return apiResponse.badRequest(res, 'webhook_id query param is required');
 
