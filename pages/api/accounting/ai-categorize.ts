@@ -116,6 +116,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (apiKey) {
       try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
         const response = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
           headers: {
@@ -128,7 +130,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
             max_tokens: 256,
             messages: [{ role: 'user', content: prompt }],
           }),
+          signal: controller.signal,
         });
+        clearTimeout(timeoutId);
 
         if (response.ok) {
           const data = await response.json() as any;

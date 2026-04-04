@@ -61,28 +61,28 @@ export async function updateRule(companyId: string, id: string, input: Partial<R
       priority = COALESCE(${input.priority || null}, priority),
       auto_create_entry = COALESCE(${input.autoCreateEntry ?? null}, auto_create_entry),
       vat_code = COALESCE(${input.vatCode || null}, vat_code)
-    WHERE id = ${id}::UUID RETURNING *
+    WHERE company_id = ${companyId}::UUID AND id = ${id}::UUID RETURNING *
   `) as Record<string, unknown>[];
   if (!rows[0]) throw new Error(`Rule ${id} not found`);
   return mapRuleRow(rows[0]);
 }
 
 export async function deleteRule(companyId: string, id: string): Promise<void> {
-  await sql`DELETE FROM bank_categorisation_rules WHERE id = ${id}::UUID`;
+  await sql`DELETE FROM bank_categorisation_rules WHERE company_id = ${companyId}::UUID AND id = ${id}::UUID`;
 }
 
 export async function deleteRules(companyId: string, ids: string[]): Promise<number> {
   if (ids.length === 0) return 0;
   const rows = await sql`
     DELETE FROM bank_categorisation_rules
-    WHERE id = ANY(${ids}::UUID[])
+    WHERE company_id = ${companyId}::UUID AND id = ANY(${ids}::UUID[])
     RETURNING id
   ` as { id: string }[];
   return rows.length;
 }
 
 export async function toggleRule(companyId: string, id: string, isActive: boolean): Promise<void> {
-  await sql`UPDATE bank_categorisation_rules SET is_active = ${isActive} WHERE id = ${id}::UUID`;
+  await sql`UPDATE bank_categorisation_rules SET is_active = ${isActive} WHERE company_id = ${companyId}::UUID AND id = ${id}::UUID`;
 }
 
 // ── Apply Rules ─────────────────────────────────────────────────────────────

@@ -3,7 +3,7 @@
  * Manage companies and user-company associations.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -299,8 +299,10 @@ export async function getUserCompanies(userId: string): Promise<CompanyUser[]> {
 }
 
 export async function setDefaultCompany(userId: string, companyId: string): Promise<void> {
-  await sql`UPDATE company_users SET is_default = false WHERE user_id = ${userId}`;
-  await sql`UPDATE company_users SET is_default = true WHERE user_id = ${userId} AND company_id = ${companyId}::UUID`;
+  await withTransaction(async (tx) => {
+    await tx`UPDATE company_users SET is_default = false WHERE user_id = ${userId}`;
+    await tx`UPDATE company_users SET is_default = true WHERE user_id = ${userId} AND company_id = ${companyId}::UUID`;
+  });
 }
 
 export async function addUserToCompany(companyId: string, userId: string, role = 'user'): Promise<void> {

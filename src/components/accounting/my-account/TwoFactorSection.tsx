@@ -8,6 +8,7 @@ import Image from 'next/image';
 import { ShieldCheck, ShieldOff, Smartphone, Trash2, Loader2, RefreshCw, Copy, Check } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import toast from 'react-hot-toast';
+import { log } from '@/lib/logger';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { SECTION_CLS, LABEL_CLS, INPUT_CLS } from './AccountTabs';
 
@@ -114,8 +115,8 @@ export function TwoFactorSection() {
       const res = await apiFetch('/api/auth/2fa-trusted-devices');
       const json = await res.json();
       if (json.success) setDevices((json.data?.devices ?? []) as TrustedDevice[]);
-    } catch {
-      // Non-critical — silently ignore
+    } catch (e) {
+      log.warn('Failed to load trusted devices', { error: e }, 'auth');
     }
   }
 

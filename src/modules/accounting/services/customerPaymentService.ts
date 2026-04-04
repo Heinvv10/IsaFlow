@@ -159,7 +159,7 @@ export async function confirmCustomerPayment(companyId: string,
   userId: string
 ): Promise<CustomerPayment> {
   try {
-    const payment = await getCustomerPaymentById('', id);
+    const payment = await getCustomerPaymentById(companyId, id);
     if (!payment) throw new Error(`Payment ${id} not found`);
     if (payment.status !== 'draft') throw new Error(`Cannot confirm payment with status: ${payment.status}`);
 
@@ -177,14 +177,14 @@ export async function confirmCustomerPayment(companyId: string,
         description: `Customer payment ${payment.paymentNumber}` },
     ];
 
-    const je = await createJournalEntry('', {
+    const je = await createJournalEntry(companyId, {
       entryDate: payment.paymentDate,
       description: `Customer payment ${payment.paymentNumber}`,
       source: 'auto_payment',
       sourceDocumentId: id,
       lines,
     }, userId);
-    await postJournalEntry('', je.id, userId);
+    await postJournalEntry(companyId, je.id, userId);
 
     // Update invoice balances and mark payment confirmed atomically
     const updated = await withTransaction(async (tx) => {
@@ -227,7 +227,7 @@ export async function cancelCustomerPayment(companyId: string,
   reason?: string
 ): Promise<CustomerPayment> {
   try {
-    const payment = await getCustomerPaymentById('', id);
+    const payment = await getCustomerPaymentById(companyId, id);
     if (!payment) throw new Error(`Payment ${id} not found`);
     if (payment.status !== 'confirmed') {
       throw new Error(`Cannot cancel payment with status: ${payment.status}`);
@@ -235,7 +235,7 @@ export async function cancelCustomerPayment(companyId: string,
 
     // Reverse GL journal entry
     if (payment.glJournalEntryId) {
-      await reverseJournalEntry('', payment.glJournalEntryId, userId);
+      await reverseJournalEntry(companyId, payment.glJournalEntryId, userId);
     }
 
     // Reverse invoice balance updates
@@ -300,14 +300,14 @@ export async function postCustomerInvoiceToGL(companyId: string, invoiceId: stri
       });
     }
 
-    const je = await createJournalEntry('', {
+    const je = await createJournalEntry(companyId, {
       entryDate: String(inv.invoice_date),
       description: `Customer invoice ${inv.invoice_number}`,
       source: 'auto_invoice',
       sourceDocumentId: invoiceId,
       lines,
     }, userId);
-    await postJournalEntry('', je.id, userId);
+    await postJournalEntry(companyId, je.id, userId);
 
     await sql`UPDATE customer_invoices SET gl_journal_entry_id = ${je.id}::UUID WHERE id = ${invoiceId}::UUID`;
 

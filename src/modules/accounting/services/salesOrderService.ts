@@ -107,9 +107,10 @@ function calcTotals(items: SalesOrderInput['items']) {
   let subtotal = 0;
   let taxAmount = 0;
   for (const item of items) {
-    const lt = item.quantity * item.unit_price;
+    const lt = Math.round(item.quantity * item.unit_price * 100) / 100;
+    const lineTax = Math.round(lt * ((item.tax_rate ?? 15) / 100) * 100) / 100;
     subtotal += lt;
-    taxAmount += lt * ((item.tax_rate ?? 15) / 100);
+    taxAmount += lineTax;
   }
   return {
     subtotal: Math.round(subtotal * 100) / 100,

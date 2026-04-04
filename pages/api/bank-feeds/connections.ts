@@ -1,7 +1,7 @@
 /**
  * Bank Feed Connections API
  * GET  — list connections
- * POST — create connection, sync, or disconnect
+ * POST — sync or disconnect a connection (create is handled by callback.ts OAuth flow)
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -9,7 +9,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import {
-  listConnections, createConnection, disconnectConnection,
+  listConnections, disconnectConnection,
   syncTransactions, getSyncHistory, isConfigured,
 } from '@/modules/accounting/services/bankFeedService';
 
@@ -33,18 +33,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'POST') {
     const { action } = req.body;
 
-    if (action === 'create') {
-      const { bankAccountId, externalAccountId, bankName, accountNumberMasked, branchCode, accountType, accessToken, refreshToken, expiresIn } = req.body;
-      if (!bankAccountId || !externalAccountId || !accessToken || !refreshToken) {
-        return apiResponse.badRequest(res, 'Missing required fields');
-      }
-      const connection = await createConnection({
-        bankAccountId, externalAccountId, bankName, accountNumberMasked,
-        branchCode, accountType, accessToken, refreshToken,
-        expiresIn: expiresIn || 3600, createdBy: userId,
-      });
-      return apiResponse.success(res, connection);
-    }
+    // NOTE: The 'create' action (which previously accepted raw accessToken and
+    // refreshToken from the client body) has been removed. Accepting OAuth tokens
+    // from client-supplied body is a security anti-pattern — tokens must only
+    // arrive via the server-side OAuth callback flow in:
+    //   pages/api/bank-feeds/callback.ts
+    // That handler validates the OAuth state, exchanges the code for tokens, and
+    // calls createConnection() directly. Do not re-add a client-facing create path.
 
     if (action === 'sync') {
       const { connectionId } = req.body;
@@ -60,7 +55,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, { disconnected: true });
     }
 
-    return apiResponse.badRequest(res, 'Invalid action. Use: create, sync, disconnect');
+    return apiResponse.badRequest(res, 'Invalid action. Use: sync, disconnect');
   }
 
   return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST']);

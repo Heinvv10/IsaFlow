@@ -6,6 +6,7 @@
 
 import { apiFetch } from '@/lib/apiFetch';
 import { notify } from '@/utils/toast';
+import { log } from '@/lib/logger';
 import { extractPattern } from '@/components/accounting/CreateRuleModal';
 import type { AllocType, VatCode, BankTx, SelectOption, RowSelection } from '@/components/accounting/BankTxTable';
 import type { RulePrompt } from './BankTxBatchPanel';
@@ -91,7 +92,7 @@ export function buildBankTxActions(deps: ActionDeps) {
             const json = await res.json();
             const matchCount = json.data?.matchCount ?? 0;
             if (matchCount > 0) setRulePrompt({ tx, matchCount });
-          } catch { /* non-critical */ }
+          } catch (e) { log.warn('Bank rule prompt check failed', { error: e }, 'banking'); }
         }
       }
     } catch (e) { notify.error(e instanceof Error ? e.message : 'Failed'); }

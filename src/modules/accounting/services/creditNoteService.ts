@@ -206,43 +206,47 @@ export async function cancelCreditNote(companyId: string,
       throw new Error(`Cannot cancel credit note with status: ${cn.status}`);
     }
 
-    // Reverse GL journal entry
+    // Reverse GL journal entry — manages its own transaction, must stay outside
     if (cn.gl_journal_entry_id) {
       await reverseJournalEntry('', String(cn.gl_journal_entry_id), userId);
     }
 
-    // Reverse invoice balance adjustments
-    if (String(cn.type) === 'customer' && cn.customer_invoice_id) {
-      await sql`
-        UPDATE customer_invoices
-        SET amount_paid = GREATEST(0, amount_paid - ${Number(cn.total_amount)})
-        WHERE id = ${cn.customer_invoice_id}::UUID
-      `;
-      await sql`
-        UPDATE customer_invoices SET status = CASE
-          WHEN amount_paid <= 0.01 THEN 'approved'
-          WHEN amount_paid < total_amount THEN 'partially_paid'
-          ELSE status
-        END
-        WHERE id = ${cn.customer_invoice_id}::UUID
-      `;
-    } else if (String(cn.type) === 'supplier' && cn.supplier_invoice_id) {
-      await sql`
-        UPDATE supplier_invoices
-        SET amount_paid = GREATEST(0, amount_paid - ${Number(cn.total_amount)})
-        WHERE id = ${cn.supplier_invoice_id}::UUID
-      `;
-    }
+    // Atomically reverse invoice balance adjustments and mark credit note cancelled
+    const updated = await withTransaction(async (tx) => {
+      if (String(cn.type) === 'customer' && cn.customer_invoice_id) {
+        await tx`
+          UPDATE customer_invoices
+          SET amount_paid = GREATEST(0, amount_paid - ${Number(cn.total_amount)})
+          WHERE id = ${cn.customer_invoice_id}::UUID
+        `;
+        await tx`
+          UPDATE customer_invoices SET status = CASE
+            WHEN amount_paid <= 0.01 THEN 'approved'
+            WHEN amount_paid < total_amount THEN 'partially_paid'
+            ELSE status
+          END
+          WHERE id = ${cn.customer_invoice_id}::UUID
+        `;
+      } else if (String(cn.type) === 'supplier' && cn.supplier_invoice_id) {
+        await tx`
+          UPDATE supplier_invoices
+          SET amount_paid = GREATEST(0, amount_paid - ${Number(cn.total_amount)})
+          WHERE id = ${cn.supplier_invoice_id}::UUID
+        `;
+      }
 
-    const updated = (await sql`
-      UPDATE credit_notes
-      SET status = 'cancelled', cancelled_by = ${userId}::UUID,
-          cancelled_at = NOW(), cancel_reason = ${reason || null}
-      WHERE id = ${id} RETURNING *
-    `) as Record<string, unknown>[];
+      const rows = (await tx`
+        UPDATE credit_notes
+        SET status = 'cancelled', cancelled_by = ${userId}::UUID,
+            cancelled_at = NOW(), cancel_reason = ${reason || null}
+        WHERE id = ${id} RETURNING *
+      `) as Record<string, unknown>[];
+
+      return rows[0] as Record<string, unknown>;
+    });
 
     log.info('Cancelled credit note', { id, reason }, 'accounting');
-    return mapRow(updated[0]!);
+    return mapRow(updated);
   } catch (err) {
     log.error('Failed to cancel credit note', { id, error: err }, 'accounting');
     throw err;

@@ -8,6 +8,7 @@
 import { useState } from 'react';
 import { ArrowRight, AlertCircle, Loader2, CheckCircle2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { AccountMappingTable } from './AccountMappingTable';
 import {
   StepIndicator, FileUploadZone, SummaryCard, VerifyTable, RollbackButton,
@@ -98,7 +99,9 @@ export function ExternalMigrationWizard({ source, onDone, onBack }: Props) {
       const res = await apiFetch('/api/accounting/migration-parse', { method: 'POST', body: form });
       const json = await res.json();
       if (res.ok) setAccounts(json.data.parsed);
-    } catch { /* silent — mapping may still be applied */ } finally {
+    } catch (e) {
+      log.warn('AI auto-mapping failed', { error: e }, 'migration');
+    } finally {
       setAutoMapping(false);
     }
   };

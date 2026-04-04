@@ -10,6 +10,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import toast from 'react-hot-toast';
+import { log } from '@/lib/logger';
 import {
   ProfileTab,
   SecurityTab,
@@ -97,8 +98,8 @@ export default function MyAccountPage() {
           navMode: json.data.navMode ?? prev.navMode,
         }));
       }
-    } catch {
-      // Preferences are non-critical — silently ignore
+    } catch (e) {
+      log.warn('Failed to load preferences', { error: e }, 'account');
     }
   }
 

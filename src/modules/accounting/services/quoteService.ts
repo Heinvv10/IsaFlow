@@ -2,7 +2,7 @@
  * Customer Quote Service — Sage-parity quotes with convert-to-invoice
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
 type Row = Record<string, unknown>;
@@ -90,9 +90,10 @@ function calcTotals(lines: QuoteInput['lines']) {
   let subtotal = 0;
   let taxAmount = 0;
   for (const l of lines) {
-    const lt = l.quantity * l.unitPrice;
+    const lt = Math.round(l.quantity * l.unitPrice * 100) / 100;
+    const lineTax = Math.round(lt * ((l.taxRate ?? 15) / 100) * 100) / 100;
     subtotal += lt;
-    taxAmount += lt * ((l.taxRate ?? 15) / 100);
+    taxAmount += lineTax;
   }
   return { subtotal: Math.round(subtotal * 100) / 100, taxAmount: Math.round(taxAmount * 100) / 100, total: Math.round((subtotal + taxAmount) * 100) / 100 };
 }
@@ -216,24 +217,28 @@ export async function convertToInvoice(companyId: string, id: string, userId?: s
   const quote = await getQuote(companyId, id);
   if (!quote || quote.status !== 'accepted') return null;
 
-  // Create invoice from quote
-  const invRows = (await sql`
-    INSERT INTO customer_invoices (company_id, client_id, invoice_date, due_date, subtotal, tax_amount, total, notes, status, created_by)
-    VALUES (${companyId}, ${quote.clientId}, ${quote.quoteDate}, ${quote.expiryDate || quote.quoteDate}, ${quote.subtotal},
-      ${quote.taxAmount}, ${quote.total}, ${'Converted from ' + quote.quoteNumber}, 'draft', ${userId || null})
-    RETURNING id
-  `) as Row[];
-  const invoiceId = String(invRows[0]!.id);
+  const invoiceId = await withTransaction(async (tx) => {
+    // Create invoice from quote
+    const invRows = (await tx`
+      INSERT INTO customer_invoices (company_id, client_id, invoice_date, due_date, subtotal, tax_amount, total, notes, status, created_by)
+      VALUES (${companyId}, ${quote.clientId}, ${quote.quoteDate}, ${quote.expiryDate || quote.quoteDate}, ${quote.subtotal},
+        ${quote.taxAmount}, ${quote.total}, ${'Converted from ' + quote.quoteNumber}, 'draft', ${userId || null})
+      RETURNING id
+    `) as Row[];
+    const newInvoiceId = String(invRows[0]!.id);
 
-  // Copy lines
-  for (const line of quote.lines || []) {
-    await sql`
-      INSERT INTO customer_invoice_items (invoice_id, description, quantity, unit_price, tax_rate, line_total, account_id)
-      VALUES (${invoiceId}::UUID, ${line.description}, ${line.quantity}, ${line.unitPrice}, ${line.taxRate}, ${line.lineTotal}, ${line.accountId})
-    `;
-  }
+    // Copy lines
+    for (const line of quote.lines || []) {
+      await tx`
+        INSERT INTO customer_invoice_items (invoice_id, description, quantity, unit_price, tax_rate, line_total, account_id)
+        VALUES (${newInvoiceId}::UUID, ${line.description}, ${line.quantity}, ${line.unitPrice}, ${line.taxRate}, ${line.lineTotal}, ${line.accountId})
+      `;
+    }
 
-  await sql`UPDATE customer_quotes SET status = 'converted', converted_invoice_id = ${invoiceId}::UUID, updated_at = NOW() WHERE id = ${id}::UUID`;
+    await tx`UPDATE customer_quotes SET status = 'converted', converted_invoice_id = ${newInvoiceId}::UUID, updated_at = NOW() WHERE id = ${id}::UUID`;
+    return newInvoiceId;
+  });
+
   log.info('Quote converted to invoice', { quoteId: id, invoiceId });
   return { quote: (await getQuote('', id))!, invoiceId };
 }

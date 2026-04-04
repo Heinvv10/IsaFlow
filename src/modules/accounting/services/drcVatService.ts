@@ -22,9 +22,12 @@ type Row = Record<string, unknown>;
 const DEFAULT_VAT_RATE = 0.15; // SA VAT rate
 
 /** Load VAT rate from app_settings, falling back to 15% */
-async function getVatRate(): Promise<number> {
+async function getVatRate(companyId: string): Promise<number> {
   try {
-    const rows = (await sql`SELECT value FROM app_settings WHERE key = 'vat_rate'`) as Row[];
+    const rows = (await sql`
+      SELECT value FROM app_settings
+      WHERE key = 'vat_rate' AND company_id = ${companyId}::UUID
+    `) as Row[];
     if (rows[0]?.value) {
       const rate = Number(rows[0].value);
       if (rate > 0 && rate < 1) return rate;
@@ -60,7 +63,7 @@ export async function applyDRCVat(companyId: string,
   if (inv.is_drc) throw new Error('DRC VAT already applied to this invoice');
 
   const totalExclVat = Number(inv.total_amount);
-  const vatRate = await getVatRate();
+  const vatRate = await getVatRate(companyId);
   const vatAmount = Math.round(totalExclVat * vatRate * 100) / 100;
 
   // Get VAT account IDs by subtype (code-independent)
@@ -114,7 +117,7 @@ export async function getDRCEligibleInvoices(companyId: string): Promise<Array<{
     ORDER BY si.invoice_date DESC
   `) as Row[];
 
-  const vatRate = await getVatRate();
+  const vatRate = await getVatRate(companyId);
   return rows.map((r: Row) => ({
     id: String(r.id),
     invoiceNumber: String(r.invoice_number),

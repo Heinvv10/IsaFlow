@@ -1,6 +1,12 @@
 /**
  * PRD-060 Phase 6: Sage Migration Service
  * Status, account mapping, comparison, reset + re-exports importers
+ *
+ * WARNING: Sage staging tables (sage_accounts, sage_ledger_transactions,
+ * sage_supplier_invoices, sage_customer_invoices) currently have NO company_id
+ * column. All tenants share a single global staging buffer. A migration to add
+ * company_id scoping is required before multi-tenant production use.
+ * See audit item #28.
  */
 
 import { sql } from '@/lib/neon';

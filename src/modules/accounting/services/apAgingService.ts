@@ -19,7 +19,8 @@ export async function getAPAging(companyId: string, asAtDate?: string): Promise<
         si.due_date, si.total_amount, si.amount_paid, si.balance
       FROM supplier_invoices si
       JOIN suppliers s ON s.id = si.supplier_id
-      WHERE si.status IN ('approved', 'partially_paid')
+      WHERE si.company_id = ${companyId}::UUID
+        AND si.status IN ('approved', 'partially_paid')
         AND si.balance > 0
         AND si.due_date IS NOT NULL
       ORDER BY si.due_date
@@ -49,7 +50,7 @@ export async function getAPAgingDetail(companyId: string,
   try {
     const asAt = asAtDate ? new Date(asAtDate) : new Date();
 
-    const supplierRows = (await sql`SELECT id, name FROM suppliers WHERE id = ${Number(supplierId)}`) as Row[];
+    const supplierRows = (await sql`SELECT id, name FROM suppliers WHERE id = ${Number(supplierId)} AND company_id = ${companyId}::UUID`) as Row[];
     if (supplierRows.length === 0) throw new Error(`Supplier ${supplierId} not found`);
 
     const rows = (await sql`
@@ -57,7 +58,8 @@ export async function getAPAgingDetail(companyId: string,
         si.due_date, si.invoice_number, si.total_amount, si.amount_paid, si.balance
       FROM supplier_invoices si
       JOIN suppliers s ON s.id = si.supplier_id
-      WHERE si.supplier_id = ${Number(supplierId)}
+      WHERE si.company_id = ${companyId}::UUID
+        AND si.supplier_id = ${Number(supplierId)}
         AND si.status IN ('approved', 'partially_paid')
         AND si.balance > 0
         AND si.due_date IS NOT NULL

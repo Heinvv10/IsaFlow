@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { useAuth } from './AuthContext';
 import { apiFetch } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 
 const STORAGE_KEY = 'isaflow_active_company';
 
@@ -103,8 +104,8 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
           return company;
         }
       }
-    } catch {
-      // Failed to load company details
+    } catch (e) {
+      log.warn('Failed to load company details', { error: e }, 'context');
     }
     return null;
   }, []);
@@ -155,8 +156,8 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
             targetId = id;
           }
         }
-      } catch {
-        // Invalid stored data
+      } catch (e) {
+        log.warn('Failed to parse stored company data', { error: e }, 'context');
       }
 
       // 2. Fall back to default company
@@ -175,8 +176,8 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
       if (match) setCompanyRole(match.role);
 
       await loadCompanyDetails(targetId);
-    } catch {
-      // Network error
+    } catch (e) {
+      log.warn('Failed to load user companies', { error: e }, 'context');
     } finally {
       setLoading(false);
     }
@@ -200,8 +201,8 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'set-default', companyId }),
       });
-    } catch {
-      // Non-critical
+    } catch (e) {
+      log.warn('Failed to persist default company switch', { error: e }, 'context');
     }
   }, [companies, loadCompanyDetails]);
 

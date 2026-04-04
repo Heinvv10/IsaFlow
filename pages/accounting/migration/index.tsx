@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { useAuth } from '@/contexts/AuthContext';
+import { log } from '@/lib/logger';
 
 interface StepsCompleted {
   coa?: boolean;
@@ -72,10 +73,10 @@ export default function MigrationHubPage() {
       const res = await apiFetch('/api/accounting/migration/session');
       const json = await res.json();
       if (res.ok && json.data) {
-        setSession(json.data);
+        setSession(json.data.session ?? json.data);
       }
-    } catch {
-      // No session yet — show source selection
+    } catch (e) {
+      log.warn('Failed to load migration session', { error: e }, 'migration');
     } finally {
       setIsLoading(false);
     }
@@ -94,7 +95,7 @@ export default function MigrationHubPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Failed to create session');
-      setSession(json.data);
+      setSession(json.data.session ?? json.data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start migration');
     } finally {
