@@ -18,10 +18,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   await sql`UPDATE users SET onboarding_completed = true WHERE id = ${userId}`;
 
-  const secureSuffix = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  const isProd = process.env.NODE_ENV === 'production';
+  const secureSuffix = isProd ? '; Secure' : '';
+  const domainSuffix = isProd ? '; Domain=.isaflow.co.za' : '';
   res.setHeader(
     'Set-Cookie',
-    `ff_onboarding_done=1; Path=/; Max-Age=31536000; SameSite=Lax${secureSuffix}`
+    `ff_onboarding_done=1; Path=/; Max-Age=31536000; SameSite=Lax${secureSuffix}${domainSuffix}`
   );
 
   return apiResponse.success(res, { completed: true });

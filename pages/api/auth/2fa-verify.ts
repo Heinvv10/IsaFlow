@@ -139,7 +139,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       await addTrustedDevice(userId, deviceFingerprint, deviceName ?? 'Unknown Device');
     }
 
-    const onboardingCompleted = !!user.onboarding_completed;
+    let onboardingCompleted = !!user.onboarding_completed;
+
+    // If user already belongs to a company, they're onboarded — fix stale DB flag
+    if (!onboardingCompleted) {
+      const companyCheck = (await sql`
+        SELECT 1 FROM company_users WHERE user_id = ${userId}::UUID LIMIT 1
+      `) as Record<string, unknown>[];
+      if (companyCheck.length > 0) {
+        await sql`UPDATE users SET onboarding_completed = true WHERE id = ${userId}`;
+        onboardingCompleted = true;
+      }
+    }
 
     const isProd = process.env.NODE_ENV === 'production';
     const authCookieString = serialize(AUTH_COOKIE_NAME, finalToken, {
