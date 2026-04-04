@@ -2,11 +2,8 @@
  * PRD-060 Phase 6: Sage Migration Service
  * Status, account mapping, comparison, reset + re-exports importers
  *
- * WARNING: Sage staging tables (sage_accounts, sage_ledger_transactions,
- * sage_supplier_invoices, sage_customer_invoices) currently have NO company_id
- * column. All tenants share a single global staging buffer. A migration to add
- * company_id scoping is required before multi-tenant production use.
- * See audit item #28.
+ * Multi-tenant: All sage staging tables now have company_id (migration 288).
+ * Every query must scope to companyId. See audit item #28.
  */
 
 import { sql } from '@/lib/neon';
@@ -94,7 +91,7 @@ export async function getMigrationStatus(companyId: string): Promise<MigrationSt
       SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE gl_account_id IS NOT NULL) AS mapped,
         COUNT(*) FILTER (WHERE gl_account_id IS NULL) AS unmapped,
         COUNT(*) FILTER (WHERE mapping_status = 'auto') AS auto_mapped
-      FROM sage_accounts
+      FROM sage_accounts WHERE company_id = ${companyId}::UUID
     `) as Row[];
 
     const ledgerStats = (await sql`
@@ -102,14 +99,14 @@ export async function getMigrationStatus(companyId: string): Promise<MigrationSt
         COUNT(*) FILTER (WHERE migration_status = 'pending') AS pending,
         COUNT(*) FILTER (WHERE migration_status = 'failed') AS failed,
         MIN(transaction_date) AS earliest, MAX(transaction_date) AS latest
-      FROM sage_ledger_transactions
+      FROM sage_ledger_transactions WHERE company_id = ${companyId}::UUID
     `) as Row[];
 
     const invoiceStats = (await sql`
       SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE migration_status = 'imported') AS imported,
         COUNT(*) FILTER (WHERE migration_status = 'pending') AS pending,
         COUNT(*) FILTER (WHERE migration_status = 'failed') AS failed
-      FROM sage_supplier_invoices
+      FROM sage_supplier_invoices WHERE company_id = ${companyId}::UUID
     `) as Row[];
 
     let customerInvoiceStats: Row[] = [{ total: 0, imported: 0, pending: 0, failed: 0 }];
@@ -118,7 +115,7 @@ export async function getMigrationStatus(companyId: string): Promise<MigrationSt
         SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE migration_status = 'imported') AS imported,
           COUNT(*) FILTER (WHERE migration_status = 'pending') AS pending,
           COUNT(*) FILTER (WHERE migration_status = 'failed') AS failed
-        FROM sage_customer_invoices
+        FROM sage_customer_invoices WHERE company_id = ${companyId}::UUID
       `) as Row[];
     } catch {
       // Table may not exist yet if migration 212 hasn't run
@@ -127,7 +124,7 @@ export async function getMigrationStatus(companyId: string): Promise<MigrationSt
     const runs = (await sql`
       SELECT id, run_type, status, total_records, processed, succeeded, failed, skipped,
         started_at, completed_at
-      FROM gl_migration_runs ORDER BY started_at DESC LIMIT 10
+      FROM gl_migration_runs WHERE company_id = ${companyId}::UUID ORDER BY started_at DESC LIMIT 10
     `) as Row[];
 
     return {
@@ -171,6 +168,7 @@ export async function getAccountMappings(companyId: string): Promise<AccountMapp
       sa.gl_account_id, sa.mapping_status, sa.mapping_notes,
       ga.account_code, ga.account_name
     FROM sage_accounts sa LEFT JOIN gl_accounts ga ON ga.id = sa.gl_account_id
+    WHERE sa.company_id = ${companyId}::UUID
     ORDER BY sa.name
   `) as Row[];
 
@@ -202,7 +200,7 @@ export async function autoMapAccounts(companyId: string, userId: string): Promis
   const runId = await startRun('account_mapping', userId);
   try {
     const sageAccounts = (await sql`
-      SELECT id, sage_account_id, name, account_type, balance FROM sage_accounts WHERE gl_account_id IS NULL ORDER BY name
+      SELECT id, sage_account_id, name, account_type, balance FROM sage_accounts WHERE company_id = ${companyId}::UUID AND gl_account_id IS NULL ORDER BY name
     `) as Row[];
     const glAccounts = (await sql`
       SELECT id, account_code, account_name, account_type FROM gl_accounts WHERE level >= 3 AND is_active = true ORDER BY account_code
@@ -226,7 +224,7 @@ export async function autoMapAccounts(companyId: string, userId: string): Promis
         await sql`
           UPDATE sage_accounts SET gl_account_id = ${bestMatch.id}::UUID, mapping_status = 'auto',
             mapping_notes = ${`Auto-mapped (${(bestScore * 100).toFixed(0)}% match) to ${bestMatch.account_code}`}
-          WHERE id = ${sage.id}
+          WHERE id = ${sage.id} AND company_id = ${companyId}::UUID
         `;
         succeeded++;
       } else { skipped++; }
@@ -238,10 +236,10 @@ export async function autoMapAccounts(companyId: string, userId: string): Promis
 export async function mapAccount(companyId: string, sageAccountId: string, glAccountId: string | null, notes?: string): Promise<void> {
   if (glAccountId) {
     await sql`UPDATE sage_accounts SET gl_account_id = ${glAccountId}::UUID, mapping_status = 'manual',
-      mapping_notes = ${notes || 'Manually mapped'} WHERE sage_account_id = ${sageAccountId}`;
+      mapping_notes = ${notes || 'Manually mapped'} WHERE sage_account_id = ${sageAccountId} AND company_id = ${companyId}::UUID`;
   } else {
     await sql`UPDATE sage_accounts SET gl_account_id = NULL, mapping_status = 'unmapped',
-      mapping_notes = ${notes || null} WHERE sage_account_id = ${sageAccountId}`;
+      mapping_notes = ${notes || null} WHERE sage_account_id = ${sageAccountId} AND company_id = ${companyId}::UUID`;
   }
 }
 
@@ -251,7 +249,8 @@ export async function generateComparison(companyId: string, userId: string): Pro
   try {
     const sageBalances = (await sql`
       SELECT sa.sage_account_id, sa.name, sa.balance, ga.account_code, ga.account_name, ga.id AS gl_id
-      FROM sage_accounts sa JOIN gl_accounts ga ON ga.id = sa.gl_account_id ORDER BY ga.account_code
+      FROM sage_accounts sa JOIN gl_accounts ga ON ga.id = sa.gl_account_id
+      WHERE sa.company_id = ${companyId}::UUID ORDER BY ga.account_code
     `) as Row[];
 
     const glBalances = (await sql`
@@ -289,8 +288,8 @@ export async function generateComparison(companyId: string, userId: string): Pro
     };
 
     await sql`
-      INSERT INTO gl_migration_comparisons (comparison_date, sage_totals, gl_totals, differences, is_balanced, created_by)
-      VALUES (${report.comparisonDate}, ${JSON.stringify(report.sageTotals)}, ${JSON.stringify(report.glTotals)},
+      INSERT INTO gl_migration_comparisons (company_id, comparison_date, sage_totals, gl_totals, differences, is_balanced, created_by)
+      VALUES (${companyId}::UUID, ${report.comparisonDate}, ${JSON.stringify(report.sageTotals)}, ${JSON.stringify(report.glTotals)},
         ${JSON.stringify(report.differences)}, ${report.isBalanced}, ${userId})
     `;
     return report;
@@ -303,12 +302,12 @@ export async function resetMigration(companyId: string,
   runType: 'accounts' | 'ledger' | 'invoices' | 'customer_invoices'
 ): Promise<void> {
   if (runType === 'accounts') {
-    await sql`UPDATE sage_accounts SET gl_account_id = NULL, mapping_status = 'unmapped', mapping_notes = NULL`;
+    await sql`UPDATE sage_accounts SET gl_account_id = NULL, mapping_status = 'unmapped', mapping_notes = NULL WHERE company_id = ${companyId}::UUID`;
   } else if (runType === 'ledger') {
-    await sql`UPDATE sage_ledger_transactions SET migration_status = 'pending', gl_journal_entry_id = NULL`;
+    await sql`UPDATE sage_ledger_transactions SET migration_status = 'pending', gl_journal_entry_id = NULL WHERE company_id = ${companyId}::UUID`;
   } else if (runType === 'invoices') {
-    await sql`UPDATE sage_supplier_invoices SET migration_status = 'pending', gl_supplier_invoice_id = NULL`;
+    await sql`UPDATE sage_supplier_invoices SET migration_status = 'pending', gl_supplier_invoice_id = NULL WHERE company_id = ${companyId}::UUID`;
   } else if (runType === 'customer_invoices') {
-    await sql`UPDATE sage_customer_invoices SET migration_status = 'pending', gl_customer_invoice_id = NULL`;
+    await sql`UPDATE sage_customer_invoices SET migration_status = 'pending', gl_customer_invoice_id = NULL WHERE company_id = ${companyId}::UUID`;
   }
 }
