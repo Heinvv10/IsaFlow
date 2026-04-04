@@ -247,6 +247,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
     }
 
+    // Auto-dismiss accounting tour for existing users (prevents tour on every login)
+    if (onboardingCompleted) {
+      await sql`
+        INSERT INTO user_preferences (user_id, key, value, updated_at)
+        VALUES (${authUser.id}, 'onboarding_tour_completed', 'true', NOW())
+        ON CONFLICT (user_id, key) DO NOTHING
+      `;
+    }
+
     const cookies = [authCookieString];
     if (onboardingCompleted) {
       const domainSuffix = isProd ? '; Domain=.isaflow.co.za' : '';

@@ -152,6 +152,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
     }
 
+    // Auto-dismiss accounting tour for existing users
+    if (onboardingCompleted) {
+      await sql`
+        INSERT INTO user_preferences (user_id, key, value, updated_at)
+        VALUES (${userId}, 'onboarding_tour_completed', 'true', NOW())
+        ON CONFLICT (user_id, key) DO NOTHING
+      `;
+    }
+
     const isProd = process.env.NODE_ENV === 'production';
     const authCookieString = serialize(AUTH_COOKIE_NAME, finalToken, {
       httpOnly: true,
