@@ -12,7 +12,7 @@
  *   → Remove a single attachment record.
  */
 
-import type { NextApiRequest, NextApiResponse } from 'next';
+import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
@@ -59,9 +59,8 @@ function estimateDataUrlBytes(dataUrl: string): number {
 
 // ── Handler ───────────────────────────────────────────────────────────────────
 
-async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyApiRequest;
-  // @ts-expect-error — auth middleware attaches user
+async function handler(req: CompanyApiRequest, res: NextApiResponse) {
+  const { companyId } = req;
   const userId: string | null = req.user?.id ?? req.user?.userId ?? null;
 
   // ── GET ────────────────────────────────────────────────────────────────────

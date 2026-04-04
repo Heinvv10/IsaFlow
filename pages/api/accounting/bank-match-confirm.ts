@@ -12,7 +12,7 @@
  * Journal line:                Direct match to existing GL entry
  */
 
-import type { NextApiRequest, NextApiResponse } from 'next';
+import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
@@ -27,7 +27,7 @@ import type { CandidateType } from '@/modules/accounting/types/bank-match.types'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
 
-async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
@@ -42,8 +42,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     candidateId?: string;
   };
 
-  const { companyId } = req as CompanyApiRequest;
-  // @ts-expect-error — auth middleware attaches user
+  const { companyId } = req;
   const userId: string = req.user?.id ?? req.user?.userId ?? 'system';
 
   if (!bankTransactionId) return apiResponse.badRequest(res, 'bankTransactionId is required');
@@ -170,8 +169,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, { matched: true, candidateType, candidateId });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Match confirmation failed';
-    const stack = err instanceof Error ? err.stack : '';
-    console.error('[MATCH-CONFIRM-ERROR]', message, stack);
     log.error('Failed to confirm bank match', { bankTransactionId, candidateType, candidateId, error: err }, 'accounting-api');
     return apiResponse.badRequest(res, message);
   }

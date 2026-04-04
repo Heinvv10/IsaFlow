@@ -22,7 +22,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   // Store state + verifier in a secure cookie for the callback
   const stateData = JSON.stringify({ state, nonce, codeVerifier });
-  res.setHeader('Set-Cookie', `stitch_oauth_state=${encodeURIComponent(stateData)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600`);
+  res.setHeader('Set-Cookie', `stitch_oauth_state=${encodeURIComponent(stateData)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`);
 
   return apiResponse.success(res, { url });
 }

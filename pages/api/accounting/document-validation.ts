@@ -5,7 +5,7 @@
  * Validates VLM-extracted data against the entity record.
  */
 
-import type { NextApiRequest, NextApiResponse } from 'next';
+import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
@@ -20,12 +20,12 @@ import type { ExtractedDocument } from '@/modules/accounting/types/documentCaptu
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
 
-async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
   }
 
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req;
   const { entityType, entityId, documentId } = req.body as {
     entityType?: string;
     entityId?: string;
@@ -99,7 +99,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   // Store validation result
-  // @ts-expect-error — auth middleware attaches user
   const userId: string | null = req.user?.id ?? null;
 
   await sql`

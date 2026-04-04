@@ -7,7 +7,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { sql } from '@/lib/neon';
+import { sql, transaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -44,15 +44,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, {}, 'No preferences to update');
     }
 
-    // Upsert each preference individually using tagged sql template
-    for (const [key, value] of entries) {
-      await sql`
-        INSERT INTO user_preferences (user_id, key, value, updated_at)
-        VALUES (${userId}, ${key}, ${String(value)}, NOW())
-        ON CONFLICT (user_id, key)
-        DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
-      `;
-    }
+    // Batch upsert all preferences in a single transaction
+    await transaction((txSql) =>
+      entries.map(([key, value]) =>
+        txSql`
+          INSERT INTO user_preferences (user_id, key, value, updated_at)
+          VALUES (${userId}, ${key}, ${String(value)}, NOW())
+          ON CONFLICT (user_id, key)
+          DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+        `
+      )
+    );
 
     log.info('Preferences updated', { userId, keys: Object.keys(preferences) }, 'auth/preferences');
 

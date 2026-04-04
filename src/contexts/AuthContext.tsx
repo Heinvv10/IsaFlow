@@ -3,6 +3,7 @@ import {
   useContext,
   useEffect,
   useState,
+  useMemo,
   ReactNode,
   useCallback,
 } from 'react';
@@ -276,7 +277,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return userLevel >= requiredLevel;
   };
 
-  const value: AuthContextType = {
+  const value: AuthContextType = useMemo(() => ({
     user,
     loading,
     error,
@@ -289,7 +290,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearError,
     hasPermission,
     hasRole,
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [user, loading, error, twoFactorChallenge]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

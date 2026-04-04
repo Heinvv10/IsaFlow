@@ -9,7 +9,7 @@ import { serialize } from 'cookie';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { hashPassword, checkPasswordStrength } from '@/lib/auth';
-import { sql } from '@/lib/neon';
+import { sql, transaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { signToken } from '@/lib/auth/jwt';
@@ -106,16 +106,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         LIMIT 1
       `) as Row[];
 
-      for (const inv of tokenInvites) {
-        await sql`
-          INSERT INTO company_users (company_id, user_id, role, is_default)
-          VALUES (${inv.company_id as string}::UUID, ${userId}::UUID, ${inv.role as string}, false)
-          ON CONFLICT (company_id, user_id) DO NOTHING
-        `;
-        await sql`
-          UPDATE company_invitations SET accepted_at = NOW() WHERE id = ${inv.id as string}::UUID
-        `;
-        invitationsAccepted++;
+      if (tokenInvites.length > 0) {
+        await transaction((txSql) =>
+          tokenInvites.flatMap((inv) => [
+            txSql`
+              INSERT INTO company_users (company_id, user_id, role, is_default)
+              VALUES (${inv.company_id as string}::UUID, ${userId}::UUID, ${inv.role as string}, false)
+              ON CONFLICT (company_id, user_id) DO NOTHING
+            `,
+            txSql`
+              UPDATE company_invitations SET accepted_at = NOW() WHERE id = ${inv.id as string}::UUID
+            `,
+          ])
+        );
+        invitationsAccepted += tokenInvites.length;
       }
     }
 
@@ -128,16 +132,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         AND expires_at > NOW()
     `) as Row[];
 
-    for (const inv of pendingInvitations) {
-      await sql`
-        INSERT INTO company_users (company_id, user_id, role, is_default)
-        VALUES (${inv.company_id as string}::UUID, ${userId}::UUID, ${inv.role as string}, false)
-        ON CONFLICT (company_id, user_id) DO NOTHING
-      `;
-      await sql`
-        UPDATE company_invitations SET accepted_at = NOW() WHERE id = ${inv.id as string}::UUID
-      `;
-      invitationsAccepted++;
+    if (pendingInvitations.length > 0) {
+      await transaction((txSql) =>
+        pendingInvitations.flatMap((inv) => [
+          txSql`
+            INSERT INTO company_users (company_id, user_id, role, is_default)
+            VALUES (${inv.company_id as string}::UUID, ${userId}::UUID, ${inv.role as string}, false)
+            ON CONFLICT (company_id, user_id) DO NOTHING
+          `,
+          txSql`
+            UPDATE company_invitations SET accepted_at = NOW() WHERE id = ${inv.id as string}::UUID
+          `,
+        ])
+      );
+      invitationsAccepted += pendingInvitations.length;
     }
 
     const onboardingCompleted = invitationsAccepted > 0;
@@ -176,17 +184,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       UPDATE user_sessions SET token_hash = ${finalHash} WHERE id = ${Number(session.id)}
     `;
 
+    const isProd = process.env.NODE_ENV === 'production';
     const cookies = [
       serialize(AUTH_COOKIE_NAME, finalToken, {
         httpOnly: true,
         secure: true,
-        sameSite: 'strict',
+        sameSite: 'lax',
         path: '/',
         maxAge: 8 * 60 * 60,
+        ...(isProd ? { domain: '.isaflow.co.za' } : {}),
       }),
     ];
     if (onboardingCompleted) {
-      cookies.push(`ff_onboarding_done=1; Path=/; Max-Age=${30 * 24 * 60 * 60}; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`);
+      const domainSuffix = isProd ? '; Domain=.isaflow.co.za' : '';
+      cookies.push(`ff_onboarding_done=1; Path=/; Max-Age=${30 * 24 * 60 * 60}; SameSite=Lax${isProd ? '; Secure' : ''}${domainSuffix}`);
     }
     res.setHeader('Set-Cookie', cookies);
 

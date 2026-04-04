@@ -7,7 +7,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
-import { sql } from '@/lib/neon';
+import { sql, transaction } from '@/lib/neon';
 
 interface DocumentPayload {
   type: string;
@@ -43,18 +43,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.forbidden(res, 'You do not have access to this company');
   }
 
-  // Insert each document
-  for (const doc of documents) {
-    await sql`
-      INSERT INTO company_documents (
-        company_id, document_type, document_name,
-        file_data, mime_type, file_size, uploaded_by
-      ) VALUES (
-        ${companyId}::UUID, ${doc.type}, ${doc.name},
-        ${doc.data}, ${doc.mimeType}, ${doc.size}, ${userId}
-      )
-    `;
-  }
+  // Insert all documents in a single transaction
+  await transaction((txSql) =>
+    documents.map((doc) =>
+      txSql`
+        INSERT INTO company_documents (
+          company_id, document_type, document_name,
+          file_data, mime_type, file_size, uploaded_by
+        ) VALUES (
+          ${companyId}::UUID, ${doc.type}, ${doc.name},
+          ${doc.data}, ${doc.mimeType}, ${doc.size}, ${userId}
+        )
+      `
+    )
+  );
 
   return apiResponse.created(res, { count: documents.length });
 }

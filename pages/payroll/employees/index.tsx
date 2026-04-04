@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { formatCurrency } from '@/utils/formatters';
 import { Users, Loader2, AlertCircle, Plus, Search } from 'lucide-react';
 import Link from 'next/link';
 import { apiFetch } from '@/lib/apiFetch';
@@ -36,10 +37,6 @@ function StatusBadge({ status }: { status: string }) {
       {status === 'active' ? 'Active' : 'Inactive'}
     </span>
   );
-}
-
-function formatCurrency(amount: number): string {
-  return `R ${amount.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 export default function EmployeesPage() {

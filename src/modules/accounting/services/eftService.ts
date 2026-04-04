@@ -47,7 +47,7 @@ export function padLeft(str: string, length: number): string {
   return s.length > length ? s.substring(s.length - length) : s.padStart(length, '0');
 }
 
-function formatDate(dateStr: string): string {
+function formatEFTDate(dateStr: string): string {
   return dateStr.replace(/-/g, '').substring(2); // YYMMDD
 }
 
@@ -99,7 +99,7 @@ export function validateEFTBatch(header: EFTBatchHeader, payments: EFTPayment[])
 
 export function generateStandardBankACB(header: EFTBatchHeader, payments: EFTPayment[]): string {
   const lines: string[] = [];
-  const date = formatDate(header.actionDate);
+  const date = formatEFTDate(header.actionDate);
   const totalCents = payments.reduce((s, p) => s + Math.round(p.amount * 100), 0);
 
   // Header record
@@ -143,7 +143,7 @@ export function generateStandardBankACB(header: EFTBatchHeader, payments: EFTPay
 
 export function generateFNBEFT(header: EFTBatchHeader, payments: EFTPayment[]): string {
   const lines: string[] = [];
-  const date = formatDate(header.actionDate);
+  const date = formatEFTDate(header.actionDate);
   const totalCents = payments.reduce((s, p) => s + Math.round(p.amount * 100), 0);
 
   // Header
@@ -186,7 +186,7 @@ export function generateFNBEFT(header: EFTBatchHeader, payments: EFTPayment[]): 
 
 export function generateABSAEFT(header: EFTBatchHeader, payments: EFTPayment[]): string {
   const lines: string[] = [];
-  const date = formatDate(header.actionDate);
+  const date = formatEFTDate(header.actionDate);
   const totalCents = payments.reduce((s, p) => s + Math.round(p.amount * 100), 0);
 
   lines.push(
@@ -225,7 +225,7 @@ export function generateABSAEFT(header: EFTBatchHeader, payments: EFTPayment[]):
 
 export function generateNedbankEFT(header: EFTBatchHeader, payments: EFTPayment[]): string {
   const lines: string[] = [];
-  const date = formatDate(header.actionDate);
+  const date = formatEFTDate(header.actionDate);
   const totalCents = payments.reduce((s, p) => s + Math.round(p.amount * 100), 0);
 
   lines.push(
@@ -265,7 +265,7 @@ export function generateNedbankEFT(header: EFTBatchHeader, payments: EFTPayment[
 
 export function generateCapitecEFT(header: EFTBatchHeader, payments: EFTPayment[]): string {
   const lines: string[] = [];
-  const date = formatDate(header.actionDate);
+  const date = formatEFTDate(header.actionDate);
   const totalCents = payments.reduce((s, p) => s + Math.round(p.amount * 100), 0);
 
   lines.push(

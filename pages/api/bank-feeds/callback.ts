@@ -56,7 +56,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const accounts = await fetchStitchAccounts(tokens.accessToken);
 
   // Clear the state cookie
-  res.setHeader('Set-Cookie', 'stitch_oauth_state=; Path=/; HttpOnly; Max-Age=0');
+  res.setHeader('Set-Cookie', `stitch_oauth_state=; Path=/; HttpOnly; Max-Age=0${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`);
 
   // Store accounts info and redirect to bank accounts page with success
   // In a real flow, user would select which account to link.

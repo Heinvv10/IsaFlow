@@ -10,6 +10,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { Badge } from '@/components/ui/Badge';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { formatDisplayDateShort } from '@/utils/dateFormat';
 
 interface JournalEntry {
   id: string;
@@ -20,10 +21,6 @@ interface JournalEntry {
   amount: number;
 }
 
-function formatDate(val: string | Date): string {
-  const d = typeof val === 'string' ? new Date(val) : val;
-  return d.toLocaleDateString('en-ZA', { day: '2-digit', month: 'short' });
-}
 
 function fmtCurrency(n: number): string {
   return 'R\u00a0' + new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
@@ -86,7 +83,7 @@ export function RecentActivityWidget() {
                   {entry.description || entry.source || 'Journal Entry'}
                 </p>
                 <div className="flex items-center gap-2 mt-0.5">
-                  <span className="text-xs text-gray-500 dark:text-gray-400">{formatDate(entry.date)}</span>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">{formatDisplayDateShort(entry.date)}</span>
                   <Badge variant={STATUS_VARIANT[entry.status] ?? 'default'} size="sm">
                     {entry.status}
                   </Badge>

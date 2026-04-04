@@ -15,6 +15,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { X, Paperclip, Trash2, Upload, FileImage, FileText, AlertCircle, Loader2 } from 'lucide-react';
 import { notify } from '@/utils/toast';
 import { apiFetch } from '@/lib/apiFetch';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -47,12 +48,6 @@ function formatBytes(bytes: number | null): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-ZA', {
-    day: '2-digit', month: 'short', year: 'numeric',
-  });
 }
 
 function fileIcon(name: string): 'image' | 'pdf' | 'generic' {
@@ -275,7 +270,7 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
                       {att.file_name}
                     </p>
                     <p className="text-[10px] text-[var(--ff-text-tertiary)]">
-                      {formatBytes(att.file_size)}{att.file_size ? ' · ' : ''}{formatDate(att.created_at)}
+                      {formatBytes(att.file_size)}{att.file_size ? ' · ' : ''}{formatDisplayDate(att.created_at)}
                     </p>
                   </div>
 

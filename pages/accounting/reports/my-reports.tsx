@@ -6,6 +6,7 @@
 import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
+import { formatDate } from '@/utils/formatters';
 import { PlusCircle, Play, Edit2, Trash2, Share2, AlertCircle, FileText } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 
@@ -29,11 +30,6 @@ const SOURCE_LABELS: Record<string, string> = {
   suppliers:         'Suppliers',
   items:             'Items',
 };
-
-function formatDate(d: string | Date) {
-  const date = d instanceof Date ? d : new Date(d);
-  return isNaN(date.getTime()) ? '' : date.toLocaleDateString('en-ZA');
-}
 
 export default function MyReportsPage() {
   const [templates, setTemplates] = useState<Template[]>([]);

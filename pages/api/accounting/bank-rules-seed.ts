@@ -10,7 +10,7 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, withRole, type AuthenticatedNextApiRequest, type CompanyApiRequest } from '@/lib/auth';
-import { sql } from '@/lib/neon';
+import { sql, transaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
 interface CategoryMapEntry {
@@ -34,9 +34,33 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, 'entries array is required');
     }
 
-    let created = 0;
+    // Fetch all GL accounts for this company in one query
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const glAccountRows = (await sql`
+      SELECT id, account_code FROM gl_accounts WHERE company_id = ${companyId}
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    `) as any[];
+    const glAccountMap = new Map<string, string>(
+      glAccountRows.map((r: { id: string; account_code: string }) => [String(r.account_code), String(r.id)])
+    );
+
+    // Fetch all existing match_patterns for this company in one query
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const existingPatternRows = (await sql`
+      SELECT LOWER(match_pattern) AS match_pattern FROM bank_categorisation_rules WHERE company_id = ${companyId}
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    `) as any[];
+    const existingPatterns = new Set<string>(existingPatternRows.map((r: { match_pattern: string }) => String(r.match_pattern)));
+
     let skipped = 0;
     const missingGlCodes: (number | string)[] = [];
+
+    interface RuleRow {
+      ruleName: string;
+      pattern: string;
+      glAccountId: string;
+    }
+    const toInsert: RuleRow[] = [];
 
     for (const entry of entries) {
       const pattern = String(entry.originalCategory || '').toLowerCase().trim();
@@ -45,45 +69,45 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       const glCode = String(entry.glCode).trim();
       if (!glCode) { skipped++; continue; }
 
-      // Look up GL account by account_code
-      const glRows = (await sql`
-        SELECT id FROM gl_accounts WHERE account_code = ${glCode} AND company_id = ${companyId} LIMIT 1
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      `) as any[];
-
-      if (glRows.length === 0) {
+      const glAccountId = glAccountMap.get(glCode);
+      if (!glAccountId) {
         missingGlCodes.push(entry.glCode);
         skipped++;
         continue;
       }
 
-      const glAccountId = String(glRows[0].id);
-      const ruleName = String(entry.standardCategory || entry.originalCategory).trim();
-
-      // UPSERT — skip if match_pattern already exists
-      const existing = (await sql`
-        SELECT id FROM bank_categorisation_rules
-        WHERE LOWER(match_pattern) = ${pattern} AND company_id = ${companyId} LIMIT 1
-      `) as any[];
-
-      if (existing.length > 0) {
+      if (existingPatterns.has(pattern)) {
         skipped++;
         continue;
       }
 
-      await sql`
-        INSERT INTO bank_categorisation_rules (
-          rule_name, match_field, match_type, match_pattern,
-          gl_account_id, auto_create_entry, priority, created_by,
-          company_id
-        ) VALUES (
-          ${ruleName}, 'description', 'contains', ${pattern},
-          ${glAccountId}::UUID, false, 100, ${userId},
-          ${companyId}
-        )
-      `;
-      created++;
+      toInsert.push({
+        ruleName: String(entry.standardCategory || entry.originalCategory).trim(),
+        pattern,
+        glAccountId,
+      });
     }
+
+    // Batch INSERT all new rules in a single transaction
+    if (toInsert.length > 0) {
+      await transaction((txSql) =>
+        toInsert.map((r) =>
+          txSql`
+            INSERT INTO bank_categorisation_rules (
+              rule_name, match_field, match_type, match_pattern,
+              gl_account_id, auto_create_entry, priority, created_by,
+              company_id
+            ) VALUES (
+              ${r.ruleName}, 'description', 'contains', ${r.pattern},
+              ${r.glAccountId}::UUID, false, 100, ${userId},
+              ${companyId}
+            )
+          `
+        )
+      );
+    }
+
+    const created = toInsert.length;
 
     log.info('Seeded bank categorisation rules', { created, skipped, missingGlCodes: missingGlCodes.length }, 'accounting');
 
