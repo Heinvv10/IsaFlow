@@ -14,6 +14,19 @@ const nextConfig = {
     optimizePackageImports: ['lucide-react', 'recharts'],
   },
 
+  // Backward-compatibility redirects for deleted shim pages
+  async redirects() {
+    return [
+      { source: '/accounting/audit-trail', destination: '/accounting/reports/audit-trail', permanent: true },
+      { source: '/accounting/bank-rules', destination: '/accounting/bank-reconciliation/rules', permanent: true },
+      { source: '/accounting/data-import', destination: '/accounting/sage-migration', permanent: true },
+      { source: '/accounting/vat-return', destination: '/accounting/reports/vat-return', permanent: true },
+      { source: '/accounting/reports/customer', destination: '/accounting/reports/customer-reports', permanent: true },
+      { source: '/accounting/reports/supplier', destination: '/accounting/reports/supplier-reports', permanent: true },
+      { source: '/accounting/reports/trial-balance', destination: '/accounting/trial-balance', permanent: true },
+    ];
+  },
+
   // Security headers
   async headers() {
     return [
