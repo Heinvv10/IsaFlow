@@ -1,57 +1,36 @@
 /**
- * VAT201 Form Page
- * Period selector, auto-populated VAT201 fields with invoice breakdown,
- * save draft and mark submitted actions, CSV export.
+ * VAT201 Form Page — thin shell
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import {
-  FileText, Loader2, Save, Send, Download,
-  ChevronLeft, ChevronDown, ChevronRight, Calendar,
-} from 'lucide-react';
-import { formatDate } from '@/utils/formatters';
+import { FileText, Loader2, Save, Send, Download, ChevronLeft } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { VAT201PeriodSelector } from '@/components/accounting/sars/VAT201PeriodSelector';
+import { TransactionTable } from '@/components/accounting/sars/VAT201FormSections';
+import { VAT201SummaryForm } from '@/components/accounting/sars/VAT201SummaryForm';
+import { VAT201SubmitModal } from '@/components/accounting/sars/VAT201SubmitModal';
 
 interface VAT201Invoice {
-  id: string;
-  invoiceNumber: string;
-  counterpartyName: string;
-  invoiceDate: string;
-  totalExclVat: number;
-  vatAmount: number;
-  vatType: string;
+  id: string; invoiceNumber: string; counterpartyName: string;
+  invoiceDate: string; totalExclVat: number; vatAmount: number; vatType: string;
 }
 
 interface VAT201Data {
-  periodStart: string;
-  periodEnd: string;
-  field1_standardRatedSupplies: number;
-  field2_zeroRatedSupplies: number;
-  field3_exemptSupplies: number;
-  field4_totalImports: number;
-  field5_outputVAT: number;
-  field6_capitalGoods: number;
-  field7_otherGoods: number;
-  field8_services: number;
-  field9_imports: number;
-  field10_totalInputVAT: number;
-  field11_vatPayableOrRefundable: number;
-  outputInvoices: VAT201Invoice[];
-  inputInvoices: VAT201Invoice[];
+  periodStart: string; periodEnd: string;
+  field1_standardRatedSupplies: number; field2_zeroRatedSupplies: number;
+  field3_exemptSupplies: number; field4_totalImports: number; field5_outputVAT: number;
+  field6_capitalGoods: number; field7_otherGoods: number; field8_services: number;
+  field9_imports: number; field10_totalInputVAT: number; field11_vatPayableOrRefundable: number;
+  outputInvoices: VAT201Invoice[]; inputInvoices: VAT201Invoice[];
 }
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-interface VATQuickPeriod {
-  label: string;
-  from: string;
-  to: string;
-}
+interface VATQuickPeriod { label: string; from: string; to: string }
 
 function pad2(n: number) { return String(n).padStart(2, '0'); }
 
@@ -64,8 +43,7 @@ function buildVatPeriods(year: number, alignment: 'odd' | 'even'): VATQuickPerio
     const lastDay = new Date(endYear, em, 0).getDate();
     return {
       label: `${MONTH_NAMES[sm - 1]}–${MONTH_NAMES[em - 1]} ${endYear !== year ? year + '/' + endYear : year}`,
-      from: `${year}-${pad2(sm)}-01`,
-      to: `${endYear}-${pad2(em)}-${pad2(lastDay)}`,
+      from: `${year}-${pad2(sm)}-01`, to: `${endYear}-${pad2(em)}-${pad2(lastDay)}`,
     };
   });
 }
@@ -75,8 +53,7 @@ function getDefaultPeriod(alignment: 'odd' | 'even' = 'odd'): { from: string; to
   const year = now.getFullYear();
   const periods = buildVatPeriods(year, alignment);
   const today = now.toISOString().split('T')[0]!;
-  const current = periods.find(p => p.from <= today && p.to >= today);
-  return current || periods[0]!;
+  return periods.find(p => p.from <= today && p.to >= today) || periods[0]!;
 }
 
 export default function VAT201Page() {
@@ -97,7 +74,6 @@ export default function VAT201Page() {
   const [savedId, setSavedId] = useState('');
   const [showSubmitModal, setShowSubmitModal] = useState(false);
 
-  // Load company alignment setting
   useEffect(() => {
     (async () => {
       const res = await apiFetch('/api/accounting/companies', { credentials: 'include' });
@@ -106,95 +82,66 @@ export default function VAT201Page() {
         const c = Array.isArray(json.data) ? json.data[0] : json.data;
         const a = c?.vatPeriodAlignment || c?.vat_period_alignment || 'odd';
         const vp = c?.vatPeriod || c?.vat_period || 'bi-monthly';
-        setAlignment(a);
-        setVatPeriod(vp);
+        setAlignment(a); setVatPeriod(vp);
         const year = new Date().getFullYear();
         if (vp === 'monthly') {
           const months: VATQuickPeriod[] = [];
           for (let m = 1; m <= 12; m++) {
             const lastDay = new Date(year, m, 0).getDate();
-            months.push({
-              label: `${MONTH_NAMES[m - 1]} ${year}`,
-              from: `${year}-${pad2(m)}-01`,
-              to: `${year}-${pad2(m)}-${pad2(lastDay)}`,
-            });
+            months.push({ label: `${MONTH_NAMES[m - 1]} ${year}`, from: `${year}-${pad2(m)}-01`, to: `${year}-${pad2(m)}-${pad2(lastDay)}` });
           }
           setQuickPeriods(months);
         } else {
           setQuickPeriods(buildVatPeriods(year, a));
         }
         const def = getDefaultPeriod(a);
-        setFrom(def.from);
-        setTo(def.to);
+        setFrom(def.from); setTo(def.to);
       }
     })();
   }, []);
 
   const generate = useCallback(async () => {
     if (!from || !to) return;
-    setLoading(true);
-    setError('');
-    setSuccess('');
-    setData(null);
-    setSavedId('');
+    setLoading(true); setError(''); setSuccess(''); setData(null); setSavedId('');
     try {
-      const res = await apiFetch(
-        `/api/accounting/sars/sars-vat201?from=${from}&to=${to}`,
-        { credentials: 'include' }
-      );
+      const res = await apiFetch(`/api/accounting/sars/sars-vat201?from=${from}&to=${to}`, { credentials: 'include' });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error?.message || json.message || 'Failed');
       setData(json.data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to generate VAT201');
-    } finally {
-      setLoading(false);
-    }
+    } catch (err) { setError(err instanceof Error ? err.message : 'Failed to generate VAT201'); }
+    finally { setLoading(false); }
   }, [from, to]);
 
   const saveDraft = async () => {
     if (!data) return;
-    setSaving(true);
-    setError('');
+    setSaving(true); setError('');
     try {
       const res = await apiFetch('/api/accounting/sars/sars-vat201', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ periodStart: from, periodEnd: to }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error?.message || json.message || 'Failed');
       setSavedId(json.data?.id || '');
       setSuccess('VAT201 draft saved successfully');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save draft');
-    } finally {
-      setSaving(false);
-    }
+    } catch (err) { setError(err instanceof Error ? err.message : 'Failed to save draft'); }
+    finally { setSaving(false); }
   };
 
   const markSubmitted = async () => {
     if (!savedId || !sarsRef.trim()) return;
-    setSubmitting(true);
-    setError('');
+    setSubmitting(true); setError('');
     try {
       const res = await apiFetch('/api/accounting/sars/sars-submissions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ id: savedId, action: 'mark_submitted', reference: sarsRef.trim() }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error?.message || json.message || 'Failed');
       setSuccess('VAT201 marked as submitted to SARS');
-      setShowSubmitModal(false);
-      setSarsRef('');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to mark as submitted');
-    } finally {
-      setSubmitting(false);
-    }
+      setShowSubmitModal(false); setSarsRef('');
+    } catch (err) { setError(err instanceof Error ? err.message : 'Failed to mark as submitted'); }
+    finally { setSubmitting(false); }
   };
 
   const exportCSV = () => {
@@ -212,51 +159,35 @@ export default function VAT201Page() {
       ['9', 'Input VAT — Imports', data.field9_imports.toFixed(2)],
       ['10', 'Total input VAT', data.field10_totalInputVAT.toFixed(2)],
       ['11', 'VAT payable / (refundable)', data.field11_vatPayableOrRefundable.toFixed(2)],
-      [],
-      ['Period', `${data.periodStart} to ${data.periodEnd}`],
+      [], ['Period', `${data.periodStart} to ${data.periodEnd}`],
     ];
     const csv = rows.map((r) => r.join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url;
-    a.download = `VAT201_${from}_${to}.csv`;
-    a.click();
+    a.href = url; a.download = `VAT201_${from}_${to}.csv`; a.click();
     URL.revokeObjectURL(url);
   };
 
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
-        {/* Header */}
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <Link
-                href="/accounting/sars"
-                className="p-2 rounded-lg hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-secondary)]"
-              >
+              <Link href="/accounting/sars" className="p-2 rounded-lg hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-secondary)]">
                 <ChevronLeft className="h-5 w-5" />
               </Link>
-              <div className="p-2 rounded-lg bg-teal-500/10">
-                <FileText className="h-6 w-6 text-teal-500" />
-              </div>
+              <div className="p-2 rounded-lg bg-teal-500/10"><FileText className="h-6 w-6 text-teal-500" /></div>
               <div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">VAT201 Return</h1>
-                <p className="text-sm text-[var(--ff-text-secondary)]">
-                  SARS Value-Added Tax Declaration
-                </p>
+                <p className="text-sm text-[var(--ff-text-secondary)]">SARS Value-Added Tax Declaration</p>
               </div>
             </div>
             {data && (
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={exportCSV}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[var(--ff-border-light)] text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:border-teal-500/30"
-                >
-                  <Download className="h-4 w-4" /> Export CSV
-                </button>
-              </div>
+              <button onClick={exportCSV} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[var(--ff-border-light)] text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:border-teal-500/30">
+                <Download className="h-4 w-4" /> Export CSV
+              </button>
             )}
           </div>
         </div>
@@ -265,92 +196,24 @@ export default function VAT201Page() {
           {error && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{error}</div>}
           {success && <div className="p-3 rounded-lg bg-teal-500/10 text-teal-400 text-sm">{success}</div>}
 
-          {/* Period Selector */}
-          <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-medium text-[var(--ff-text-secondary)] flex items-center gap-2">
-                <Calendar className="h-4 w-4" /> VAT Period
-              </h2>
-              <span className="text-xs text-[var(--ff-text-tertiary)]">
-                {vatPeriod === 'monthly' ? 'Monthly' : alignment === 'even' ? 'Bi-Monthly (Category B)' : 'Bi-Monthly (Category A)'}
-              </span>
-            </div>
+          <VAT201PeriodSelector
+            from={from} to={to} loading={loading} vatPeriod={vatPeriod} alignment={alignment}
+            quickPeriods={quickPeriods}
+            onFromChange={setFrom} onToChange={setTo}
+            onQuickSelect={(f, t) => { setFrom(f); setTo(t); }}
+            onGenerate={generate}
+          />
 
-            {/* Quick Period Buttons */}
-            {quickPeriods.length > 0 && (
-              <div className="flex flex-wrap gap-2 mb-4">
-                {quickPeriods.map(p => (
-                  <button
-                    key={p.from}
-                    onClick={() => { setFrom(p.from); setTo(p.to); }}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                      from === p.from && to === p.to
-                        ? 'bg-teal-600 text-white border-teal-600'
-                        : 'border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] hover:border-teal-500/50 hover:text-[var(--ff-text-primary)]'
-                    }`}
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            <div className="flex flex-wrap items-end gap-4">
-              <div>
-                <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Period Start</label>
-                <input
-                  type="date"
-                  value={from}
-                  onChange={(e) => setFrom(e.target.value)}
-                  className="px-3 py-2 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)] text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Period End</label>
-                <input
-                  type="date"
-                  value={to}
-                  onChange={(e) => setTo(e.target.value)}
-                  className="px-3 py-2 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)] text-sm"
-                />
-              </div>
-              <button
-                onClick={generate}
-                disabled={loading}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-teal-600 text-white text-sm font-medium hover:bg-teal-700 disabled:opacity-50"
-              >
-                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
-                Generate
-              </button>
-            </div>
-          </div>
-
-          {/* VAT201 Form */}
           {data && (
             <>
-              {/* View Toggle */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-1">
-                  <button
-                    onClick={() => setViewMode('summary')}
-                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                      viewMode === 'summary'
-                        ? 'bg-teal-600 text-white'
-                        : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'
-                    }`}
-                  >
-                    Summary
-                  </button>
-                  <button
-                    onClick={() => setViewMode('detail')}
-                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                      viewMode === 'detail'
-                        ? 'bg-teal-600 text-white'
-                        : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'
-                    }`}
-                  >
-                    Detail
-                  </button>
+                  {(['summary', 'detail'] as const).map(mode => (
+                    <button key={mode} onClick={() => setViewMode(mode)}
+                      className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${viewMode === mode ? 'bg-teal-600 text-white' : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'}`}>
+                      {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                    </button>
+                  ))}
                 </div>
                 <span className="text-xs text-[var(--ff-text-tertiary)]">
                   {viewMode === 'summary' ? 'SARS VAT201 box totals' : `${data.outputInvoices.length + data.inputInvoices.length} transactions`}
@@ -358,253 +221,47 @@ export default function VAT201Page() {
               </div>
 
               {viewMode === 'summary' ? (
-                /* ── SUMMARY VIEW ── */
-                <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)]">
-                  <div className="px-4 py-3 border-b border-[var(--ff-border-light)]">
-                    <h2 className="text-lg font-semibold text-[var(--ff-text-primary)]">
-                      VAT201 — {formatDate(data.periodStart)} to {formatDate(data.periodEnd)}
-                    </h2>
-                  </div>
-
-                  <div className="divide-y divide-[var(--ff-border-light)]">
-                    <div className="px-4 py-2 bg-teal-500/5">
-                      <p className="text-xs font-semibold text-teal-500 uppercase tracking-wider">Output VAT (Sales)</p>
-                    </div>
-                    <FormRow field="1" label="Standard-rated supplies (15%)" amount={data.field1_standardRatedSupplies} />
-                    <FormRow field="2" label="Zero-rated supplies" amount={data.field2_zeroRatedSupplies} />
-                    <FormRow field="3" label="Exempt supplies" amount={data.field3_exemptSupplies} />
-                    <FormRow field="4" label="Total imports" amount={data.field4_totalImports} />
-                    <FormRow field="5" label="Output VAT (Field 1 x 15%)" amount={data.field5_outputVAT} highlight />
-
-                    <div className="px-4 py-2 bg-blue-500/5">
-                      <p className="text-xs font-semibold text-blue-500 uppercase tracking-wider">Input VAT (Purchases)</p>
-                    </div>
-                    <FormRow field="6" label="Capital goods" amount={data.field6_capitalGoods} />
-                    <FormRow field="7" label="Other goods" amount={data.field7_otherGoods} />
-                    <FormRow field="8" label="Services" amount={data.field8_services} />
-                    <FormRow field="9" label="Imports" amount={data.field9_imports} />
-                    <FormRow field="10" label="Total input VAT" amount={data.field10_totalInputVAT} highlight />
-
-                    <div className="px-4 py-2 bg-[var(--ff-bg-primary)]">
-                      <p className="text-xs font-semibold text-[var(--ff-text-secondary)] uppercase tracking-wider">Result</p>
-                    </div>
-                    <div className="px-4 py-3 flex items-center justify-between bg-[var(--ff-bg-primary)]/50">
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm font-mono text-[var(--ff-text-tertiary)] w-8">11</span>
-                        <span className="text-sm font-semibold text-[var(--ff-text-primary)]">
-                          {data.field11_vatPayableOrRefundable >= 0 ? 'VAT Payable to SARS' : 'VAT Refundable from SARS'}
-                        </span>
-                      </div>
-                      <span className={`text-lg font-bold ${
-                        data.field11_vatPayableOrRefundable >= 0 ? 'text-red-400' : 'text-emerald-400'
-                      }`}>
-                        {fmt(Math.abs(data.field11_vatPayableOrRefundable))}
-                      </span>
-                    </div>
-                  </div>
-                </div>
+                <VAT201SummaryForm data={data} />
               ) : (
-                /* ── DETAIL VIEW ── */
                 <div className="space-y-4">
-                  {/* Output Transactions */}
-                  <TransactionTable
-                    title="Section A — Output Tax (Sales)"
-                    sectionColor="teal"
-                    invoices={data.outputInvoices}
-                    totalLabel="Total Output Tax (Box 13)"
-                    totalVat={data.field5_outputVAT}
-                  />
-
-                  {/* Input Transactions */}
-                  <TransactionTable
-                    title="Section B — Input Tax (Purchases)"
-                    sectionColor="blue"
-                    invoices={data.inputInvoices}
-                    totalLabel="Total Input Tax (Box 19)"
-                    totalVat={data.field10_totalInputVAT}
-                  />
-
-                  {/* Net Result Banner */}
+                  <TransactionTable title="Section A — Output Tax (Sales)" sectionColor="teal" invoices={data.outputInvoices} totalLabel="Total Output Tax (Box 13)" totalVat={data.field5_outputVAT} />
+                  <TransactionTable title="Section B — Input Tax (Purchases)" sectionColor="blue" invoices={data.inputInvoices} totalLabel="Total Input Tax (Box 19)" totalVat={data.field10_totalInputVAT} />
                   <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] px-4 py-3 flex items-center justify-between">
                     <span className="text-sm font-semibold text-[var(--ff-text-primary)]">
                       Net VAT — Box 20 ({data.field11_vatPayableOrRefundable >= 0 ? 'Payable to SARS' : 'Refundable from SARS'})
                     </span>
-                    <span className={`text-lg font-bold ${
-                      data.field11_vatPayableOrRefundable >= 0 ? 'text-red-400' : 'text-emerald-400'
-                    }`}>
+                    <span className={`text-lg font-bold ${data.field11_vatPayableOrRefundable >= 0 ? 'text-red-400' : 'text-emerald-400'}`}>
                       {fmt(Math.abs(data.field11_vatPayableOrRefundable))}
                     </span>
                   </div>
                 </div>
               )}
 
-              {/* Actions */}
               <div className="flex items-center gap-3">
-                <button
-                  onClick={saveDraft}
-                  disabled={saving}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-teal-600 text-white text-sm font-medium hover:bg-teal-700 disabled:opacity-50"
-                >
-                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                  Save Draft
+                <button onClick={saveDraft} disabled={saving}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-teal-600 text-white text-sm font-medium hover:bg-teal-700 disabled:opacity-50">
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save Draft
                 </button>
                 {savedId && (
-                  <button
-                    onClick={() => setShowSubmitModal(true)}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700"
-                  >
+                  <button onClick={() => setShowSubmitModal(true)}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700">
                     <Send className="h-4 w-4" /> Mark as Submitted
                   </button>
                 )}
               </div>
             </>
           )}
-
-          {/* Submit Modal */}
-          {showSubmitModal && (
-            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-              <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-6 w-full max-w-md mx-4">
-                <h3 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-4">
-                  Mark as Submitted to SARS
-                </h3>
-                <p className="text-sm text-[var(--ff-text-secondary)] mb-4">
-                  Enter the SARS eFiling reference number after submitting the return on the SARS eFiling portal.
-                </p>
-                <input
-                  type="text"
-                  value={sarsRef}
-                  onChange={(e) => setSarsRef(e.target.value)}
-                  placeholder="SARS reference number"
-                  className="w-full px-3 py-2 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)] text-sm mb-4"
-                />
-                <div className="flex items-center gap-3 justify-end">
-                  <button
-                    onClick={() => setShowSubmitModal(false)}
-                    className="px-4 py-2 rounded-lg text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={markSubmitted}
-                    disabled={submitting || !sarsRef.trim()}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50"
-                  >
-                    {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                    Confirm
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       </div>
+
+      {showSubmitModal && (
+        <VAT201SubmitModal
+          sarsRef={sarsRef} submitting={submitting}
+          onRefChange={setSarsRef}
+          onConfirm={() => void markSubmitted()}
+          onClose={() => setShowSubmitModal(false)}
+        />
+      )}
     </AppLayout>
-  );
-}
-
-function FormRow({
-  field,
-  label,
-  amount,
-  highlight,
-}: {
-  field: string;
-  label: string;
-  amount: number;
-  highlight?: boolean;
-}) {
-  return (
-    <div className={`px-4 py-3 flex items-center justify-between ${highlight ? 'bg-[var(--ff-bg-primary)]/30' : ''}`}>
-      <div className="flex items-center gap-3">
-        <span className="text-sm font-mono text-[var(--ff-text-tertiary)] w-8">{field}</span>
-        <span className={`text-sm ${highlight ? 'font-semibold text-[var(--ff-text-primary)]' : 'text-[var(--ff-text-secondary)]'}`}>
-          {label}
-        </span>
-      </div>
-      <span className={`text-sm font-medium ${highlight ? 'text-[var(--ff-text-primary)]' : 'text-[var(--ff-text-secondary)]'}`}>
-        {fmt(amount)}
-      </span>
-    </div>
-  );
-}
-
-function TransactionTable({
-  title,
-  sectionColor,
-  invoices,
-  totalLabel,
-  totalVat,
-}: {
-  title: string;
-  sectionColor: 'teal' | 'blue';
-  invoices: VAT201Invoice[];
-  totalLabel: string;
-  totalVat: number;
-}) {
-  const colorClasses = sectionColor === 'teal'
-    ? { bg: 'bg-teal-500/5', text: 'text-teal-500', badge: 'bg-teal-500/10 text-teal-400', border: 'border-teal-500/20' }
-    : { bg: 'bg-blue-500/5', text: 'text-blue-500', badge: 'bg-blue-500/10 text-blue-400', border: 'border-blue-500/20' };
-
-  const totalNet = invoices.reduce((s, i) => s + i.totalExclVat, 0);
-  const totalVatCalc = invoices.reduce((s, i) => s + i.vatAmount, 0);
-  const totalGross = totalNet + totalVatCalc;
-
-  return (
-    <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
-      <div className={`px-4 py-2.5 ${colorClasses.bg} border-b ${colorClasses.border}`}>
-        <div className="flex items-center justify-between">
-          <p className={`text-xs font-semibold ${colorClasses.text} uppercase tracking-wider`}>{title}</p>
-          <span className="text-xs text-[var(--ff-text-tertiary)]">{invoices.length} transactions</span>
-        </div>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-[var(--ff-border-light)] text-left text-[var(--ff-text-tertiary)] text-xs uppercase tracking-wider">
-              <th className="px-4 py-2.5">Date</th>
-              <th className="px-4 py-2.5">Invoice #</th>
-              <th className="px-4 py-2.5">Counterparty</th>
-              <th className="px-4 py-2.5">VAT Type</th>
-              <th className="px-4 py-2.5 text-right">Net (Excl.)</th>
-              <th className="px-4 py-2.5 text-right">VAT</th>
-              <th className="px-4 py-2.5 text-right">Gross (Incl.)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {invoices.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="px-4 py-6 text-center text-[var(--ff-text-tertiary)]">
-                  No transactions for this period.
-                </td>
-              </tr>
-            ) : invoices.map((inv) => (
-              <tr key={inv.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/30">
-                <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{formatDate(inv.invoiceDate)}</td>
-                <td className="px-4 py-2 text-[var(--ff-text-primary)] font-medium">{inv.invoiceNumber}</td>
-                <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{inv.counterpartyName}</td>
-                <td className="px-4 py-2">
-                  <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${colorClasses.badge}`}>
-                    {inv.vatType}
-                  </span>
-                </td>
-                <td className="px-4 py-2 text-right text-[var(--ff-text-primary)]">{fmt(inv.totalExclVat)}</td>
-                <td className="px-4 py-2 text-right text-[var(--ff-text-primary)]">{fmt(inv.vatAmount)}</td>
-                <td className="px-4 py-2 text-right text-[var(--ff-text-primary)]">{fmt(inv.totalExclVat + inv.vatAmount)}</td>
-              </tr>
-            ))}
-          </tbody>
-          {invoices.length > 0 && (
-            <tfoot>
-              <tr className={`${colorClasses.bg} font-semibold`}>
-                <td colSpan={4} className={`px-4 py-2.5 text-sm ${colorClasses.text}`}>{totalLabel}</td>
-                <td className="px-4 py-2.5 text-right text-[var(--ff-text-primary)]">{fmt(totalNet)}</td>
-                <td className={`px-4 py-2.5 text-right ${colorClasses.text} font-bold`}>{fmt(totalVatCalc)}</td>
-                <td className="px-4 py-2.5 text-right text-[var(--ff-text-primary)]">{fmt(totalGross)}</td>
-              </tr>
-            </tfoot>
-          )}
-        </table>
-      </div>
-    </div>
   );
 }
