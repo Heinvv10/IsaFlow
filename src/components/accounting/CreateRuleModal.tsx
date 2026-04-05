@@ -126,17 +126,32 @@ function EntityPicker({
   );
 }
 
-export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppliers = [], clients = [], onClose, onCreated }: Props) {
+export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppliers = [], clients = [], selection, onClose, onCreated }: Props) {
   const [pattern, setPattern] = useState(() => extractPattern(transaction.description || ''));
   const [matchType, setMatchType] = useState<RuleMatchType>('contains');
   const [ruleName, setRuleName] = useState(() => extractPattern(transaction.description || ''));
   const [autoCreateEntry, setAutoCreateEntry] = useState(false);
 
-  const [allocType, setAllocType] = useState<AllocType>('account');
-  const [vatCode, setVatCode] = useState<RuleVatCode>('none');
-  const [selectedGl, setSelectedGl] = useState<SelectOption | null>(null);
-  const [selectedSupplier, setSelectedSupplier] = useState<SelectOption | null>(null);
-  const [selectedClient, setSelectedClient] = useState<SelectOption | null>(null);
+  const [allocType, setAllocType] = useState<AllocType>(() => selection?.type ?? 'account');
+  const [vatCode, setVatCode] = useState<RuleVatCode>(() => (selection?.vatCode as RuleVatCode) ?? 'none');
+  const [selectedGl, setSelectedGl] = useState<SelectOption | null>(() => {
+    if (selection?.type === 'account' && selection.entityId) {
+      return glAccounts.find(a => a.id === selection.entityId) ?? null;
+    }
+    return null;
+  });
+  const [selectedSupplier, setSelectedSupplier] = useState<SelectOption | null>(() => {
+    if (selection?.type === 'supplier' && selection.entityId) {
+      return suppliers.find(s => s.id === selection.entityId) ?? null;
+    }
+    return null;
+  });
+  const [selectedClient, setSelectedClient] = useState<SelectOption | null>(() => {
+    if (selection?.type === 'customer' && selection.entityId) {
+      return clients.find(c => c.id === selection.entityId) ?? null;
+    }
+    return null;
+  });
 
   const [matchCount, setMatchCount] = useState<number | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -161,8 +176,10 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
     return () => clearTimeout(timer);
   }, [pattern, matchType, bankAccountId]);
 
-  // Clear entity selection when switching alloc type
+  // Clear entity selection when switching alloc type (skip initial mount)
+  const allocTypeInitial = useRef(true);
   useEffect(() => {
+    if (allocTypeInitial.current) { allocTypeInitial.current = false; return; }
     setSelectedSupplier(null);
     setSelectedClient(null);
   }, [allocType]);
