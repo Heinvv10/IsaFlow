@@ -29,7 +29,7 @@ export interface SplitLine {
  * Supports: account (GL), supplier (AP payment), customer (AR receipt).
  */
 export async function allocateTransaction(
-  companyId: string, bankTxId: string, contraAccountId: string, userId: string,
+  companyId: string, bankTxId: string, contraAccountId: string | null, userId: string,
   description?: string, allocType: AllocationType = 'account', entityId?: string,
   vatCode?: string, cc1Id?: string, cc2Id?: string, buId?: string,
 ): Promise<{ journalEntryId: string; bankTransaction: BankTransaction }> {
@@ -90,6 +90,7 @@ export async function allocateTransaction(
       lines.push({ glAccountId: vatAcctId, debit: 0, credit: vatAmount, description: `VAT @ ${vatRate}%`, vatType: 'standard' });
     }
   } else {
+    if (!contraAccountId) throw new Error('contraAccountId is required for account allocation');
     const acctRows = (await sql`SELECT account_code, account_name FROM gl_accounts WHERE id = ${contraAccountId}::UUID`) as Row[];
     allocEntityName = acctRows.length > 0 ? `${String(acctRows[0]!.account_code)} ${String(acctRows[0]!.account_name)}` : null;
     entryDesc = description || String(tx.description || 'Bank allocation');
@@ -120,7 +121,7 @@ export async function allocateTransaction(
   const je = await createJournalEntry(companyId, {
     entryDate: txDate, description: entryDesc, source, sourceDocumentId: bankTxId, lines: linesWithDims,
   }, userId);
-  await postJournalEntry('', je.id, userId);
+  await postJournalEntry(companyId, je.id, userId);
 
   const jeLines = (await sql`
     SELECT id FROM gl_journal_lines
@@ -223,7 +224,7 @@ export async function splitAllocateTransaction(
   const je = await createJournalEntry(companyId, {
     entryDate: txDate, description: entryDesc, source: 'auto_bank_recon', sourceDocumentId: bankTxId, lines: journalLines,
   }, userId);
-  await postJournalEntry('', je.id, userId);
+  await postJournalEntry(companyId, je.id, userId);
 
   const jeLines = (await sql`
     SELECT id FROM gl_journal_lines
