@@ -204,6 +204,26 @@ export function BankTxTable(props: Props) {
     );
   }
 
+  /** Sort options so names matching words in the transaction description appear first */
+  function sortByDescriptionMatch(opts: SelectOption[], description: string): SelectOption[] {
+    if (!description) return opts;
+    const descLower = description.toLowerCase();
+    // Extract meaningful words (3+ chars) from description
+    const words = descLower.split(/\s+/).filter(w => w.length >= 3);
+    if (words.length === 0) return opts;
+
+    return [...opts].sort((a, b) => {
+      const aName = a.name.toLowerCase();
+      const bName = b.name.toLowerCase();
+      // Check if any word from the description appears in the option name, or vice versa
+      const aMatch = words.some(w => aName.includes(w)) || aName.split(/\s+/).some(w => w.length >= 3 && descLower.includes(w));
+      const bMatch = words.some(w => bName.includes(w)) || bName.split(/\s+/).some(w => w.length >= 3 && descLower.includes(w));
+      if (aMatch && !bMatch) return -1;
+      if (!aMatch && bMatch) return 1;
+      return 0;
+    });
+  }
+
   /** Get suggested entity for a transaction based on its type */
   function getSuggestedOption(tx: BankTx, type: AllocType): SelectOption | null {
     if (type === 'supplier' && tx.suggestedSupplierId) {
@@ -251,7 +271,8 @@ export function BankTxTable(props: Props) {
             const isOpen = openSel === tx.id;
             const spent = tx.amount < 0 ? Math.abs(tx.amount) : null;
             const received = tx.amount > 0 ? tx.amount : null;
-            const options = filterOptions(getOptionsForType(rowType), isOpen ? search : '');
+            const rawOptions = filterOptions(getOptionsForType(rowType), isOpen ? search : '');
+            const options = (isOpen && !search) ? sortByDescriptionMatch(rawOptions, tx.description || '') : rawOptions;
 
             const isExcluded = tx.status === 'excluded';
 
