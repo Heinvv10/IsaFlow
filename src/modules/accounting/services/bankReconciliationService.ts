@@ -136,7 +136,7 @@ export async function createAdjustmentEntry(
       description: `Bank recon adjustment: ${description}`,
       source: 'auto_bank_recon', sourceDocumentId: reconciliationId, lines,
     }, userId);
-    await postJournalEntry('', je.id, userId);
+    await postJournalEntry(companyId, je.id, userId);
     await updateReconciledBalance(reconciliationId);
     log.info('Created adjustment entry', { reconciliationId, journalEntryId: je.id }, 'accounting');
     return je.id;

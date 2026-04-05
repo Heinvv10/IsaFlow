@@ -90,7 +90,7 @@ export async function generateJournalFromRecurring(companyId: string,
     source: 'auto_recurring',
     lines,
   }, userId);
-  await postJournalEntry('', je.id, userId);
+  await postJournalEntry(companyId, je.id, userId);
 
   // Advance next run date and mark last run atomically so a failure here
   // doesn't leave an orphaned GL entry with the recurring template unadvanced.

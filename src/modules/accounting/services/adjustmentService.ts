@@ -117,7 +117,7 @@ export async function approveAdjustment(companyId: string, id: string, userId: s
     sourceDocumentId: id,
     lines,
   }, userId);
-  await postJournalEntry('', je.id, userId);
+  await postJournalEntry(companyId, je.id, userId);
 
   const updated = (await sql`
     UPDATE accounting_adjustments

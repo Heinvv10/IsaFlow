@@ -239,16 +239,20 @@ export async function createJournalEntry(companyId: string,
 export async function getTrialBalance(companyId: string, fiscalPeriodId: string, costCentreId?: string): Promise<TrialBalanceRow[]> {
   try {
     if (!costCentreId) {
+      // Calculate from journal lines directly (not the summary table which may be stale)
       const rows = (await sql`
-        SELECT a.account_code, a.account_name, a.account_type, a.normal_balance,
-          COALESCE(b.debit_total, 0) AS debit_balance,
-          COALESCE(b.credit_total, 0) AS credit_balance
-        FROM gl_accounts a
-        LEFT JOIN gl_account_balances b ON b.gl_account_id = a.id AND b.fiscal_period_id = ${fiscalPeriodId}::UUID
-        WHERE a.is_active = true
-          AND a.company_id = ${companyId}::UUID
-          AND (COALESCE(b.debit_total, 0) != 0 OR COALESCE(b.credit_total, 0) != 0)
-        ORDER BY a.account_code
+        SELECT ga.account_code, ga.account_name, ga.account_type, ga.normal_balance,
+          COALESCE(SUM(jl.debit), 0) AS debit_balance,
+          COALESCE(SUM(jl.credit), 0) AS credit_balance
+        FROM gl_journal_lines jl
+        JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+        JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+        WHERE je.status = 'posted'
+          AND je.company_id = ${companyId}::UUID
+          AND je.fiscal_period_id = ${fiscalPeriodId}::UUID
+        GROUP BY ga.id, ga.account_code, ga.account_name, ga.account_type, ga.normal_balance
+        HAVING COALESCE(SUM(jl.debit), 0) != 0 OR COALESCE(SUM(jl.credit), 0) != 0
+        ORDER BY ga.account_code
       `) as Row[];
       return rows.map(r => ({
         accountCode: String(r.account_code),

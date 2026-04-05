@@ -85,7 +85,7 @@ export async function applyDRCVat(companyId: string,
     lines,
   }, userId);
 
-  await postJournalEntry('', je.id, userId);
+  await postJournalEntry(companyId, je.id, userId);
 
   // Mark invoice as DRC processed
   await sql`
