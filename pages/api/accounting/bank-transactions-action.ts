@@ -75,7 +75,7 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
           return apiResponse.badRequest(res, 'bankTransactionId is required');
         }
         const result = await allocateTransaction(
-          companyId, bankTransactionId, contraAccountId || '', userId, description, aType, entityId, vatCode,
+          companyId, bankTransactionId, contraAccountId || null, userId, description, aType, entityId, vatCode,
           cc1Id, cc2Id, buId,
         );
         return apiResponse.success(res, result);
@@ -159,5 +159,5 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export default withCompany(withErrorHandler(handler));

@@ -204,6 +204,20 @@ export function BankTxTable(props: Props) {
     );
   }
 
+  /** Get suggested entity for a transaction based on its type */
+  function getSuggestedOption(tx: BankTx, type: AllocType): SelectOption | null {
+    if (type === 'supplier' && tx.suggestedSupplierId) {
+      return { id: tx.suggestedSupplierId, name: tx.suggestedSupplierName || 'Suggested Supplier', code: '' };
+    }
+    if (type === 'customer' && tx.suggestedClientId) {
+      return { id: tx.suggestedClientId, name: tx.suggestedClientName || 'Suggested Customer', code: '' };
+    }
+    if (type === 'account' && tx.suggestedGlAccountId) {
+      return { id: tx.suggestedGlAccountId, name: tx.suggestedGlAccountName || 'Suggested Account', code: tx.suggestedGlAccountCode || '' };
+    }
+    return null;
+  }
+
   const TH = 'py-2 px-2 font-medium text-left';
 
   return (
@@ -342,6 +356,29 @@ export function BankTxTable(props: Props) {
                             </div>
                           </div>
                           <div className="max-h-48 overflow-y-auto">
+                            {/* Suggested option pinned at top */}
+                            {(() => {
+                              const suggested = getSuggestedOption(tx, rowType);
+                              if (!suggested || search) return null;
+                              return (
+                                <>
+                                  <div className="px-3 py-1 text-[10px] font-semibold text-teal-400 uppercase tracking-wider bg-teal-500/5">
+                                    <SearchCheck className="inline h-3 w-3 mr-1 -mt-0.5" />
+                                    Suggested{tx.suggestedCategory ? ` — ${tx.suggestedCategory}` : ''}
+                                  </div>
+                                  <button
+                                    onClick={() => {
+                                      onRowEntityChange(tx.id, suggested.id, suggested.code ? `${suggested.code} ${suggested.name}` : suggested.name);
+                                      setOpenSel(null);
+                                    }}
+                                    className="w-full text-left px-3 py-1.5 hover:bg-teal-500/10 text-xs flex items-center gap-2 bg-teal-500/5 border-b border-teal-500/20"
+                                  >
+                                    {suggested.code && <span className="font-mono text-teal-400 w-10 shrink-0">{suggested.code}</span>}
+                                    <span className="text-teal-300 truncate font-medium">{suggested.name}</span>
+                                  </button>
+                                </>
+                              );
+                            })()}
                             {options.map(o => (
                               <button key={o.id}
                                 onClick={() => {
@@ -354,7 +391,7 @@ export function BankTxTable(props: Props) {
                                 <span className="text-[var(--ff-text-primary)] truncate">{o.name}</span>
                               </button>
                             ))}
-                            {options.length === 0 && (
+                            {options.length === 0 && !getSuggestedOption(tx, rowType) && (
                               <div className="px-3 py-2 text-xs text-[var(--ff-text-tertiary)]">No results found</div>
                             )}
                           </div>

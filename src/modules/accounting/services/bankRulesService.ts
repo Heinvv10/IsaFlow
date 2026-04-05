@@ -40,7 +40,7 @@ export async function createRule(companyId: string, input: RuleCreateInput, user
       ${input.glAccountId || null}::UUID, ${input.supplierId || null}::UUID,
       ${input.clientId || null}::UUID,
       ${input.descriptionTemplate || null},
-      ${input.priority || 100}, ${input.autoCreateEntry !== false}, ${vatCode}, ${userId}
+      ${input.priority || 100}, ${input.autoCreateEntry === true}, ${vatCode}, ${userId}
     ) RETURNING *
   `) as Record<string, unknown>[];
   log.info('Created bank rule', { id: rows[0]!.id, ruleName: input.ruleName }, 'accounting');
@@ -112,10 +112,10 @@ export async function applyRules(companyId: string,
   userId: string
 ): Promise<RuleApplyResult> {
   try {
-    // Get active rules ordered by priority
+    // Get active rules ordered by priority (scoped to company)
     const rules = (await sql`
       SELECT * FROM bank_categorisation_rules
-      WHERE is_active = true
+      WHERE company_id = ${companyId}::UUID AND is_active = true
       ORDER BY priority ASC
     `) as Record<string, unknown>[];
 
@@ -144,7 +144,8 @@ export async function applyRules(companyId: string,
             ROW_NUMBER() OVER (PARTITION BY bt.id ORDER BY r.priority ASC) AS rn
           FROM bank_transactions bt
           JOIN bank_categorisation_rules r ON (
-            r.is_active = true
+            r.company_id = ${companyId}::UUID
+            AND r.is_active = true
             AND r.auto_create_entry = false
             AND (
               (r.match_field IN ('description', 'both')
@@ -198,7 +199,7 @@ export async function applyRules(companyId: string,
         FROM (
           SELECT DISTINCT ON (rule_name) rule_name, vat_code
           FROM bank_categorisation_rules
-          WHERE is_active = true AND vat_code != 'none'
+          WHERE company_id = ${companyId}::UUID AND is_active = true AND vat_code != 'none'
           ORDER BY rule_name, priority ASC
         ) r
         WHERE bt.bank_account_id = ${bankAccountId}::UUID
@@ -294,7 +295,7 @@ export async function applyRules(companyId: string,
           source: 'auto_bank_recon',
           lines,
         }, userId);
-        await postJournalEntry('', je.id, userId);
+        await postJournalEntry(companyId, je.id, userId);
 
         const bankLineRows = (await sql`
           SELECT id FROM gl_journal_lines

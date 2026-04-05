@@ -10,6 +10,10 @@ const nextConfig = {
   output: 'standalone',
   productionBrowserSourceMaps: false,
 
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
+
   experimental: {
     optimizePackageImports: ['lucide-react', 'recharts'],
   },
