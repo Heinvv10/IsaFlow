@@ -166,7 +166,7 @@ function NotesCell({
 export function BankTxTable(props: Props) {
   const {
     transactions, glAccounts, suppliers, customers,
-    cc1Options, cc2Options, buOptions,
+    cc1Options, cc2Options, buOptions, showCC, showBU,
     selectedIds, rowSelections, allSelected, tab,
     onToggleSelect, onSelectAll, onRowTypeChange, onRowEntityChange, onRowVatChange,
     onRowDimensionChange,
@@ -254,9 +254,9 @@ export function BankTxTable(props: Props) {
             <th className={`${TH} w-24`}>Type</th>
             <th className={`${TH} w-52`}>Selection</th>
             <th className={`${TH} w-24`}>VAT</th>
-            <th className={`${TH} w-24`}>CC1</th>
-            <th className={`${TH} w-24`}>CC2</th>
-            <th className={`${TH} w-24`}>BU</th>
+            {showCC && <th className={`${TH} w-24`}>CC1</th>}
+            {showCC && <th className={`${TH} w-24`}>CC2</th>}
+            {showBU && <th className={`${TH} w-24`}>BU</th>}
             <th className="py-2 px-2 font-medium text-right w-24">Spent</th>
             <th className="py-2 px-2 font-medium text-right w-24">Received</th>
             <th className="py-2 px-2 font-medium text-center w-16">Actions</th>
@@ -463,6 +463,7 @@ export function BankTxTable(props: Props) {
                   )}
                 </td>
                 {/* CC1 */}
+                {showCC && (
                 <td className="py-2 px-2">
                   {isNew ? (
                     <select value={sel?.cc1Id || ''} onChange={e => onRowDimensionChange(tx.id, e.target.value, sel?.cc2Id || '', sel?.buId || '')}
@@ -474,7 +475,9 @@ export function BankTxTable(props: Props) {
                     <span className="text-xs text-[var(--ff-text-tertiary)] truncate block" title={tx.cc1Name}>{tx.cc1Name || '—'}</span>
                   )}
                 </td>
+                )}
                 {/* CC2 */}
+                {showCC && (
                 <td className="py-2 px-2">
                   {isNew ? (
                     <select value={sel?.cc2Id || ''} onChange={e => onRowDimensionChange(tx.id, sel?.cc1Id || '', e.target.value, sel?.buId || '')}
@@ -486,7 +489,9 @@ export function BankTxTable(props: Props) {
                     <span className="text-xs text-[var(--ff-text-tertiary)] truncate block" title={tx.cc2Name}>{tx.cc2Name || '—'}</span>
                   )}
                 </td>
+                )}
                 {/* BU */}
+                {showBU && (
                 <td className="py-2 px-2">
                   {isNew ? (
                     <select value={sel?.buId || ''} onChange={e => onRowDimensionChange(tx.id, sel?.cc1Id || '', sel?.cc2Id || '', e.target.value)}
@@ -498,6 +503,7 @@ export function BankTxTable(props: Props) {
                     <span className="text-xs text-[var(--ff-text-tertiary)] truncate block" title={tx.buName}>{tx.buName || '—'}</span>
                   )}
                 </td>
+                )}
                 <td className="py-2 px-2 text-right font-mono text-xs text-red-400">
                   {spent !== null ? fmtCurrency(spent) : ''}
                 </td>
