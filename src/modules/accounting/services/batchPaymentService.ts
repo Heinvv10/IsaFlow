@@ -141,7 +141,7 @@ export async function processBatch(companyId: string, id: string, userId: string
     sourceDocumentId: id,
     lines,
   }, userId);
-  await postJournalEntry('', je.id, userId);
+  await postJournalEntry(companyId, je.id, userId);
 
   // Update all linked payments and their invoices atomically
   await withTransaction(async (tx) => {

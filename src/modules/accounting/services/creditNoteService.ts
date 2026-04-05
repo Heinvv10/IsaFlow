@@ -161,7 +161,7 @@ export async function approveCreditNote(companyId: string, id: string, userId: s
       sourceDocumentId: id,
       lines,
     }, userId);
-    await postJournalEntry('', je.id, userId);
+    await postJournalEntry(companyId, je.id, userId);
 
     // Update invoice balance and credit note status atomically
     const updated = await withTransaction(async (tx) => {
