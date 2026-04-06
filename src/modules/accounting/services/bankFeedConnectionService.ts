@@ -220,13 +220,21 @@ export async function fetchStitchAccounts(accessToken: string): Promise<StitchAc
 
 // Connection CRUD
 
-export async function listConnections(): Promise<BankFeedConnection[]> {
-  const rows = (await sql`
-    SELECT bfc.*, ba.account_name AS bank_account_name
-    FROM bank_feed_connections bfc
-    LEFT JOIN bank_accounts ba ON ba.id = bfc.bank_account_id
-    ORDER BY bfc.created_at DESC
-  `) as Row[];
+export async function listConnections(companyId?: string): Promise<BankFeedConnection[]> {
+  const rows = companyId
+    ? (await sql`
+        SELECT bfc.*, ba.account_name AS bank_account_name
+        FROM bank_feed_connections bfc
+        LEFT JOIN bank_accounts ba ON ba.id = bfc.bank_account_id
+        WHERE ba.company_id = ${companyId}::UUID
+        ORDER BY bfc.created_at DESC
+      `) as Row[]
+    : (await sql`
+        SELECT bfc.*, ba.account_name AS bank_account_name
+        FROM bank_feed_connections bfc
+        LEFT JOIN bank_accounts ba ON ba.id = bfc.bank_account_id
+        ORDER BY bfc.created_at DESC
+      `) as Row[];
   return rows.map(mapConnection);
 }
 
@@ -270,8 +278,15 @@ export async function createConnection(input: {
   return mapConnection(rows[0]!);
 }
 
-export async function disconnectConnection(id: string): Promise<void> {
-  await sql`UPDATE bank_feed_connections SET is_active = false, updated_at = NOW() WHERE id = ${id}::UUID`;
+export async function disconnectConnection(id: string, companyId?: string): Promise<void> {
+  if (companyId) {
+    await sql`
+      UPDATE bank_feed_connections SET is_active = false, updated_at = NOW()
+      WHERE id = ${id}::UUID AND bank_account_id IN (SELECT id FROM bank_accounts WHERE company_id = ${companyId}::UUID)
+    `;
+  } else {
+    await sql`UPDATE bank_feed_connections SET is_active = false, updated_at = NOW() WHERE id = ${id}::UUID`;
+  }
   log.info('Bank feed disconnected', { id }, 'bank-feeds');
 }
 

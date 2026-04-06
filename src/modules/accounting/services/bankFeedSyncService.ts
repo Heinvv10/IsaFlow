@@ -71,10 +71,16 @@ export async function fetchStitchTransactions(
  * Sync transactions for a connection.
  * Handles token refresh, pagination, and deduplication.
  */
-export async function syncTransactions(connectionId: string): Promise<SyncResult> {
-  const conn = (await sql`
-    SELECT * FROM bank_feed_connections WHERE id = ${connectionId}::UUID AND is_active = true
-  `) as Row[];
+export async function syncTransactions(connectionId: string, companyId?: string): Promise<SyncResult> {
+  const conn = companyId
+    ? (await sql`
+        SELECT bfc.* FROM bank_feed_connections bfc
+        JOIN bank_accounts ba ON ba.id = bfc.bank_account_id
+        WHERE bfc.id = ${connectionId}::UUID AND bfc.is_active = true AND ba.company_id = ${companyId}::UUID
+      `) as Row[]
+    : (await sql`
+        SELECT * FROM bank_feed_connections WHERE id = ${connectionId}::UUID AND is_active = true
+      `) as Row[];
   if (!conn[0]) throw new Error('Connection not found or inactive');
 
   const connection = conn[0];
@@ -203,6 +209,7 @@ export async function syncTransactions(connectionId: string): Promise<SyncResult
  */
 export async function getSyncHistory(
   connectionId: string,
+  companyId?: string,
   limit = 20,
 ): Promise<Array<{
   id: string;
@@ -215,12 +222,21 @@ export async function getSyncHistory(
   status: string;
   error: string | null;
 }>> {
-  const rows = (await sql`
-    SELECT * FROM bank_feed_sync_log
-    WHERE connection_id = ${connectionId}::UUID
-    ORDER BY started_at DESC
-    LIMIT ${limit}
-  `) as Row[];
+  const rows = companyId
+    ? (await sql`
+        SELECT bfsl.* FROM bank_feed_sync_log bfsl
+        JOIN bank_feed_connections bfc ON bfc.id = bfsl.connection_id
+        JOIN bank_accounts ba ON ba.id = bfc.bank_account_id
+        WHERE bfsl.connection_id = ${connectionId}::UUID AND ba.company_id = ${companyId}::UUID
+        ORDER BY bfsl.started_at DESC
+        LIMIT ${limit}
+      `) as Row[]
+    : (await sql`
+        SELECT * FROM bank_feed_sync_log
+        WHERE connection_id = ${connectionId}::UUID
+        ORDER BY started_at DESC
+        LIMIT ${limit}
+      `) as Row[];
 
   return rows.map((r: Row) => ({
     id: String(r.id),
