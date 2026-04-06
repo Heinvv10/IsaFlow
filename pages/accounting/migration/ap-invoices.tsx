@@ -162,8 +162,6 @@ export default function ApInvoicesPage() {
     NONE: 'bg-red-500/20 text-red-400',
   }[c]);
 
-  const visibleFields = AP_FIELDS.filter(f => fieldMapping[f]);
-
   return (
     <AppLayout>
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
