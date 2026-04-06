@@ -172,23 +172,38 @@ export async function addMember(groupId: string, companyId: string, opts?: {
 export async function updateMember(memberId: string, opts: {
   ownershipPct?: number;
   consolidationMethod?: string;
-}): Promise<GroupMember> {
-  const rows = (await sql`
-    UPDATE company_group_members SET
-      ownership_pct = COALESCE(${opts.ownershipPct ?? null}, ownership_pct),
-      consolidation_method = COALESCE(${opts.consolidationMethod ?? null}, consolidation_method)
-    WHERE id = ${memberId}::UUID
-    RETURNING *
-  `) as Row[];
+}, groupId?: string): Promise<GroupMember> {
+  const rows = groupId
+    ? (await sql`
+        UPDATE company_group_members SET
+          ownership_pct = COALESCE(${opts.ownershipPct ?? null}, ownership_pct),
+          consolidation_method = COALESCE(${opts.consolidationMethod ?? null}, consolidation_method)
+        WHERE id = ${memberId}::UUID AND group_id = ${groupId}::UUID
+        RETURNING *
+      `) as Row[]
+    : (await sql`
+        UPDATE company_group_members SET
+          ownership_pct = COALESCE(${opts.ownershipPct ?? null}, ownership_pct),
+          consolidation_method = COALESCE(${opts.consolidationMethod ?? null}, consolidation_method)
+        WHERE id = ${memberId}::UUID
+        RETURNING *
+      `) as Row[];
   if (!rows[0]) throw new Error(`Group member ${memberId} not found`);
   return mapMember(rows[0]!);
 }
 
-export async function removeMember(memberId: string): Promise<void> {
-  await sql`
-    UPDATE company_group_members SET left_date = CURRENT_DATE
-    WHERE id = ${memberId}::UUID
-  `;
+export async function removeMember(memberId: string, groupId?: string): Promise<void> {
+  if (groupId) {
+    await sql`
+      UPDATE company_group_members SET left_date = CURRENT_DATE
+      WHERE id = ${memberId}::UUID AND group_id = ${groupId}::UUID
+    `;
+  } else {
+    await sql`
+      UPDATE company_group_members SET left_date = CURRENT_DATE
+      WHERE id = ${memberId}::UUID
+    `;
+  }
   log.info('Group member removed', { memberId }, 'accounting');
 }
 

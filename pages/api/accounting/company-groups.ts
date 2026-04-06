@@ -165,7 +165,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (!memberId) return apiResponse.badRequest(res, 'memberId required');
       if (!memberGroupId) return apiResponse.badRequest(res, 'groupId required');
       if (!(await verifyGroupAccess(memberGroupId))) return apiResponse.forbidden(res, 'Access denied to this group');
-      await updateMember(memberId, { ownershipPct, consolidationMethod });
+      await updateMember(memberId, { ownershipPct, consolidationMethod }, memberGroupId);
       return apiResponse.success(res, { updated: true });
     }
 
@@ -174,7 +174,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (!accountId) return apiResponse.badRequest(res, 'accountId required');
       if (!accountGroupId) return apiResponse.badRequest(res, 'groupId required');
       if (!(await verifyGroupAccess(accountGroupId))) return apiResponse.forbidden(res, 'Access denied to this group');
-      const account = await updateGroupAccount(accountId, updates);
+      const account = await updateGroupAccount(accountId, updates, accountGroupId);
       return apiResponse.success(res, account);
     }
 
@@ -193,7 +193,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (!memberId) return apiResponse.badRequest(res, 'member_id required');
       if (!groupId) return apiResponse.badRequest(res, 'group_id required');
       if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
-      await removeMember(memberId);
+      await removeMember(memberId, groupId);
       return apiResponse.success(res, { removed: true });
     }
 

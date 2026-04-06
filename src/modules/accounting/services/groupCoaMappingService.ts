@@ -120,7 +120,10 @@ export async function updateGroupAccount(accountId: string, input: Partial<{
   normalBalance: string;
   level: number;
   displayOrder: number;
-}>): Promise<GroupAccount> {
+}>, groupId?: string): Promise<GroupAccount> {
+  const whereClause = groupId
+    ? sql`WHERE id = ${accountId}::UUID AND group_id = ${groupId}::UUID`
+    : sql`WHERE id = ${accountId}::UUID`;
   const rows = (await sql`
     UPDATE group_accounts SET
       account_code = COALESCE(${input.accountCode ?? null}, account_code),
@@ -131,7 +134,7 @@ export async function updateGroupAccount(accountId: string, input: Partial<{
       normal_balance = COALESCE(${input.normalBalance ?? null}, normal_balance),
       level = COALESCE(${input.level ?? null}, level),
       display_order = COALESCE(${input.displayOrder ?? null}, display_order)
-    WHERE id = ${accountId}::UUID
+    ${whereClause}
     RETURNING *
   `) as Row[];
   if (!rows[0]) throw new Error(`Group account ${accountId} not found`);
