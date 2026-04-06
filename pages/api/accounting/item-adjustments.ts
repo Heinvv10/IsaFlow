@@ -41,7 +41,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (!adjustmentType || !['increase', 'decrease'].includes(adjustmentType)) {
         return apiResponse.badRequest(res, 'adjustmentType must be increase or decrease');
       }
-      if (!quantity || Number(quantity) <= 0) return apiResponse.badRequest(res, 'quantity must be positive');
+      if (!quantity || isNaN(Number(quantity)) || Number(quantity) <= 0) return apiResponse.badRequest(res, 'quantity must be a positive number');
       if (!reason) return apiResponse.badRequest(res, 'reason is required');
 
       const [item] = await sql`
