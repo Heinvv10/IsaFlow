@@ -138,11 +138,18 @@ export async function updateGroupAccount(accountId: string, input: Partial<{
   return mapGroupAccount(rows[0]!);
 }
 
-export async function deleteGroupAccount(accountId: string): Promise<void> {
-  await sql`
-    UPDATE group_accounts SET is_active = false
-    WHERE id = ${accountId}::UUID
-  `;
+export async function deleteGroupAccount(accountId: string, groupId?: string): Promise<void> {
+  if (groupId) {
+    await sql`
+      UPDATE group_accounts SET is_active = false
+      WHERE id = ${accountId}::UUID AND group_id = ${groupId}::UUID
+    `;
+  } else {
+    await sql`
+      UPDATE group_accounts SET is_active = false
+      WHERE id = ${accountId}::UUID
+    `;
+  }
 }
 
 export async function autoGenerateGroupCOA(groupId: string, sourceCompanyId: string): Promise<number> {
