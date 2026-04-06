@@ -49,11 +49,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       }
 
       // Update PO status
-      const poItems = await tx`SELECT quantity, quantity_received FROM po_items WHERE purchase_order_id = ${body.purchaseOrderId}` as Row[];
-      const allReceived = poItems.every((pi: any) => Number(pi.quantity_received) >= Number(pi.quantity));
-      const someReceived = poItems.some((pi: any) => Number(pi.quantity_received) > 0);
+      const poItems = await tx`SELECT quantity, quantity_received FROM po_items WHERE purchase_order_id = ${body.purchaseOrderId} AND company_id = ${companyId}::UUID` as Row[];
+      const allReceived = poItems.every((pi: Row) => Number(pi.quantity_received) >= Number(pi.quantity));
+      const someReceived = poItems.some((pi: Row) => Number(pi.quantity_received) > 0);
       const newStatus = allReceived ? 'received' : someReceived ? 'partially_received' : 'approved';
-      await tx`UPDATE purchase_orders SET status = ${newStatus}, updated_at = NOW() WHERE id = ${body.purchaseOrderId}`;
+      await tx`UPDATE purchase_orders SET status = ${newStatus}, updated_at = NOW() WHERE id = ${body.purchaseOrderId} AND company_id = ${companyId}::UUID`;
 
       return rows[0];
     });

@@ -143,7 +143,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         await sql`
           UPDATE supplier_invoices
           SET amount_paid = ${newPaid}, status = ${newStatus}
-          WHERE id = ${alloc.invoiceId}
+          WHERE id = ${alloc.invoiceId} AND company_id = ${companyId}
         `;
 
         results.push({ invoiceId: alloc.invoiceId, amount: alloc.amount, newStatus });
@@ -155,7 +155,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       await sql`
         UPDATE supplier_payments
         SET status = ${paymentStatus}
-        WHERE id = ${paymentId}
+        WHERE id = ${paymentId} AND company_id = ${companyId}
       `;
 
       log.info('Supplier allocations created', {

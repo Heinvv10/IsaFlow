@@ -50,6 +50,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         created_at
       FROM bank_import_batches
       WHERE bank_account_id = ${bankAccountId}::UUID
+        AND company_id = ${companyId}::UUID
       ORDER BY created_at DESC
       LIMIT 20
     `) as ImportBatchRow[];

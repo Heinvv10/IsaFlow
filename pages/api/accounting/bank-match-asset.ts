@@ -41,7 +41,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   await sql`
     UPDATE assets
     SET bank_transaction_id = ${bankTransactionId}::UUID
-    WHERE id = ${assetId}::UUID
+    WHERE id = ${assetId}::UUID AND company_id = ${companyId}::UUID
   `;
 
   // ── Write forward link on the bank transaction ─────────────────────────────

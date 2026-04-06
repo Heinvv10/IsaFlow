@@ -6,7 +6,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withCompany, type AuthenticatedNextApiRequest, type CompanyApiRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 
 type Row = Record<string, unknown>;
@@ -16,6 +16,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
   }
 
+  const companyId = (req as CompanyApiRequest).companyId;
   const { assetId, from, to } = req.query;
 
   if (assetId) {
@@ -23,7 +24,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       SELECT ds.*, a.asset_number, a.name as asset_name
       FROM asset_depreciation_schedule ds
       JOIN assets a ON ds.asset_id = a.id
-      WHERE ds.asset_id = ${String(assetId)}
+      WHERE ds.asset_id = ${String(assetId)}::UUID AND a.company_id = ${companyId}::UUID
       ORDER BY ds.period_date
     ` as Row[];
     return apiResponse.success(res, schedule);
@@ -36,7 +37,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     SELECT ds.*, a.asset_number, a.name as asset_name, a.category
     FROM asset_depreciation_schedule ds
     JOIN assets a ON ds.asset_id = a.id
-    WHERE ds.period_date BETWEEN ${fromDate} AND ${toDate}
+    WHERE a.company_id = ${companyId}::UUID
+      AND ds.period_date BETWEEN ${fromDate} AND ${toDate}
     ORDER BY ds.period_date, a.asset_number
   ` as Row[];
 

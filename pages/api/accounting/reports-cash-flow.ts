@@ -77,154 +77,115 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       openingBalance = 0;
     }
 
-    // Operating Activities: Net Income + changes in working capital
-    const [netIncome] = await sql`
-      SELECT
-        COALESCE(SUM(CASE WHEN ga.account_type = 'revenue' THEN jl.credit - jl.debit ELSE 0 END), 0)::numeric
-        - COALESCE(SUM(CASE WHEN ga.account_type = 'expense' THEN jl.debit - jl.credit ELSE 0 END), 0)::numeric
-        as net_income
-      FROM gl_journal_lines jl
-      JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-      JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-      WHERE je.status = 'posted'
-        AND je.company_id = ${companyId}
-        AND je.entry_date >= ${startDate}
-        AND je.entry_date <= ${endDate}
-        AND ga.account_type IN ('revenue', 'expense')
-    `;
+    // Run all cash flow queries in parallel — they are independent
+    const [netIncomeRows, arRows, apRows, investingRows, financingRows] = await Promise.all([
+      // Net Income
+      sql`
+        SELECT
+          COALESCE(SUM(CASE WHEN ga.account_type = 'revenue' THEN jl.credit - jl.debit ELSE 0 END), 0)::numeric
+          - COALESCE(SUM(CASE WHEN ga.account_type = 'expense' THEN jl.debit - jl.credit ELSE 0 END), 0)::numeric
+          as net_income
+        FROM gl_journal_lines jl
+        JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+        JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+        WHERE je.status = 'posted'
+          AND je.company_id = ${companyId}
+          AND je.entry_date >= ${startDate}
+          AND je.entry_date <= ${endDate}
+          AND ga.account_type IN ('revenue', 'expense')
+      `,
+      // AR change
+      hasSubtype
+        ? sql`
+            SELECT COALESCE(SUM(jl.credit - jl.debit), 0)::numeric as change
+            FROM gl_journal_lines jl
+            JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+            JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+            WHERE ga.account_subtype = 'receivable'
+              AND je.company_id = ${companyId} AND je.status = 'posted'
+              AND je.entry_date >= ${startDate} AND je.entry_date <= ${endDate}
+          `
+        : sql`
+            SELECT COALESCE(SUM(jl.credit - jl.debit), 0)::numeric as change
+            FROM gl_journal_lines jl
+            JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+            JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+            WHERE ga.account_name ILIKE '%receivable%'
+              AND je.company_id = ${companyId} AND je.status = 'posted'
+              AND je.entry_date >= ${startDate} AND je.entry_date <= ${endDate}
+          `,
+      // AP change
+      hasSubtype
+        ? sql`
+            SELECT COALESCE(SUM(jl.credit - jl.debit), 0)::numeric as change
+            FROM gl_journal_lines jl
+            JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+            JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+            WHERE ga.account_subtype = 'payable'
+              AND je.company_id = ${companyId} AND je.status = 'posted'
+              AND je.entry_date >= ${startDate} AND je.entry_date <= ${endDate}
+          `
+        : sql`
+            SELECT COALESCE(SUM(jl.credit - jl.debit), 0)::numeric as change
+            FROM gl_journal_lines jl
+            JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+            JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+            WHERE ga.account_name ILIKE '%payable%'
+              AND je.company_id = ${companyId} AND je.status = 'posted'
+              AND je.entry_date >= ${startDate} AND je.entry_date <= ${endDate}
+          `,
+      // Investing
+      hasSubtype
+        ? sql`
+            SELECT COALESCE(SUM(jl.credit - jl.debit), 0)::numeric as change
+            FROM gl_journal_lines jl
+            JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+            JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+            WHERE ga.account_subtype IN ('fixed_asset', 'other_asset')
+              AND je.company_id = ${companyId} AND je.status = 'posted'
+              AND je.entry_date >= ${startDate} AND je.entry_date <= ${endDate}
+          `
+        : sql`
+            SELECT COALESCE(SUM(jl.credit - jl.debit), 0)::numeric as change
+            FROM gl_journal_lines jl
+            JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+            JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+            WHERE ga.account_type = 'asset'
+              AND ga.account_name NOT ILIKE '%bank%'
+              AND ga.account_name NOT ILIKE '%receivable%'
+              AND ga.account_name NOT ILIKE '%cash%'
+              AND je.company_id = ${companyId} AND je.status = 'posted'
+              AND je.entry_date >= ${startDate} AND je.entry_date <= ${endDate}
+          `,
+      // Financing
+      hasSubtype
+        ? sql`
+            SELECT COALESCE(SUM(jl.credit - jl.debit), 0)::numeric as change
+            FROM gl_journal_lines jl
+            JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+            JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+            WHERE ga.account_type = 'equity'
+              AND (ga.account_subtype IS NULL OR ga.account_subtype != 'retained_earnings')
+              AND je.company_id = ${companyId} AND je.status = 'posted'
+              AND je.entry_date >= ${startDate} AND je.entry_date <= ${endDate}
+          `
+        : sql`
+            SELECT COALESCE(SUM(jl.credit - jl.debit), 0)::numeric as change
+            FROM gl_journal_lines jl
+            JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+            JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+            WHERE ga.account_type = 'equity'
+              AND ga.account_name NOT ILIKE '%retained%'
+              AND je.company_id = ${companyId} AND je.status = 'posted'
+              AND je.entry_date >= ${startDate} AND je.entry_date <= ${endDate}
+          `,
+    ]);
 
-    // Changes in AR (receivable) — use subtype or fallback to account name
-    let arChangeVal = 0;
-    try {
-      if (hasSubtype) {
-        const [arChange] = await sql`
-          SELECT COALESCE(SUM(jl.credit - jl.debit), 0)::numeric as change
-          FROM gl_journal_lines jl
-          JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-          JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-          WHERE ga.account_subtype = 'receivable'
-            AND je.company_id = ${companyId}
-            AND je.status = 'posted'
-            AND je.entry_date >= ${startDate}
-            AND je.entry_date <= ${endDate}
-        `;
-        arChangeVal = Number(arChange?.change || 0);
-      } else {
-        const [arChange] = await sql`
-          SELECT COALESCE(SUM(jl.credit - jl.debit), 0)::numeric as change
-          FROM gl_journal_lines jl
-          JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-          JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-          WHERE ga.account_name ILIKE '%receivable%'
-            AND je.company_id = ${companyId}
-            AND je.status = 'posted'
-            AND je.entry_date >= ${startDate}
-            AND je.entry_date <= ${endDate}
-        `;
-        arChangeVal = Number(arChange?.change || 0);
-      }
-    } catch { arChangeVal = 0; }
-
-    // Changes in AP (payable)
-    let apChangeVal = 0;
-    try {
-      if (hasSubtype) {
-        const [apChange] = await sql`
-          SELECT COALESCE(SUM(jl.credit - jl.debit), 0)::numeric as change
-          FROM gl_journal_lines jl
-          JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-          JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-          WHERE ga.account_subtype = 'payable'
-            AND je.company_id = ${companyId}
-            AND je.status = 'posted'
-            AND je.entry_date >= ${startDate}
-            AND je.entry_date <= ${endDate}
-        `;
-        apChangeVal = Number(apChange?.change || 0);
-      } else {
-        const [apChange] = await sql`
-          SELECT COALESCE(SUM(jl.credit - jl.debit), 0)::numeric as change
-          FROM gl_journal_lines jl
-          JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-          JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-          WHERE ga.account_name ILIKE '%payable%'
-            AND je.company_id = ${companyId}
-            AND je.status = 'posted'
-            AND je.entry_date >= ${startDate}
-            AND je.entry_date <= ${endDate}
-        `;
-        apChangeVal = Number(apChange?.change || 0);
-      }
-    } catch { apChangeVal = 0; }
-
-    // Investing: fixed asset changes
-    let investingChangeVal = 0;
-    try {
-      if (hasSubtype) {
-        const [investingChange] = await sql`
-          SELECT COALESCE(SUM(jl.credit - jl.debit), 0)::numeric as change
-          FROM gl_journal_lines jl
-          JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-          JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-          WHERE ga.account_subtype IN ('fixed_asset', 'other_asset')
-            AND je.company_id = ${companyId}
-            AND je.status = 'posted'
-            AND je.entry_date >= ${startDate}
-            AND je.entry_date <= ${endDate}
-        `;
-        investingChangeVal = Number(investingChange?.change || 0);
-      } else {
-        const [investingChange] = await sql`
-          SELECT COALESCE(SUM(jl.credit - jl.debit), 0)::numeric as change
-          FROM gl_journal_lines jl
-          JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-          JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-          WHERE ga.account_type = 'asset'
-            AND ga.account_name NOT ILIKE '%bank%'
-            AND ga.account_name NOT ILIKE '%receivable%'
-            AND ga.account_name NOT ILIKE '%cash%'
-            AND je.company_id = ${companyId}
-            AND je.status = 'posted'
-            AND je.entry_date >= ${startDate}
-            AND je.entry_date <= ${endDate}
-        `;
-        investingChangeVal = Number(investingChange?.change || 0);
-      }
-    } catch { investingChangeVal = 0; }
-
-    // Financing: equity + loan changes
-    let financingChangeVal = 0;
-    try {
-      if (hasSubtype) {
-        const [financingChange] = await sql`
-          SELECT COALESCE(SUM(jl.credit - jl.debit), 0)::numeric as change
-          FROM gl_journal_lines jl
-          JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-          JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-          WHERE ga.account_type = 'equity'
-            AND (ga.account_subtype IS NULL OR ga.account_subtype != 'retained_earnings')
-            AND je.company_id = ${companyId}
-            AND je.status = 'posted'
-            AND je.entry_date >= ${startDate}
-            AND je.entry_date <= ${endDate}
-        `;
-        financingChangeVal = Number(financingChange?.change || 0);
-      } else {
-        const [financingChange] = await sql`
-          SELECT COALESCE(SUM(jl.credit - jl.debit), 0)::numeric as change
-          FROM gl_journal_lines jl
-          JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-          JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-          WHERE ga.account_type = 'equity'
-            AND ga.account_name NOT ILIKE '%retained%'
-            AND je.company_id = ${companyId}
-            AND je.status = 'posted'
-            AND je.entry_date >= ${startDate}
-            AND je.entry_date <= ${endDate}
-        `;
-        financingChangeVal = Number(financingChange?.change || 0);
-      }
-    } catch { financingChangeVal = 0; }
+    const netIncome = (netIncomeRows as Record<string, unknown>[])[0];
+    const arChangeVal = Number((arRows as Record<string, unknown>[])[0]?.change ?? 0);
+    const apChangeVal = Number((apRows as Record<string, unknown>[])[0]?.change ?? 0);
+    const investingChangeVal = Number((investingRows as Record<string, unknown>[])[0]?.change ?? 0);
+    const financingChangeVal = Number((financingRows as Record<string, unknown>[])[0]?.change ?? 0);
 
     const operatingTotal = Number(netIncome?.net_income || 0) + arChangeVal + apChangeVal;
     const investingTotal = investingChangeVal;

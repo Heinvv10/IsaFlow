@@ -34,9 +34,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     const billableAmount = body.billable ? calculateBillableAmount(body.hours, body.hourlyRate || 0) : 0;
 
+    // Verify project belongs to this company
+    const projCheck = await sql`SELECT id FROM projects WHERE id = ${body.projectId}::UUID AND company_id = ${companyId}::UUID` as Row[];
+    if (!projCheck[0]) return apiResponse.badRequest(res, 'Project not found in this company');
+
     const inserted = await sql`
-      INSERT INTO project_time_entries (project_id, task_id, employee_id, entry_date, hours, hourly_rate, billable_amount, description, is_billable, created_by)
-      VALUES (${body.projectId}, ${body.taskId || null}, ${body.employeeId}, ${body.date}, ${body.hours}, ${body.hourlyRate || 0}, ${billableAmount}, ${body.description}, ${body.billable ?? true}, ${String(req.user.id)})
+      INSERT INTO project_time_entries (company_id, project_id, task_id, employee_id, entry_date, hours, hourly_rate, billable_amount, description, is_billable, created_by)
+      VALUES (${companyId}::UUID, ${body.projectId}, ${body.taskId || null}, ${body.employeeId}, ${body.date}, ${body.hours}, ${body.hourlyRate || 0}, ${billableAmount}, ${body.description}, ${body.billable ?? true}, ${String(req.user.id)})
       RETURNING *
     ` as Row[];
 

@@ -419,7 +419,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         AND je.company_id = ${companyId}
         AND jl.id NOT IN (
           SELECT matched_journal_line_id FROM bank_transactions
-          WHERE matched_journal_line_id IS NOT NULL
+          WHERE matched_journal_line_id IS NOT NULL AND company_id = ${companyId}
         )
       ORDER BY ABS((jl.debit - jl.credit) - ${txAmount}::NUMERIC) ASC
       LIMIT 20
