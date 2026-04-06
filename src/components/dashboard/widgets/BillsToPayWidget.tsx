@@ -1,51 +1,22 @@
 /**
- * BillsToPayWidget — AP summary using /api/accounting/dashboard-stats.
- * // WORKING: Mirror of InvoicesOwedWidget but for payables.
+ * BillsToPayWidget — AP summary using shared dashboard stats.
  */
 
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Receipt, AlertCircle, CheckCircle2, ArrowRight } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { apiFetch } from '@/lib/apiFetch';
-import { log } from '@/lib/logger';
-
-interface APStats {
-  apTotal: number;
-  apOverdue: number;
-  apCurrent: number;
-}
+import { useDashboardStats } from '@/hooks/useDashboardStats';
 
 function fmtCurrency(n: number): string {
   return 'R\u00a0' + new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 }
 
 export function BillsToPayWidget() {
-  const [stats, setStats] = useState<APStats | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    async function load() {
-      try {
-        const res = await apiFetch('/api/accounting/dashboard-stats');
-        const json = (await res.json()) as { data?: { apTotal: number; apOverdue?: number } };
-        const d = json.data ?? { apTotal: 0 };
-        setStats({
-          apTotal: d.apTotal ?? 0,
-          apOverdue: d.apOverdue ?? 0,
-          apCurrent: Math.max(0, (d.apTotal ?? 0) - (d.apOverdue ?? 0)),
-        });
-      } catch (err) {
-        log.error('BillsToPayWidget fetch failed', { error: err }, 'dashboard-widget');
-        setError('Unable to load AP data');
-      } finally {
-        setLoading(false);
-      }
-    }
-    void load();
-  }, []);
+  const { data, loading, error } = useDashboardStats();
+  const apTotal = (data?.apTotal as number) ?? 0;
+  const apOverdue = (data?.apOverdue as number) ?? 0;
+  const apCurrent = Math.max(0, apTotal - apOverdue);
 
   return (
     <Card
@@ -64,11 +35,11 @@ export function BillsToPayWidget() {
         </div>
       ) : error ? (
         <p className="text-sm text-red-500">{error}</p>
-      ) : stats ? (
+      ) : (
         <div className="space-y-4">
           <div>
             <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-              {fmtCurrency(stats.apTotal)}
+              {fmtCurrency(apTotal)}
             </p>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Total payables outstanding</p>
           </div>
@@ -79,7 +50,7 @@ export function BillsToPayWidget() {
                 Current
               </div>
               <span className="text-xs font-medium text-gray-900 dark:text-gray-100">
-                {fmtCurrency(stats.apCurrent)}
+                {fmtCurrency(apCurrent)}
               </span>
             </div>
             <div className="flex items-center justify-between">
@@ -88,7 +59,7 @@ export function BillsToPayWidget() {
                 Overdue
               </div>
               <span className="text-xs font-medium text-red-600 dark:text-red-400">
-                {fmtCurrency(stats.apOverdue)}
+                {fmtCurrency(apOverdue)}
               </span>
             </div>
           </div>
@@ -99,7 +70,7 @@ export function BillsToPayWidget() {
             View all bills <ArrowRight className="h-3 w-3" />
           </Link>
         </div>
-      ) : null}
+      )}
     </Card>
   );
 }

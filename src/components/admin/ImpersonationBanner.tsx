@@ -74,7 +74,8 @@ export function ImpersonationBanner() {
     clearImpersonationSession();
     setSession(null);
     // Redirect back to admin panel
-    router.push('http://admin.isaflow.co.za/admin/companies');
+    const adminUrl = process.env.NEXT_PUBLIC_ADMIN_URL ?? '';
+    router.push(adminUrl ? `${adminUrl}/companies` : '/admin/companies');
   };
 
   const expiresAt = new Date(session.expires_at);

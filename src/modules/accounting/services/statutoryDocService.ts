@@ -46,7 +46,7 @@ export async function checkComplianceAlerts(companyId: string): Promise<Complian
   const requiredTypes: StatutoryDocType[] = ['cipc', 'tax_clearance', 'bbee', 'vat_registration'];
 
   // Fetch all active statutory documents with extracted data
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const docs = (await sql`
     SELECT document_type, document_name, extracted_data
     FROM company_documents

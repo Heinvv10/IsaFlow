@@ -16,7 +16,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;
 
   if (req.method === 'GET') {
-    const { search, category, type, active } = req.query;
+    const { search, category, type } = req.query;
     let rows: Row[];
     if (search) {
       const term = `%${String(search)}%`;

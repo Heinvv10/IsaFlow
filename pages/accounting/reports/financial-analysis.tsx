@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
-import { ArrowLeft, BarChart3, TrendingUp, TrendingDown, Minus, Loader2, AlertCircle } from 'lucide-react';
+import { ArrowLeft, BarChart3, TrendingUp, TrendingDown, Minus, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 
 const LineChart = dynamic(() => import('recharts').then(m => m.LineChart), { ssr: false });

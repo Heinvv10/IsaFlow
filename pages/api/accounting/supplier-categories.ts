@@ -25,7 +25,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         SELECT sc.id, sc.name, sc.description, sc.created_at,
                COUNT(s.id)::int AS supplier_count
         FROM supplier_categories sc
-        LEFT JOIN suppliers s ON LOWER(s.category) = LOWER(sc.name)
+        LEFT JOIN suppliers s ON LOWER(s.category) = LOWER(sc.name) AND s.company_id = ${companyId}
+        WHERE sc.company_id = ${companyId}
         GROUP BY sc.id
         ORDER BY sc.name
       `) as Row[];
@@ -39,8 +40,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const { name, description } = req.body;
       if (!name?.trim()) return apiResponse.badRequest(res, 'Name is required');
       const rows = (await sql`
-        INSERT INTO supplier_categories (name, description)
-        VALUES (${name.trim()}, ${description || ''})
+        INSERT INTO supplier_categories (company_id, name, description)
+        VALUES (${companyId}, ${name.trim()}, ${description || ''})
         RETURNING id, name, description
       `) as Row[];
       return apiResponse.success(res, rows[0]);
@@ -52,7 +53,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       await sql`
         UPDATE supplier_categories
         SET name = ${name.trim()}, description = ${description || ''}
-        WHERE id = ${id}
+        WHERE id = ${id} AND company_id = ${companyId}
       `;
       return apiResponse.success(res, { id, name, description });
     }
@@ -60,7 +61,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (req.method === 'DELETE') {
       const { id } = req.body;
       if (!id) return apiResponse.badRequest(res, 'ID is required');
-      await sql`DELETE FROM supplier_categories WHERE id = ${id}`;
+      await sql`DELETE FROM supplier_categories WHERE id = ${id} AND company_id = ${companyId}`;
       return apiResponse.success(res, { deleted: true });
     }
 

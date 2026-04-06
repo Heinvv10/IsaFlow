@@ -79,5 +79,5 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.badRequest(res, 'type must be "profit" or "cashflow"');
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export default withCompany(withErrorHandler(handler));

@@ -6,7 +6,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withCompany, type AuthenticatedNextApiRequest, type CompanyApiRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { validateDisposal } from '@/modules/accounting/services/assetService';
@@ -14,11 +14,14 @@ import { validateDisposal } from '@/modules/accounting/services/assetService';
 type Row = Record<string, unknown>;
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
+  const companyId = (req as unknown as CompanyApiRequest).companyId;
+
   if (req.method === 'GET') {
     const disposals = await sql`
       SELECT d.*, a.asset_number, a.name as asset_name, a.category
       FROM asset_disposals d
       JOIN assets a ON d.asset_id = a.id
+      WHERE a.company_id = ${companyId}
       ORDER BY d.disposal_date DESC
     ` as Row[];
     return apiResponse.success(res, disposals);
@@ -34,7 +37,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
 
     const assets = await sql`
-      SELECT id, current_book_value, status FROM assets WHERE id = ${body.assetId}
+      SELECT id, current_book_value, status FROM assets WHERE id = ${body.assetId} AND company_id = ${companyId}
     ` as Row[];
     if (!assets[0]) return apiResponse.notFound(res, 'Asset', body.assetId);
 
@@ -58,7 +61,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         disposal_method = ${body.disposalMethod}, disposal_amount = ${body.disposalAmount || 0},
         disposal_reason = ${body.reason}, disposal_gain_loss = ${gainLoss},
         updated_at = NOW()
-      WHERE id = ${body.assetId}
+      WHERE id = ${body.assetId} AND company_id = ${companyId}
     `;
 
     log.info('Asset disposed', { assetId: body.assetId, method: body.disposalMethod, gainLoss }, 'accounting');

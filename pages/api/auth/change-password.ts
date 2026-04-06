@@ -76,4 +76,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, null, 'Password changed successfully');
 }
 
-export default withAuth(withErrorHandler(handler) as any);
+export default withAuth(withErrorHandler(handler));

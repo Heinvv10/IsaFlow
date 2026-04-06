@@ -6,19 +6,24 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { apiFetch } from '@/lib/apiFetch';
+import { formatCurrency, formatDate } from '@/utils/formatters';
+import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { AlertCircle, Loader2, Search, ChevronLeft, ChevronRight, Plus, X, Check } from 'lucide-react';
 
 interface Subscription {
   id: string;
-  companyId: string;
-  companyName: string;
-  planName: string;
+  company_id: string;
+  company_name: string;
+  plan_id: string;
+  plan_name: string;
+  plan_code: string;
   status: 'trial' | 'active' | 'past_due' | 'cancelled' | 'paused';
-  billingCycle: string;
-  discountPct: number;
-  amountCents: number;
-  periodEnd: string | null;
-  createdAt: string;
+  billing_cycle: string;
+  discount_percent: number;
+  monthly_amount_cents: number;
+  current_period_start: string | null;
+  current_period_end: string | null;
+  created_at: string;
 }
 
 interface Plan {
@@ -51,16 +56,8 @@ const STATUS_BADGE: Record<string, string> = {
   paused:    'bg-blue-500/10 text-blue-400',
 };
 
-function fmtZAR(cents: number) {
-  return (cents / 100).toLocaleString('en-ZA', { style: 'currency', currency: 'ZAR' });
-}
-
-function fmtDate(d: string | null) {
-  if (!d) return '—';
-  return new Date(d).toLocaleDateString('en-ZA');
-}
-
 export default function SubscriptionsPage() {
+  const adminHref = useAdminHref();
   const [rows, setRows]         = useState<Subscription[]>([]);
   const [total, setTotal]       = useState(0);
   const [page, setPage]         = useState(1);
@@ -75,6 +72,7 @@ export default function SubscriptionsPage() {
   const [saving, setSaving]     = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const LIMIT = 25;
+  void adminHref; // used for future navigation
 
   const load = useCallback(async (q: string, st: string, pg: number) => {
     setLoading(true);
@@ -152,7 +150,7 @@ export default function SubscriptionsPage() {
       <div className="flex gap-3 flex-wrap mb-5">
         <div className="relative flex-1 min-w-[200px] max-w-xs">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input type="text" placeholder="Search company…" value={search} onChange={e => setSearch(e.target.value)}
+          <input type="text" placeholder="Search company..." value={search} onChange={e => setSearch(e.target.value)}
             className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500" />
         </div>
         <select value={status} onChange={e => { setStatus(e.target.value); setPage(1); }}
@@ -200,7 +198,7 @@ export default function SubscriptionsPage() {
                 <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Plan</label>
                 <select value={form.plan_id} onChange={e => setForm(f => ({ ...f, plan_id: e.target.value }))}
                   className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500">
-                  <option value="">Select a plan…</option>
+                  <option value="">Select a plan...</option>
                   {plans.map(p => <option key={p.id} value={p.id}>{p.name} ({p.code})</option>)}
                 </select>
               </div>
@@ -256,18 +254,18 @@ export default function SubscriptionsPage() {
               )}
               {rows.map(s => (
                 <tr key={s.id} className="border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors">
-                  <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{s.companyName}</td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{s.planName}</td>
+                  <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{s.company_name}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{s.plan_name}</td>
                   <td className="px-4 py-3">
                     <span className={`px-2 py-0.5 rounded text-xs font-medium capitalize ${STATUS_BADGE[s.status] ?? 'bg-gray-500/10 text-gray-500'}`}>
-                      {s.status.replace('_', ' ')}
+                      {s.status.replaceAll('_', ' ')}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300 capitalize">{s.billingCycle}</td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{s.discountPct > 0 ? `${s.discountPct}%` : '—'}</td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300 font-mono text-xs">{fmtZAR(s.amountCents)}</td>
-                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{fmtDate(s.periodEnd)}</td>
-                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{fmtDate(s.createdAt)}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300 capitalize">{s.billing_cycle}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{s.discount_percent > 0 ? `${s.discount_percent}%` : '\u2014'}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300 font-mono text-xs">{formatCurrency(s.monthly_amount_cents / 100)}</td>
+                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(s.current_period_end)}</td>
+                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(s.created_at)}</td>
                 </tr>
               ))}
             </tbody>

@@ -44,12 +44,19 @@ async function buildCloseState(companyId: string): Promise<CloseState> {
     LIMIT 100
   `) as Row[];
 
-  // Pending customer invoices (draft/unpaid with high auto-approval confidence)
+  // Pending customer invoices — confidence based on data completeness
   const pendingInvoiceRows = (await sql`
     SELECT
       ci.id,
       ci.total_amount::float AS amount,
-      0.9 AS confidence
+      (
+        CASE WHEN ci.customer_id IS NOT NULL THEN 0.2 ELSE 0 END +
+        CASE WHEN ci.total_amount > 0 THEN 0.2 ELSE 0 END +
+        CASE WHEN ci.invoice_date IS NOT NULL THEN 0.15 ELSE 0 END +
+        CASE WHEN ci.due_date IS NOT NULL THEN 0.15 ELSE 0 END +
+        CASE WHEN EXISTS (SELECT 1 FROM customer_invoice_items cii WHERE cii.invoice_id = ci.id) THEN 0.2 ELSE 0 END +
+        CASE WHEN ci.purchase_order_ref IS NOT NULL THEN 0.1 ELSE 0 END
+      ) AS confidence
     FROM customer_invoices ci
     WHERE ci.company_id = ${companyId}
       AND ci.status = 'draft'
@@ -162,5 +169,5 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   });
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export default withCompany(withErrorHandler(handler));

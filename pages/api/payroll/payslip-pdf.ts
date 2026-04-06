@@ -237,5 +237,5 @@ function formatAmountRaw(amount: number): string {
   return amount.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export default withCompany(withErrorHandler(handler));

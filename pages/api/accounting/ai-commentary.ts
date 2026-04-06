@@ -55,7 +55,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       COALESCE(SUM(CASE WHEN ga.account_code LIKE '2%' THEN jl.credit - jl.debit ELSE 0 END), 0) AS total_liabilities,
       COALESCE(SUM(CASE WHEN ga.account_code LIKE '3%' THEN jl.credit - jl.debit ELSE 0 END), 0) AS total_equity,
       COALESCE(SUM(CASE WHEN ga.account_code >= '1100' AND ga.account_code < '1200' THEN jl.debit - jl.credit ELSE 0 END), 0) AS current_assets,
-      COALESCE(SUM(CASE WHEN ga.account_code >= '2100' AND ga.account_code < '2200' THEN jl.credit - jl.debit ELSE 0 END), 0) AS current_liabilities
+      COALESCE(SUM(CASE WHEN ga.account_code >= '2100' AND ga.account_code < '2200' THEN jl.credit - jl.debit ELSE 0 END), 0) AS current_liabilities,
+      COALESCE(SUM(CASE WHEN ga.account_code = '1130' THEN jl.debit - jl.credit ELSE 0 END), 0) AS inventory
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id
@@ -100,6 +101,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const totalEquity = parseFloat(currBalances?.total_equity ?? '0') + netProfit;
   const currentAssets = parseFloat(currBalances?.current_assets ?? '0');
   const currentLiabilities = parseFloat(currBalances?.current_liabilities ?? '0');
+  const inventory = parseFloat(currBalances?.inventory ?? '0');
 
   const currentRatio = currentLiabilities > 0 ? currentAssets / currentLiabilities : 0;
   const debtEquityRatio = totalEquity > 0 ? totalLiabilities / totalEquity : 0;
@@ -118,7 +120,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     incomeStatement: { revenue, costOfSales, grossProfit, operatingExpenses, netProfit },
     balanceSheet: { totalAssets, totalLiabilities, equity: totalEquity, currentRatio, debtEquityRatio },
     priorPeriod: { revenue: priorRevenue, costOfSales: priorCostOfSales, grossProfit: priorGrossProfit, operatingExpenses: priorOperatingExpenses, netProfit: priorNetProfit },
-    ratios: { grossMargin, netMargin, currentRatio, quickRatio: currentRatio },
+    ratios: { grossMargin, netMargin, currentRatio, quickRatio: currentLiabilities > 0 ? (currentAssets - inventory) / currentLiabilities : 0 },
   };
 
   const keyDrivers = identifyKeyDrivers(packData.incomeStatement, packData.priorPeriod!);
@@ -136,5 +138,5 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   });
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export default withCompany(withErrorHandler(handler));

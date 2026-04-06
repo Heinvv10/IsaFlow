@@ -240,5 +240,5 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export default withCompany(withErrorHandler(handler));

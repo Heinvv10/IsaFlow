@@ -217,12 +217,20 @@ export function validateGeneratedSQL(sql: string): SQLValidation {
     return { valid: false, error: 'Multiple statements not allowed', sanitizedSQL: '' };
   }
 
-  // Table allowlist — only accounting tables may appear in FROM / JOIN clauses
+  // Extract CTE aliases so they pass the table allowlist
+  const cteAliases = new Set<string>();
+  const ctePattern = /\bWITH\s+(\w+)\s+AS\b/gi;
+  let cteMatch: RegExpExecArray | null;
+  while ((cteMatch = ctePattern.exec(sql)) !== null) {
+    cteAliases.add(cteMatch[1]!.toLowerCase());
+  }
+
+  // Table allowlist — only accounting tables (and CTE aliases) may appear in FROM / JOIN clauses
   const tablePattern = /(?:FROM|JOIN)\s+(\w+)/gi;
   let tableMatch: RegExpExecArray | null;
   while ((tableMatch = tablePattern.exec(sql)) !== null) {
     const tableName = tableMatch[1]!.toLowerCase();
-    if (!ALLOWED_TABLES.has(tableName)) {
+    if (!ALLOWED_TABLES.has(tableName) && !cteAliases.has(tableName)) {
       return { valid: false, error: `Table '${tableMatch[1]}' not allowed`, sanitizedSQL: '' };
     }
   }

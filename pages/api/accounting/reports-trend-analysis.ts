@@ -13,12 +13,6 @@ import { analyzeTrend } from '@/modules/accounting/services/trendAnalysisService
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
 
-const METRIC_QUERIES: Record<string, string> = {
-  revenue: "SUM(CASE WHEN ga.account_code LIKE '4%' THEN jl.credit - jl.debit ELSE 0 END)",
-  expenses: "SUM(CASE WHEN ga.account_code LIKE '5%' THEN jl.debit - jl.credit ELSE 0 END)",
-  netProfit: "SUM(CASE WHEN ga.account_code LIKE '4%' THEN jl.credit - jl.debit WHEN ga.account_code LIKE '5%' THEN -(jl.debit - jl.credit) ELSE 0 END)",
-};
-
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method || '', ['GET']);
 
@@ -78,5 +72,5 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, { metric, months, analysis });
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export default withCompany(withErrorHandler(handler));

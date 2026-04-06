@@ -9,6 +9,7 @@ import { withCompany, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fuzzyMatchSupplier, buildAutoInvoiceFromExtraction, calculateFieldConfidence } from '@/modules/accounting/services/docExtractionEnhancedService';
+import type { CompanyApiRequest } from '@/lib/auth/withCompany';
 
 type Row = Record<string, unknown>;
 
@@ -18,14 +19,18 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { documentId } = req.body;
   if (!documentId) return apiResponse.badRequest(res, 'documentId is required');
 
-  const companyId = (req as any).companyId as string;
+  const companyId = (req as CompanyApiRequest).companyId;
 
   // Get captured document
   const docs = await sql`SELECT * FROM captured_documents WHERE id = ${documentId} AND company_id = ${companyId}` as Row[];
   if (!docs[0]) return apiResponse.notFound(res, 'Document', documentId);
 
-  const doc = docs[0] as any;
-  const extracted = doc.extracted_data;
+  const doc = docs[0]!;
+  const extracted = doc.extracted_data as Record<string, unknown> & {
+    vendorName?: string; vendor?: { name?: string }; documentDate?: string;
+    referenceNumber?: string; subtotal?: number; vatAmount?: number;
+    totalAmount?: number; lineItems?: { description: string; quantity: number; unitPrice: number; total: number }[];
+  };
   if (!extracted) return apiResponse.badRequest(res, 'Document has no extracted data');
 
   // Calculate field confidence

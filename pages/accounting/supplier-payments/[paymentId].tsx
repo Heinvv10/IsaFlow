@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, Wallet, Loader2, AlertCircle, Check, Zap, XCircle } from 'lucide-react';
+import { ArrowLeft, Wallet, Loader2, AlertCircle, Check, Zap } from 'lucide-react';
 import { AccountingDocumentPanel } from '@/modules/accounting/documents';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';

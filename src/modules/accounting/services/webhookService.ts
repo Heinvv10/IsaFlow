@@ -51,7 +51,7 @@ function mapWebhook(row: Row): Webhook {
     companyId: String(row.company_id),
     name: String(row.name),
     url: String(row.url),
-    secret: row.secret ? String(row.secret) : null,
+    secret: row.secret ? '••••••••' : null,
     events: Array.isArray(row.events) ? row.events : [],
     isActive: Boolean(row.is_active),
     lastTriggeredAt: row.last_triggered_at ? String(row.last_triggered_at) : null,
@@ -228,10 +228,11 @@ export async function testWebhook(
   `) as Row[];
   if (!rows[0]) throw new Error('Webhook not found');
   const endpoint = mapWebhook(rows[0]!);
+  const rawSecret = rows[0]!.secret ? String(rows[0]!.secret) : null;
 
   const payload = { test: true, event: 'webhook.test', timestamp: new Date().toISOString() };
   const body = JSON.stringify(payload);
-  const signature = endpoint.secret ? signPayload(endpoint.secret, body) : '';
+  const signature = rawSecret ? signPayload(rawSecret, body) : '';
 
   try {
     const controller = new AbortController();

@@ -9,7 +9,7 @@ import Link from 'next/link';
 import {
   Wallet, Plus, Loader2, AlertCircle, ChevronRight, Filter,
 } from 'lucide-react';
-import type { SupplierPayment, PaymentStatus } from '@/modules/accounting/types/ap.types';
+import type { SupplierPayment } from '@/modules/accounting/types/ap.types';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
 

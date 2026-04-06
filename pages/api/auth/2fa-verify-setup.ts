@@ -10,10 +10,23 @@ import { apiResponse } from '@/lib/apiResponse';
 import { verifyTOTPSetup } from '@/modules/auth/services/twoFactorService';
 import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { checkRateLimit } from '@/lib/rateLimit';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method ?? 'unknown', ['POST']);
+  }
+
+  // Rate limit: 5 attempts per IP per 15 minutes (prevent TOTP brute-force)
+  const rawIp = Array.isArray(req.headers['x-forwarded-for'])
+    ? req.headers['x-forwarded-for'][0]
+    : req.headers['x-forwarded-for'] ?? req.socket.remoteAddress;
+  const ip: string = rawIp ?? 'unknown';
+  if (checkRateLimit(`2fa-setup:${ip}`, { windowMs: 15 * 60 * 1000, maxRequests: 5 })) {
+    return res.status(429).json({
+      success: false,
+      error: { code: 'RATE_LIMITED', message: 'Too many attempts. Please try again later.' },
+    });
   }
 
   const { user } = req as AuthenticatedNextApiRequest;

@@ -10,14 +10,8 @@ import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { cancelSubscription } from '@/modules/admin/services/billingService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
+import { getIp } from '@/utils/getIp';
 
-function getIp(req: AuthenticatedNextApiRequest): string | null {
-  return (
-    (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
-    req.socket?.remoteAddress ||
-    null
-  );
-}
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const id = req.query.id as string;

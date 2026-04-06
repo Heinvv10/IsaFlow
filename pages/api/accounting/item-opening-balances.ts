@@ -12,11 +12,13 @@ import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyApiRequest;
+
   if (req.method === 'GET') {
     try {
       const rows = await sql`
         SELECT id, item_code, name, category, uom, qty_available, standard_cost, list_price
-        FROM stock_items WHERE is_active = true ORDER BY name
+        FROM stock_items WHERE is_active = true AND company_id = ${companyId} ORDER BY name
       `;
       return apiResponse.success(res, rows);
     } catch (err) {
@@ -47,7 +49,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             UPDATE stock_items
             SET qty_available = ${Number(entry.quantity)},
                 standard_cost = ${Number(entry.unitCost)}
-            WHERE id = ${entry.itemId}
+            WHERE id = ${entry.itemId} AND company_id = ${companyId}
           `
         )
       );

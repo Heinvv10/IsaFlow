@@ -8,7 +8,6 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Landmark, Loader2 } from 'lucide-react';
-import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
 
 interface BankAccount { id: string; account_code: string; account_name: string; bank_account_number?: string | null }

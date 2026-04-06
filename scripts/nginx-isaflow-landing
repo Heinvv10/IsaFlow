@@ -4,7 +4,7 @@
 # Cloudflare SSL: Flexible (CF terminates SSL, connects to origin on HTTP)
 server {
     listen 80;
-    server_name isaflow.co.za www.isaflow.co.za app.isaflow.co.za;
+    server_name isaflow.co.za www.isaflow.co.za app.isaflow.co.za admin.isaflow.co.za;
 
     client_max_body_size 50M;
 

@@ -80,7 +80,7 @@ export function OverviewTab() {
   useEffect(() => {
     loadKPIData();
     loadQuickActions();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, []);
 
   const loadKPIData = async () => {

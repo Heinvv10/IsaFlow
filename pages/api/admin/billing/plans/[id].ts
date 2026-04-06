@@ -12,14 +12,8 @@ import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { getPlan, updatePlan, archivePlan } from '@/modules/admin/services/planService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
+import { getIp } from '@/utils/getIp';
 
-function getIp(req: AuthenticatedNextApiRequest): string | null {
-  return (
-    (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
-    req.socket?.remoteAddress ||
-    null
-  );
-}
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const id = req.query.id as string;
@@ -37,7 +31,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'PATCH') {
     try {
-      const body = req.body as Record<string, unknown>;
+      const { name, description, monthly_price_cents, annual_price_cents, currency, features, limits, is_active, display_order } = req.body;
+      const body = { name, description, monthly_price_cents, annual_price_cents, currency, features, limits, is_active, display_order };
       await updatePlan(id, body);
 
       await logAdminAction(

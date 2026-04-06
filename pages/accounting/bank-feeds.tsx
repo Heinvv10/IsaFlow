@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import {
   Wifi, WifiOff, RefreshCw, Loader2, AlertCircle, CheckCircle2,
-  Link2, Unlink, Clock, ArrowDownCircle, XCircle,
+  Link2, Unlink, Clock, XCircle,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 

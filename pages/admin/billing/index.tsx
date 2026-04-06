@@ -4,40 +4,35 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/router';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { StatsCard } from '@/components/admin/StatsCard';
 import { apiFetch } from '@/lib/apiFetch';
+import { formatCurrency, formatDate } from '@/utils/formatters';
+import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { AlertCircle, Loader2, ArrowRight, CreditCard, List, FileText } from 'lucide-react';
+import Link from 'next/link';
 
 interface BillingOverview {
-  mrrCents: number;
-  arrCents: number;
-  activeSubscriptions: number;
-  pastDueSubscriptions: number;
-  trialSubscriptions: number;
-  churnRatePct: number;
-  arpuCents: number;
-  totalRevenueCents: number;
-  outstandingCents: number;
+  mrr_cents: number;
+  arr_cents: number;
+  total_subscriptions: number;
+  active_subscriptions: number;
+  past_due_count: number;
+  trial_count: number;
+  churn_rate_percent: number;
+  arpu_cents: number;
+  total_revenue_cents: number;
+  outstanding_cents: number;
 }
 
 interface RecentSubscription {
   id: string;
-  companyName: string;
-  planName: string;
+  company_name: string;
+  plan_name: string;
   status: string;
-  billingCycle: string;
-  amountCents: number;
-  createdAt: string;
-}
-
-function fmtZAR(cents: number) {
-  return (cents / 100).toLocaleString('en-ZA', { style: 'currency', currency: 'ZAR' });
-}
-
-function fmtDate(d: string) {
-  return new Date(d).toLocaleDateString('en-ZA');
+  billing_cycle: string;
+  monthly_amount_cents: number;
+  created_at: string;
 }
 
 const SUB_STATUS_BADGE: Record<string, string> = {
@@ -49,7 +44,7 @@ const SUB_STATUS_BADGE: Record<string, string> = {
 };
 
 export default function BillingOverviewPage() {
-  const router = useRouter();
+  const adminHref = useAdminHref();
   const [overview, setOverview]   = useState<BillingOverview | null>(null);
   const [recent, setRecent]       = useState<RecentSubscription[]>([]);
   const [loading, setLoading]     = useState(true);
@@ -95,49 +90,49 @@ export default function BillingOverviewPage() {
         <>
           {/* KPI Grid */}
           <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 mb-8">
-            <StatsCard title="MRR"                   value={fmtZAR(overview.mrrCents)} />
-            <StatsCard title="ARR"                   value={fmtZAR(overview.arrCents)} />
-            <StatsCard title="Active Subscriptions"  value={overview.activeSubscriptions} />
-            <StatsCard title="Past Due"              value={overview.pastDueSubscriptions} />
-            <StatsCard title="Trials"                value={overview.trialSubscriptions} />
-            <StatsCard title="Churn Rate"            value={`${overview.churnRatePct.toFixed(1)}%`} />
-            <StatsCard title="ARPU"                  value={fmtZAR(overview.arpuCents)} />
-            <StatsCard title="Total Revenue"         value={fmtZAR(overview.totalRevenueCents)} />
-            <StatsCard title="Outstanding"           value={fmtZAR(overview.outstandingCents)} />
+            <StatsCard title="MRR"                   value={formatCurrency(overview.mrr_cents / 100)} />
+            <StatsCard title="ARR"                   value={formatCurrency(overview.arr_cents / 100)} />
+            <StatsCard title="Active Subscriptions"  value={overview.active_subscriptions} />
+            <StatsCard title="Past Due"              value={overview.past_due_count} />
+            <StatsCard title="Trials"                value={overview.trial_count} />
+            <StatsCard title="Churn Rate"            value={`${overview.churn_rate_percent.toFixed(1)}%`} />
+            <StatsCard title="ARPU"                  value={formatCurrency(overview.arpu_cents / 100)} />
+            <StatsCard title="Total Revenue"         value={formatCurrency(overview.total_revenue_cents / 100)} />
+            <StatsCard title="Outstanding"           value={formatCurrency(overview.outstanding_cents / 100)} />
           </div>
 
           {/* Quick Links */}
           <div className="flex gap-3 flex-wrap mb-8">
-            <button
-              onClick={() => void router.push('/admin/billing/plans')}
+            <Link
+              href={adminHref('/admin/billing/plans')}
               className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium rounded-lg transition-colors"
             >
               <CreditCard className="w-4 h-4" /> Manage Plans <ArrowRight className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => void router.push('/admin/billing/subscriptions')}
+            </Link>
+            <Link
+              href={adminHref('/admin/billing/subscriptions')}
               className="inline-flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm font-medium rounded-lg transition-colors"
             >
               <List className="w-4 h-4" /> View Subscriptions <ArrowRight className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => void router.push('/admin/billing/invoices')}
+            </Link>
+            <Link
+              href={adminHref('/admin/billing/invoices')}
               className="inline-flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm font-medium rounded-lg transition-colors"
             >
               <FileText className="w-4 h-4" /> View Invoices <ArrowRight className="w-4 h-4" />
-            </button>
+            </Link>
           </div>
 
           {/* Recent Subscriptions */}
           <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
               <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Recent Subscriptions</h2>
-              <button
-                onClick={() => void router.push('/admin/billing/subscriptions')}
+              <Link
+                href={adminHref('/admin/billing/subscriptions')}
                 className="text-xs text-teal-500 hover:text-teal-400 transition-colors"
               >
                 View all
-              </button>
+              </Link>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -159,16 +154,16 @@ export default function BillingOverviewPage() {
                   )}
                   {recent.map(sub => (
                     <tr key={sub.id} className="border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors">
-                      <td className="px-5 py-3 font-medium text-gray-900 dark:text-white">{sub.companyName}</td>
-                      <td className="px-5 py-3 text-gray-600 dark:text-gray-300">{sub.planName}</td>
+                      <td className="px-5 py-3 font-medium text-gray-900 dark:text-white">{sub.company_name}</td>
+                      <td className="px-5 py-3 text-gray-600 dark:text-gray-300">{sub.plan_name}</td>
                       <td className="px-5 py-3">
                         <span className={`px-2 py-0.5 rounded text-xs font-medium capitalize ${SUB_STATUS_BADGE[sub.status] ?? 'bg-gray-500/10 text-gray-500'}`}>
-                          {sub.status.replace('_', ' ')}
+                          {sub.status.replaceAll('_', ' ')}
                         </span>
                       </td>
-                      <td className="px-5 py-3 text-gray-600 dark:text-gray-300 capitalize">{sub.billingCycle}</td>
-                      <td className="px-5 py-3 text-gray-600 dark:text-gray-300 font-mono text-xs">{fmtZAR(sub.amountCents)}</td>
-                      <td className="px-5 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{fmtDate(sub.createdAt)}</td>
+                      <td className="px-5 py-3 text-gray-600 dark:text-gray-300 capitalize">{sub.billing_cycle}</td>
+                      <td className="px-5 py-3 text-gray-600 dark:text-gray-300 font-mono text-xs">{formatCurrency(sub.monthly_amount_cents / 100)}</td>
+                      <td className="px-5 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(sub.created_at)}</td>
                     </tr>
                   ))}
                 </tbody>

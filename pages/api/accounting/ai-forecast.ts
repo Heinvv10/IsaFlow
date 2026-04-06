@@ -56,7 +56,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 512, messages: [{ role: 'user', content: prompt }] }),
       });
       if (response.ok) {
-        const data = await response.json() as any;
+        const data = await response.json() as { content?: { text?: string }[] };
         narrative = parseForecastNarrative(data.content?.[0]?.text || '');
       }
     } catch (err) { log.error('Forecast narrative failed', { error: err }, 'ai'); }

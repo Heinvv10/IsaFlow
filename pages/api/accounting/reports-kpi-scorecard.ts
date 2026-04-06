@@ -73,7 +73,8 @@ async function buildFinancialData(companyId: string, from: string, to: string): 
       COALESCE(SUM(CASE WHEN ga.account_code >= '2100' AND ga.account_code < '2200' THEN jl.credit - jl.debit ELSE 0 END), 0) as current_liabilities,
       COALESCE(SUM(CASE WHEN ga.account_code = '1110' THEN jl.debit - jl.credit ELSE 0 END), 0) as cash,
       COALESCE(SUM(CASE WHEN ga.account_code = '1120' THEN jl.debit - jl.credit ELSE 0 END), 0) as ar,
-      COALESCE(SUM(CASE WHEN ga.account_code = '2110' THEN jl.credit - jl.debit ELSE 0 END), 0) as ap
+      COALESCE(SUM(CASE WHEN ga.account_code = '2110' THEN jl.credit - jl.debit ELSE 0 END), 0) as ap,
+      COALESCE(SUM(CASE WHEN ga.account_code = '1130' THEN jl.debit - jl.credit ELSE 0 END), 0) as inventory
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id
@@ -93,7 +94,7 @@ async function buildFinancialData(companyId: string, from: string, to: string): 
     totalEquity: Math.max(1, parseFloat(bal?.total_assets || '0') - parseFloat(bal?.total_liabilities || '0')),
     currentAssets: parseFloat(bal?.current_assets || '0'),
     currentLiabilities: parseFloat(bal?.current_liabilities || '0'),
-    inventory: 0,
+    inventory: parseFloat(bal?.inventory || '0'),
     accountsReceivable: parseFloat(bal?.ar || '0'),
     accountsPayable: parseFloat(bal?.ap || '0'),
     cash: parseFloat(bal?.cash || '0'),
@@ -102,5 +103,5 @@ async function buildFinancialData(companyId: string, from: string, to: string): 
   };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export default withCompany(withErrorHandler(handler));

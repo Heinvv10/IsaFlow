@@ -224,7 +224,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         ON CONFLICT (company_id, user_id) DO NOTHING
       `;
       await sql`
-        UPDATE company_invitations SET accepted_at = NOW() WHERE id = ${inv.id as string}::UUID
+        UPDATE company_invitations SET accepted_at = NOW() WHERE id::TEXT = ${inv.id as string}
       `;
       invitationsAccepted++;
     }
@@ -238,7 +238,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // If user already belongs to a company, they're onboarded — fix stale DB flag
     if (!onboardingCompleted) {
       const companyCheck = (await sql`
-        SELECT 1 FROM company_users WHERE user_id = ${authUser.id}::UUID LIMIT 1
+        SELECT 1 FROM company_users WHERE user_id::TEXT = ${authUser.id} LIMIT 1
       `) as Row[];
       if (companyCheck.length > 0) {
         await sql`UPDATE users SET onboarding_completed = true WHERE id = ${authUser.id}`;

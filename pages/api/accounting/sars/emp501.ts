@@ -4,7 +4,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withCompany, type AuthenticatedNextApiRequest, type CompanyApiRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { buildEMP501Summary, type EMP501MonthlyData } from '@/modules/accounting/services/irp5Service';
 
@@ -12,6 +12,7 @@ type Row = Record<string, unknown>;
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
+  const { companyId } = req as unknown as CompanyApiRequest;
 
   const parsedTaxYear = Number(req.query.taxYear);
   const taxYear = parsedTaxYear >= 2000 && parsedTaxYear <= 2100 ? parsedTaxYear : new Date().getFullYear();
@@ -26,7 +27,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       COUNT(DISTINCT ps.employee_id) as total_employees
     FROM payroll_runs pr
     JOIN payslips ps ON ps.payroll_run_id = pr.id
-    WHERE pr.period_end >= ${`${taxYear - 1}-03-01`}
+    WHERE pr.company_id = ${companyId}
+      AND pr.period_end >= ${`${taxYear - 1}-03-01`}
       AND pr.period_end <= ${`${taxYear}-02-28`}
     GROUP BY EXTRACT(MONTH FROM pr.period_end)
     ORDER BY month

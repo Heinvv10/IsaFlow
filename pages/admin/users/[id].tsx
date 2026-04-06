@@ -7,16 +7,30 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { apiFetch } from '@/lib/apiFetch';
+import { formatDate } from '@/utils/formatters';
+import { useAdminHref } from '@/hooks/useAdminPrefix';
 import {
   ArrowLeft, AlertCircle, Loader2, User,
   ShieldOff, ShieldCheck, KeyRound, LogOut, Pencil, Check, X,
 } from 'lucide-react';
+import Link from 'next/link';
 
 interface UserDetail {
-  id: string; firstName: string; lastName: string;
-  email: string; phone: string | null; role: string;
+  id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string | null;
+  role: string;
   status: 'active' | 'suspended' | 'inactive';
-  lastLoginAt: string | null; loginCount: number; createdAt: string;
+  last_login: string | null;
+  login_count: number;
+  created_at: string;
+  department: string | null;
+  last_login_ip: string | null;
+  suspended_at: string | null;
+  suspended_reason: string | null;
+  companies: UserCompany[];
 }
 
 interface UserCompany { id: string; name: string; role: string; status: string; }
@@ -29,25 +43,22 @@ const STATUS_BADGE: Record<string, string> = {
   inactive:  'bg-gray-500/10 text-gray-500',
 };
 
-const fmtDate = (d: string | null) => d ? new Date(d).toLocaleDateString('en-ZA') : '—';
-
 function Field({ label, value }: { label: string; value: string | null | undefined }) {
   return (
     <div>
       <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">{label}</p>
-      <p className="text-sm text-gray-900 dark:text-white">{value || '—'}</p>
+      <p className="text-sm text-gray-900 dark:text-white">{value || '\u2014'}</p>
     </div>
   );
 }
 
 export default function AdminUserDetailPage() {
   const router = useRouter();
+  const adminHref = useAdminHref();
   const { id } = router.query;
 
   const [user, setUser]           = useState<UserDetail | null>(null);
-  const [companies, setCompanies] = useState<UserCompany[]>([]);
   const [loading, setLoading]     = useState(true);
-  const [companiesLoading, setCompaniesLoading] = useState(false);
   const [error, setError]         = useState('');
   const [activeTab, setActiveTab] = useState<'profile' | 'companies'>('profile');
   const [actionLoading, setActionLoading] = useState(false);
@@ -67,25 +78,13 @@ export default function AdminUserDetailPage() {
       if (!res.ok) throw new Error(json.message || 'Failed to load user');
       const u = json.data as UserDetail;
       setUser(u);
-      setEditFirstName(u.firstName); setEditLastName(u.lastName);
-      setEditPhone(u.phone ?? '');   setEditRole(u.role);
+      setEditFirstName(u.first_name); setEditLastName(u.last_name);
+      setEditPhone(u.phone ?? '');    setEditRole(u.role);
     } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
     finally { setLoading(false); }
   }, [id]);
 
-  const loadCompanies = useCallback(async () => {
-    if (!id || typeof id !== 'string') return;
-    setCompaniesLoading(true);
-    try {
-      const res  = await apiFetch(`/api/admin/users/${id}/companies`);
-      const json = await res.json();
-      if (res.ok) setCompanies((json.data as UserCompany[]) || []);
-    } catch { /* non-critical */ }
-    finally { setCompaniesLoading(false); }
-  }, [id]);
-
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { if (activeTab === 'companies') void loadCompanies(); }, [activeTab, loadCompanies]);
 
   async function doAction(endpoint: string, method = 'POST', body?: object) {
     if (!id || typeof id !== 'string') return;
@@ -104,7 +103,7 @@ export default function AdminUserDetailPage() {
 
   async function handleSaveEdit() {
     const ok = await doAction('', 'PATCH', {
-      firstName: editFirstName, lastName: editLastName,
+      first_name: editFirstName, last_name: editLastName,
       phone: editPhone, role: editRole,
     });
     if (ok) { setEditing(false); void load(); }
@@ -127,12 +126,14 @@ export default function AdminUserDetailPage() {
     await doAction('force-logout');
   }
 
+  const companies = user?.companies ?? [];
+
   return (
     <AdminLayout title="User Detail">
-      <button onClick={() => void router.push('/admin/users')}
+      <Link href={adminHref('/admin/users')}
         className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-900 dark:hover:text-white mb-5 transition-colors">
         <ArrowLeft className="w-4 h-4" /> Back to Users
-      </button>
+      </Link>
 
       {[error, actionError].filter(Boolean).map((msg, i) => (
         <div key={i} className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm mb-4">
@@ -150,7 +151,7 @@ export default function AdminUserDetailPage() {
                 <User className="w-6 h-6 text-white" />
               </div>
               <div>
-                <h2 className="text-xl font-bold text-gray-900 dark:text-white">{user.firstName} {user.lastName}</h2>
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white">{user.first_name} {user.last_name}</h2>
                 <p className="text-sm text-gray-500 dark:text-gray-400">{user.email}</p>
                 <span className={`px-2 py-0.5 rounded text-xs font-medium capitalize ${STATUS_BADGE[user.status] ?? ''}`}>{user.status}</span>
               </div>
@@ -228,15 +229,15 @@ export default function AdminUserDetailPage() {
                 </div>
               ) : (
                 <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-                  <Field label="First Name"  value={user.firstName} />
-                  <Field label="Last Name"   value={user.lastName} />
+                  <Field label="First Name"  value={user.first_name} />
+                  <Field label="Last Name"   value={user.last_name} />
                   <Field label="Email"       value={user.email} />
                   <Field label="Phone"       value={user.phone} />
                   <Field label="Role"        value={user.role} />
                   <Field label="Status"      value={user.status} />
-                  <Field label="Last Login"  value={fmtDate(user.lastLoginAt)} />
-                  <Field label="Login Count" value={String(user.loginCount)} />
-                  <Field label="Created"     value={fmtDate(user.createdAt)} />
+                  <Field label="Last Login"  value={formatDate(user.last_login)} />
+                  <Field label="Login Count" value={String(user.login_count)} />
+                  <Field label="Created"     value={formatDate(user.created_at)} />
                 </div>
               )}
             </div>
@@ -244,32 +245,27 @@ export default function AdminUserDetailPage() {
 
           {activeTab === 'companies' && (
             <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm overflow-hidden">
-              {companiesLoading
-                ? <div className="flex items-center justify-center py-12"><Loader2 className="w-5 h-5 animate-spin text-teal-500" /></div>
-                : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="text-left text-xs text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
-                          <th className="px-4 py-3 font-medium">Company</th>
-                          <th className="px-4 py-3 font-medium">Role</th>
-                          <th className="px-4 py-3 font-medium">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {companies.length === 0 && <tr><td colSpan={3} className="px-4 py-8 text-center text-gray-400">No companies</td></tr>}
-                        {companies.map(c => (
-                          <tr key={c.id} className="border-b border-gray-100 dark:border-gray-800 last:border-0">
-                            <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{c.name}</td>
-                            <td className="px-4 py-3 text-gray-600 dark:text-gray-300 capitalize">{c.role}</td>
-                            <td className="px-4 py-3 text-gray-600 dark:text-gray-300 capitalize">{c.status}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )
-              }
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
+                      <th className="px-4 py-3 font-medium">Company</th>
+                      <th className="px-4 py-3 font-medium">Role</th>
+                      <th className="px-4 py-3 font-medium">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {companies.length === 0 && <tr><td colSpan={3} className="px-4 py-8 text-center text-gray-400">No companies</td></tr>}
+                    {companies.map(c => (
+                      <tr key={c.id} className="border-b border-gray-100 dark:border-gray-800 last:border-0">
+                        <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{c.name}</td>
+                        <td className="px-4 py-3 text-gray-600 dark:text-gray-300 capitalize">{c.role}</td>
+                        <td className="px-4 py-3 text-gray-600 dark:text-gray-300 capitalize">{c.status}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </>

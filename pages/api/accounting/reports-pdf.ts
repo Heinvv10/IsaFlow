@@ -3,8 +3,7 @@
  * POST /api/accounting/reports-pdf
  * Body: { type: 'board'|'management'|'monthly', from: string, to: string }
  *
- * NOTE: Returns JSON placeholder — PDF generation requires a PDF library (e.g. puppeteer/pdfkit).
- * Install puppeteer or @react-pdf/renderer to generate actual PDF buffers.
+ * Generates a real PDF using jsPDF + jspdf-autotable with IsaFlow TEAL branding.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -16,8 +15,11 @@ import { log } from '@/lib/logger';
 import {
   buildReportPack,
   type PackType,
+  type PackSection,
   type ReportPackInput,
 } from '@/modules/accounting/services/reportPackService';
+import { fmtZAR, TEAL, renderPageFooters } from '@/modules/accounting/services/pdfShared';
+import type { KPIScorecardItem } from '@/modules/accounting/services/kpiScorecardService';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -63,21 +65,21 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     cash: parseFloat(balancesRow?.cash || '0'),
     accountsReceivable: parseFloat(balancesRow?.accounts_receivable || '0'),
     accountsPayable: parseFloat(balancesRow?.accounts_payable || '0'),
-    inventory: 0,
+    inventory: parseFloat(balancesRow?.inventory || '0'),
   };
 
   const pack = buildReportPack(type as PackType, data, from, to);
 
-  log.info('PDF report requested', { companyId, type, from, to }, 'accounting');
+  log.info('Generating PDF report pack', { companyId, type, from, to }, 'accounting');
 
-  // MOCK: PDF library not installed. Return structured JSON data.
-  // To generate actual PDF: install puppeteer or @react-pdf/renderer and render pack sections.
-  return apiResponse.success(res, {
-    pdfAvailable: false,
-    message: 'PDF generation placeholder — install a PDF library to enable binary output',
-    pack,
-    downloadUrl: null,
-  });
+  const pdfBuffer = await buildReportPackPdf(pack, type as PackType, from, to);
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="report-pack-${type}-${from}-to-${to}.pdf"`,
+  );
+  res.send(pdfBuffer);
 }
 
 async function getPnLTotals(companyId: string, from: string, to: string): Promise<Row | undefined> {
@@ -105,7 +107,8 @@ async function getBalanceSheet(companyId: string, to: string): Promise<Row | und
       COALESCE(SUM(CASE WHEN ga.account_code >= '2100' AND ga.account_code < '2200' THEN jl.credit - jl.debit ELSE 0 END), 0) as current_liabilities,
       COALESCE(SUM(CASE WHEN ga.account_code = '1110' THEN jl.debit - jl.credit ELSE 0 END), 0) as cash,
       COALESCE(SUM(CASE WHEN ga.account_code = '1120' THEN jl.debit - jl.credit ELSE 0 END), 0) as accounts_receivable,
-      COALESCE(SUM(CASE WHEN ga.account_code = '2110' THEN jl.credit - jl.debit ELSE 0 END), 0) as accounts_payable
+      COALESCE(SUM(CASE WHEN ga.account_code = '2110' THEN jl.credit - jl.debit ELSE 0 END), 0) as accounts_payable,
+      COALESCE(SUM(CASE WHEN ga.account_code = '1130' THEN jl.debit - jl.credit ELSE 0 END), 0) as inventory
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id
@@ -116,11 +119,176 @@ async function getBalanceSheet(companyId: string, to: string): Promise<Row | und
 }
 
 async function getCompanyName(companyId: string): Promise<Row | null> {
-  const rows = (await sql`
-    SELECT name FROM companies WHERE id = ${companyId} LIMIT 1
-  `) as Row[];
+  const rows = (await sql`SELECT name FROM companies WHERE id = ${companyId} LIMIT 1`) as Row[];
   return rows[0] || null;
 }
 
+// ── PDF generation ────────────────────────────────────────────────────────────
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+type JsPDFDoc = any;
+const n = (v: unknown): number => typeof v === 'number' ? v : parseFloat(String(v ?? '0'));
+const pct = (v: unknown): string => `${Number(n(v)).toFixed(1)}%`;
+
+function renderSectionHeader(doc: JsPDFDoc, title: string, y: number, pageW: number, margin: number): number {
+  doc.setFillColor(TEAL.r, TEAL.g, TEAL.b);
+  doc.rect(margin, y, pageW - margin * 2, 7, 'F');
+  doc.setFontSize(10); doc.setFont('helvetica', 'bold');
+  doc.setTextColor(255, 255, 255);
+  doc.text(title.toUpperCase(), margin + 3, y + 5);
+  doc.setTextColor(30, 30, 30);
+  return y + 12;
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function renderTable(doc: JsPDFDoc, autoTable: any, head: string[][], body: string[][], startY: number, margin: number): number {
+  autoTable(doc, {
+    head,
+    body,
+    startY,
+    margin: { left: margin, right: margin },
+    styles: { fontSize: 9, cellPadding: 2.5 },
+    headStyles: { fillColor: [240, 253, 250], textColor: [20, 184, 166], fontStyle: 'bold' },
+    alternateRowStyles: { fillColor: [249, 250, 251] },
+    columnStyles: { 0: { fontStyle: 'bold' } },
+  });
+  return (doc.lastAutoTable?.finalY ?? startY) + 8;
+}
+
+function renderSection(doc: JsPDFDoc, autoTable: any, section: PackSection, pageW: number, pageH: number, margin: number): number {
+  const prevY: number = doc.lastAutoTable?.finalY ?? 20;
+  if (prevY > pageH - 60) {
+    doc.addPage();
+    doc.lastAutoTable = { finalY: 20 };
+  }
+  const startY: number = (doc.lastAutoTable?.finalY ?? 20) + 14;
+
+  let y = renderSectionHeader(doc, section.title, startY, pageW, margin);
+  const d = section.data;
+
+  switch (section.type) {
+    case 'income_statement':
+      return renderTable(doc, autoTable,
+        [['Item', 'Amount', 'Margin']],
+        [
+          ['Revenue', fmtZAR(n(d.revenue)), ''],
+          ['Cost of Sales', fmtZAR(n(d.costOfSales)), ''],
+          ['Gross Profit', fmtZAR(n(d.grossProfit)), pct(d.grossMargin)],
+          ['Operating Expenses', fmtZAR(n(d.operatingExpenses)), ''],
+          ['Net Profit', fmtZAR(n(d.netProfit)), pct(d.netMargin)],
+        ],
+        y, margin,
+      );
+
+    case 'balance_sheet':
+      return renderTable(doc, autoTable,
+        [['Item', 'Amount']],
+        [
+          ['Current Assets', fmtZAR(n(d.currentAssets))],
+          ['Total Assets', fmtZAR(n(d.totalAssets))],
+          ['Current Liabilities', fmtZAR(n(d.currentLiabilities))],
+          ['Total Liabilities', fmtZAR(n(d.totalLiabilities))],
+          ['Total Equity', fmtZAR(n(d.totalEquity))],
+        ],
+        y, margin,
+      );
+
+    case 'cash_flow':
+      return renderTable(doc, autoTable,
+        [['Item', 'Amount']],
+        [
+          ['Operating Cash Flow', fmtZAR(n(d.operatingCashFlow))],
+          ['Investing Cash Flow', fmtZAR(n(d.investingCashFlow))],
+          ['Financing Cash Flow', fmtZAR(n(d.financingCashFlow))],
+          ['Net Cash Flow', fmtZAR(n(d.netCashFlow))],
+          ['Opening Cash', fmtZAR(n(d.openingCash))],
+          ['Closing Cash', fmtZAR(n(d.closingCash))],
+        ],
+        y, margin,
+      );
+
+    case 'ratios': {
+      const ratioRows = Object.entries(d as Record<string, unknown>)
+        .filter(([, v]) => v !== null && v !== undefined)
+        .map(([k, v]) => [
+          k.replace(/([A-Z])/g, ' $1').trim(),
+          typeof v === 'number' ? v.toFixed(2) : String(v),
+        ]);
+      return renderTable(doc, autoTable, [['Ratio', 'Value']], ratioRows, y, margin);
+    }
+
+    case 'kpis': {
+      const items = (d.scorecard as KPIScorecardItem[]) ?? [];
+      const kpiRows = items.map(item => [
+        item.name,
+        typeof item.value === 'number' ? item.value.toFixed(2) : String(item.value ?? '—'),
+        typeof item.target === 'number' ? item.target.toFixed(2) : '—',
+        item.status.toUpperCase(),
+      ]);
+      return renderTable(doc, autoTable, [['KPI', 'Actual', 'Target', 'Status']], kpiRows, y, margin);
+    }
+
+    case 'commentary': {
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(50, 50, 50);
+      const text = String(d.summary ?? '');
+      const lines: string[] = doc.splitTextToSize(text, pageW - margin * 2);
+      doc.text(lines, margin, y);
+      // Update lastAutoTable stub so next section can read finalY
+      doc.lastAutoTable = { finalY: y + lines.length * 5 };
+      return y + lines.length * 5 + 8;
+    }
+
+    default:
+      // waterfall / trends — skip if no meaningful data
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'italic');
+      doc.setTextColor(120, 120, 120);
+      doc.text('Data not available for this section.', margin, y);
+      doc.lastAutoTable = { finalY: y + 6 };
+      return y + 14;
+  }
+}
+
+async function buildReportPackPdf(
+  pack: { companyName: string; period: string; sections: PackSection[] },
+  type: PackType,
+  from: string,
+  to: string,
+): Promise<Buffer> {
+  const [{ jsPDF }, { default: autoTable }] = await Promise.all([
+    import('jspdf'),
+    import('jspdf-autotable'),
+  ]);
+
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const PAGE_W = doc.internal.pageSize.getWidth();
+  const PAGE_H = doc.internal.pageSize.getHeight();
+  const MARGIN = 14;
+  doc.setFillColor(TEAL.r, TEAL.g, TEAL.b);
+  doc.rect(0, 0, PAGE_W, 40, 'F');
+
+  doc.setFontSize(18); doc.setFont('helvetica', 'bold'); doc.setTextColor(255, 255, 255);
+  doc.text('Financial Report Pack', MARGIN, 18);
+  doc.setFontSize(11); doc.setFont('helvetica', 'normal');
+  doc.text(`${type.charAt(0).toUpperCase() + type.slice(1)} Report`, MARGIN, 28);
+  doc.setTextColor(30, 30, 30); doc.setFontSize(13); doc.setFont('helvetica', 'bold');
+  doc.text(pack.companyName, MARGIN, 55);
+  doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(80, 80, 80);
+  doc.text(`Period: ${from} to ${to}`, MARGIN, 63);
+  doc.text(`Generated: ${new Date().toLocaleDateString('en-ZA')}`, MARGIN, 69);
+  doc.setDrawColor(TEAL.r, TEAL.g, TEAL.b); doc.setLineWidth(0.5);
+  doc.line(MARGIN, 74, PAGE_W - MARGIN, 74);
+
+  doc.addPage();
+  (doc as JsPDFDoc).lastAutoTable = { finalY: 20 };
+
+  for (const section of pack.sections) {
+    renderSection(doc, autoTable, section, PAGE_W, PAGE_H, MARGIN);
+  }
+
+  renderPageFooters(doc, PAGE_W, PAGE_H, MARGIN);
+
+  return Buffer.from(doc.output('arraybuffer'));
+}
+
 export default withCompany(withErrorHandler(handler));

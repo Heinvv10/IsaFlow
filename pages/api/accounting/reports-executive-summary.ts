@@ -56,7 +56,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     cash: parseFloat(balances?.cash || '0'),
     accountsReceivable: parseFloat(balances?.accounts_receivable || '0'),
     accountsPayable: parseFloat(balances?.accounts_payable || '0'),
-    inventory: 0,
+    inventory: parseFloat(balances?.inventory || '0'),
     priorRevenue: parseFloat(prior?.revenue || '0') || undefined,
     priorNetProfit: prior ? (() => {
       const pr = parseFloat(prior.revenue || '0');
@@ -119,7 +119,8 @@ async function getBalanceSheet(companyId: string, to: string): Promise<Row | und
       COALESCE(SUM(CASE WHEN ga.account_code >= '2100' AND ga.account_code < '2200' THEN jl.credit - jl.debit ELSE 0 END), 0) as current_liabilities,
       COALESCE(SUM(CASE WHEN ga.account_code = '1110' THEN jl.debit - jl.credit ELSE 0 END), 0) as cash,
       COALESCE(SUM(CASE WHEN ga.account_code = '1120' THEN jl.debit - jl.credit ELSE 0 END), 0) as accounts_receivable,
-      COALESCE(SUM(CASE WHEN ga.account_code = '2110' THEN jl.credit - jl.debit ELSE 0 END), 0) as accounts_payable
+      COALESCE(SUM(CASE WHEN ga.account_code = '2110' THEN jl.credit - jl.debit ELSE 0 END), 0) as accounts_payable,
+      COALESCE(SUM(CASE WHEN ga.account_code = '1130' THEN jl.debit - jl.credit ELSE 0 END), 0) as inventory
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id
@@ -136,5 +137,5 @@ async function getEmployeeCount(companyId: string): Promise<number> {
   return rows[0]?.count || 0;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export default withCompany(withErrorHandler(handler));

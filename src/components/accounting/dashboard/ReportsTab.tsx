@@ -60,7 +60,7 @@ export function ReportsTab() {
 
   useEffect(() => {
     if (selectedPeriod) loadTrialBalance(selectedPeriod);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [selectedPeriod]);
 
   return (

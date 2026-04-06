@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import {
-  CheckCircle2, AlertCircle, Loader2, Circle,
+  CheckCircle2, AlertCircle, Loader2,
   BookOpen, Users, Truck, Scale, FileText, ClipboardList, ShieldCheck,
   Building2,
 } from 'lucide-react';

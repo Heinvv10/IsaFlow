@@ -1,15 +1,12 @@
 /**
- * RecentActivityWidget — Last 5 journal entries from /api/accounting/dashboard-stats.
- * // WORKING: Uses recentJournals from dashboard-stats, no extra endpoint needed.
+ * RecentActivityWidget — Last 5 journal entries using shared dashboard stats.
  */
 
-import { useEffect, useState } from 'react';
 import { Clock, FileSpreadsheet } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Badge } from '@/components/ui/Badge';
-import { apiFetch } from '@/lib/apiFetch';
-import { log } from '@/lib/logger';
+import { useDashboardStats } from '@/hooks/useDashboardStats';
 import { formatDisplayDateShort } from '@/utils/dateFormat';
 
 interface JournalEntry {
@@ -21,7 +18,6 @@ interface JournalEntry {
   amount: number;
 }
 
-
 function fmtCurrency(n: number): string {
   return 'R\u00a0' + new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 }
@@ -32,26 +28,8 @@ const STATUS_VARIANT: Record<string, 'success' | 'warning' | 'default'> = {
 };
 
 export function RecentActivityWidget() {
-  const [entries, setEntries] = useState<JournalEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    async function load() {
-      try {
-        const res = await apiFetch('/api/accounting/dashboard-stats');
-        const json = (await res.json()) as { data?: { recentJournals?: JournalEntry[] } };
-        const d = json.data ?? {};
-        setEntries(d.recentJournals ?? []);
-      } catch (err) {
-        log.error('RecentActivityWidget fetch failed', { error: err }, 'dashboard-widget');
-        setError('Unable to load recent activity');
-      } finally {
-        setLoading(false);
-      }
-    }
-    void load();
-  }, []);
+  const { data, loading, error } = useDashboardStats();
+  const entries = (data?.recentJournals as JournalEntry[]) ?? [];
 
   return (
     <Card

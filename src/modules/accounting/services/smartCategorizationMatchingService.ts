@@ -130,7 +130,7 @@ export async function matchAgainstPatterns(
           UPDATE categorization_patterns
           SET usage_count = usage_count + 1, last_used_at = NOW()
           WHERE id = ${p.id}::UUID
-        `.catch(() => {});
+        `.catch((err) => log.warn('Failed to update pattern usage count', { patternId: p.id, error: String(err) }, 'categorization'));
 
         return {
           glAccountId: p.gl_account_id ? String(p.gl_account_id) : undefined,

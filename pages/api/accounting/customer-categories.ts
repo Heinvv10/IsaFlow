@@ -25,7 +25,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         SELECT cc.id, cc.name, cc.description, cc.created_at,
                COUNT(c.id)::int AS client_count
         FROM customer_categories cc
-        LEFT JOIN customers c ON LOWER(c.category) = LOWER(cc.name)
+        LEFT JOIN customers c ON LOWER(c.category) = LOWER(cc.name) AND c.company_id = ${companyId}
+        WHERE cc.company_id = ${companyId}
         GROUP BY cc.id
         ORDER BY cc.name
       `) as Row[];
@@ -39,8 +40,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const { name, description } = req.body;
       if (!name?.trim()) return apiResponse.badRequest(res, 'Name is required');
       const rows = (await sql`
-        INSERT INTO customer_categories (name, description)
-        VALUES (${name.trim()}, ${description || ''})
+        INSERT INTO customer_categories (company_id, name, description)
+        VALUES (${companyId}, ${name.trim()}, ${description || ''})
         RETURNING id, name, description
       `) as Row[];
       return apiResponse.success(res, rows[0]);
@@ -52,7 +53,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       await sql`
         UPDATE customer_categories
         SET name = ${name.trim()}, description = ${description || ''}
-        WHERE id = ${id}
+        WHERE id = ${id} AND company_id = ${companyId}
       `;
       return apiResponse.success(res, { id, name, description });
     }
@@ -60,7 +61,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (req.method === 'DELETE') {
       const { id } = req.body;
       if (!id) return apiResponse.badRequest(res, 'ID is required');
-      await sql`DELETE FROM customer_categories WHERE id = ${id}`;
+      await sql`DELETE FROM customer_categories WHERE id = ${id} AND company_id = ${companyId}`;
       return apiResponse.success(res, { deleted: true });
     }
 

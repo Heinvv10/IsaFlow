@@ -9,7 +9,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 type SqlResult = { rowCount?: number };
 
 export interface MergeResult {

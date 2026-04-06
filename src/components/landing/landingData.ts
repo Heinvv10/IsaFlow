@@ -9,7 +9,7 @@ import {
   GitMerge, Globe, ScanLine, History, KeyRound, Search, ShieldCheck,
   FileSpreadsheet, Upload, Repeat, Webhook, FileText, Layers, Archive,
   Copy, GraduationCap, Columns, MousePointerClick, PieChart, TrendingUp,
-  RefreshCw, Package, Workflow,
+  RefreshCw,
 } from 'lucide-react';
 
 export const APP_URL = 'https://app.isaflow.co.za';

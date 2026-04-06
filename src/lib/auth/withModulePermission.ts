@@ -11,7 +11,7 @@
  */
 
 import type { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
-import { checkPermission } from '@/modules/accounting/services/permissionService';
+import { checkPermission } from './permissionService';
 import { apiResponse } from '@/lib/apiResponse';
 import type { CompanyApiRequest } from './withCompany';
 import type { AuthenticatedNextApiRequest } from './middleware';

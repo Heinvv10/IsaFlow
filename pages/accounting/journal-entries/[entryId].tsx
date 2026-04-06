@@ -20,7 +20,7 @@ import {
   User,
   Hash,
 } from 'lucide-react';
-import type { JournalEntry, JournalLine } from '@/modules/accounting/types/gl.types';
+import type { JournalEntry } from '@/modules/accounting/types/gl.types';
 import { apiFetch } from '@/lib/apiFetch';
 
 export default function JournalEntryDetailPage() {

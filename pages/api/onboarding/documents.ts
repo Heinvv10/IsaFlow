@@ -68,7 +68,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.created(res, { count: documents.length });
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export default withAuth(withErrorHandler(handler));
 
 export const config = {

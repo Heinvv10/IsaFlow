@@ -5,6 +5,9 @@
  */
 
 import { neon, neonConfig, Pool } from '@neondatabase/serverless';
+
+/** Shared DB row type — import this instead of declaring local `type Row` */
+export type DbRow = Record<string, unknown>;
 import { log } from '@/lib/logger';
 
 // Enable connection caching for better performance

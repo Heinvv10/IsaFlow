@@ -49,7 +49,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export default function SupplierPurchaseOrdersPage() {
-  const { activeCompany } = useCompany();
+  useCompany();
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
   const [total, setTotal] = useState(0);
   const [tab, setTab] = useState<string>('all');

@@ -30,12 +30,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'POST') {
     try {
-      const { itemId, adjustmentType, quantity, reason, date } = req.body as {
+      const { itemId, adjustmentType, quantity, reason } = req.body as {
         itemId?: string;
         adjustmentType?: 'increase' | 'decrease';
         quantity?: number;
         reason?: string;
-        date?: string;
       };
 
       if (!itemId) return apiResponse.badRequest(res, 'itemId is required');

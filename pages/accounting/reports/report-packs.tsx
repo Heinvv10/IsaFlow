@@ -8,6 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, FileText, Download, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 
 type PackType = 'board' | 'management' | 'monthly';
 
@@ -120,7 +121,7 @@ export default function ReportPacksPage() {
     try {
       const res = await apiFetch(`/api/accounting/reports-pack?type=${selectedType}&from=${from}&to=${to}`).then(r => r.json());
       if (res.data?.pack) setPack(res.data.pack);
-    } catch { /* handled by empty state */ }
+    } catch (err) { log.error('Failed to load report pack', { error: err instanceof Error ? err.message : String(err) }); }
     finally { setLoading(false); }
   }, [selectedType, from, to]);
 
@@ -133,11 +134,16 @@ export default function ReportPacksPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: selectedType, from, to }),
-      }).then(r => r.json());
-      if (res.data?.pdfAvailable === false) {
-        alert(res.data.message);
-      }
-    } catch { /* handled */ }
+      });
+      if (!res.ok) throw new Error('PDF generation failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `report-pack-${selectedType}-${from}-to-${to}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) { log.error('Failed to download PDF', { error: err instanceof Error ? err.message : String(err) }); }
     finally { setPdfLoading(false); }
   };
 

@@ -87,15 +87,6 @@ export async function toggleRule(companyId: string, id: string, isActive: boolea
 
 // ── Apply Rules ─────────────────────────────────────────────────────────────
 
-/** Lookup a GL account UUID by account code */
-async function glAccountByCode(code: string): Promise<string> {
-  const rows = (await sql`
-    SELECT id FROM gl_accounts WHERE account_code = ${code} AND is_active = TRUE LIMIT 1
-  `) as Record<string, unknown>[];
-  if (rows.length === 0) throw new Error(`GL account ${code} not found`);
-  return String(rows[0]!.id);
-}
-
 /** Convert rule match type to SQL ILIKE pattern */
 function toSqlPattern(matchType: string, matchPattern: string): string {
   switch (matchType) {

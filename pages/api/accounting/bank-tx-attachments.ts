@@ -74,18 +74,26 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, 'bankTransactionId query param is required');
     }
 
+    // Verify the bank transaction belongs to this company
+    const [btOwner] = await sql`
+      SELECT id FROM bank_transactions WHERE id = ${bankTransactionId}::UUID AND company_id = ${companyId}
+    ` as SqlRow[];
+    if (!btOwner) return apiResponse.forbidden(res, 'Bank transaction does not belong to your company');
+
     const rows = (await sql`
       SELECT
-        id,
-        bank_transaction_id,
-        file_url,
-        file_name,
-        file_size,
-        uploaded_by,
-        created_at
-      FROM bank_transaction_attachments
-      WHERE bank_transaction_id = ${bankTransactionId}::UUID
-      ORDER BY created_at DESC
+        bta.id,
+        bta.bank_transaction_id,
+        bta.file_url,
+        bta.file_name,
+        bta.file_size,
+        bta.uploaded_by,
+        bta.created_at
+      FROM bank_transaction_attachments bta
+      JOIN bank_transactions bt ON bt.id = bta.bank_transaction_id
+      WHERE bta.bank_transaction_id = ${bankTransactionId}::UUID
+        AND bt.company_id = ${companyId}
+      ORDER BY bta.created_at DESC
     `) as SqlRow[];
 
     log.info('Listed bank tx attachments', { bankTransactionId, count: rows.length }, 'bank-tx-attachments');
@@ -97,6 +105,13 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
     const { bankTransactionId, fileName, fileData, fileSize } = req.body as PostBody;
 
     if (!bankTransactionId) return apiResponse.badRequest(res, 'bankTransactionId is required');
+
+    // Verify ownership before insert
+    const [btCheck] = await sql`
+      SELECT id FROM bank_transactions WHERE id = ${bankTransactionId}::UUID AND company_id = ${companyId}
+    ` as SqlRow[];
+    if (!btCheck) return apiResponse.forbidden(res, 'Bank transaction does not belong to your company');
+
     if (!fileName) return apiResponse.badRequest(res, 'fileName is required');
     if (!fileData || typeof fileData !== 'string') {
       return apiResponse.badRequest(res, 'fileData (base64 data URL) is required');
@@ -113,7 +128,8 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
     }
 
     // Validate file size
-    const byteSize = fileSize ?? estimateDataUrlBytes(fileData);
+    // Always compute from actual data — never trust client-supplied fileSize
+    const byteSize = estimateDataUrlBytes(fileData);
     if (byteSize > MAX_FILE_SIZE_BYTES) {
       return apiResponse.badRequest(res, 'File exceeds the 2 MB size limit');
     }
@@ -154,10 +170,14 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, 'id query param is required');
     }
 
+    // Verify ownership via bank_transactions before delete
     const deleteRows = (await sql`
-      DELETE FROM bank_transaction_attachments
-      WHERE id = ${id}::UUID
-      RETURNING id
+      DELETE FROM bank_transaction_attachments bta
+      USING bank_transactions bt
+      WHERE bta.id = ${id}::UUID
+        AND bta.bank_transaction_id = bt.id
+        AND bt.company_id = ${companyId}
+      RETURNING bta.id
     `) as SqlRow[];
 
     if (!deleteRows || deleteRows.length === 0) {
@@ -193,5 +213,5 @@ async function extractAttachmentData(dataUrl: string, mime: string, attachmentId
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export default withCompany(withErrorHandler(handler));

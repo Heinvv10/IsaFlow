@@ -9,7 +9,7 @@ import Link from 'next/link';
 import {
   Receipt, Plus, Loader2, AlertCircle, ChevronRight, Filter,
 } from 'lucide-react';
-import type { SupplierInvoice, SupplierInvoiceStatus } from '@/modules/accounting/types/ap.types';
+import type { SupplierInvoice } from '@/modules/accounting/types/ap.types';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
 
@@ -41,19 +41,7 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function MatchBadge({ status }: { status: string }) {
-  const colors: Record<string, string> = {
-    unmatched: 'bg-gray-500/20 text-gray-400',
-    po_matched: 'bg-amber-500/20 text-amber-400',
-    grn_matched: 'bg-blue-500/20 text-blue-400',
-    fully_matched: 'bg-teal-500/20 text-teal-400',
-  };
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${colors[status] || 'bg-gray-500/20 text-gray-400'}`}>
-      {status.replace(/_/g, ' ')}
-    </span>
-  );
-}
+
 
 export default function SupplierInvoicesPage() {
   const [invoices, setInvoices] = useState<SupplierInvoice[]>([]);

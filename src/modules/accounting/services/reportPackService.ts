@@ -26,6 +26,9 @@ export interface ReportPackInput {
   inventory: number;
   operatingCashFlow?: number;
   capitalExpenditure?: number;
+  otherIncome?: number;
+  otherExpenses?: number;
+  financingCashFlow?: number;
 }
 
 export type PackType = 'board' | 'management' | 'monthly';
@@ -125,12 +128,14 @@ function buildSectionData(
     case 'cash_flow': {
       const opCF = input.operatingCashFlow ?? input.netProfit;
       const capex = input.capitalExpenditure ?? 0;
+      const finCF = input.financingCashFlow ?? 0;
+      const netCF = opCF - capex + finCF;
       return {
         operatingCashFlow: opCF,
         investingCashFlow: -capex,
-        financingCashFlow: 0,
-        netCashFlow: opCF - capex,
-        openingCash: input.cash - (opCF - capex),
+        financingCashFlow: finCF,
+        netCashFlow: netCF,
+        openingCash: input.cash - netCF,
         closingCash: input.cash,
       };
     }
@@ -150,15 +155,29 @@ function buildSectionData(
         costOfSales: input.costOfSales,
         grossProfit,
         operatingExpenses: input.operatingExpenses,
-        otherIncome: 0,
-        otherExpenses: 0,
+        otherIncome: input.otherIncome ?? 0,
+        otherExpenses: input.otherExpenses ?? 0,
         netProfit: input.netProfit,
       });
       return { steps };
     }
 
-    case 'trends':
-      return { note: 'Multi-period trend data requires historical context via API' };
+    case 'trends': {
+      // Single-period snapshot — multi-period trends require historical data from API layer
+      const gm = input.revenue > 0 ? Math.round((grossProfit / input.revenue) * 10000) / 100 : 0;
+      const nm = input.revenue > 0 ? Math.round((input.netProfit / input.revenue) * 10000) / 100 : 0;
+      const cr = input.currentLiabilities > 0 ? Math.round((input.currentAssets / input.currentLiabilities) * 100) / 100 : 0;
+      return {
+        currentPeriod: {
+          revenue: input.revenue,
+          grossProfit,
+          netProfit: input.netProfit,
+          grossMargin: gm,
+          netMargin: nm,
+          currentRatio: cr,
+        },
+      };
+    }
 
     case 'commentary':
       return {

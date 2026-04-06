@@ -29,5 +29,5 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, { completed: true });
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export default withAuth(withErrorHandler(handler));

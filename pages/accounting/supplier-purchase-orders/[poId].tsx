@@ -7,7 +7,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, FileText, Loader2, AlertCircle, CheckCircle2, Clock, XCircle } from 'lucide-react';
+import { ArrowLeft, FileText, Loader2, AlertCircle, CheckCircle2, Clock } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 
 interface PurchaseOrder {

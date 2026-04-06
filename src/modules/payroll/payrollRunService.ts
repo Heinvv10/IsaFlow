@@ -105,6 +105,29 @@ export async function createPayrollRun(
 
     if (empRows.length === 0) throw new Error('No active employees found for this period');
 
+    // Batch-fetch YTD totals for all employees (avoids N+1)
+    const empIds = empRows.map(e => String(e.id));
+    const ytdRows = (await sql`
+      SELECT ps.employee_id,
+        COALESCE(SUM(ps.gross_pay),0) AS ytd_gross,
+        COALESCE(SUM(ps.paye),0) AS ytd_paye,
+        COALESCE(SUM(ps.uif_employee),0) AS ytd_uif
+      FROM payslips ps
+      JOIN payroll_runs pr ON pr.id = ps.payroll_run_id
+      WHERE ps.employee_id = ANY(${empIds}::UUID[])
+        AND pr.status IN ('draft','completed')
+        AND pr.period_start >= DATE_TRUNC('year', ${periodStart}::DATE + INTERVAL '2 months') - INTERVAL '2 months'
+      GROUP BY ps.employee_id
+    `) as Row[];
+    const ytdMap = new Map<string, { gross: number; paye: number; uif: number }>();
+    for (const r of ytdRows) {
+      ytdMap.set(String(r.employee_id), {
+        gross: Number(r.ytd_gross) || 0,
+        paye: Number(r.ytd_paye) || 0,
+        uif: Number(r.ytd_uif) || 0,
+      });
+    }
+
     const runRows = (await sql`
       INSERT INTO payroll_runs (company_id, period_start, period_end, status, created_by)
       VALUES (${companyId}::UUID, ${periodStart}, ${periodEnd}, 'draft', ${userId}::UUID)
@@ -136,13 +159,7 @@ export async function createPayrollRun(
       const totalDeds = paye + uif.employee + medical + retireFund + customTotal;
       const netPay = Math.round((grossPay - totalDeds) * 100) / 100;
 
-      const ytd = (await sql`
-        SELECT COALESCE(SUM(gross_pay),0) AS ytd_gross, COALESCE(SUM(paye),0) AS ytd_paye,
-          COALESCE(SUM(uif_employee),0) AS ytd_uif
-        FROM payslips ps JOIN payroll_runs pr ON pr.id = ps.payroll_run_id
-        WHERE ps.employee_id = ${emp.id} AND pr.status IN ('draft','completed')
-          AND pr.period_start >= DATE_TRUNC('year', ${periodStart}::DATE + INTERVAL '2 months') - INTERVAL '2 months'
-      `) as Row[];
+      const ytd = ytdMap.get(String(emp.id)) ?? { gross: 0, paye: 0, uif: 0 };
 
       const slipRows = (await sql`
         INSERT INTO payslips (
@@ -154,9 +171,9 @@ export async function createPayrollRun(
           ${runId}::UUID, ${emp.id}::UUID, ${basic}, ${travel}, ${housing}, ${cell}, ${other},
           ${grossPay}, ${paye}, ${uif.employee}, ${uif.employer}, ${0}, ${medical},
           ${retireFund}, ${customTotal}, ${totalDeds}, ${netPay},
-          ${Number(ytd[0]?.ytd_gross || 0) + grossPay},
-          ${Number(ytd[0]?.ytd_paye || 0) + paye},
-          ${Number(ytd[0]?.ytd_uif || 0) + uif.employee}
+          ${ytd.gross + grossPay},
+          ${ytd.paye + paye},
+          ${ytd.uif + uif.employee}
         ) RETURNING *
       `) as Row[];
 
