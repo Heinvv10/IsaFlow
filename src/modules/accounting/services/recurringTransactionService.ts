@@ -181,7 +181,7 @@ export async function executeRecurring(
     `) as Row[];
     entityId = String(ciRows[0]?.id);
     if (template.autoPost) {
-      await sql`UPDATE customer_invoices SET status = 'posted' WHERE id = ${entityId}::UUID`;
+      await sql`UPDATE customer_invoices SET status = 'posted' WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID`;
       posted = true;
     }
   } else {
@@ -207,7 +207,7 @@ export async function executeRecurring(
     `) as Row[];
     entityId = String(siRows[0]?.id);
     if (template.autoPost) {
-      await sql`UPDATE supplier_invoices SET status = 'posted' WHERE id = ${entityId}::UUID`;
+      await sql`UPDATE supplier_invoices SET status = 'posted' WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID`;
       posted = true;
     }
   }
