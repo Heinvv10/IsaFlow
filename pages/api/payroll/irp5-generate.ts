@@ -64,6 +64,7 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
       FROM payslips ps
       JOIN payroll_runs pr ON ps.payroll_run_id = pr.id
       WHERE ps.employee_id = ${employeeId}
+        AND pr.company_id = ${req.companyId}::UUID
         AND pr.period_end >= ${`${yr - 1}-03-01`}
         AND pr.period_end <= ${`${yr}-02-28`}
     ` as Row[];
