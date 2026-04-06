@@ -272,20 +272,17 @@ export function withOptionalAuth(
           );
 
           if (user) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (req as any).user = user;
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (req as any).sessionId = payload.sessionId;
+            const authReq = req as NextApiRequest & { user?: AuthUser; sessionId?: string };
+            authReq.user = user;
+            authReq.sessionId = payload.sessionId;
           }
         }
       }
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return handler(req as any, res);
-    } catch (error) {
+      return handler(req as NextApiRequest & { user?: AuthUser; sessionId?: string }, res);
+    } catch {
       // On error, just proceed without user
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return handler(req as any, res);
+      return handler(req as NextApiRequest & { user?: AuthUser; sessionId?: string }, res);
     }
   };
 }

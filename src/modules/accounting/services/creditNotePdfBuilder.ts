@@ -5,7 +5,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { fmtZAR, fmtDate, TEAL, getCompanyDetailsFromCompany, renderPageFooters } from './pdfShared';
+import { fmtZAR, fmtDate, TEAL, getCompanyDetailsFromCompany, renderPageFooters, getLastAutoTableY } from './pdfShared';
 
 type Row = Record<string, unknown>;
 
@@ -135,8 +135,7 @@ export async function generateCreditNotePdf(companyId: string, creditNoteId: str
     margin: { left: MARGIN, right: MARGIN },
   });
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  y = (doc as any).lastAutoTable?.finalY || y + 30;
+  y = getLastAutoTableY(doc, y + 30);
   y += 6;
 
   // Totals table
@@ -168,8 +167,7 @@ export async function generateCreditNotePdf(companyId: string, creditNoteId: str
     },
   });
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  y = (doc as any).lastAutoTable?.finalY || y + 30;
+  y = getLastAutoTableY(doc, y + 30);
   y += 10;
 
   // Status badge
