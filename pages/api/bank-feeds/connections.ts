@@ -4,16 +4,17 @@
  * POST — sync or disconnect a connection (create is handled by callback.ts OAuth flow)
  */
 
-import type { NextApiRequest, NextApiResponse } from 'next';
+import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import {
   listConnections, disconnectConnection,
   syncTransactions, getSyncHistory, isConfigured,
 } from '@/modules/accounting/services/bankFeedService';
 
-async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: CompanyApiRequest, res: NextApiResponse) {
+  const { companyId } = req;
 
   if (req.method === 'GET') {
     if (req.query.action === 'status') {
@@ -21,36 +22,28 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     if (req.query.action === 'history' && req.query.connectionId) {
-      const history = await getSyncHistory(req.query.connectionId as string);
+      const history = await getSyncHistory(req.query.connectionId as string, companyId);
       return apiResponse.success(res, { items: history });
     }
 
-    const connections = await listConnections();
+    const connections = await listConnections(companyId);
     return apiResponse.success(res, { items: connections });
   }
 
   if (req.method === 'POST') {
     const { action } = req.body;
 
-    // NOTE: The 'create' action (which previously accepted raw accessToken and
-    // refreshToken from the client body) has been removed. Accepting OAuth tokens
-    // from client-supplied body is a security anti-pattern — tokens must only
-    // arrive via the server-side OAuth callback flow in:
-    //   pages/api/bank-feeds/callback.ts
-    // That handler validates the OAuth state, exchanges the code for tokens, and
-    // calls createConnection() directly. Do not re-add a client-facing create path.
-
     if (action === 'sync') {
       const { connectionId } = req.body;
       if (!connectionId) return apiResponse.badRequest(res, 'connectionId required');
-      const result = await syncTransactions(connectionId);
+      const result = await syncTransactions(connectionId, companyId);
       return apiResponse.success(res, result);
     }
 
     if (action === 'disconnect') {
       const { connectionId } = req.body;
       if (!connectionId) return apiResponse.badRequest(res, 'connectionId required');
-      await disconnectConnection(connectionId);
+      await disconnectConnection(connectionId, companyId);
       return apiResponse.success(res, { disconnected: true });
     }
 
@@ -60,5 +53,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST']);
 }
 
- 
-export default withAuth(withErrorHandler(handler));
+export default withCompany(withErrorHandler(handler));
