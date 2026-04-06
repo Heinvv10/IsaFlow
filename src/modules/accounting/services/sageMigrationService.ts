@@ -117,8 +117,8 @@ export async function getMigrationStatus(companyId: string): Promise<MigrationSt
           COUNT(*) FILTER (WHERE migration_status = 'failed') AS failed
         FROM sage_customer_invoices WHERE company_id = ${companyId}::UUID
       `) as Row[];
-    } catch {
-      // Table may not exist yet if migration 212 hasn't run
+    } catch (err) {
+      log.warn('sage_customer_invoices table may not exist (migration 212)', { error: String(err) }, 'sageMigration');
     }
 
     const runs = (await sql`

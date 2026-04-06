@@ -155,7 +155,7 @@ export async function closeFiscalYear(
   try {
     const settingRows = await sql`SELECT value FROM app_settings WHERE key = 'retained_earnings_account'`;
     if (settingRows[0]?.value) reAccountCode = String(settingRows[0].value);
-  } catch { /* use default */ }
+  } catch (err) { log.warn('Could not load retained_earnings_account setting, using default 3200', { error: String(err) }, 'yearEnd'); }
 
   const reRows = await sql`
     SELECT id FROM gl_accounts
