@@ -124,20 +124,33 @@ export async function convertAmount(companyId: string,
 
 // ── Settings ────────────────────────────────────────────────────────────────
 
-export async function getSetting(key: string): Promise<string | null> {
-  const rows = (await sql`
-    SELECT setting_value FROM accounting_settings WHERE setting_key = ${key}
-  `) as Row[];
+export async function getSetting(key: string, companyId?: string): Promise<string | null> {
+  const rows = companyId
+    ? (await sql`
+        SELECT setting_value FROM accounting_settings WHERE setting_key = ${key} AND company_id = ${companyId}::UUID
+      `) as Row[]
+    : (await sql`
+        SELECT setting_value FROM accounting_settings WHERE setting_key = ${key}
+      `) as Row[];
   return rows[0] ? String(rows[0].setting_value) : null;
 }
 
-export async function setSetting(key: string, value: string, userId: string): Promise<void> {
-  await sql`
-    INSERT INTO accounting_settings (setting_key, setting_value, updated_by)
-    VALUES (${key}, ${value}, ${userId}::UUID)
-    ON CONFLICT (setting_key) DO UPDATE SET setting_value = EXCLUDED.setting_value,
-      updated_by = EXCLUDED.updated_by, updated_at = NOW()
-  `;
+export async function setSetting(key: string, value: string, userId: string, companyId?: string): Promise<void> {
+  if (companyId) {
+    await sql`
+      INSERT INTO accounting_settings (company_id, setting_key, setting_value, updated_by)
+      VALUES (${companyId}::UUID, ${key}, ${value}, ${userId}::UUID)
+      ON CONFLICT (company_id, setting_key) DO UPDATE SET setting_value = EXCLUDED.setting_value,
+        updated_by = EXCLUDED.updated_by, updated_at = NOW()
+    `;
+  } else {
+    await sql`
+      INSERT INTO accounting_settings (setting_key, setting_value, updated_by)
+      VALUES (${key}, ${value}, ${userId}::UUID)
+      ON CONFLICT (setting_key) DO UPDATE SET setting_value = EXCLUDED.setting_value,
+        updated_by = EXCLUDED.updated_by, updated_at = NOW()
+    `;
+  }
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

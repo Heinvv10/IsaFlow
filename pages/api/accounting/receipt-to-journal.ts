@@ -103,7 +103,7 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
 
   // Link document
   await sql`
-    UPDATE captured_documents SET status = 'matched' WHERE id = ${documentId}::uuid
+    UPDATE captured_documents SET status = 'matched' WHERE id = ${documentId}::uuid AND company_id = ${companyId}
   `;
 
   log.info('Receipt-to-Journal completed', {

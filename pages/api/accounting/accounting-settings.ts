@@ -16,7 +16,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   if (req.method === 'GET') {
     const { key } = req.query;
     if (!key) return apiResponse.badRequest(res, 'key is required');
-    const value = await getSetting(key as string);
+    const value = await getSetting(key as string, companyId);
     return apiResponse.success(res, { key, value });
   }
 
@@ -24,7 +24,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     const userId = req.user.id;
     const { key, value } = req.body;
     if (!key || !value) return apiResponse.badRequest(res, 'key and value required');
-    await setSetting(key, value, userId);
+    await setSetting(key, value, userId, companyId);
     return apiResponse.success(res, { updated: true });
   }
 

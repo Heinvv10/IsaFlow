@@ -24,17 +24,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const from: string = (req.query.from as string) || new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]!;
   const to: string = (req.query.to as string) || new Date().toISOString().split('T')[0]!;
 
-  const [current, prior, balances, empCount] = await Promise.all([
+  const [current, prior, balances, empCount, companyRow] = await Promise.all([
     getPnLTotals(companyId, from, to),
     getPriorPnL(companyId, from, to),
     getBalanceSheet(companyId, to),
     getEmployeeCount(companyId),
+    sql`SELECT name FROM companies WHERE id = ${companyId} LIMIT 1` as Promise<Row[]>,
   ]);
-
-  const companyRow = (await sql`
-    SELECT name FROM companies WHERE id = ${companyId} LIMIT 1
-  `) as Row[];
-  const companyName: string = companyRow[0]?.name || 'Company';
+  const companyName: string = (companyRow[0]?.name as string) || 'Company';
 
   const revenue = parseFloat(current?.revenue || '0');
   const costOfSales = parseFloat(current?.cost_of_sales || '0');

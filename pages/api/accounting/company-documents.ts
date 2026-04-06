@@ -139,7 +139,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     await sql`
-      UPDATE company_documents SET is_active = false WHERE id = ${docId}::UUID
+      UPDATE company_documents SET is_active = false WHERE id = ${docId}::UUID AND company_id = ${String(rows[0]!.company_id)}::UUID
     `;
     return apiResponse.success(res, { deleted: true });
   }
