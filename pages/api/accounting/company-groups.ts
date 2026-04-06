@@ -213,7 +213,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (!accountId) return apiResponse.badRequest(res, 'account_id required');
       if (!groupId) return apiResponse.badRequest(res, 'group_id required');
       if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
-      await deleteGroupAccount(accountId);
+      await deleteGroupAccount(accountId, groupId);
       return apiResponse.success(res, { deleted: true });
     }
 
