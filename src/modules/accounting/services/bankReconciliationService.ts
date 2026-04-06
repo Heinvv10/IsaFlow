@@ -184,7 +184,7 @@ export async function autoMatchTransactions(
     let matchedCount = 0;
     for (const match of result.matches) {
       if (match.confidence >= 0.9) {
-        await matchTransaction('', match.bankTransactionId, match.journalLineId, reconciliationId);
+        await matchTransaction(companyId, match.bankTransactionId, match.journalLineId, reconciliationId);
         matchedCount++;
       }
     }

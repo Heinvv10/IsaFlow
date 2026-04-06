@@ -173,7 +173,7 @@ export async function createQuote(companyId: string, input: QuoteInput, userId?:
     `;
   }
   log.info('Quote created', { quoteNumber, total });
-  return (await getQuote('', quote.id))!;
+  return (await getQuote(companyId, quote.id))!;
 }
 
 export async function updateQuote(companyId: string, id: string, input: QuoteInput): Promise<Quote | null> {
@@ -199,7 +199,7 @@ export async function updateQuote(companyId: string, id: string, input: QuoteInp
     `;
   }
   log.info('Quote updated', { id });
-  return getQuote('', id);
+  return getQuote(companyId, id);
 }
 
 export async function deleteQuote(companyId: string, id: string): Promise<boolean> {
@@ -210,7 +210,7 @@ export async function deleteQuote(companyId: string, id: string): Promise<boolea
 export async function updateQuoteStatus(companyId: string, id: string, status: string): Promise<Quote | null> {
   await sql`UPDATE customer_quotes SET status = ${status}, updated_at = NOW() WHERE id = ${id}::UUID AND company_id = ${companyId}`;
   log.info('Quote status changed', { id, status });
-  return getQuote('', id);
+  return getQuote(companyId, id);
 }
 
 export async function convertToInvoice(companyId: string, id: string, userId?: string): Promise<{ quote: Quote; invoiceId: string } | null> {
@@ -240,5 +240,5 @@ export async function convertToInvoice(companyId: string, id: string, userId?: s
   });
 
   log.info('Quote converted to invoice', { quoteId: id, invoiceId });
-  return { quote: (await getQuote('', id))!, invoiceId };
+  return { quote: (await getQuote(companyId, id))!, invoiceId };
 }

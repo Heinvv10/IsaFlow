@@ -82,7 +82,7 @@ export async function bulkCategorize(companyId: string,
       reference: tx.reference ? String(tx.reference) : undefined,
     };
 
-    const result = await categorizeBankTransaction('', input);
+    const result = await categorizeBankTransaction(companyId, input);
 
     if (result) {
       await sql`
@@ -122,5 +122,5 @@ export async function smartCategorizeForAccount(companyId: string,
   `) as Row[];
 
   const ids = txRows.map((r: Row) => String(r.id));
-  return bulkCategorize('', ids);
+  return bulkCategorize(companyId, ids);
 }

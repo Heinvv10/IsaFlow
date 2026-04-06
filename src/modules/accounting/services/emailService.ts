@@ -168,7 +168,7 @@ export async function sendInvoiceEmail(companyId: string,
   const companyName = 'IsaFlow';
 
   // Generate PDF
-  const pdfBuffer = await generateInvoicePdf('', invoiceId);
+  const pdfBuffer = await generateInvoicePdf(companyId, invoiceId);
 
   // Build email HTML (table-based for email client compatibility)
   const invoiceData: InvoiceEmailData = {
