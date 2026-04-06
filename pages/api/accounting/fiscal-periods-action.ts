@@ -7,7 +7,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, withRole } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest, type AuthenticatedNextApiRequest, withRole } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import {
   closePeriod,
@@ -23,15 +23,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;
 
   try {
-    const { id, action, userId } = req.body;
+    const { id, action } = req.body;
     if (!id || !action) {
       return apiResponse.badRequest(res, 'id and action are required');
     }
 
+    // Use authenticated user ID — never trust userId from request body
+    const userId = (req as AuthenticatedNextApiRequest).user.id;
+
     let result;
     switch (action) {
       case 'close':
-        if (!userId) return apiResponse.badRequest(res, 'userId required for close action');
         result = await closePeriod(companyId, id, userId);
         break;
       case 'lock':
