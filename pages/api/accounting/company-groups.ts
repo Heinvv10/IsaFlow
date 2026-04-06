@@ -203,7 +203,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (!mappingId) return apiResponse.badRequest(res, 'mapping_id required');
       if (!groupId) return apiResponse.badRequest(res, 'group_id required');
       if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
-      await removeCoaMapping(mappingId);
+      await removeCoaMapping(mappingId, groupId);
       return apiResponse.success(res, { removed: true });
     }
 
