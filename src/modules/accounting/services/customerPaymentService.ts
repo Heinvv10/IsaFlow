@@ -309,7 +309,7 @@ export async function postCustomerInvoiceToGL(companyId: string, invoiceId: stri
     }, userId);
     await postJournalEntry(companyId, je.id, userId);
 
-    await sql`UPDATE customer_invoices SET gl_journal_entry_id = ${je.id}::UUID WHERE id = ${invoiceId}::UUID`;
+    await sql`UPDATE customer_invoices SET gl_journal_entry_id = ${je.id}::UUID WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID`;
 
     log.info('Posted customer invoice to GL', { invoiceId, journalEntryId: je.id }, 'accounting');
     return je.id;

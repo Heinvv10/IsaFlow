@@ -97,7 +97,7 @@ export async function createBatch(companyId: string,
     }
 
     await tx`
-      UPDATE supplier_payment_batches SET total_amount = ${totalAmount} WHERE id = ${id}
+      UPDATE supplier_payment_batches SET total_amount = ${totalAmount} WHERE id = ${id} AND company_id = ${companyId}::UUID
     `;
 
     return id;
