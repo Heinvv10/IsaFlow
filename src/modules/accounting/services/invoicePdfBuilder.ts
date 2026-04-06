@@ -5,7 +5,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { fmtZAR, fmtDate, TEAL, getCompanyDetailsFromCompany, renderPageFooters } from './pdfShared';
+import { fmtZAR, fmtDate, TEAL, getCompanyDetailsFromCompany, renderPageFooters, getLastAutoTableY } from './pdfShared';
 
 type Row = Record<string, unknown>;
 
@@ -156,8 +156,7 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
     margin: { left: MARGIN, right: MARGIN },
   });
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  y = (doc as any).lastAutoTable?.finalY || y + 40;
+  y = getLastAutoTableY(doc, y + 40);
   y += 6;
 
   // Totals section

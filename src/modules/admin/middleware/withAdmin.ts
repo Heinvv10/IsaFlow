@@ -42,10 +42,7 @@ export function withAdmin(
     }
     return handler(req as AuthenticatedNextApiRequest, res);
   };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const errorWrapped = withErrorHandler(rateLimitedHandler as any);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const roleWrapped = withRole('super_admin')(errorWrapped as any);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return withAuth(roleWrapped as any) as NextApiHandler;
+  const errorWrapped = withErrorHandler(rateLimitedHandler);
+  const roleWrapped = withRole('super_admin')(errorWrapped);
+  return withAuth(roleWrapped) as NextApiHandler;
 }

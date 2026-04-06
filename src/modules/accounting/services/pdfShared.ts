@@ -13,6 +13,12 @@ type Row = Record<string, unknown>;
 export const fmtZAR = (amount: number): string =>
   'R ' + Number(amount).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 
+/** Get the Y position after the last autoTable render (jspdf-autotable extension) */
+export function getLastAutoTableY(doc: unknown, fallback: number): number {
+  const d = doc as { lastAutoTable?: { finalY?: number } };
+  return d.lastAutoTable?.finalY ?? fallback;
+}
+
 export const fmtDate = (d: string | Date | null | undefined): string => {
   if (!d) return '—';
   const str = d instanceof Date ? d.toISOString() : String(d);
