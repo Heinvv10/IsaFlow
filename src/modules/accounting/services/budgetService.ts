@@ -35,7 +35,7 @@ export async function getBudgets(companyId: string, fiscalYear: number): Promise
   const rows = (await sql`
     SELECT b.*, ga.account_code, ga.account_name, ga.account_type
     FROM accounting_budgets b
-    JOIN gl_accounts ga ON ga.id = b.gl_account_id
+    JOIN gl_accounts ga ON ga.id = b.gl_account_id AND ga.company_id = ${companyId}::UUID
     WHERE b.fiscal_year = ${fiscalYear}
     ORDER BY ga.account_code
   `) as Row[];
@@ -68,11 +68,11 @@ export async function upsertBudget(companyId: string, input: BudgetInput, userId
     RETURNING *
   `) as Row[];
 
-  // Re-query with join
+  // Re-query with join — scoped to company
   const result = (await sql`
     SELECT b.*, ga.account_code, ga.account_name, ga.account_type
     FROM accounting_budgets b
-    JOIN gl_accounts ga ON ga.id = b.gl_account_id
+    JOIN gl_accounts ga ON ga.id = b.gl_account_id AND ga.company_id = ${companyId}::UUID
     WHERE b.id = ${rows[0]!.id}::UUID
   `) as Row[];
 

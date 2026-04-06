@@ -61,8 +61,8 @@ export async function saveDraftSubmission(
   log.info('Saving draft submission', { formType, periodStart, periodEnd }, 'sarsComplianceService');
 
   const rows = (await sql`
-    INSERT INTO sars_submissions (form_type, period_start, period_end, status, form_data, submitted_by)
-    VALUES (${formType}, ${periodStart}, ${periodEnd}, 'draft', ${JSON.stringify(formData)}::jsonb, ${userId})
+    INSERT INTO sars_submissions (company_id, form_type, period_start, period_end, status, form_data, submitted_by)
+    VALUES (${companyId}::UUID, ${formType}, ${periodStart}, ${periodEnd}, 'draft', ${JSON.stringify(formData)}::jsonb, ${userId})
     RETURNING *
   `) as Row[];
 
@@ -76,13 +76,14 @@ export async function listSubmissions(companyId: string,
   if (formType) {
     rows = (await sql`
       SELECT * FROM sars_submissions
-      WHERE form_type = ${formType}
+      WHERE company_id = ${companyId}::UUID AND form_type = ${formType}
       ORDER BY created_at DESC
       LIMIT 500
     `) as Row[];
   } else {
     rows = (await sql`
       SELECT * FROM sars_submissions
+      WHERE company_id = ${companyId}::UUID
       ORDER BY created_at DESC
       LIMIT 500
     `) as Row[];
@@ -92,7 +93,7 @@ export async function listSubmissions(companyId: string,
 
 export async function getSubmission(companyId: string, id: string): Promise<SARSSubmission | null> {
   const rows = (await sql`
-    SELECT * FROM sars_submissions WHERE id = ${id}
+    SELECT * FROM sars_submissions WHERE id = ${id} AND company_id = ${companyId}::UUID
   `) as Row[];
   if (rows.length === 0) return null;
   return mapSubmissionRow(rows[0]!);
@@ -110,7 +111,7 @@ export async function markSubmitted(companyId: string,
         submission_reference = ${reference},
         submitted_at = NOW(),
         updated_at = NOW()
-    WHERE id = ${id}
+    WHERE id = ${id} AND company_id = ${companyId}::UUID
     RETURNING *
   `) as Row[];
 
@@ -136,8 +137,9 @@ export async function getComplianceCalendarWithDB(companyId: string, year?: numb
         ce.id, ce.event_type, ce.due_date, ce.description,
         ce.status, ce.submission_id
       FROM sars_compliance_events ce
-      WHERE EXTRACT(YEAR FROM ce.due_date) = ${y}
-         OR EXTRACT(YEAR FROM ce.due_date) = ${y + 1}
+      WHERE ce.company_id = ${companyId}::UUID
+        AND (EXTRACT(YEAR FROM ce.due_date) = ${y}
+         OR EXTRACT(YEAR FROM ce.due_date) = ${y + 1})
       ORDER BY ce.due_date
     `) as Row[];
 
