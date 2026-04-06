@@ -188,7 +188,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       serialize(AUTH_COOKIE_NAME, finalToken, {
         httpOnly: true,
         secure: true,
-        sameSite: 'lax',
+        sameSite: 'strict',
         path: '/',
         maxAge: 8 * 60 * 60,
         ...(isProd ? { domain: '.isaflow.co.za' } : {}),
