@@ -5,7 +5,6 @@
  */
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/router';
 import { apiFetch } from '@/lib/apiFetch';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { formatCurrency } from '@/utils/formatters';
@@ -67,7 +66,6 @@ function getDefaultPeriod(): { start: string; end: string } {
 }
 
 export default function NewPayrollRunPage() {
-  const router = useRouter();
   const defaultPeriod = getDefaultPeriod();
 
   const [periodStart, setPeriodStart] = useState(defaultPeriod.start);

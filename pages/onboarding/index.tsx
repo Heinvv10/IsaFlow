@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import {
-  type WizardData, INITIAL_WIZARD, MONTHS, DOC_SLOTS,
+  type WizardData, INITIAL_WIZARD,
   Step1, Step2, Step3, Step4, Step5, Step6, Step7,
 } from '@/components/onboarding/WizardSteps';
 import { SmartSetupChoice } from '@/components/onboarding/SmartSetupChoice';

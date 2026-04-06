@@ -18,7 +18,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'POST') {
     try {
-      const temporaryPassword = await resetPassword(userId);
+      await resetPassword(userId);
 
       await logAdminAction(
         req.user.id,

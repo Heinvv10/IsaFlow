@@ -168,11 +168,9 @@ export function mergeCategorizationResults(results: CategorizationResult[]): Cat
   }
 
   // Find the account code with most agreement
-  let bestCode = '';
   let bestResults: CategorizationResult[] = [];
-  for (const [code, group] of accountCounts) {
+  for (const [, group] of accountCounts) {
     if (group.length > bestResults.length || (group.length === bestResults.length && Math.max(...group.map(r => r.confidence)) > Math.max(...bestResults.map(r => r.confidence)))) {
-      bestCode = code;
       bestResults = group;
     }
   }
