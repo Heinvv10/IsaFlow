@@ -111,7 +111,7 @@ export async function approveAdjustment(companyId: string, id: string, userId: s
           description: `Adjustment ${adj.adjustment_number}` },
       ];
 
-  const je = await createJournalEntry('', {
+  const je = await createJournalEntry(companyId, {
     entryDate: String(adj.adjustment_date),
     description: `${isCustomer ? 'Customer' : 'Supplier'} adjustment ${adj.adjustment_number}`,
     source: 'auto_adjustment',

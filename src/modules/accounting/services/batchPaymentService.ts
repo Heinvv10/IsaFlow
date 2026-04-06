@@ -134,7 +134,7 @@ export async function processBatch(companyId: string, id: string, userId: string
       description: `Batch payment ${batch.batchNumber}` },
   ];
 
-  const je = await createJournalEntry('', {
+  const je = await createJournalEntry(companyId, {
     entryDate: batch.batchDate,
     description: `Supplier batch payment ${batch.batchNumber}`,
     source: 'auto_batch_payment',

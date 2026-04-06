@@ -84,7 +84,7 @@ export async function generateJournalFromRecurring(companyId: string,
 
   const lines: JournalLineInput[] = Array.isArray(rj.lines) ? rj.lines as JournalLineInput[] : JSON.parse(typeof rj.lines === 'string' ? rj.lines : '[]');
 
-  const je = await createJournalEntry('', {
+  const je = await createJournalEntry(companyId, {
     entryDate: new Date().toISOString().split('T')[0]!,
     description: rj.description ? String(rj.description) : String(rj.template_name),
     source: 'auto_recurring',

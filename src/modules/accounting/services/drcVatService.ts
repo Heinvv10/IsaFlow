@@ -77,7 +77,7 @@ export async function applyDRCVat(companyId: string,
     { glAccountId: String(outputVatId), debit: 0, credit: vatAmount, description },
   ];
 
-  const je = await createJournalEntry('', {
+  const je = await createJournalEntry(companyId, {
     entryDate: new Date().toISOString().split('T')[0] ?? '',
     description,
     source: 'auto_vat_adjustment',

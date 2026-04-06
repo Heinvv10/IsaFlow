@@ -154,7 +154,7 @@ export async function approveCreditNote(companyId: string, id: string, userId: s
         description: `Expense credit: ${cn.credit_note_number}` });
     }
 
-    const je = await createJournalEntry('', {
+    const je = await createJournalEntry(companyId, {
       entryDate: String(cn.credit_date),
       description: `Credit note ${cn.credit_note_number}`,
       source: 'auto_credit_note',
