@@ -203,16 +203,15 @@ export async function autoMatchTransactions(
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 export async function updateReconciledBalance(reconciliationId: string): Promise<void> {
-  const sumRows = (await sql`
-    SELECT COALESCE(SUM(amount), 0) AS matched_total FROM bank_transactions
-    WHERE reconciliation_id = ${reconciliationId}::UUID AND status IN ('matched', 'reconciled')`) as Row[];
-  const reconRows = (await sql`
-    SELECT gl_balance FROM bank_reconciliations WHERE id = ${reconciliationId}::UUID`) as Row[];
-  if (reconRows.length > 0) {
-    const reconciledBalance = Number(reconRows[0]!.gl_balance) + Number(sumRows[0]!.matched_total);
-    await sql`UPDATE bank_reconciliations SET reconciled_balance = ${reconciledBalance}
-      WHERE id = ${reconciliationId}::UUID`;
-  }
+  // Single atomic UPDATE — avoids race condition from read-then-write pattern
+  await sql`
+    UPDATE bank_reconciliations
+    SET reconciled_balance = gl_balance + COALESCE((
+      SELECT SUM(amount) FROM bank_transactions
+      WHERE reconciliation_id = ${reconciliationId}::UUID AND status IN ('matched', 'reconciled')
+    ), 0)
+    WHERE id = ${reconciliationId}::UUID
+  `;
 }
 
 function mapReconRow(row: Row): BankReconciliation {
