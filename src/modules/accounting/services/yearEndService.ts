@@ -4,7 +4,7 @@
  * create closing journal entry, lock periods.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -170,59 +170,64 @@ export async function closeFiscalYear(
   const totalDebit  = totalRevenue  + (netIncome < 0 ? Math.abs(netIncome) : 0);
   const totalCredit = totalExpenses + (netIncome >= 0 ? netIncome : 0);
 
-  const closingRows = await sql`
-    INSERT INTO gl_journal_entries (
-      id, company_id, entry_number, entry_date, description,
-      source, status, total_debit, total_credit, created_by, created_at
-    ) VALUES (
-      gen_random_uuid(),
-      ${companyId},
-      ${'YE-' + yearLabel},
-      ${yearRange.end_date},
-      ${'Year-End Closing: ' + yearLabel},
-      'year_end', 'posted',
-      ${totalDebit}, ${totalCredit},
-      ${userId}, NOW()
-    )
-    RETURNING *
-  `;
-  const closingEntry = closingRows[0];
-  if (!closingEntry) throw new Error('Failed to create closing journal entry');
-
-  // 7. DR revenue accounts (zero them out)
-  for (const rev of revenueAccounts) {
-    await sql`
-      INSERT INTO gl_journal_lines (id, journal_entry_id, gl_account_id, debit, credit, description, created_at)
-      VALUES (gen_random_uuid(), ${closingEntry.id}, ${rev.id}, ${Number(rev.balance)}, 0, 'Year-end close', NOW())
+  // Steps 6-10 wrapped in transaction for atomicity — partial year-end close is unrecoverable
+  const closingEntry = await withTransaction(async (tx) => {
+    const closingRows = await tx`
+      INSERT INTO gl_journal_entries (
+        id, company_id, entry_number, entry_date, description,
+        source, status, total_debit, total_credit, created_by, created_at
+      ) VALUES (
+        gen_random_uuid(),
+        ${companyId},
+        ${'YE-' + yearLabel},
+        ${yearRange.end_date},
+        ${'Year-End Closing: ' + yearLabel},
+        'year_end', 'posted',
+        ${totalDebit}, ${totalCredit},
+        ${userId}, NOW()
+      )
+      RETURNING *
     `;
-  }
+    const closingEntry = (closingRows as Record<string, unknown>[])[0];
+    if (!closingEntry) throw new Error('Failed to create closing journal entry');
 
-  // 8. CR expense accounts (zero them out)
-  for (const exp of expenseAccounts) {
-    await sql`
-      INSERT INTO gl_journal_lines (id, journal_entry_id, gl_account_id, debit, credit, description, created_at)
-      VALUES (gen_random_uuid(), ${closingEntry.id}, ${exp.id}, 0, ${Number(exp.balance)}, 'Year-end close', NOW())
-    `;
-  }
+    // 7. DR revenue accounts (zero them out)
+    for (const rev of revenueAccounts) {
+      await tx`
+        INSERT INTO gl_journal_lines (id, journal_entry_id, gl_account_id, debit, credit, description, created_at)
+        VALUES (gen_random_uuid(), ${closingEntry.id}, ${rev.id}, ${Number(rev.balance)}, 0, 'Year-end close', NOW())
+      `;
+    }
 
-  // 9. Net income → retained earnings
-  if (netIncome >= 0) {
-    await sql`
-      INSERT INTO gl_journal_lines (id, journal_entry_id, gl_account_id, debit, credit, description, created_at)
-      VALUES (gen_random_uuid(), ${closingEntry.id}, ${retainedEarningsId}, 0, ${netIncome}, 'Net income to retained earnings', NOW())
-    `;
-  } else {
-    await sql`
-      INSERT INTO gl_journal_lines (id, journal_entry_id, gl_account_id, debit, credit, description, created_at)
-      VALUES (gen_random_uuid(), ${closingEntry.id}, ${retainedEarningsId}, ${Math.abs(netIncome)}, 0, 'Net loss to retained earnings', NOW())
-    `;
-  }
+    // 8. CR expense accounts (zero them out)
+    for (const exp of expenseAccounts) {
+      await tx`
+        INSERT INTO gl_journal_lines (id, journal_entry_id, gl_account_id, debit, credit, description, created_at)
+        VALUES (gen_random_uuid(), ${closingEntry.id}, ${exp.id}, 0, ${Number(exp.balance)}, 'Year-end close', NOW())
+      `;
+    }
 
-  // 10. Lock all periods
-  await sql`
-    UPDATE fiscal_periods SET status = 'locked'
-    WHERE fiscal_year = ${yearLabel} AND company_id = ${companyId}
-  `;
+    // 9. Net income → retained earnings
+    if (netIncome >= 0) {
+      await tx`
+        INSERT INTO gl_journal_lines (id, journal_entry_id, gl_account_id, debit, credit, description, created_at)
+        VALUES (gen_random_uuid(), ${closingEntry.id}, ${retainedEarningsId}, 0, ${netIncome}, 'Net income to retained earnings', NOW())
+      `;
+    } else {
+      await tx`
+        INSERT INTO gl_journal_lines (id, journal_entry_id, gl_account_id, debit, credit, description, created_at)
+        VALUES (gen_random_uuid(), ${closingEntry.id}, ${retainedEarningsId}, ${Math.abs(netIncome)}, 0, 'Net loss to retained earnings', NOW())
+      `;
+    }
+
+    // 10. Lock all periods
+    await tx`
+      UPDATE fiscal_periods SET status = 'locked'
+      WHERE fiscal_year = ${yearLabel} AND company_id = ${companyId}
+    `;
+
+    return closingEntry;
+  });
 
   log.info('Year-end processed', {
     year: yearLabel,
