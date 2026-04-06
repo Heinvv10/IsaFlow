@@ -48,7 +48,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     await sql`
       UPDATE fleet_fuel_transactions
       SET bank_transaction_id = ${bankTransactionId}::UUID
-      WHERE id = ${fleetEntityId}::UUID
+      WHERE id = ${fleetEntityId}::UUID AND company_id = ${companyId}::UUID
     `;
 
     await sql`
@@ -73,7 +73,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   await sql`
     UPDATE fleet_service_history
     SET bank_transaction_id = ${bankTransactionId}::UUID
-    WHERE id = ${fleetEntityId}::UUID
+    WHERE id = ${fleetEntityId}::UUID AND company_id = ${companyId}::UUID
   `;
 
   await sql`

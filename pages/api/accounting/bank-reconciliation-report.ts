@@ -55,7 +55,7 @@ async function fetchLatestBatch(companyId: string, bankAccountId: string): Promi
   const rows = (await sql`
     SELECT opening_balance, closing_balance, statement_date
     FROM bank_import_batches
-    WHERE bank_account_id = ${bankAccountId}::UUID
+    WHERE bank_account_id = ${bankAccountId}::UUID AND company_id = ${companyId}::UUID
     ORDER BY created_at DESC
     LIMIT 1
   `) as BatchRow[];
