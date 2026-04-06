@@ -49,6 +49,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.validationError(res, { balances: 'Array of {accountId, debit, credit} required' });
     }
 
+    // Validate amounts are valid numbers
+    for (const b of balances) {
+      const debit = Number(b.debit || 0);
+      const credit = Number(b.credit || 0);
+      if (isNaN(debit) || isNaN(credit) || debit < 0 || credit < 0) {
+        return apiResponse.badRequest(res, `Invalid amount for account ${b.accountId}: debit and credit must be non-negative numbers`);
+      }
+    }
+
     // Validate DR = CR
     const totalDebit = balances.reduce((sum: number, b: { debit: number }) => sum + Number(b.debit || 0), 0);
     const totalCredit = balances.reduce((sum: number, b: { credit: number }) => sum + Number(b.credit || 0), 0);
