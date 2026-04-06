@@ -115,6 +115,7 @@ export async function createPayrollRun(
       FROM payslips ps
       JOIN payroll_runs pr ON pr.id = ps.payroll_run_id
       WHERE ps.employee_id = ANY(${empIds}::UUID[])
+        AND pr.company_id = ${companyId}::UUID
         AND pr.status IN ('draft','completed')
         AND pr.period_start >= DATE_TRUNC('year', ${periodStart}::DATE + INTERVAL '2 months') - INTERVAL '2 months'
       GROUP BY ps.employee_id
@@ -252,7 +253,7 @@ export async function completePayrollRun(
 
     const updatedRows = (await sql`
       UPDATE payroll_runs SET status='completed', journal_entry_id=${journalEntry.id}::UUID
-      WHERE id = ${runId} RETURNING *
+      WHERE id = ${runId} AND company_id = ${companyId}::UUID RETURNING *
     `) as Row[];
 
     log.info('Payroll run completed', { runId, journalEntryId: journalEntry.id }, 'payroll');
@@ -281,7 +282,7 @@ export async function reversePayrollRun(
     }
 
     const updatedRows = (await sql`
-      UPDATE payroll_runs SET status='reversed' WHERE id = ${runId} RETURNING *
+      UPDATE payroll_runs SET status='reversed' WHERE id = ${runId} AND company_id = ${companyId}::UUID RETURNING *
     `) as Row[];
 
     log.info('Payroll run reversed', { runId }, 'payroll');
