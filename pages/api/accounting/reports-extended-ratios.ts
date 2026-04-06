@@ -27,43 +27,39 @@ async function buildFinancialData(companyId: string, from: string, to: string): 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   type Row = Record<string, any>;
 
-  // Revenue & expense totals from journal lines
-  const [totals] = (await sql`
-    SELECT
-      COALESCE(SUM(CASE WHEN ga.account_code LIKE '4%' THEN jl.credit - jl.debit ELSE 0 END), 0) as revenue,
-      COALESCE(SUM(CASE WHEN ga.account_code LIKE '5%' AND ga.account_code < '5200' THEN jl.debit - jl.credit ELSE 0 END), 0) as cost_of_sales,
-      COALESCE(SUM(CASE WHEN ga.account_code >= '5200' THEN jl.debit - jl.credit ELSE 0 END), 0) as operating_expenses,
-      COALESCE(SUM(CASE WHEN ga.account_code = '5800' THEN jl.debit - jl.credit ELSE 0 END), 0) as depreciation
-    FROM gl_journal_lines jl
-    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-    WHERE je.company_id = ${companyId} AND je.status = 'posted'
-      AND je.entry_date >= ${from}::date AND je.entry_date <= ${to}::date
-  `) as Row[];
-
-  // Balance sheet from cumulative journal lines up to 'to' date
-  const [balances] = (await sql`
-    SELECT
-      COALESCE(SUM(CASE WHEN ga.account_code LIKE '1%' THEN jl.debit - jl.credit ELSE 0 END), 0) as total_assets,
-      COALESCE(SUM(CASE WHEN ga.account_code LIKE '2%' THEN jl.credit - jl.debit ELSE 0 END), 0) as total_liabilities,
-      COALESCE(SUM(CASE WHEN ga.account_code LIKE '3%' THEN jl.credit - jl.debit ELSE 0 END), 0) as total_equity,
-      COALESCE(SUM(CASE WHEN ga.account_code >= '1100' AND ga.account_code < '1200' THEN jl.debit - jl.credit ELSE 0 END), 0) as current_assets,
-      COALESCE(SUM(CASE WHEN ga.account_code >= '2100' AND ga.account_code < '2200' THEN jl.credit - jl.debit ELSE 0 END), 0) as current_liabilities,
-      COALESCE(SUM(CASE WHEN ga.account_code = '1110' THEN jl.debit - jl.credit ELSE 0 END), 0) as cash,
-      COALESCE(SUM(CASE WHEN ga.account_code = '1120' THEN jl.debit - jl.credit ELSE 0 END), 0) as accounts_receivable,
-      COALESCE(SUM(CASE WHEN ga.account_code = '2110' THEN jl.credit - jl.debit ELSE 0 END), 0) as accounts_payable,
-      COALESCE(SUM(CASE WHEN ga.account_code = '1130' THEN jl.debit - jl.credit ELSE 0 END), 0) as inventory
-    FROM gl_journal_lines jl
-    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-    WHERE je.company_id = ${companyId} AND je.status = 'posted'
-      AND je.entry_date <= ${to}::date
-  `) as Row[];
-
-  // Employee count
-  const [empCount] = (await sql`
-    SELECT COUNT(*)::int as count FROM employees WHERE company_id = ${companyId} AND status = 'active'
-  `) as Row[];
+  // Revenue, balance sheet, and employee count — parallel
+  const [[totals], [balances], [empCount]] = await Promise.all([
+    sql`
+      SELECT
+        COALESCE(SUM(CASE WHEN ga.account_code LIKE '4%' THEN jl.credit - jl.debit ELSE 0 END), 0) as revenue,
+        COALESCE(SUM(CASE WHEN ga.account_code LIKE '5%' AND ga.account_code < '5200' THEN jl.debit - jl.credit ELSE 0 END), 0) as cost_of_sales,
+        COALESCE(SUM(CASE WHEN ga.account_code >= '5200' THEN jl.debit - jl.credit ELSE 0 END), 0) as operating_expenses,
+        COALESCE(SUM(CASE WHEN ga.account_code = '5800' THEN jl.debit - jl.credit ELSE 0 END), 0) as depreciation
+      FROM gl_journal_lines jl
+      JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+      JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+      WHERE je.company_id = ${companyId} AND je.status = 'posted'
+        AND je.entry_date >= ${from}::date AND je.entry_date <= ${to}::date
+    ` as Promise<Row[]>,
+    sql`
+      SELECT
+        COALESCE(SUM(CASE WHEN ga.account_code LIKE '1%' THEN jl.debit - jl.credit ELSE 0 END), 0) as total_assets,
+        COALESCE(SUM(CASE WHEN ga.account_code LIKE '2%' THEN jl.credit - jl.debit ELSE 0 END), 0) as total_liabilities,
+        COALESCE(SUM(CASE WHEN ga.account_code LIKE '3%' THEN jl.credit - jl.debit ELSE 0 END), 0) as total_equity,
+        COALESCE(SUM(CASE WHEN ga.account_code >= '1100' AND ga.account_code < '1200' THEN jl.debit - jl.credit ELSE 0 END), 0) as current_assets,
+        COALESCE(SUM(CASE WHEN ga.account_code >= '2100' AND ga.account_code < '2200' THEN jl.credit - jl.debit ELSE 0 END), 0) as current_liabilities,
+        COALESCE(SUM(CASE WHEN ga.account_code = '1110' THEN jl.debit - jl.credit ELSE 0 END), 0) as cash,
+        COALESCE(SUM(CASE WHEN ga.account_code = '1120' THEN jl.debit - jl.credit ELSE 0 END), 0) as accounts_receivable,
+        COALESCE(SUM(CASE WHEN ga.account_code = '2110' THEN jl.credit - jl.debit ELSE 0 END), 0) as accounts_payable,
+        COALESCE(SUM(CASE WHEN ga.account_code = '1130' THEN jl.debit - jl.credit ELSE 0 END), 0) as inventory
+      FROM gl_journal_lines jl
+      JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+      JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+      WHERE je.company_id = ${companyId} AND je.status = 'posted'
+        AND je.entry_date <= ${to}::date
+    ` as Promise<Row[]>,
+    sql`SELECT COUNT(*)::int as count FROM employees WHERE company_id = ${companyId} AND status = 'active'` as Promise<Row[]>,
+  ]);
 
   const revenue = parseFloat(totals?.revenue || '0');
   const costOfSales = parseFloat(totals?.cost_of_sales || '0');
