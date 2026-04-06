@@ -9,6 +9,7 @@ import { withCompany, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { checkRateLimit } from '@/lib/rateLimit';
+import type { CompanyApiRequest } from '@/lib/auth/withCompany';
 import {
   buildCategorizationPrompt,
   parseCategorizationResponse,
@@ -30,10 +31,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return res.status(429).json({ success: false, error: 'Rate limit exceeded' });
   }
 
-  const { transactionId, description, amount, date } = req.body;
+  const { description, amount, date } = req.body;
   if (!description) return apiResponse.badRequest(res, 'Transaction description is required');
 
-  const companyId = (req as any).companyId as string;
+  const companyId = (req as CompanyApiRequest).companyId;
   const isDebit = Number(amount || 0) < 0;
 
   const tx: TransactionContext = {
@@ -141,7 +142,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         clearTimeout(timeoutId);
 
         if (response.ok) {
-          const data = await response.json() as any;
+          const data = await response.json() as { content?: { text?: string }[] };
           const text = data.content?.[0]?.text || '';
           const llmResult = parseCategorizationResponse(text);
           if (llmResult) {

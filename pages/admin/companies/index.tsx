@@ -4,20 +4,23 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useRouter } from 'next/router';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { apiFetch } from '@/lib/apiFetch';
+import { formatCurrency, formatDate } from '@/utils/formatters';
+import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { Search, AlertCircle, Loader2, ChevronLeft, ChevronRight, ChevronsUpDown } from 'lucide-react';
 
 interface Company {
   id: string;
   name: string;
-  plan: string;
+  trading_name: string | null;
+  plan_name: string;
+  plan_code: string;
   status: 'trial' | 'active' | 'suspended' | 'cancelled';
-  userCount: number;
-  mrrCents: number;
-  createdAt: string;
-  lastActiveAt: string | null;
+  user_count: number;
+  mrr_cents: number;
+  created_at: string;
+  last_active: string | null;
 }
 
 interface PagedResponse {
@@ -34,19 +37,10 @@ const STATUS_BADGE: Record<string, string> = {
   cancelled: 'bg-gray-500/10 text-gray-500',
 };
 
-type SortField = 'name' | 'plan' | 'status' | 'userCount' | 'mrrCents' | 'createdAt' | 'lastActiveAt';
-
-function fmtZAR(cents: number) {
-  return (cents / 100).toLocaleString('en-ZA', { style: 'currency', currency: 'ZAR' });
-}
-
-function fmtDate(d: string | null) {
-  if (!d) return '—';
-  return new Date(d).toLocaleDateString('en-ZA');
-}
+type SortField = 'name' | 'plan_name' | 'status' | 'user_count' | 'mrr_cents' | 'created_at' | 'last_active';
 
 export default function AdminCompaniesPage() {
-  const router = useRouter();
+  const adminHref = useAdminHref();
 
   const [rows, setRows]         = useState<Company[]>([]);
   const [total, setTotal]       = useState(0);
@@ -55,7 +49,7 @@ export default function AdminCompaniesPage() {
   const [error, setError]       = useState('');
   const [search, setSearch]     = useState('');
   const [status, setStatus]     = useState('');
-  const [sortBy, setSortBy]     = useState<SortField>('createdAt');
+  const [sortBy, setSortBy]     = useState<SortField>('created_at');
   const [sortDir, setSortDir]   = useState<'asc' | 'desc'>('desc');
 
   const LIMIT = 25;
@@ -66,10 +60,10 @@ export default function AdminCompaniesPage() {
     setError('');
     try {
       const params = new URLSearchParams({
-        page:    String(pg),
-        limit:   String(LIMIT),
-        sortBy:  sb,
-        sortDir: sd,
+        page:     String(pg),
+        limit:    String(LIMIT),
+        sort_by:  sb,
+        sort_dir: sd,
       });
       if (q)  params.set('search', q);
       if (st) params.set('status', st);
@@ -124,7 +118,7 @@ export default function AdminCompaniesPage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
             type="text"
-            placeholder="Search companies…"
+            placeholder="Search companies..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500"
@@ -160,12 +154,12 @@ export default function AdminCompaniesPage() {
               <tr className="text-left text-xs text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
                 {([
                   ['name',         'Name'],
-                  ['plan',         'Plan'],
+                  ['plan_name',    'Plan'],
                   ['status',       'Status'],
-                  ['userCount',    'Users'],
-                  ['mrrCents',     'MRR'],
-                  ['createdAt',    'Created'],
-                  ['lastActiveAt', 'Last Active'],
+                  ['user_count',   'Users'],
+                  ['mrr_cents',    'MRR'],
+                  ['created_at',   'Created'],
+                  ['last_active',  'Last Active'],
                 ] as [SortField, string][]).map(([field, label]) => (
                   <th
                     key={field}
@@ -196,19 +190,19 @@ export default function AdminCompaniesPage() {
                 <tr
                   key={c.id}
                   className="border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800/40 cursor-pointer transition-colors"
-                  onClick={() => void router.push(`/admin/companies/${c.id}`)}
+                  onClick={() => { window.location.href = adminHref(`/admin/companies/${c.id}`); }}
                 >
                   <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{c.name}</td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300 capitalize">{c.plan}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300 capitalize">{c.plan_name}</td>
                   <td className="px-4 py-3">
                     <span className={`px-2 py-0.5 rounded text-xs font-medium capitalize ${STATUS_BADGE[c.status] ?? ''}`}>
                       {c.status}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{c.userCount}</td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300 font-mono text-xs">{fmtZAR(c.mrrCents)}</td>
-                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{fmtDate(c.createdAt)}</td>
-                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{fmtDate(c.lastActiveAt)}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{c.user_count}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300 font-mono text-xs">{formatCurrency(c.mrr_cents / 100)}</td>
+                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(c.created_at)}</td>
+                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(c.last_active)}</td>
                 </tr>
               ))}
             </tbody>

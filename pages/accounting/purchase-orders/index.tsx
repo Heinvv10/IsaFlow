@@ -4,7 +4,7 @@
  */
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { ShoppingCart, Loader2, Plus, Search } from 'lucide-react';
+import { ShoppingCart, Loader2, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { apiFetch } from '@/lib/apiFetch';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';

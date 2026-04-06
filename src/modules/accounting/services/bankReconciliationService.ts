@@ -7,7 +7,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { runAutoMatch } from '../utils/autoMatch';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
-import { matchTransaction, mapTxRow, fmtDate } from './bankTransactionQueryService';
+import { matchTransaction, fmtDate } from './bankTransactionQueryService';
 import type { BankReconciliation, AutoMatchResult } from '../types/bank.types';
 import type { JournalLineInput } from '../types/gl.types';
 

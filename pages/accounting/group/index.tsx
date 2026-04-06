@@ -11,7 +11,7 @@ import { log } from '@/lib/logger';
 import {
   Building2, ChevronDown, Plus, Loader2, AlertCircle,
   TrendingUp, DollarSign, Landmark, CreditCard, ArrowRight,
-  Settings, Scale, FileSpreadsheet, BarChart3, Layers, FileText, RefreshCw,
+  Settings, Scale, FileSpreadsheet, Layers, FileText, RefreshCw,
 } from 'lucide-react';
 import { GroupEntityTable } from '@/components/accounting/group/GroupEntityTable';
 
@@ -65,7 +65,7 @@ export default function GroupDashboardPage() {
     } finally { setLoadingGroups(false); }
   }, [selectedGroupId]);
 
-  useEffect(() => { void loadGroups(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  useEffect(() => { void loadGroups();   }, []);
 
   const loadDashboard = useCallback(async (groupId: string) => {
     setLoadingDash(true); setError(null);

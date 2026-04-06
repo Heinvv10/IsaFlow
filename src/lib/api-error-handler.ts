@@ -1,4 +1,4 @@
-import { NextApiRequest, NextApiResponse } from 'next';
+import type { NextApiHandler, NextApiRequest, NextApiResponse } from 'next';
 import { apiLogger } from '@/lib/logger';
 
 const SENSITIVE_KEYS = new Set(['password', 'confirmPassword', 'password_hash', 'token', 'secret', 'apiKey', 'api_key']);
@@ -42,14 +42,12 @@ export type ApiResponse<T = unknown> = ApiSuccessResponse<T> | ApiErrorResponse;
  * The handler's res parameter is typed as NextApiResponse<any> so callers that
  * declare `res: NextApiResponse` (without a type argument) are assignable.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function withErrorHandler<R extends NextApiRequest = NextApiRequest>(
+ 
+export function withErrorHandler(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  handler: (req: R, res: NextApiResponse<any>) => unknown
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-): (req: R, res: NextApiResponse<any>) => Promise<void | NextApiResponse<any>> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return async (req: R, res: NextApiResponse<any>) => {
+  handler: (req: any, res: NextApiResponse<any>) => unknown
+): NextApiHandler {
+  return async (req: NextApiRequest, res: NextApiResponse) => {
     const startTime = Date.now();
 
     try {

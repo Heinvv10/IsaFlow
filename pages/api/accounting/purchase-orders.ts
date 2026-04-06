@@ -8,11 +8,12 @@ import { withCompany, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { validatePurchaseOrder, calculatePOTotals, generatePONumber } from '@/modules/accounting/services/procurementService';
+import type { CompanyApiRequest } from '@/lib/auth/withCompany';
 
 type Row = Record<string, unknown>;
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const companyId = (req as any).companyId as string;
+  const companyId = (req as CompanyApiRequest).companyId;
 
   if (req.method === 'GET') {
     const { status, supplierId } = req.query;
@@ -34,7 +35,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     const totals = calculatePOTotals(body.items);
     const countRes = await sql`SELECT COUNT(*) as cnt FROM purchase_orders WHERE company_id = ${companyId}::UUID` as Row[];
-    const poNumber = generatePONumber(Number((countRes[0] as any)?.cnt || 0));
+    const poNumber = generatePONumber(Number(countRes[0]?.cnt ?? 0));
 
     const inserted = await sql`
       INSERT INTO purchase_orders (company_id, po_number, supplier_id, order_date, expected_delivery_date, subtotal, tax_amount, total, notes, reference, created_by)

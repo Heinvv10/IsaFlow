@@ -51,7 +51,8 @@ async function buildFinancialData(companyId: string, from: string, to: string): 
       COALESCE(SUM(CASE WHEN ga.account_code >= '2100' AND ga.account_code < '2200' THEN jl.credit - jl.debit ELSE 0 END), 0) as current_liabilities,
       COALESCE(SUM(CASE WHEN ga.account_code = '1110' THEN jl.debit - jl.credit ELSE 0 END), 0) as cash,
       COALESCE(SUM(CASE WHEN ga.account_code = '1120' THEN jl.debit - jl.credit ELSE 0 END), 0) as accounts_receivable,
-      COALESCE(SUM(CASE WHEN ga.account_code = '2110' THEN jl.credit - jl.debit ELSE 0 END), 0) as accounts_payable
+      COALESCE(SUM(CASE WHEN ga.account_code = '2110' THEN jl.credit - jl.debit ELSE 0 END), 0) as accounts_payable,
+      COALESCE(SUM(CASE WHEN ga.account_code = '1130' THEN jl.debit - jl.credit ELSE 0 END), 0) as inventory
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id
@@ -79,7 +80,7 @@ async function buildFinancialData(companyId: string, from: string, to: string): 
     totalEquity: parseFloat(balances?.total_equity || '0') + netProfit,
     currentAssets: parseFloat(balances?.current_assets || '0'),
     currentLiabilities: parseFloat(balances?.current_liabilities || '0'),
-    inventory: 0,
+    inventory: parseFloat(balances?.inventory || '0'),
     accountsReceivable: parseFloat(balances?.accounts_receivable || '0'),
     accountsPayable: parseFloat(balances?.accounts_payable || '0'),
     cash: parseFloat(balances?.cash || '0'),
@@ -88,5 +89,5 @@ async function buildFinancialData(companyId: string, from: string, to: string): 
   };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export default withCompany(withErrorHandler(handler));

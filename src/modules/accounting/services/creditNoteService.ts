@@ -6,7 +6,7 @@
 import { sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from './journalEntryService';
-import { getSystemAccount, getSystemAccountId } from './systemAccountResolver';
+import { getSystemAccount } from './systemAccountResolver';
 import type { CreditNote, CreditNoteCreateInput, CreditNoteStatus } from '../types/ar.types';
 import type { JournalLineInput } from '../types/gl.types';
 

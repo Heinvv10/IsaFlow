@@ -4,20 +4,24 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useRouter } from 'next/router';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { apiFetch } from '@/lib/apiFetch';
+import { formatDate } from '@/utils/formatters';
+import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { Search, AlertCircle, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface AdminUser {
   id: string;
-  name: string;
   email: string;
+  first_name: string;
+  last_name: string;
   role: string;
-  companyCount: number;
-  lastLoginAt: string | null;
   status: 'active' | 'suspended' | 'inactive';
-  createdAt: string;
+  company_count: number;
+  company_names: string | null;
+  last_login: string | null;
+  login_count: number;
+  created_at: string;
 }
 
 interface PagedResponse {
@@ -35,15 +39,10 @@ const STATUS_BADGE: Record<string, string> = {
 
 const ROLES = ['super_admin', 'admin', 'manager', 'storeman', 'technician', 'viewer'];
 
-function fmtDate(d: string | null) {
-  if (!d) return '—';
-  return new Date(d).toLocaleDateString('en-ZA');
-}
-
 const LIMIT = 25;
 
 export default function AdminUsersPage() {
-  const router = useRouter();
+  const adminHref = useAdminHref();
 
   const [rows, setRows]       = useState<AdminUser[]>([]);
   const [total, setTotal]     = useState(0);
@@ -100,7 +99,7 @@ export default function AdminUsersPage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
             type="text"
-            placeholder="Search name or email…"
+            placeholder="Search name or email..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500"
@@ -165,19 +164,19 @@ export default function AdminUsersPage() {
                 <tr
                   key={u.id}
                   className="border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800/40 cursor-pointer transition-colors"
-                  onClick={() => void router.push(`/admin/users/${u.id}`)}
+                  onClick={() => { window.location.href = adminHref(`/admin/users/${u.id}`); }}
                 >
-                  <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{u.name}</td>
+                  <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{u.first_name} {u.last_name}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{u.email}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-300 capitalize">{u.role}</td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{u.companyCount}</td>
-                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{fmtDate(u.lastLoginAt)}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{u.company_count}</td>
+                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(u.last_login)}</td>
                   <td className="px-4 py-3">
                     <span className={`px-2 py-0.5 rounded text-xs font-medium capitalize ${STATUS_BADGE[u.status] ?? ''}`}>
                       {u.status}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{fmtDate(u.createdAt)}</td>
+                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(u.created_at)}</td>
                 </tr>
               ))}
             </tbody>

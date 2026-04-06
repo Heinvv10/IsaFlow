@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { AlertTriangle, Loader2, AlertCircle, Send, FileText, Clock, CheckCircle, Plus } from 'lucide-react';
+import { AlertTriangle, Loader2, AlertCircle, Send, Clock, CheckCircle } from 'lucide-react';
 import { log } from '@/lib/logger';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';

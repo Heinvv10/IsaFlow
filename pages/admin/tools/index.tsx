@@ -5,13 +5,15 @@
 
 import Link from 'next/link';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { Megaphone, Download, UserCog, Zap, ExternalLink } from 'lucide-react';
+import { useAdminHref } from '@/hooks/useAdminPrefix';
+import { Megaphone, Download, UserCog, Zap, Database } from 'lucide-react';
 
 interface ToolCard {
   icon: React.ComponentType<{ className?: string }>;
   title: string;
   description: string;
-  action: { label: string; href: string; external?: boolean } | null;
+  /** relative admin path (e.g. '/admin/tools/announcements') or null */
+  adminHref: string | null;
   note?: string;
 }
 
@@ -21,39 +23,43 @@ const TOOLS: ToolCard[] = [
     title: 'Announcements',
     description:
       'Create and manage platform-wide announcements. Target all users, specific plans, or individual companies. Schedule start/end times and mark messages as dismissible.',
-    action: { label: 'Manage Announcements', href: '/admin/tools/announcements' },
+    adminHref: '/admin/tools/announcements',
   },
   {
     icon: Download,
     title: 'Data Export',
     description:
       'Export all accounting data for any company as a structured JSON file. Includes chart of accounts, customers, suppliers, invoices, journal entries, and bank transactions.',
-    action: null,
-    note: 'Navigate to Company Detail → click "Export Data" button to download.',
+    adminHref: null,
+    note: 'Navigate to Company Detail then click "Export Data" button to download.',
   },
   {
     icon: UserCog,
     title: 'Impersonation',
     description:
       'View the application as a specific company for debugging and support. Generates a 30-minute impersonation token that switches company context in the customer app.',
-    action: null,
-    note: 'Navigate to Company Detail → click "Impersonate" button to generate a session.',
+    adminHref: null,
+    note: 'Navigate to Company Detail then click "Impersonate" button to generate a session.',
   },
   {
     icon: Zap,
     title: 'Sage Auto-Import',
     description:
       'Trigger a full Sage Accounting data import for any company. Pulls chart of accounts, customers, suppliers, invoices, and journal entries via the internal REST API.',
-    action: {
-      label: 'Open Sage Import',
-      href: '/accounting/migration/sage-auto',
-      external: true,
-    },
-    note: 'Opens in the customer app — you must be logged in to a company.',
+    adminHref: '/admin/tools/sage-import',
+  },
+  {
+    icon: Database,
+    title: 'Data Migration',
+    description:
+      'Bulk CSV upload tool for migrating data from Sage, Xero, QuickBooks, or other accounting systems. Upload chart of accounts, customers, and suppliers.',
+    adminHref: '/admin/tools/migrations',
   },
 ];
 
 export default function AdminToolsPage() {
+  const adminHref = useAdminHref();
+
   return (
     <AdminLayout title="Admin Tools">
       <div className="max-w-4xl mx-auto space-y-6">
@@ -91,25 +97,13 @@ export default function AdminToolsPage() {
                   </p>
                 )}
 
-                {tool.action && (
-                  tool.action.external ? (
-                    <a
-                      href={tool.action.href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 text-sm font-medium text-teal-600 dark:text-teal-400 hover:underline"
-                    >
-                      {tool.action.label}
-                      <ExternalLink className="w-3.5 h-3.5" />
-                    </a>
-                  ) : (
-                    <Link
-                      href={tool.action.href}
-                      className="inline-flex items-center gap-1.5 text-sm font-medium text-teal-600 dark:text-teal-400 hover:underline"
-                    >
-                      {tool.action.label}
-                    </Link>
-                  )
+                {tool.adminHref && (
+                  <Link
+                    href={adminHref(tool.adminHref)}
+                    className="inline-flex items-center gap-1.5 text-sm font-medium text-teal-600 dark:text-teal-400 hover:underline"
+                  >
+                    Manage {tool.title}
+                  </Link>
                 )}
               </div>
             );

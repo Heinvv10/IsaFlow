@@ -305,18 +305,6 @@ export async function setDefaultCompany(userId: string, companyId: string): Prom
   });
 }
 
-export async function addUserToCompany(companyId: string, userId: string, role = 'user'): Promise<void> {
-  await sql`
-    INSERT INTO company_users (company_id, user_id, role)
-    VALUES (${companyId}::UUID, ${userId}, ${role})
-    ON CONFLICT (company_id, user_id) DO UPDATE SET role = ${role}
-  `;
-}
-
-export async function removeUserFromCompany(companyId: string, userId: string): Promise<void> {
-  await sql`DELETE FROM company_users WHERE company_id = ${companyId}::UUID AND user_id = ${userId}`;
-}
-
 // ── Mapper ───────────────────────────────────────────────────────────────────
 
 function mapCompany(r: Record<string, unknown>): Company {

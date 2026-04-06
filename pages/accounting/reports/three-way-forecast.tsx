@@ -9,6 +9,7 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { ArrowLeft, TrendingUp, Loader2, AlertCircle } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 
 const LineChart = dynamic(() => import('recharts').then(m => m.LineChart), { ssr: false });
 const Line = dynamic(() => import('recharts').then(m => m.Line), { ssr: false });
@@ -60,7 +61,7 @@ export default function ThreeWayForecastPage() {
       });
       const res = await apiFetch(`/api/accounting/reports-three-way-forecast?${params}`).then(r => r.json());
       if (res.data?.forecast) setForecast(res.data.forecast);
-    } catch { /* handled by empty state */ }
+    } catch (err) { log.error('Failed to run forecast', { error: err instanceof Error ? err.message : String(err) }); }
     finally { setLoading(false); }
   }, [months, revenueGrowth, cosGrowth, opexGrowth, capex, taxRate]);
 

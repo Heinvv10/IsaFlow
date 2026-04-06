@@ -8,11 +8,12 @@ import { withCompany, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { validateLeaveApplication } from '@/modules/accounting/services/leaveService';
+import type { CompanyApiRequest } from '@/lib/auth/withCompany';
 
 type Row = Record<string, unknown>;
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const companyId = (req as any).companyId as string;
+  const companyId = (req as CompanyApiRequest).companyId;
   if (req.method === 'GET') {
     const { employeeId, status } = req.query;
     let rows: Row[];

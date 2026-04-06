@@ -46,5 +46,5 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   res.status(200).send(template);
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export default withCompany(withErrorHandler(handler));

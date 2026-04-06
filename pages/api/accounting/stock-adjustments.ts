@@ -28,7 +28,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (!validation.success) return apiResponse.validationError(res, Object.fromEntries((validation.errors || []).map(e => [e.field, e.message])));
 
     const countRes = await sql`SELECT COUNT(*) as cnt FROM stock_adjustments WHERE company_id = ${companyId}::UUID` as Row[];
-    const adjNum = `ADJ-${String(Number((countRes[0] as any)?.cnt || 0) + 1).padStart(5, '0')}`;
+    const adjNum = `ADJ-${String(Number(countRes[0]?.cnt ?? 0) + 1).padStart(5, '0')}`;
 
     const inserted = await sql`
       INSERT INTO stock_adjustments (company_id, adjustment_number, product_id, warehouse_id, adjustment_type, quantity, unit_cost, reason, created_by)

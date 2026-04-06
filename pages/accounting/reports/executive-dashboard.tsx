@@ -12,6 +12,7 @@ import {
   AlertTriangle, AlertCircle, CheckCircle, Loader2,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 
 const BarChart = dynamic(() => import('recharts').then(m => m.BarChart), { ssr: false });
 const Bar = dynamic(() => import('recharts').then(m => m.Bar), { ssr: false });
@@ -83,7 +84,7 @@ export default function ExecutiveDashboardPage() {
       ]);
       if (sumRes.data?.summary) setSummary(sumRes.data.summary);
       if (scRes.data?.scorecard) setScorecard(scRes.data.scorecard);
-    } catch { /* handled by empty state */ }
+    } catch (err) { log.error('Failed to load executive summary', { error: err instanceof Error ? err.message : String(err) }); }
     finally { setLoading(false); }
   }, [from, to]);
 

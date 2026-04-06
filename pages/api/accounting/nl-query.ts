@@ -9,6 +9,7 @@ import { withCompany, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { checkRateLimit } from '@/lib/rateLimit';
+import type { CompanyApiRequest } from '@/lib/auth/withCompany';
 import {
   buildTextToSQLPrompt, parseSQLResponse, validateGeneratedSQL,
   formatQueryResult, buildSchemaDescription, classifyQueryIntent,
@@ -48,7 +49,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'Question is too long (maximum 500 characters)');
   }
 
-  const companyId = (req as any).companyId as string;
+  const companyId = (req as CompanyApiRequest).companyId;
   const intent = classifyQueryIntent(question);
   const schemaDesc = buildSchemaDescription(SCHEMA_TABLES);
   const prompt = buildTextToSQLPrompt(question, schemaDesc, companyId);
@@ -90,7 +91,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, { intent, message: 'AI service unavailable', rows: [], columns: [], summary: 'Service error' });
     }
 
-    const data = await response.json() as any;
+    const data = await response.json() as { content?: { text?: string }[] };
     const text = data.content?.[0]?.text || '';
     const parsed = parseSQLResponse(text);
 

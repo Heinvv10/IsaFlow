@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useRef, ReactNode, useMemo } from 'react';
 import { useRouter } from 'next/router';
+import Image from 'next/image';
 import { useTrackPageVisit } from '@/hooks/useTrackPageVisit';
 import {
   BookOpen,
@@ -237,7 +238,7 @@ export function AppLayout({ children }: AppLayoutProps) {
             <BookOpen className="w-4 h-4 text-white" />
           </div>
         ) : (
-          <img src="/logo.png" alt="ISAFlow" className="h-9 w-auto dark:brightness-0 dark:invert" />
+          <Image src="/logo.png" alt="ISAFlow" width={90} height={36} className="h-9 w-auto dark:brightness-0 dark:invert" />
         )}
       </div>
 
@@ -355,7 +356,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           </button>
 
           {/* Logo (in top-nav mode, show logo here; in side mode it's in the sidebar) */}
-          <img src="/logo.png" alt="ISAFlow" className="h-8 w-auto hidden sm:block dark:brightness-0 dark:invert" />
+          <Image src="/logo.png" alt="ISAFlow" width={80} height={32} className="h-8 w-auto hidden sm:block dark:brightness-0 dark:invert" />
 
           {/* Company switcher (hidden on admin subdomain) */}
           {!isAdminHost && (

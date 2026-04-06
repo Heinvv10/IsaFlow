@@ -158,7 +158,7 @@ describe('SQL Validation', () => {
   });
 
   it('allows WITH (CTE) queries', () => {
-    expect(validateGeneratedSQL('WITH totals AS (SELECT SUM(amount) FROM invoices) SELECT * FROM totals').valid).toBe(true);
+    expect(validateGeneratedSQL('WITH totals AS (SELECT SUM(amount) FROM customer_invoices) SELECT * FROM totals').valid).toBe(true);
   });
 
   it('rejects empty SQL', () => {

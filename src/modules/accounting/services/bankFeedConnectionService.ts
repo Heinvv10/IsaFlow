@@ -3,7 +3,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import crypto from 'crypto';
-import { encryptToken, decryptToken } from '@/lib/encryption';
+import { encryptToken } from '@/lib/encryption';
 
 type Row = Record<string, unknown>;
 

@@ -35,22 +35,19 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
 
     // Fetch all GL accounts for this company in one query
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const glAccountRows = (await sql`
       SELECT id, account_code FROM gl_accounts WHERE company_id = ${companyId}
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    `) as any[];
+    `) as Record<string, unknown>[];
     const glAccountMap = new Map<string, string>(
-      glAccountRows.map((r: { id: string; account_code: string }) => [String(r.account_code), String(r.id)])
+      glAccountRows.map(r => [String(r.account_code), String(r.id)])
     );
 
     // Fetch all existing match_patterns for this company in one query
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const existingPatternRows = (await sql`
       SELECT LOWER(match_pattern) AS match_pattern FROM bank_categorisation_rules WHERE company_id = ${companyId}
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    `) as any[];
-    const existingPatterns = new Set<string>(existingPatternRows.map((r: { match_pattern: string }) => String(r.match_pattern)));
+    `) as Record<string, unknown>[];
+    const existingPatterns = new Set<string>(existingPatternRows.map(r => String(r.match_pattern)));
 
     let skipped = 0;
     const missingGlCodes: (number | string)[] = [];
@@ -123,5 +120,5 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export default withCompany(withRole('admin')(withErrorHandler(handler)));

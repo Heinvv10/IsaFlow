@@ -89,27 +89,48 @@ export async function getGroupDashboardStats(groupId: string): Promise<GroupDash
     const currentYear = new Date().getFullYear();
     const yearStart = `${currentYear}-01-01`; const yearEnd = `${currentYear}-12-31`;
 
+    const companyIds = members.map(m => m.companyId);
+
+    // Batch all 4 queries using company_id = ANY(...) instead of N loops
+    const [cashRows, arRows, apRows, plRows] = await Promise.all([
+      sql`SELECT company_id, COALESCE(SUM(current_balance),0) AS cash
+          FROM bank_accounts WHERE company_id = ANY(${companyIds}::UUID[]) AND is_active=true
+          GROUP BY company_id` as Promise<Row[]>,
+      sql`SELECT company_id, COALESCE(SUM(balance_due),0) AS ar
+          FROM customer_invoices WHERE company_id = ANY(${companyIds}::UUID[]) AND status IN ('sent','overdue','partial')
+          GROUP BY company_id` as Promise<Row[]>,
+      sql`SELECT company_id, COALESCE(SUM(balance_due),0) AS ap
+          FROM supplier_invoices WHERE company_id = ANY(${companyIds}::UUID[]) AND status IN ('approved','overdue','partial')
+          GROUP BY company_id` as Promise<Row[]>,
+      sql`SELECT je.company_id, ga.account_type, COALESCE(SUM(jl.debit),0) AS total_debit, COALESCE(SUM(jl.credit),0) AS total_credit
+          FROM gl_journal_lines jl JOIN gl_journal_entries je ON je.id=jl.journal_entry_id
+          JOIN gl_accounts ga ON ga.id=jl.gl_account_id
+          WHERE je.status='posted' AND je.company_id = ANY(${companyIds}::UUID[]) AND ga.company_id = ANY(${companyIds}::UUID[])
+            AND je.entry_date>=${yearStart} AND je.entry_date<=${yearEnd} AND ga.account_type IN ('revenue','expense')
+          GROUP BY je.company_id, ga.account_type` as Promise<Row[]>,
+    ]);
+
+    // Index results by company_id for O(1) lookups
+    const cashByCompany = new Map(cashRows.map(r => [String(r.company_id), Number(r.cash ?? 0)]));
+    const arByCompany = new Map(arRows.map(r => [String(r.company_id), Number(r.ar ?? 0)]));
+    const apByCompany = new Map(apRows.map(r => [String(r.company_id), Number(r.ap ?? 0)]));
+    const plByCompany = new Map<string, { revenue: number; expenses: number }>();
+    for (const r of plRows) {
+      const cid = String(r.company_id);
+      const entry = plByCompany.get(cid) ?? { revenue: 0, expenses: 0 };
+      if (String(r.account_type) === 'revenue') entry.revenue = Number(r.total_credit) - Number(r.total_debit);
+      else entry.expenses = Number(r.total_debit) - Number(r.total_credit);
+      plByCompany.set(cid, entry);
+    }
+
     for (const member of members) {
-      const cashRows = (await sql`SELECT COALESCE(SUM(ba.current_balance),0) AS cash FROM bank_accounts ba WHERE ba.company_id=${member.companyId}::UUID AND ba.is_active=true`) as Row[];
-      const arRows = (await sql`SELECT COALESCE(SUM(ci.balance_due),0) AS ar FROM customer_invoices ci WHERE ci.company_id=${member.companyId}::UUID AND ci.status IN ('sent','overdue','partial')`) as Row[];
-      const apRows = (await sql`SELECT COALESCE(SUM(si.balance_due),0) AS ap FROM supplier_invoices si WHERE si.company_id=${member.companyId}::UUID AND si.status IN ('approved','overdue','partial')`) as Row[];
-      const plRows = (await sql`
-        SELECT ga.account_type, COALESCE(SUM(jl.debit),0) AS total_debit, COALESCE(SUM(jl.credit),0) AS total_credit
-        FROM gl_journal_lines jl JOIN gl_journal_entries je ON je.id=jl.journal_entry_id
-        JOIN gl_accounts ga ON ga.id=jl.gl_account_id
-        WHERE je.status='posted' AND je.company_id=${member.companyId}::UUID AND ga.company_id=${member.companyId}::UUID
-          AND je.entry_date>=${yearStart} AND je.entry_date<=${yearEnd} AND ga.account_type IN ('revenue','expense')
-        GROUP BY ga.account_type
-      `) as Row[];
-      const cash = Number(cashRows[0]?.cash ?? 0);
-      let entityRevenue = 0, entityExpenses = 0;
-      for (const r of plRows) {
-        if (String(r.account_type) === 'revenue') entityRevenue = Number(r.total_credit) - Number(r.total_debit);
-        else entityExpenses = Number(r.total_debit) - Number(r.total_credit);
-      }
-      combinedCashPosition += cash; combinedARTotal += Number(arRows[0]?.ar ?? 0);
-      combinedAPTotal += Number(apRows[0]?.ap ?? 0); combinedRevenue += entityRevenue; combinedExpenses += entityExpenses;
-      entitySummaries.push({ companyId: member.companyId, companyName: member.companyName, revenue: entityRevenue, expenses: entityExpenses, netProfit: entityRevenue - entityExpenses, cashPosition: cash });
+      const cash = cashByCompany.get(member.companyId) ?? 0;
+      const ar = arByCompany.get(member.companyId) ?? 0;
+      const ap = apByCompany.get(member.companyId) ?? 0;
+      const pl = plByCompany.get(member.companyId) ?? { revenue: 0, expenses: 0 };
+      combinedCashPosition += cash; combinedARTotal += ar;
+      combinedAPTotal += ap; combinedRevenue += pl.revenue; combinedExpenses += pl.expenses;
+      entitySummaries.push({ companyId: member.companyId, companyName: member.companyName, revenue: pl.revenue, expenses: pl.expenses, netProfit: pl.revenue - pl.expenses, cashPosition: cash });
     }
     return { groupId, combinedCashPosition, combinedARTotal, combinedAPTotal, combinedRevenue, combinedExpenses, entitySummaries };
   } catch (err) {

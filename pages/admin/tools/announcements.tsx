@@ -95,8 +95,8 @@ export default function AdminAnnouncementsPage() {
       setEditItem(null);
       setShowNew(false);
       await load();
-    } catch {
-      // apiFetch throws on error — bubble to UI
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save announcement');
     } finally {
       setSaving(false);
     }
@@ -108,7 +108,8 @@ export default function AdminAnnouncementsPage() {
       await apiFetch(`/api/admin/announcements/${deleteId}`, { method: 'DELETE' });
       setDeleteId(null);
       await load();
-    } catch {
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete announcement');
       setDeleteId(null);
     }
   };

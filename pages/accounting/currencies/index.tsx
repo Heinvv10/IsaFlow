@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { DollarSign, Loader2, AlertCircle, Plus, RefreshCw } from 'lucide-react';
+import { DollarSign, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import { CurrencyList } from '@/components/accounting/currencies/CurrencyList';
 import { ExchangeRatesPanel } from '@/components/accounting/currencies/ExchangeRatesPanel';
 import type { Currency, ExchangeRate } from '@/modules/accounting/services/currencyService';

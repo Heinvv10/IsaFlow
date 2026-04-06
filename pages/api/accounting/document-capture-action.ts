@@ -171,5 +171,5 @@ async function handleReject(
   return apiResponse.success(res, mapRow(row as Record<string, unknown>), 'Document rejected');
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export default withCompany(withErrorHandler(handler));

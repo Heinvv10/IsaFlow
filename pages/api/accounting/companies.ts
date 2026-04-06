@@ -10,7 +10,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import {
-  listCompanies, getCompany, createCompany, updateCompany,
+  getCompany, createCompany, updateCompany,
   getUserCompanies, setDefaultCompany,
 } from '@/modules/accounting/services/companyService';
 
@@ -82,7 +82,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST', 'PUT']);
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export default withAuth(withErrorHandler(handler));
 
 export const config = {

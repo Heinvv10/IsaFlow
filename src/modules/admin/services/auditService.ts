@@ -49,6 +49,16 @@ export interface AuditLogFilters {
   limit?: number;
 }
 
+/** Critical actions that MUST be audit-logged — fail the request if logging fails. */
+const CRITICAL_ACTIONS = new Set([
+  'user.suspend', 'user.reset_password', 'user.update', 'user.force_logout',
+  'company.suspend', 'company.delete', 'company.impersonate',
+  'company.activate', 'company.export_data',
+  'subscription.cancel', 'subscription.update',
+  'plan.update', 'plan.archive',
+  'feature.override', 'feature.remove_override',
+]);
+
 export async function logAdminAction(
   adminUserId: string,
   action: string,
@@ -78,8 +88,10 @@ export async function logAdminAction(
       )
     `;
   } catch (err) {
-    // Audit logging must not break the calling flow — log and swallow
     log.error('logAdminAction failed', { adminUserId, action, error: err }, 'auditService');
+    if (CRITICAL_ACTIONS.has(action)) {
+      throw new Error(`Audit logging failed for critical action: ${action}`);
+    }
   }
 }
 
@@ -129,7 +141,7 @@ export async function getAuditLog(
       AND (${filters.to_date ? sql`al.created_at <= ${filters.to_date}::timestamptz` : sql`TRUE`})
     `;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const toIso = (v: unknown) =>
       v instanceof Date ? v.toISOString() : (v as string);
 
@@ -162,7 +174,7 @@ export async function getAuditLog(
 // Unified audit log — merges admin_audit_log, audit_log, user_sessions
 // ---------------------------------------------------------------------------
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 function toIsoDate(v: unknown): string {
   if (v instanceof Date) return v.toISOString();
   return v as string;

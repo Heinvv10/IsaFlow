@@ -3,13 +3,23 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { apiFetch } from '@/lib/apiFetch';
+import { formatCurrency, formatDate } from '@/utils/formatters';
 import { AlertCircle, Loader2, Search, ChevronLeft, ChevronRight, Plus, X, Check, Send, CreditCard } from 'lucide-react';
 
 interface Invoice {
-  id: string; invoiceNumber: string; companyId: string; companyName: string;
+  id: string;
+  invoice_number: string;
+  company_id: string;
+  company_name: string;
   status: 'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled' | 'credited';
-  subtotalCents: number; taxCents: number; totalCents: number;
-  dueDate: string | null; paidAt: string | null; createdAt: string;
+  subtotal_cents: number;
+  tax_cents: number;
+  total_cents: number;
+  currency: string;
+  due_date: string | null;
+  paid_at: string | null;
+  payment_method: string | null;
+  created_at: string;
 }
 
 interface PagedResponse {
@@ -38,15 +48,6 @@ const STATUS_BADGE: Record<string, string> = {
   cancelled:  'bg-gray-500/10 text-gray-500',
   credited:   'bg-purple-500/10 text-purple-400',
 };
-
-function fmtZAR(cents: number) {
-  return (cents / 100).toLocaleString('en-ZA', { style: 'currency', currency: 'ZAR' });
-}
-
-function fmtDate(d: string | null) {
-  if (!d) return '—';
-  return new Date(d).toLocaleDateString('en-ZA');
-}
 
 export default function InvoicesPage() {
   const [rows, setRows]           = useState<Invoice[]>([]);
@@ -153,7 +154,7 @@ export default function InvoicesPage() {
       <div className="flex gap-3 flex-wrap mb-5">
         <div className="relative flex-1 min-w-[180px] max-w-xs">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input type="text" placeholder="Search company or invoice #…" value={search} onChange={e => setSearch(e.target.value)}
+          <input type="text" placeholder="Search company or invoice #..." value={search} onChange={e => setSearch(e.target.value)}
             className={`w-full pl-9 pr-3 ${inputCls}`} />
         </div>
         <select value={status} onChange={e => { setStatus(e.target.value); setPage(1); }} className={inputCls}>
@@ -241,17 +242,17 @@ export default function InvoicesPage() {
               )}
               {rows.map(inv => (
                 <tr key={inv.id} className="border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors">
-                  <td className="px-4 py-3 font-mono text-xs text-gray-600 dark:text-gray-300">{inv.invoiceNumber}</td>
-                  <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{inv.companyName}</td>
+                  <td className="px-4 py-3 font-mono text-xs text-gray-600 dark:text-gray-300">{inv.invoice_number}</td>
+                  <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{inv.company_name}</td>
                   <td className="px-4 py-3">
                     <span className={`px-2 py-0.5 rounded text-xs font-medium capitalize ${STATUS_BADGE[inv.status] ?? 'bg-gray-500/10 text-gray-500'}`}>{inv.status}</span>
                   </td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300 font-mono text-xs">{fmtZAR(inv.subtotalCents)}</td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300 font-mono text-xs">{fmtZAR(inv.taxCents)}</td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300 font-mono text-xs font-semibold">{fmtZAR(inv.totalCents)}</td>
-                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{fmtDate(inv.dueDate)}</td>
-                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{fmtDate(inv.paidAt)}</td>
-                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{fmtDate(inv.createdAt)}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300 font-mono text-xs">{formatCurrency(inv.subtotal_cents / 100)}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300 font-mono text-xs">{formatCurrency(inv.tax_cents / 100)}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300 font-mono text-xs font-semibold">{formatCurrency(inv.total_cents / 100)}</td>
+                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(inv.due_date)}</td>
+                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(inv.paid_at)}</td>
+                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(inv.created_at)}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1.5">
                       {inv.status === 'draft' && (

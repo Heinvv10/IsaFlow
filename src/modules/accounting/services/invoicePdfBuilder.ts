@@ -9,27 +9,6 @@ import { fmtZAR, fmtDate, TEAL, getCompanyDetailsFromCompany, renderPageFooters 
 
 type Row = Record<string, unknown>;
 
-interface InvoiceRow {
-  invoice_number: string;
-  invoice_date: string | Date;
-  due_date: string | Date | null;
-  billing_period_start: string | Date | null;
-  billing_period_end: string | Date | null;
-  client_name: string | null;
-  client_address: string | null;
-  client_contact: string | null;
-  client_email: string | null;
-  client_phone: string | null;
-  client_vat: string | null;
-  project_name: string | null;
-  subtotal: unknown;
-  tax_amount: unknown;
-  total_amount: unknown;
-  amount_paid: unknown;
-  tax_rate: unknown;
-  notes: string | null;
-}
-
 
 export async function generateInvoicePdf(companyId: string, invoiceId: string): Promise<Buffer> {
   const COMPANY = await getCompanyDetailsFromCompany(companyId);

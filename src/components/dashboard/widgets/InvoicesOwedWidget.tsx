@@ -1,51 +1,22 @@
 /**
- * InvoicesOwedWidget — AR summary using /api/accounting/dashboard-stats.
- * // WORKING: Color-coded current vs overdue, skeleton loading.
+ * InvoicesOwedWidget — AR summary using shared dashboard stats.
  */
 
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { FileText, AlertCircle, CheckCircle2, ArrowRight } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { apiFetch } from '@/lib/apiFetch';
-import { log } from '@/lib/logger';
-
-interface ARStats {
-  arTotal: number;
-  arOverdue: number;
-  arCurrent: number;
-}
+import { useDashboardStats } from '@/hooks/useDashboardStats';
 
 function fmtCurrency(n: number): string {
   return 'R\u00a0' + new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 }
 
 export function InvoicesOwedWidget() {
-  const [stats, setStats] = useState<ARStats | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    async function load() {
-      try {
-        const res = await apiFetch('/api/accounting/dashboard-stats');
-        const json = (await res.json()) as { data?: { arTotal: number; arOverdue?: number } };
-        const d = json.data ?? { arTotal: 0 };
-        setStats({
-          arTotal: d.arTotal ?? 0,
-          arOverdue: d.arOverdue ?? 0,
-          arCurrent: Math.max(0, (d.arTotal ?? 0) - (d.arOverdue ?? 0)),
-        });
-      } catch (err) {
-        log.error('InvoicesOwedWidget fetch failed', { error: err }, 'dashboard-widget');
-        setError('Unable to load AR data');
-      } finally {
-        setLoading(false);
-      }
-    }
-    void load();
-  }, []);
+  const { data, loading, error } = useDashboardStats();
+  const arTotal = (data?.arTotal as number) ?? 0;
+  const arOverdue = (data?.arOverdue as number) ?? 0;
+  const arCurrent = Math.max(0, arTotal - arOverdue);
 
   return (
     <Card
@@ -64,11 +35,11 @@ export function InvoicesOwedWidget() {
         </div>
       ) : error ? (
         <p className="text-sm text-red-500">{error}</p>
-      ) : stats ? (
+      ) : (
         <div className="space-y-4">
           <div>
             <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-              {fmtCurrency(stats.arTotal)}
+              {fmtCurrency(arTotal)}
             </p>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Total awaiting payment</p>
           </div>
@@ -79,7 +50,7 @@ export function InvoicesOwedWidget() {
                 Current
               </div>
               <span className="text-xs font-medium text-gray-900 dark:text-gray-100">
-                {fmtCurrency(stats.arCurrent)}
+                {fmtCurrency(arCurrent)}
               </span>
             </div>
             <div className="flex items-center justify-between">
@@ -88,7 +59,7 @@ export function InvoicesOwedWidget() {
                 Overdue
               </div>
               <span className="text-xs font-medium text-red-600 dark:text-red-400">
-                {fmtCurrency(stats.arOverdue)}
+                {fmtCurrency(arOverdue)}
               </span>
             </div>
           </div>
@@ -99,7 +70,7 @@ export function InvoicesOwedWidget() {
             View all invoices <ArrowRight className="h-3 w-3" />
           </Link>
         </div>
-      ) : null}
+      )}
     </Card>
   );
 }

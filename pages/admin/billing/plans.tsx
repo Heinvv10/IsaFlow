@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { apiFetch } from '@/lib/apiFetch';
+import { formatCurrency } from '@/utils/formatters';
 import { AlertCircle, Loader2, Plus, Pencil, Archive, X, Check } from 'lucide-react';
 
 interface Plan {
@@ -13,12 +14,14 @@ interface Plan {
   code: string;
   name: string;
   description: string;
-  monthlyPriceCents: number;
-  annualPriceCents: number;
-  usersLimit: number | null;
-  isArchived: boolean;
+  monthly_price_cents: number;
+  annual_price_cents: number;
+  currency: string;
   features: Record<string, unknown>;
   limits: Record<string, unknown>;
+  is_active: boolean;
+  display_order: number;
+  created_at: string;
 }
 
 interface PlanForm {
@@ -37,10 +40,6 @@ const EMPTY_FORM: PlanForm = {
   monthly_price: '', annual_price: '',
   users_limit: '', features: '{}', limits: '{}',
 };
-
-function fmtZAR(cents: number) {
-  return (cents / 100).toLocaleString('en-ZA', { style: 'currency', currency: 'ZAR' });
-}
 
 export default function PlansPage() {
   const [plans, setPlans]         = useState<Plan[]>([]);
@@ -82,9 +81,9 @@ export default function PlansPage() {
       code:          plan.code,
       name:          plan.name,
       description:   plan.description,
-      monthly_price: String(plan.monthlyPriceCents / 100),
-      annual_price:  String(plan.annualPriceCents / 100),
-      users_limit:   plan.usersLimit != null ? String(plan.usersLimit) : '',
+      monthly_price: String(plan.monthly_price_cents / 100),
+      annual_price:  String(plan.annual_price_cents / 100),
+      users_limit:   (plan.limits as Record<string, unknown>)?.users != null ? String((plan.limits as Record<string, unknown>).users) : '',
       features:      JSON.stringify(plan.features, null, 2),
       limits:        JSON.stringify(plan.limits, null, 2),
     });
@@ -128,7 +127,7 @@ export default function PlansPage() {
   async function handleArchive(id: string) {
     if (!confirm('Archive this plan? Existing subscriptions will not be affected.')) return;
     try {
-      const res  = await apiFetch(`/api/admin/billing/plans/${id}/archive`, { method: 'POST' });
+      const res  = await apiFetch(`/api/admin/billing/plans/${id}`, { method: 'DELETE' });
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Archive failed');
       void load();
@@ -221,28 +220,26 @@ export default function PlansPage() {
                 <th className="px-4 py-3 font-medium">Code</th>
                 <th className="px-4 py-3 font-medium">Monthly</th>
                 <th className="px-4 py-3 font-medium">Annual</th>
-                <th className="px-4 py-3 font-medium">Users</th>
                 <th className="px-4 py-3 font-medium">Status</th>
                 <th className="px-4 py-3 font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading && plans.length === 0 && (
-                <tr><td colSpan={7} className="px-4 py-12 text-center"><Loader2 className="w-5 h-5 animate-spin text-teal-500 mx-auto" /></td></tr>
+                <tr><td colSpan={6} className="px-4 py-12 text-center"><Loader2 className="w-5 h-5 animate-spin text-teal-500 mx-auto" /></td></tr>
               )}
               {!loading && plans.length === 0 && (
-                <tr><td colSpan={7} className="px-4 py-12 text-center text-gray-400">No plans found</td></tr>
+                <tr><td colSpan={6} className="px-4 py-12 text-center text-gray-400">No plans found</td></tr>
               )}
               {plans.map(p => (
                 <tr key={p.id} className="border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors">
                   <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{p.name}</td>
                   <td className="px-4 py-3 font-mono text-xs text-gray-500 dark:text-gray-400">{p.code}</td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300 font-mono text-xs">{fmtZAR(p.monthlyPriceCents)}</td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300 font-mono text-xs">{fmtZAR(p.annualPriceCents)}</td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{p.usersLimit ?? 'Unlimited'}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300 font-mono text-xs">{formatCurrency(p.monthly_price_cents / 100)}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300 font-mono text-xs">{formatCurrency(p.annual_price_cents / 100)}</td>
                   <td className="px-4 py-3">
-                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${p.isArchived ? 'bg-gray-500/10 text-gray-500' : 'bg-teal-500/10 text-teal-600 dark:text-teal-400'}`}>
-                      {p.isArchived ? 'Archived' : 'Active'}
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${!p.is_active ? 'bg-gray-500/10 text-gray-500' : 'bg-teal-500/10 text-teal-600 dark:text-teal-400'}`}>
+                      {p.is_active ? 'Active' : 'Archived'}
                     </span>
                   </td>
                   <td className="px-4 py-3">
@@ -250,7 +247,7 @@ export default function PlansPage() {
                       <button onClick={() => openEdit(p)} className="p-1.5 rounded text-gray-400 hover:text-teal-500 hover:bg-teal-500/10 transition-colors" title="Edit">
                         <Pencil className="w-3.5 h-3.5" />
                       </button>
-                      {!p.isArchived && (
+                      {p.is_active && (
                         <button onClick={() => void handleArchive(p.id)} className="p-1.5 rounded text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-colors" title="Archive">
                           <Archive className="w-3.5 h-3.5" />
                         </button>

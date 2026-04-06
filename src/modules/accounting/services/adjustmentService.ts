@@ -25,9 +25,12 @@ export async function getAdjustments(companyId: string, filters?: {
 
   if (filters?.entityType) {
     rows = (await sql`
-      SELECT * FROM accounting_adjustments
-      WHERE company_id = ${companyId} AND entity_type = ${filters.entityType}
-      ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}
+      SELECT a.*, c.name AS customer_name, s.name AS supplier_name
+      FROM accounting_adjustments a
+      LEFT JOIN customers c ON a.entity_type = 'customer' AND c.id = a.entity_id
+      LEFT JOIN suppliers s ON a.entity_type = 'supplier' AND s.id = a.entity_id
+      WHERE a.company_id = ${companyId} AND a.entity_type = ${filters.entityType}
+      ORDER BY a.created_at DESC LIMIT ${limit} OFFSET ${offset}
     `) as Row[];
     countRows = (await sql`
       SELECT COUNT(*) AS cnt FROM accounting_adjustments
@@ -35,25 +38,23 @@ export async function getAdjustments(companyId: string, filters?: {
     `) as Row[];
   } else {
     rows = (await sql`
-      SELECT * FROM accounting_adjustments WHERE company_id = ${companyId}
-      ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}
+      SELECT a.*, c.name AS customer_name, s.name AS supplier_name
+      FROM accounting_adjustments a
+      LEFT JOIN customers c ON a.entity_type = 'customer' AND c.id = a.entity_id
+      LEFT JOIN suppliers s ON a.entity_type = 'supplier' AND s.id = a.entity_id
+      WHERE a.company_id = ${companyId}
+      ORDER BY a.created_at DESC LIMIT ${limit} OFFSET ${offset}
     `) as Row[];
     countRows = (await sql`SELECT COUNT(*) AS cnt FROM accounting_adjustments WHERE company_id = ${companyId}`) as Row[];
   }
 
-  // Resolve entity names
-  const items: AccountingAdjustment[] = [];
-  for (const row of rows) {
+  const items: AccountingAdjustment[] = rows.map(row => {
     const mapped = mapRow(row);
-    if (row.entity_type === 'customer') {
-      const c = (await sql`SELECT name FROM customers WHERE id = ${row.entity_id}::UUID`) as Row[];
-      mapped.entityName = c[0]?.name ? String(c[0].name) : 'Unknown';
-    } else {
-      const s = (await sql`SELECT name FROM suppliers WHERE id = ${row.entity_id}::UUID`) as Row[];
-      mapped.entityName = s[0]?.name ? String(s[0].name) : 'Unknown';
-    }
-    items.push(mapped);
-  }
+    mapped.entityName = row.entity_type === 'customer'
+      ? (row.customer_name ? String(row.customer_name) : 'Unknown')
+      : (row.supplier_name ? String(row.supplier_name) : 'Unknown');
+    return mapped;
+  });
 
   return { items, total: Number(countRows[0]?.cnt || 0) };
 }

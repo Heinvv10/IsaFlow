@@ -10,6 +10,7 @@ import { log } from '@/lib/logger';
 import { classifyClientQuery, buildClientChatPrompt, parseClientChatResponse, sanitizeClientResponse, type ClientContext } from '@/modules/accounting/services/portalChatbotService';
 import { jwtVerify } from 'jose';
 import cookie from 'cookie';
+import { checkRateLimit } from '@/lib/rateLimit';
 
 const PORTAL_SECRET = new TextEncoder().encode(
   (() => { if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET is required'); return process.env.JWT_SECRET + '-portal'; })()
@@ -32,6 +33,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return res.status(401).json({ success: false, error: { message: 'Invalid session' } });
   }
 
+  // Rate limit: 20 requests per 15 minutes (calls Claude API)
+  const rawIp = Array.isArray(req.headers['x-forwarded-for'])
+    ? req.headers['x-forwarded-for'][0]
+    : req.headers['x-forwarded-for'] ?? req.socket.remoteAddress;
+  if (checkRateLimit(`portal-chat:${rawIp ?? 'unknown'}`, { windowMs: 15 * 60 * 1000, maxRequests: 20 })) {
+    return res.status(429).json({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many requests. Please try again later.' } });
+  }
+
   const { question, clientId } = req.body;
   if (!question) return apiResponse.badRequest(res, 'question is required');
   if (!clientId || clientId !== sessionClientId) return apiResponse.badRequest(res, 'clientId mismatch or missing');
@@ -39,14 +48,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const queryType = classifyClientQuery(question);
 
-  // Build client context from DB
-  const clients = await sql`SELECT name FROM customers WHERE id = ${clientId} LIMIT 1` as Row[];
+  // Build client context from DB — parallel queries
+  const [clients, balanceRows, overdueRows, invoiceCount, lastPay] = await Promise.all([
+    sql`SELECT name FROM customers WHERE id = ${clientId} LIMIT 1` as Promise<Row[]>,
+    sql`SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) as outstanding FROM customer_invoices WHERE customer_id = ${clientId} AND status NOT IN ('cancelled', 'draft', 'paid')` as Promise<Row[]>,
+    sql`SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) as overdue FROM customer_invoices WHERE customer_id = ${clientId} AND status NOT IN ('cancelled', 'draft', 'paid') AND due_date < CURRENT_DATE` as Promise<Row[]>,
+    sql`SELECT COUNT(*) as cnt FROM customer_invoices WHERE customer_id = ${clientId} AND status NOT IN ('cancelled', 'draft', 'paid')` as Promise<Row[]>,
+    sql`SELECT amount, payment_date FROM customer_payments WHERE customer_id = ${clientId} ORDER BY payment_date DESC LIMIT 1` as Promise<Row[]>,
+  ]);
   const clientName = String(clients[0]?.name || 'Client');
-
-  const balanceRows = await sql`SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) as outstanding FROM customer_invoices WHERE customer_id = ${clientId} AND status NOT IN ('cancelled', 'draft', 'paid')` as Row[];
-  const overdueRows = await sql`SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) as overdue FROM customer_invoices WHERE customer_id = ${clientId} AND status NOT IN ('cancelled', 'draft', 'paid') AND due_date < CURRENT_DATE` as Row[];
-  const invoiceCount = await sql`SELECT COUNT(*) as cnt FROM customer_invoices WHERE customer_id = ${clientId} AND status NOT IN ('cancelled', 'draft', 'paid')` as Row[];
-  const lastPay = await sql`SELECT amount, payment_date FROM customer_payments WHERE customer_id = ${clientId} ORDER BY payment_date DESC LIMIT 1` as Row[];
 
   const ctx: ClientContext = {
     clientName,
@@ -70,7 +80,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 512, messages: [{ role: 'user', content: prompt }] }),
       });
       if (response.ok) {
-        const data = await response.json() as any;
+        const data = await response.json() as { content?: { text?: string }[] };
         chatResponse = parseClientChatResponse(data.content?.[0]?.text || '');
         if (chatResponse) chatResponse.message = sanitizeClientResponse(chatResponse.message);
       }

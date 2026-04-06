@@ -8,6 +8,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import type { CompanyApiRequest } from '@/lib/auth/withCompany';
 import {
   benfordsLawAnalysis, detectStatisticalOutliers, detectDuplicatePayments,
   detectUnusualPostingPatterns, buildAlertMessage, type Transaction,
@@ -18,7 +19,7 @@ type Row = Record<string, unknown>;
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
 
-  const companyId = (req as any).companyId as string;
+  const companyId = (req as CompanyApiRequest).companyId;
   const { period } = req.body;
   const fromDate = period || new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 

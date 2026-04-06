@@ -41,7 +41,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const revenue = parseFloat(pnlRow?.revenue || '0');
   const costOfSales = parseFloat(pnlRow?.cost_of_sales || '0');
   const operatingExpenses = parseFloat(pnlRow?.operating_expenses || '0');
-  const netProfit = revenue - costOfSales - operatingExpenses;
+  const otherIncome = parseFloat(pnlRow?.other_income || '0');
+  const otherExpenses = parseFloat(pnlRow?.other_expenses || '0');
+  const netProfit = revenue - costOfSales - operatingExpenses + otherIncome - otherExpenses;
 
   const data: ReportPackInput = {
     companyName: companyRow?.name || 'Company',
@@ -58,7 +60,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     cash: parseFloat(balancesRow?.cash || '0'),
     accountsReceivable: parseFloat(balancesRow?.accounts_receivable || '0'),
     accountsPayable: parseFloat(balancesRow?.accounts_payable || '0'),
-    inventory: 0,
+    inventory: parseFloat(balancesRow?.inventory || '0'),
+    otherIncome,
+    otherExpenses,
   };
 
   const pack = buildReportPack(packType, data, from, to);
@@ -73,7 +77,9 @@ async function getPnLTotals(companyId: string, from: string, to: string): Promis
     SELECT
       COALESCE(SUM(CASE WHEN ga.account_code LIKE '4%' THEN jl.credit - jl.debit ELSE 0 END), 0) as revenue,
       COALESCE(SUM(CASE WHEN ga.account_code LIKE '5%' AND ga.account_code < '5200' THEN jl.debit - jl.credit ELSE 0 END), 0) as cost_of_sales,
-      COALESCE(SUM(CASE WHEN ga.account_code >= '5200' THEN jl.debit - jl.credit ELSE 0 END), 0) as operating_expenses
+      COALESCE(SUM(CASE WHEN ga.account_code >= '5200' AND ga.account_code < '6000' THEN jl.debit - jl.credit ELSE 0 END), 0) as operating_expenses,
+      COALESCE(SUM(CASE WHEN ga.account_code LIKE '6%' THEN jl.credit - jl.debit ELSE 0 END), 0) as other_income,
+      COALESCE(SUM(CASE WHEN ga.account_code LIKE '7%' THEN jl.debit - jl.credit ELSE 0 END), 0) as other_expenses
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id
@@ -93,7 +99,8 @@ async function getBalanceSheet(companyId: string, to: string): Promise<Row | und
       COALESCE(SUM(CASE WHEN ga.account_code >= '2100' AND ga.account_code < '2200' THEN jl.credit - jl.debit ELSE 0 END), 0) as current_liabilities,
       COALESCE(SUM(CASE WHEN ga.account_code = '1110' THEN jl.debit - jl.credit ELSE 0 END), 0) as cash,
       COALESCE(SUM(CASE WHEN ga.account_code = '1120' THEN jl.debit - jl.credit ELSE 0 END), 0) as accounts_receivable,
-      COALESCE(SUM(CASE WHEN ga.account_code = '2110' THEN jl.credit - jl.debit ELSE 0 END), 0) as accounts_payable
+      COALESCE(SUM(CASE WHEN ga.account_code = '2110' THEN jl.credit - jl.debit ELSE 0 END), 0) as accounts_payable,
+      COALESCE(SUM(CASE WHEN ga.account_code = '1130' THEN jl.debit - jl.credit ELSE 0 END), 0) as inventory
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id
@@ -110,5 +117,5 @@ async function getCompanyName(companyId: string): Promise<Row | null> {
   return rows[0] || null;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export default withCompany(withErrorHandler(handler));

@@ -126,7 +126,7 @@ export async function runReport(companyId: string, config: ReportConfig): Promis
   `;
 
   // sql.query() sends parameterized queries to Neon
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const [dataRows, countRows] = await Promise.all([
     (sql as any).query(querySql, params),
     (sql as any).query(countSql, params),

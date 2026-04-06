@@ -8,8 +8,8 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import {
-  ScanLine, ArrowLeft, Loader2, AlertCircle, FileText,
-  CheckCircle2, XCircle, Link2, Save, ChevronDown, ChevronUp,
+  ScanLine, ArrowLeft, Loader2, AlertCircle,
+  CheckCircle2, XCircle, Link2, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { notify } from '@/utils/toast';
 import type { CapturedDocument, ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';

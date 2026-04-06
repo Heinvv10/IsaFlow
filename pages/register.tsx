@@ -7,6 +7,7 @@
 import { useState, useEffect, FormEvent } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
+import Image from 'next/image';
 import { Eye, EyeOff, Building2 } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 
@@ -135,7 +136,7 @@ export default function RegisterPage() {
 
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <img src="/logo.png" alt="ISAFlow" className="h-16 w-auto brightness-0 invert mb-4" />
+          <Image src="/logo.png" alt="ISAFlow" width={160} height={64} className="h-16 w-auto brightness-0 invert mb-4" priority />
           <p className="text-sm text-gray-500 mt-1">Create your account</p>
         </div>
 

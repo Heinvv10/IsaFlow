@@ -165,7 +165,7 @@ export function Tabs(props: TabsProps): ReactNode {
         (props as TabsControlledProps).onChange(id);
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
     [router, props]
   );
 

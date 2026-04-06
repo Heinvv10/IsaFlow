@@ -17,7 +17,7 @@ import {
   getUserPermissions,
   setUserModulePermission,
   resetUserPermissions,
-} from '@/modules/accounting/services/permissionService';
+} from '@/lib/auth/permissionService';
 import { log } from '@/lib/logger';
 
 const ADMIN_ROLES = ['owner', 'admin'];
@@ -119,5 +119,5 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST', 'DELETE']);
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export default withCompany(withErrorHandler(handler));

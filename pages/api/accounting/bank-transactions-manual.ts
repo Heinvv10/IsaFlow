@@ -112,8 +112,7 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
       RETURNING id
     `;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const txId = String((txRows as any[])[0]!.id);
+    const txId = String((txRows as Record<string, unknown>[])[0]!.id);
 
     log.info('Manual bank transaction created', {
       txId, type, bankAccountId, amount: signedAmount, date,
@@ -148,5 +147,5 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export default withCompany(withErrorHandler(handler));

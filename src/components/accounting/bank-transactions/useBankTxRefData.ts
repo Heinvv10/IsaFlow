@@ -4,7 +4,7 @@
  * All requests fire in parallel via Promise.all.
  */
 
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import type { SelectOption } from '@/components/accounting/BankTxTable';
 import type { BankAcct } from './BankTxBankCards';

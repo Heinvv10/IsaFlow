@@ -59,7 +59,7 @@ interface CompanyContextType {
 const CompanyContext = createContext<CompanyContextType | undefined>(undefined);
 
 export function CompanyProvider({ children }: { children: ReactNode }) {
-  const { user, isAuthenticated } = useAuth();
+  const { isAuthenticated } = useAuth();
   const [activeCompany, setActiveCompany] = useState<Company | null>(null);
   const [companies, setCompanies] = useState<CompanyUser[]>([]);
   const [loading, setLoading] = useState(true);

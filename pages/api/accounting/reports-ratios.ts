@@ -7,13 +7,14 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { calculateFinancialRatios, type FinancialData } from '@/modules/accounting/services/reportingEngineService';
+import type { CompanyApiRequest } from '@/lib/auth/withCompany';
 
 type Row = Record<string, unknown>;
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
 
-  const companyId = (req as any).companyId as string;
+  const companyId = (req as CompanyApiRequest).companyId;
 
   // Get financial data from GL balances
   const [revenueRows, cosRows, expenseRows, assetRows, liabilityRows, equityRows] = await Promise.all([

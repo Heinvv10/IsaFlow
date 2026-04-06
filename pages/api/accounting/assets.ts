@@ -93,7 +93,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const countResult = await sql`
       SELECT COUNT(*) as cnt FROM assets WHERE category = ${catKey} AND company_id = ${companyId}::UUID
     ` as Row[];
-    const existingCount = Number((countResult[0] as any)?.cnt || 0);
+    const existingCount = Number(countResult[0]?.cnt ?? 0);
     const assetNumber = generateAssetNumber(body.sarsCategory || body.category || 'general', existingCount);
 
     const inserted = await sql`
@@ -106,7 +106,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       ) VALUES (
         ${companyId}::UUID, ${assetNumber}, ${body.name}, ${body.description || null},
         ${categoryId}, ${catKey},
-        ${(body as any).serialNumber || null}, ${body.location || null},
+        ${body.serialNumber || null}, ${body.location || null},
         ${body.purchaseDate}, ${body.cost},
         ${body.salvageValue || 0}, ${body.usefulLifeYears}, ${body.depreciationMethod || 'straight_line'},
         ${body.sarsCategory || null}, ${sarsRate}, ${taxLife}, ${'straight_line'},

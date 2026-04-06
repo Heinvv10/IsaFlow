@@ -97,18 +97,32 @@ function mapRow(row: Record<string, unknown>, source: 'direct' | 'linked' = 'dir
   };
 }
 
+/** Verify an entity belongs to the given company by checking all possible parent tables */
+async function verifyEntityOwnership(entityId: string, companyId: string): Promise<boolean> {
+  const [owner] = await sql`
+    SELECT 1 AS ok FROM sage_supplier_invoices WHERE id = ${entityId}::uuid AND company_id = ${companyId}
+    UNION ALL SELECT 1 FROM customer_invoices WHERE id = ${entityId}::uuid AND company_id = ${companyId}
+    UNION ALL SELECT 1 FROM supplier_payments WHERE id = ${entityId}::uuid AND company_id = ${companyId}
+    UNION ALL SELECT 1 FROM customer_receipts WHERE id = ${entityId}::uuid AND company_id = ${companyId}
+    UNION ALL SELECT 1 FROM credit_notes WHERE id = ${entityId}::uuid AND company_id = ${companyId}
+    LIMIT 1
+  `;
+  return !!owner;
+}
+
 async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyApiRequest;
   const user = (req as NextApiRequest & { user: { id: string; name: string; email: string } }).user;
 
-  if (req.method === 'GET') return handleGet(req, res);
+  if (req.method === 'GET') return handleGet(req, res, companyId);
   if (req.method === 'POST') return handlePost(req, res, user);
-  if (req.method === 'DELETE') return handleDelete(req, res);
+  if (req.method === 'DELETE') return handleDelete(req, res, companyId);
 
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'POST', 'DELETE']);
 }
 
 /** GET — List direct + cross-linked documents for an accounting entity */
-async function handleGet(req: NextApiRequest, res: NextApiResponse) {
+async function handleGet(req: NextApiRequest, res: NextApiResponse, companyId: string) {
   const entityType = req.query.entity_type as string;
   const entityId = req.query.entity_id as string;
 
@@ -118,6 +132,12 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
 
   if (!VALID_ENTITY_TYPES.includes(entityType as AccountingEntityType)) {
     return apiResponse.badRequest(res, `Invalid entity_type. Allowed: ${VALID_ENTITY_TYPES.join(', ')}`);
+  }
+
+  // Verify entity belongs to this company
+  const owned = await verifyEntityOwnership(entityId, companyId);
+  if (!owned) {
+    return apiResponse.forbidden(res, 'Entity does not belong to your company');
   }
 
   // Direct documents
@@ -334,11 +354,20 @@ async function extractAndStoreDocMetadata(buffer: Buffer, mimeType: string, docI
 }
 
 /** DELETE — Soft-delete a document */
-async function handleDelete(req: NextApiRequest, res: NextApiResponse) {
+async function handleDelete(req: NextApiRequest, res: NextApiResponse, companyId: string) {
   const id = req.query.id as string;
   if (!id) {
     return apiResponse.badRequest(res, 'Missing required query param: id');
   }
+
+  // Verify the document's entity belongs to this company
+  const [doc] = await sql`
+    SELECT entity_id FROM procurement_documents WHERE id = ${id}::uuid AND is_active = true
+  `;
+  if (!doc) return apiResponse.notFound(res, 'Document', id);
+
+  const owned = await verifyEntityOwnership(doc.entity_id as string, companyId);
+  if (!owned) return apiResponse.forbidden(res, 'Document does not belong to your company');
 
   const [row] = await sql`
     UPDATE procurement_documents

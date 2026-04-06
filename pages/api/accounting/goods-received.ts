@@ -8,19 +8,20 @@ import { withCompany, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { validateGRN, generateGRNNumber } from '@/modules/accounting/services/procurementService';
+import type { CompanyApiRequest } from '@/lib/auth/withCompany';
 
 type Row = Record<string, unknown>;
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const companyId = (req as any).companyId as string | undefined;
+  const companyId = (req as CompanyApiRequest).companyId;
 
   if (req.method === 'GET') {
     const { purchaseOrderId } = req.query;
     let rows: Row[];
     if (purchaseOrderId) {
-      rows = await sql`SELECT g.*, po.po_number FROM goods_received_notes g LEFT JOIN purchase_orders po ON g.purchase_order_id = po.id WHERE g.purchase_order_id = ${String(purchaseOrderId)} ORDER BY g.received_date DESC` as Row[];
+      rows = await sql`SELECT g.*, po.po_number FROM goods_received_notes g LEFT JOIN purchase_orders po ON g.purchase_order_id = po.id WHERE g.purchase_order_id = ${String(purchaseOrderId)} AND g.company_id = ${companyId} ORDER BY g.received_date DESC` as Row[];
     } else {
-      rows = await sql`SELECT g.*, po.po_number, s.name as supplier_name FROM goods_received_notes g LEFT JOIN purchase_orders po ON g.purchase_order_id = po.id LEFT JOIN suppliers s ON po.supplier_id = s.id ORDER BY g.received_date DESC LIMIT 200` as Row[];
+      rows = await sql`SELECT g.*, po.po_number, s.name as supplier_name FROM goods_received_notes g LEFT JOIN purchase_orders po ON g.purchase_order_id = po.id LEFT JOIN suppliers s ON po.supplier_id = s.id WHERE g.company_id = ${companyId} ORDER BY g.received_date DESC LIMIT 200` as Row[];
     }
     return apiResponse.success(res, rows);
   }
@@ -31,8 +32,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (!validation.success) return apiResponse.validationError(res, Object.fromEntries((validation.errors || []).map(e => [e.field, e.message])));
 
     const inserted = await withTransaction(async (tx) => {
-      const countRes = await tx`SELECT COUNT(*) as cnt FROM goods_received_notes` as Row[];
-      const grnNumber = generateGRNNumber(Number((countRes[0] as any)?.cnt || 0));
+      const countRes = await tx`SELECT COUNT(*) as cnt FROM goods_received_notes WHERE company_id = ${companyId}` as Row[];
+      const grnNumber = generateGRNNumber(Number(countRes[0]?.cnt ?? 0));
 
       const rows = await tx`
         INSERT INTO goods_received_notes (company_id, grn_number, purchase_order_id, received_date, received_by, notes, created_by)
@@ -57,7 +58,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return rows[0];
     });
 
-    log.info('GRN created', { grn: (inserted as any)?.grn_number, po: body.purchaseOrderId }, 'accounting');
+    log.info('GRN created', { grn: (inserted as Row)?.grn_number, po: body.purchaseOrderId }, 'accounting');
     return apiResponse.created(res, inserted);
   }
 

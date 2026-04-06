@@ -8,14 +8,15 @@ import { withCompany, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { validateProject } from '@/modules/accounting/services/projectAccountingService';
+import type { CompanyApiRequest } from '@/lib/auth/withCompany';
 
 type Row = Record<string, unknown>;
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const companyId = (req as any).companyId as string;
+  const companyId = (req as CompanyApiRequest).companyId;
 
   if (req.method === 'GET') {
-    const { status, clientId } = req.query;
+    const { status } = req.query;
     let rows: Row[];
     if (status) {
       rows = await sql`SELECT p.*, c.name as client_name FROM projects p LEFT JOIN customers c ON p.client_id = c.id WHERE p.company_id = ${companyId}::UUID AND p.status = ${String(status)} ORDER BY p.created_at DESC` as Row[];
@@ -31,7 +32,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (!validation.success) return apiResponse.validationError(res, Object.fromEntries((validation.errors || []).map(e => [e.field, e.message])));
 
     const countRes = await sql`SELECT COUNT(*) as cnt FROM projects WHERE company_id = ${companyId}::UUID` as Row[];
-    const projNum = `PROJ-${String(Number((countRes[0] as any)?.cnt || 0) + 1).padStart(4, '0')}`;
+    const projNum = `PROJ-${String(Number(countRes[0]?.cnt ?? 0) + 1).padStart(4, '0')}`;
 
     const inserted = await sql`
       INSERT INTO projects (company_id, project_number, name, description, client_id, billing_method, start_date, end_date, budget_amount, created_by)

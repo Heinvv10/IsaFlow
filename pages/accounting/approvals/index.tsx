@@ -5,7 +5,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import {
-  Shield, CheckCircle2, XCircle, Clock, Loader2, Plus, Trash2, AlertCircle,
+  Shield, CheckCircle2, XCircle, Loader2, Trash2, AlertCircle,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 

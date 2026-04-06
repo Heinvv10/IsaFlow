@@ -8,6 +8,10 @@ const COMPANY_STORAGE_KEY = 'isaflow_active_company';
 export async function apiFetch(url: string, options?: RequestInit): Promise<Response> {
   const headers = new Headers(options?.headers);
 
+  if (options?.body && typeof options.body === 'string' && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+
   if (typeof window !== 'undefined') {
     const stored = localStorage.getItem(COMPANY_STORAGE_KEY);
     if (stored) {

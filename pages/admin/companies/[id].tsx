@@ -8,18 +8,39 @@ import { useRouter } from 'next/router';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { ConfirmModal } from '@/components/admin/ConfirmModal';
 import { apiFetch } from '@/lib/apiFetch';
-import { ArrowLeft, AlertCircle, Loader2, Building2, ShieldOff, ShieldCheck, Trash2 } from 'lucide-react';
+import { formatDate } from '@/utils/formatters';
+import { useAdminHref } from '@/hooks/useAdminPrefix';
+import {
+  ArrowLeft, AlertCircle, Loader2, Building2, ShieldOff, ShieldCheck,
+  Trash2, Download, UserCog,
+} from 'lucide-react';
+import Link from 'next/link';
 
 interface CompanyDetail {
-  id: string; name: string;
-  registrationNumber: string | null; vatNumber: string | null;
-  email: string | null; phone: string | null; address: string | null;
-  plan: string; billingCycle: string; status: string;
-  createdAt: string; lastActiveAt: string | null;
+  id: string;
+  name: string;
+  registration_number: string | null;
+  vat_number: string | null;
+  email: string | null;
+  phone: string | null;
+  address_line1: string | null;
+  city: string | null;
+  province: string | null;
+  postal_code: string | null;
+  plan_name: string;
+  billing_cycle: string;
+  status: string;
+  created_at: string;
+  last_active: string | null;
 }
 
 interface CompanyUser {
-  id: string; name: string; email: string; role: string; lastLoginAt: string | null;
+  id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  role: string;
+  last_login: string | null;
 }
 
 const STATUS_BADGE: Record<string, string> = {
@@ -29,19 +50,18 @@ const STATUS_BADGE: Record<string, string> = {
   cancelled: 'bg-gray-500/10 text-gray-500',
 };
 
-const fmtDate = (d: string | null) => d ? new Date(d).toLocaleDateString('en-ZA') : '—';
-
 function Field({ label, value }: { label: string; value: string | null | undefined }) {
   return (
     <div>
       <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">{label}</p>
-      <p className="text-sm text-gray-900 dark:text-white">{value || '—'}</p>
+      <p className="text-sm text-gray-900 dark:text-white">{value || '\u2014'}</p>
     </div>
   );
 }
 
 export default function AdminCompanyDetailPage() {
   const router = useRouter();
+  const adminHref = useAdminHref();
   const { id } = router.query;
 
   const [company, setCompany]   = useState<CompanyDetail | null>(null);
@@ -117,16 +137,50 @@ export default function AdminCompanyDetailPage() {
       const res  = await apiFetch(`/api/admin/companies/${id}`, { method: 'DELETE' });
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Failed');
-      void router.push('/admin/companies');
+      void router.push(adminHref('/admin/companies'));
     } catch (err) { setActionError(err instanceof Error ? err.message : 'Failed'); setActionLoading(false); }
   }
 
+  async function handleExport() {
+    if (!id || typeof id !== 'string') return;
+    setActionLoading(true); setActionError('');
+    try {
+      const res = await apiFetch(`/api/admin/companies/${id}/export`);
+      if (!res.ok) { const json = await res.json(); throw new Error(json.message || 'Export failed'); }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `company-${id}-export.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) { setActionError(err instanceof Error ? err.message : 'Export failed'); }
+    finally { setActionLoading(false); }
+  }
+
+  async function handleImpersonate() {
+    if (!id || typeof id !== 'string') return;
+    setActionLoading(true); setActionError('');
+    try {
+      const res  = await apiFetch(`/api/admin/companies/${id}/impersonate`, { method: 'POST' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.message || 'Impersonation failed');
+      const token = (json.data as { token: string })?.token;
+      if (token) window.open(`/accounting?impersonate=${token}`, '_blank');
+    } catch (err) { setActionError(err instanceof Error ? err.message : 'Impersonation failed'); }
+    finally { setActionLoading(false); }
+  }
+
+  const address = company
+    ? [company.address_line1, company.city, company.province, company.postal_code].filter(Boolean).join(', ')
+    : null;
+
   return (
     <AdminLayout title="Company Detail">
-      <button onClick={() => void router.push('/admin/companies')}
+      <Link href={adminHref('/admin/companies')}
         className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-900 dark:hover:text-white mb-5 transition-colors">
         <ArrowLeft className="w-4 h-4" /> Back to Companies
-      </button>
+      </Link>
 
       {[error, actionError].filter(Boolean).map((msg, i) => (
         <div key={i} className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm mb-4">
@@ -147,6 +201,14 @@ export default function AdminCompanyDetailPage() {
               </div>
             </div>
             <div className="flex gap-2 flex-wrap">
+              <button onClick={() => void handleExport()} disabled={actionLoading}
+                className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50">
+                <Download className="w-4 h-4" /> Export Data
+              </button>
+              <button onClick={() => void handleImpersonate()} disabled={actionLoading}
+                className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-blue-400 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/10 transition-colors disabled:opacity-50">
+                <UserCog className="w-4 h-4" /> Impersonate
+              </button>
               {company.status !== 'suspended'
                 ? <button onClick={() => setSuspendOpen(true)} disabled={actionLoading}
                     className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-yellow-400 text-yellow-600 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 transition-colors disabled:opacity-50">
@@ -179,20 +241,20 @@ export default function AdminCompanyDetailPage() {
               <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-5 shadow-sm">
                 <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Company Information</h3>
                 <div className="grid grid-cols-2 gap-4">
-                  <Field label="Registration #" value={company.registrationNumber} />
-                  <Field label="VAT Number"      value={company.vatNumber} />
+                  <Field label="Registration #" value={company.registration_number} />
+                  <Field label="VAT Number"      value={company.vat_number} />
                   <Field label="Email"           value={company.email} />
                   <Field label="Phone"           value={company.phone} />
-                  <Field label="Created"         value={fmtDate(company.createdAt)} />
-                  <Field label="Last Active"     value={fmtDate(company.lastActiveAt)} />
-                  <div className="col-span-2"><Field label="Address" value={company.address} /></div>
+                  <Field label="Created"         value={formatDate(company.created_at)} />
+                  <Field label="Last Active"     value={formatDate(company.last_active)} />
+                  <div className="col-span-2"><Field label="Address" value={address} /></div>
                 </div>
               </div>
               <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-5 shadow-sm">
                 <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Subscription</h3>
                 <div className="grid grid-cols-2 gap-4">
-                  <Field label="Plan"          value={company.plan} />
-                  <Field label="Billing Cycle" value={company.billingCycle} />
+                  <Field label="Plan"          value={company.plan_name} />
+                  <Field label="Billing Cycle" value={company.billing_cycle} />
                   <Field label="Status"        value={company.status} />
                 </div>
               </div>
@@ -218,10 +280,10 @@ export default function AdminCompanyDetailPage() {
                         {users.length === 0 && <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-400">No users</td></tr>}
                         {users.map(u => (
                           <tr key={u.id} className="border-b border-gray-100 dark:border-gray-800 last:border-0">
-                            <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{u.name}</td>
+                            <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{u.first_name} {u.last_name}</td>
                             <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{u.email}</td>
                             <td className="px-4 py-3 text-gray-600 dark:text-gray-300 capitalize">{u.role}</td>
-                            <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{fmtDate(u.lastLoginAt)}</td>
+                            <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{formatDate(u.last_login)}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -245,7 +307,7 @@ export default function AdminCompanyDetailPage() {
         onCancel={() => setSuspendOpen(false)}
       >
         <textarea rows={3} value={suspendReason} onChange={e => setSuspendReason(e.target.value)}
-          placeholder="Reason for suspension…"
+          placeholder="Reason for suspension..."
           className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-yellow-500 resize-none"
         />
       </ConfirmModal>
