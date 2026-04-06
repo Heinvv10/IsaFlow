@@ -93,7 +93,7 @@ export async function approveVATAdjustment(companyId: string,
           description: `VAT output adjustment ${va.adjustment_number}` },
       ];
 
-  const je = await createJournalEntry('', {
+  const je = await createJournalEntry(companyId, {
     entryDate: String(va.adjustment_date),
     description: `VAT adjustment ${va.adjustment_number}`,
     source: 'auto_vat_adjustment',

@@ -116,7 +116,7 @@ export async function approveWriteOff(companyId: string, id: string, userId: str
       description: `Write-off AR: ${wo.invoice_number}` },
   ];
 
-  const je = await createJournalEntry('', {
+  const je = await createJournalEntry(companyId, {
     entryDate: String(wo.write_off_date),
     description: `Write-off ${wo.write_off_number} — ${wo.invoice_number}`,
     source: 'auto_write_off',
