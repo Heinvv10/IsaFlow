@@ -34,8 +34,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'Source and destination accounts must be different');
   }
 
-  if (Number(amount) <= 0) {
-    return apiResponse.badRequest(res, 'Transfer amount must be positive');
+  const numAmount = Number(amount);
+  if (isNaN(numAmount) || numAmount <= 0) {
+    return apiResponse.badRequest(res, 'Transfer amount must be a positive number');
   }
 
   try {

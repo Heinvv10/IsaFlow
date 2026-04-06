@@ -52,8 +52,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!fromCurrency || !toCurrency || !rate || !effectiveDate) {
       return apiResponse.badRequest(res, 'fromCurrency, toCurrency, rate, effectiveDate required');
     }
+    const numRate = Number(rate);
+    if (isNaN(numRate) || numRate <= 0) {
+      return apiResponse.badRequest(res, 'Exchange rate must be a positive number');
+    }
     const result = await setExchangeRate(companyId,
-      { fromCurrency, toCurrency, rate: Number(rate), effectiveDate, source },
+      { fromCurrency, toCurrency, rate: numRate, effectiveDate, source },
       userId
     );
     return apiResponse.success(res, result);
