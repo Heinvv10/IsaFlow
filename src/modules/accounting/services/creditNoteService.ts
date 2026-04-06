@@ -209,7 +209,7 @@ export async function cancelCreditNote(companyId: string,
 
     // Reverse GL journal entry — manages its own transaction, must stay outside
     if (cn.gl_journal_entry_id) {
-      await reverseJournalEntry('', String(cn.gl_journal_entry_id), userId);
+      await reverseJournalEntry(companyId, String(cn.gl_journal_entry_id), userId);
     }
 
     // Atomically reverse invoice balance adjustments and mark credit note cancelled

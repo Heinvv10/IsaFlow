@@ -261,7 +261,7 @@ export async function reverseReconciledTransaction(
     if (jlRows.length > 0 && jlRows[0]!.journal_entry_id) {
       const { reverseJournalEntry } = await import('./journalEntryService');
       try {
-        await reverseJournalEntry('', String(jlRows[0]!.journal_entry_id), userId);
+        await reverseJournalEntry(companyId, String(jlRows[0]!.journal_entry_id), userId);
       } catch (e) {
         throw new Error(`Cannot reverse: ${e instanceof Error ? e.message : 'Journal reversal failed'}`);
       }
