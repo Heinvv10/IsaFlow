@@ -102,7 +102,7 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
 
   // ── POST ───────────────────────────────────────────────────────────────────
   if (req.method === 'POST') {
-    const { bankTransactionId, fileName, fileData, fileSize } = req.body as PostBody;
+    const { bankTransactionId, fileName, fileData } = req.body as PostBody;
 
     if (!bankTransactionId) return apiResponse.badRequest(res, 'bankTransactionId is required');
 

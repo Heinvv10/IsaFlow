@@ -7,14 +7,13 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withAuth } from '@/lib/auth';
 import {
   listConnections, disconnectConnection,
   syncTransactions, getSyncHistory, isConfigured,
 } from '@/modules/accounting/services/bankFeedService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const userId = (req as AuthenticatedNextApiRequest).user.id;
 
   if (req.method === 'GET') {
     if (req.query.action === 'status') {

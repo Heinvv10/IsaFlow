@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { BookOpen, FileText, CreditCard, LogOut, Loader2 } from 'lucide-react';
+import { BookOpen, FileText, LogOut, Loader2 } from 'lucide-react';
 import Head from 'next/head';
 
 function formatCurrency(amount: number): string {

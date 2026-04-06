@@ -227,7 +227,7 @@ export async function getAccountTransactions(
   try {
     const acctRows = (await sql`
       SELECT account_name, account_type, normal_balance
-      FROM gl_accounts WHERE account_code = ${accountCode} LIMIT 1
+      FROM gl_accounts WHERE account_code = ${accountCode} AND company_id = ${companyId}::UUID LIMIT 1
     `) as Row[];
     if (!acctRows[0]) throw new Error(`Account ${accountCode} not found`);
 
@@ -242,6 +242,7 @@ export async function getAccountTransactions(
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id
       WHERE je.status = 'posted'
+        AND je.company_id = ${companyId}::UUID
         AND je.entry_date < ${periodStart}
         AND ga.account_code = ${accountCode}
     `) as Row[];
@@ -259,6 +260,7 @@ export async function getAccountTransactions(
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id
       WHERE je.status = 'posted'
+        AND je.company_id = ${companyId}::UUID
         AND je.entry_date >= ${periodStart}
         AND je.entry_date <= ${periodEnd}
         AND ga.account_code = ${accountCode}
