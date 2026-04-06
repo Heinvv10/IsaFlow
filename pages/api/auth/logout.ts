@@ -37,7 +37,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const clearOpts = {
     httpOnly: true,
     secure: isProd,
-    sameSite: 'lax' as const,
+    sameSite: 'strict' as const,
     path: '/',
     maxAge: 0,
     expires: new Date(0),
