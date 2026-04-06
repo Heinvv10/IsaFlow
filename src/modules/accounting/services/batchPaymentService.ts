@@ -62,10 +62,10 @@ export async function createBatch(companyId: string,
   const batchId = await withTransaction(async (tx) => {
     const batchRows = (await tx`
       INSERT INTO supplier_payment_batches (
-        batch_date, payment_method, bank_account_id, notes,
+        company_id, batch_date, payment_method, bank_account_id, notes,
         payment_count, total_amount, created_by
       ) VALUES (
-        ${batchDate}, ${paymentMethod}, ${input.bankAccountId || null},
+        ${companyId}::UUID, ${batchDate}, ${paymentMethod}, ${input.bankAccountId || null},
         ${input.notes || null}, ${input.payments.length}, 0, ${userId}::UUID
       ) RETURNING id
     `) as Record<string, unknown>[];
@@ -104,7 +104,7 @@ export async function createBatch(companyId: string,
   });
 
   log.info('Created batch payment', { batchId, paymentCount: input.payments.length }, 'accounting');
-  const result = await getBatchById('', batchId);
+  const result = await getBatchById(companyId, batchId);
   return result!;
 }
 
@@ -115,7 +115,7 @@ export async function approveBatch(companyId: string, id: string, _userId: strin
 }
 
 export async function processBatch(companyId: string, id: string, userId: string): Promise<void> {
-  const batch = await getBatchById('', id);
+  const batch = await getBatchById(companyId, id);
   if (!batch) throw new Error('Batch not found');
   if (batch.status !== 'approved') throw new Error('Batch must be approved first');
 
