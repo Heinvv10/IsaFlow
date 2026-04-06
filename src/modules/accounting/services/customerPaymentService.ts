@@ -239,29 +239,29 @@ export async function cancelCustomerPayment(companyId: string,
       await reverseJournalEntry(companyId, payment.glJournalEntryId, userId);
     }
 
-    // Reverse invoice balance updates
-    for (const alloc of payment.allocations) {
-      await sql`
-        UPDATE customer_invoices
-        SET amount_paid = GREATEST(0, amount_paid - ${alloc.amountAllocated})
-        WHERE id = ${alloc.invoiceId}::UUID
-      `;
-      await sql`
-        UPDATE customer_invoices SET status = CASE
-          WHEN amount_paid <= 0.01 THEN 'approved'
-          WHEN amount_paid < total_amount THEN 'partially_paid'
-          ELSE status
-        END, paid_at = CASE WHEN amount_paid <= 0.01 THEN NULL ELSE paid_at END
-        WHERE id = ${alloc.invoiceId}::UUID
-      `;
-    }
+    // Reverse invoice balances + cancel payment atomically
+    const updated = await withTransaction(async (tx) => {
+      for (const alloc of payment.allocations) {
+        await tx`
+          UPDATE customer_invoices
+          SET amount_paid = GREATEST(0, amount_paid - ${alloc.amountAllocated}),
+              status = CASE
+                WHEN GREATEST(0, amount_paid - ${alloc.amountAllocated}) <= 0.01 THEN 'approved'
+                WHEN GREATEST(0, amount_paid - ${alloc.amountAllocated}) < total_amount THEN 'partially_paid'
+                ELSE status
+              END,
+              paid_at = CASE WHEN GREATEST(0, amount_paid - ${alloc.amountAllocated}) <= 0.01 THEN NULL ELSE paid_at END
+          WHERE id = ${alloc.invoiceId}::UUID AND company_id = ${companyId}
+        `;
+      }
 
-    const updated = (await sql`
-      UPDATE customer_payments
-      SET status = 'cancelled', cancelled_by = ${userId}::UUID,
-          cancelled_at = NOW(), cancel_reason = ${reason || null}
-      WHERE id = ${id} RETURNING *
-    `) as Row[];
+      return (await tx`
+        UPDATE customer_payments
+        SET status = 'cancelled', cancelled_by = ${userId}::UUID,
+            cancelled_at = NOW(), cancel_reason = ${reason || null}
+        WHERE id = ${id} AND company_id = ${companyId} RETURNING *
+      `) as Row[];
+    }) as Row[];
 
     log.info('Cancelled customer payment', { id, reason }, 'accounting');
     return mapPaymentRow(updated[0]!);

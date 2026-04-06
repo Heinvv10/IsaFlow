@@ -3,7 +3,7 @@
  * Phase 1 Sage Alignment: Bad debt write-offs with GL posting
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
 import { getSystemAccount } from './systemAccountResolver';
@@ -125,20 +125,23 @@ export async function approveWriteOff(companyId: string, id: string, userId: str
   }, userId);
   await postJournalEntry(companyId, je.id, userId);
 
-  // Update invoice balance
-  await sql`
-    UPDATE customer_invoices
-    SET amount_paid = amount_paid + ${amount},
-        status = CASE WHEN (total_amount - amount_paid - ${amount}) <= 0.01 THEN 'paid' ELSE status END
-    WHERE id = ${wo.invoice_id}::UUID
-  `;
+  // Update invoice balance + write-off status atomically
+  const updated = await withTransaction(async (tx) => {
+    await tx`
+      UPDATE customer_invoices
+      SET amount_paid = amount_paid + ${amount},
+          status = CASE WHEN (total_amount - amount_paid - ${amount}) <= 0.01 THEN 'paid' ELSE status END
+      WHERE id = ${wo.invoice_id}::UUID AND company_id = ${companyId}
+    `;
 
-  const updated = (await sql`
-    UPDATE customer_write_offs
-    SET status = 'approved', approved_by = ${userId}::UUID, approved_at = NOW(),
-        gl_journal_entry_id = ${je.id}::UUID
-    WHERE id = ${id} AND company_id = ${companyId} RETURNING *
-  `) as Row[];
+    const rows = (await tx`
+      UPDATE customer_write_offs
+      SET status = 'approved', approved_by = ${userId}::UUID, approved_at = NOW(),
+          gl_journal_entry_id = ${je.id}::UUID
+      WHERE id = ${id} AND company_id = ${companyId} RETURNING *
+    `) as Row[];
+    return rows;
+  }) as Row[];
 
   log.info('Approved write-off', { id, journalEntryId: je.id }, 'accounting');
   return mapRow(updated[0]!);
