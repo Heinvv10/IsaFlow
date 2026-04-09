@@ -69,20 +69,25 @@ const TOOLTIP_H = 160;
 const GAP = 12;
 
 export function getTooltipPosition(rect: TargetRect, position: TourStep['position']): TooltipPos {
+  const clampX = (x: number) => Math.max(8, Math.min(x, window.innerWidth - TOOLTIP_W - 8));
+  const clampY = (y: number) => Math.max(8, Math.min(y, window.innerHeight - TOOLTIP_H - 8));
+
   switch (position) {
-    case 'bottom':
-      return {
-        top: rect.top + rect.height + GAP,
-        left: Math.max(8, Math.min(rect.left + rect.width / 2 - TOOLTIP_W / 2, window.innerWidth - TOOLTIP_W - 8)),
-      };
-    case 'top':
-      return {
-        top: rect.top - TOOLTIP_H - GAP,
-        left: Math.max(8, Math.min(rect.left + rect.width / 2 - TOOLTIP_W / 2, window.innerWidth - TOOLTIP_W - 8)),
-      };
+    case 'bottom': {
+      const idealTop = rect.top + rect.height + GAP;
+      // If tooltip would go off-screen below, try placing it inside the target near the top
+      const top = idealTop + TOOLTIP_H > window.innerHeight
+        ? Math.min(rect.top + GAP + 60, window.innerHeight - TOOLTIP_H - 8)
+        : idealTop;
+      return { top: clampY(top), left: clampX(rect.left + rect.width / 2 - TOOLTIP_W / 2) };
+    }
+    case 'top': {
+      const idealTop = rect.top - TOOLTIP_H - GAP;
+      return { top: clampY(idealTop), left: clampX(rect.left + rect.width / 2 - TOOLTIP_W / 2) };
+    }
     case 'right':
-      return { top: rect.top + rect.height / 2 - TOOLTIP_H / 2, left: rect.left + rect.width + GAP };
+      return { top: clampY(rect.top + rect.height / 2 - TOOLTIP_H / 2), left: rect.left + rect.width + GAP };
     case 'left':
-      return { top: rect.top + rect.height / 2 - TOOLTIP_H / 2, left: rect.left - TOOLTIP_W - GAP };
+      return { top: clampY(rect.top + rect.height / 2 - TOOLTIP_H / 2), left: rect.left - TOOLTIP_W - GAP };
   }
 }
