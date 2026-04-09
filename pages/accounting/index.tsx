@@ -91,9 +91,9 @@ export default function AccountingPage() {
 
   return (
     <AppLayout>
-      <div className="min-h-screen bg-[var(--ff-bg-primary)]" data-tour="dashboard">
+      <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         {/* Page Header */}
-        <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
+        <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]" data-tour="dashboard">
           <div className="px-6 py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
