@@ -19,8 +19,8 @@ interface SelectDropdownProps {
   inputId: string;
   isMulti: boolean;
   pos: { top: number; left: number; width: number };
-  searchRef: RefObject<HTMLInputElement>;
-  listRef: RefObject<HTMLUListElement>;
+  searchRef: RefObject<HTMLInputElement | null>;
+  listRef: RefObject<HTMLUListElement | null>;
   onSearchChange: (value: string) => void;
   onSelect: (option: SelectOption) => void;
   onActiveChange: (index: number) => void;
@@ -59,7 +59,7 @@ export function SelectDropdown({
           <div className="flex items-center gap-2 text-gray-400">
             <Search size={14} aria-hidden="true" />
             <input
-              ref={searchRef as React.RefObject<HTMLInputElement>}
+              ref={searchRef}
               type="text"
               value={search}
               onChange={(e) => onSearchChange(e.target.value)}
@@ -72,7 +72,7 @@ export function SelectDropdown({
       )}
 
       <ul
-        ref={listRef as React.RefObject<HTMLUListElement>}
+        ref={listRef}
         id={listboxId}
         role="listbox"
         aria-multiselectable={isMulti}
