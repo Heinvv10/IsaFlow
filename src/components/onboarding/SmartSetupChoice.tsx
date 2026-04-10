@@ -156,7 +156,7 @@ export function SmartSetupChoice({ onManual, onExtracted }: Props) {
                         ) : (
                           <label className="flex items-center gap-1.5 cursor-pointer text-xs text-teal-400 hover:text-teal-300">
                             <Upload className="w-3.5 h-3.5" /> Upload
-                            <input type="file" className="hidden" accept="image/*,application/pdf"
+                            <input type="file" className="sr-only" accept="image/*,application/pdf"
                               ref={el => { fileRefs.current[slot.type] = el; }}
                               onChange={e => { const f = e.target.files?.[0]; if (f) { void addDoc(slot.type, f); } e.target.value = ''; }} />
                           </label>

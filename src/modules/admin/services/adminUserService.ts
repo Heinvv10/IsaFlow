@@ -312,3 +312,19 @@ export async function removeUserFromCompany(
   `;
   log.info('removeUserFromCompany', { userId, companyId }, 'AdminUserService');
 }
+
+/**
+ * Reset a user's onboarding state so they go through the company wizard again
+ * on next login. Removes all company links and clears sessions.
+ */
+export async function resetOnboarding(userId: string): Promise<void> {
+  await sql`
+    UPDATE users
+    SET onboarding_completed = false,
+        updated_at           = NOW()
+    WHERE id = ${userId}
+  `;
+  await sql`DELETE FROM company_users WHERE user_id = ${userId}`;
+  await sql`DELETE FROM user_sessions WHERE user_id = ${userId}`;
+  log.info('resetOnboarding — user must re-onboard', { userId }, 'AdminUserService');
+}

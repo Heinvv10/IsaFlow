@@ -1,5 +1,5 @@
 /**
- * VLM Invoice Service — invoice/document extraction via vLLM (Qwen3-VL)
+ * VLM Invoice Service — invoice/document extraction via vLLM
  *
  * Handles: invoice, credit_note, receipt, purchase_order, delivery_note
  * extraction from images and PDFs.
@@ -62,7 +62,7 @@ Return ONLY valid JSON (no markdown, no explanation) matching this schema:
 // ---------------------------------------------------------------------------
 
 /**
- * Extract document data from an image buffer using Qwen3 VLM.
+ * Extract document data from an image buffer using VLM.
  * @param imageBase64 — base64-encoded image (JPEG/PNG) or PDF page render
  * @param mimeType — e.g. "image/jpeg", "image/png"
  * @param rawText — optional PDF text layer for cross-check context

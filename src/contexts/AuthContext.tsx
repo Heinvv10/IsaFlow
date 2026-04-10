@@ -155,6 +155,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setError(null);
     setTwoFactorChallenge(null);
 
+    // Clear stale company state from any previous session so the new user
+    // doesn't inherit another user's company context
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('isaflow_active_company');
+      localStorage.removeItem('isaflow_impersonation');
+    }
+
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
@@ -245,6 +252,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setUser(null);
       if (typeof window !== 'undefined') {
+        // Clear all auth/company state so the next login starts fresh
+        localStorage.removeItem('isaflow_active_company');
+        localStorage.removeItem('isaflow_impersonation');
+        sessionStorage.clear();
         window.location.href = '/login';
       }
     }

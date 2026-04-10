@@ -10,7 +10,7 @@
  *
  * Environment:
  *   VLLM_BASE_URL  — e.g. http://192.168.1.100:8000/v1
- *   VLLM_MODEL     — e.g. Qwen/Qwen3-VL-8B
+ *   VLM_MODEL      — the VLM model ID (required)
  *   VLLM_API_KEY   — optional, defaults to "EMPTY"
  *   VLLM_TIMEOUT   — request timeout in ms, defaults to 120000
  */

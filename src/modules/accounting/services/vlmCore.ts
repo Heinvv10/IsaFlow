@@ -24,7 +24,7 @@ export function getVlmConfig(): VlmConfig | null {
   if (!apiKey) throw new Error('VLLM_API_KEY is not configured');
   return {
     baseUrl: baseUrl.replace(/\/+$/, ''),
-    model: process.env.VLLM_MODEL || 'Qwen/Qwen3-VL-8B',
+    model: process.env.VLM_MODEL || process.env.VLLM_MODEL || (() => { throw new Error('VLM_MODEL environment variable is required'); })(),
     apiKey,
     timeout: parseInt(process.env.VLLM_TIMEOUT || '120000', 10),
   };

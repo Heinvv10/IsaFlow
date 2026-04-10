@@ -1,7 +1,7 @@
 /**
  * OCR Service — Document data extraction with VLM + regex fallback
  *
- * Primary:  Qwen3 VLM on vLLM (handles images AND text-based PDFs)
+ * Primary:  VLM on vLLM (handles images AND text-based PDFs)
  * Fallback: Pattern-based regex extraction for PDFs with text layers
  *
  * Optimised for South African invoices and receipts.

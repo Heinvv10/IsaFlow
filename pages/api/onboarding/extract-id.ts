@@ -1,7 +1,7 @@
 /**
  * POST /api/onboarding/extract-id
  * Extracts director name and ID number from an uploaded ID document / passport
- * using the Qwen3 VLM.
+ * using the VLM (configured via VLM_MODEL env var).
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -15,8 +15,10 @@ export const config = {
   api: { bodyParser: { sizeLimit: '20mb' } },
 };
 
-const VLM_BASE_URL = process.env.VLLM_BASE_URL ?? 'http://localhost:8100/v1';
-const VLM_MODEL    = process.env.VLLM_MODEL    ?? 'Qwen/Qwen3-VL-8B-Instruct';
+const VLM_BASE_URL = process.env.VLLM_BASE_URL;
+if (!VLM_BASE_URL) throw new Error('VLLM_BASE_URL environment variable is required');
+const VLM_MODEL    = process.env.VLM_MODEL ?? process.env.VLLM_MODEL;
+if (!VLM_MODEL) throw new Error('VLM_MODEL environment variable is required');
 const VLM_API_KEY  = process.env.VLLM_API_KEY  ?? 'EMPTY';
 const VLM_TIMEOUT  = parseInt(process.env.VLLM_TIMEOUT ?? '120000', 10);
 

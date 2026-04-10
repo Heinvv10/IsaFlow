@@ -1,5 +1,5 @@
 /**
- * VLM Bank Service — bank statement extraction via vLLM (Qwen3-VL)
+ * VLM Bank Service — bank statement extraction via vLLM
  *
  * Extracts transaction lists and metadata from South African bank statement images.
  */

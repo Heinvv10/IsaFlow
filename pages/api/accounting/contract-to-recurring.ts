@@ -95,7 +95,7 @@ async function callLlmForContractExtraction(text: string): Promise<string> {
       Authorization: `Bearer ${process.env.VLLM_API_KEY || 'EMPTY'}`,
     },
     body: JSON.stringify({
-      model: process.env.VLLM_MODEL || 'Qwen/Qwen3-VL-8B',
+      model: process.env.VLM_MODEL || process.env.VLLM_MODEL || (() => { throw new Error('VLM_MODEL environment variable is required'); })(),
       messages: [
         { role: 'system', content: CONTRACT_PROMPT },
         { role: 'user', content: text.substring(0, 8000) },
