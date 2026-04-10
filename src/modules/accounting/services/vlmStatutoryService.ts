@@ -1,5 +1,5 @@
 /**
- * VLM Statutory Service — statutory/compliance document extraction via vLLM (Qwen3-VL)
+ * VLM Statutory Service — statutory/compliance document extraction via vLLM
  *
  * Handles: CIPC certificates, SARS tax clearance, B-BBEE certificates, VAT registrations.
  */

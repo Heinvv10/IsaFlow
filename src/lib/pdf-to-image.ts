@@ -18,7 +18,7 @@ const TMP_DIR      = '/tmp';
 
 /**
  * Convert the first page of a PDF (supplied as a base64 data URL) to a PNG
- * base64 data URL suitable for passing to the Qwen3 VLM.
+ * base64 data URL suitable for passing to the VLM.
  *
  * @throws if pdftoppm fails or the output file is not produced
  */

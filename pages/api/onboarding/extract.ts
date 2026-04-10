@@ -1,7 +1,7 @@
 /**
  * POST /api/onboarding/extract
- * Accepts a base64 document image and calls the local Qwen3 VLM to
- * extract company registration details.
+ * Accepts a base64 document image and calls the VLM (configured via
+ * VLM_MODEL env var) to extract company registration details.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -17,8 +17,10 @@ export const config = {
 
 // ── VLM config ────────────────────────────────────────────────────────────────
 
-const VLM_BASE_URL  = process.env.VLLM_BASE_URL  ?? 'http://localhost:8100/v1';
-const VLM_MODEL     = process.env.VLLM_MODEL      ?? 'Qwen/Qwen3-VL-8B-Instruct';
+const VLM_BASE_URL  = process.env.VLLM_BASE_URL;
+if (!VLM_BASE_URL) throw new Error('VLLM_BASE_URL environment variable is required');
+const VLM_MODEL     = process.env.VLM_MODEL ?? process.env.VLLM_MODEL;
+if (!VLM_MODEL) throw new Error('VLM_MODEL environment variable is required');
 const VLM_API_KEY   = process.env.VLLM_API_KEY    ?? 'EMPTY';
 const VLM_TIMEOUT   = parseInt(process.env.VLLM_TIMEOUT ?? '120000', 10);
 
