@@ -4,9 +4,10 @@
  */
 
 import { sql } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { VatType } from '../types/gl.types';
-type Row = Record<string, unknown>;
+type Row = DbRow;
 
 
 export interface ImportRow {

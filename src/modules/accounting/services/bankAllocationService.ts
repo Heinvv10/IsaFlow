@@ -3,7 +3,8 @@
  * Bank Allocation Service — Sage Process Bank equivalent (allocate, split, reverse)
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
 import { getSystemAccountId } from './systemAccountResolver';
@@ -11,7 +12,7 @@ import { mapTxRow } from './bankTransactionQueryService';
 import type { BankTransaction } from '../types/bank.types';
 import type { JournalLineInput } from '../types/gl.types';
 
-type Row = Record<string, unknown>;
+type Row = DbRow;
 
 export type AllocationType = 'account' | 'supplier' | 'customer';
 
@@ -123,30 +124,37 @@ export async function allocateTransaction(
   }, userId);
   await postJournalEntry(companyId, je.id, userId);
 
+  // Resolve journal line id and optional customer payment user BEFORE opening tx (read-only lookups)
   const jeLines = (await sql`
     SELECT id FROM gl_journal_lines
     WHERE journal_entry_id = ${je.id}::UUID AND gl_account_id = ${bankAccountId}::UUID LIMIT 1`) as Row[];
   const journalLineId = jeLines.length > 0 ? String(jeLines[0]!.id) : null;
 
-  if (journalLineId) {
-    await sql`
-      UPDATE bank_transactions
-      SET status = 'allocated', matched_journal_line_id = ${journalLineId}::UUID,
-          allocation_type = ${allocType}, allocated_entity_name = ${allocEntityName},
-          cc1_id = ${cc1Id || null}::UUID, cc2_id = ${cc2Id || null}::UUID,
-          bu_id = ${buId || null}::UUID, updated_at = NOW()
-      WHERE id = ${bankTxId}::UUID`;
-  }
-
+  let paymentUserId: string | null = null;
   if (allocType === 'customer' && entityId) {
     const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    let paymentUserId: string | null = userId;
-    if (!uuidPattern.test(userId)) {
+    if (uuidPattern.test(userId)) {
+      paymentUserId = userId;
+    } else {
       const fallback = (await sql`SELECT id FROM users WHERE id::TEXT ~ '^[0-9a-f]{8}-' LIMIT 1`) as Row[];
       paymentUserId = fallback.length > 0 ? String(fallback[0]!.id) : null;
     }
-    if (paymentUserId) {
-      await sql`
+  }
+
+  // Atomically update bank_transactions and optionally insert the customer_payment record.
+  // If either write fails the whole block rolls back — no orphaned allocation state.
+  await withTransaction(async (wTx) => {
+    if (journalLineId) {
+      await wTx`
+        UPDATE bank_transactions
+        SET status = 'allocated', matched_journal_line_id = ${journalLineId}::UUID,
+            allocation_type = ${allocType}, allocated_entity_name = ${allocEntityName},
+            cc1_id = ${cc1Id || null}::UUID, cc2_id = ${cc2Id || null}::UUID,
+            bu_id = ${buId || null}::UUID, updated_at = NOW()
+        WHERE id = ${bankTxId}::UUID`;
+    }
+    if (allocType === 'customer' && entityId && paymentUserId) {
+      await wTx`
         INSERT INTO customer_payments (
           company_id, client_id, payment_date, total_amount, payment_method,
           bank_reference, bank_account_id, description, status,
@@ -158,7 +166,7 @@ export async function allocateTransaction(
           ${je.id}::UUID, ${paymentUserId}::UUID, ${paymentUserId}::UUID, NOW()
         )`;
     }
-  }
+  });
 
   log.info('Allocated bank transaction', { bankTxId, journalEntryId: je.id, allocType, entityId, contraAccountId }, 'accounting');
   const updated = (await sql`SELECT * FROM bank_transactions WHERE id = ${bankTxId}::UUID`) as Row[];
@@ -231,12 +239,15 @@ export async function splitAllocateTransaction(
     WHERE journal_entry_id = ${je.id}::UUID AND gl_account_id = ${bankAccountId}::UUID LIMIT 1`) as Row[];
   const journalLineId = jeLines.length > 0 ? String(jeLines[0]!.id) : null;
 
+  // Wrap the final bank_transactions write atomically
   if (journalLineId) {
-    await sql`
-      UPDATE bank_transactions
-      SET status = 'allocated', matched_journal_line_id = ${journalLineId}::UUID,
-          allocation_type = 'account', allocated_entity_name = 'Split allocation', updated_at = NOW()
-      WHERE id = ${bankTxId}::UUID`;
+    await withTransaction(async (wTx) => {
+      await wTx`
+        UPDATE bank_transactions
+        SET status = 'allocated', matched_journal_line_id = ${journalLineId}::UUID,
+            allocation_type = 'account', allocated_entity_name = 'Split allocation', updated_at = NOW()
+        WHERE id = ${bankTxId}::UUID`;
+    });
   }
 
   log.info('Split-allocated bank transaction', { bankTxId, journalEntryId: je.id, lineCount: lines.length }, 'accounting');

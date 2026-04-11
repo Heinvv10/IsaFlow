@@ -4,10 +4,11 @@
  */
 
 import { sql } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fmtZAR, fmtDate, TEAL, getCompanyDetailsFromCompany, renderPageFooters, getLastAutoTableY } from './pdfShared';
 
-type Row = Record<string, unknown>;
+type Row = DbRow;
 
 
 export async function generateInvoicePdf(companyId: string, invoiceId: string): Promise<Buffer> {

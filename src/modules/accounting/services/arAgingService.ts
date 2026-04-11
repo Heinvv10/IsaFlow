@@ -4,10 +4,11 @@
  */
 
 import { sql } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { calculateAgingBuckets } from '../utils/aging';
 import type { AgingBucket, AgingInvoice } from '../types/ap.types';
-type Row = Record<string, unknown>;
+type Row = DbRow;
 
 
 export async function getARAging(companyId: string, asAtDate?: string): Promise<AgingBucket[]> {

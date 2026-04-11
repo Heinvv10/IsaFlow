@@ -5,9 +5,10 @@
  */
 
 import { sql, withTransaction } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { InvoiceListItem, PaginatedResult } from '../types/admin.types';
-type Row = Record<string, unknown>;
+type Row = DbRow;
 
 
 function toIso(value: unknown): string | null {

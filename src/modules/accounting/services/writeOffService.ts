@@ -4,13 +4,14 @@
  */
 
 import { sql, withTransaction, fmtDate } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
 import { getSystemAccount } from './systemAccountResolver';
 import type { CustomerWriteOff, WriteOffCreateInput } from '../types/ar.types';
 import type { JournalLineInput } from '../types/gl.types';
 
-type Row = Record<string, unknown>;
+type Row = DbRow;
 
 export async function getWriteOffs(companyId: string, filters?: {
   status?: string;

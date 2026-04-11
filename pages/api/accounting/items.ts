@@ -22,6 +22,7 @@ import {
   type CreateItemInput,
   type UpdateItemInput,
 } from '@/modules/accounting/services/itemService';
+import { expandBundle } from '@/modules/accounting/services/itemBundleService';
 
 async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   const companyId = req.companyId;
@@ -30,7 +31,16 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   /*  GET — list items or fetch single item                             */
   /* ------------------------------------------------------------------ */
   if (req.method === 'GET') {
-    const { id, q, type, active, category_id } = req.query;
+    const { id, q, type, active, category_id, expand_bundle } = req.query;
+
+    // expand_bundle: return bundle lines with child item details
+    if (expand_bundle) {
+      const parentId = String(expand_bundle);
+      const exists = await itemExists(companyId, parentId);
+      if (!exists) return apiResponse.notFound(res, 'Item', parentId);
+      const lines = await expandBundle(companyId, parentId);
+      return apiResponse.success(res, lines);
+    }
 
     if (id) {
       const item = await getItem(companyId, String(id));

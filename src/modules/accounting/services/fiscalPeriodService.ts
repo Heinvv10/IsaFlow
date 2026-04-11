@@ -3,10 +3,12 @@
  * Fiscal Period Service
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { FiscalPeriod, FiscalPeriodStatus } from '../types/gl.types';
-type Row = Record<string, unknown>;
+
+type Row = DbRow;
 
 
 export async function getFiscalPeriods(companyId: string, fiscalYear?: number): Promise<FiscalPeriod[]> {
@@ -70,20 +72,28 @@ export async function createFiscalYear(companyId: string, year: number): Promise
       'July', 'August', 'September', 'October', 'November', 'December',
     ];
 
-    const periods: FiscalPeriod[] = [];
-    for (let i = 0; i < 12; i++) {
+    // Build period metadata before opening the transaction (no DB calls needed)
+    const periodDefs = Array.from({ length: 12 }, (_, i) => {
       const periodNum = i + 1;
       const startDate = `${year}-${String(periodNum).padStart(2, '0')}-01`;
       const lastDay = new Date(year, periodNum, 0).getDate();
       const endDate = `${year}-${String(periodNum).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+      return { periodNum, name: months[i]! + ' ' + year, startDate, endDate };
+    });
 
-      const rows = (await sql`
-        INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date)
-        VALUES (${companyId}, ${months[i]! + ' ' + year}, ${periodNum}, ${year}, ${startDate}, ${endDate})
-        RETURNING *
-      `) as Row[];
-      periods.push(mapRow(rows[0]!));
-    }
+    // All 12 periods inserted atomically — partial failure rolls back the entire year
+    const periods = await withTransaction(async (tx) => {
+      const created: FiscalPeriod[] = [];
+      for (const def of periodDefs) {
+        const rows = (await tx`
+          INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date)
+          VALUES (${companyId}, ${def.name}, ${def.periodNum}, ${year}, ${def.startDate}, ${def.endDate})
+          RETURNING *
+        `) as Row[];
+        created.push(mapRow(rows[0]!));
+      }
+      return created;
+    });
 
     return periods;
   } catch (err) {
@@ -155,6 +165,49 @@ export async function reopenPeriod(companyId: string, id: string): Promise<Fisca
     return mapRow(rows[0]!);
   } catch (err) {
     log.error('Failed to reopen period', { id, error: err }, 'accounting');
+    throw err;
+  }
+}
+
+export async function closeYear(companyId: string, fiscalYear: number, userId: string): Promise<FiscalPeriod[]> {
+  try {
+    const periods = await getFiscalPeriods(companyId, fiscalYear);
+    if (periods.length === 0) throw new Error(`No periods found for fiscal year ${fiscalYear}`);
+
+    const allDone = periods.every(p => p.status === 'closed' || p.status === 'locked');
+    if (allDone) throw new Error(`Fiscal year ${fiscalYear} is already closed`);
+
+    const rows = (await sql`
+      UPDATE fiscal_periods
+      SET status = 'closed', closed_by = ${userId}::UUID, closed_at = NOW()
+      WHERE company_id = ${companyId}
+        AND fiscal_year = ${fiscalYear}
+        AND status NOT IN ('closed', 'locked')
+      RETURNING *
+    `) as Row[];
+
+    log.info('Fiscal year closed', { companyId, fiscalYear, updated: rows.length }, 'accounting');
+    return rows.map(mapRow);
+  } catch (err) {
+    log.error('Failed to close fiscal year', { fiscalYear, error: err }, 'accounting');
+    throw err;
+  }
+}
+
+export async function getJournalCountsByYear(companyId: string, fiscalYear: number): Promise<Record<string, number>> {
+  try {
+    const rows = (await sql`
+      SELECT fp.id, COUNT(je.id)::int AS je_count
+      FROM fiscal_periods fp
+      LEFT JOIN journal_entries je ON je.fiscal_period_id = fp.id AND je.company_id = ${companyId}
+      WHERE fp.company_id = ${companyId} AND fp.fiscal_year = ${fiscalYear}
+      GROUP BY fp.id
+    `) as Row[];
+    const result: Record<string, number> = {};
+    for (const r of rows) result[String(r.id)] = Number(r.je_count);
+    return result;
+  } catch (err) {
+    log.error('Failed to get journal counts', { fiscalYear, error: err }, 'accounting');
     throw err;
   }
 }

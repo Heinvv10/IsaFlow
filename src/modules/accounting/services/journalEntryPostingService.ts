@@ -4,6 +4,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { validateJournalEntry } from '../utils/doubleEntry';
 import type { JournalEntry, JournalLineInput } from '../types/gl.types';
@@ -14,7 +15,7 @@ import {
   mapEntryRow,
 } from './journalEntryCrudService';
 
-type Row = Record<string, unknown>;
+type Row = DbRow;
 
 export async function postJournalEntry(companyId: string, id: string, userId: string): Promise<JournalEntry> {
   try {

@@ -4,6 +4,7 @@
  */
 
 import { sql, withTransaction, fmtDate } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
 import { getSystemAccount } from './systemAccountResolver';
@@ -17,7 +18,7 @@ import type {
   InvoiceForAllocation,
 } from '../types/ap.types';
 import type { JournalLineInput } from '../types/gl.types';
-type Row = Record<string, unknown>;
+type Row = DbRow;
 
 
 interface PaymentFilters {

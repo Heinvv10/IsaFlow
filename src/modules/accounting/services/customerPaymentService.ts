@@ -4,6 +4,7 @@
  */
 
 import { sql, fmtDate, withTransaction } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
 import { randomUUID } from 'crypto';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from './journalEntryService';
@@ -16,7 +17,7 @@ import type {
 } from '../types/ar.types';
 import type { JournalLineInput } from '../types/gl.types';
 
-type Row = Record<string, unknown>;
+type Row = DbRow;
 
 interface PaymentFilters {
   status?: CustomerPaymentStatus;

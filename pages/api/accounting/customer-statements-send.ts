@@ -1,0 +1,117 @@
+/**
+ * Customer Statements Bulk Send API
+ * POST /api/accounting/customer-statements-send
+ * Body: { customer_ids: string[], as_at_date: string, message?: string }
+ * Returns: { sent: number, failed: number, errors: string[] }
+ *
+ * Fetches each customer's statement and emails it via statementEmailService.
+ * All queries are company_id scoped.
+ */
+
+import type { NextApiRequest, NextApiResponse } from 'next';
+import { withErrorHandler } from '@/lib/api-error-handler';
+import { apiResponse } from '@/lib/apiResponse';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
+import { log } from '@/lib/logger';
+import { sql } from '@/lib/neon';
+import { sendStatementEmail } from '@/modules/accounting/services/statementEmailService';
+
+type Row = Record<string, unknown>;
+
+async function getCompanyName(companyId: string): Promise<string> {
+  try {
+    const rows = await sql`
+      SELECT value FROM accounting_settings
+      WHERE company_id = ${companyId}::UUID AND key = 'company_name'
+      LIMIT 1
+    ` as Row[];
+    return rows[0]?.value ? String(rows[0].value) : 'ISAFlow';
+  } catch {
+    return 'ISAFlow';
+  }
+}
+
+async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method !== 'POST') {
+    return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
+  }
+
+  const { companyId } = req as CompanyApiRequest;
+
+  const body = req.body as {
+    customer_ids?: unknown;
+    as_at_date?: unknown;
+    message?: unknown;
+  };
+
+  // Validate input
+  if (!Array.isArray(body.customer_ids) || body.customer_ids.length === 0) {
+    return apiResponse.badRequest(res, 'customer_ids must be a non-empty array');
+  }
+
+  const customerIds = body.customer_ids as unknown[];
+  if (customerIds.some(id => typeof id !== 'string')) {
+    return apiResponse.badRequest(res, 'all customer_ids must be strings');
+  }
+
+  const validIds = customerIds as string[];
+
+  if (typeof body.as_at_date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(body.as_at_date)) {
+    return apiResponse.badRequest(res, 'as_at_date must be a valid YYYY-MM-DD date string');
+  }
+
+  const asAtDate = body.as_at_date;
+  const message = typeof body.message === 'string' ? body.message : undefined;
+
+  // Verify all requested customer IDs belong to this company (IDOR guard)
+  const owned = await sql`
+    SELECT id FROM customers
+    WHERE id = ANY(${validIds}::UUID[]) AND company_id = ${companyId}::UUID
+  ` as Row[];
+
+  const ownedIds = new Set(owned.map(r => String(r.id)));
+  const unauthorized = validIds.filter(id => !ownedIds.has(id));
+  if (unauthorized.length > 0) {
+    log.warn('Unauthorized customer_ids in statement send request', {
+      companyId,
+      unauthorized,
+    }, 'customer-statements-send');
+    return apiResponse.forbidden(res, 'One or more customer IDs do not belong to this company');
+  }
+
+  const companyName = await getCompanyName(companyId);
+
+  let sent = 0;
+  let failed = 0;
+  const errors: string[] = [];
+
+  log.info('Starting bulk statement send', {
+    companyId,
+    count: validIds.length,
+    asAtDate,
+  }, 'customer-statements-send');
+
+  for (const customerId of validIds) {
+    const result = await sendStatementEmail(
+      companyId,
+      customerId,
+      asAtDate,
+      companyName,
+      message
+    );
+
+    if (result.success) {
+      sent++;
+    } else {
+      failed++;
+      errors.push(result.error ?? `Failed to send to customer ${customerId}`);
+    }
+  }
+
+  log.info('Bulk statement send complete', { sent, failed }, 'customer-statements-send');
+
+  return apiResponse.success(res, { sent, failed, errors });
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export default withCompany(withErrorHandler(handler as any));

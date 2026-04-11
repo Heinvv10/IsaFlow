@@ -1,7 +1,7 @@
 /**
  * Fiscal Period Actions API
- * POST /api/accounting/fiscal-periods-action - Close, lock, or reopen a period
- * Body: { id, action: 'close' | 'lock' | 'reopen', userId? }
+ * POST /api/accounting/fiscal-periods-action
+ * Body: { id?, action: 'close' | 'lock' | 'reopen' | 'close_year', fiscalYear? }
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -13,6 +13,7 @@ import {
   closePeriod,
   lockPeriod,
   reopenPeriod,
+  closeYear,
 } from '@/modules/accounting/services/fiscalPeriodService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -23,9 +24,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;
 
   try {
-    const { id, action } = req.body;
-    if (!id || !action) {
-      return apiResponse.badRequest(res, 'id and action are required');
+    const { id, action, fiscalYear } = req.body as {
+      id?: string;
+      action?: string;
+      fiscalYear?: unknown;
+    };
+
+    if (!action) {
+      return apiResponse.badRequest(res, 'action is required');
     }
 
     // Use authenticated user ID — never trust userId from request body
@@ -34,16 +40,25 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     let result;
     switch (action) {
       case 'close':
+        if (!id) return apiResponse.badRequest(res, 'id is required for close action');
         result = await closePeriod(companyId, id, userId);
         break;
       case 'lock':
+        if (!id) return apiResponse.badRequest(res, 'id is required for lock action');
         result = await lockPeriod(companyId, id);
         break;
       case 'reopen':
+        if (!id) return apiResponse.badRequest(res, 'id is required for reopen action');
         result = await reopenPeriod(companyId, id);
         break;
+      case 'close_year':
+        if (fiscalYear === undefined || fiscalYear === null || isNaN(Number(fiscalYear))) {
+          return apiResponse.badRequest(res, 'fiscalYear is required for close_year action');
+        }
+        result = await closeYear(companyId, Number(fiscalYear), userId);
+        break;
       default:
-        return apiResponse.badRequest(res, `Invalid action: ${action}. Use close, lock, or reopen`);
+        return apiResponse.badRequest(res, `Invalid action: ${action}. Use close, lock, reopen, or close_year`);
     }
 
     return apiResponse.success(res, result);
@@ -54,5 +69,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
- 
 export default withCompany(withRole('admin')(withErrorHandler(handler)));

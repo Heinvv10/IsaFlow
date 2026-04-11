@@ -5,6 +5,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { generateRandomPassword, hashPassword } from '@/lib/auth';
 import type {
@@ -15,7 +16,7 @@ import type {
   PaginatedResult,
 } from '../types/admin.types';
 
-type Row = Record<string, unknown>;
+type Row = DbRow;
 
 function toIso(value: unknown): string | null {
   if (value == null) return null;

@@ -6,10 +6,11 @@
  */
 
 import { sql } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { MigrationRun } from './sageMigrationService';
 import { startRun, completeRun, failRun } from './sageMigrationService';
-type Row = Record<string, unknown>;
+type Row = DbRow;
 
 
 /**

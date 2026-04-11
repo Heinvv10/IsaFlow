@@ -1,18 +1,20 @@
 /**
  * Fiscal Periods API
  * GET  /api/accounting/fiscal-periods - List periods (optionally by year)
+ * GET  /api/accounting/fiscal-periods?jeCounts=true&year=YYYY - Journal entry counts per period
  * POST /api/accounting/fiscal-periods - Create fiscal year (12 monthly periods)
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
+import { withCompany, type CompanyApiRequest, withWriteAccess } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import {
   getFiscalPeriods,
   getCurrentFiscalPeriod,
   createFiscalYear,
+  getJournalCountsByYear,
 } from '@/modules/accounting/services/fiscalPeriodService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -20,7 +22,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'GET') {
     try {
-      const { year, current } = req.query;
+      const { year, current, jeCounts } = req.query;
 
       if (current === 'true') {
         const period = await getCurrentFiscalPeriod(companyId);
@@ -28,6 +30,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
 
       const fiscalYear = year ? Number(year) : undefined;
+
+      if (jeCounts === 'true' && fiscalYear) {
+        const counts = await getJournalCountsByYear(companyId, fiscalYear);
+        return apiResponse.success(res, counts);
+      }
+
       const periods = await getFiscalPeriods(companyId, fiscalYear);
       return apiResponse.success(res, periods);
     } catch (err) {
@@ -38,7 +46,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'POST') {
     try {
-      const { year } = req.body;
+      const { year } = req.body as { year?: unknown };
       if (!year || isNaN(Number(year))) {
         return apiResponse.badRequest(res, 'year is required and must be a number');
       }
@@ -51,8 +59,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
   }
 
-  return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'POST']);
+  return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST']);
 }
 
- 
 export default withCompany(withErrorHandler(withWriteAccess(handler)));

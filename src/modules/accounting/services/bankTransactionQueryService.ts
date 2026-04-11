@@ -4,10 +4,11 @@
  */
 
 import { sql } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { BankTransaction } from '../types/bank.types';
 
-type Row = Record<string, unknown>;
+type Row = DbRow;
 
 // ── Row Mappers ───────────────────────────────────────────────────────────────
 
