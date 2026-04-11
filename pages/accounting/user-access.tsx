@@ -2,14 +2,16 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Users, UserPlus, Trash2, Shield, Mail, Clock, Copy, Check, ChevronDown } from 'lucide-react';
+import { Users, UserPlus, Trash2, Shield, Mail, Clock, ChevronDown } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { useAuth } from '@/contexts/AuthContext';
 import { PermissionsGrid } from '@/components/accounting/user-access/PermissionsGrid';
 
 interface CompanyUser { userId: string; name: string; email: string; role: string; joinedAt: string; }
+// Note: no `token` field — the API never returns the raw token for
+// pending invitations (only the SHA-256 hash is stored in the DB).
 interface PendingInvitation {
-  id: string; email: string; role: string; token: string; expiresAt: string; createdAt: string;
+  id: string; email: string; role: string; expiresAt: string; createdAt: string;
   emailSentAt: string | null; emailError: string | null;
 }
 
@@ -31,7 +33,6 @@ export default function UserAccessPage() {
   const [inviting, setInviting] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
 
   const myEntry = users.find((u) => u.userId === user?.id);
@@ -113,14 +114,6 @@ export default function UserAccessPage() {
       setInvitations((prev) => prev.filter((i) => i.id !== id));
       showFeedback('Invitation cancelled.');
     } catch (e) { showFeedback(e instanceof Error ? e.message : 'Cancel failed.'); }
-  }
-
-  function handleCopyLink(inv: PendingInvitation) {
-    const link = `${window.location.origin}/invite/${inv.token}`;
-    void navigator.clipboard.writeText(link).then(() => {
-      setCopiedId(inv.id);
-      setTimeout(() => setCopiedId(null), 2000);
-    });
   }
 
   function toggleExpand(userId: string) {
@@ -276,12 +269,10 @@ export default function UserAccessPage() {
                           </div>
                         </div>
                         <div className="flex items-center gap-3">
-                          <button onClick={() => handleCopyLink(inv)} title="Copy invite link"
-                            className="flex items-center gap-1 text-xs text-gray-500 hover:text-teal-400 transition-colors">
-                            {copiedId === inv.id
-                              ? <><Check className="h-3.5 w-3.5 text-teal-400" /><span className="text-teal-400">Copied</span></>
-                              : <><Copy className="h-3.5 w-3.5" /><span>Copy link</span></>}
-                          </button>
+                          {/* Copy Link removed — the raw invite token isn't
+                              retrievable after creation (only the SHA-256 hash
+                              lives in the DB). A Resend flow that re-generates
+                              a fresh token is the correct replacement. */}
                           <button onClick={() => handleCancelInvite(inv.id)} className="text-xs text-gray-500 hover:text-red-400">Cancel</button>
                         </div>
                       </li>
