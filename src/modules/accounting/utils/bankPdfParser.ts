@@ -101,7 +101,8 @@ function parseAbsaSlashDateLines(text: string): BankCsvParseResult {
 
   const lines = text.split('\n').map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
 
-  const datePat = /^(\d{2})\/(\d{2})\/(\d{4})\s+(.+)$/;
+  // Accept 1-2 digit day and month — some ABSA rows use "1/06/2022" not "01/06/2022"
+  const datePat = /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(.+)$/;
   const twoNumTail =
     /^(.*?)\s+(\d{1,3}(?:[\s,]\d{3})*\.\d{2})\s+(\d{1,3}(?:[\s,]\d{3})*\.\d{2})\s*$/;
   const oneNumTail = /^(.*?)\s+(\d{1,3}(?:[\s,]\d{3})*\.\d{2})\s*$/;
@@ -110,14 +111,102 @@ function parseAbsaSlashDateLines(text: string): BankCsvParseResult {
   let prevBalance: number | null = null;
   let lineNum = 0;
 
+  // Lines we should never append as description context — ABSA page
+  // furniture, statement headers/footers, ABSA product names, and the
+  // "(Effective ...)" debit-card clearing footnote.
+  const ignoreContinuation = (line: string): boolean => {
+    if (!line) return true;
+    if (/^\(Effective\s/i.test(line)) return true;
+    if (/^(Balance Brought Forward|Sundry (Credits|Debits)|Charges|Total (Debits|Credits))/i.test(line)) return true;
+    if (/^Page\s+\d+/i.test(line)) return true;
+    if (/^(Classic Business Acc|Cheque account statement|Statement Number)/i.test(line)) return true;
+    if (/^BRIGHTSPHERE|BLITZ|VELOCITY/i.test(line)) return true;  // opening customer-name banner
+    if (/^(Return address|Reg No|Absa Bank Limited)/i.test(line)) return true;
+    if (/^\d{4,}$/.test(line)) return true;                        // lone page numbers / codes
+    return false;
+  };
+
+  // Page-boundary markers. Once we see ANY of these anywhere in a line,
+  // we stop stitching continuation onto the current transaction — the
+  // line is page footer / next-page header rather than counterparty
+  // context. Uses `includes` (not anchored ^) because ABSA sometimes
+  // glues multiple marker phrases onto a single line after whitespace
+  // collapse (e.g. "41-0242-6629 Cheque Account Number:").
+  const BOUNDARY_MARKERS = [
+    /-{2,}\s*\d+\s+of\s+\d+\s*-{2,}/i,         // "-- 3 of 6 --"
+    /Page\s+\d+\s+of\s+\d+/i,
+    /Tax Invoice/i,
+    /Your transactions/i,
+    /Cheque Account Number/i,
+    /Date\s+Transaction\s+Description/i,       // column header row
+    /Authorised Financial Services Provider/i,
+    /Registration Number\s+\d{4}/i,
+    /^CSP\d+|BFIBRE\s+\d+/i,                   // document-code footer
+    /YOUR PRICING PLAN/i,
+    /CREDIT INTEREST RATE/i,
+    /PRICING PLAN/i,
+    /CHARGE LEGEND/i,
+    /VAT REGISTRATION/i,
+    /NCRCP\d/i,                                // credit provider code
+    /^\d{2}-\d{4}-\d{4}\b/,                    // "41-0242-6629" bare ref
+    /SERVICE FEE:/i,                           // monthly statement fee line
+    /MNTHLY ACCT FEE/i,                        // "MNTHLY ACCT FEE : R95.00"
+    /Sms Notifications?/i,                     // "54 Sms Notifications" SMS fee block
+    /^CHARGES\s/i,                             // "CHARGES R 1,234.56" footer
+  ] as const;
+
+  const isPageBoundary = (line: string): boolean =>
+    BOUNDARY_MARKERS.some(re => re.test(line));
+
+  // Cap continuation lines per transaction. ABSA uses 1–2 lines for
+  // real counterparty context; anything beyond that is overwhelmingly
+  // page footer bleed, so stop absorbing.
+  const MAX_CONT_LINES = 2;
+
+  // Tracks which transaction index we're currently stitching onto, and
+  // how many lines we've already appended. Reset when we cross a page
+  // boundary so we don't keep stitching once the footer starts.
+  let stitchIdx: number | null = null;
+  let stitchCount = 0;
+
+  // Stitch continuation lines onto the most recent pushed transaction.
+  // The primary "type" label ("Digital Transf Cr", "Acb Credit" etc.) is
+  // useless without the counterparty / reference text ABSA prints on
+  // the FOLLOWING lines before the next dated row.
+  const appendContinuation = (line: string): void => {
+    if (stitchIdx === null) return;
+    if (isPageBoundary(line)) {
+      // Freeze the current transaction's description — no more bleed.
+      stitchIdx = null;
+      return;
+    }
+    if (ignoreContinuation(line)) return;
+    if (stitchCount >= MAX_CONT_LINES) return;
+    const last = result.transactions[stitchIdx];
+    if (!last) return;
+    // Skip if this line is already in the description (ABSA often prints
+    // the same beneficiary name twice for EFT transfers).
+    if (last.description.toLowerCase().includes(line.toLowerCase())) return;
+    last.description = `${last.description} — ${line}`;
+    stitchCount++;
+  };
+
   for (const line of lines) {
     lineNum++;
     const m = line.match(datePat);
-    if (!m) continue;
+    if (!m) {
+      // Non-dated line: either a description continuation for the last
+      // parsed transaction, or page furniture we should ignore.
+      appendContinuation(line);
+      continue;
+    }
     const [, dd, mm, yyyy, rest] = m;
 
     const d = parseInt(dd!, 10), mo = parseInt(mm!, 10), y = parseInt(yyyy!, 10);
-    if (d < 1 || d > 31 || mo < 1 || mo > 12 || y < 2000 || y > 2099) continue;
+    if (d < 1 || d > 31 || mo < 1 || mo > 12 || y < 2000 || y > 2099) {
+      appendContinuation(line);
+      continue;
+    }
     const transactionDate = `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 
     const m2 = rest!.match(twoNumTail);
@@ -155,6 +244,12 @@ function parseAbsaSlashDateLines(text: string): BankCsvParseResult {
       description,
       balance,
     });
+
+    // Arm the continuation-line stitcher to append onto this new row
+    // until we hit either another dated row, a page-boundary marker,
+    // or the MAX_CONT_LINES cap.
+    stitchIdx = result.transactions.length - 1;
+    stitchCount = 0;
 
     prevBalance = balance;
   }
