@@ -102,38 +102,17 @@ export default function RegisterPage() {
     ? `/login?registered=1&invite=${inviteToken}`
     : '/login?registered=1';
 
-  // Accept the invite (if present) now that the user is authenticated, then
-  // figure out where to send them:
-  // - Came from an invite → accept → /accounting (they're in an existing company)
-  // - No companies yet → /onboarding wizard
-  // - Already has a company → /accounting
+  // Decide where to send the user after register + auto-login.
+  //
+  // The register endpoint already auto-accepts any pending invitations for
+  // the new user (both by explicit inviteToken and by matching email — see
+  // pages/api/auth/register.ts). So we don't need a second "accept invite"
+  // round-trip here — we just query the user's companies and route.
+  //
+  // Destinations:
+  //   items.length === 0 → /onboarding wizard
+  //   items.length > 0   → /accounting (new company or joined-via-invite)
   const postRegisterRedirect = async (): Promise<string> => {
-    if (inviteToken) {
-      try {
-        const acceptRes = await fetch(`/api/invite/${inviteToken}`, {
-          method: 'POST',
-          credentials: 'include',
-        });
-        if (acceptRes.ok) {
-          // Invitation accepted — the user is now in the inviting company.
-          return '/accounting';
-        }
-        // 403 usually means "this invitation was sent to a different email".
-        // Surface the server message to the user instead of silently landing
-        // them on the wrong screen.
-        const body = (await acceptRes.json().catch(() => ({}))) as {
-          error?: { message?: string };
-        };
-        setError(
-          body.error?.message ??
-            'Could not accept the invitation. It may have expired or been sent to a different email.',
-        );
-        // Fall through to /accounting anyway — they have a valid session.
-      } catch {
-        // Network error on accept — non-fatal, let them into the app.
-      }
-    }
-
     try {
       const res = await fetch('/api/accounting/companies?action=user-companies', {
         credentials: 'include',
@@ -166,6 +145,9 @@ export default function RegisterPage() {
           email: trimmedEmail,
           password,
           confirmPassword,
+          // Forward the invite token so the register endpoint can
+          // auto-accept the invitation atomically (see pages/api/auth/register.ts).
+          ...(inviteToken ? { inviteToken } : {}),
         }),
       });
 
