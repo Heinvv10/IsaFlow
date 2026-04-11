@@ -1,147 +1,259 @@
 /**
- * Bank Statement Import Page
- * PRD-060 Phase 4: CSV + PDF upload with format detection
+ * Bank Statement Import Page — file-first smart flow.
+ *
+ * 1. User drops/picks a file
+ * 2. POST /bank-transactions-import-preview → returns detected bank,
+ *    matched account, date range, new/duplicate counts, rule match count
+ * 3. Review panel:
+ *      - matched account + masked number
+ *      - detected bank
+ *      - date range
+ *      - "X new transactions, Y duplicates will be skipped"
+ *      - "Apply N matching bank rules on import" toggle
+ *      - warnings (no-match, CSV-needs-account-pick, etc.)
+ * 4. User confirms → POST /bank-transactions-import → result
+ *
+ * Edge cases handled:
+ *   - CSV/OFX/QIF files have no account # → prompt user to pick one,
+ *     then re-preview with the selected bankAccountId.
+ *   - PDF extraction finds an account # that no bank account matches →
+ *     warning + "Create bank account with number X" shortcut.
+ *   - All parsed rows are duplicates → "Nothing new to import" success.
  */
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/router';
+import { useState, useRef, useCallback, type DragEvent, type ChangeEvent } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, Upload, Loader2, AlertCircle, CheckCircle2, Landmark, FileText } from 'lucide-react';
+import {
+  ArrowLeft, Upload, Loader2, AlertCircle, CheckCircle2,
+  FileText, Landmark, Sparkles, Calendar, Hash, AlertTriangle,
+} from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 
-interface BankAccount { id: string; account_code: string; account_name: string; bank_account_number?: string | null }
+// ── Types ────────────────────────────────────────────────────────────────────
 
 type FileType = 'csv' | 'pdf' | 'ofx' | 'qif';
 
-interface ImportForm {
-  bankAccountId: string;
-  statementDate: string;
-  bankFormat: string;
-  /** Raw text content for CSV files */
-  csvContent: string;
-  /** Base64 data-URL for PDF files */
-  pdfBase64: string;
-  fileName: string;
-  fileType: FileType | '';
+type Phase = 'upload' | 'previewing' | 'review' | 'committing' | 'result';
+
+interface PreviewResponse {
+  detectedBank: string;
+  extractedAccountNumber: string | null;
+  matchedBankAccountId: string | null;
+  matchedBankAccountName: string | null;
+  matchedBankAccountNumberMasked: string | null;
+  dateRange: { from: string; to: string } | null;
+  totalParsed: number;
+  newCount: number;
+  duplicateCount: number;
+  ruleMatchCount: number;
+  sampleTransactions: Array<{
+    date: string;
+    amount: number;
+    description: string;
+    balance?: number;
+  }>;
+  warnings: string[];
 }
 
-export default function BankStatementImportPage() {
-  useRouter();
-  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState('');
-  const [result, setResult] = useState<{
-    batchId: string;
-    transactionCount: number;
-    errors: { row: number; error: string }[];
-  } | null>(null);
+interface ImportResponse {
+  batchId: string;
+  transactionCount: number;
+  duplicateCount: number;
+  totalParsed: number;
+  appliedRules: number;
+  errors: Array<{ row: number; error: string }>;
+}
 
-  const [form, setForm] = useState<ImportForm>({
-    bankAccountId: '',
-    statementDate: new Date().toISOString().split('T')[0]!,
-    bankFormat: 'auto',
-    csvContent: '',
-    pdfBase64: '',
-    fileName: '',
-    fileType: '',
+interface LoadedFile {
+  name: string;
+  fileType: FileType;
+  csvContent?: string;
+  pdfBase64?: string;
+}
+
+interface BankAccountOption {
+  id: string;
+  label: string;
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function classifyFile(file: File): FileType | null {
+  const lower = file.name.toLowerCase();
+  if (lower.endsWith('.pdf') || file.type === 'application/pdf') return 'pdf';
+  if (lower.endsWith('.ofx') || lower.endsWith('.qfx')) return 'ofx';
+  if (lower.endsWith('.qif')) return 'qif';
+  if (lower.endsWith('.csv') || file.type === 'text/csv') return 'csv';
+  return null;
+}
+
+function readFileAsText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => resolve((e.target?.result as string) ?? '');
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsText(file);
   });
+}
 
-  useEffect(() => {
-    apiFetch('/api/accounting/chart-of-accounts?subtype=bank')
-      .then(r => r.json())
-      .then(res => {
-        const data = res.data || res;
-        const accounts = Array.isArray(data) ? data : data.accounts || [];
-        setBankAccounts(
-          accounts.map((a: {
-            id: string;
-            accountCode?: string;
-            account_code?: string;
-            accountName?: string;
-            account_name?: string;
-            bankAccountNumber?: string;
-            bank_account_number?: string;
-          }) => ({
-            id: a.id,
-            account_code: a.accountCode || a.account_code || '',
-            account_name: a.accountName || a.account_name || '',
-            bank_account_number: a.bankAccountNumber || a.bank_account_number || null,
-          })),
-        );
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => resolve((e.target?.result as string) ?? '');
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function formatCurrency(n: number): string {
+  const sign = n < 0 ? '-' : '';
+  const abs = Math.abs(n);
+  return `${sign}R ${abs.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function formatDate(iso: string): string {
+  if (!iso) return '';
+  return iso.slice(0, 10).split('-').reverse().join('/');
+}
+
+// ── Page ─────────────────────────────────────────────────────────────────────
+
+export default function BankStatementImportPage() {
+  const [phase, setPhase] = useState<Phase>('upload');
+  const [error, setError] = useState('');
+  const [loadedFile, setLoadedFile] = useState<LoadedFile | null>(null);
+  const [preview, setPreview] = useState<PreviewResponse | null>(null);
+  const [result, setResult] = useState<ImportResponse | null>(null);
+  const [applyRules, setApplyRules] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+
+  // For the CSV/OFX/QIF fallback where the file has no account number
+  // and the user needs to pick one manually before the preview can resolve.
+  const [manualAccountId, setManualAccountId] = useState('');
+  const [bankAccountOptions, setBankAccountOptions] = useState<BankAccountOption[]>([]);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Phase 1: file upload + preview ─────────────────────────────────────────
+  const runPreview = useCallback(async (
+    file: LoadedFile,
+    withManualAccount?: string,
+  ) => {
+    setError('');
+    setPhase('previewing');
+    setPreview(null);
+
+    try {
+      const body: Record<string, unknown> = {
+        fileType: file.fileType,
+      };
+      if (file.fileType === 'pdf') {
+        body.pdfBase64 = file.pdfBase64;
+      } else {
+        body.csvContent = file.csvContent;
+      }
+      if (withManualAccount) {
+        body.bankAccountId = withManualAccount;
+      }
+
+      const res = await apiFetch('/api/accounting/bank-transactions-import-preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(body),
       });
-  }, []);
+      const json = await res.json();
+      if (!res.ok) {
+        throw new Error(json?.error?.message || json?.message || 'Could not preview statement');
+      }
+      setPreview(json.data as PreviewResponse);
+      setPhase('review');
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+      // If the preview didn't match an account AND we haven't asked the
+      // user to pick one yet, fetch the list of bank accounts so the
+      // manual-pick dropdown can render in the review panel.
+      if (!(json.data as PreviewResponse).matchedBankAccountId && bankAccountOptions.length === 0) {
+        void loadBankAccountOptions();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not preview statement');
+      setPhase('upload');
+    }
+  }, [bankAccountOptions.length]);
 
-    const lower = file.name.toLowerCase();
-    const isPdf = lower.endsWith('.pdf') || file.type === 'application/pdf';
-    const isCsv = lower.endsWith('.csv') || file.type === 'text/csv';
-    const isOfx = lower.endsWith('.ofx') || lower.endsWith('.qfx');
-    const isQif = lower.endsWith('.qif');
+  async function loadBankAccountOptions() {
+    try {
+      const res = await apiFetch('/api/accounting/chart-of-accounts?subtype=bank');
+      const json = await res.json();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data: any[] = Array.isArray(json?.data) ? json.data : json?.data?.accounts || [];
+      const options: BankAccountOption[] = data.map(a => {
+        const last4 = (a.bankAccountNumber || a.bank_account_number || '').slice(-4);
+        const code = a.accountCode || a.account_code || '';
+        const name = a.accountName || a.account_name || '';
+        return {
+          id: String(a.id),
+          label: `${code} — ${name}${last4 ? ` (****${last4})` : ''}`,
+        };
+      });
+      setBankAccountOptions(options);
+    } catch {
+      // non-fatal — user just won't get the manual-pick dropdown
+    }
+  }
 
-    if (!isPdf && !isCsv && !isOfx && !isQif) {
+  async function handleFile(file: File) {
+    setError('');
+    const fileType = classifyFile(file);
+    if (!fileType) {
       setError('Only CSV, PDF, OFX, and QIF files are supported.');
       return;
     }
 
-    setError('');
-
-    if (isPdf) {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        setForm(f => ({
-          ...f,
-          pdfBase64: ev.target?.result as string || '',
-          csvContent: '',
-          fileName: file.name,
-          fileType: 'pdf',
-        }));
-      };
-      reader.readAsDataURL(file);
-    } else {
-      // CSV, OFX, and QIF are all read as text
-      const detectedFileType: FileType = isOfx ? 'ofx' : isQif ? 'qif' : 'csv';
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const content = ev.target?.result as string || '';
-        setForm(f => ({
-          ...f,
-          csvContent: content,
-          pdfBase64: '',
-          fileName: file.name,
-          fileType: detectedFileType,
-          // Auto-set bankFormat for OFX/QIF since format is unambiguous
-          bankFormat: isOfx ? 'ofx' : isQif ? 'qif' : f.bankFormat,
-        }));
-      };
-      reader.readAsText(file);
+    try {
+      const loaded: LoadedFile = { name: file.name, fileType };
+      if (fileType === 'pdf') {
+        loaded.pdfBase64 = await readFileAsDataUrl(file);
+      } else {
+        loaded.csvContent = await readFileAsText(file);
+      }
+      setLoadedFile(loaded);
+      void runPreview(loaded);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to read file');
     }
+  }
+
+  const onFileInputChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) void handleFile(file);
   };
 
-  const hasFile = form.fileType === 'pdf' ? !!form.pdfBase64 : !!form.csvContent;
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  const onDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) void handleFile(file);
+  };
+
+  // ── Phase 2: commit ────────────────────────────────────────────────────────
+  async function handleCommit() {
+    if (!loadedFile || !preview || !preview.matchedBankAccountId) return;
     setError('');
-    setResult(null);
-    setIsSubmitting(true);
+    setPhase('committing');
 
     try {
       const body: Record<string, unknown> = {
-        bankAccountId: form.bankAccountId,
-        statementDate: form.statementDate,
-        bankFormat: form.bankFormat === 'auto' ? undefined : form.bankFormat,
-        fileType: form.fileType || 'csv',
+        fileType: loadedFile.fileType,
+        bankAccountId: preview.matchedBankAccountId,
+        statementDate: preview.dateRange?.to ?? new Date().toISOString().slice(0, 10),
+        applyBankRules: applyRules,
       };
-
-      if (form.fileType === 'pdf') {
-        body.pdfBase64 = form.pdfBase64;
+      if (loadedFile.fileType === 'pdf') {
+        body.pdfBase64 = loadedFile.pdfBase64;
       } else {
-        // csv, ofx, and qif all send csvContent (raw text)
-        body.csvContent = form.csvContent;
+        body.csvContent = loadedFile.csvContent;
       }
 
       const res = await apiFetch('/api/accounting/bank-transactions-import', {
@@ -150,24 +262,43 @@ export default function BankStatementImportPage() {
         credentials: 'include',
         body: JSON.stringify(body),
       });
-
       const json = await res.json();
       if (!res.ok) {
-        // Server error envelope is { success: false, error: { code, message }, meta }.
-        // Reading json.error directly and passing it to `new Error()` produces
-        // "[object Object]" because the error field is an object, not a string.
-        const serverMsg = json?.error?.message || json?.message || 'Import failed';
-        throw new Error(serverMsg);
+        throw new Error(json?.error?.message || json?.message || 'Import failed');
       }
-      setResult(json.data || json);
+      setResult(json.data as ImportResponse);
+      setPhase('result');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Import failed');
-    } finally {
-      setIsSubmitting(false);
+      setPhase('review');
     }
-  };
+  }
 
-  const csvRowCount = form.fileType === 'csv' ? Math.max(0, form.csvContent.split('\n').length - 1) : 0;
+  // ── Reset back to upload ───────────────────────────────────────────────────
+  function reset() {
+    setPhase('upload');
+    setPreview(null);
+    setResult(null);
+    setError('');
+    setLoadedFile(null);
+    setApplyRules(false);
+    setManualAccountId('');
+  }
+
+  // ── Manual account-pick (CSV path) ─────────────────────────────────────────
+  function handleManualAccountSelected(accountId: string) {
+    setManualAccountId(accountId);
+    if (loadedFile && accountId) void runPreview(loadedFile, accountId);
+  }
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+  const canCommit = !!preview?.matchedBankAccountId && preview.newCount > 0;
+  const needsManualAccountPick =
+    phase === 'review' && preview && !preview.matchedBankAccountId &&
+    !preview.extractedAccountNumber && bankAccountOptions.length > 0;
+  const needsCreateAccountShortcut =
+    phase === 'review' && preview && !preview.matchedBankAccountId &&
+    preview.extractedAccountNumber;
 
   return (
     <AppLayout>
@@ -193,181 +324,305 @@ export default function BankStatementImportPage() {
         <div className="p-6 max-w-3xl space-y-6">
           {error && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
-              <AlertCircle className="h-4 w-4" /> {error}
+              <AlertCircle className="h-4 w-4 flex-shrink-0" />
+              <span>{error}</span>
             </div>
           )}
 
-          {result && (
-            <div className="p-4 rounded-lg bg-teal-500/10 border border-teal-500/30 space-y-2">
-              <div className="flex items-center gap-2 text-teal-400 font-medium">
-                <CheckCircle2 className="h-5 w-5" /> Import Successful
-              </div>
-              <p className="text-sm text-[var(--ff-text-secondary)]">
-                Imported {result.transactionCount} transaction{result.transactionCount !== 1 ? 's' : ''}
+          {/* ── PHASE: UPLOAD ─────────────────────────────────────────────── */}
+          {phase === 'upload' && (
+            <div
+              className={`
+                rounded-xl border-2 border-dashed p-16 text-center transition-colors
+                ${isDragging
+                  ? 'border-teal-500 bg-teal-500/10'
+                  : 'border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]'}
+              `}
+              onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
+              onDragLeave={() => setIsDragging(false)}
+              onDrop={onDrop}
+              onClick={() => fileInputRef.current?.click()}
+              role="button"
+              tabIndex={0}
+            >
+              <Sparkles className="h-12 w-12 text-teal-500 mx-auto mb-4" />
+              <h2 className="text-xl font-semibold text-[var(--ff-text-primary)] mb-2">
+                Drop your bank statement here
+              </h2>
+              <p className="text-sm text-[var(--ff-text-secondary)] mb-6">
+                We&rsquo;ll detect the bank, match the account, and flag duplicates automatically.
               </p>
-              {result.errors.length > 0 && (
-                <div className="text-sm text-amber-400">
-                  {result.errors.length} row{result.errors.length !== 1 ? 's' : ''} skipped:
-                  <ul className="list-disc ml-5 mt-1 text-xs">
-                    {result.errors.slice(0, 5).map((e, i) => (
-                      <li key={i}>Row {e.row}: {e.error}</li>
+              <button
+                type="button"
+                className="inline-flex items-center gap-2 px-6 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium"
+                onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
+              >
+                <Upload className="h-4 w-4" /> Choose file
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv,.pdf,.ofx,.qfx,.qif"
+                onChange={onFileInputChange}
+                className="hidden"
+              />
+              <p className="mt-4 text-xs text-[var(--ff-text-tertiary)]">
+                Supports PDF, CSV, OFX/QFX, and QIF formats from ABSA, Capitec, FNB, Nedbank, Standard Bank.
+              </p>
+            </div>
+          )}
+
+          {/* ── PHASE: PREVIEWING ────────────────────────────────────────── */}
+          {phase === 'previewing' && (
+            <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-12 text-center">
+              <Loader2 className="h-8 w-8 text-teal-500 animate-spin mx-auto mb-4" />
+              <p className="text-[var(--ff-text-secondary)]">
+                Parsing {loadedFile?.name} and detecting the bank…
+              </p>
+            </div>
+          )}
+
+          {/* ── PHASE: REVIEW ────────────────────────────────────────────── */}
+          {phase === 'review' && preview && (
+            <div className="space-y-4">
+              {/* File strip */}
+              <div className="flex items-center justify-between bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <FileText className="h-5 w-5 text-teal-400" />
+                  <div>
+                    <div className="text-sm font-medium text-[var(--ff-text-primary)]">{loadedFile?.name}</div>
+                    <div className="text-xs text-[var(--ff-text-tertiary)]">
+                      {preview.detectedBank.toUpperCase()} · {preview.totalParsed} rows parsed
+                    </div>
+                  </div>
+                </div>
+                <button onClick={reset} className="text-xs text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]">
+                  Choose a different file
+                </button>
+              </div>
+
+              {/* Matched account — the star of the show */}
+              {preview.matchedBankAccountId && preview.matchedBankAccountName ? (
+                <div className="bg-teal-500/10 border border-teal-500/30 rounded-lg p-4 flex items-center gap-3">
+                  <CheckCircle2 className="h-5 w-5 text-teal-400 flex-shrink-0" />
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-teal-300">
+                      Matched: {preview.matchedBankAccountName}
+                    </div>
+                    <div className="text-xs text-teal-400/70">
+                      Account {preview.matchedBankAccountNumberMasked} ·
+                      Extracted from statement: {preview.extractedAccountNumber}
+                    </div>
+                  </div>
+                </div>
+              ) : needsCreateAccountShortcut ? (
+                <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <AlertTriangle className="h-5 w-5 text-amber-400 flex-shrink-0" />
+                    <div className="flex-1">
+                      <div className="text-sm font-medium text-amber-300">
+                        No bank account matches this statement
+                      </div>
+                      <div className="text-xs text-amber-400/70">
+                        Statement is for account <strong>{preview.extractedAccountNumber}</strong>.
+                        Create a bank account with that number to continue.
+                      </div>
+                    </div>
+                  </div>
+                  <Link
+                    href={`/accounting/bank-accounts?prefillNumber=${preview.extractedAccountNumber}&prefillBank=${preview.detectedBank}`}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors text-sm font-medium"
+                  >
+                    Create bank account {preview.extractedAccountNumber}
+                  </Link>
+                </div>
+              ) : needsManualAccountPick ? (
+                <div className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-lg p-4 space-y-3">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="h-5 w-5 text-amber-400 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <div className="text-sm font-medium text-[var(--ff-text-primary)]">
+                        Which bank account is this for?
+                      </div>
+                      <div className="text-xs text-[var(--ff-text-secondary)]">
+                        This file format does not include the account number, so we need you to pick.
+                      </div>
+                    </div>
+                  </div>
+                  <select
+                    value={manualAccountId}
+                    onChange={e => handleManualAccountSelected(e.target.value)}
+                    className="ff-select w-full"
+                  >
+                    <option value="">Select bank account…</option>
+                    {bankAccountOptions.map(o => (
+                      <option key={o.id} value={o.id}>{o.label}</option>
                     ))}
-                    {result.errors.length > 5 && <li>...and {result.errors.length - 5} more</li>}
-                  </ul>
+                  </select>
+                </div>
+              ) : null}
+
+              {/* Warnings */}
+              {preview.warnings.length > 0 && preview.matchedBankAccountId && (
+                <div className="bg-amber-500/5 border border-amber-500/20 rounded-lg p-3">
+                  {preview.warnings.map((w, i) => (
+                    <div key={i} className="text-xs text-amber-400">{w}</div>
+                  ))}
                 </div>
               )}
-              <div className="pt-2">
+
+              {/* Summary stats */}
+              {preview.matchedBankAccountId && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
+                    <div className="flex items-center gap-2 text-xs text-[var(--ff-text-tertiary)] uppercase tracking-wide mb-1">
+                      <Calendar className="h-3.5 w-3.5" /> Statement period
+                    </div>
+                    <div className="text-sm text-[var(--ff-text-primary)]">
+                      {preview.dateRange ? (
+                        <>{formatDate(preview.dateRange.from)} → {formatDate(preview.dateRange.to)}</>
+                      ) : 'Unknown'}
+                    </div>
+                  </div>
+                  <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
+                    <div className="flex items-center gap-2 text-xs text-[var(--ff-text-tertiary)] uppercase tracking-wide mb-1">
+                      <Hash className="h-3.5 w-3.5" /> Transactions
+                    </div>
+                    <div className="text-sm text-[var(--ff-text-primary)]">
+                      <span className="font-semibold text-teal-400">{preview.newCount} new</span>
+                      {preview.duplicateCount > 0 && (
+                        <span className="text-[var(--ff-text-tertiary)]">
+                          {' · '}{preview.duplicateCount} already imported
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Bank rules toggle */}
+              {preview.matchedBankAccountId && preview.ruleMatchCount > 0 && (
+                <label className="flex items-center gap-3 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4 cursor-pointer hover:border-teal-500/50">
+                  <input
+                    type="checkbox"
+                    checked={applyRules}
+                    onChange={e => setApplyRules(e.target.checked)}
+                    className="h-4 w-4 text-teal-600 bg-transparent border-[var(--ff-border-light)] rounded focus:ring-teal-500"
+                  />
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-[var(--ff-text-primary)]">
+                      Apply {preview.ruleMatchCount} matching bank rule{preview.ruleMatchCount !== 1 ? 's' : ''} on import
+                    </div>
+                    <div className="text-xs text-[var(--ff-text-secondary)]">
+                      Pre-populates suggested GL accounts, suppliers, and customers. You still confirm during reconciliation.
+                    </div>
+                  </div>
+                </label>
+              )}
+
+              {/* Sample preview */}
+              {preview.matchedBankAccountId && preview.sampleTransactions.length > 0 && (
+                <details className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
+                  <summary className="text-sm font-medium text-[var(--ff-text-primary)] cursor-pointer select-none">
+                    Preview first {preview.sampleTransactions.length} transactions
+                  </summary>
+                  <table className="w-full mt-4 text-xs">
+                    <thead>
+                      <tr className="text-left text-[var(--ff-text-tertiary)]">
+                        <th className="pb-2 pr-2">Date</th>
+                        <th className="pb-2 pr-2">Description</th>
+                        <th className="pb-2 text-right">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview.sampleTransactions.map((tx, i) => (
+                        <tr key={i} className="text-[var(--ff-text-secondary)] border-t border-[var(--ff-border-light)]">
+                          <td className="py-1 pr-2 whitespace-nowrap">{formatDate(tx.date)}</td>
+                          <td className="py-1 pr-2 truncate max-w-xs">{tx.description}</td>
+                          <td className={`py-1 text-right whitespace-nowrap ${tx.amount < 0 ? 'text-red-400' : 'text-teal-400'}`}>
+                            {formatCurrency(tx.amount)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </details>
+              )}
+
+              {/* Actions */}
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  onClick={reset}
+                  className="px-4 py-2 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCommit}
+                  disabled={!canCommit}
+                  className="inline-flex items-center gap-2 px-6 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 transition-colors text-sm font-medium"
+                >
+                  {preview.matchedBankAccountId && preview.newCount === 0
+                    ? 'Nothing new to import'
+                    : `Import ${preview.newCount} transaction${preview.newCount !== 1 ? 's' : ''}`}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── PHASE: COMMITTING ────────────────────────────────────────── */}
+          {phase === 'committing' && (
+            <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-12 text-center">
+              <Loader2 className="h-8 w-8 text-teal-500 animate-spin mx-auto mb-4" />
+              <p className="text-[var(--ff-text-secondary)]">Importing transactions…</p>
+            </div>
+          )}
+
+          {/* ── PHASE: RESULT ────────────────────────────────────────────── */}
+          {phase === 'result' && result && (
+            <div className="space-y-4">
+              <div className="p-4 rounded-lg bg-teal-500/10 border border-teal-500/30 space-y-2">
+                <div className="flex items-center gap-2 text-teal-400 font-medium">
+                  <CheckCircle2 className="h-5 w-5" /> Import Successful
+                </div>
+                <ul className="text-sm text-[var(--ff-text-secondary)] space-y-1">
+                  <li>✓ Imported <strong className="text-teal-400">{result.transactionCount}</strong> new transaction{result.transactionCount !== 1 ? 's' : ''}</li>
+                  {result.duplicateCount > 0 && (
+                    <li>• Skipped {result.duplicateCount} duplicate{result.duplicateCount !== 1 ? 's' : ''} already in the system</li>
+                  )}
+                  {result.appliedRules > 0 && (
+                    <li>• Auto-categorised {result.appliedRules} transaction{result.appliedRules !== 1 ? 's' : ''} via bank rules</li>
+                  )}
+                </ul>
+                {result.errors.length > 0 && (
+                  <div className="text-sm text-amber-400">
+                    {result.errors.length} row{result.errors.length !== 1 ? 's' : ''} skipped due to errors:
+                    <ul className="list-disc ml-5 mt-1 text-xs">
+                      {result.errors.slice(0, 5).map((e, i) => (
+                        <li key={i}>Row {e.row}: {e.error}</li>
+                      ))}
+                      {result.errors.length > 5 && <li>…and {result.errors.length - 5} more</li>}
+                    </ul>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-3">
                 <Link
                   href="/accounting/bank-reconciliation"
-                  className="text-sm text-teal-500 hover:text-teal-400 font-medium"
+                  className="inline-flex items-center gap-2 px-6 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium"
                 >
-                  Start a reconciliation with these transactions
+                  Start a reconciliation
                 </Link>
+                <button
+                  onClick={reset}
+                  className="px-4 py-2 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]"
+                >
+                  Import another statement
+                </button>
               </div>
             </div>
           )}
-
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-6 space-y-4">
-              <h2 className="text-lg font-semibold text-[var(--ff-text-primary)]">Statement Details</h2>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">
-                    Bank Account *
-                  </label>
-                  <select
-                    value={form.bankAccountId}
-                    onChange={e => setForm(f => ({ ...f, bankAccountId: e.target.value }))}
-                    className="ff-select w-full"
-                    required
-                  >
-                    <option value="">Select bank account...</option>
-                    {bankAccounts.map(a => (
-                      <option key={a.id} value={a.id}>
-                        {a.account_code} — {a.account_name}
-                        {a.bank_account_number ? ` (****${a.bank_account_number.slice(-4)})` : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">
-                    Statement Date *
-                  </label>
-                  <input
-                    type="date"
-                    value={form.statementDate}
-                    onChange={e => setForm(f => ({ ...f, statementDate: e.target.value }))}
-                    className="ff-input w-full"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">
-                    Bank Format
-                  </label>
-                  <select
-                    value={form.bankFormat}
-                    onChange={e => setForm(f => ({ ...f, bankFormat: e.target.value }))}
-                    className="ff-select w-full"
-                  >
-                    <option value="auto">Auto-detect</option>
-                    <optgroup label="CSV Formats">
-                      <option value="absa">ABSA</option>
-                      <option value="capitec">Capitec</option>
-                      <option value="fnb">FNB</option>
-                      <option value="standard_bank">Standard Bank</option>
-                      <option value="nedbank">Nedbank</option>
-                    </optgroup>
-                    <optgroup label="Other Formats">
-                      <option value="ofx">OFX / QFX (Open Financial Exchange)</option>
-                      <option value="qif">QIF (Quicken Interchange Format)</option>
-                    </optgroup>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-6 space-y-4">
-              <h2 className="text-lg font-semibold text-[var(--ff-text-primary)]">Statement File</h2>
-
-              <div className="border-2 border-dashed border-[var(--ff-border-light)] rounded-lg p-8 text-center">
-                {form.fileType === 'pdf' ? (
-                  <FileText className="h-8 w-8 text-red-400 mx-auto mb-3" />
-                ) : (
-                  <Landmark className="h-8 w-8 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
-                )}
-                <label className="block">
-                  <span className="text-teal-500 hover:text-teal-400 cursor-pointer font-medium">
-                    Choose CSV, PDF, OFX, or QIF file
-                  </span>
-                  <input
-                    type="file"
-                    accept=".csv,.pdf,.ofx,.qfx,.qif"
-                    onChange={handleFileChange}
-                    className="hidden"
-                  />
-                </label>
-                {form.fileName ? (
-                  <p className="mt-2 text-sm text-[var(--ff-text-secondary)]">
-                    {form.fileName}
-                    {form.fileType && (
-                      <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)] uppercase">
-                        {form.fileType}
-                      </span>
-                    )}
-                  </p>
-                ) : null}
-                <p className="mt-1 text-xs text-[var(--ff-text-tertiary)]">
-                  Supports CSV (ABSA, Capitec, FNB, Standard Bank, Nedbank), PDF, OFX/QFX, and QIF formats
-                </p>
-              </div>
-
-              {form.fileType === 'csv' && form.csvContent && (
-                <div className="text-sm text-[var(--ff-text-secondary)]">
-                  {csvRowCount} data row{csvRowCount !== 1 ? 's' : ''} detected
-                </div>
-              )}
-
-              {form.fileType === 'ofx' && form.csvContent && (
-                <div className="text-sm text-[var(--ff-text-secondary)]">
-                  OFX file loaded — transactions will be extracted on import
-                </div>
-              )}
-
-              {form.fileType === 'qif' && form.csvContent && (
-                <div className="text-sm text-[var(--ff-text-secondary)]">
-                  QIF file loaded — transactions will be extracted on import
-                </div>
-              )}
-
-              {form.fileType === 'pdf' && form.pdfBase64 && (
-                <div className="text-sm text-[var(--ff-text-secondary)]">
-                  PDF loaded — transactions will be extracted on import
-                </div>
-              )}
-            </div>
-
-            <div className="flex justify-end gap-3">
-              <Link
-                href="/accounting/bank-reconciliation"
-                className="px-4 py-2 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]"
-              >
-                Cancel
-              </Link>
-              <button
-                type="submit"
-                disabled={isSubmitting || !hasFile || !form.bankAccountId}
-                className="inline-flex items-center gap-2 px-6 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 transition-colors text-sm font-medium"
-              >
-                {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
-                Import Statement
-              </button>
-            </div>
-          </form>
         </div>
       </div>
     </AppLayout>
