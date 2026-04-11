@@ -9,7 +9,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 import {
   validateReceiptExtraction,
   mapMerchantToExpenseAccount,
@@ -80,31 +80,36 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
     LIMIT 1
   `) as Row[];
 
-  // Create journal entry
-  const [je] = (await sql`
-    INSERT INTO gl_journal_entries (
-      company_id, entry_date, fiscal_period_id, description, source, status, created_by
-    ) VALUES (
-      ${companyId}, ${journalInput.entryDate}::date, ${period?.id || null}::uuid,
-      ${journalInput.description}, 'auto_invoice',
-      ${autoPost ? 'posted' : 'draft'}, ${userId}
-    ) RETURNING id, status
-  `) as Row[];
+  // Create journal entry + lines + document link atomically
+  const je = await withTransaction(async (tx) => {
+    const rows = (await tx`
+      INSERT INTO gl_journal_entries (
+        company_id, entry_date, fiscal_period_id, description, source, status, created_by
+      ) VALUES (
+        ${companyId}, ${journalInput.entryDate}::date, ${period?.id || null}::uuid,
+        ${journalInput.description}, 'auto_invoice',
+        ${autoPost ? 'posted' : 'draft'}, ${userId}
+      ) RETURNING id, status
+    `) as Row[];
+
+    if (!rows[0]) throw new Error('Failed to create journal entry');
+    const entry = rows[0] as Row;
+
+    for (const line of journalInput.lines) {
+      await tx`
+        INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description)
+        VALUES (${entry.id}::uuid, ${line.accountId}::uuid, ${line.debit}, ${line.credit}, ${line.description})
+      `;
+    }
+
+    await tx`
+      UPDATE captured_documents SET status = 'matched' WHERE id = ${documentId}::uuid AND company_id = ${companyId}
+    `;
+
+    return entry;
+  });
 
   if (!je) return apiResponse.internalError(res, null, 'Failed to create journal entry');
-
-  // Create journal lines
-  for (const line of journalInput.lines) {
-    await sql`
-      INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description)
-      VALUES (${je.id}::uuid, ${line.accountId}::uuid, ${line.debit}, ${line.credit}, ${line.description})
-    `;
-  }
-
-  // Link document
-  await sql`
-    UPDATE captured_documents SET status = 'matched' WHERE id = ${documentId}::uuid AND company_id = ${companyId}
-  `;
 
   log.info('Receipt-to-Journal completed', {
     documentId, journalId: je.id, receiptType, autoPost,

@@ -383,6 +383,7 @@ type CompanyCtx = {
   periodStart: string;
   periodEnd: string;
   asAtDate: string;
+  glAccountCode: string | null;
 };
 
 async function buildCompanyContexts(): Promise<CompanyCtx[]> {
@@ -411,6 +412,9 @@ async function buildCompanyContexts(): Promise<CompanyCtx[]> {
       fiscalPeriodId: periods[0]?.id ?? null,
       periodStart: yearAgo,
       periodEnd: today,
+      // withCompany resolves to admin's default (ISAFlow Demo) regardless of URL companyId.
+      // Use a known account code from ISAFlow Demo so acct-exp always gets a valid account.
+      glAccountCode: '4310',
       asAtDate: today,
     };
   }));
@@ -542,19 +546,31 @@ async function phaseReconciliation(cookie: string) {
   const ok = results.filter(r => r.ok).length;
   console.log(`  ${ok}/${results.length} reconciliation fetches OK`);
 
-  // Also blast bank-match-candidates for stress companies
+  // Also blast bank-match-candidates: endpoint requires bankTransactionId, not bankAccountId
   const stressBanks = bankAccts.filter((b: any) =>
     STRESS_COMPANIES.some(c => c.id === b.company_id)
   );
   if (stressBanks.length > 0) {
-    const matchJobs = stressBanks.map(async (b: any) => {
-      const cid = b.company_id as string;
-      const qp = `?companyId=${cid}&bankAccountId=${b.id}&limit=50`;
-      return hit(cookie, `match-candidates ${cid.slice(0,8)}`, `/api/accounting/bank-match-candidates${qp}`);
-    });
-    const matchResults = await Promise.all(matchJobs);
-    const mok = matchResults.filter(r => r.ok).length;
-    console.log(`  ${mok}/${matchResults.length} match-candidate fetches OK`);
+    // Fetch unmatched transactions from ISAFlow Demo (admin's only accessible company)
+    const txRows = await sql`
+      SELECT bt.id, bt.company_id
+      FROM bank_transactions bt
+      WHERE bt.matched_journal_line_id IS NULL
+        AND bt.company_id = '00000000-0000-0000-0000-000000000001'::uuid
+      LIMIT 3
+    ` as any[];
+    if (txRows.length > 0) {
+      const matchJobs = txRows.map(async (tx: any) => {
+        const cid = tx.company_id as string;
+        const qp = `?bankTransactionId=${tx.id}`;
+        return hit(cookie, `match-candidates ${cid.slice(0,8)}`, `/api/accounting/bank-match-candidates${qp}`);
+      });
+      const matchResults = await Promise.all(matchJobs);
+      const mok = matchResults.filter(r => r.ok).length;
+      console.log(`  ${mok}/${matchResults.length} match-candidate fetches OK`);
+    } else {
+      console.log('  No unreconciled transactions found for match-candidate test');
+    }
   }
 }
 
@@ -578,7 +594,8 @@ async function phaseExports(cookie: string, ctxs: CompanyCtx[]) {
     jobs.push(hit(cookie, `ar-export ${cid.slice(0,8)}`,    `/api/accounting/ar-aging-export${qp}`));
     jobs.push(hit(cookie, `ap-export ${cid.slice(0,8)}`,    `/api/accounting/ap-aging-export${qp}`));
     jobs.push(hit(cookie, `audit-exp ${cid.slice(0,8)}`,    `/api/accounting/audit-log-export${qp}`));
-    jobs.push(hit(cookie, `acct-exp ${cid.slice(0,8)}`,     `/api/accounting/account-transactions-export${qp}${ps}&format=csv`));
+    if (ctx.glAccountCode)
+      jobs.push(hit(cookie, `acct-exp ${cid.slice(0,8)}`,   `/api/accounting/account-transactions-export${qp}&account_code=${ctx.glAccountCode}${ps}&format=csv`));
   }
 
   const t0 = Date.now();
