@@ -216,4 +216,32 @@ export async function withTransaction<T>(fn: (tx: TxSql) => Promise<T>): Promise
   }
 }
 
+/**
+ * Format a value from a DB date column as an ISO date string (YYYY-MM-DD).
+ *
+ * The @neondatabase/serverless driver returns PostgreSQL `date` columns as
+ * JavaScript Date objects. Calling String() on them produces a locale-specific
+ * string ("Sat Apr 11 2026 00:00:00 GMT+0200 ...") which PostgreSQL cannot
+ * parse when used as a query parameter. This helper extracts the local-time
+ * date portion regardless of whether the value is already a string or a Date.
+ *
+ * @param val - Raw value from a DB `date` column (Date object or string)
+ * @returns  YYYY-MM-DD string suitable for use in SQL parameters
+ */
+export function fmtDate(val: unknown): string {
+  if (!val) return '';
+  if (val instanceof Date) {
+    // Use local-time date parts to avoid UTC off-by-one on midnight dates
+    const y = val.getFullYear();
+    const m = String(val.getMonth() + 1).padStart(2, '0');
+    const d = String(val.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  // Already a string — return as-is (may be YYYY-MM-DD already)
+  const s = String(val);
+  // If it looks like an ISO timestamp (contains 'T'), extract date portion
+  if (s.includes('T')) return s.split('T')[0]!;
+  return s;
+}
+
 export default sql;

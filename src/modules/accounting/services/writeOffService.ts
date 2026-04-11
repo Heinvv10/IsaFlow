@@ -3,7 +3,7 @@
  * Phase 1 Sage Alignment: Bad debt write-offs with GL posting
  */
 
-import { sql, withTransaction } from '@/lib/neon';
+import { sql, withTransaction, fmtDate } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
 import { getSystemAccount } from './systemAccountResolver';
@@ -117,7 +117,7 @@ export async function approveWriteOff(companyId: string, id: string, userId: str
   ];
 
   const je = await createJournalEntry(companyId, {
-    entryDate: String(wo.write_off_date),
+    entryDate: fmtDate(wo.write_off_date),
     description: `Write-off ${wo.write_off_number} — ${wo.invoice_number}`,
     source: 'auto_write_off',
     sourceDocumentId: id,
@@ -159,7 +159,7 @@ function mapRow(row: Row): CustomerWriteOff {
     invoiceId: String(row.invoice_id),
     amount: Number(row.amount),
     reason: String(row.reason),
-    writeOffDate: String(row.write_off_date),
+    writeOffDate: fmtDate(row.write_off_date),
     status: String(row.status) as CustomerWriteOff['status'],
     glJournalEntryId: row.gl_journal_entry_id ? String(row.gl_journal_entry_id) : undefined,
     approvedBy: row.approved_by ? String(row.approved_by) : undefined,

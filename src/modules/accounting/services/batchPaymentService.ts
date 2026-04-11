@@ -3,7 +3,7 @@
  * Phase 1 Sage Alignment: Bulk supplier payment processing
  */
 
-import { sql, withTransaction } from '@/lib/neon';
+import { sql, withTransaction, fmtDate } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
 import { getSystemAccount } from './systemAccountResolver';
@@ -185,7 +185,7 @@ function mapRow(row: Record<string, unknown>): SupplierPaymentBatch {
   return {
     id: String(row.id),
     batchNumber: row.batch_number ? String(row.batch_number) : '',
-    batchDate: String(row.batch_date),
+    batchDate: fmtDate(row.batch_date),
     totalAmount: Number(row.total_amount),
     paymentCount: Number(row.payment_count),
     paymentMethod: String(row.payment_method) as SupplierPaymentBatch['paymentMethod'],

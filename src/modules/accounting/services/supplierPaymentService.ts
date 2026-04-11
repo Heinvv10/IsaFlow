@@ -3,7 +3,7 @@
  * Supplier Payment Service
  */
 
-import { sql, withTransaction } from '@/lib/neon';
+import { sql, withTransaction, fmtDate } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
 import { getSystemAccount } from './systemAccountResolver';
@@ -297,7 +297,7 @@ function mapPaymentRow(row: Row): SupplierPayment {
     id: String(row.id),
     paymentNumber: row.payment_number ? String(row.payment_number) : '',
     supplierId: String(row.supplier_id),
-    paymentDate: String(row.payment_date),
+    paymentDate: fmtDate(row.payment_date),
     totalAmount: Number(row.total_amount),
     paymentMethod: String(row.payment_method) as SupplierPayment['paymentMethod'],
     bankAccountId: row.bank_account_id ? String(row.bank_account_id) : undefined,
