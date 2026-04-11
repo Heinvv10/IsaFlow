@@ -1,11 +1,13 @@
 /**
  * Supplier Detail Page
- * View supplier information
+ * Overview, Contacts, and Activity tabs.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { ContactsTab } from '@/components/accounting/suppliers/ContactsTab';
+import { ActivityTab } from '@/components/accounting/suppliers/ActivityTab';
 import Link from 'next/link';
 import { ArrowLeft, Building2, Loader2, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
@@ -23,38 +25,38 @@ interface Supplier {
   created_at: string;
 }
 
+type Tab = 'overview' | 'contacts' | 'activity';
+
 export default function SupplierDetailPage() {
   const router = useRouter();
   const { supplierId } = router.query;
   const [supplier, setSupplier] = useState<Supplier | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [loading, setLoading]   = useState(true);
+  const [error, setError]       = useState('');
+  const [activeTab, setActiveTab] = useState<Tab>('overview');
 
-  useEffect(() => {
+  const loadSupplier = useCallback(async () => {
     if (!supplierId) return;
-    void loadSupplier();
-  }, [supplierId]);
-
-  const loadSupplier = async () => {
     setLoading(true);
     try {
-      const res = await apiFetch(`/api/accounting/suppliers-list?id=${supplierId}`);
+      const res  = await apiFetch(`/api/accounting/suppliers-list?id=${supplierId}`);
       const json = await res.json();
       const data = json.data || json;
-      // API may return a single object or an array — find matching record
       if (Array.isArray(data)) {
         const match = data.find((s: Supplier) => s.id === supplierId);
         setSupplier(match || null);
         if (!match) setError('Supplier not found');
       } else {
-        setSupplier(data);
+        setSupplier(data as Supplier);
       }
     } catch {
       setError('Failed to load supplier');
     } finally {
       setLoading(false);
     }
-  };
+  }, [supplierId]);
+
+  useEffect(() => { void loadSupplier(); }, [loadSupplier]);
 
   if (loading) {
     return (
@@ -81,13 +83,19 @@ export default function SupplierDetailPage() {
   }
 
   const fields: { label: string; value: string | number | null | undefined; highlight?: boolean }[] = [
-    { label: 'Name', value: supplier.name, highlight: true },
-    { label: 'Company Name', value: supplier.company_name },
-    { label: 'Email', value: supplier.email },
-    { label: 'Phone', value: supplier.phone },
+    { label: 'Name',           value: supplier.name, highlight: true },
+    { label: 'Company Name',   value: supplier.company_name },
+    { label: 'Email',          value: supplier.email },
+    { label: 'Phone',          value: supplier.phone },
     { label: 'Contact Person', value: supplier.contact_person },
-    { label: 'VAT Number', value: supplier.vat_number },
-    { label: 'Payment Terms', value: supplier.payment_terms ? `${supplier.payment_terms} days` : null },
+    { label: 'VAT Number',     value: supplier.vat_number },
+    { label: 'Payment Terms',  value: supplier.payment_terms ? `${supplier.payment_terms} days` : null },
+  ];
+
+  const TABS: { id: Tab; label: string }[] = [
+    { id: 'overview',  label: 'Overview'  },
+    { id: 'contacts',  label: 'Contacts'  },
+    { id: 'activity',  label: 'Activity'  },
   ];
 
   return (
@@ -114,34 +122,61 @@ export default function SupplierDetailPage() {
           </div>
         </div>
 
-        {/* Details */}
-        <div className="p-6 space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {fields.map((f, i) => (
-              <div key={i} className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
-                <p className="text-xs text-[var(--ff-text-tertiary)] uppercase">{f.label}</p>
-                <p className={`text-lg font-semibold mt-1 ${f.highlight ? 'text-blue-400' : 'text-[var(--ff-text-primary)]'}`}>
-                  {f.value || '—'}
-                </p>
-              </div>
-            ))}
-          </div>
+        {/* Tabs */}
+        <div className="flex gap-1 px-6 border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
+          {TABS.map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                activeTab === tab.id
+                  ? 'border-blue-500 text-blue-400'
+                  : 'border-transparent text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
 
-          {/* Status card */}
-          <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
-            <p className="text-xs text-[var(--ff-text-tertiary)] uppercase mb-2">Status</p>
-            <div className="flex items-center gap-2">
-              {supplier.is_active
-                ? <><CheckCircle2 className="h-5 w-5 text-teal-400" /><span className="text-sm text-teal-400 font-medium">Active Supplier</span></>
-                : <><XCircle className="h-5 w-5 text-gray-400" /><span className="text-sm text-gray-400 font-medium">Inactive Supplier</span></>
-              }
+        {/* Tab content */}
+        <div className="p-6">
+          {activeTab === 'overview' && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {fields.map((f, i) => (
+                  <div key={i} className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
+                    <p className="text-xs text-[var(--ff-text-tertiary)] uppercase">{f.label}</p>
+                    <p className={`text-lg font-semibold mt-1 ${f.highlight ? 'text-blue-400' : 'text-[var(--ff-text-primary)]'}`}>
+                      {f.value || '—'}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
+                <p className="text-xs text-[var(--ff-text-tertiary)] uppercase mb-2">Status</p>
+                <div className="flex items-center gap-2">
+                  {supplier.is_active
+                    ? <><CheckCircle2 className="h-5 w-5 text-teal-400" /><span className="text-sm text-teal-400 font-medium">Active Supplier</span></>
+                    : <><XCircle className="h-5 w-5 text-gray-400" /><span className="text-sm text-gray-400 font-medium">Inactive Supplier</span></>
+                  }
+                </div>
+                {supplier.created_at && (
+                  <p className="text-xs text-[var(--ff-text-tertiary)] mt-2">
+                    Created: {supplier.created_at.split('T')[0]}
+                  </p>
+                )}
+              </div>
             </div>
-            {supplier.created_at && (
-              <p className="text-xs text-[var(--ff-text-tertiary)] mt-2">
-                Created: {supplier.created_at.split('T')[0]}
-              </p>
-            )}
-          </div>
+          )}
+
+          {activeTab === 'contacts' && (
+            <ContactsTab supplierId={supplier.id} />
+          )}
+
+          {activeTab === 'activity' && (
+            <ActivityTab supplierId={supplier.id} />
+          )}
         </div>
       </div>
     </AppLayout>
