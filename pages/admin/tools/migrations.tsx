@@ -93,7 +93,12 @@ export default function AdminMigrationsPage() {
       fd.append('file', file);
       fd.append('source', source);
       fd.append('fileType', type);
-      const res  = await apiFetch(`/api/accounting/migration-parse?companyId=${companyId}`, { method: 'POST', body: fd });
+      // withCompany middleware reads X-Company-Id header — pass the admin-selected company explicitly
+      const res  = await apiFetch('/api/accounting/migration-parse', {
+        method: 'POST',
+        headers: { 'X-Company-Id': companyId },
+        body: fd,
+      });
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Parse failed');
       patch(type, { status: 'parsed', count: json.data?.count ?? 0, parsed: json.data?.parsed ?? [] });
@@ -106,9 +111,10 @@ export default function AdminMigrationsPage() {
     if (!companyId) return;
     setExecuting(true); setExecErr(''); setResult(null);
     try {
-      const res  = await apiFetch(`/api/accounting/migration-execute?companyId=${companyId}`, {
+      // withCompany middleware reads X-Company-Id header — pass the admin-selected company explicitly
+      const res  = await apiFetch('/api/accounting/migration-execute', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Company-Id': companyId },
         body: JSON.stringify({ source, accounts: zones.accounts.parsed, customers: zones.customers.parsed, suppliers: zones.suppliers.parsed }),
       });
       const json = await res.json();

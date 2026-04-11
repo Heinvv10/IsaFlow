@@ -125,31 +125,40 @@ export async function convertAmount(companyId: string,
 // ── Settings ────────────────────────────────────────────────────────────────
 
 export async function getSetting(key: string, companyId?: string): Promise<string | null> {
+  // DB schema uses 'key'/'value' columns (created by migration 255_fix_missing_schema)
   const rows = companyId
     ? (await sql`
-        SELECT setting_value FROM accounting_settings WHERE setting_key = ${key} AND company_id = ${companyId}::UUID
+        SELECT value FROM accounting_settings WHERE key = ${key} AND company_id = ${companyId}::UUID
       `) as Row[]
     : (await sql`
-        SELECT setting_value FROM accounting_settings WHERE setting_key = ${key}
+        SELECT value FROM accounting_settings WHERE key = ${key}
       `) as Row[];
-  return rows[0] ? String(rows[0].setting_value) : null;
+  return rows[0] ? String(rows[0].value) : null;
 }
 
-export async function setSetting(key: string, value: string, userId: string, companyId?: string): Promise<void> {
+export async function setSetting(key: string, value: string, _userId: string, companyId?: string): Promise<void> {
+  // DB schema uses 'key'/'value' columns, UNIQUE(company_id, key) — migration 255_fix_missing_schema
   if (companyId) {
     await sql`
-      INSERT INTO accounting_settings (company_id, setting_key, setting_value, updated_by)
-      VALUES (${companyId}::UUID, ${key}, ${value}, ${userId}::UUID)
-      ON CONFLICT (company_id, setting_key) DO UPDATE SET setting_value = EXCLUDED.setting_value,
-        updated_by = EXCLUDED.updated_by, updated_at = NOW()
+      INSERT INTO accounting_settings (company_id, key, value)
+      VALUES (${companyId}::UUID, ${key}, ${value})
+      ON CONFLICT (company_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
     `;
   } else {
-    await sql`
-      INSERT INTO accounting_settings (setting_key, setting_value, updated_by)
-      VALUES (${key}, ${value}, ${userId}::UUID)
-      ON CONFLICT (setting_key) DO UPDATE SET setting_value = EXCLUDED.setting_value,
-        updated_by = EXCLUDED.updated_by, updated_at = NOW()
-    `;
+    // Global setting (no company scope) — upsert by checking existence first
+    const existing = (await sql`
+      SELECT id FROM accounting_settings WHERE key = ${key} AND company_id IS NULL LIMIT 1
+    `) as Row[];
+    if (existing[0]) {
+      await sql`
+        UPDATE accounting_settings SET value = ${value}, updated_at = NOW()
+        WHERE key = ${key} AND company_id IS NULL
+      `;
+    } else {
+      await sql`
+        INSERT INTO accounting_settings (key, value) VALUES (${key}, ${value})
+      `;
+    }
   }
 }
 
