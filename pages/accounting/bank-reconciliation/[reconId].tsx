@@ -123,7 +123,7 @@ export default function ReconciliationDetailPage() {
         }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || json.error || 'Auto-match failed');
+      if (!res.ok) throw new Error(json?.error?.message || 'Auto-match failed');
       await loadData();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Auto-match failed');
@@ -202,7 +202,7 @@ export default function ReconciliationDetailPage() {
         body: JSON.stringify({ action: 'complete', reconciliationId: reconId }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || json.error || 'Cannot complete');
+      if (!res.ok) throw new Error(json?.error?.message || 'Cannot complete');
       await loadData();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Cannot complete reconciliation');

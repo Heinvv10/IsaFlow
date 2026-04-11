@@ -125,7 +125,7 @@ export default function NewCustomerPaymentPage() {
       });
 
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || json.error || 'Failed to create payment');
+      if (!res.ok) throw new Error(json?.error?.message || 'Failed to create payment');
       router.push('/accounting/customer-payments');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create payment');

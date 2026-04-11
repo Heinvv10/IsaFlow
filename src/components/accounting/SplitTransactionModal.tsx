@@ -104,7 +104,7 @@ export function SplitTransactionModal({ transaction, glAccounts, onClose, onSpli
         body: JSON.stringify(payload),
       });
       const json = await res.json();
-      if (!res.ok || json.success === false) throw new Error(json.message || json.error || 'Split failed');
+      if (!res.ok || json.success === false) throw new Error(json?.error?.message || 'Split failed');
       notify.success(`Transaction split into ${lines.length} lines and allocated`);
       onSplit();
     } catch (err) {

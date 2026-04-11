@@ -57,7 +57,7 @@ export default function NewReconciliationPage() {
       });
 
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || json.error || 'Failed to start reconciliation');
+      if (!res.ok) throw new Error(json?.error?.message || 'Failed to start reconciliation');
       const data = json.data || json;
       router.push(`/accounting/bank-reconciliation/${data.id}`);
     } catch (err) {

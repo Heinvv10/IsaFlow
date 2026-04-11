@@ -84,7 +84,7 @@ export default function CustomerQuotesPage() {
         });
         load();
       } else {
-        window.alert(json.error || json.message || 'Failed to convert quote');
+        window.alert(json?.error?.message || 'Failed to convert quote');
       }
     } finally {
       setConverting(null);

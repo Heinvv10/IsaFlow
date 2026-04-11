@@ -72,7 +72,7 @@ export default function SupplierReturnsPage() {
         }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Failed to create return');
+      if (!res.ok) throw new Error(json?.error?.message || 'Failed to create return');
       notify.success('Supplier return created');
       setShowForm(false); setForm(EMPTY);
       await loadReturns();
