@@ -22,6 +22,7 @@ import {
   Megaphone,
   Palette,
   ToggleRight,
+  Zap,
 } from 'lucide-react';
 
 interface NavDef {
@@ -59,6 +60,7 @@ const NAV_DEFS: NavDef[] = [
     ],
   },
   { label: 'Features',    path: '/features',   icon: ToggleRight },
+  { label: 'Job Queue',   path: '/job-queue',  icon: Zap },
   { label: 'Audit Trail', path: '/audit',      icon: ScrollText },
   { label: 'Analytics',   path: '/analytics',  icon: BarChart2 },
   { label: 'Components',  path: '/components', icon: Palette },
