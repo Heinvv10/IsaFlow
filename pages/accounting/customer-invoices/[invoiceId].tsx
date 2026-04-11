@@ -3,11 +3,11 @@
  * View invoice with line items, approve, send, cancel
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, FileText, Loader2, AlertCircle, CheckCircle2, Send, XCircle, Download, Mail, X, CreditCard, Copy } from 'lucide-react';
+import { ArrowLeft, ArrowRight, FileText, Loader2, AlertCircle, CheckCircle2, Send, XCircle, Download, Mail, X, CreditCard, Copy } from 'lucide-react';
 import { AccountingDocumentPanel } from '@/modules/accounting/documents';
 import { apiFetch } from '@/lib/apiFetch';
 
@@ -47,10 +47,24 @@ export default function CustomerInvoiceDetailPage() {
   const [emailSuccess, setEmailSuccess] = useState('');
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
+  const [prevId, setPrevId] = useState<string | null>(null);
+  const [nextId, setNextId] = useState<string | null>(null);
+
+  const loadAdjacent = useCallback(async (id: string) => {
+    try {
+      const res = await apiFetch(`/api/accounting/customer-invoices-adjacent?id=${id}`);
+      const json = await res.json() as { data: { prevId: string | null; nextId: string | null } };
+      setPrevId(json.data?.prevId ?? null);
+      setNextId(json.data?.nextId ?? null);
+    } catch {
+      // non-critical — navigation simply stays disabled
+    }
+  }, []);
 
   useEffect(() => {
     if (!invoiceId) return;
     loadInvoice();
+    void loadAdjacent(invoiceId as string);
   }, [invoiceId]);
 
   const loadInvoice = async () => {
@@ -147,9 +161,29 @@ export default function CustomerInvoiceDetailPage() {
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <Link href="/accounting/customer-invoices" className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-blue-400 mb-3">
-            <ArrowLeft className="h-4 w-4" /> Back to Invoices
-          </Link>
+          <div className="flex items-center justify-between mb-3">
+            <Link href="/accounting/customer-invoices" className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-blue-400">
+              <ArrowLeft className="h-4 w-4" /> Back to Invoices
+            </Link>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => prevId && void router.push(`/accounting/customer-invoices/${prevId}`)}
+                disabled={!prevId}
+                title="Previous invoice"
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs text-[var(--ff-text-secondary)] border border-[var(--ff-border-light)] rounded-lg hover:bg-[var(--ff-bg-tertiary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" /> Prev
+              </button>
+              <button
+                onClick={() => nextId && void router.push(`/accounting/customer-invoices/${nextId}`)}
+                disabled={!nextId}
+                title="Next invoice"
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs text-[var(--ff-text-secondary)] border border-[var(--ff-border-light)] rounded-lg hover:bg-[var(--ff-bg-tertiary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                Next <ArrowRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-blue-500/10"><FileText className="h-6 w-6 text-blue-500" /></div>

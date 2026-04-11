@@ -12,13 +12,14 @@ import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import Link from 'next/link';
 import {
-  Calculator, BookOpen, FileSpreadsheet, Calendar, BarChart3, Plus, Loader2,
+  Calculator, BookOpen, FileSpreadsheet, Calendar, BarChart3, Plus, Loader2, Settings2,
 } from 'lucide-react';
 import { OverviewTab } from '@/components/accounting/dashboard/OverviewTab';
 import { ChartOfAccountsTab } from '@/components/accounting/dashboard/ChartOfAccountsTab';
 import { JournalEntriesTab } from '@/components/accounting/dashboard/JournalEntriesTab';
 import { FiscalPeriodsTab } from '@/components/accounting/dashboard/FiscalPeriodsTab';
 import { ReportsTab } from '@/components/accounting/dashboard/ReportsTab';
+import { WidgetGrid } from '@/components/dashboard/WidgetGrid';
 import { type WidgetConfig, DEFAULT_WIDGET_LAYOUT } from '@/components/dashboard/widgetTypes';
 
 type AccountingTab = 'overview' | 'chart-of-accounts' | 'journal-entries' | 'fiscal-periods' | 'reports';
@@ -38,6 +39,7 @@ export default function AccountingPage() {
   const [activeTab, setActiveTab] = useState<AccountingTab>('overview');
   const [isMounted, setIsMounted] = useState(false);
   const [widgetLayout, setWidgetLayout] = useState<WidgetConfig[]>(DEFAULT_WIDGET_LAYOUT);
+  const [widgetEditMode, setWidgetEditMode] = useState(false);
 
   useEffect(() => { setIsMounted(true); }, []);
 
@@ -90,10 +92,6 @@ export default function AccountingPage() {
     }).catch(err => log.error('Failed to save widget layout', { error: err }, 'accounting-page'));
   }, []);
 
-  // Suppress unused-var lint — layout callbacks kept for future widget editing
-  void widgetLayout;
-  void handleLayoutChange;
-
   if (!isMounted) {
     return (
       <AppLayout>
@@ -127,15 +125,30 @@ export default function AccountingPage() {
                   </p>
                 </div>
               </div>
-              {activeTab === 'journal-entries' && (
-                <Link
-                  href="/accounting/journal-entries/new"
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium"
-                >
-                  <Plus className="h-4 w-4" />
-                  New Journal Entry
-                </Link>
-              )}
+              <div className="flex items-center gap-2">
+                {activeTab === 'overview' && (
+                  <button
+                    onClick={() => setWidgetEditMode(m => !m)}
+                    className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                      widgetEditMode
+                        ? 'bg-teal-600 text-white border-teal-600 hover:bg-teal-700'
+                        : 'border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-secondary)]'
+                    }`}
+                  >
+                    <Settings2 className="h-4 w-4" />
+                    {widgetEditMode ? 'Done' : 'Edit Widgets'}
+                  </button>
+                )}
+                {activeTab === 'journal-entries' && (
+                  <Link
+                    href="/accounting/journal-entries/new"
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium"
+                  >
+                    <Plus className="h-4 w-4" />
+                    New Journal Entry
+                  </Link>
+                )}
+              </div>
             </div>
           </div>
 
@@ -168,7 +181,16 @@ export default function AccountingPage() {
 
         {/* Tab Content */}
         <div className="p-6">
-          {activeTab === 'overview'          && <OverviewTab />}
+          {activeTab === 'overview' && (
+            <div className="space-y-6">
+              <WidgetGrid
+                widgets={widgetLayout}
+                editMode={widgetEditMode}
+                onLayoutChange={handleLayoutChange}
+              />
+              <OverviewTab />
+            </div>
+          )}
           {activeTab === 'chart-of-accounts' && <ChartOfAccountsTab />}
           {activeTab === 'journal-entries'   && <JournalEntriesTab />}
           {activeTab === 'fiscal-periods'    && <FiscalPeriodsTab />}

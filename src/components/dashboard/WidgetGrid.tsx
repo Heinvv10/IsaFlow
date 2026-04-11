@@ -22,6 +22,8 @@ import { RecentActivityWidget } from './widgets/RecentActivityWidget';
 import { PnlSnapshotWidget } from './widgets/PnlSnapshotWidget';
 import { VatSummaryWidget } from './widgets/VatSummaryWidget';
 import { TodoWidget } from './widgets/TodoWidget';
+import { SalesHistoryWidget } from './widgets/SalesHistoryWidget';
+import { TopCustomersWidget } from './widgets/TopCustomersWidget';
 
 // ---------------------------------------------------------------------------
 // Widget renderer
@@ -37,6 +39,8 @@ function renderWidget(type: WidgetType): React.ReactNode {
     case 'pnl-snapshot':     return <PnlSnapshotWidget />;
     case 'vat-summary':      return <VatSummaryWidget />;
     case 'todo':             return <TodoWidget />;
+    case 'sales_history':    return <SalesHistoryWidget />;
+    case 'top_customers':    return <TopCustomersWidget />;
     default:
       return (
         <Card>

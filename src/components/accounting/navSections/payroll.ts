@@ -22,5 +22,11 @@ export const payrollTab: Tab = {
         { label: 'Leave Applications', href: '/payroll/leave' },
       ],
     },
+    {
+      section: 'SARS Returns',
+      items: [
+        { label: 'EMP201 / SDL', href: '/payroll/emp201' },
+      ],
+    },
   ],
 };
