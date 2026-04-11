@@ -5,7 +5,7 @@
  * DELETE ?id=X                    — delete activity (own or admin/owner/manager role)
  */
 
-import type { NextApiRequest, NextApiResponse } from 'next';
+import type { NextApiResponse } from 'next';
 import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, withWriteAccess } from '@/lib/auth';
@@ -39,8 +39,8 @@ function isActivityType(v: unknown): v is ActivityType {
   return typeof v === 'string' && VALID_ACTIVITY_TYPES.has(v as ActivityType);
 }
 
-async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId, user } = req as CompanyApiRequest;
+async function handler(req: CompanyApiRequest, res: NextApiResponse) {
+  const { companyId, user } = req;
 
   // ─── GET: List activities for a supplier ───────────────────────────────────
   if (req.method === 'GET') {
@@ -126,8 +126,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const { id } = req.query;
     if (!id || typeof id !== 'string') return apiResponse.badRequest(res, 'id is required');
 
-    const companyReq = req as CompanyApiRequest;
-    const isPrivileged = ['owner', 'admin', 'manager'].includes(companyReq.companyRole);
+    const isPrivileged = ['owner', 'admin', 'manager'].includes(req.companyRole);
 
     try {
       const result = isPrivileged

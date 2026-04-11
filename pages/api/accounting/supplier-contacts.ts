@@ -5,7 +5,7 @@
  * DELETE ?id=X          — delete a contact
  */
 
-import type { NextApiRequest, NextApiResponse } from 'next';
+import type { NextApiResponse } from 'next';
 import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, withWriteAccess } from '@/lib/auth';
@@ -23,8 +23,8 @@ interface CreateBody {
   isPrimary?: boolean;
 }
 
-async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyApiRequest;
+async function handler(req: CompanyApiRequest, res: NextApiResponse) {
+  const { companyId } = req;
 
   // ─── GET: List contacts for a supplier ─────────────────────────────────────
   if (req.method === 'GET') {
