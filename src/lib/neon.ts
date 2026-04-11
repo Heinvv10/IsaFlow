@@ -4,7 +4,8 @@
  * Uses @neondatabase/serverless with retry logic and proper config
  */
 
-import { neon, neonConfig, Pool } from '@neondatabase/serverless';
+import { neon, neonConfig } from '@neondatabase/serverless';
+import pg from 'pg';
 
 /** Shared DB row type — import this instead of declaring local `type Row` */
 export type DbRow = Record<string, unknown>;
@@ -145,18 +146,37 @@ export async function transaction(
  *   return String(row.id);
  * });
  */
-let _pool: Pool | null = null;
+/**
+ * Derive a direct (non-pooler) connection URL from the DATABASE_URL.
+ * The Neon pooler uses PgBouncer in transaction mode which doesn't support
+ * session-level BEGIN/COMMIT via the pg driver. The direct URL bypasses
+ * PgBouncer and gives a full PostgreSQL session.
+ *
+ * Neon pooler hostname: ep-xxx-pooler.region.aws.neon.tech
+ * Neon direct hostname: ep-xxx.region.aws.neon.tech
+ */
+function getDirectUrl(): string {
+  const url = getDatabaseUrl();
+  // Remove '-pooler' from the hostname and 'channel_binding=require' from query params
+  return url.replace('-pooler.', '.').replace('&channel_binding=require', '').replace('?channel_binding=require', '?');
+}
 
-function getPool(): Pool {
-  if (!_pool) {
-    _pool = new Pool({
-      connectionString: getDatabaseUrl(),
-      max: 10,
-      connectionTimeoutMillis: 10000,
+let _pgPool: pg.Pool | null = null;
+
+function getPool(): pg.Pool {
+  if (!_pgPool) {
+    _pgPool = new pg.Pool({
+      connectionString: getDirectUrl(),
+      max: 5,
+      connectionTimeoutMillis: 15000,
       idleTimeoutMillis: 30000,
+      ssl: { rejectUnauthorized: false },
+    });
+    _pgPool.on('error', (err) => {
+      log.warn('pg pool background error', { message: err.message }, 'Neon');
     });
   }
-  return _pool;
+  return _pgPool;
 }
 
 // Type for a transaction-scoped sql tagged-template function
