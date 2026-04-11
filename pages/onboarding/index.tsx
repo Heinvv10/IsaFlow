@@ -45,13 +45,18 @@ export default function OnboardingWizard() {
       const body = await r.json();
       if (body.data?.onboardingCompleted) { void router.replace('/accounting'); return; }
 
-      // Invited users already have a company — skip onboarding for them
+      // Invited users (and users coming back after completing the wizard)
+      // already have a company — skip onboarding and go straight to dashboard.
+      //
+      // The API shape is { data: { items: [...] } }; the previous version
+      // read compBody.data directly and then asked it for .length, which was
+      // always undefined, so this branch never fired.
       try {
         const compRes = await apiFetch('/api/accounting/companies?action=user-companies');
         if (compRes.ok) {
-          const compBody = await compRes.json();
-          const companies: unknown[] = compBody.data ?? [];
-          if (companies.length > 0) {
+          const compBody = (await compRes.json()) as { data?: { items?: unknown[] } };
+          const companies = compBody.data?.items ?? [];
+          if (Array.isArray(companies) && companies.length > 0) {
             await apiFetch('/api/onboarding/complete', { method: 'POST' });
             void router.replace('/accounting');
             return;

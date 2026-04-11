@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { useAuth } from '@/contexts/AuthContext';
 import { useCompany } from '@/contexts/CompanyContext';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
@@ -32,6 +33,7 @@ const TABS: { id: AccountingTab; label: string; icon: React.ElementType }[] = [
 
 export default function AccountingPage() {
   const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
   const { activeCompany, companies, loading: companiesLoading } = useCompany();
   const [activeTab, setActiveTab] = useState<AccountingTab>('overview');
   const [isMounted, setIsMounted] = useState(false);
@@ -39,15 +41,21 @@ export default function AccountingPage() {
 
   useEffect(() => { setIsMounted(true); }, []);
 
-  // Defensive guard: if the user somehow lands here with zero companies
-  // (deep link, bookmark, stale session), send them through onboarding
-  // rather than showing a skeleton dashboard with 400-ing APIs.
+  // Defensive guard: if a real authenticated user somehow lands here with
+  // zero companies (deep link, bookmark, stale session), send them through
+  // onboarding rather than showing a skeleton dashboard with 400-ing APIs.
+  //
+  // CRITICAL: wait for BOTH auth and company loads to finish. CompanyContext
+  // will briefly report `loading: false, companies: []` on a fresh mount
+  // before AuthContext has finished its own bootstrap, and without the
+  // authLoading/user gate we'd race into a false redirect loop.
   useEffect(() => {
-    if (!isMounted || companiesLoading) return;
+    if (!isMounted || authLoading || companiesLoading) return;
+    if (!user) return;
     if (companies.length === 0) {
       void router.replace('/onboarding');
     }
-  }, [isMounted, companiesLoading, companies.length, router]);
+  }, [isMounted, authLoading, companiesLoading, user, companies.length, router]);
 
   // Sync tab from URL query param
   useEffect(() => {
