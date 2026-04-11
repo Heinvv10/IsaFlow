@@ -7,26 +7,28 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import {
   Check, Building2, MapPin, Image, Landmark,
-  Settings, FileText, ChevronLeft, ChevronRight, Loader2,
+  Settings, FileText, ChevronLeft, ChevronRight, Loader2, LayoutGrid,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import {
   type WizardData, INITIAL_WIZARD,
-  Step1, Step2, Step3, Step4, Step5, Step6, Step7,
+  Step1, Step2, Step3, Step4, Step5, Step6, Step7, StepCoaTemplate,
 } from '@/components/onboarding/WizardSteps';
 import { SmartSetupChoice } from '@/components/onboarding/SmartSetupChoice';
 
 const STEPS = [
-  { icon: Building2, title: 'Company Details',       sub: 'Tell us about your business' },
-  { icon: MapPin,    title: 'Address & Contact',      sub: 'Where can we reach you?' },
-  { icon: Image,     title: 'Logo Upload',            sub: 'Brand your workspace' },
-  { icon: Landmark,  title: 'Banking Details',        sub: 'Your primary bank account' },
-  { icon: Settings,  title: 'Financial Preferences',  sub: 'Year-end, VAT & currency' },
-  { icon: FileText,  title: 'Statutory Documents',    sub: 'Upload key certificates' },
-  { icon: Check,     title: 'Review & Complete',      sub: 'Confirm and get started' },
+  { icon: Building2,   title: 'Company Details',       sub: 'Tell us about your business' },
+  { icon: MapPin,      title: 'Address & Contact',      sub: 'Where can we reach you?' },
+  { icon: Image,       title: 'Logo Upload',            sub: 'Brand your workspace' },
+  { icon: Landmark,    title: 'Banking Details',        sub: 'Your primary bank account' },
+  { icon: Settings,    title: 'Financial Preferences',  sub: 'Year-end, VAT & currency' },
+  { icon: LayoutGrid,  title: 'Account Structure',      sub: 'Choose your GL account layout' },
+  { icon: FileText,    title: 'Statutory Documents',    sub: 'Upload key certificates' },
+  { icon: Check,       title: 'Review & Complete',      sub: 'Confirm and get started' },
 ];
 
-const DOCUMENTS_STEP_INDEX = 5; // Statutory Documents step — skipped if CIPC uploaded via Smart Setup
+const DOCUMENTS_STEP_INDEX = 6; // Statutory Documents step — skipped if CIPC uploaded via Smart Setup
+const COA_STEP_INDEX = 5;       // Chart of Accounts template step
 
 export default function OnboardingWizard() {
   const router = useRouter();
@@ -82,14 +84,15 @@ export default function OnboardingWizard() {
 
   const hasCipc     = d.documents.some(doc => doc.type === 'cipc_certificate');
   // If the user uploaded the CIPC in the Smart Setup pre-step the Statutory
-  // Documents step (index 5) is already satisfied and is auto-skipped — don't
+  // Documents step (index 6) is already satisfied and is auto-skipped — don't
   // re-ask users for docs they've already given us.
   const skipDocsStep = hasCipc;
   const canContinue = step === 0 ? d.name.trim().length > 0
                     : step === DOCUMENTS_STEP_INDEX ? hasCipc   // CIPC is required on documents step
                     : true;
   const isLast      = step === STEPS.length - 1;
-  const skippable   = step >= 1 && step <= 4; // steps 1-4 skippable, step 5 (documents) not
+  // Steps 1-5 skippable (address, logo, bank, financial, COA); docs (6) not skippable
+  const skippable   = step >= 1 && step <= COA_STEP_INDEX;
   const isPreStep   = step === -1;
 
   const next = () => {
@@ -138,7 +141,18 @@ export default function OnboardingWizard() {
       const compData = await compRes.json();
       const companyId = compData.data?.id;
 
-      // 2. Save directors (non-blocking)
+      // 2. Seed Chart of Accounts from chosen template (non-blocking but important)
+      if (companyId) {
+        try {
+          await apiFetch('/api/accounting/coa-seed', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Company-Id': companyId },
+            body: JSON.stringify({ template: d.coaTemplate }),
+          });
+        } catch { /* non-critical — user can add accounts manually */ }
+      }
+
+      // 3. Save directors (non-blocking)
       if (d.directors.length > 0 && companyId) {
         try {
           await apiFetch('/api/accounting/company-directors', {
@@ -149,7 +163,7 @@ export default function OnboardingWizard() {
         } catch { /* non-critical */ }
       }
 
-      // 3. Upload documents (non-blocking — company is already created)
+      // 4. Upload documents (non-blocking — company is already created)
       if (d.documents.length > 0 && companyId) {
         try {
           await apiFetch('/api/onboarding/documents', {
@@ -160,10 +174,10 @@ export default function OnboardingWizard() {
         } catch { /* non-critical */ }
       }
 
-      // 4. Mark onboarding complete
+      // 5. Mark onboarding complete
       await apiFetch('/api/onboarding/complete', { method: 'POST' });
 
-      // 4. Navigate — full reload so the middleware picks up the new ff_onboarding_done cookie
+      // Navigate — full reload so the middleware picks up the new ff_onboarding_done cookie
       window.location.href = '/accounting';
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong');
@@ -241,8 +255,9 @@ export default function OnboardingWizard() {
             {step === 2 && <Step3 d={d} set={set} />}
             {step === 3 && <Step4 d={d} set={set} />}
             {step === 4 && <Step5 d={d} set={set} />}
-            {step === 5 && <Step6 d={d} set={set} />}
-            {step === 6 && <Step7 d={d} />}
+            {step === COA_STEP_INDEX && <StepCoaTemplate d={d} set={set} />}
+            {step === 6 && <Step6 d={d} set={set} />}
+            {step === 7 && <Step7 d={d} />}
           </div>
 
           {/* Error */}
