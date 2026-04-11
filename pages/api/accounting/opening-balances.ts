@@ -1,4 +1,4 @@
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 /**
  * Opening Balances API
  * GET /api/accounting/opening-balances - Get posting-level accounts for balance entry
@@ -75,37 +75,40 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         LIMIT 1
       `;
 
-      // Create opening balance journal entry
-      const entryRows = await sql`
-        INSERT INTO gl_journal_entries (
-          id, company_id, entry_number, entry_date, description,
-          source, status, fiscal_period_id,
-          total_debit, total_credit,
-          created_by, created_at
-        ) VALUES (
-          gen_random_uuid(),
-          ${companyId},
-          'OB-' || LPAD((SELECT COALESCE(MAX(CAST(SUBSTRING(entry_number FROM 4) AS INTEGER)), 0) + 1 FROM gl_journal_entries WHERE entry_number LIKE 'OB-%' AND company_id = ${companyId})::text, 4, '0'),
-          COALESCE((SELECT start_date FROM fiscal_periods WHERE id = ${period?.id || null} AND company_id = ${companyId}), CURRENT_DATE),
-          'Opening Balances',
-          'opening_balance', 'posted', ${period?.id || null},
-          ${totalDebit}, ${totalCredit},
-          ${userId}, NOW()
-        )
-        RETURNING *
-      `;
-      const entry = entryRows[0];
-      if (!entry) throw new Error('Failed to create journal entry');
+      // Create opening balance journal entry + lines atomically
+      const entry = await withTransaction(async (tx) => {
+        const entryRows = await tx`
+          INSERT INTO gl_journal_entries (
+            id, company_id, entry_number, entry_date, description,
+            source, status, fiscal_period_id,
+            total_debit, total_credit,
+            created_by, created_at
+          ) VALUES (
+            gen_random_uuid(),
+            ${companyId},
+            'OB-' || LPAD((SELECT COALESCE(MAX(CAST(SUBSTRING(entry_number FROM 4) AS INTEGER)), 0) + 1 FROM gl_journal_entries WHERE entry_number LIKE 'OB-%' AND company_id = ${companyId})::text, 4, '0'),
+            COALESCE((SELECT start_date FROM fiscal_periods WHERE id = ${period?.id || null} AND company_id = ${companyId}), CURRENT_DATE),
+            'Opening Balances',
+            'opening_balance', 'posted', ${period?.id || null},
+            ${totalDebit}, ${totalCredit},
+            ${userId}, NOW()
+          )
+          RETURNING *
+        `;
+        const newEntry = entryRows[0] as { id: string } | undefined;
+        if (!newEntry) throw new Error('Failed to create journal entry');
 
-      // Create journal lines
-      for (const b of balances as { accountId: string; debit: number; credit: number }[]) {
-        if (Number(b.debit) > 0 || Number(b.credit) > 0) {
-          await sql`
-            INSERT INTO gl_journal_lines (id, journal_entry_id, gl_account_id, debit, credit, description, created_at)
-            VALUES (gen_random_uuid(), ${entry.id}, ${b.accountId}, ${Number(b.debit) || 0}, ${Number(b.credit) || 0}, 'Opening Balance', NOW())
-          `;
+        // Create journal lines within same transaction
+        for (const b of balances as { accountId: string; debit: number; credit: number }[]) {
+          if (Number(b.debit) > 0 || Number(b.credit) > 0) {
+            await tx`
+              INSERT INTO gl_journal_lines (id, journal_entry_id, gl_account_id, debit, credit, description, created_at)
+              VALUES (gen_random_uuid(), ${newEntry.id}, ${b.accountId}, ${Number(b.debit) || 0}, ${Number(b.credit) || 0}, 'Opening Balance', NOW())
+            `;
+          }
         }
-      }
+        return newEntry;
+      });
 
       log.info('Opening balances posted', {
         entryId: entry.id,
