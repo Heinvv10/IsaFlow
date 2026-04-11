@@ -169,7 +169,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
 
       dedupedTxs = parseResult.transactions.filter(tx => {
-        const h = bankTransactionHash(tx);
+        // Hash without balance to match existingHashes above — existing
+        // rows don't persist balance, so including it here would break
+        // dedupe for any parser that emits per-row balances (e.g. the
+        // ABSA running-balance parser).
+        const h = bankTransactionHash({
+          transactionDate: tx.transactionDate,
+          amount: tx.amount,
+          description: tx.description ?? '',
+        });
         if (existingHashes.has(h)) {
           duplicateCount++;
           return false;
