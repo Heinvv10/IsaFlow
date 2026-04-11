@@ -36,6 +36,7 @@ export function parseFnbStatement(text: string): BankCsvParseResult {
   };
 
   const accountNumber = extractAccountNumber(text) ?? undefined;
+  if (accountNumber) result.accountNumber = accountNumber;
   const lines = text.split('\n');
 
   // Locate the header row — FNB has "Date" near "Description" near "Amount"

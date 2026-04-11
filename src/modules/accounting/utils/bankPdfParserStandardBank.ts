@@ -37,6 +37,7 @@ export function parseStandardBankStatement(text: string): BankCsvParseResult {
   };
 
   const accountNumber = extractAccountNumber(text) ?? undefined;
+  if (accountNumber) result.accountNumber = accountNumber;
   const lines = text.split('\n');
 
   // Find header row

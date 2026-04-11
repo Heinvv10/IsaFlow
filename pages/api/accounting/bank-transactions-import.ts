@@ -15,8 +15,10 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
+import { sql } from '@/lib/neon';
 import { importBankStatement, importParsedTransactions } from '@/modules/accounting/services/bankReconciliationService';
 import { parseBankPdf } from '@/modules/accounting/utils/bankPdfParser';
+import { compareBankAccountNumbers } from '@/modules/accounting/utils/bankAccountNumberMatch';
 import type { BankFormat } from '@/modules/accounting/types/bank.types';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -47,6 +49,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, 'bankAccountId and statementDate are required');
     }
 
+    // Look up the stored account number for the selected bank account.
+    // Used as one side of the security gate below. Scoped by company so the
+    // caller can't probe arbitrary accounts even if they know an ID.
+    const accountRows = (await sql`
+      SELECT bank_account_number
+      FROM gl_accounts
+      WHERE id = ${String(bankAccountId)}
+        AND company_id = ${companyId}
+        AND account_subtype = 'bank'
+      LIMIT 1
+    `) as Array<{ bank_account_number: string | null }>;
+    if (accountRows.length === 0) {
+      return apiResponse.badRequest(res, 'Selected bank account not found for this company');
+    }
+    const storedAccountNumber = accountRows[0]?.bank_account_number ?? null;
+
     const resolvedFileType: 'csv' | 'pdf' = fileType || (pdfBase64 ? 'pdf' : 'csv');
 
     if (resolvedFileType === 'pdf') {
@@ -68,6 +86,32 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         return apiResponse.badRequest(res, parseResult.errors[0]!.error);
       }
 
+      // 🔒 Security gate: if the parser extracted an account number from
+      // the statement header, it MUST match the selected bank account's
+      // stored number. This prevents importing Account A's statement into
+      // Account B (accidental or otherwise).
+      const match = compareBankAccountNumbers(
+        parseResult.accountNumber ?? null,
+        storedAccountNumber,
+      );
+      if (match === 'mismatch') {
+        log.warn('Bank statement import blocked: account number mismatch', {
+          bankAccountId, companyId,
+          statementAccountNumber: parseResult.accountNumber,
+          // Don't log the stored number — it's a real customer secret.
+        }, 'accounting-api');
+        return apiResponse.forbidden(
+          res,
+          'This statement belongs to a different bank account than the one you selected. ' +
+            'Please choose the correct account or upload the matching statement.',
+        );
+      }
+      if (match === 'indeterminate') {
+        log.info('Bank statement account number could not be verified — import allowed', {
+          bankAccountId, bankFormat: parseResult.bankFormat,
+        }, 'accounting-api');
+      }
+
       const result = await importParsedTransactions(
         companyId,
         parseResult,
@@ -82,6 +126,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!csvContent) {
       return apiResponse.badRequest(res, 'csvContent is required for CSV imports');
     }
+
+    // CSV imports cannot be verified against the statement header —
+    // bank CSV exports don't include the account number. We rely entirely
+    // on the bankAccountId the user selected in the UI. Log the fact that
+    // this import bypasses the account-match security gate so audits can
+    // find it. PDFs get the real check above.
+    log.info('CSV bank statement import — account match skipped (CSV format has no account header)', {
+      bankAccountId, companyId, csvSize: csvContent.length,
+    }, 'accounting-api');
 
     const result = await importBankStatement(
       companyId,
