@@ -26,8 +26,7 @@ const SCHEMA_TABLES: SchemaTable[] = [
   { name: 'gl_accounts', columns: ['id', 'account_code', 'account_name', 'account_type', 'is_active', 'company_id'], description: 'Chart of accounts (GL)' },
   { name: 'gl_journal_entries', columns: ['id', 'entry_number', 'entry_date', 'description', 'status', 'source'], description: 'Journal entries' },
   { name: 'gl_journal_lines', columns: ['id', 'journal_entry_id', 'gl_account_id', 'debit', 'credit', 'description'], description: 'Journal entry lines (debits/credits)' },
-  { name: 'bank_accounts', columns: ['id', 'account_name', 'bank_name', 'account_number', 'company_id'], description: 'Bank accounts — always JOIN to bank_transactions to scope by company_id' },
-  { name: 'bank_transactions', columns: ['id', 'bank_account_id', 'date', 'description', 'amount', 'category', 'is_reconciled'], description: 'Imported bank transactions — has NO company_id column; scope via JOIN bank_accounts ba ON bt.bank_account_id = ba.id WHERE ba.company_id = \'<company_id>\'' },
+  { name: 'bank_transactions', columns: ['id', 'bank_account_id', 'transaction_date', 'description', 'amount', 'status', 'company_id'], description: 'Imported bank transactions — has company_id, filter directly' },
   { name: 'products', columns: ['id', 'code', 'name', 'cost_price', 'selling_price', 'current_stock', 'company_id'], description: 'Products/inventory items' },
   { name: 'employees', columns: ['id', 'first_name', 'last_name', 'email', 'basic_salary', 'employment_type', 'company_id'], description: 'Employee master data' },
   { name: 'payslips', columns: ['id', 'employee_id', 'payroll_run_id', 'gross_pay', 'net_pay', 'paye', 'uif_employee'], description: 'Payslips per payroll run' },
@@ -67,7 +66,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   try {
     const aiAbort = new AbortController();
-    const aiTimeout = setTimeout(() => aiAbort.abort(), 10_000);
+    const aiTimeout = setTimeout(() => aiAbort.abort(), 20_000);
     let response: Response;
     try {
       response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -146,8 +145,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       ...formatted,
     });
   } catch (err) {
-    log.error('NL query failed', { error: err }, 'ai');
-    return apiResponse.success(res, { intent, message: 'Query execution failed', rows: [], columns: [], summary: 'Error' });
+    const errMsg = err instanceof Error ? err.message : String(err);
+    log.error('NL query failed', { error: errMsg, question }, 'ai');
+    return apiResponse.success(res, { intent, message: `Query execution failed: ${errMsg}`, rows: [], columns: [], summary: 'Error' });
   }
 }
 
