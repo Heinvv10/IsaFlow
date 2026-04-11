@@ -1,22 +1,55 @@
 /**
- * Cash Flow Forecasting Service
- * Projects future cash position based on historical patterns,
- * recurring invoices, known payables, and seasonal trends.
+ * Cash Flow Forecast Service
+ * Gathers actual bank transaction data and generates AI-powered cash flow forecasts.
+ * Also exports legacy helpers used by the existing cash-flow-forecast API route.
  */
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import type { DbRow } from '@/lib/neon';
 
-// ── Types ────────────────────────────────────────────────────────────────────
+// ── New AI Forecast Types ────────────────────────────────────────────────────
+
+export interface CashFlowPeriod {
+  weekStart: string;
+  inflows: number;
+  outflows: number;
+  netFlow: number;
+  runningBalance: number;
+}
+
+export interface ForecastWeek {
+  weekStart: string;
+  projectedInflows: number;
+  projectedOutflows: number;
+  projectedNet: number;
+  confidence: 'high' | 'medium' | 'low';
+  notes: string;
+}
+
+export interface CashFlowForecast {
+  companyId: string;
+  generatedAt: string;
+  horizonDays: number;
+  historicalPeriods: CashFlowPeriod[];
+  forecastPeriods: ForecastWeek[];
+  summary: string;
+  risks: string[];
+  opportunities: string[];
+  currentCashBalance: number;
+  projectedEndBalance: number;
+}
+
+// ── Legacy Types (kept for backward compatibility) ────────────────────────────
 
 export interface CashFlowForecastPoint {
-  date: string;          // YYYY-MM-DD
-  label: string;         // "Apr 2026", "Week 14", etc.
+  date: string;
+  label: string;
   projectedInflow: number;
   projectedOutflow: number;
   projectedNet: number;
   projectedBalance: number;
-  confidence: number;    // 0-1
+  confidence: number;
 }
 
 export interface CashFlowAlert {
@@ -290,4 +323,348 @@ export async function generateForecast(companyId: string,
 /** Get historical cash flow data for chart display */
 export async function getHistoricalForChart(companyId: string, months = 6): Promise<HistoricalCashFlow[]> {
   return getHistoricalCashFlows(companyId, months);
+}
+
+// ── AI Cash Flow Forecast (new) ───────────────────────────────────────────────
+
+const FORECAST_SYSTEM_PROMPT = `You are an expert South African CFO and cash flow analyst for SME businesses.
+You will receive historical weekly cash flow data, upcoming invoice obligations, and recurring patterns.
+Analyse the data and produce a structured JSON cash flow forecast.
+
+Return ONLY valid JSON (no markdown, no explanation) in this exact shape:
+{
+  "forecast": [
+    {
+      "weekStart": "YYYY-MM-DD",
+      "projectedInflows": 0,
+      "projectedOutflows": 0,
+      "projectedNet": 0,
+      "confidence": "high|medium|low",
+      "notes": "Brief explanation"
+    }
+  ],
+  "summary": "One paragraph executive summary of the cash position and outlook",
+  "risks": ["Risk 1", "Risk 2"],
+  "opportunities": ["Opportunity 1", "Opportunity 2"]
+}
+
+Rules:
+- All monetary values in ZAR (South African Rand), as plain numbers
+- confidence is "high" for confirmed invoices, "medium" for patterns, "low" for projections
+- risks: focus on liquidity gaps, overdue receivables, large upcoming payables
+- opportunities: early payment discounts, collection improvements, idle cash investment
+- Generate exactly the number of weekly buckets matching the weekStarts provided`;
+
+interface ForecastCache {
+  data: CashFlowForecast;
+  expiresAt: number;
+}
+
+const forecastCache = new Map<string, ForecastCache>();
+
+function toNum(val: unknown): number {
+  if (typeof val === 'number') return val;
+  if (typeof val === 'string') return parseFloat(val) || 0;
+  return 0;
+}
+
+function toDateStr(val: unknown): string {
+  if (val instanceof Date) return val.toISOString().slice(0, 10);
+  if (typeof val === 'string') return val.slice(0, 10);
+  return '';
+}
+
+/**
+ * Get actual weekly cash flow from bank_transactions for the last N days.
+ */
+export async function getActualCashFlow(
+  companyId: string,
+  lookbackDays: number,
+): Promise<CashFlowPeriod[]> {
+  const rows = (await sql`
+    SELECT
+      DATE_TRUNC('week', transaction_date)::DATE AS week_start,
+      SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END)  AS inflows,
+      SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END) AS outflows,
+      SUM(amount) AS net_flow
+    FROM bank_transactions
+    WHERE
+      company_id = ${companyId}
+      AND transaction_date >= CURRENT_DATE - ${lookbackDays}::INT
+      AND status NOT IN ('excluded')
+    GROUP BY week_start
+    ORDER BY week_start ASC
+  `) as DbRow[];
+
+  let running = 0;
+  return rows.map((row) => {
+    const net = toNum(row['net_flow']);
+    running += net;
+    return {
+      weekStart: toDateStr(row['week_start']),
+      inflows: toNum(row['inflows']),
+      outflows: toNum(row['outflows']),
+      netFlow: net,
+      runningBalance: running,
+    };
+  });
+}
+
+async function getBankBalance(companyId: string): Promise<number> {
+  const rows = (await sql`
+    SELECT COALESCE(SUM(amount), 0) AS balance
+    FROM bank_transactions
+    WHERE company_id = ${companyId}
+      AND status NOT IN ('excluded')
+  `) as DbRow[];
+  return toNum(rows[0]?.['balance']);
+}
+
+async function getUpcomingReceivablesAndPayables(
+  companyId: string,
+  horizonDays: number,
+): Promise<Array<{ type: 'receivable' | 'payable'; dueDate: string; amount: number; status: string }>> {
+  const receivables = (await sql`
+    SELECT due_date,
+           (total_amount - COALESCE(amount_paid, 0)) AS outstanding,
+           status
+    FROM customer_invoices
+    WHERE company_id = ${companyId}
+      AND status IN ('sent', 'overdue', 'partially_paid')
+      AND due_date <= CURRENT_DATE + ${horizonDays}::INT
+      AND due_date IS NOT NULL
+      AND (total_amount - COALESCE(amount_paid, 0)) > 0
+    ORDER BY due_date ASC
+  `) as DbRow[];
+
+  const payables = (await sql`
+    SELECT due_date,
+           (total_amount - COALESCE(amount_paid, 0)) AS outstanding,
+           status
+    FROM supplier_invoices
+    WHERE company_id = ${companyId}
+      AND status IN ('approved', 'partially_paid')
+      AND due_date <= CURRENT_DATE + ${horizonDays}::INT
+      AND due_date IS NOT NULL
+      AND (total_amount - COALESCE(amount_paid, 0)) > 0
+    ORDER BY due_date ASC
+  `) as DbRow[];
+
+  return [
+    ...receivables.map((r) => ({
+      type: 'receivable' as const,
+      dueDate: toDateStr(r['due_date']),
+      amount: toNum(r['outstanding']),
+      status: String(r['status'] ?? ''),
+    })),
+    ...payables.map((r) => ({
+      type: 'payable' as const,
+      dueDate: toDateStr(r['due_date']),
+      amount: toNum(r['outstanding']),
+      status: String(r['status'] ?? ''),
+    })),
+  ];
+}
+
+async function getRecurringTemplates(
+  companyId: string,
+): Promise<Array<{ name: string; frequency: string; entityType: string; nextRunDate: string | null }>> {
+  try {
+    const rows = (await sql`
+      SELECT name, frequency, entity_type, next_run_date
+      FROM recurring_transaction_templates
+      WHERE company_id = ${companyId} AND is_active = true
+      ORDER BY next_run_date ASC NULLS LAST
+      LIMIT 20
+    `) as DbRow[];
+    return rows.map((r) => ({
+      name: String(r['name'] ?? ''),
+      frequency: String(r['frequency'] ?? ''),
+      entityType: String(r['entity_type'] ?? ''),
+      nextRunDate: r['next_run_date'] ? toDateStr(r['next_run_date']) : null,
+    }));
+  } catch {
+    log.warn('recurring_transaction_templates not available, skipping', {}, 'cashFlowForecast');
+    return [];
+  }
+}
+
+function buildWeekStarts(horizonDays: number): string[] {
+  const weeks: string[] = [];
+  const today = new Date();
+  const dow = today.getDay(); // 0=Sun, 1=Mon
+  const toMonday = dow === 1 ? 0 : dow === 0 ? 1 : 8 - dow;
+  const start = new Date(today);
+  start.setDate(today.getDate() + toMonday);
+  const cursor = new Date(start);
+  while (true) {
+    const diff = Math.round((cursor.getTime() - today.getTime()) / 86400000);
+    if (diff > horizonDays) break;
+    weeks.push(cursor.toISOString().slice(0, 10));
+    cursor.setDate(cursor.getDate() + 7);
+  }
+  return weeks;
+}
+
+function buildAIPrompt(
+  historical: CashFlowPeriod[],
+  upcoming: Array<{ type: 'receivable' | 'payable'; dueDate: string; amount: number; status: string }>,
+  recurring: Array<{ name: string; frequency: string; entityType: string; nextRunDate: string | null }>,
+  horizonDays: number,
+  currentBalance: number,
+  weekStarts: string[],
+): string {
+  const totalReceivable = upcoming.filter(i => i.type === 'receivable').reduce((s, i) => s + i.amount, 0);
+  const totalPayable = upcoming.filter(i => i.type === 'payable').reduce((s, i) => s + i.amount, 0);
+
+  const histLines = historical.slice(-8).map(p =>
+    `  Week ${p.weekStart}: Inflows R${p.inflows.toFixed(0)}, Outflows R${p.outflows.toFixed(0)}, Net R${p.netFlow.toFixed(0)}`
+  ).join('\n') || '  No historical data';
+
+  const recvLines = upcoming.filter(i => i.type === 'receivable')
+    .map(i => `  Due ${i.dueDate}: R${i.amount.toFixed(0)} (${i.status})`).join('\n') || '  None';
+  const payLines = upcoming.filter(i => i.type === 'payable')
+    .map(i => `  Due ${i.dueDate}: R${i.amount.toFixed(0)} (${i.status})`).join('\n') || '  None';
+  const recurrLines = recurring.map(r =>
+    `  ${r.name} (${r.frequency} ${r.entityType}), next: ${r.nextRunDate ?? 'unscheduled'}`
+  ).join('\n') || '  None';
+
+  return `CASH FLOW FORECAST REQUEST
+
+Current Cash Balance: R${currentBalance.toFixed(2)}
+Forecast Horizon: ${horizonDays} days
+weekStarts: ${weekStarts.join(', ')}
+
+HISTORICAL WEEKLY CASH FLOW (last ${historical.length} weeks):
+${histLines}
+
+UPCOMING RECEIVABLES (${upcoming.filter(i => i.type === 'receivable').length} invoices, total R${totalReceivable.toFixed(0)}):
+${recvLines}
+
+UPCOMING PAYABLES (${upcoming.filter(i => i.type === 'payable').length} invoices, total R${totalPayable.toFixed(0)}):
+${payLines}
+
+RECURRING PATTERNS:
+${recurrLines}
+
+Generate weekly forecast for these exact weekStarts: ${weekStarts.join(', ')}`;
+}
+
+function parseAIResponse(text: string): {
+  forecast: ForecastWeek[];
+  summary: string;
+  risks: string[];
+  opportunities: string[];
+} {
+  const cleaned = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+  const parsed = JSON.parse(cleaned) as {
+    forecast?: unknown[];
+    summary?: unknown;
+    risks?: unknown[];
+    opportunities?: unknown[];
+  };
+
+  const forecast: ForecastWeek[] = (parsed.forecast ?? []).map((item) => {
+    const w = item as Record<string, unknown>;
+    const conf = String(w['confidence'] ?? 'medium');
+    return {
+      weekStart: String(w['weekStart'] ?? ''),
+      projectedInflows: toNum(w['projectedInflows']),
+      projectedOutflows: toNum(w['projectedOutflows']),
+      projectedNet: toNum(w['projectedNet']),
+      confidence: (['high', 'medium', 'low'].includes(conf) ? conf : 'medium') as ForecastWeek['confidence'],
+      notes: String(w['notes'] ?? ''),
+    };
+  });
+
+  return {
+    forecast,
+    summary: String(parsed.summary ?? 'No summary available.'),
+    risks: (parsed.risks ?? []).map(String),
+    opportunities: (parsed.opportunities ?? []).map(String),
+  };
+}
+
+/**
+ * Generate an AI-powered cash flow forecast from bank transactions + invoice data.
+ * Results are cached for 4 hours per company+horizon pair.
+ */
+export async function getForecast(companyId: string, horizonDays: number): Promise<CashFlowForecast> {
+  const cacheKey = `${companyId}:${horizonDays}`;
+  const hit = forecastCache.get(cacheKey);
+  if (hit && hit.expiresAt > Date.now()) {
+    log.info('Cash flow forecast cache hit', { companyId, horizonDays }, 'cashFlowForecast');
+    return hit.data;
+  }
+
+  log.info('Generating AI cash flow forecast', { companyId, horizonDays }, 'cashFlowForecast');
+
+  const [historical, currentBalance, upcoming, recurring] = await Promise.all([
+    getActualCashFlow(companyId, 90),
+    getBankBalance(companyId),
+    getUpcomingReceivablesAndPayables(companyId, horizonDays),
+    getRecurringTemplates(companyId),
+  ]);
+
+  const weekStarts = buildWeekStarts(horizonDays);
+  const userPrompt = buildAIPrompt(historical, upcoming, recurring, horizonDays, currentBalance, weekStarts);
+
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not configured');
+
+  const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-beta': 'prompt-caching-2024-07-31',
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1000,
+      system: [{ type: 'text', text: FORECAST_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
+      messages: [{ role: 'user', content: userPrompt }],
+    }),
+  });
+
+  if (!anthropicRes.ok) {
+    const errText = await anthropicRes.text();
+    throw new Error(`Anthropic API error ${anthropicRes.status}: ${errText}`);
+  }
+
+  const anthropicData = await anthropicRes.json() as {
+    content?: Array<{ type: string; text?: string }>;
+  };
+  const responseText = (anthropicData.content ?? [])
+    .filter((b) => b.type === 'text')
+    .map((b) => b.text ?? '')
+    .join('');
+
+  const parsed = parseAIResponse(responseText);
+  const projectedEndBalance = currentBalance + parsed.forecast.reduce((s, w) => s + w.projectedNet, 0);
+
+  const forecast: CashFlowForecast = {
+    companyId,
+    generatedAt: new Date().toISOString(),
+    horizonDays,
+    historicalPeriods: historical,
+    forecastPeriods: parsed.forecast,
+    summary: parsed.summary,
+    risks: parsed.risks,
+    opportunities: parsed.opportunities,
+    currentCashBalance: currentBalance,
+    projectedEndBalance,
+  };
+
+  forecastCache.set(cacheKey, { data: forecast, expiresAt: Date.now() + 4 * 60 * 60 * 1000 });
+
+  log.info('AI cash flow forecast complete', {
+    companyId,
+    horizonDays,
+    historicalWeeks: historical.length,
+    forecastWeeks: parsed.forecast.length,
+  }, 'cashFlowForecast');
+
+  return forecast;
 }
