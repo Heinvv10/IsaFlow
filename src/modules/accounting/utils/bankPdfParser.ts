@@ -137,17 +137,91 @@ function parseAbsaTextLines(text: string): BankCsvParseResult {
 
 /**
  * Detect the bank from raw PDF text content.
- * Returns the detected format string or 'unknown'.
+ *
+ * Uses a score-based scan with highly bank-specific marker phrases
+ * (product names, legal footers, unique addresses) so we don't
+ * false-positive on transaction descriptions. A cross-bank transfer
+ * like "Absa Bank Shasti Van Vuuren" must NOT turn a Standard Bank
+ * statement into an ABSA statement.
+ *
+ * Each bank has a set of weighted markers; we scan the entire text,
+ * sum the hits per bank, and return the highest-scoring one. Ties and
+ * zero-scores fall back to 'unknown'.
  */
 function detectPdfBankFormat(text: string): string {
-  const sample = text.substring(0, 2000).toLowerCase();
+  // PDFs often emit multi-whitespace between every visual word
+  // ("Private \tBag \tX18"), so we collapse all runs of whitespace to
+  // single spaces before matching against the markers below.
+  const lower = text.toLowerCase().replace(/\s+/g, ' ');
 
-  if (sample.includes('absa') || sample.includes('amalgamated banks')) return 'absa';
-  if (sample.includes('first national bank') || sample.includes('fnb')) return 'fnb';
-  if (sample.includes('standard bank')) return 'standard_bank';
-  if (sample.includes('nedbank')) return 'nedbank';
+  // Priority: brand markers first (unique), then product/legal markers.
+  // Scoring keeps the old "only look at the first chunk" logic honest —
+  // transaction rows CAN mention other banks' names in counterparty
+  // descriptions, so we give the first 2000 chars double weight.
+  const headerRegion = lower.substring(0, 2000);
 
-  return 'unknown';
+  // Each marker: [needle, weight in headerRegion, weight in whole doc]
+  // Picking markers that only appear in LEGAL/HEADER text, not in
+  // descriptions. "absa bank limited" is a legal entity name found in
+  // the footer of ABSA statements; "absa bank" alone appears in
+  // transfer descriptions across every bank, so we avoid that one.
+  type Marker = readonly [needle: string, headerW: number, fullW: number];
+
+  const markers: Record<string, Marker[]> = {
+    absa: [
+      ['absa bank limited', 5, 2],
+      ['amalgamated banks of south africa', 5, 2],
+      ['reg no 1986/004794', 5, 0],       // ABSA Bank Limited reg number
+    ],
+    standard_bank: [
+      ['the standard bank of south africa', 5, 2],
+      ['standard bank of south africa limited', 5, 2],
+      ['classic business acc', 4, 1],     // SBSA product name
+      ['private bag x18, johannesburg', 4, 1],  // SBSA HQ address
+      ['sb reg no', 3, 0],
+      ['standard bank', 2, 0],            // weaker — appears in sbsa headers but also in some descriptions
+    ],
+    fnb: [
+      ['first national bank', 5, 2],
+      ['firstrand bank limited', 5, 2],
+      ['fnb online banking', 4, 1],
+      ['fnb.co.za', 3, 0],
+    ],
+    nedbank: [
+      ['nedbank limited', 5, 2],
+      ['nedbank group limited', 5, 2],
+      ['nedbank.co.za', 3, 0],
+      ['reg no 1951/000009', 5, 0],
+    ],
+    capitec: [
+      ['capitec bank limited', 5, 2],
+      ['capitec bank', 3, 1],
+      ['capitecbank.co.za', 3, 0],
+    ],
+  };
+
+  const scores: Record<string, number> = {
+    absa: 0, standard_bank: 0, fnb: 0, nedbank: 0, capitec: 0,
+  };
+
+  for (const [bank, bankMarkers] of Object.entries(markers)) {
+    for (const [needle, headerW, fullW] of bankMarkers) {
+      if (headerRegion.includes(needle)) scores[bank]! += headerW;
+      else if (lower.includes(needle)) scores[bank]! += fullW;
+    }
+  }
+
+  // Find the top scorer. Require at least 1 point — zero means nothing matched.
+  let best: string = 'unknown';
+  let bestScore = 0;
+  for (const [bank, score] of Object.entries(scores)) {
+    if (score > bestScore) {
+      best = bank;
+      bestScore = score;
+    }
+  }
+
+  return best;
 }
 
 /**
