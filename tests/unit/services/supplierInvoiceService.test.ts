@@ -11,10 +11,14 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 
 // ── Module mocks ─────────────────────────────────────────────────────────────
 
-vi.mock('@/lib/neon', () => ({
-  sql: vi.fn(),
-  withTransaction: vi.fn(),
-}));
+vi.mock('@/lib/neon', () => {
+  const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn() });
+  return {
+    sql: sqlMock,
+    withTransaction: vi.fn((cb: (tx: typeof sqlMock) => unknown) => cb(sqlMock)),
+    fmtDate: (d: unknown) => (d instanceof Date ? d.toISOString().split('T')[0] : String(d)),
+  };
+});
 
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },

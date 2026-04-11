@@ -70,7 +70,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   try {
     // Customer info (IDOR-safe: must belong to this company)
     const customerRows = await sql`
-      SELECT id, name, email, phone, address
+      SELECT id, name, email, phone, billing_address AS address
       FROM customers
       WHERE id = ${customerId}::UUID AND company_id = ${companyId}::UUID
     ` as Row[];
@@ -82,7 +82,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     // Invoices in date range
     const invoices = await sql`
-      SELECT id, invoice_number, invoice_date, reference, total_amount, status
+      SELECT id, invoice_number, invoice_date, total_amount, status
       FROM customer_invoices
       WHERE client_id   = ${customerId}::UUID
         AND company_id  = ${companyId}::UUID
@@ -124,7 +124,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         date: toISODate(inv.invoice_date),
         type: 'invoice',
         reference: String(inv.invoice_number),
-        description: inv.reference ? String(inv.reference) : '',
+        description: '',
         debit: Number(inv.total_amount),
         credit: 0,
         balance: 0,

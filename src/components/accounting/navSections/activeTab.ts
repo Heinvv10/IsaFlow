@@ -64,6 +64,8 @@ export function getActiveTabId(
     pathname.startsWith('/accounting/default-accounts') ||
     pathname.startsWith('/accounting/currencies') ||
     pathname.startsWith('/accounting/exchange-rates') ||
+    pathname.startsWith('/accounting/settings/currencies') ||
+    pathname.startsWith('/accounting/settings/exchange-rates') ||
     pathname.startsWith('/accounting/accounting-settings')
   ) {
     return 'accounts';

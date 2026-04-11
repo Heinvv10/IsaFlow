@@ -11,10 +11,14 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 
 // ── Module mocks (must precede imports) ──────────────────────────────────────
 
-vi.mock('@/lib/neon', () => ({
-  sql: vi.fn(),
-  withTransaction: vi.fn(),
-}));
+vi.mock('@/lib/neon', () => {
+  const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn() });
+  return {
+    sql: sqlMock,
+    withTransaction: vi.fn((cb: (tx: typeof sqlMock) => unknown) => cb(sqlMock)),
+    fmtDate: (d: unknown) => (d instanceof Date ? d.toISOString().split('T')[0] : String(d)),
+  };
+});
 
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
@@ -221,6 +225,8 @@ describe('createCustomerPayment — allocation validation', () => {
       const fakeTx = vi.fn().mockResolvedValue([samplePaymentRow]) as unknown as typeof sql;
       return fn(fakeTx);
     });
+    // Post-transaction SELECT to fetch full payment row
+    mockSql.mockResolvedValueOnce([samplePaymentRow]);
 
     const payment = await createCustomerPayment(COMPANY_ID, validInput, USER_ID);
 
@@ -238,6 +244,7 @@ describe('createCustomerPayment — allocation validation', () => {
       const fakeTx = vi.fn().mockResolvedValue([samplePaymentRow]) as unknown as typeof sql;
       return fn(fakeTx);
     });
+    mockSql.mockResolvedValueOnce([samplePaymentRow]);
 
     const input: CustomerPaymentCreateInput = {
       ...validInput,
@@ -271,6 +278,7 @@ describe('createCustomerPayment — edge cases', () => {
       const fakeTx = vi.fn().mockResolvedValue([row]) as unknown as typeof sql;
       return fn(fakeTx);
     });
+    mockSql.mockResolvedValueOnce([{ ...samplePaymentRow, total_amount: '0.00' }]);
 
     const payment = await createCustomerPayment(COMPANY_ID, input, USER_ID);
     expect(payment.totalAmount).toBe(0);
@@ -289,6 +297,7 @@ describe('createCustomerPayment — edge cases', () => {
       const fakeTx = vi.fn().mockResolvedValue([multiRow]) as unknown as typeof sql;
       return fn(fakeTx);
     });
+    mockSql.mockResolvedValueOnce([{ ...samplePaymentRow, total_amount: '1150.00' }]);
 
     const input: CustomerPaymentCreateInput = {
       ...validInput,
@@ -310,6 +319,7 @@ describe('createCustomerPayment — edge cases', () => {
       const fakeTx = vi.fn().mockResolvedValue([samplePaymentRow]) as unknown as typeof sql;
       return fn(fakeTx);
     });
+    mockSql.mockResolvedValueOnce([samplePaymentRow]);
 
     const input: CustomerPaymentCreateInput = {
       clientId:    CLIENT_ID,

@@ -14,15 +14,19 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   const { customerId, reminderNumber = 1 } = req.body;
   if (!customerId) return apiResponse.badRequest(res, 'customerId is required');
 
-  const customers = await sql`SELECT name, email, contact_person FROM customers WHERE id = ${customerId} LIMIT 1` as Row[];
+  const { companyId } = req;
+
+  // Fetch customer scoped to this company (IDOR prevention)
+  const customers = await sql`SELECT name, email, contact_person FROM customers WHERE id = ${customerId} AND company_id = ${companyId} LIMIT 1` as Row[];
   if (!customers[0]) return apiResponse.notFound(res, 'Customer', customerId);
   const c = customers[0] as Record<string, unknown>;
 
   // Fetch company name from DB
-  const companyRows = await sql`SELECT name FROM companies WHERE id = ${req.companyId} LIMIT 1` as Row[];
+  const companyRows = await sql`SELECT name FROM companies WHERE id = ${companyId} LIMIT 1` as Row[];
   const companyName = String((companyRows[0] as Record<string, unknown>)?.name || 'Unknown Company');
 
-  const balRow = await sql`SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid,0)),0) as bal, COUNT(*) as cnt, MIN(due_date) as oldest FROM customer_invoices WHERE customer_id = ${customerId} AND status NOT IN ('cancelled','draft','paid') AND due_date < CURRENT_DATE` as Row[];
+  // Fetch outstanding invoices scoped to this company (IDOR prevention)
+  const balRow = await sql`SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid,0)),0) as bal, COUNT(*) as cnt, MIN(due_date) as oldest FROM customer_invoices WHERE customer_id = ${customerId} AND company_id = ${companyId} AND status NOT IN ('cancelled','draft','paid') AND due_date < CURRENT_DATE` as Row[];
   const outstanding = Number(balRow[0]?.bal ?? 0);
   const invoiceCount = Number(balRow[0]?.cnt ?? 0);
   const oldestDue = balRow[0]?.oldest ? Math.floor((Date.now() - new Date(String(balRow[0].oldest)).getTime()) / 86400000) : 0;

@@ -42,7 +42,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // Find project from client (optional)
     let projectId: string | null = null;
     try {
-      const projRows = (await sql`SELECT id FROM projects WHERE client_id = ${clientId}::UUID LIMIT 1`) as Row[];
+      const projRows = (await sql`SELECT id FROM projects WHERE client_id = ${clientId}::UUID AND company_id = ${companyId} LIMIT 1`) as Row[];
       projectId = (projRows[0]?.['id'] as string | undefined) ?? null;
     } catch { /* projects table may not exist */ }
 

@@ -45,7 +45,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       for (const item of body.items) {
         await tx`INSERT INTO grn_items (grn_id, po_item_id, quantity_received, quantity_rejected, notes) VALUES (${grnId}, ${item.poItemId}, ${item.quantityReceived}, ${item.quantityRejected || 0}, ${item.notes || null})`;
         // Update PO item received quantity
-        await tx`UPDATE po_items SET quantity_received = COALESCE(quantity_received, 0) + ${item.quantityReceived} WHERE id = ${item.poItemId}`;
+        await tx`UPDATE po_items SET quantity_received = COALESCE(quantity_received, 0) + ${item.quantityReceived} WHERE id = ${item.poItemId} AND purchase_order_id = ${body.purchaseOrderId}`;
       }
 
       // Update PO status

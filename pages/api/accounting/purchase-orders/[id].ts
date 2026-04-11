@@ -41,7 +41,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (poRows.length === 0) return apiResponse.notFound(res, 'Purchase order', id);
 
     const items = await sql`
-      SELECT pi.*, g.name AS account_name, g.code AS account_code
+      SELECT pi.*, g.account_name, g.account_code
       FROM po_items pi
       LEFT JOIN gl_accounts g ON g.id = pi.gl_account_id
       WHERE pi.purchase_order_id = ${id}::UUID

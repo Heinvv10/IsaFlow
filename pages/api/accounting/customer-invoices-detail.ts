@@ -41,7 +41,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (rows.length === 0) return apiResponse.notFound(res, 'Invoice', id as string);
 
       const items = (await sql`
-        SELECT * FROM customer_invoice_items WHERE invoice_id = ${id as string}::UUID ORDER BY created_at
+        SELECT cii.* FROM customer_invoice_items cii JOIN customer_invoices ci ON ci.id = cii.invoice_id WHERE cii.invoice_id = ${id as string}::UUID AND ci.company_id = ${companyId} ORDER BY cii.created_at
       `) as Row[];
 
       return apiResponse.success(res, { ...rows[0], items });

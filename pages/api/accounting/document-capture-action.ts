@@ -55,7 +55,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const { companyId } = req as CompanyApiRequest;
 
-  // Verify document exists
+  // Verify document exists and belongs to this company
   const [existing] = await sql`
     SELECT * FROM captured_documents WHERE id = ${id}::uuid AND company_id = ${companyId}
   ` as Record<string, unknown>[];
@@ -66,15 +66,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   try {
     if (action === 'confirm') {
-      return handleConfirm(res, id, data);
+      return handleConfirm(res, id, companyId, data);
     }
 
     if (action === 'match_bank_tx') {
-      return handleMatchBankTx(res, id, data);
+      return handleMatchBankTx(res, id, companyId, data);
     }
 
     if (action === 'reject') {
-      return handleReject(res, id, data);
+      return handleReject(res, id, companyId, data);
     }
 
     return apiResponse.badRequest(res, 'Unknown action');
@@ -89,6 +89,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 async function handleConfirm(
   res: NextApiResponse,
   id: string,
+  companyId: string,
   data?: Record<string, unknown>,
 ) {
   const updates: Record<string, unknown> = {};
@@ -111,7 +112,7 @@ async function handleConfirm(
         vat_amount = COALESCE(${updates.vat_amount !== undefined ? Number(updates.vat_amount) : null}::numeric, vat_amount),
         document_type = COALESCE(${(updates.document_type as string) || null}, document_type),
         notes = COALESCE(${(updates.notes as string) || null}, notes)
-    WHERE id = ${id}::uuid
+    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
     RETURNING *
   ` as Record<string, unknown>[];
 
@@ -123,6 +124,7 @@ async function handleConfirm(
 async function handleMatchBankTx(
   res: NextApiResponse,
   id: string,
+  companyId: string,
   data?: Record<string, unknown>,
 ) {
   const bankTxId = data?.bankTxId as string;
@@ -130,9 +132,9 @@ async function handleMatchBankTx(
     return apiResponse.badRequest(res, 'bankTxId is required for match_bank_tx action');
   }
 
-  // Verify bank transaction exists
+  // Verify bank transaction exists and belongs to the same company (IDOR prevention)
   const [bankTx] = await sql`
-    SELECT id FROM bank_transactions WHERE id = ${bankTxId}::uuid
+    SELECT id FROM bank_transactions WHERE id = ${bankTxId}::uuid AND company_id = ${companyId}::uuid
   ` as Record<string, unknown>[];
 
   if (!bankTx) {
@@ -143,7 +145,7 @@ async function handleMatchBankTx(
     UPDATE captured_documents
     SET status = 'matched',
         matched_bank_tx_id = ${bankTxId}::uuid
-    WHERE id = ${id}::uuid
+    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
     RETURNING *
   ` as Record<string, unknown>[];
 
@@ -155,6 +157,7 @@ async function handleMatchBankTx(
 async function handleReject(
   res: NextApiResponse,
   id: string,
+  companyId: string,
   data?: Record<string, unknown>,
 ) {
   const notes = (data?.notes as string) || null;
@@ -163,7 +166,7 @@ async function handleReject(
     UPDATE captured_documents
     SET status = 'rejected',
         notes = COALESCE(${notes}, notes)
-    WHERE id = ${id}::uuid
+    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
     RETURNING *
   ` as Record<string, unknown>[];
 
@@ -171,5 +174,5 @@ async function handleReject(
   return apiResponse.success(res, mapRow(row as Record<string, unknown>), 'Document rejected');
 }
 
- 
+
 export default withCompany(withErrorHandler(withWriteAccess(handler)));
