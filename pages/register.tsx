@@ -69,7 +69,6 @@ export default function RegisterPage() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
-  const [emailLocked, setEmailLocked] = useState(false);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -80,7 +79,11 @@ export default function RegisterPage() {
 
   const strength = password ? checkClientPasswordStrength(password) : null;
 
-  // Load invite data when token is present
+  // Load invite data when token is present.
+  // NOTE: the API returns the invitee's email in MASKED form (e.g. "f***@x.com")
+  // to prevent enumeration via the public token URL, so we must NOT pre-fill or
+  // lock the email field from it. The user has to type their real email and the
+  // server-side invite-accept step will verify it matches the stored invitation.
   useEffect(() => {
     if (!inviteToken) return;
 
@@ -88,10 +91,7 @@ export default function RegisterPage() {
       .then((r) => (r.ok ? r.json() : null))
       .then((json) => {
         if (json?.data) {
-          const data = json.data as InviteData;
-          setInviteData(data);
-          setEmail(data.email);
-          setEmailLocked(true);
+          setInviteData(json.data as InviteData);
         }
       })
       .catch(() => null);
@@ -102,9 +102,16 @@ export default function RegisterPage() {
     ? `/login?registered=1&invite=${inviteToken}`
     : '/login?registered=1';
 
-  // Figure out where to send an authenticated user after register:
-  // - No companies yet → /onboarding wizard
-  // - Already has a company (invite flow) → /accounting
+  // Decide where to send the user after register + auto-login.
+  //
+  // The register endpoint already auto-accepts any pending invitations for
+  // the new user (both by explicit inviteToken and by matching email — see
+  // pages/api/auth/register.ts). So we don't need a second "accept invite"
+  // round-trip here — we just query the user's companies and route.
+  //
+  // Destinations:
+  //   items.length === 0 → /onboarding wizard
+  //   items.length > 0   → /accounting (new company or joined-via-invite)
   const postRegisterRedirect = async (): Promise<string> => {
     try {
       const res = await fetch('/api/accounting/companies?action=user-companies', {
@@ -138,6 +145,9 @@ export default function RegisterPage() {
           email: trimmedEmail,
           password,
           confirmPassword,
+          // Forward the invite token so the register endpoint can
+          // auto-accept the invitation atomically (see pages/api/auth/register.ts).
+          ...(inviteToken ? { inviteToken } : {}),
         }),
       });
 
@@ -250,18 +260,14 @@ export default function RegisterPage() {
                 required
                 value={email}
                 onChange={e => { setError(''); setEmail(e.target.value); }}
-                disabled={submitting || emailLocked}
-                readOnly={emailLocked}
-                className={`w-full bg-gray-800 border rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition ${
-                  emailLocked
-                    ? 'border-teal-700/50 text-gray-400 cursor-not-allowed'
-                    : 'border-gray-600 disabled:opacity-50'
-                }`}
+                disabled={submitting}
+                className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition"
                 placeholder="you@example.com"
               />
-              {emailLocked && (
+              {inviteData && (
                 <p className="mt-1 text-xs text-gray-500">
-                  Email address is set by the invitation.
+                  Enter the email address this invitation was sent to
+                  ({inviteData.email}).
                 </p>
               )}
             </div>
