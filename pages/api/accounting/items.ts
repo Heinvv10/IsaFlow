@@ -9,7 +9,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
 import {
   getItem,
   listItems,
@@ -169,4 +169,4 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST', 'PUT', 'DELETE']);
 }
 
-export default withCompany(withErrorHandler(handler));
+export default withCompany(withErrorHandler(withWriteAccess(handler)));

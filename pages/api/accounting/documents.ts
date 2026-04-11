@@ -12,7 +12,7 @@ import formidable from 'formidable';
 import fs from 'fs';
 import { vfStorage } from '@/services/vfStorageAdapter';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import type {
@@ -384,4 +384,4 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse, companyId
   return apiResponse.success(res, { id: row.id, deleted: true });
 }
 
-export default withCompany(withErrorHandler(handler));
+export default withCompany(withErrorHandler(withWriteAccess(handler)));

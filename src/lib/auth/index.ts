@@ -48,6 +48,9 @@ export {
 // Company-scoped middleware
 export { withCompany, type CompanyApiRequest } from './withCompany';
 
+// Write-access gate (blocks viewers from mutating)
+export { withWriteAccess, DEFAULT_WRITE_ROLES, type WriteRole } from './withWriteAccess';
+
 // App Router utilities (NextRequest)
 export { getUserFromRequest, requireAuth } from './app-router';
 

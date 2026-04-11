@@ -5,7 +5,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withCompany, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fuzzyMatchSupplier, buildAutoInvoiceFromExtraction, calculateFieldConfidence } from '@/modules/accounting/services/docExtractionEnhancedService';
@@ -81,4 +81,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   });
 }
 
-export default withCompany(withErrorHandler(handler));
+export default withCompany(withErrorHandler(withWriteAccess(handler)));

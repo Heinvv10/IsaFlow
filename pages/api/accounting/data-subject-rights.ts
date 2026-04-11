@@ -9,7 +9,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany } from '@/lib/auth';
+import { withCompany, withWriteAccess} from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import type { CompanyApiRequest } from '@/lib/auth/withCompany';
 type Row = Record<string, unknown>;
@@ -106,4 +106,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
  
-export default withCompany(withErrorHandler(handler));
+export default withCompany(withErrorHandler(withWriteAccess(handler)));
