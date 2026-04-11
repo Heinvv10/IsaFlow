@@ -61,4 +61,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
  
-export default withCompany(withErrorHandler(withWriteAccess(handler)));
+// Chart of accounts is a financial control point — only owners and
+// admins can update or delete GL accounts (including bank accounts).
+// The deleteAccount() service layer also refuses to delete a bank
+// account with a non-zero GL balance or unreconciled transactions.
+export default withCompany(withErrorHandler(withWriteAccess(handler, { allowedRoles: ['owner', 'admin'] })));
