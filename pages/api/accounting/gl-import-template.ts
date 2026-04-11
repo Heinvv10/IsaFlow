@@ -6,7 +6,7 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { withCompany } from '@/lib/auth';
+import { withCompany, withWriteAccess} from '@/lib/auth';
 import ExcelJS from 'exceljs';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -69,4 +69,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
  
-export default withCompany(withErrorHandler(handler));
+export default withCompany(withErrorHandler(withWriteAccess(handler)));
