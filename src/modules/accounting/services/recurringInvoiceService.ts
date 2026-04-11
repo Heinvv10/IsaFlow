@@ -3,7 +3,7 @@
  * Phase 1 Sage Alignment: Auto-generate customer invoices on schedule
  */
 
-import { sql, withTransaction } from '@/lib/neon';
+import { sql, withTransaction, fmtDate } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type {
   RecurringInvoice,
@@ -107,13 +107,23 @@ export async function generateInvoiceFromRecurring(companyId: string,
   const endDate = ri.end_date ? String(ri.end_date) : null;
   const newStatus = endDate && nextDate > endDate ? 'completed' : 'active';
 
+  // Generate next invoice number
+  const numRows = (await sql`
+    SELECT MAX(CAST(SUBSTRING(invoice_number FROM '[0-9]+$') AS INTEGER)) AS max_num
+    FROM customer_invoices WHERE company_id = ${companyId} AND invoice_number LIKE 'INV-%'
+  `) as Row[];
+  const nextNum = (Number(numRows[0]?.max_num) || 0) + 1;
+  const invoiceNumber = `INV-${String(nextNum).padStart(5, '0')}`;
+
   const invoiceId = await withTransaction(async (tx) => {
     const inv = (await tx`
       INSERT INTO customer_invoices (
-        company_id, client_id, project_id, invoice_date, due_date, subtotal,
-        tax_amount, total_amount, status, description, created_by
+        company_id, invoice_number, client_id, customer_id, project_id,
+        invoice_date, due_date, subtotal, tax_amount, total_amount,
+        status, notes, created_by
       ) VALUES (
-        ${companyId}::UUID, ${ri.client_id}::UUID, ${ri.project_id || null},
+        ${companyId}::UUID, ${invoiceNumber}, ${ri.client_id}::UUID, ${ri.client_id}::UUID,
+        ${ri.project_id || null},
         CURRENT_DATE, CURRENT_DATE + INTERVAL '30 days',
         ${Number(ri.subtotal)}, ${Number(ri.tax_amount)}, ${Number(ri.total_amount)},
         'approved', ${ri.description || ri.template_name}, ${userId}::UUID
@@ -152,9 +162,9 @@ function mapRow(row: Row): RecurringInvoice {
     clientId: String(row.client_id),
     projectId: row.project_id ? String(row.project_id) : undefined,
     frequency: String(row.frequency) as RecurringInvoice['frequency'],
-    nextRunDate: String(row.next_run_date),
-    endDate: row.end_date ? String(row.end_date) : undefined,
-    lastRunDate: row.last_run_date ? String(row.last_run_date) : undefined,
+    nextRunDate: fmtDate(row.next_run_date),
+    endDate: row.end_date ? fmtDate(row.end_date) : undefined,
+    lastRunDate: row.last_run_date ? fmtDate(row.last_run_date) : undefined,
     runCount: Number(row.run_count),
     status: String(row.status) as RecurringInvoice['status'],
     description: row.description ? String(row.description) : undefined,

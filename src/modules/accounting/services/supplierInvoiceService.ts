@@ -3,7 +3,7 @@
  * Supplier Invoice Service
  */
 
-import { sql, withTransaction } from '@/lib/neon';
+import { sql, withTransaction, fmtDate } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
 import { getSystemAccount } from './systemAccountResolver';
@@ -354,9 +354,9 @@ function mapInvoiceRow(row: Row): SupplierInvoice {
     supplierId: String(row.supplier_id),
     purchaseOrderId: row.purchase_order_id ? String(row.purchase_order_id) : undefined,
     grnId: row.grn_id ? String(row.grn_id) : undefined,
-    invoiceDate: String(row.invoice_date),
-    dueDate: row.due_date ? String(row.due_date) : undefined,
-    receivedDate: row.received_date ? String(row.received_date) : undefined,
+    invoiceDate: fmtDate(row.invoice_date),
+    dueDate: row.due_date ? fmtDate(row.due_date) : undefined,
+    receivedDate: row.received_date ? fmtDate(row.received_date) : undefined,
     subtotal: Number(row.subtotal),
     taxRate: Number(row.tax_rate),
     taxAmount: Number(row.tax_amount),

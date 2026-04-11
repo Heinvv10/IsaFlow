@@ -3,7 +3,7 @@
  * Create, read, and trial balance operations for GL journal entries.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, fmtDate } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { validateJournalEntry } from '../utils/doubleEntry';
 import type { JournalEntry, JournalLine, JournalEntryCreateInput, GLEntryStatus, GLEntrySource, TrialBalanceRow, VatType } from '../types/gl.types';
@@ -30,7 +30,7 @@ export function mapEntryRow(row: Row): JournalEntry {
   return {
     id: String(row.id),
     entryNumber: row.entry_number ? String(row.entry_number) : '',
-    entryDate: String(row.entry_date),
+    entryDate: fmtDate(row.entry_date),
     fiscalPeriodId: row.fiscal_period_id ? String(row.fiscal_period_id) : undefined,
     description: row.description ? String(row.description) : undefined,
     source: String(row.source) as GLEntrySource,

@@ -3,7 +3,7 @@
  * Customer Payment Service
  */
 
-import { sql } from '@/lib/neon';
+import { sql, fmtDate, withTransaction } from '@/lib/neon';
 import { randomUUID } from 'crypto';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from './journalEntryService';
@@ -256,10 +256,13 @@ export async function cancelCustomerPayment(companyId: string,
         `;
       }
 
+      // Note: customer_payments has no cancelled_by/cancelled_at/cancel_reason columns yet.
+      // Store cancellation metadata in description field until a migration adds them.
+      const cancelNote = reason ? ` [CANCELLED: ${reason}]` : ' [CANCELLED]';
       return (await tx`
         UPDATE customer_payments
-        SET status = 'cancelled', cancelled_by = ${userId}::UUID,
-            cancelled_at = NOW(), cancel_reason = ${reason || null}
+        SET status = 'cancelled',
+            description = COALESCE(description, '') || ${cancelNote}
         WHERE id = ${id} AND company_id = ${companyId} RETURNING *
       `) as Row[];
     }) as Row[];
@@ -326,7 +329,7 @@ function mapPaymentRow(row: Row): CustomerPayment {
     id: String(row.id),
     paymentNumber: row.payment_number ? String(row.payment_number) : '',
     clientId: String(row.client_id),
-    paymentDate: String(row.payment_date),
+    paymentDate: fmtDate(row.payment_date),
     totalAmount: Number(row.total_amount),
     paymentMethod: String(row.payment_method) as CustomerPayment['paymentMethod'],
     bankReference: row.bank_reference ? String(row.bank_reference) : undefined,
