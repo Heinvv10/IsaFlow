@@ -36,3 +36,9 @@ tests/e2e/.auth/
 
 # temporary files
 tmp/
+
+# Real customer bank statements used for local regression testing.
+# NEVER commit — these contain PII, account numbers, and real transactions.
+# Tests that use them tolerate the files being absent in CI.
+test-docs/
+audit-screenshots/
