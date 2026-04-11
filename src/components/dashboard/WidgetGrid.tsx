@@ -21,6 +21,7 @@ import { QuickActionsWidget } from './widgets/QuickActionsWidget';
 import { RecentActivityWidget } from './widgets/RecentActivityWidget';
 import { PnlSnapshotWidget } from './widgets/PnlSnapshotWidget';
 import { VatSummaryWidget } from './widgets/VatSummaryWidget';
+import { TodoWidget } from './widgets/TodoWidget';
 
 // ---------------------------------------------------------------------------
 // Widget renderer
@@ -35,6 +36,7 @@ function renderWidget(type: WidgetType): React.ReactNode {
     case 'recent-activity':  return <RecentActivityWidget />;
     case 'pnl-snapshot':     return <PnlSnapshotWidget />;
     case 'vat-summary':      return <VatSummaryWidget />;
+    case 'todo':             return <TodoWidget />;
     default:
       return (
         <Card>

@@ -117,6 +117,7 @@ export function DetailsTab({ company, onChange, onCompanyChange, documents, onDo
         <div className="mt-4 space-y-1">
           <Toggle checked={company.emailUseForCommunication} onChange={v => onChange('emailUseForCommunication', v)} label="Use this Email for Communication" />
           <Toggle checked={company.emailAlwaysCc} onChange={v => onChange('emailAlwaysCc', v)} label="Always CC this Email Address" />
+          <Toggle checked={company.emailUseServiceFrom} onChange={v => onChange('emailUseServiceFrom', v)} label="Use Mail Service as From Address" />
         </div>
       </section>
 

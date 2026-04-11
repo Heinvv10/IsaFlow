@@ -48,6 +48,9 @@ export default function NewSupplierPage() {
           bank_account_number: form.bank_account_number.trim() || null,
           bank_branch_code: form.bank_branch_code.trim() || null,
           bank_account_type: form.bank_account_type || null,
+          opening_balance: form.opening_balance ? Number(form.opening_balance) : 0,
+          opening_balance_date: form.opening_balance_date || null,
+          auto_allocate_payments: form.auto_allocate_payments,
         }),
       });
 

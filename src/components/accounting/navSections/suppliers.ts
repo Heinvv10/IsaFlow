@@ -29,6 +29,7 @@ export const suppliersTab: Tab = {
       section: 'Reports',
       items: [
         { label: 'Purchases by Supplier', href: '/accounting/reports/purchases-by-supplier' },
+        { label: 'Supplier POs by Supplier', href: '/accounting/reports/supplier-pos' },
         { label: 'Aging', href: '/accounting/ap-aging' },
         { label: 'Statements', href: '/accounting/supplier-statements' },
         { label: 'Unallocated Payments', href: '/accounting/reports/unallocated-payments' },
