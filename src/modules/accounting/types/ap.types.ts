@@ -87,6 +87,10 @@ export interface SupplierInvoiceCreateInput {
   costCenterId?: string;
   notes?: string;
   items: SupplierInvoiceItemInput[];
+  /** ISO-4217 currency code, defaults to ZAR */
+  currencyCode?: string;
+  /** Rate to convert currencyCode → ZAR. 1.0 for ZAR invoices. */
+  exchangeRate?: number;
 }
 
 export interface SupplierInvoiceItemInput {

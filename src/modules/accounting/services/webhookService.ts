@@ -4,10 +4,11 @@
  */
 
 import { sql } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import crypto from 'crypto';
 import { WEBHOOK_EVENTS } from '@/modules/accounting/constants/webhookEvents';
-type Row = Record<string, unknown>;
+type Row = DbRow;
 
 export { WEBHOOK_EVENTS };
 export type { WebhookEvent } from '@/modules/accounting/constants/webhookEvents';
@@ -150,6 +151,9 @@ export async function fireWebhook(
     }
   })();
 }
+
+/** Alias matching the spec name deliverWebhook — delegates to fireWebhook. */
+export const deliverWebhook = fireWebhook;
 
 export async function getWebhooks(companyId: string): Promise<Webhook[]> {
   const rows = (await sql`

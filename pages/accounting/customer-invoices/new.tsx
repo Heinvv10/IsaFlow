@@ -10,30 +10,47 @@ import { ArrowLeft, FileText, Plus, Trash2, Loader2, Info, SlidersHorizontal } f
 import { apiFetch } from '@/lib/apiFetch';
 import { ScanAndFillButton } from '@/components/accounting/ScanAndFillButton';
 import { fuzzyMatchClient } from '@/modules/accounting/utils/fuzzyMatch';
+import { formatCurrencyAmount } from '@/modules/accounting/services/multiCurrencyService';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 
-const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
-
 interface Client { id: string; name: string }
+interface Currency { code: string; name: string; symbol: string }
 interface LineItem { key: string; description: string; quantity: number; unitPrice: number; incomeType: string; discount: number }
 
 export default function NewCustomerInvoicePage() {
   const router = useRouter();
   const [clients, setClients] = useState<Client[]>([]);
+  const [currencies, setCurrencies] = useState<Currency[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [scanBanner, setScanBanner] = useState<string | null>(null);
   const today = new Date().toISOString().split('T')[0];
 
-  const [form, setForm] = useState({ clientId: '', invoiceDate: today, dueDate: '', billingPeriodStart: today, billingPeriodEnd: today, taxRate: 15, notes: '' });
+  const [form, setForm] = useState({
+    clientId: '', invoiceDate: today, dueDate: '',
+    billingPeriodStart: today, billingPeriodEnd: today,
+    taxRate: 15, notes: '',
+    currencyCode: 'ZAR', exchangeRate: 1,
+  });
   const [lines, setLines] = useState<LineItem[]>([{ key: '1', description: '', quantity: 1, unitPrice: 0, incomeType: 'other', discount: 0 }]);
   const [showDiscount, setShowDiscount] = useState(false);
 
   useEffect(() => {
-    apiFetch('/api/accounting/customers', { credentials: 'include' }).then(r => r.json()).then(json => {
-      const d = json.data || json;
-      setClients(Array.isArray(d) ? d : d.clients || []);
-    }).catch(() => { /* reference data load failure — non-critical, client dropdown will be empty */ });
+    apiFetch('/api/accounting/customers', { credentials: 'include' })
+      .then(r => r.json())
+      .then(json => {
+        const d = json.data || json;
+        setClients(Array.isArray(d) ? d : d.clients || []);
+      })
+      .catch(() => { /* reference data load failure — non-critical */ });
+
+    apiFetch('/api/accounting/currencies', { credentials: 'include' })
+      .then(r => r.json())
+      .then(json => {
+        const d = json.data || json;
+        setCurrencies(Array.isArray(d) ? d : []);
+      })
+      .catch(() => { /* currency list load failure — non-critical */ });
   }, []);
 
   const updateLine = (key: string, field: string, value: string | number) => {
@@ -46,6 +63,8 @@ export default function NewCustomerInvoicePage() {
   const subtotal = lines.reduce((s, l) => s + lineTotal(l), 0);
   const tax = subtotal * (form.taxRate / 100);
   const total = subtotal + tax;
+  const isForeignCurrency = form.currencyCode !== 'ZAR';
+  const functionalTotal = Math.round(total * form.exchangeRate * 100) / 100;
 
   function handleExtracted(data: ExtractedDocument) {
     const updates: Partial<typeof form> = {};
@@ -78,6 +97,7 @@ export default function NewCustomerInvoicePage() {
     if (!form.clientId) return setError('Select a client');
     const validLines = lines.filter(l => l.description && l.unitPrice > 0);
     if (validLines.length === 0) return setError('Add at least one line item');
+    if (isForeignCurrency && form.exchangeRate <= 0) return setError('Exchange rate must be greater than 0');
     setSubmitting(true);
     setError('');
     try {
@@ -131,6 +151,40 @@ export default function NewCustomerInvoicePage() {
                 <input type="number" value={form.taxRate} onChange={e => setForm(p => ({ ...p, taxRate: Number(e.target.value) }))} className="ff-input w-full text-sm" />
               </div>
             </div>
+
+            {/* Currency row */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">Currency</label>
+                <select
+                  value={form.currencyCode}
+                  onChange={e => setForm(p => ({ ...p, currencyCode: e.target.value, exchangeRate: e.target.value === 'ZAR' ? 1 : p.exchangeRate }))}
+                  className="ff-select w-full text-sm"
+                >
+                  <option value="ZAR">ZAR — South African Rand</option>
+                  {currencies.filter(c => c.code !== 'ZAR').map(c => (
+                    <option key={c.code} value={c.code}>{c.code} — {c.name}</option>
+                  ))}
+                </select>
+              </div>
+              {isForeignCurrency && (
+                <div>
+                  <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">
+                    Exchange Rate <span className="text-[var(--ff-text-tertiary)]">({form.currencyCode} to ZAR)</span>
+                  </label>
+                  <input
+                    type="number"
+                    min={0.000001}
+                    step={0.000001}
+                    value={form.exchangeRate}
+                    onChange={e => setForm(p => ({ ...p, exchangeRate: Number(e.target.value) }))}
+                    className="ff-input w-full text-sm"
+                    placeholder="e.g. 18.5"
+                  />
+                </div>
+              )}
+            </div>
+
             <div className="grid grid-cols-4 gap-4">
               <div>
                 <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">Invoice Date</label>
@@ -176,11 +230,11 @@ export default function NewCustomerInvoicePage() {
                   <th className="px-3 py-2 text-left text-xs text-[var(--ff-text-secondary)]">Description</th>
                   <th className="px-3 py-2 text-center text-xs text-[var(--ff-text-secondary)]">Type</th>
                   <th className="px-3 py-2 text-right text-xs text-[var(--ff-text-secondary)]">Qty</th>
-                  <th className="px-3 py-2 text-right text-xs text-[var(--ff-text-secondary)]">Unit Price</th>
+                  <th className="px-3 py-2 text-right text-xs text-[var(--ff-text-secondary)]">Unit Price ({form.currencyCode})</th>
                   {showDiscount && (
                     <th className="px-3 py-2 text-right text-xs text-[var(--ff-text-secondary)] w-20">Disc. %</th>
                   )}
-                  <th className="px-3 py-2 text-right text-xs text-[var(--ff-text-secondary)]">Total</th>
+                  <th className="px-3 py-2 text-right text-xs text-[var(--ff-text-secondary)]">Total ({form.currencyCode})</th>
                   <th className="px-3 py-2 w-8"></th>
                 </tr>
               </thead>
@@ -208,7 +262,7 @@ export default function NewCustomerInvoicePage() {
                       </td>
                     )}
                     <td className="px-3 py-2 text-right font-mono text-sm">
-                      {fmt(lineTotal(l))}
+                      {formatCurrencyAmount(lineTotal(l), form.currencyCode)}
                       {showDiscount && l.discount > 0 && (
                         <span className="block text-xs text-teal-500 dark:text-teal-400">
                           -{l.discount}%
@@ -224,9 +278,21 @@ export default function NewCustomerInvoicePage() {
 
           <div className="flex items-center justify-between">
             <div className="text-sm space-y-1">
-              <p className="text-[var(--ff-text-secondary)]">Subtotal: <span className="font-mono">{fmt(subtotal)}</span></p>
-              <p className="text-[var(--ff-text-secondary)]">VAT ({form.taxRate}%): <span className="font-mono">{fmt(tax)}</span></p>
-              <p className="text-[var(--ff-text-primary)] font-bold">Total: <span className="font-mono text-blue-400">{fmt(total)}</span></p>
+              <p className="text-[var(--ff-text-secondary)]">
+                Subtotal: <span className="font-mono">{formatCurrencyAmount(subtotal, form.currencyCode)}</span>
+              </p>
+              <p className="text-[var(--ff-text-secondary)]">
+                VAT ({form.taxRate}%): <span className="font-mono">{formatCurrencyAmount(tax, form.currencyCode)}</span>
+              </p>
+              <p className="text-[var(--ff-text-primary)] font-bold">
+                Total: <span className="font-mono text-blue-400">{formatCurrencyAmount(total, form.currencyCode)}</span>
+              </p>
+              {isForeignCurrency && (
+                <p className="text-[var(--ff-text-secondary)] text-xs border-t border-[var(--ff-border-light)] pt-1 mt-1">
+                  ZAR equivalent: <span className="font-mono text-amber-400">{formatCurrencyAmount(functionalTotal, 'ZAR')}</span>
+                  <span className="ml-1 opacity-60">(@ {form.exchangeRate} {form.currencyCode}/ZAR)</span>
+                </p>
+              )}
             </div>
             <button onClick={handleSubmit} disabled={submitting} className="px-6 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium disabled:opacity-50">
               {submitting ? <><Loader2 className="h-4 w-4 animate-spin inline mr-1" />Creating...</> : 'Create Invoice'}
