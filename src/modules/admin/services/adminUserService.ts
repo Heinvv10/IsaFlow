@@ -296,8 +296,7 @@ export async function addUserToCompany(
     INSERT INTO company_users (user_id, company_id, role, created_at)
     VALUES (${userId}, ${companyId}, ${role}, NOW())
     ON CONFLICT (user_id, company_id) DO UPDATE
-      SET role       = EXCLUDED.role,
-          updated_at = NOW()
+      SET role = EXCLUDED.role
   `;
   log.info('addUserToCompany', { userId, companyId, role }, 'AdminUserService');
 }

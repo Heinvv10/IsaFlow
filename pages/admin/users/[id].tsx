@@ -3,14 +3,14 @@
  * Profile, company memberships, and admin actions.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { formatDate } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import {
-  ArrowLeft, AlertCircle, Loader2, User,
+  ArrowLeft, AlertCircle, Loader2, User, CheckCircle2,
   ShieldOff, ShieldCheck, KeyRound, LogOut, Pencil, Check, X,
   Plus, Trash2, RotateCcw,
 } from 'lucide-react';
@@ -77,6 +77,16 @@ export default function AdminUserDetailPage() {
   const [showLinkForm, setShowLinkForm]     = useState(false);
   const [linkCompanyId, setLinkCompanyId]   = useState('');
   const [linkRole, setLinkRole]             = useState('bookkeeper');
+  // Inline confirm state (avoids confirm() dialogs which Playwright/popup-blockers break)
+  const [confirmAction, setConfirmAction]   = useState<string | null>(null);
+  // Toast notification
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function showToast(msg: string) {
+    setToast(msg);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 3000);
+  }
 
   const load = useCallback(async () => {
     if (!id || typeof id !== 'string') return;
@@ -113,12 +123,15 @@ export default function AdminUserDetailPage() {
     if (!id || typeof id !== 'string') return;
     setActionLoading(true); setActionError('');
     try {
-      const res  = await apiFetch(`/api/admin/users/${id}/${endpoint}`, {
+      const url = endpoint
+        ? `/api/admin/users/${id}/${endpoint}`
+        : `/api/admin/users/${id}`;
+      const res  = await apiFetch(url, {
         method,
         ...(body ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed');
+      if (!res.ok) throw new Error(json.error?.message || json.message || 'Failed');
       return true;
     } catch (err) { setActionError(err instanceof Error ? err.message : 'Failed'); return false; }
     finally { setActionLoading(false); }
@@ -129,48 +142,49 @@ export default function AdminUserDetailPage() {
       first_name: editFirstName, last_name: editLastName,
       phone: editPhone, role: editRole,
     });
-    if (ok) { setEditing(false); void load(); }
+    if (ok) { setEditing(false); showToast('Profile updated'); void load(); }
   }
 
   async function handleResetPassword() {
-    if (!confirm('Send password reset email to this user?')) return;
-    await doAction('reset-password');
+    const ok = await doAction('reset-password');
+    if (ok) showToast('Password reset sent');
   }
 
   async function handleToggleSuspend() {
     if (user?.status === 'suspended') {
-      if (!confirm('Activate this user?')) return;
       const ok = await doAction('activate');
-      if (ok) void load();
+      if (ok) { showToast('User activated'); void load(); }
     } else {
-      const reason = prompt('Suspension reason:');
-      if (!reason) return;
-      const ok = await doAction('suspend', 'POST', { reason });
-      if (ok) void load();
+      const ok = await doAction('suspend', 'POST', { reason: 'Suspended by admin' });
+      if (ok) { showToast('User suspended'); void load(); }
     }
   }
 
   async function handleForceLogout() {
-    if (!confirm('Force logout this user from all sessions?')) return;
-    await doAction('force-logout');
+    const ok = await doAction('force-logout');
+    if (ok) showToast('All sessions cleared');
   }
 
   async function handleLinkCompany() {
     if (!linkCompanyId || !linkRole) return;
     const ok = await doAction('add-to-company', 'POST', { company_id: linkCompanyId, role: linkRole });
-    if (ok) { setShowLinkForm(false); setLinkCompanyId(''); setLinkRole('bookkeeper'); void load(); }
+    if (ok) { setShowLinkForm(false); setLinkCompanyId(''); setLinkRole('bookkeeper'); showToast('Company linked'); void load(); }
   }
 
-  async function handleDelinkCompany(companyId: string, companyName: string) {
-    if (!confirm(`Remove this user from "${companyName}"?`)) return;
+  async function handleDelinkCompany(companyId: string) {
     const ok = await doAction('remove-from-company', 'DELETE', { company_id: companyId });
-    if (ok) void load();
+    if (ok) { showToast('Company removed'); void load(); }
+  }
+
+  /** Two-click confirm for destructive action */
+  function confirmAndRun(key: string, action: () => void) {
+    if (confirmAction === key) { setConfirmAction(null); action(); }
+    else { setConfirmAction(key); setTimeout(() => setConfirmAction(prev => prev === key ? null : prev), 3000); }
   }
 
   async function handleResetOnboarding() {
-    if (!confirm('This will remove ALL company links and force the user through onboarding again on next login. Continue?')) return;
     const ok = await doAction('reset-onboarding');
-    if (ok) void load();
+    if (ok) { showToast('Onboarding reset — user will re-onboard on next login'); void load(); }
   }
 
   const companies = user?.companies ?? [];
@@ -208,24 +222,30 @@ export default function AdminUserDetailPage() {
                 className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50">
                 <Pencil className="w-4 h-4" /> Edit
               </button>
-              <button onClick={() => void handleResetPassword()} disabled={actionLoading}
-                className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-blue-400 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/10 transition-colors disabled:opacity-50">
-                <KeyRound className="w-4 h-4" /> Reset Password
-              </button>
-              <button onClick={() => void handleToggleSuspend()} disabled={actionLoading}
+              <button onClick={() => confirmAndRun('reset-password', () => void handleResetPassword())} disabled={actionLoading}
                 className={`inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border transition-colors disabled:opacity-50 ${
-                  user.status === 'suspended'
+                  confirmAction === 'reset-password' ? 'border-red-500 bg-red-500 text-white' : 'border-blue-400 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/10'}`}>
+                <KeyRound className="w-4 h-4" /> {confirmAction === 'reset-password' ? 'Click to confirm' : 'Reset Password'}
+              </button>
+              <button onClick={() => confirmAndRun('suspend', () => void handleToggleSuspend())} disabled={actionLoading}
+                className={`inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border transition-colors disabled:opacity-50 ${
+                  confirmAction === 'suspend' ? 'border-red-500 bg-red-500 text-white'
+                  : user.status === 'suspended'
                     ? 'border-teal-400 text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-500/10'
                     : 'border-yellow-400 text-yellow-600 hover:bg-yellow-50 dark:hover:bg-yellow-500/10'}`}>
-                {user.status === 'suspended' ? <><ShieldCheck className="w-4 h-4" /> Activate</> : <><ShieldOff className="w-4 h-4" /> Suspend</>}
+                {confirmAction === 'suspend'
+                  ? <><ShieldOff className="w-4 h-4" /> Click to confirm</>
+                  : user.status === 'suspended' ? <><ShieldCheck className="w-4 h-4" /> Activate</> : <><ShieldOff className="w-4 h-4" /> Suspend</>}
               </button>
-              <button onClick={() => void handleForceLogout()} disabled={actionLoading}
-                className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-red-400 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors disabled:opacity-50">
-                <LogOut className="w-4 h-4" /> Force Logout
+              <button onClick={() => confirmAndRun('force-logout', () => void handleForceLogout())} disabled={actionLoading}
+                className={`inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border transition-colors disabled:opacity-50 ${
+                  confirmAction === 'force-logout' ? 'border-red-500 bg-red-500 text-white' : 'border-red-400 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10'}`}>
+                <LogOut className="w-4 h-4" /> {confirmAction === 'force-logout' ? 'Click to confirm' : 'Force Logout'}
               </button>
-              <button onClick={() => void handleResetOnboarding()} disabled={actionLoading}
-                className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-orange-400 text-orange-500 hover:bg-orange-50 dark:hover:bg-orange-500/10 transition-colors disabled:opacity-50">
-                <RotateCcw className="w-4 h-4" /> Reset Onboarding
+              <button onClick={() => confirmAndRun('reset-onboarding', () => void handleResetOnboarding())} disabled={actionLoading}
+                className={`inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border transition-colors disabled:opacity-50 ${
+                  confirmAction === 'reset-onboarding' ? 'border-red-500 bg-red-500 text-white' : 'border-orange-400 text-orange-500 hover:bg-orange-50 dark:hover:bg-orange-500/10'}`}>
+                <RotateCcw className="w-4 h-4" /> {confirmAction === 'reset-onboarding' ? 'Click to confirm' : 'Reset Onboarding'}
               </button>
             </div>
           </div>
@@ -354,9 +374,10 @@ export default function AdminUserDetailPage() {
                         <td className="px-4 py-3 text-gray-600 dark:text-gray-300 capitalize">{c.role}</td>
                         <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{c.is_default ? 'Yes' : '\u2014'}</td>
                         <td className="px-4 py-3 text-right">
-                          <button onClick={() => void handleDelinkCompany(c.company_id, c.company_name)} disabled={actionLoading}
-                            className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors disabled:opacity-50">
-                            <Trash2 className="w-3.5 h-3.5" /> Remove
+                          <button onClick={() => confirmAndRun(`delink-${c.company_id}`, () => void handleDelinkCompany(c.company_id))} disabled={actionLoading}
+                            className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-lg transition-colors disabled:opacity-50 ${
+                              confirmAction === `delink-${c.company_id}` ? 'bg-red-500 text-white' : 'text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10'}`}>
+                            <Trash2 className="w-3.5 h-3.5" /> {confirmAction === `delink-${c.company_id}` ? 'Sure?' : 'Remove'}
                           </button>
                         </td>
                       </tr>
@@ -367,6 +388,12 @@ export default function AdminUserDetailPage() {
             </div>
           )}
         </>
+      )}
+      {/* Toast notification */}
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-lg bg-teal-600 text-white text-sm font-medium shadow-lg animate-[fadeIn_0.2s_ease-out]">
+          <CheckCircle2 className="w-4 h-4 flex-shrink-0" /> {toast}
+        </div>
       )}
     </AdminLayout>
   );
