@@ -1,7 +1,11 @@
 /**
  * /register — Create a new ISAFlow account.
  * Supports ?invite=[token] to pre-fill email and show an invite banner.
- * On success, redirects to /login with a success banner (preserving invite token).
+ *
+ * On success we auto-sign-in the new user (same credentials they just typed)
+ * and route them straight into the onboarding wizard — no second password
+ * prompt. If auto-login somehow fails (e.g. 2FA required, network blip) we
+ * fall back to the classic /login redirect with a success banner.
  */
 
 import { useState, useEffect, FormEvent } from 'react';
@@ -9,6 +13,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import Image from 'next/image';
 import { Eye, EyeOff, Building2 } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 
 interface StrengthResult {
@@ -56,6 +61,7 @@ const STRENGTH_COLORS = ['bg-red-500', 'bg-red-500', 'bg-yellow-500', 'bg-green-
 
 export default function RegisterPage() {
   const router = useRouter();
+  const { login } = useAuth();
 
   const inviteToken =
     typeof router.query.invite === 'string' ? router.query.invite : null;
@@ -91,10 +97,36 @@ export default function RegisterPage() {
       .catch(() => null);
   }, [inviteToken]);
 
+  // Fallback destination when auto-login can't be used (2FA, network error).
+  const fallbackLoginUrl = inviteToken
+    ? `/login?registered=1&invite=${inviteToken}`
+    : '/login?registered=1';
+
+  // Figure out where to send an authenticated user after register:
+  // - No companies yet → /onboarding wizard
+  // - Already has a company (invite flow) → /accounting
+  const postRegisterRedirect = async (): Promise<string> => {
+    try {
+      const res = await fetch('/api/accounting/companies?action=user-companies', {
+        credentials: 'include',
+      });
+      if (res.ok) {
+        const body = (await res.json()) as { data?: { items?: unknown[] } };
+        const items = body.data?.items;
+        if (Array.isArray(items) && items.length === 0) return '/onboarding';
+      }
+    } catch {
+      // Non-fatal — let the caller fall through to a safe default.
+    }
+    return '/accounting';
+  };
+
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError('');
     setSubmitting(true);
+
+    const trimmedEmail = email.trim().toLowerCase();
 
     try {
       const res = await fetch('/api/auth/register', {
@@ -103,7 +135,7 @@ export default function RegisterPage() {
         body: JSON.stringify({
           firstName: firstName.trim(),
           lastName: lastName.trim(),
-          email: email.trim().toLowerCase(),
+          email: trimmedEmail,
           password,
           confirmPassword,
         }),
@@ -116,11 +148,25 @@ export default function RegisterPage() {
         return;
       }
 
-      // Redirect to login, preserving invite token so the banner shows
-      const loginUrl = inviteToken
-        ? `/login?registered=1&invite=${inviteToken}`
-        : '/login?registered=1';
-      await router.push(loginUrl);
+      // Auto-sign-in so the user doesn't have to retype credentials they
+      // literally typed 2 seconds ago. The register endpoint does NOT set
+      // a session cookie, so we POST to /api/auth/login via AuthContext.
+      try {
+        const needs2FA = await login(trimmedEmail, password);
+        if (needs2FA) {
+          // User has 2FA set up via a prior account — fall back so the
+          // /login 2FA screen can take over. Should be very rare on a
+          // brand-new account, but kept as a safety hatch.
+          await router.push(fallbackLoginUrl);
+          return;
+        }
+        await router.push(await postRegisterRedirect());
+      } catch {
+        // Auto-login failed (rate-limit, transient error) — show the
+        // manual login page with the success banner so the user can
+        // still sign in.
+        await router.push(fallbackLoginUrl);
+      }
     } catch {
       setError('Network error. Please try again.');
     } finally {
