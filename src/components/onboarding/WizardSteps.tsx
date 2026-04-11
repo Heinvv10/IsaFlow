@@ -3,8 +3,9 @@
  */
 
 import { useRef, useState } from 'react';
-import { Upload, X, Loader2, ScanLine } from 'lucide-react';
+import { Upload, X, Loader2, ScanLine, Check } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import type { CoaTemplate } from '@/modules/accounting/services/chartOfAccountsService';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -22,6 +23,8 @@ export interface Director {
   idVerificationMsg?: string;
 }
 
+export type { CoaTemplate };
+
 export interface WizardData {
   name: string; tradingName: string; registrationNumber: string;
   vatNumber: string; taxNumber: string;
@@ -32,6 +35,7 @@ export interface WizardData {
   bankName: string; bankAccountNumber: string;
   bankBranchCode: string; bankAccountType: string;
   financialYearStart: number; vatPeriod: string; defaultCurrency: string;
+  coaTemplate: CoaTemplate;
   directors: Director[];
   cipcDirectors: Director[]; // directors extracted from CIPC for validation
   documents: DocFile[];
@@ -43,6 +47,7 @@ export const INITIAL_WIZARD: WizardData = {
   country: 'South Africa', phone: '', email: '', website: '', logoData: '',
   bankName: '', bankAccountNumber: '', bankBranchCode: '', bankAccountType: 'Current',
   financialYearStart: 3, vatPeriod: 'Bi-Monthly', defaultCurrency: 'ZAR',
+  coaTemplate: 'isaflow_standard',
   directors: [],
   cipcDirectors: [],
   documents: [],
@@ -498,6 +503,93 @@ export function Step6({ d, set }: { d: WizardData; set: SetFn }) {
   );
 }
 
+// ── Step 6 (new): Chart of Accounts Template ────────────────────────────────
+
+interface CoaOption {
+  id: CoaTemplate;
+  label: string;
+  tagline: string;
+  codes: string;
+  detail: string;
+}
+
+const COA_OPTIONS: CoaOption[] = [
+  {
+    id: 'isaflow_standard',
+    label: 'ISAFlow Standard',
+    tagline: 'Recommended for SA businesses',
+    codes: '1xxx · 2xxx · 3xxx · 4xxx · 5xxx',
+    detail: 'Assets, Liabilities, Equity, Revenue, Expenses — balanced 5-category SA layout with 31 starter accounts.',
+  },
+  {
+    id: 'xero_compatible',
+    label: 'Xero-compatible',
+    tagline: 'Match your Xero account structure',
+    codes: '001–003 · 010–013 · 100–103 · 200–300 · 400 · 500–800',
+    detail: '3-digit codes used by Xero SA. Switch accountants easily — your existing Xero mappings stay intact.',
+  },
+  {
+    id: 'sage_compatible',
+    label: 'Sage One-compatible',
+    tagline: 'Match your Sage account structure',
+    codes: '1000–1600 · 2000–2501 · 3000 · 4000 · 5000 · 6000',
+    detail: 'Account codes aligned with Sage One SA. Ideal if you\'re migrating existing Sage data into ISAFlow.',
+  },
+  {
+    id: 'blank',
+    label: 'Blank / Custom',
+    tagline: 'Start from scratch',
+    codes: '—',
+    detail: 'No accounts are created. You (or your accountant) set up the full chart manually.',
+  },
+];
+
+export function StepCoaTemplate({ d, set }: { d: WizardData; set: SetFn }) {
+  return (
+    <div className="grid gap-4">
+      <p className="text-sm text-gray-400">
+        Choose the account code layout that matches how your business or accountant works.
+        You can always add, rename, or remove accounts later.
+      </p>
+      {COA_OPTIONS.map(opt => {
+        const selected = d.coaTemplate === opt.id;
+        return (
+          <button
+            key={opt.id}
+            type="button"
+            onClick={() => set('coaTemplate', opt.id)}
+            className={[
+              'w-full text-left rounded-xl border-2 p-4 transition-all focus:outline-none',
+              selected
+                ? 'border-teal-500 bg-teal-900/20'
+                : 'border-gray-700 bg-gray-800/50 hover:border-gray-500',
+            ].join(' ')}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className="text-sm font-semibold text-white">{opt.label}</span>
+                  <span className="text-xs text-teal-400 bg-teal-900/40 px-2 py-0.5 rounded-full">
+                    {opt.tagline}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-400 font-mono mb-1.5">{opt.codes}</p>
+                <p className="text-xs text-gray-500">{opt.detail}</p>
+              </div>
+              <div className={[
+                'w-5 h-5 rounded-full border-2 flex-shrink-0 mt-0.5 flex items-center justify-center',
+                selected ? 'border-teal-500 bg-teal-500' : 'border-gray-600',
+              ].join(' ')}>
+                {selected && <Check className="w-3 h-3 text-white" />}
+              </div>
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── Step 7: Review & Complete ───────────────────────────────────────────────
 
 export function Step7({ d }: { d: WizardData }) {
@@ -561,6 +653,7 @@ export function Step7({ d }: { d: WizardData }) {
       {section('Financial', [
         ['FY Start', MONTHS[d.financialYearStart - 1]],
         ['VAT Period', d.vatPeriod], ['Currency', d.defaultCurrency],
+        ['COA Template', COA_OPTIONS.find(o => o.id === d.coaTemplate)?.label],
       ])}
       <div>
         <h3 className="text-sm font-semibold text-teal-400 mb-2">Documents</h3>
