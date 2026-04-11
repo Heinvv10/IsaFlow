@@ -137,4 +137,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
  
-export default withCompany(withErrorHandler(withWriteAccess(handler)));
+// Bank account structure is a financial control point — only owners
+// and admins can edit. Managers can still import statements, reconcile,
+// and allocate transactions through the other bank-* endpoints.
+export default withCompany(withErrorHandler(withWriteAccess(handler, { allowedRoles: ['owner', 'admin'] })));

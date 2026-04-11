@@ -186,18 +186,74 @@ export async function updateAccount(companyId: string, id: string, input: Update
 
 export async function deleteAccount(companyId: string, id: string): Promise<void> {
   try {
-    const lines = await sql`
-      SELECT COUNT(*) AS cnt FROM gl_journal_lines WHERE gl_account_id = ${id}
-    ` as { cnt: string }[];
-    if (Number(lines[0]!.cnt) > 0) {
-      throw new Error('Cannot delete account with existing journal entries');
-    }
-
+    // 1. Child accounts always block deletion, regardless of type.
     const children = await sql`
       SELECT COUNT(*) AS cnt FROM gl_accounts WHERE parent_account_id = ${id} AND is_active = true
     ` as { cnt: string }[];
     if (Number(children[0]!.cnt) > 0) {
       throw new Error('Cannot delete account with active child accounts');
+    }
+
+    // 2. Load the account so we can report a friendly name and decide
+    //    whether the bank-specific checks apply.
+    const accountRows = await sql`
+      SELECT account_subtype, account_name
+      FROM gl_accounts
+      WHERE id = ${id} AND company_id = ${companyId}
+      LIMIT 1
+    ` as { account_subtype: string | null; account_name: string }[];
+
+    if (accountRows.length === 0) {
+      throw new Error('Account not found');
+    }
+
+    const accountName = accountRows[0]!.account_name;
+    const accountSubtype = accountRows[0]!.account_subtype;
+
+    // 3. Universal balance check — applies to ALL GL accounts.
+    //    "Cannot delete if there's money in it." An account that has
+    //    been used but fully reconciled back to zero is fine to close;
+    //    an account with a live balance is not.
+    const glBalanceRows = await sql`
+      SELECT
+        COALESCE(SUM(debit), 0) AS debit_total,
+        COALESCE(SUM(credit), 0) AS credit_total
+      FROM gl_journal_lines
+      WHERE gl_account_id = ${id}
+    ` as { debit_total: string; credit_total: string }[];
+
+    const debitTotal = Number(glBalanceRows[0]?.debit_total ?? '0');
+    const creditTotal = Number(glBalanceRows[0]?.credit_total ?? '0');
+    const balance = debitTotal - creditTotal;
+
+    if (Math.abs(balance) > 0.005) {
+      // Round to 2dp so the user sees a clean ZAR figure. The sign
+      // makes sense regardless of normal balance: a positive number
+      // means debits exceed credits, negative means credits exceed debits.
+      const displayBalance = (Math.round(balance * 100) / 100).toFixed(2);
+      throw new Error(
+        `Cannot delete "${accountName}" — GL balance is R ${displayBalance}. ` +
+          `Transfer the balance to another account or reconcile it to zero first.`,
+      );
+    }
+
+    // 4. Bank accounts: additional check — any unreconciled bank
+    //    transactions would be orphaned if we soft-deleted the account.
+    if (accountSubtype === 'bank') {
+      const pendingRows = await sql`
+        SELECT COUNT(*) AS cnt FROM bank_transactions
+        WHERE bank_account_id = ${id}
+          AND status NOT IN ('reconciled', 'excluded')
+      ` as { cnt: string }[];
+      const pendingCount = Number(pendingRows[0]!.cnt);
+
+      if (pendingCount > 0) {
+        throw new Error(
+          `Cannot delete bank account "${accountName}" — ${pendingCount} ` +
+            `unreconciled bank transaction${pendingCount === 1 ? '' : 's'} still attached. ` +
+            `Reconcile or exclude ${pendingCount === 1 ? 'it' : 'them'} first.`,
+        );
+      }
     }
 
     await sql`UPDATE gl_accounts SET is_active = false WHERE id = ${id} AND company_id = ${companyId}`;
