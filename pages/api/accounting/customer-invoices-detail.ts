@@ -32,6 +32,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
                ci.project_id, ci.gl_journal_entry_id,
                ci.email_sent_at, ci.email_sent_to,
                ci.online_payment_enabled, ci.payment_url,
+               ci.currency_code, ci.exchange_rate, ci.functional_total,
                ci.created_at, ci.updated_at,
                c.name AS client_name, c.email AS client_email
         FROM customer_invoices ci

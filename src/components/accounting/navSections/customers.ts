@@ -18,6 +18,7 @@ export const customersTab: Tab = {
       items: [
         { label: 'Quotes', href: '/accounting/customer-quotes' },
         { label: 'Sales Orders', href: '/accounting/customer-sales-orders' },
+        { label: 'Delivery Notes', href: '/accounting/delivery-notes' },
         { label: 'Tax Invoices', href: '/accounting/customer-invoices' },
         { label: 'Recurring Invoices', href: '/accounting/recurring-invoices' },
         { label: 'Receipts', href: '/accounting/customer-payments' },
@@ -41,6 +42,7 @@ export const customersTab: Tab = {
       section: 'Special',
       items: [
         { label: 'Statement Run', href: '/accounting/statement-run' },
+        { label: 'Send Statements', href: '/accounting/statements' },
         { label: 'Dunning', href: '/accounting/dunning' },
         { label: 'Opening Balances', href: '/accounting/opening-balances' },
       ],

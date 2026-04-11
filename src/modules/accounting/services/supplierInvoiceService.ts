@@ -4,6 +4,7 @@
  */
 
 import { sql, withTransaction, fmtDate } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
 import { getSystemAccount } from './systemAccountResolver';
@@ -16,7 +17,7 @@ import type {
   InvoiceMatchStatus,
 } from '../types/ap.types';
 import type { JournalLineInput, VatType } from '../types/gl.types';
-type Row = Record<string, unknown>;
+type Row = DbRow;
 
 
 interface InvoiceFilters {
@@ -150,13 +151,20 @@ export async function createSupplierInvoice(companyId: string,
 
     const dueDate = input.dueDate || calculateDueDate(input.invoiceDate, input.paymentTerms);
 
+    // Currency fields — default to ZAR / 1.0 for functional currency pass-through
+    const currencyCode = input.currencyCode?.trim().toUpperCase() || 'ZAR';
+    const exchangeRate = (typeof input.exchangeRate === 'number' && input.exchangeRate > 0)
+      ? input.exchangeRate : 1.0;
+    const functionalTotal = Math.round(totalAmount * exchangeRate * 100) / 100;
+
     const invoiceRow = await withTransaction(async (tx) => {
       const rows = (await tx`
         INSERT INTO supplier_invoices (
           company_id, invoice_number, supplier_id, purchase_order_id, grn_id,
           invoice_date, due_date, subtotal, tax_rate, tax_amount,
           total_amount, payment_terms, reference, project_id,
-          cost_center_id, notes, created_by
+          cost_center_id, notes, created_by,
+          currency_code, exchange_rate, functional_total
         ) VALUES (
           ${companyId}::UUID, ${input.invoiceNumber}, ${input.supplierId},
           ${input.purchaseOrderId || null}, ${input.grnId || null},
@@ -164,7 +172,8 @@ export async function createSupplierInvoice(companyId: string,
           ${subtotal}, ${invoiceTaxRate}, ${totalTax}, ${totalAmount},
           ${input.paymentTerms || null}, ${input.reference || null},
           ${input.projectId || null}, ${input.costCenterId || null},
-          ${input.notes || null}, ${userId}::UUID
+          ${input.notes || null}, ${userId}::UUID,
+          ${currencyCode}, ${exchangeRate}, ${functionalTotal}
         ) RETURNING *
       `) as Row[];
 

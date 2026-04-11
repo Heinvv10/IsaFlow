@@ -39,7 +39,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     try {
       const { invoiceNumber, supplierId, purchaseOrderId, grnId, invoiceDate,
         dueDate, taxRate, paymentTerms, reference, projectId, costCenterId,
-        notes, items } = req.body;
+        notes, items, currencyCode, exchangeRate } = req.body;
 
       if (!invoiceNumber || !supplierId || !invoiceDate || !items || !Array.isArray(items) || items.length === 0) {
         return apiResponse.badRequest(res, 'invoiceNumber, supplierId, invoiceDate, and items are required');
@@ -52,6 +52,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         invoiceNumber, supplierId: String(supplierId), purchaseOrderId, grnId,
         invoiceDate, dueDate, taxRate: taxRate ? Number(taxRate) : undefined,
         paymentTerms, reference, projectId, costCenterId, notes, items,
+        currencyCode: typeof currencyCode === 'string' ? currencyCode : undefined,
+        exchangeRate: exchangeRate ? Number(exchangeRate) : undefined,
       }, userId);
 
       return apiResponse.created(res, invoice);

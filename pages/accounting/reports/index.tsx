@@ -71,6 +71,7 @@ const REPORT_DESCRIPTIONS: Record<string, string> = {
   'executive-dashboard':     'High-level KPIs and summary metrics formatted for leadership review',
   'report-packs':            'Bundled report sets for board meetings and stakeholder distribution',
   'three-way-forecast':      'Integrated P&L, balance sheet, and cash flow projections',
+  'management-accounts':     'One-click combined P&L, Balance Sheet and Cash Flow for a selected period',
   // Audit
   'audit-trail':             'Full journal entry log with timestamps and user attribution for compliance',
 };
@@ -104,8 +105,9 @@ const reports: ReportCard[] = [
   { id: 'waterfall',           title: 'Waterfall Charts',     description: REPORT_DESCRIPTIONS['waterfall'],            href: '/accounting/reports/waterfall',              icon: Layers,          color: 'violet', category: 'Analytics' },
   { id: 'trend-analysis',      title: 'Trend Analysis',       description: REPORT_DESCRIPTIONS['trend-analysis'],       href: '/accounting/reports/trend-analysis',         icon: Activity,        color: 'cyan',   category: 'Analytics' },
   { id: 'executive-dashboard', title: 'Executive Dashboard',  description: REPORT_DESCRIPTIONS['executive-dashboard'],  href: '/accounting/reports/executive-dashboard',    icon: LayoutDashboard, color: 'blue',   category: 'Analytics' },
-  { id: 'report-packs',        title: 'Report Packs',         description: REPORT_DESCRIPTIONS['report-packs'],         href: '/accounting/reports/report-packs',           icon: FolderOpen,      color: 'amber',  category: 'Analytics' },
-  { id: 'three-way-forecast',  title: 'Three-Way Forecast',   description: REPORT_DESCRIPTIONS['three-way-forecast'],   href: '/accounting/reports/three-way-forecast',     icon: GitBranch,       color: 'teal',   category: 'Analytics' },
+  { id: 'report-packs',          title: 'Report Packs',           description: REPORT_DESCRIPTIONS['report-packs'],           href: '/accounting/reports/report-packs',             icon: FolderOpen,      color: 'amber',  category: 'Analytics' },
+  { id: 'three-way-forecast',    title: 'Three-Way Forecast',     description: REPORT_DESCRIPTIONS['three-way-forecast'],     href: '/accounting/reports/three-way-forecast',       icon: GitBranch,       color: 'teal',   category: 'Analytics' },
+  { id: 'management-accounts',   title: 'Management Accounts',    description: REPORT_DESCRIPTIONS['management-accounts'],    href: '/accounting/reports/management-accounts',      icon: BarChart3,       color: 'indigo', category: 'Analytics' },
 ];
 
 const reportById = new Map(reports.map(r => [r.id, r]));

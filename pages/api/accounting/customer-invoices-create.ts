@@ -17,14 +17,22 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
 
-  const { clientId, invoiceDate, dueDate, billingPeriodStart, billingPeriodEnd, taxRate, notes, items } = req.body;
+  const {
+    clientId, invoiceDate, dueDate, billingPeriodStart, billingPeriodEnd,
+    taxRate, notes, items, currencyCode, exchangeRate,
+  } = req.body;
   if (!clientId) return apiResponse.badRequest(res, 'clientId is required');
   if (!items || !Array.isArray(items) || items.length === 0) return apiResponse.badRequest(res, 'items required');
+
+  // Currency defaults
+  const invCurrencyCode = (typeof currencyCode === 'string' && currencyCode.trim())
+    ? currencyCode.trim().toUpperCase() : 'ZAR';
+  const invExchangeRate = (typeof exchangeRate === 'number' && exchangeRate > 0) ? exchangeRate : 1.0;
 
   try {
     const userId = String(req.user?.id || 'system');
 
-    // Calculate totals
+    // Calculate totals (in foreign currency)
     const rate = taxRate ?? 15;
     let subtotal = 0;
     for (const item of items) {
@@ -33,6 +41,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     subtotal = Math.round(subtotal * 100) / 100;
     const taxAmount = Math.round(subtotal * (rate / 100) * 100) / 100;
     const totalAmount = subtotal + taxAmount;
+    // functional_total = total in ZAR (functional currency)
+    const functionalTotal = Math.round(totalAmount * invExchangeRate * 100) / 100;
 
     const today = new Date().toISOString().split('T')[0];
     const invDate = invoiceDate || today;
@@ -47,8 +57,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     } catch { /* projects table may not exist */ }
 
     // Insert invoice with retry on unique-constraint violation.
-    // MAX()+1 races under concurrent load — if we collide, re-read MAX and try again
-    // (up to 5 times with escalating offset so the series stays monotonic).
+    // MAX()+1 races under concurrent load — retry up to 5 times with escalating offset.
     let invoiceId = '';
     let invoiceNumber = '';
     for (let attempt = 0; attempt < 5; attempt++) {
@@ -62,13 +71,17 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       try {
         const invRows = (await sql`
           INSERT INTO customer_invoices (
-            company_id, invoice_number, project_id, customer_id, client_id, billing_period_start, billing_period_end,
+            company_id, invoice_number, project_id, customer_id, client_id,
+            billing_period_start, billing_period_end,
             subtotal, tax_rate, tax_amount, total_amount, invoice_date, due_date,
-            notes, status, created_by
+            notes, status, created_by,
+            currency_code, exchange_rate, functional_total
           ) VALUES (
-            ${companyId}, ${invoiceNumber}, ${projectId}, ${clientId}::UUID, ${clientId}::UUID, ${bpStart}, ${bpEnd},
+            ${companyId}, ${invoiceNumber}, ${projectId}, ${clientId}::UUID, ${clientId}::UUID,
+            ${bpStart}, ${bpEnd},
             ${subtotal}, ${rate}, ${taxAmount}, ${totalAmount}, ${invDate},
-            ${dueDate || null}, ${notes || null}, 'draft', ${userId}
+            ${dueDate || null}, ${notes || null}, 'draft', ${userId},
+            ${invCurrencyCode}, ${invExchangeRate}, ${functionalTotal}
           ) RETURNING id
         `) as Row[];
         invoiceId = String(invRows[0]!.id);
@@ -84,12 +97,16 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       const qty = item.quantity || 1;
       const lineAmount = Math.round(qty * item.unitPrice * 100) / 100;
       await sql`
-        INSERT INTO customer_invoice_items (invoice_id, description, unit_price, quantity, amount, tax_rate)
-        VALUES (${invoiceId}::UUID, ${item.description}, ${item.unitPrice}, ${qty}, ${lineAmount}, ${rate})
+        INSERT INTO customer_invoice_items (
+          invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code
+        ) VALUES (
+          ${invoiceId}::UUID, ${item.description}, ${item.unitPrice},
+          ${qty}, ${lineAmount}, ${rate}, ${invCurrencyCode}
+        )
       `;
     }
 
-    log.info('Customer invoice created', { invoiceNumber, totalAmount });
+    log.info('Customer invoice created', { invoiceNumber, totalAmount, currencyCode: invCurrencyCode, exchangeRate: invExchangeRate });
     return apiResponse.created(res, { id: invoiceId, invoiceNumber });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -99,5 +116,5 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 }
 
- 
+
 export default withCompany(withErrorHandler(withWriteAccess(handler)));

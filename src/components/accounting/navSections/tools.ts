@@ -27,6 +27,7 @@ export const toolsTab: Tab = {
       section: 'Productivity',
       items: [
         { label: 'Time Tracking', href: '/accounting/time-tracking' },
+        { label: 'Timesheets (Week View)', href: '/accounting/timesheets' },
       ],
     },
     {

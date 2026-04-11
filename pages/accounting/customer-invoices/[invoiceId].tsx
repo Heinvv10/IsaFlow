@@ -47,6 +47,9 @@ export default function CustomerInvoiceDetailPage() {
   const [emailSuccess, setEmailSuccess] = useState('');
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
+  const [portalUrl, setPortalUrl] = useState('');
+  const [portalLinkLoading, setPortalLinkLoading] = useState(false);
+  const [portalLinkCopied, setPortalLinkCopied] = useState(false);
   const [prevId, setPrevId] = useState<string | null>(null);
   const [nextId, setNextId] = useState<string | null>(null);
 
@@ -149,6 +152,26 @@ export default function CustomerInvoiceDetailPage() {
     } catch { setError('Failed to copy link'); }
   };
 
+  const handleCopyPortalLink = async () => {
+    if (!invoiceId) return;
+    setPortalLinkLoading(true);
+    setError('');
+    try {
+      const res = await apiFetch('/api/portal/invoice/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoiceId }),
+      });
+      const json = await res.json() as { success: boolean; data?: { portalUrl: string } };
+      if (!res.ok || !json.data?.portalUrl) throw new Error('Failed to generate portal link');
+      setPortalUrl(json.data.portalUrl);
+      await navigator.clipboard.writeText(json.data.portalUrl);
+      setPortalLinkCopied(true);
+      setTimeout(() => setPortalLinkCopied(false), 3000);
+    } catch (e) { setError(e instanceof Error ? e.message : 'Failed to generate portal link'); }
+    finally { setPortalLinkLoading(false); }
+  };
+
   if (loading) return <AppLayout><div className="flex items-center justify-center min-h-[60vh]"><Loader2 className="h-8 w-8 animate-spin text-blue-500" /></div></AppLayout>;
   if (!invoice) return <AppLayout><div className="flex items-center justify-center min-h-[60vh] flex-col"><AlertCircle className="h-8 w-8 text-red-400 mb-2" /><p className="text-[var(--ff-text-secondary)]">{error || 'Invoice not found'}</p></div></AppLayout>;
 
@@ -217,6 +240,13 @@ export default function CustomerInvoiceDetailPage() {
                   {linkCopied ? 'Copied!' : 'Copy Payment Link'}
                 </button>
               )}
+              {!['draft', 'cancelled'].includes(invoice.status) && (
+                <button onClick={() => void handleCopyPortalLink()} disabled={portalLinkLoading}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 border border-teal-500/50 text-teal-400 rounded-lg text-sm hover:bg-teal-500/10 disabled:opacity-50">
+                  {portalLinkCopied ? <CheckCircle2 className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                  {portalLinkLoading ? 'Generating...' : portalLinkCopied ? 'Link Copied!' : 'Copy Portal Link'}
+                </button>
+              )}
               {canApprove && <button onClick={() => handleAction('approve')} disabled={!!actionLoading}
                 className="inline-flex items-center gap-1.5 px-3 py-2 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-500 disabled:opacity-50">
                 <CheckCircle2 className="h-4 w-4" />{actionLoading === 'approve' ? 'Approving...' : 'Approve'}
@@ -234,6 +264,12 @@ export default function CustomerInvoiceDetailPage() {
         </div>
 
         {error && <div className="mx-6 mt-4 flex items-center gap-2 p-3 bg-red-500/10 rounded-lg text-red-400 text-sm"><AlertCircle className="h-4 w-4" />{error}</div>}
+        {portalUrl && (
+          <div className="mx-6 mt-3 flex items-center gap-2">
+            <span className="text-xs text-[var(--ff-text-secondary)] shrink-0">Portal link:</span>
+            <input readOnly value={portalUrl} className="flex-1 text-xs bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] rounded px-2 py-1 text-teal-400 font-mono truncate" />
+          </div>
+        )}
 
         <div className="p-6 space-y-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

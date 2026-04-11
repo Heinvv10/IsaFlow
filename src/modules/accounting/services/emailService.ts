@@ -9,6 +9,7 @@ import { sql } from '@/lib/neon';
 import { generateInvoicePdf } from './invoicePdfService';
 import { inviteEmailHtml, invoiceEmailHtml } from '@/lib/email-templates';
 import type { InviteEmailData, InvoiceEmailData } from '@/lib/email-templates';
+import { fireWebhook } from './webhookService';
 type Row = Record<string, unknown>;
 
 
@@ -212,6 +213,14 @@ export async function sendInvoiceEmail(companyId: string,
       recipientEmail,
       messageId: result.messageId,
     }, 'emailService');
+
+    // Fire invoice.sent webhook — non-blocking
+    void fireWebhook(companyId, 'invoice.sent', {
+      invoiceId,
+      invoiceNumber: invoice.invoice_number,
+      totalAmount: invoice.total_amount,
+      recipientEmail,
+    });
   }
 
   return result;

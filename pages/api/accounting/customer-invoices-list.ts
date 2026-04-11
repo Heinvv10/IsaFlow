@@ -32,6 +32,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           COALESCE(ci.client_id, ci.customer_id) as client_id,
           ci.total_amount, ci.amount_paid, ci.status,
           ci.invoice_date, ci.due_date, ci.sent_at, ci.paid_at,
+          ci.currency_code, ci.exchange_rate, ci.functional_total,
           c.name as client_name
         FROM customer_invoices ci
         LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
@@ -48,6 +49,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           COALESCE(ci.client_id, ci.customer_id) as client_id,
           ci.total_amount, ci.amount_paid, ci.status,
           ci.invoice_date, ci.due_date, ci.sent_at, ci.paid_at,
+          ci.currency_code, ci.exchange_rate, ci.functional_total,
           c.name as client_name
         FROM customer_invoices ci
         LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
@@ -64,6 +66,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           COALESCE(ci.client_id, ci.customer_id) as client_id,
           ci.total_amount, ci.amount_paid, ci.status,
           ci.invoice_date, ci.due_date, ci.sent_at, ci.paid_at,
+          ci.currency_code, ci.exchange_rate, ci.functional_total,
           c.name as client_name
         FROM customer_invoices ci
         LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
@@ -81,5 +84,5 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
- 
+
 export default withCompany(withErrorHandler(withWriteAccess(handler)));

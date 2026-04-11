@@ -23,6 +23,7 @@ export const accountsTab: Tab = {
       section: 'Special',
       items: [
         { label: 'Fiscal Periods', href: '/accounting/fiscal-periods' },
+        { label: 'Financial Years', href: '/accounting/financial-years' },
       ],
     },
     {
