@@ -118,6 +118,7 @@ export function parseCapitecStatement(text: string): BankCsvParseResult {
   };
 
   const accountNumber = extractAccountNumber(text) ?? undefined;
+  if (accountNumber) result.accountNumber = accountNumber;
   const lines = text.split('\n');
 
   // Find header row and extract column offsets

@@ -12,6 +12,7 @@
 import { log } from '@/lib/logger';
 import type { BankCsvParseResult, ParsedBankTransaction } from '../types/bank.types';
 import { isVlmAvailable, extractBankStatementWithVlm } from '../services/vlmService';
+import { extractAccountNumber } from './bankPdfParserUtils';
 
 // pdf-parse uses export= (CommonJS), so we use require() at runtime.
 // Type definition for the parsed result.
@@ -76,6 +77,11 @@ function parseAbsaTextLines(text: string): BankCsvParseResult {
     errors: [],
     bankFormat: 'absa',
   };
+
+  // Extract account number so the import API can verify the statement
+  // belongs to the bank account the user selected.
+  const accountNumber = extractAccountNumber(text) ?? undefined;
+  if (accountNumber) result.accountNumber = accountNumber;
 
   // Match lines that start with a date pattern: "15 Jan 2026"
   // Then description, then one or two signed/unsigned numeric amounts
@@ -248,6 +254,9 @@ export async function parseBankPdf(
           })),
           errors: [],
           bankFormat: vlmResult.bankName?.toLowerCase() || detectedFormat,
+          accountNumber: vlmResult.accountNumber
+            ? vlmResult.accountNumber.replace(/[\s-]/g, '')
+            : undefined,
         };
       }
     } catch (err) {

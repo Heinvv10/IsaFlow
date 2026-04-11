@@ -22,6 +22,17 @@ export interface BankCsvParseResult {
   transactions: ParsedBankTransaction[];
   errors: Array<{ row: number; error: string }>;
   bankFormat: string;
+  /**
+   * Account number extracted from the statement (PDFs only, when the parser
+   * can find it in the header). Normalised — no spaces, dashes, or other
+   * separators. Used by the import API to verify the uploaded statement
+   * actually belongs to the bank account the user selected for import.
+   *
+   * Undefined for CSV imports (no header) or unknown bank formats where
+   * the account number could not be located. In those cases the import API
+   * allows the import to proceed but logs a warning.
+   */
+  accountNumber?: string;
 }
 
 // ── Bank Transaction (DB) ────────────────────────────────────────────────────
