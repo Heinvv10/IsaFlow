@@ -44,14 +44,16 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     isDebit,
   };
 
-  // Step 1: Check rules (match_value against description)
+  // Step 1: Check rules (match_pattern against description, company-scoped)
   let ruleResult: CategorizationResult | null = null;
   try {
     const rules = await sql`
       SELECT r.gl_account_id, r.priority, r.vat_code, ga.account_code, ga.account_name, ga.default_vat_code
       FROM bank_categorisation_rules r
       LEFT JOIN gl_accounts ga ON r.gl_account_id = ga.id
-      WHERE r.is_active = true AND ${tx.description} ILIKE CONCAT('%', r.match_value, '%')
+      WHERE r.is_active = true
+        AND r.company_id = ${companyId}::UUID
+        AND ${tx.description} ILIKE CONCAT('%', r.match_pattern, '%')
       ORDER BY r.priority DESC LIMIT 1
     ` as Row[];
     if (rules[0]) {
@@ -67,14 +69,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
   } catch { /* rules table might not have data */ }
 
-  // Step 2: Check learned patterns
+  // Step 2: Check learned patterns (company-scoped)
   let patternResult: CategorizationResult | null = null;
   try {
     const patterns = await sql`
       SELECT p.gl_account_id, p.confidence, p.vat_code, ga.account_code, ga.account_name, ga.default_vat_code
       FROM categorization_patterns p
       LEFT JOIN gl_accounts ga ON p.gl_account_id = ga.id
-      WHERE ${tx.description} ILIKE CONCAT('%', p.pattern, '%')
+      WHERE p.company_id = ${companyId}::UUID
+        AND ${tx.description} ILIKE CONCAT('%', p.pattern, '%')
       ORDER BY p.confidence DESC LIMIT 1
     ` as Row[];
     if (patterns[0]) {

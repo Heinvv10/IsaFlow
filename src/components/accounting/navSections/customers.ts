@@ -33,6 +33,7 @@ export const customersTab: Tab = {
         { label: 'Sales by Customer', href: '/accounting/reports/sales-by-customer' },
         { label: 'Aging', href: '/accounting/ar-aging' },
         { label: 'Statements', href: '/accounting/customer-statements' },
+        { label: 'Generate Statement', href: '/accounting/customers/statement' },
         { label: 'Unallocated Receipts', href: '/accounting/reports/unallocated-receipts' },
       ],
     },

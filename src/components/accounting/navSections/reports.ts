@@ -21,6 +21,13 @@ export const reportsTab: Tab = {
       ],
     },
     {
+      section: 'Aging Analysis',
+      items: [
+        { label: 'AR Age Analysis', href: '/accounting/reports/ar-aging' },
+        { label: 'AP Age Analysis', href: '/accounting/reports/ap-aging' },
+      ],
+    },
+    {
       section: 'Transactional',
       items: [
         { label: 'Customer Report', href: '/accounting/reports/customer-reports' },
