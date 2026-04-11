@@ -11,6 +11,7 @@ import { withAuth } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { pdfToImage } from '@/lib/pdf-to-image';
 import { normaliseAddressFields } from '@/modules/onboarding/services/addressNormaliser';
+import { normaliseRegistrationNumber } from '@/modules/onboarding/services/registrationNumberNormaliser';
 
 export const config = {
   api: { bodyParser: { sizeLimit: '20mb' } },
@@ -151,7 +152,7 @@ function parseVlmJson(raw: string): ExtractedCompany {
   return {
     name:               titleCase(str('name')),
     tradingName:        titleCase(str('tradingName')),
-    registrationNumber: str('registrationNumber'),
+    registrationNumber: normaliseRegistrationNumber(str('registrationNumber')),
     vatNumber:          str('vatNumber'),
     taxNumber:          str('taxNumber'),
     addressLine1:       normalised.addressLine1,
