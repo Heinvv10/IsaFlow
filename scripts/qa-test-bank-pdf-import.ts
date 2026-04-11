@@ -1,9 +1,14 @@
 /**
- * Test the bank statement import security gate end-to-end via direct HTTP.
+ * Test the bank statement import security gate end-to-end.
  *
- * Logs in as qa-onboard-05, then POSTs the real Brighttech PDF statement
- * with our deliberately-wrong bank account ID. Expect HTTP 403 from the
- * new account-match gate.
+ * Scenario 1 (expect 403 MISMATCH):
+ *   Import real Brighttech PDF into the "QA Test Account" (number
+ *   9999000001). The parser now extracts 4069625895 from the PDF
+ *   header so the gate should reject.
+ *
+ * Scenario 2 (expect 201/200 SUCCESS):
+ *   Import the same PDF into the real Brightsphere account (number
+ *   4069625895). The match should succeed and the import proceed.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -19,62 +24,68 @@ if (fs.existsSync(envPath)) {
 }
 
 const BASE = 'http://localhost:3200';
-const BANK_ACCOUNT_ID = 'f1b8b750-5a38-4fff-8abc-c85d374e03fb'; // stored number = 9999000001
+const QA_TEST_ACCOUNT = 'f1b8b750-5a38-4fff-8abc-c85d374e03fb'; // number: 9999000001
+const BRIGHTTECH_ACCOUNT = '1536f992-6e0e-421b-8770-c62a3ace67c4'; // number: 4069625895
 
-async function main() {
-  // 1. Login as qa-onboard-05
-  const loginRes = await fetch(`${BASE}/api/auth/login`, {
+async function login(): Promise<string> {
+  const r = await fetch(`${BASE}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: 'qa-onboard-05@isaflow.test', password: 'QaOnboard!2026' }),
   });
-  if (!loginRes.ok) {
-    console.error('Login failed:', loginRes.status, await loginRes.text());
-    process.exit(1);
-  }
-  const cookies = loginRes.headers.getSetCookie?.() ?? [];
-  const cookieHeader = cookies.map(c => c.split(';')[0]).join('; ');
-  console.log(`✓ Logged in; ${cookies.length} cookies captured`);
+  if (!r.ok) throw new Error(`Login failed: ${r.status}`);
+  const cookies = r.headers.getSetCookie?.() ?? [];
+  return cookies.map(c => c.split(';')[0]).join('; ');
+}
 
-  // 2. Read the Brighttech PDF
-  const pdfPath = path.resolve('/home/hein/Workspace/IsaFlow/test-docs/bank-statements/stmt_196.pdf');
-  const pdfBuffer = fs.readFileSync(pdfPath);
-  const pdfBase64 = pdfBuffer.toString('base64');
-  console.log(`✓ PDF loaded: ${pdfBuffer.length} bytes, ${pdfBase64.length} base64 chars`);
-
-  // 3. POST to the import endpoint
-  console.log('\n→ Sending PDF to /api/accounting/bank-transactions-import...');
-  console.log(`  bankAccountId = ${BANK_ACCOUNT_ID} (stored number: 9999000001)`);
-  console.log(`  statement:    Brighttech real statement (account # will come from PDF header)`);
-  console.log(`  expected:     403 Forbidden with "belongs to a different bank account" message\n`);
-
-  const importRes = await fetch(`${BASE}/api/accounting/bank-transactions-import`, {
+async function runImport(label: string, cookie: string, bankAccountId: string, pdfBase64: string) {
+  console.log(`\n=== ${label} ===`);
+  console.log(`  bankAccountId = ${bankAccountId}`);
+  const r = await fetch(`${BASE}/api/accounting/bank-transactions-import`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Cookie: cookieHeader },
+    headers: { 'Content-Type': 'application/json', Cookie: cookie },
     body: JSON.stringify({
       pdfBase64,
-      bankAccountId: BANK_ACCOUNT_ID,
+      bankAccountId,
       statementDate: '2024-01-29',
       fileType: 'pdf',
     }),
   });
-  const bodyText = await importRes.text();
+  const bodyText = await r.text();
   let body: unknown = bodyText;
   try { body = JSON.parse(bodyText); } catch {}
+  console.log(`  HTTP ${r.status}`);
+  console.log(`  body: ${JSON.stringify(body, null, 2).slice(0, 500)}`);
+  return r.status;
+}
 
-  console.log(`← HTTP ${importRes.status} ${importRes.ok ? 'OK' : 'FAIL'}`);
-  console.log(JSON.stringify(body, null, 2).slice(0, 1000));
+async function main() {
+  const cookie = await login();
+  console.log('✓ Logged in as qa-onboard-05@isaflow.test');
 
-  if (importRes.status === 403) {
-    console.log('\n✅ PASS — Gate blocked the mismatched import as expected');
-    process.exit(0);
-  } else if (importRes.status === 201 || importRes.status === 200) {
-    console.log('\n⚠️  Gate allowed the import — check if extractAccountNumber found anything');
-    process.exit(1);
-  } else {
-    console.log('\n? Unexpected status');
-    process.exit(1);
-  }
+  const pdfBuffer = fs.readFileSync(path.resolve('/home/hein/Workspace/IsaFlow/test-docs/bank-statements/stmt_196.pdf'));
+  const pdfBase64 = pdfBuffer.toString('base64');
+  console.log(`✓ PDF loaded: ${pdfBuffer.length} bytes`);
+
+  // Test 1: wrong account → expect 403
+  const s1 = await runImport(
+    'Test 1: import into WRONG account (9999000001) — expect 403',
+    cookie, QA_TEST_ACCOUNT, pdfBase64,
+  );
+
+  // Test 2: right account → expect 201 (or 200) with parse result
+  const s2 = await runImport(
+    'Test 2: import into CORRECT account (4069625895) — expect success',
+    cookie, BRIGHTTECH_ACCOUNT, pdfBase64,
+  );
+
+  console.log('\n=== Summary ===');
+  const wrong_ok = s1 === 403;
+  const right_ok = s2 >= 200 && s2 < 300;
+  console.log(`  Test 1 (mismatch → 403): ${wrong_ok ? '✅ PASS' : '❌ FAIL (got ' + s1 + ')'}`);
+  console.log(`  Test 2 (match → 2xx):    ${right_ok ? '✅ PASS' : '❌ FAIL (got ' + s2 + ')'}`);
+
+  process.exit(wrong_ok && right_ok ? 0 : 1);
 }
 
 main().catch(e => { console.error(e); process.exit(1); });
