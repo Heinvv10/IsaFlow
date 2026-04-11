@@ -26,6 +26,8 @@ const STEPS = [
   { icon: Check,     title: 'Review & Complete',      sub: 'Confirm and get started' },
 ];
 
+const DOCUMENTS_STEP_INDEX = 5; // Statutory Documents step — skipped if CIPC uploaded via Smart Setup
+
 export default function OnboardingWizard() {
   const router = useRouter();
 
@@ -74,15 +76,32 @@ export default function OnboardingWizard() {
   }, []);
 
   const hasCipc     = d.documents.some(doc => doc.type === 'cipc_certificate');
+  // If the user uploaded the CIPC in the Smart Setup pre-step the Statutory
+  // Documents step (index 5) is already satisfied and is auto-skipped — don't
+  // re-ask users for docs they've already given us.
+  const skipDocsStep = hasCipc;
   const canContinue = step === 0 ? d.name.trim().length > 0
-                    : step === 5 ? hasCipc   // CIPC is required on documents step
+                    : step === DOCUMENTS_STEP_INDEX ? hasCipc   // CIPC is required on documents step
                     : true;
   const isLast      = step === STEPS.length - 1;
   const skippable   = step >= 1 && step <= 4; // steps 1-4 skippable, step 5 (documents) not
   const isPreStep   = step === -1;
 
-  const next = () => { if (canContinue) setStep(s => Math.min(s + 1, STEPS.length - 1)); };
-  const back = () => setStep(s => Math.max(s - 1, 0));
+  const next = () => {
+    if (!canContinue) return;
+    setStep(s => {
+      let target = Math.min(s + 1, STEPS.length - 1);
+      if (target === DOCUMENTS_STEP_INDEX && skipDocsStep) target = Math.min(target + 1, STEPS.length - 1);
+      return target;
+    });
+  };
+  const back = () => {
+    setStep(s => {
+      let target = Math.max(s - 1, 0);
+      if (target === DOCUMENTS_STEP_INDEX && skipDocsStep) target = Math.max(target - 1, 0);
+      return target;
+    });
+  };
 
   const handleSubmit = async () => {
     setSubmitting(true);
@@ -166,24 +185,31 @@ export default function OnboardingWizard() {
       {!isPreStep && (
         <div className="max-w-2xl mx-auto mb-8">
           <div className="flex items-center justify-between">
-            {STEPS.map((s, i) => (
-              <div key={i} className="flex items-center flex-1 last:flex-none">
-                <button
-                  onClick={() => i < step && setStep(i)}
-                  disabled={i > step}
-                  className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-medium shrink-0 transition-colors ${
-                    i < step  ? 'bg-teal-600 text-white cursor-pointer' :
-                    i === step ? 'bg-teal-500 text-white ring-2 ring-teal-400' :
-                    'bg-gray-800 text-gray-500'
-                  }`}
-                >
-                  {i < step ? <Check className="w-4 h-4" /> : i + 1}
-                </button>
-                {i < STEPS.length - 1 && (
-                  <div className={`h-0.5 flex-1 mx-1 ${i < step ? 'bg-teal-600' : 'bg-gray-800'}`} />
-                )}
-              </div>
-            ))}
+            {STEPS.map((s, i) => {
+              const isDocsAutoSkipped = i === DOCUMENTS_STEP_INDEX && skipDocsStep;
+              const isPast = i < step || (isDocsAutoSkipped && step > DOCUMENTS_STEP_INDEX);
+              const isCurrent = i === step;
+              return (
+                <div key={i} className="flex items-center flex-1 last:flex-none">
+                  <button
+                    onClick={() => { if (isPast && !isDocsAutoSkipped) setStep(i); }}
+                    disabled={i > step || isDocsAutoSkipped}
+                    title={isDocsAutoSkipped ? 'Already captured from Smart Setup' : s.title}
+                    className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-medium shrink-0 transition-colors ${
+                      isDocsAutoSkipped ? 'bg-teal-600/40 text-white/70 cursor-default' :
+                      isPast            ? 'bg-teal-600 text-white cursor-pointer' :
+                      isCurrent         ? 'bg-teal-500 text-white ring-2 ring-teal-400' :
+                      'bg-gray-800 text-gray-500'
+                    }`}
+                  >
+                    {isDocsAutoSkipped || isPast ? <Check className="w-4 h-4" /> : i + 1}
+                  </button>
+                  {i < STEPS.length - 1 && (
+                    <div className={`h-0.5 flex-1 mx-1 ${(isPast || isDocsAutoSkipped) ? 'bg-teal-600' : 'bg-gray-800'}`} />
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
