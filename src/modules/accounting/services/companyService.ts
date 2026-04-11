@@ -176,13 +176,19 @@ export async function createCompany(input: {
     ) RETURNING *
   `) as Record<string, unknown>[];
 
-  // Auto-assign creator as owner
+  // Auto-assign creator as owner. If this is the user's first company,
+  // mark it as default so CompanyContext auto-selects it on next load.
+  const existingCountRows = (await sql`
+    SELECT COUNT(*)::int AS count FROM company_users WHERE user_id = ${userId}
+  `) as Array<{ count: number }>;
+  const isFirstCompany = (existingCountRows[0]?.count ?? 0) === 0;
+
   await sql`
     INSERT INTO company_users (company_id, user_id, role, is_default)
-    VALUES (${rows[0]!.id}::UUID, ${userId}, 'owner', false)
+    VALUES (${rows[0]!.id}::UUID, ${userId}, 'owner', ${isFirstCompany})
   `;
 
-  log.info('Company created', { id: rows[0]!.id, name: input.name }, 'accounting');
+  log.info('Company created', { id: rows[0]!.id, name: input.name, isFirstCompany }, 'accounting');
   return mapCompany(rows[0]!);
 }
 

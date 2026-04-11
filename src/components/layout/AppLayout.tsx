@@ -256,7 +256,11 @@ export function AppLayout({ children }: AppLayoutProps) {
               <p className="text-xs font-medium text-gray-900 dark:text-white truncate">
                 {user.firstName} {user.lastName}
               </p>
-              <p className="text-xs text-gray-500 truncate capitalize">{companyRole || user.role}</p>
+              {/* Show per-company role only. user.role is the global platform role
+                  (usually "viewer") and is not meaningful for normal customers. */}
+              {companyRole && (
+                <p className="text-xs text-gray-500 truncate capitalize">{companyRole}</p>
+              )}
             </div>
           </div>
         )}
