@@ -10,6 +10,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { pdfToImage } from '@/lib/pdf-to-image';
+import { normaliseAddressFields } from '@/modules/onboarding/services/addressNormaliser';
 
 export const config = {
   api: { bodyParser: { sizeLimit: '20mb' } },
@@ -37,6 +38,19 @@ IMPORTANT field definitions: \
 - "tradingName": The trading name or brand name if different from the registered name. \
   On CIPC certificates this may appear as "Trading Name" or "Business Name". \
 
+ADDRESS PARSING (critical — do NOT dump whole addresses into one line): \
+South African addresses typically look like: \
+  "57 Parfitt Avenue, Park West, Bloemfontein, 9301" \
+  "12 Main Road, Sandton, 2196" \
+  "PO Box 1234, Cape Town, 8000" \
+You MUST split these into separate fields: \
+- "addressLine1": the street number + street name (e.g. "57 Parfitt Avenue" or "PO Box 1234") \
+- "addressLine2": the suburb or area only (e.g. "Park West") — NOT the city or postal code \
+- "city": the TOWN / CITY name on its own (e.g. "Bloemfontein", "Sandton", "Cape Town") \
+- "postalCode": the 4-digit South African postal code on its own (e.g. "9301", "2196", "8000") \
+- "province": if visible, otherwise empty string (we will infer it from the postal code) \
+Never put the city, postal code, or province inside addressLine1 or addressLine2. \
+
 Return the JSON object with exactly these keys: \
 name, tradingName, registrationNumber, vatNumber, taxNumber, \
 addressLine1, addressLine2, city, province, postalCode, country, \
@@ -50,6 +64,10 @@ not the trading name. Look for labels like "Registered Name", "Enterprise Name",
 Also extract: trading name, CIPC registration number (e.g. 2005/023519/07), VAT number, \
 income tax reference number, physical/postal address, phone, email, website, \
 and all listed directors or members with their full names, ID/passport numbers, and roles (Director, Member, etc). \
+\
+ADDRESS REMINDER: Split the physical address into street (addressLine1), suburb (addressLine2), \
+city, 4-digit postalCode, and province as separate fields. Do NOT concatenate them into one line. \
+\
 Respond with only the JSON object.`;
 
 // ── Extracted data type ───────────────────────────────────────────────────────
@@ -120,17 +138,27 @@ function parseVlmJson(raw: string): ExtractedCompany {
       .join('');
   };
 
+  // Let the normaliser split city/postalCode out of line1/line2 when the VLM
+  // dumps them together, and infer province from postal code when missing.
+  const normalised = normaliseAddressFields({
+    addressLine1: titleCase(str('addressLine1')),
+    addressLine2: titleCase(str('addressLine2')),
+    city:         titleCase(str('city')),
+    province:     titleCase(str('province')),
+    postalCode:   str('postalCode'),
+  });
+
   return {
     name:               titleCase(str('name')),
     tradingName:        titleCase(str('tradingName')),
     registrationNumber: str('registrationNumber'),
     vatNumber:          str('vatNumber'),
     taxNumber:          str('taxNumber'),
-    addressLine1:       titleCase(str('addressLine1')),
-    addressLine2:       titleCase(str('addressLine2')),
-    city:               titleCase(str('city')),
-    province:           titleCase(str('province')),
-    postalCode:         str('postalCode'),
+    addressLine1:       normalised.addressLine1,
+    addressLine2:       normalised.addressLine2,
+    city:               normalised.city,
+    province:           normalised.province,
+    postalCode:         normalised.postalCode,
     country:            str('country') || 'South Africa',
     phone:              str('phone'),
     email:              str('email'),
