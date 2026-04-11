@@ -86,6 +86,7 @@ export const groupTab: Tab = {
       items: [
         { label: 'Intercompany Reconciliation', href: '/accounting/group/intercompany' },
         { label: 'Elimination Adjustments', href: '/accounting/group/eliminations' },
+        { label: 'Group Consolidation', href: '/accounting/consolidation' },
       ],
     },
   ],
