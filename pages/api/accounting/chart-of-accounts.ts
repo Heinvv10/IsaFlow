@@ -83,4 +83,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
  
-export default withCompany(withErrorHandler(withWriteAccess(handler)));
+// Chart of accounts is a financial control point (affects trial balance
+// and audit trails) — only owners and admins can create or edit GL
+// accounts. Managers still have full read access and can do operational
+// work (post journal entries, reconcile, etc.) through other endpoints.
+export default withCompany(withErrorHandler(withWriteAccess(handler, { allowedRoles: ['owner', 'admin'] })));
