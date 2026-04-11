@@ -6,7 +6,7 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
-import { sql } from '@/lib/neon';
+import { withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { checkRateLimit } from '@/lib/rateLimit';
 import type { CompanyApiRequest } from '@/lib/auth/withCompany';
@@ -26,7 +26,8 @@ const SCHEMA_TABLES: SchemaTable[] = [
   { name: 'gl_accounts', columns: ['id', 'account_code', 'account_name', 'account_type', 'is_active', 'company_id'], description: 'Chart of accounts (GL)' },
   { name: 'gl_journal_entries', columns: ['id', 'entry_number', 'entry_date', 'description', 'status', 'source'], description: 'Journal entries' },
   { name: 'gl_journal_lines', columns: ['id', 'journal_entry_id', 'gl_account_id', 'debit', 'credit', 'description'], description: 'Journal entry lines (debits/credits)' },
-  { name: 'bank_transactions', columns: ['id', 'bank_account_id', 'date', 'description', 'amount', 'category', 'is_reconciled'], description: 'Imported bank transactions' },
+  { name: 'bank_accounts', columns: ['id', 'account_name', 'bank_name', 'account_number', 'company_id'], description: 'Bank accounts — always JOIN to bank_transactions to scope by company_id' },
+  { name: 'bank_transactions', columns: ['id', 'bank_account_id', 'date', 'description', 'amount', 'category', 'is_reconciled'], description: 'Imported bank transactions — has NO company_id column; scope via JOIN bank_accounts ba ON bt.bank_account_id = ba.id WHERE ba.company_id = \'<company_id>\'' },
   { name: 'products', columns: ['id', 'code', 'name', 'cost_price', 'selling_price', 'current_stock', 'company_id'], description: 'Products/inventory items' },
   { name: 'employees', columns: ['id', 'first_name', 'last_name', 'email', 'basic_salary', 'employment_type', 'company_id'], description: 'Employee master data' },
   { name: 'payslips', columns: ['id', 'employee_id', 'payroll_run_id', 'gross_pay', 'net_pay', 'paye', 'uif_employee'], description: 'Payslips per payroll run' },
@@ -113,17 +114,26 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, { intent, message: 'Could not generate a properly scoped query. Please try again.', rows: [], columns: [], summary: 'Scope error' });
     }
 
-    // Execute inside a transaction so SET LOCAL applies to the same connection.
-    // Neon HTTP driver is stateless — each top-level sql`` call is a separate
-    // HTTP request, so a bare SET statement_timeout would have no effect on the
-    // next call.  sql.transaction() batches both statements into a single HTTP
-    // request, guaranteeing SET LOCAL is honoured for the query that follows it.
-    const [, rows] = await sql.transaction(
-      (txn) => [
-        txn`SET LOCAL statement_timeout = '5000'`,
-        txn.unsafe(validation.sanitizedSQL) as any,
-      ]
-    ) as [unknown, Row[]];
+    // Execute the validated SQL inside a genuine pg.Pool transaction so that
+    // SET LOCAL statement_timeout is honoured for the AI-generated query on the
+    // same connection.
+    //
+    // WHY NOT sql.transaction() (Neon HTTP driver):
+    //   The HTTP driver's transaction() only accepts tagged-template NeonQueryPromise
+    //   objects. txn.unsafe() returns UnsafeRawSql — a different class — which
+    //   transaction() rejects at runtime with:
+    //     "transaction() expects an array of queries, or a function returning an array"
+    //
+    // withTransaction() uses a real pg.Pool client with BEGIN/COMMIT, and the tx
+    // tagged-template helper correctly builds a parameterised query from a raw string
+    // by passing it as a single-element template-strings array with no interpolations.
+    const rawSql = validation.sanitizedSQL;
+    const rows = await withTransaction(async (tx) => {
+      await tx`SET LOCAL statement_timeout = '5000'`;
+      // Invoke the tagged-template helper with the raw SQL as a synthetic TemplateStringsArray
+      // (no interpolations — all values are already inlined in the validated SQL string).
+      return tx(Object.assign([rawSql], { raw: [rawSql] }) as unknown as TemplateStringsArray) as unknown as Row[];
+    });
     const formatted = formatQueryResult(rows as Record<string, unknown>[], question);
 
     log.info('NL query executed', { question, intent, rowCount: formatted.rowCount }, 'ai');

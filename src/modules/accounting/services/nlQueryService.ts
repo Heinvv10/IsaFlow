@@ -82,7 +82,7 @@ export function parseSQLResponse(response: string): ParsedSQL | null {
     const jsonMatch = response.match(/\{[\s\S]*"sql"[\s\S]*\}/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
-      if (parsed.sql && typeof parsed.sql === 'string' && parsed.sql.trim().toUpperCase().startsWith('SELECT') || parsed.sql.trim().toUpperCase().startsWith('WITH')) {
+      if (parsed.sql && typeof parsed.sql === 'string' && (parsed.sql.trim().toUpperCase().startsWith('SELECT') || parsed.sql.trim().toUpperCase().startsWith('WITH'))) {
         return { sql: parsed.sql.trim(), explanation: String(parsed.explanation || '') };
       }
     }
@@ -212,8 +212,11 @@ export function validateGeneratedSQL(sql: string): SQLValidation {
     }
   }
 
-  // Reject any semicolons — prevents stacked queries entirely
-  if (sql.includes(';')) {
+  // Reject semicolons that appear before the end of the statement — prevents stacked queries.
+  // Trailing ';' is acceptable (Claude consistently terminates statements with one) and is
+  // stripped by the sanitisation step below.
+  const withoutTrailingSemicolon = sql.trimEnd().replace(/;$/, '');
+  if (withoutTrailingSemicolon.includes(';')) {
     return { valid: false, error: 'Multiple statements not allowed', sanitizedSQL: '' };
   }
 
@@ -225,13 +228,28 @@ export function validateGeneratedSQL(sql: string): SQLValidation {
     cteAliases.add(cteMatch[1]!.toLowerCase());
   }
 
-  // Table allowlist — only accounting tables (and CTE aliases) may appear in FROM / JOIN clauses
-  const tablePattern = /(?:FROM|JOIN)\s+(\w+)/gi;
-  let tableMatch: RegExpExecArray | null;
-  while ((tableMatch = tablePattern.exec(sql)) !== null) {
-    const tableName = tableMatch[1]!.toLowerCase();
+  // Table allowlist — only accounting tables (and CTE aliases) may appear in FROM / JOIN clauses.
+  //
+  // A simple /(?:FROM|JOIN)\s+(\w+)/ regex incorrectly matches the FROM keyword inside
+  // SQL function calls such as EXTRACT(YEAR FROM col) or DATE_TRUNC('month', col FROM ...).
+  // Those tokens appear at paren depth > 0, not at the top-level query structure.
+  //
+  // We therefore walk the SQL character-by-character tracking parenthesis depth, and only
+  // inspect FROM/JOIN tokens found at depth 0 (top-level query context).
+  const kwPattern = /\b(FROM|JOIN)\s+(\w+)/gi;
+  let kwMatch: RegExpExecArray | null;
+  while ((kwMatch = kwPattern.exec(sql)) !== null) {
+    // Determine parenthesis depth at the position of this match
+    let depth = 0;
+    for (let i = 0; i < kwMatch.index; i++) {
+      if (sql[i] === '(') depth++;
+      else if (sql[i] === ')') depth--;
+    }
+    if (depth > 0) continue; // inside a function call — not a table reference
+
+    const tableName = kwMatch[2]!.toLowerCase();
     if (!ALLOWED_TABLES.has(tableName) && !cteAliases.has(tableName)) {
-      return { valid: false, error: `Table '${tableMatch[1]}' not allowed`, sanitizedSQL: '' };
+      return { valid: false, error: `Table '${kwMatch[2]}' not allowed`, sanitizedSQL: '' };
     }
   }
 
