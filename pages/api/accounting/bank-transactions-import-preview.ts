@@ -234,7 +234,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     for (const tx of parseResult.transactions) {
-      if (existingHashes.has(bankTransactionHash(tx))) duplicateCount++;
+      // Hash without balance to match existingHashes above — existing
+      // bank_transactions rows don't persist a balance column, so the
+      // parsed-row hash must exclude it or every re-import would look new.
+      const dedupeHash = bankTransactionHash({
+        transactionDate: tx.transactionDate,
+        amount: tx.amount,
+        description: tx.description ?? '',
+      });
+      if (existingHashes.has(dedupeHash)) duplicateCount++;
     }
     newCount = parseResult.transactions.length - duplicateCount;
   }

@@ -77,7 +77,89 @@ function parseAbsaDate(day: string, mon: string, year: string): string | null {
  * Exposed as a named export so bankPdfParserFactory.ts can import it.
  */
 export function parseAbsaPdfText(text: string): BankCsvParseResult {
+  const slashResult = parseAbsaSlashDateLines(text);
+  if (slashResult.transactions.length > 0) return slashResult;
   return parseAbsaTextLines(text);
+}
+
+/**
+ * Parse ABSA statements that use DD/MM/YYYY date format and tab/space
+ * separated columns. Format seen on "Classic Business Account" PDFs:
+ *
+ *   22/12/2023 Digital Payment Dt Settlement 10.00 T 1 000.00 18 427.30
+ *   23/12/2023 Digital Transf Cr Settlement 6 000.00 21 193.76
+ *
+ * The last two numeric tokens are amount and balance. Sign is derived
+ * from the balance delta (running balance) so we don't rely on trailing
+ * minus signs which are inconsistent across ABSA statement variants.
+ */
+function parseAbsaSlashDateLines(text: string): BankCsvParseResult {
+  const result: BankCsvParseResult = { transactions: [], errors: [], bankFormat: 'absa' };
+
+  const accountNumber = extractAccountNumber(text) ?? undefined;
+  if (accountNumber) result.accountNumber = accountNumber;
+
+  const lines = text.split('\n').map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
+
+  const datePat = /^(\d{2})\/(\d{2})\/(\d{4})\s+(.+)$/;
+  const twoNumTail =
+    /^(.*?)\s+(\d{1,3}(?:[\s,]\d{3})*\.\d{2})\s+(\d{1,3}(?:[\s,]\d{3})*\.\d{2})\s*$/;
+  const oneNumTail = /^(.*?)\s+(\d{1,3}(?:[\s,]\d{3})*\.\d{2})\s*$/;
+  const cleanNum = (s: string) => parseFloat(s.replace(/[\s,]/g, ''));
+
+  let prevBalance: number | null = null;
+  let lineNum = 0;
+
+  for (const line of lines) {
+    lineNum++;
+    const m = line.match(datePat);
+    if (!m) continue;
+    const [, dd, mm, yyyy, rest] = m;
+
+    const d = parseInt(dd!, 10), mo = parseInt(mm!, 10), y = parseInt(yyyy!, 10);
+    if (d < 1 || d > 31 || mo < 1 || mo > 12 || y < 2000 || y > 2099) continue;
+    const transactionDate = `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+
+    const m2 = rest!.match(twoNumTail);
+    if (!m2) {
+      // "Bal Brought Forward 19 427.30" — single numeric, sets opening balance
+      const m1 = rest!.match(oneNumTail);
+      if (m1 && /bal|brought|forward/i.test(m1[1]!)) {
+        prevBalance = cleanNum(m1[2]!);
+      }
+      continue;
+    }
+
+    const rawDesc = m2[1]!.trim();
+    const amountAbs = cleanNum(m2[2]!);
+    const balance = cleanNum(m2[3]!);
+    if (isNaN(amountAbs) || isNaN(balance)) {
+      result.errors.push({ row: lineNum, error: `Invalid numeric in: ${line}` });
+      continue;
+    }
+
+    let signedAmount = amountAbs;
+    if (prevBalance !== null) {
+      signedAmount = Math.round((balance - prevBalance) * 100) / 100;
+    }
+
+    // Strip the "Settlement <fee> T|A" fee column suffix if present so the
+    // description matches what the user sees on the statement.
+    const description = rawDesc.replace(/\s+Settlement\s+\d[\d\s,]*\.\d{2}\s+[TA]$/i, '')
+      .replace(/\s+Settlement$/i, '')
+      .trim();
+
+    result.transactions.push({
+      transactionDate,
+      amount: signedAmount,
+      description,
+      balance,
+    });
+
+    prevBalance = balance;
+  }
+
+  return result;
 }
 
 function parseAbsaTextLines(text: string): BankCsvParseResult {
@@ -161,42 +243,56 @@ function detectPdfBankFormat(text: string): string {
   const headerRegion = lower.substring(0, 2000);
 
   // Each marker: [needle, weight in headerRegion, weight in whole doc]
-  // Picking markers that only appear in LEGAL/HEADER text, not in
-  // descriptions. "absa bank limited" is a legal entity name found in
-  // the footer of ABSA statements; "absa bank" alone appears in
-  // transfer descriptions across every bank, so we avoid that one.
+  // Markers must be strings that only appear in LEGAL / HEADER / FOOTER
+  // text, NOT in transaction descriptions or counterparty names. A
+  // cross-bank transfer from "Absa Bank Shasti Van Vuuren" is NOT a
+  // signal that the statement is ABSA — we need real legal entity
+  // phrases and regulatory identifiers.
+  //
+  // All five major SA banks print their Financial Services Provider
+  // + Registered Credit Provider disclosure on every page, and this
+  // phrase is almost never seen in transaction text. That's our
+  // strongest signal.
   type Marker = readonly [needle: string, headerW: number, fullW: number];
 
   const markers: Record<string, Marker[]> = {
     absa: [
-      ['absa bank limited', 5, 2],
-      ['amalgamated banks of south africa', 5, 2],
-      ['reg no 1986/004794', 5, 0],       // ABSA Bank Limited reg number
+      // ABSA's legal footer: "Absa Bank Limited, Authorised Financial
+      // Services Provider and Registered Credit Provider (NCRCP7)".
+      // The NCRCP7 code is unique to ABSA.
+      ['absa bank limited', 5, 3],
+      ['ncrcp7', 10, 10],                   // ABSA Bank's NCR credit provider number
+      ['ncrcp 7', 10, 10],
+      ['amalgamated banks of south africa', 5, 3],
+      ['reg no 1986/004794/06', 10, 10],    // ABSA Bank Limited company reg
     ],
     standard_bank: [
-      ['the standard bank of south africa', 5, 2],
-      ['standard bank of south africa limited', 5, 2],
-      ['classic business acc', 4, 1],     // SBSA product name
-      ['private bag x18, johannesburg', 4, 1],  // SBSA HQ address
-      ['sb reg no', 3, 0],
-      ['standard bank', 2, 0],            // weaker — appears in sbsa headers but also in some descriptions
+      // Standard Bank uses "The Standard Bank of South Africa Limited"
+      // as its full legal name. NCR code is NCRCP15.
+      ['the standard bank of south africa limited', 10, 10],
+      ['ncrcp15', 10, 10],
+      ['reg no 1962/000738/06', 10, 10],
+      ['stanbic', 3, 1],                    // SB's Africa branding
     ],
     fnb: [
-      ['first national bank', 5, 2],
-      ['firstrand bank limited', 5, 2],
+      // FNB is a division of FirstRand Bank Limited. NCR code NCRCP20.
+      ['firstrand bank limited', 10, 10],
+      ['ncrcp20', 10, 10],
+      ['first national bank', 4, 2],
+      ['reg no 1929/001225/06', 10, 10],
       ['fnb online banking', 4, 1],
-      ['fnb.co.za', 3, 0],
     ],
     nedbank: [
-      ['nedbank limited', 5, 2],
-      ['nedbank group limited', 5, 2],
-      ['nedbank.co.za', 3, 0],
-      ['reg no 1951/000009', 5, 0],
+      // Nedbank Limited, NCR code NCRCP16.
+      ['nedbank limited', 10, 5],
+      ['ncrcp16', 10, 10],
+      ['reg no 1951/000009/06', 10, 10],
     ],
     capitec: [
-      ['capitec bank limited', 5, 2],
-      ['capitec bank', 3, 1],
-      ['capitecbank.co.za', 3, 0],
+      // Capitec Bank Limited, NCR code NCRCP13.
+      ['capitec bank limited', 10, 5],
+      ['ncrcp13', 10, 10],
+      ['reg no 1980/003695/06', 10, 10],
     ],
   };
 
@@ -295,6 +391,8 @@ export async function parseBankPdf(
   // Route to the appropriate parser based on detected format.
   // ABSA is handled directly; all other SA banks go through the factory.
   if (detectedFormat === 'absa') {
+    const slash = parseAbsaSlashDateLines(text);
+    if (slash.transactions.length > 0) return slash;
     return parseAbsaTextLines(text);
   }
 

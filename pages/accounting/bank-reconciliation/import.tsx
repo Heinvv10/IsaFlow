@@ -341,9 +341,6 @@ export default function BankStatementImportPage() {
               onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
               onDragLeave={() => setIsDragging(false)}
               onDrop={onDrop}
-              onClick={() => fileInputRef.current?.click()}
-              role="button"
-              tabIndex={0}
             >
               <Sparkles className="h-12 w-12 text-teal-500 mx-auto mb-4" />
               <h2 className="text-xl font-semibold text-[var(--ff-text-primary)] mb-2">
@@ -352,19 +349,19 @@ export default function BankStatementImportPage() {
               <p className="text-sm text-[var(--ff-text-secondary)] mb-6">
                 We&rsquo;ll detect the bank, match the account, and flag duplicates automatically.
               </p>
-              <button
-                type="button"
-                className="inline-flex items-center gap-2 px-6 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium"
-                onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
+              <label
+                htmlFor="bank-statement-file-input"
+                className="inline-flex items-center gap-2 px-6 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium cursor-pointer"
               >
                 <Upload className="h-4 w-4" /> Choose file
-              </button>
+              </label>
               <input
+                id="bank-statement-file-input"
                 ref={fileInputRef}
                 type="file"
                 accept=".csv,.pdf,.ofx,.qfx,.qif"
                 onChange={onFileInputChange}
-                className="hidden"
+                className="sr-only"
               />
               <p className="mt-4 text-xs text-[var(--ff-text-tertiary)]">
                 Supports PDF, CSV, OFX/QFX, and QIF formats from ABSA, Capitec, FNB, Nedbank, Standard Bank.
