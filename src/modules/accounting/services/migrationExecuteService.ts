@@ -3,7 +3,7 @@
  * Uses existing migrationCoaService and migrationContactService patterns.
  */
 
-import { sql, transaction } from '@/lib/neon';
+import { sql, transaction, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { ParsedAccount, ParsedEntity, MigrationSource } from './migrationParserService';
 type Row = Record<string, unknown>;
@@ -85,43 +85,51 @@ export async function executeMigration(
     }
   }
 
-  // 2. Set opening balances via journal entry
+  // 2. Set opening balances via journal entry (atomic: roll back header if any line fails)
   const balanceAccounts = accounts.filter(a => a.openingBalance !== 0 && a.sourceCode && a.mappedType);
   if (balanceAccounts.length > 0) {
     try {
-      const jeRows = (await sql`
-        INSERT INTO gl_journal_entries (
-          company_id, entry_date, reference, description, status, created_by
-        ) VALUES (
-          ${companyId}::UUID,
-          CURRENT_DATE,
-          ${'OB-' + source.toUpperCase()},
-          ${'Opening balances imported from ' + source},
-          'posted',
-          ${userId}::UUID
-        ) RETURNING id
-      `) as Row[];
-
-      const jeId = String(jeRows[0]!.id);
-
+      // Resolve GL account IDs before entering the transaction (read-only lookups)
+      type LineData = { glId: string; debit: number; credit: number };
+      const lines: LineData[] = [];
       for (const acct of balanceAccounts) {
         const glRows = (await sql`
           SELECT id FROM gl_accounts
           WHERE company_id = ${companyId}::UUID AND account_code = ${acct.sourceCode}
           LIMIT 1
         `) as Row[];
-
         if (glRows.length === 0) continue;
         const glId = String(glRows[0]!.id);
         const isDebitNormal = acct.mappedNormalBalance === 'debit';
         const debit  = isDebitNormal && acct.openingBalance > 0 ? acct.openingBalance : 0;
         const credit = !isDebitNormal && acct.openingBalance > 0 ? acct.openingBalance : 0;
+        lines.push({ glId, debit, credit });
+      }
 
-        await sql`
-          INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description)
-          VALUES (${jeId}::UUID, ${glId}::UUID, ${debit}, ${credit}, ${'Opening balance — ' + source})
-        `;
-        openingBalancesSet++;
+      if (lines.length > 0) {
+        await withTransaction(async (tx) => {
+          const jeRows = (await tx`
+            INSERT INTO gl_journal_entries (
+              company_id, entry_date, reference, description, status, created_by
+            ) VALUES (
+              ${companyId}::UUID,
+              CURRENT_DATE,
+              ${'OB-' + source.toUpperCase()},
+              ${'Opening balances imported from ' + source},
+              'posted',
+              ${userId}::UUID
+            ) RETURNING id
+          `) as Row[];
+
+          const jeId = String(jeRows[0]!.id);
+          for (const line of lines) {
+            await tx`
+              INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description)
+              VALUES (${jeId}::UUID, ${line.glId}::UUID, ${line.debit}, ${line.credit}, ${'Opening balance — ' + source})
+            `;
+          }
+        });
+        openingBalancesSet = lines.length;
       }
     } catch (err) {
       errors.push(`Opening balances: ${err instanceof Error ? err.message : String(err)}`);
