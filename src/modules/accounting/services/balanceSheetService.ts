@@ -4,11 +4,12 @@
  */
 
 import { sql } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getSystemAccount } from './systemAccountResolver';
 import type { BalanceSheetReport } from '../types/gl.types';
 
-type Row = Record<string, unknown>;
+type Row = DbRow;
 
 interface BSLineItem {
   accountCode: string;

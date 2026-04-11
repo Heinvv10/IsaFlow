@@ -7,8 +7,9 @@
  */
 
 import { sql } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-type Row = Record<string, unknown>;
+type Row = DbRow;
 
 // Re-export importers so API routes import from one place
 export { importLedgerTransactions, importSupplierInvoices } from './sageImportService';

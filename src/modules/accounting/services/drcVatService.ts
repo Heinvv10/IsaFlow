@@ -12,12 +12,13 @@
  */
 
 import { sql } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
 import { getSystemAccountId } from './systemAccountResolver';
 import type { JournalLineInput } from '../types/gl.types';
 
-type Row = Record<string, unknown>;
+type Row = DbRow;
 
 const DEFAULT_VAT_RATE = 0.15; // SA VAT rate
 

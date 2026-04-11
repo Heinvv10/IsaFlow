@@ -5,9 +5,10 @@
  */
 
 import { sql } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DashboardStats, ActivityEvent } from '../types/admin.types';
-type Row = Record<string, unknown>;
+type Row = DbRow;
 
 
 function toISOString(value: unknown): string {

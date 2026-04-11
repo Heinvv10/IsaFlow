@@ -4,9 +4,10 @@
  */
 
 import { sql } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
-type Row = Record<string, unknown>;
+type Row = DbRow;
 
 const MONTHS = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'] as const;
 

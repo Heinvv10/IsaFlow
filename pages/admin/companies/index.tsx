@@ -8,7 +8,10 @@ import { AdminLayout } from '@/components/admin/AdminLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
-import { Search, AlertCircle, Loader2, ChevronLeft, ChevronRight, ChevronsUpDown } from 'lucide-react';
+import {
+  Search, AlertCircle, Loader2, ChevronLeft, ChevronRight,
+  ChevronsUpDown, Plus, UserCog, ShieldOff, ShieldCheck, X,
+} from 'lucide-react';
 
 interface Company {
   id: string;
@@ -39,6 +42,14 @@ const STATUS_BADGE: Record<string, string> = {
 
 type SortField = 'name' | 'plan_name' | 'status' | 'user_count' | 'mrr_cents' | 'created_at' | 'last_active';
 
+interface CreateForm {
+  name: string;
+  trading_name: string;
+  email: string;
+  phone: string;
+  plan_id: string;
+}
+
 export default function AdminCompaniesPage() {
   const adminHref = useAdminHref();
 
@@ -52,6 +63,12 @@ export default function AdminCompaniesPage() {
   const [sortBy, setSortBy]     = useState<SortField>('created_at');
   const [sortDir, setSortDir]   = useState<'asc' | 'desc'>('desc');
 
+  const [showCreate, setShowCreate]     = useState(false);
+  const [createForm, setCreateForm]     = useState<CreateForm>({ name: '', trading_name: '', email: '', phone: '', plan_id: '' });
+  const [creating, setCreating]         = useState(false);
+  const [createError, setCreateError]   = useState('');
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+
   const LIMIT = 25;
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -59,12 +76,7 @@ export default function AdminCompaniesPage() {
     setLoading(true);
     setError('');
     try {
-      const params = new URLSearchParams({
-        page:     String(pg),
-        limit:    String(LIMIT),
-        sort_by:  sb,
-        sort_dir: sd,
-      });
+      const params = new URLSearchParams({ page: String(pg), limit: String(LIMIT), sort_by: sb, sort_dir: sd });
       if (q)  params.set('search', q);
       if (st) params.set('status', st);
       const res  = await apiFetch(`/api/admin/companies?${params}`);
@@ -80,7 +92,6 @@ export default function AdminCompaniesPage() {
     }
   }, []);
 
-  // Debounce search
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
@@ -110,6 +121,58 @@ export default function AdminCompaniesPage() {
     return <ChevronsUpDown className="w-3.5 h-3.5 text-teal-500" />;
   }
 
+  async function handleCreate(e: React.FormEvent) {
+    e.preventDefault();
+    if (!createForm.name.trim()) { setCreateError('Name is required'); return; }
+    setCreating(true); setCreateError('');
+    try {
+      const res  = await apiFetch('/api/admin/companies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(createForm),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.message || 'Failed to create company');
+      setShowCreate(false);
+      setCreateForm({ name: '', trading_name: '', email: '', phone: '', plan_id: '' });
+      setPage(1);
+      void load(search, status, 1, sortBy, sortDir);
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : 'Failed');
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function handleSuspend(e: React.MouseEvent, companyId: string) {
+    e.stopPropagation();
+    setActionLoading(companyId + ':suspend');
+    try {
+      await apiFetch(`/api/admin/companies/${companyId}/suspend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'Suspended by admin' }),
+      });
+      void load(search, status, page, sortBy, sortDir);
+    } catch { /* ignore */ }
+    finally { setActionLoading(null); }
+  }
+
+  async function handleActivate(e: React.MouseEvent, companyId: string) {
+    e.stopPropagation();
+    setActionLoading(companyId + ':activate');
+    try {
+      await apiFetch(`/api/admin/companies/${companyId}/activate`, { method: 'POST' });
+      void load(search, status, page, sortBy, sortDir);
+    } catch { /* ignore */ }
+    finally { setActionLoading(null); }
+  }
+
+  function handleImpersonate(e: React.MouseEvent, companyId: string) {
+    e.stopPropagation();
+    window.location.href = adminHref(`/admin/companies/${companyId}`);
+  }
+
   return (
     <AdminLayout title="Companies">
       {/* Filters */}
@@ -135,9 +198,13 @@ export default function AdminCompaniesPage() {
           <option value="suspended">Suspended</option>
           <option value="cancelled">Cancelled</option>
         </select>
-        <span className="ml-auto text-sm text-gray-500 dark:text-gray-400 self-center">
-          {total} total
-        </span>
+        <span className="text-sm text-gray-500 dark:text-gray-400 self-center">{total} total</span>
+        <button
+          onClick={() => setShowCreate(true)}
+          className="ml-auto inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-teal-600 hover:bg-teal-700 text-white transition-colors"
+        >
+          <Plus className="w-4 h-4" /> Add Company
+        </button>
       </div>
 
       {error && (
@@ -153,13 +220,13 @@ export default function AdminCompaniesPage() {
             <thead>
               <tr className="text-left text-xs text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
                 {([
-                  ['name',         'Name'],
-                  ['plan_name',    'Plan'],
-                  ['status',       'Status'],
-                  ['user_count',   'Users'],
-                  ['mrr_cents',    'MRR'],
-                  ['created_at',   'Created'],
-                  ['last_active',  'Last Active'],
+                  ['name',        'Name'],
+                  ['plan_name',   'Plan'],
+                  ['status',      'Status'],
+                  ['user_count',  'Users'],
+                  ['mrr_cents',   'MRR'],
+                  ['created_at',  'Created'],
+                  ['last_active', 'Last Active'],
                 ] as [SortField, string][]).map(([field, label]) => (
                   <th
                     key={field}
@@ -171,19 +238,20 @@ export default function AdminCompaniesPage() {
                     </div>
                   </th>
                 ))}
+                <th className="px-4 py-3 font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading && rows.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center">
+                  <td colSpan={8} className="px-4 py-12 text-center">
                     <Loader2 className="w-5 h-5 animate-spin text-teal-500 mx-auto" />
                   </td>
                 </tr>
               )}
               {!loading && rows.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-gray-400">No companies found</td>
+                  <td colSpan={8} className="px-4 py-12 text-center text-gray-400">No companies found</td>
                 </tr>
               )}
               {rows.map(c => (
@@ -203,6 +271,42 @@ export default function AdminCompaniesPage() {
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-300 font-mono text-xs">{formatCurrency(c.mrr_cents / 100)}</td>
                   <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(c.created_at)}</td>
                   <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(c.last_active)}</td>
+                  <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                    <div className="flex items-center gap-1">
+                      <button
+                        title="View / Impersonate"
+                        onClick={e => handleImpersonate(e, c.id)}
+                        disabled={actionLoading !== null}
+                        className="p-1.5 rounded text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/10 transition-colors disabled:opacity-50"
+                      >
+                        <UserCog className="w-4 h-4" />
+                      </button>
+                      {c.status !== 'suspended'
+                        ? <button
+                            title="Suspend"
+                            onClick={e => void handleSuspend(e, c.id)}
+                            disabled={actionLoading !== null}
+                            className="p-1.5 rounded text-yellow-600 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 transition-colors disabled:opacity-50"
+                          >
+                            {actionLoading === c.id + ':suspend'
+                              ? <Loader2 className="w-4 h-4 animate-spin" />
+                              : <ShieldOff className="w-4 h-4" />
+                            }
+                          </button>
+                        : <button
+                            title="Activate"
+                            onClick={e => void handleActivate(e, c.id)}
+                            disabled={actionLoading !== null}
+                            className="p-1.5 rounded text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-500/10 transition-colors disabled:opacity-50"
+                          >
+                            {actionLoading === c.id + ':activate'
+                              ? <Loader2 className="w-4 h-4 animate-spin" />
+                              : <ShieldCheck className="w-4 h-4" />
+                            }
+                          </button>
+                      }
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -232,6 +336,76 @@ export default function AdminCompaniesPage() {
           </div>
         </div>
       </div>
+
+      {/* Create Company Modal */}
+      {showCreate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl w-full max-w-md">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
+              <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Add Company</h2>
+              <button onClick={() => setShowCreate(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <form onSubmit={e => void handleCreate(e)} className="p-5 space-y-4">
+              {createError && (
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" /> {createError}
+                </div>
+              )}
+              <div>
+                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Company Name *</label>
+                <input
+                  type="text" required
+                  value={createForm.name}
+                  onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Trading Name</label>
+                <input
+                  type="text"
+                  value={createForm.trading_name}
+                  onChange={e => setCreateForm(f => ({ ...f, trading_name: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Email</label>
+                  <input
+                    type="email"
+                    value={createForm.email}
+                    onChange={e => setCreateForm(f => ({ ...f, email: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Phone</label>
+                  <input
+                    type="tel"
+                    value={createForm.phone}
+                    onChange={e => setCreateForm(f => ({ ...f, phone: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                <button type="button" onClick={() => setShowCreate(false)}
+                  className="px-4 py-2 text-sm font-medium rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                  Cancel
+                </button>
+                <button type="submit" disabled={creating}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-teal-600 hover:bg-teal-700 text-white transition-colors disabled:opacity-50">
+                  {creating && <Loader2 className="w-4 h-4 animate-spin" />}
+                  Create Company
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </AdminLayout>
   );
 }

@@ -4,9 +4,10 @@
  */
 
 import { sql } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getSystemAccount } from './systemAccountResolver';
-type Row = Record<string, unknown>;
+type Row = DbRow;
 
 
 interface TransactionRow {

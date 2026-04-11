@@ -4,6 +4,7 @@
  */
 
 import { sql, fmtDate, withTransaction } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { validateJournalEntry } from '../utils/doubleEntry';
 import type { JournalEntry, JournalLine, JournalEntryCreateInput, GLEntryStatus, GLEntrySource, TrialBalanceRow, VatType } from '../types/gl.types';
@@ -16,7 +17,7 @@ export async function resolveUserUuid(userId: string): Promise<string> {
   return rows.length > 0 ? String(rows[0]!.id) : '00000000-0000-0000-0000-000000000000';
 }
 
-type Row = Record<string, unknown>;
+type Row = DbRow;
 
 export interface JournalEntryFilters {
   status?: GLEntryStatus;

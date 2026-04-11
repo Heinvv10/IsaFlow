@@ -4,12 +4,13 @@
  */
 
 import { sql } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
 import { getSystemAccountId } from './systemAccountResolver';
 import { updateSession, type ImportResult, type MigrationError } from './migrationService';
 import { matchContact } from './migrationImportService';
-type Row = Record<string, unknown>;
+type Row = DbRow;
 
 
 export interface APInvoiceRow {

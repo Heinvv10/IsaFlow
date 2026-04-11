@@ -4,13 +4,14 @@
  */
 
 import { sql, withTransaction, fmtDate } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type {
   RecurringInvoice,
   RecurringInvoiceCreateInput,
 } from '../types/ar.types';
 
-type Row = Record<string, unknown>;
+type Row = DbRow;
 
 export async function getRecurringInvoices(companyId: string, filters?: {
   status?: string;

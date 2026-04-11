@@ -8,6 +8,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import {
   matchAgainstRulesInMemory,
@@ -18,7 +19,7 @@ import {
 
 export type { ConfidenceLevel, CategorizationResult, CachedRule, CachedPattern } from './smartCategorizationMatchingService';
 
-type Row = Record<string, unknown>;
+type Row = DbRow;
 
 export interface CategorizationInput {
   description: string;

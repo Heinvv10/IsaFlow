@@ -4,6 +4,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
 export interface ModulePermission {
@@ -22,7 +23,7 @@ export interface UserWithPermissions {
 }
 
 type Action = 'read' | 'write' | 'delete' | 'export' | 'approve';
-type Row = Record<string, unknown>;
+type Row = DbRow;
 
 const FULL_ACCESS_ROLES = ['owner', 'admin'];
 
