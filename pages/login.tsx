@@ -187,6 +187,25 @@ export default function LoginPage() {
       .catch(() => null);
   }, [inviteToken]);
 
+  // Post-auth redirect: send users with no companies to /onboarding
+  // instead of the skeleton /accounting dashboard (which 400s every data API).
+  const postLoginRedirect = async (): Promise<string> => {
+    if (isAdminHost) return returnTo;
+    try {
+      const res = await fetch('/api/accounting/companies?action=user-companies', {
+        credentials: 'include',
+      });
+      if (res.ok) {
+        const body = (await res.json()) as { data?: { items?: unknown[] } };
+        const items = body.data?.items;
+        if (Array.isArray(items) && items.length === 0) return '/onboarding';
+      }
+    } catch {
+      // Non-fatal — fall through to the configured returnTo
+    }
+    return returnTo;
+  };
+
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     clearError();
@@ -196,7 +215,7 @@ export default function LoginPage() {
       const fingerprint = getDeviceFingerprint();
       const didRequire2FA = await login(email.trim().toLowerCase(), password, fingerprint);
       if (!didRequire2FA) {
-        await router.push(returnTo);
+        await router.push(await postLoginRedirect());
       }
       // If 2FA required, twoFactorChallenge is now set — component re-renders to show 2FA screen
     } catch {
@@ -213,7 +232,7 @@ export default function LoginPage() {
       const fingerprint = getDeviceFingerprint();
       const deviceName = getDeviceName();
       await completeTwoFactor(code, trustDevice, fingerprint, deviceName);
-      await router.push(returnTo);
+      await router.push(await postLoginRedirect());
     } catch {
       // Error already set in AuthContext
     } finally {

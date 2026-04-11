@@ -32,12 +32,22 @@ const TABS: { id: AccountingTab; label: string; icon: React.ElementType }[] = [
 
 export default function AccountingPage() {
   const router = useRouter();
-  const { activeCompany } = useCompany();
+  const { activeCompany, companies, loading: companiesLoading } = useCompany();
   const [activeTab, setActiveTab] = useState<AccountingTab>('overview');
   const [isMounted, setIsMounted] = useState(false);
   const [widgetLayout, setWidgetLayout] = useState<WidgetConfig[]>(DEFAULT_WIDGET_LAYOUT);
 
   useEffect(() => { setIsMounted(true); }, []);
+
+  // Defensive guard: if the user somehow lands here with zero companies
+  // (deep link, bookmark, stale session), send them through onboarding
+  // rather than showing a skeleton dashboard with 400-ing APIs.
+  useEffect(() => {
+    if (!isMounted || companiesLoading) return;
+    if (companies.length === 0) {
+      void router.replace('/onboarding');
+    }
+  }, [isMounted, companiesLoading, companies.length, router]);
 
   // Sync tab from URL query param
   useEffect(() => {
