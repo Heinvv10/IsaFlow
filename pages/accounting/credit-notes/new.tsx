@@ -68,7 +68,7 @@ export default function NewCreditNotePage() {
       });
 
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || json.error || 'Failed to create credit note');
+      if (!res.ok) throw new Error(json?.error?.message || 'Failed to create credit note');
       router.push('/accounting/credit-notes');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create credit note');

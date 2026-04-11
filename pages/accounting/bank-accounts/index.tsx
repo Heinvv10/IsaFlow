@@ -89,7 +89,7 @@ export default function BankAccountsPage() {
       });
       const json = await res.json();
       if (!res.ok || json.success === false) {
-        notify.error(json.message || json.error || 'Failed to create account');
+        notify.error(json?.error?.message || 'Failed to create account');
         return;
       }
       // If bank account number provided, save it separately
@@ -143,7 +143,7 @@ export default function BankAccountsPage() {
       });
       if (!coaRes.ok) {
         const json = await coaRes.json();
-        notify.error(json.message || 'Failed to update account');
+        notify.error(json?.error?.message || 'Failed to update account');
         return;
       }
       // Update bank account number

@@ -91,7 +91,7 @@ export default function CustomerPaymentDetailPage() {
           body: JSON.stringify({ action: 'cancel', paymentId: payment.id, reason }),
         });
         const json = await res.json();
-        if (!res.ok) throw new Error(json.error || 'Cancel failed');
+        if (!res.ok) throw new Error(json?.error?.message || 'Cancel failed');
         notify.success('Payment cancelled');
         loadPayment();
       } catch (err) {
@@ -109,7 +109,7 @@ export default function CustomerPaymentDetailPage() {
           body: JSON.stringify({ action: 'confirm', paymentId: payment.id }),
         });
         const json = await res.json();
-        if (!res.ok) throw new Error(json.error || 'Confirm failed');
+        if (!res.ok) throw new Error(json?.error?.message || 'Confirm failed');
         notify.success('Payment confirmed and GL posted');
         loadPayment();
       } catch (err) {

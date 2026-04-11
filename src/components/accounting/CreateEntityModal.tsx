@@ -234,7 +234,7 @@ export function CreateEntityModal({ type, transactionDescription, existingAccoun
           }),
         });
         const json = await res.json();
-        if (!res.ok) throw new Error(json.message || json.error?.message || 'Failed to create account');
+        if (!res.ok) throw new Error(json?.error?.message || 'Failed to create account');
         const d = json.data;
         entity = { id: d.id, code: d.accountCode, name: d.accountName };
       } else if (type === 'supplier') {
@@ -247,7 +247,7 @@ export function CreateEntityModal({ type, transactionDescription, existingAccoun
           }}),
         });
         const json = await res.json();
-        if (!res.ok) throw new Error(json.message || 'Failed to create supplier');
+        if (!res.ok) throw new Error(json?.error?.message || 'Failed to create supplier');
         const d = json.data;
         entity = { id: String(d.id), code: d.code, name: supName.trim() };
       } else {
@@ -260,7 +260,7 @@ export function CreateEntityModal({ type, transactionDescription, existingAccoun
           }),
         });
         const json = await res.json();
-        if (!res.ok) throw new Error(json.message || 'Failed to create customer');
+        if (!res.ok) throw new Error(json?.error?.message || 'Failed to create customer');
         const d = json.data;
         entity = { id: d.id, name: custName.trim() };
       }
