@@ -28,6 +28,7 @@ export const payrollTab: Tab = {
         { label: 'EMP201 / SDL', href: '/payroll/emp201' },
         { label: 'IRP5 Certificates', href: '/payroll/irp5' },
         { label: 'UIF Declaration', href: '/payroll/uif' },
+        { label: 'Tax Directives', href: '/payroll/tax-directives' },
       ],
     },
   ],

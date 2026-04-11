@@ -9,7 +9,7 @@ export const reportsTab: Tab = {
         { label: 'Income Statement', href: '/accounting/reports/income-statement' },
         { label: 'Balance Sheet', href: '/accounting/reports/balance-sheet' },
         { label: 'Cash Flow', href: '/accounting/reports/cash-flow' },
-        { label: 'Cash Flow Forecast', href: '/accounting/cash-flow-forecast' },
+        { label: 'Cash Flow Forecast', href: '/accounting/reports/cash-flow-forecast' },
       ],
     },
     {
