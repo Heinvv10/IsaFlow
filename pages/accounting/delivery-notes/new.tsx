@@ -256,14 +256,14 @@ export default function NewDeliveryNotePage() {
               Cancel
             </button>
             <button
-              onClick={() => handleSave(false)}
+              onClick={() => void handleSave(false)}
               disabled={saving}
               className="px-4 py-2 text-sm bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-primary)] rounded-lg disabled:opacity-50"
             >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save as Draft'}
             </button>
             <button
-              onClick={() => handleSave(true)}
+              onClick={() => void handleSave(true)}
               disabled={saving}
               className="flex items-center gap-1.5 px-4 py-2 text-sm bg-teal-600 hover:bg-teal-500 text-white rounded-lg disabled:opacity-50"
             >

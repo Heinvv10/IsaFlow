@@ -8,13 +8,16 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import {
-  ArrowLeft, Repeat, Plus, Trash2, Loader2, AlertCircle, Save,
+  ArrowLeft, Repeat, Loader2, AlertCircle, Save,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import {
+  LineItemsSection,
+  type LineItem,
+} from '@/components/accounting/recurringInvoices/LineItemsSection';
 
 interface Customer { id: string; name?: string; company_name?: string }
-interface LineItem { key: string; description: string; quantity: number; unitPrice: number; glAccountId: string }
 
 const FREQ_OPTIONS = [
   { value: 'weekly', label: 'Weekly' },
@@ -22,9 +25,6 @@ const FREQ_OPTIONS = [
   { value: 'quarterly', label: 'Quarterly' },
   { value: 'annually', label: 'Annually' },
 ];
-
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
 const newLine = (): LineItem => ({
   key: String(Date.now() + Math.random()),
@@ -121,10 +121,6 @@ export default function EditRecurringInvoicePage() {
   const removeLine = (key: string) => {
     if (lines.length > 1) setLines(prev => prev.filter(l => l.key !== key));
   };
-
-  const subtotal = lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0);
-  const taxAmount = Math.round(subtotal * (form.taxRate / 100) * 100) / 100;
-  const total = subtotal + taxAmount;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -299,87 +295,15 @@ export default function EditRecurringInvoicePage() {
           </div>
 
           {/* Line Items */}
-          <div className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-lg p-5 space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-[var(--ff-text-primary)] uppercase tracking-wide">Line Items</h2>
-              <button
-                type="button"
-                onClick={addLine}
-                className="inline-flex items-center gap-1.5 text-xs text-violet-400 hover:text-violet-300 transition-colors"
-              >
-                <Plus className="h-3.5 w-3.5" /> Add Line
-              </button>
-            </div>
-
-            <div className="hidden md:grid grid-cols-12 gap-2 text-xs text-[var(--ff-text-secondary)] px-1">
-              <div className="col-span-5">Description</div>
-              <div className="col-span-2">Qty</div>
-              <div className="col-span-2">Unit Price</div>
-              <div className="col-span-2 text-right">Line Total</div>
-              <div className="col-span-1" />
-            </div>
-
-            {lines.map(line => (
-              <div key={line.key} className="grid grid-cols-12 gap-2 items-center">
-                <div className="col-span-5">
-                  <input
-                    className={inputCls}
-                    value={line.description}
-                    onChange={e => updateLine(line.key, 'description', e.target.value)}
-                    placeholder="Description *"
-                    required
-                  />
-                </div>
-                <div className="col-span-2">
-                  <input
-                    type="number"
-                    className={inputCls}
-                    value={line.quantity}
-                    min={0.01}
-                    step="0.01"
-                    onChange={e => updateLine(line.key, 'quantity', Number(e.target.value))}
-                  />
-                </div>
-                <div className="col-span-2">
-                  <input
-                    type="number"
-                    className={inputCls}
-                    value={line.unitPrice}
-                    min={0}
-                    step="0.01"
-                    onChange={e => updateLine(line.key, 'unitPrice', Number(e.target.value))}
-                  />
-                </div>
-                <div className="col-span-2 text-right text-sm text-[var(--ff-text-primary)] pr-1">
-                  {fmt(line.quantity * line.unitPrice)}
-                </div>
-                <div className="col-span-1 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() => removeLine(line.key)}
-                    disabled={lines.length === 1}
-                    className="p-1 text-red-400 hover:text-red-300 disabled:opacity-30 transition-colors"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
-            ))}
-
-            {/* Totals */}
-            <div className="border-t border-[var(--ff-border-light)] pt-3 space-y-1 text-sm">
-              <div className="flex justify-between text-[var(--ff-text-secondary)]">
-                <span>Subtotal</span><span>{fmt(subtotal)}</span>
-              </div>
-              <div className="flex justify-between text-[var(--ff-text-secondary)]">
-                <span>VAT ({form.taxRate}%)</span>
-                <span>{fmt(taxAmount)}</span>
-              </div>
-              <div className="flex justify-between font-semibold text-[var(--ff-text-primary)] text-base pt-1">
-                <span>Total</span><span>{fmt(total)}</span>
-              </div>
-            </div>
-          </div>
+          <LineItemsSection
+            lines={lines}
+            taxRate={form.taxRate}
+            onTaxRateChange={rate => setForm(f => ({ ...f, taxRate: rate }))}
+            onUpdateLine={updateLine}
+            onAddLine={addLine}
+            onRemoveLine={removeLine}
+            inputCls={inputCls}
+          />
 
           {/* Actions */}
           <div className="flex justify-end gap-3 pb-8">

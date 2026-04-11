@@ -7,9 +7,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   MessageSquare, Phone, Mail, DollarSign, FileText, RefreshCw,
-  Clock, Plus, Trash2, Loader2,
+  Clock, Plus, Trash2, Loader2, AlertCircle,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 
 type ActivityType =
   | 'note'
@@ -103,17 +104,22 @@ function creatorName(activity: SupplierActivity): string {
 export function ActivityTab({ supplierId }: { supplierId: string }) {
   const [activities, setActivities] = useState<SupplierActivity[]>([]);
   const [loading, setLoading]       = useState(true);
+  const [error, setError]           = useState('');
   const [showForm, setShowForm]     = useState(false);
   const [saving, setSaving]         = useState(false);
   const [form, setForm]             = useState(EMPTY_FORM);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError('');
     try {
       const res  = await apiFetch(`/api/accounting/supplier-activities?supplierId=${supplierId}`);
       const json = await res.json() as { data?: SupplierActivity[] } | SupplierActivity[];
       const data = (json as { data?: SupplierActivity[] }).data ?? (json as SupplierActivity[]);
       setActivities(data);
+    } catch (err) {
+      log.error('Failed to load supplier activities', { supplierId, error: err }, 'activity-tab');
+      setError('Failed to load activities');
     } finally {
       setLoading(false);
     }
@@ -124,6 +130,7 @@ export function ActivityTab({ supplierId }: { supplierId: string }) {
   const handleAdd = async () => {
     if (!form.description.trim()) return;
     setSaving(true);
+    setError('');
     try {
       await apiFetch('/api/accounting/supplier-activities', {
         method: 'POST',
@@ -138,14 +145,23 @@ export function ActivityTab({ supplierId }: { supplierId: string }) {
       setForm(EMPTY_FORM);
       setShowForm(false);
       void load();
+    } catch (err) {
+      log.error('Failed to add supplier activity', { supplierId, error: err }, 'activity-tab');
+      setError('Failed to save activity');
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async (id: string) => {
-    await apiFetch(`/api/accounting/supplier-activities?id=${id}`, { method: 'DELETE' });
-    void load();
+    setError('');
+    try {
+      await apiFetch(`/api/accounting/supplier-activities?id=${id}`, { method: 'DELETE' });
+      void load();
+    } catch (err) {
+      log.error('Failed to delete supplier activity', { id, error: err }, 'activity-tab');
+      setError('Failed to delete activity');
+    }
   };
 
   if (loading) {
@@ -158,6 +174,11 @@ export function ActivityTab({ supplierId }: { supplierId: string }) {
 
   return (
     <div className="space-y-4">
+      {error && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+          <AlertCircle className="h-4 w-4 shrink-0" /> {error}
+        </div>
+      )}
       {/* Header row */}
       <div className="flex justify-between items-center">
         <h3 className="text-sm font-medium text-[var(--ff-text-secondary)] uppercase tracking-wide">
@@ -201,7 +222,7 @@ export function ActivityTab({ supplierId }: { supplierId: string }) {
           />
           <div className="flex gap-2">
             <button
-              onClick={handleAdd}
+              onClick={() => void handleAdd()}
               disabled={saving || !form.description.trim()}
               className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium transition-colors"
             >
@@ -259,7 +280,7 @@ export function ActivityTab({ supplierId }: { supplierId: string }) {
               </div>
             </div>
             <button
-              onClick={() => handleDelete(activity.id)}
+              onClick={() => void handleDelete(activity.id)}
               title="Delete activity"
               className="p-1.5 rounded hover:bg-red-500/10 text-[var(--ff-text-tertiary)] hover:text-red-400 transition-colors shrink-0"
             >
