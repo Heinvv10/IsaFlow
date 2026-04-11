@@ -35,9 +35,13 @@ export async function extractFromPdf(buffer: Buffer): Promise<ExtractedDocument>
   const warnings: string[] = [];
 
   try {
+    // pdf-parse v2: class-based API. Old `require('pdf-parse')(buf)` is gone.
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const pdfParse = require('pdf-parse');
-    const data = await pdfParse(buffer);
+    const { PDFParse } = require('pdf-parse') as {
+      PDFParse: new (opts: { data: Buffer }) => { getText(): Promise<{ text: string }> };
+    };
+    const parser = new PDFParse({ data: buffer });
+    const data = await parser.getText();
     rawText = data.text || '';
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

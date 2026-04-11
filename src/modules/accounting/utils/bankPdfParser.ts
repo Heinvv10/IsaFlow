@@ -14,13 +14,22 @@ import type { BankCsvParseResult, ParsedBankTransaction } from '../types/bank.ty
 import { isVlmAvailable, extractBankStatementWithVlm } from '../services/vlmService';
 import { extractAccountNumber } from './bankPdfParserUtils';
 
-// pdf-parse uses export= (CommonJS), so we use require() at runtime.
-// Type definition for the parsed result.
-interface PdfParseResult {
+// pdf-parse v2 exposes a PDFParse class (not a default function).
+// Type definitions for the class-based v2 API.
+interface PdfParseV2Result {
   text: string;
-  numpages: number;
+  pages: unknown[];
+  total: number;
 }
-type PdfParseFunction = (buffer: Buffer) => Promise<PdfParseResult>;
+interface PdfParseV2Instance {
+  getText(): Promise<PdfParseV2Result>;
+}
+interface PdfParseV2Ctor {
+  new (options: { data: Buffer }): PdfParseV2Instance;
+}
+interface PdfParseV2Module {
+  PDFParse: PdfParseV2Ctor;
+}
 
 // Month name lookup for ABSA PDF date parsing ("15 Jan 2026")
 const MONTH_MAP: Record<string, string> = {
@@ -155,13 +164,20 @@ export async function parseBankPdf(
   pdfBuffer: Buffer,
   bankFormat?: string,
 ): Promise<BankCsvParseResult> {
-  let pdfParse: PdfParseFunction;
+  let PDFParse: PdfParseV2Ctor;
 
   try {
-    // Dynamic require: pdf-parse uses CommonJS export= and cannot be ESM-imported.
-    pdfParse = require('pdf-parse') as PdfParseFunction; // eslint-disable-line @typescript-eslint/no-var-requires
-  } catch {
-    log.error('pdf-parse module not available', {}, 'accounting-pdf');
+    // pdf-parse v2 exposes a PDFParse class via CommonJS.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const mod = require('pdf-parse') as PdfParseV2Module;
+    PDFParse = mod.PDFParse;
+    if (typeof PDFParse !== 'function') {
+      throw new Error('pdf-parse did not export PDFParse class');
+    }
+  } catch (err) {
+    log.error('pdf-parse module not available', {
+      error: err instanceof Error ? err.message : String(err),
+    }, 'accounting-pdf');
     return {
       transactions: [],
       errors: [{ row: 0, error: 'PDF parsing library not available. Please upload a CSV file instead.' }],
@@ -169,9 +185,10 @@ export async function parseBankPdf(
     };
   }
 
-  let parsed: { text: string; numpages: number };
+  let parsed: PdfParseV2Result;
   try {
-    parsed = await pdfParse(pdfBuffer);
+    const parser = new PDFParse({ data: pdfBuffer });
+    parsed = await parser.getText();
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to read PDF';
     log.error('Failed to parse PDF buffer', { error: err }, 'accounting-pdf');
@@ -196,7 +213,7 @@ export async function parseBankPdf(
     : detectPdfBankFormat(text);
 
   log.info('Parsing bank PDF', {
-    pages: parsed.numpages,
+    pages: parsed.total,
     textLength: text.length,
     format: detectedFormat,
   }, 'accounting-pdf');
