@@ -22,6 +22,9 @@ export interface SupplierFormData {
   bank_account_number: string;
   bank_branch_code: string;
   bank_account_type: string;
+  opening_balance: string;
+  opening_balance_date: string;
+  auto_allocate_payments: boolean;
 }
 
 export const INITIAL_SUPPLIER_FORM: SupplierFormData = {
@@ -41,6 +44,9 @@ export const INITIAL_SUPPLIER_FORM: SupplierFormData = {
   bank_account_number: '',
   bank_branch_code: '',
   bank_account_type: 'current',
+  opening_balance: '',
+  opening_balance_date: new Date().toISOString().split('T')[0]!,
+  auto_allocate_payments: false,
 };
 
 const ACCOUNT_TYPES = [
@@ -211,6 +217,50 @@ export function SupplierForm({ form, onChange, fieldErrors = {} }: Props) {
               />
             </Field>
           </div>
+        </div>
+      </Card>
+
+      {/* Opening Balance */}
+      <Card>
+        <SectionTitle>Opening Balance</SectionTitle>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Field label="Opening Balance">
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={form.opening_balance}
+              onChange={(e) => set('opening_balance', e.target.value)}
+              placeholder="0.00"
+              className={inputClass}
+            />
+          </Field>
+          <Field label="Opening Balance as At">
+            <input
+              type="date"
+              value={form.opening_balance_date}
+              onChange={(e) => set('opening_balance_date', e.target.value)}
+              className={inputClass}
+            />
+          </Field>
+        </div>
+        <div className="mt-3 flex items-center gap-3">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={form.auto_allocate_payments}
+            onClick={() => set('auto_allocate_payments', !form.auto_allocate_payments)}
+            className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${
+              form.auto_allocate_payments ? 'bg-teal-600' : 'bg-[var(--ff-bg-tertiary)]'
+            }`}
+          >
+            <span
+              className={`inline-block h-4 w-4 rounded-full bg-white shadow ring-0 transition-transform ${
+                form.auto_allocate_payments ? 'translate-x-4' : 'translate-x-0'
+              }`}
+            />
+          </button>
+          <span className="text-sm text-[var(--ff-text-secondary)]">Auto Allocate Payments to Oldest Invoice</span>
         </div>
       </Card>
 

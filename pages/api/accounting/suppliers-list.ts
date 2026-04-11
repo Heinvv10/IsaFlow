@@ -93,6 +93,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         is_active,
         notes,
         category,
+        opening_balance,
+        opening_balance_date,
+        auto_allocate_payments,
       } = req.body as {
         name?: string;
         company_name?: string;
@@ -110,11 +113,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         is_active?: boolean;
         notes?: string;
         category?: string;
+        opening_balance?: number | string | null;
+        opening_balance_date?: string | null;
+        auto_allocate_payments?: boolean;
       };
 
       if (!name?.trim()) {
         return apiResponse.badRequest(res, 'Supplier name is required');
       }
+
+      const obDate = typeof opening_balance_date === 'string' && opening_balance_date.trim()
+        ? opening_balance_date.trim()
+        : null;
 
       const rows = (await sql`
         INSERT INTO suppliers (
@@ -122,7 +132,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           vat_number, registration_number, address, contact_person,
           payment_terms,
           bank_name, bank_account_number, bank_branch_code, bank_account_type,
-          is_active, notes, category
+          is_active, notes, category,
+          opening_balance, opening_balance_date, auto_allocate_payments
         ) VALUES (
           ${companyId},
           ${name.trim()},
@@ -140,7 +151,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           ${bank_account_type ?? null},
           ${is_active ?? true},
           ${notes?.trim() || null},
-          ${category?.trim() || null}
+          ${category?.trim() || null},
+          ${opening_balance !== undefined && opening_balance !== null && opening_balance !== '' ? Number(opening_balance) : 0},
+          ${obDate}::date,
+          ${auto_allocate_payments ?? false}
         )
         RETURNING
           id, name, company_name, email, phone,
@@ -148,6 +162,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           payment_terms,
           bank_name, bank_account_number, bank_branch_code, bank_account_type,
           is_active, notes, category,
+          opening_balance, opening_balance_date, auto_allocate_payments,
           created_at
       `) as Row[];
 

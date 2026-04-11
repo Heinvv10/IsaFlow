@@ -98,7 +98,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           category_id, cash_sale, opening_balance, opening_balance_date,
           accepts_electronic_invoices, auto_allocate_receipts,
           statement_distribution, default_discount, default_vat_type,
-          subject_to_drc_vat, invoices_viewable_online
+          subject_to_drc_vat, invoices_viewable_online,
+          sales_rep_id, default_price_list
         ) VALUES (
           ${companyId},
           ${name.trim()},
@@ -127,7 +128,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           ${n('default_discount') ?? 0},
           ${s('default_vat_type')},
           ${bool('subject_to_drc_vat')},
-          ${bool('invoices_viewable_online', true)}
+          ${bool('invoices_viewable_online', true)},
+          ${s('sales_rep_id') ? s('sales_rep_id') : null}::uuid,
+          ${s('default_price_list')}
         )
         RETURNING *
       `) as Row[];
