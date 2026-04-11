@@ -16,7 +16,9 @@ export type WidgetType =
   | 'vat-summary'
   | 'kpi-cards'
   | 'setup-guide'
-  | 'todo';
+  | 'todo'
+  | 'sales_history'
+  | 'top_customers';
 
 export type WidgetSize = 'sm' | 'md' | 'lg';
 
@@ -55,4 +57,6 @@ export const WIDGET_CATALOGUE: Array<Pick<WidgetConfig, 'type' | 'title' | 'size
   { type: 'vat-summary', title: 'VAT Summary', size: 'sm' },
   { type: 'kpi-cards', title: 'KPI Cards', size: 'lg' },
   { type: 'todo', title: 'To-Do / Overdue Actions', size: 'md' },
+  { type: 'sales_history', title: 'Sales History', size: 'md' },
+  { type: 'top_customers', title: 'Top Customers', size: 'md' },
 ];

@@ -1,14 +1,16 @@
 /**
  * Customer Detail Page
- * View customer information
+ * Tabs: Overview | Delivery Addresses | Contacts
  */
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, User, Loader2, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
+import { ArrowLeft, User, MapPin, Users, Loader2, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { DeliveryAddressesTab } from '@/components/accounting/customers/DeliveryAddressesTab';
+import { ContactsTab } from '@/components/accounting/customers/ContactsTab';
 
 interface Customer {
   id: string;
@@ -24,31 +26,40 @@ interface Customer {
   created_at: string;
 }
 
+type Tab = 'overview' | 'addresses' | 'contacts';
+
+const TABS: { id: Tab; label: string; icon: typeof User }[] = [
+  { id: 'overview', label: 'Overview', icon: User },
+  { id: 'addresses', label: 'Delivery Addresses', icon: MapPin },
+  { id: 'contacts', label: 'Contacts', icon: Users },
+];
+
 export default function CustomerDetailPage() {
   const router = useRouter();
   const { customerId } = router.query;
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [activeTab, setActiveTab] = useState<Tab>('overview');
 
   useEffect(() => {
     if (!customerId) return;
-    loadCustomer();
+    void loadCustomer();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customerId]);
 
   const loadCustomer = async () => {
     setLoading(true);
     try {
-      const res = await apiFetch(`/api/accounting/customers?id=${customerId}`);
-      const json = await res.json();
-      const data = json.data || json;
-      // API may return a single object or an array — find matching record
+      const res = await apiFetch(`/api/accounting/customers?id=${customerId as string}`);
+      const json = await res.json() as { data?: Customer | Customer[] } | Customer | Customer[];
+      const data = (json as { data?: Customer | Customer[] }).data ?? json;
       if (Array.isArray(data)) {
         const match = data.find((c: Customer) => c.id === customerId);
-        setCustomer(match || null);
+        setCustomer(match ?? null);
         if (!match) setError('Customer not found');
       } else {
-        setCustomer(data);
+        setCustomer(data as Customer);
       }
     } catch {
       setError('Failed to load customer');
@@ -89,7 +100,12 @@ export default function CustomerDetailPage() {
     { label: 'VAT Number', value: customer.vat_number },
     { label: 'Registration Number', value: customer.registration_number },
     { label: 'Payment Terms', value: customer.payment_terms ? `${customer.payment_terms} days` : null },
-    { label: 'Credit Limit', value: customer.credit_limit != null ? new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(Number(customer.credit_limit)) : null },
+    {
+      label: 'Credit Limit',
+      value: customer.credit_limit != null
+        ? new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(Number(customer.credit_limit))
+        : null,
+    },
   ];
 
   return (
@@ -106,44 +122,69 @@ export default function CustomerDetailPage() {
             </div>
             <div>
               <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">{customer.name}</h1>
-              {customer.email && (
-                <p className="text-sm text-[var(--ff-text-secondary)]">{customer.email}</p>
-              )}
+              {customer.email && <p className="text-sm text-[var(--ff-text-secondary)]">{customer.email}</p>}
             </div>
             <span className={`px-3 py-1 rounded-full text-sm font-medium ${customer.is_active ? 'bg-teal-500/20 text-teal-400' : 'bg-gray-500/20 text-gray-400'}`}>
               {customer.is_active ? 'Active' : 'Inactive'}
             </span>
           </div>
+
+          {/* Tab bar */}
+          <div className="flex gap-1 mt-4 border-b border-[var(--ff-border-light)] -mx-6 px-6">
+            {TABS.map(tab => {
+              const Icon = tab.icon;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${activeTab === tab.id ? 'border-blue-500 text-blue-400' : 'border-transparent text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'}`}
+                >
+                  <Icon className="h-4 w-4" />
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
-        {/* Details */}
-        <div className="p-6 space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {fields.map((f, i) => (
-              <div key={i} className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
-                <p className="text-xs text-[var(--ff-text-tertiary)] uppercase">{f.label}</p>
-                <p className={`text-lg font-semibold mt-1 ${f.highlight ? 'text-blue-400' : 'text-[var(--ff-text-primary)]'}`}>
-                  {f.value || '—'}
-                </p>
+        {/* Tab content */}
+        <div className="p-6">
+          {activeTab === 'overview' && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {fields.map((f, i) => (
+                  <div key={i} className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
+                    <p className="text-xs text-[var(--ff-text-tertiary)] uppercase">{f.label}</p>
+                    <p className={`text-lg font-semibold mt-1 ${f.highlight ? 'text-blue-400' : 'text-[var(--ff-text-primary)]'}`}>
+                      {f.value || '—'}
+                    </p>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
 
-          {/* Status card */}
-          <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
-            <p className="text-xs text-[var(--ff-text-tertiary)] uppercase mb-2">Status</p>
-            <div className="flex items-center gap-2">
-              {customer.is_active
-                ? <><CheckCircle2 className="h-5 w-5 text-teal-400" /><span className="text-sm text-teal-400 font-medium">Active Customer</span></>
-                : <><XCircle className="h-5 w-5 text-gray-400" /><span className="text-sm text-gray-400 font-medium">Inactive Customer</span></>
-              }
+              <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
+                <p className="text-xs text-[var(--ff-text-tertiary)] uppercase mb-2">Status</p>
+                <div className="flex items-center gap-2">
+                  {customer.is_active
+                    ? <><CheckCircle2 className="h-5 w-5 text-teal-400" /><span className="text-sm text-teal-400 font-medium">Active Customer</span></>
+                    : <><XCircle className="h-5 w-5 text-gray-400" /><span className="text-sm text-gray-400 font-medium">Inactive Customer</span></>}
+                </div>
+                {customer.created_at && (
+                  <p className="text-xs text-[var(--ff-text-tertiary)] mt-2">
+                    Created: {customer.created_at.split('T')[0]}
+                  </p>
+                )}
+              </div>
             </div>
-            {customer.created_at && (
-              <p className="text-xs text-[var(--ff-text-tertiary)] mt-2">
-                Created: {customer.created_at.split('T')[0]}
-              </p>
-            )}
-          </div>
+          )}
+
+          {activeTab === 'addresses' && typeof customerId === 'string' && (
+            <DeliveryAddressesTab customerId={customerId} />
+          )}
+
+          {activeTab === 'contacts' && typeof customerId === 'string' && (
+            <ContactsTab customerId={customerId} />
+          )}
         </div>
       </div>
     </AppLayout>
