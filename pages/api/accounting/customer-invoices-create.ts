@@ -24,14 +24,6 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   try {
     const userId = String(req.user?.id || 'system');
 
-    // Auto-generate invoice number (use MAX to avoid duplicates)
-    const maxRows = (await sql`
-      SELECT MAX(CAST(SUBSTRING(invoice_number FROM '[0-9]+$') AS INTEGER)) as max_num
-      FROM customer_invoices WHERE company_id = ${companyId} AND invoice_number LIKE 'INV-%'
-    `) as Row[];
-    const nextNum = (Number(maxRows[0]?.['max_num']) || 0) + 1;
-    const invoiceNumber = `INV-${String(nextNum).padStart(5, '0')}`;
-
     // Calculate totals
     const rate = taxRate ?? 15;
     let subtotal = 0;
@@ -54,19 +46,39 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       projectId = (projRows[0]?.['id'] as string | undefined) ?? null;
     } catch { /* projects table may not exist */ }
 
-    const invRows = (await sql`
-      INSERT INTO customer_invoices (
-        company_id, invoice_number, project_id, customer_id, client_id, billing_period_start, billing_period_end,
-        subtotal, tax_rate, tax_amount, total_amount, invoice_date, due_date,
-        notes, status, created_by
-      ) VALUES (
-        ${companyId}, ${invoiceNumber}, ${projectId}, ${clientId}::UUID, ${clientId}::UUID, ${bpStart}, ${bpEnd},
-        ${subtotal}, ${rate}, ${taxAmount}, ${totalAmount}, ${invDate},
-        ${dueDate || null}, ${notes || null}, 'draft', ${userId}
-      ) RETURNING id
-    `) as Row[];
+    // Insert invoice with retry on unique-constraint violation.
+    // MAX()+1 races under concurrent load — if we collide, re-read MAX and try again
+    // (up to 5 times with escalating offset so the series stays monotonic).
+    let invoiceId = '';
+    let invoiceNumber = '';
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const maxRows = (await sql`
+        SELECT COALESCE(MAX(CAST(SUBSTRING(invoice_number FROM '[0-9]+$') AS INTEGER)), 0) AS max_num
+        FROM customer_invoices WHERE company_id = ${companyId} AND invoice_number ~ '^INV-[0-9]+$'
+      `) as Row[];
+      const base = Number(maxRows[0]?.['max_num'] ?? 0) + 1 + attempt;
+      invoiceNumber = `INV-${String(base).padStart(5, '0')}`;
 
-    const invoiceId = String(invRows[0]!.id);
+      try {
+        const invRows = (await sql`
+          INSERT INTO customer_invoices (
+            company_id, invoice_number, project_id, customer_id, client_id, billing_period_start, billing_period_end,
+            subtotal, tax_rate, tax_amount, total_amount, invoice_date, due_date,
+            notes, status, created_by
+          ) VALUES (
+            ${companyId}, ${invoiceNumber}, ${projectId}, ${clientId}::UUID, ${clientId}::UUID, ${bpStart}, ${bpEnd},
+            ${subtotal}, ${rate}, ${taxAmount}, ${totalAmount}, ${invDate},
+            ${dueDate || null}, ${notes || null}, 'draft', ${userId}
+          ) RETURNING id
+        `) as Row[];
+        invoiceId = String(invRows[0]!.id);
+        break;
+      } catch (insertErr) {
+        const msg = insertErr instanceof Error ? insertErr.message : String(insertErr);
+        if (msg.includes('unique') && attempt < 4) continue;
+        throw insertErr;
+      }
+    }
 
     for (const item of items) {
       const qty = item.quantity || 1;

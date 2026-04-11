@@ -27,7 +27,7 @@ const CLEAN = args.includes('--clean');
 const SYS_USER = '00000000-0000-0000-0000-000000000001';
 const TX_PER_CO = 5_000;
 const JE_PER_CO = 200;
-const TX_BATCH   = 50;
+const TX_BATCH   = 25;  // Reduced from 50 to avoid Neon HTTP connection pool limits
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function rand(min: number, max: number) { return Math.random() * (max - min) + min; }
