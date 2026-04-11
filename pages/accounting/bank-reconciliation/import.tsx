@@ -152,7 +152,13 @@ export default function BankStatementImportPage() {
       });
 
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || json.error || 'Import failed');
+      if (!res.ok) {
+        // Server error envelope is { success: false, error: { code, message }, meta }.
+        // Reading json.error directly and passing it to `new Error()` produces
+        // "[object Object]" because the error field is an object, not a string.
+        const serverMsg = json?.error?.message || json?.message || 'Import failed';
+        throw new Error(serverMsg);
+      }
       setResult(json.data || json);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Import failed');
