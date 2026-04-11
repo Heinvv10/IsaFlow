@@ -22,13 +22,13 @@ type Row = Record<string, unknown>;
 
 interface PaymentFilters {
   status?: PaymentStatus;
-  supplierId?: number;
+  supplierId?: string;
   limit?: number;
   offset?: number;
 }
 
 export interface CreatePaymentInput {
-  supplierId: number;
+  supplierId: string;
   paymentDate: string;
   totalAmount: number;
   paymentMethod?: PaymentMethod;

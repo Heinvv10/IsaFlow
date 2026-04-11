@@ -32,7 +32,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
       const result = await getSupplierPayments(companyId, {
         status: status as PaymentStatus | undefined,
-        supplierId: supplier_id ? Number(supplier_id) : undefined,
+        supplierId: supplier_id ? String(supplier_id) : undefined,
         limit: limit ? Number(limit) : undefined,
         offset: offset ? Number(offset) : undefined,
       });
@@ -56,7 +56,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       const userId = req.user.id;
 
       const payment = await createSupplierPayment(companyId, {
-        supplierId: Number(supplierId),
+        supplierId: String(supplierId),
         paymentDate, totalAmount: Number(totalAmount),
         paymentMethod, bankAccountId, reference, description,
         allocations,

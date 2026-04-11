@@ -3,7 +3,8 @@
  * Customer Payment Service
  */
 
-import { sql, withTransaction } from '@/lib/neon';
+import { sql } from '@/lib/neon';
+import { randomUUID } from 'crypto';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from './journalEntryService';
 import { getSystemAccount } from './systemAccountResolver';
@@ -121,32 +122,33 @@ export async function createCustomerPayment(companyId: string,
       throw new Error(`Allocations total R${totalAllocated.toFixed(2)} does not match payment R${input.totalAmount.toFixed(2)}`);
     }
 
-    const paymentRow = await withTransaction(async (tx) => {
-      const rows = (await tx`
+    // Pre-generate UUID so all queries can be batched atomically via HTTP transaction
+    const paymentId = randomUUID();
+
+    await sql.transaction((tx) => [
+      tx`
         INSERT INTO customer_payments (
-          company_id, client_id, payment_date, total_amount, payment_method,
+          id, company_id, client_id, payment_date, total_amount, payment_method,
           bank_reference, bank_account_id, description, project_id, created_by
         ) VALUES (
-          ${companyId}::UUID, ${input.clientId}::UUID, ${input.paymentDate}, ${input.totalAmount},
+          ${paymentId}::UUID, ${companyId}::UUID, ${input.clientId}::UUID, ${input.paymentDate}, ${input.totalAmount},
           ${input.paymentMethod || 'eft'}, ${input.bankReference || null},
           ${input.bankAccountId || null}, ${input.description || null},
           ${input.projectId || null}, ${userId}::UUID
-        ) RETURNING *
-      `) as Row[];
-
-      const paymentId = String(rows[0]!.id);
-
-      for (const alloc of input.allocations) {
-        await tx`
+        )
+      `,
+      ...input.allocations.map(alloc =>
+        tx`
           INSERT INTO customer_payment_allocations (payment_id, invoice_id, amount_allocated)
           VALUES (${paymentId}::UUID, ${alloc.invoiceId}::UUID, ${alloc.amount})
-        `;
-      }
+        `
+      ),
+    ] as ReturnType<typeof tx>[]);
 
-      return rows[0] as Row;
-    });
+    const paymentRows = (await sql`SELECT cp.*, c.name AS client_name FROM customer_payments cp LEFT JOIN customers c ON c.id = cp.client_id WHERE cp.id = ${paymentId}::UUID`) as Row[];
+    const paymentRow = paymentRows[0]!;
 
-    log.info('Created customer payment', { paymentId: String(paymentRow.id), totalAmount: input.totalAmount }, 'accounting');
+    log.info('Created customer payment', { paymentId, totalAmount: input.totalAmount }, 'accounting');
     return mapPaymentRow(paymentRow);
   } catch (err) {
     log.error('Failed to create customer payment', { error: err }, 'accounting');
