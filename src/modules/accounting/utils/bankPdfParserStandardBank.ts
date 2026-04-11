@@ -29,6 +29,77 @@ function hasDebitCreditColumns(headerLine: string): boolean {
   return l.includes('debit') && l.includes('credit');
 }
 
+/**
+ * Parse the "column format" Standard Bank business statements where each
+ * transaction row looks like:
+ *
+ *   <pageNum> <description> <serviceFee> <debit> <credit> <YYYYMMDD> <balance>
+ *
+ * Example (after whitespace collapse):
+ *
+ *   1 ELECTRONIC BANKING PAYMENT TO 0.00 -233,970.00 0.00 20250711 1,066,030.00
+ *   COMME COMMERCIAL MA UYT1813:23
+ *
+ * Non-matching lines that follow a matched row are appended to the
+ * description (sub-line counterparty / reference text). Rows with zero
+ * debit AND zero credit are skipped (header rows like "BALANCE BROUGHT
+ * FORWARD").
+ */
+function parseStandardBankColumnFormat(text: string): BankCsvParseResult {
+  const result: BankCsvParseResult = {
+    transactions: [],
+    errors: [],
+    bankFormat: 'standard_bank',
+  };
+
+  const lines = text.split('\n').map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
+
+  const num = String.raw`(-?\d{1,3}(?:,\d{3})*\.\d{2})`;
+  const rowPat = new RegExp(
+    String.raw`^\d+\s+(.+?)\s+${num}\s+${num}\s+${num}\s+(\d{8})\s+${num}\s*$`,
+  );
+
+  const parseNum = (s: string) => parseFloat(s.replace(/,/g, ''));
+  const parseYyyymmdd = (s: string) =>
+    `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+
+  let last: { idx: number } | null = null;
+
+  for (const line of lines) {
+    const m = line.match(rowPat);
+    if (!m) {
+      // Description continuation line (e.g. "STNDRDBANK BOL OVO21 JUN 25")
+      if (last && !/^(page|date|details|service|statement|\*\*|--|account)/i.test(line)) {
+        const tx = result.transactions[last.idx];
+        if (tx) tx.description = `${tx.description} ${line}`.trim();
+      }
+      continue;
+    }
+
+    const [, descRaw, _fee, debitRaw, creditRaw, dateRaw, balanceRaw] = m;
+    const debit = parseNum(debitRaw!);
+    const credit = parseNum(creditRaw!);
+    const balance = parseNum(balanceRaw!);
+
+    // Skip balance rows (no real transaction)
+    if (debit === 0 && credit === 0) continue;
+
+    const amount = credit !== 0 ? credit : debit;
+    const transactionDate = parseYyyymmdd(dateRaw!);
+    const description = descRaw!.replace(/\s*##\s*$/, '').trim();
+
+    result.transactions.push({
+      transactionDate,
+      amount,
+      description,
+      balance,
+    });
+    last = { idx: result.transactions.length - 1 };
+  }
+
+  return result;
+}
+
 export function parseStandardBankStatement(text: string): BankCsvParseResult {
   const result: BankCsvParseResult = {
     transactions: [],
@@ -38,6 +109,16 @@ export function parseStandardBankStatement(text: string): BankCsvParseResult {
 
   const accountNumber = extractAccountNumber(text) ?? undefined;
   if (accountNumber) result.accountNumber = accountNumber;
+
+  // Try the column-based format first (Business Online / Current Account
+  // statements). If it finds rows, return directly — otherwise fall through
+  // to the older row-with-leading-date parser below.
+  const columnResult = parseStandardBankColumnFormat(text);
+  if (columnResult.transactions.length > 0) {
+    if (accountNumber) columnResult.accountNumber = accountNumber;
+    return columnResult;
+  }
+
   const lines = text.split('\n');
 
   // Find header row
