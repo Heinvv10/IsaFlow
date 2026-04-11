@@ -8,10 +8,10 @@
  * All queries are company_id scoped.
  */
 
-import type { NextApiRequest, NextApiResponse } from 'next';
+import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest } from '@/lib/auth';
+import { withCompany, withWriteAccess, type CompanyApiRequest, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { sendStatementEmail } from '@/modules/accounting/services/statementEmailService';
@@ -31,7 +31,10 @@ async function getCompanyName(companyId: string): Promise<string> {
   }
 }
 
-async function handler(req: NextApiRequest, res: NextApiResponse) {
+// Cap the number of customers per request to prevent bulk-email abuse
+const MAX_BATCH_SIZE = 100;
+
+async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
@@ -47,6 +50,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Validate input
   if (!Array.isArray(body.customer_ids) || body.customer_ids.length === 0) {
     return apiResponse.badRequest(res, 'customer_ids must be a non-empty array');
+  }
+
+  if (body.customer_ids.length > MAX_BATCH_SIZE) {
+    return apiResponse.badRequest(res, `customer_ids must not exceed ${MAX_BATCH_SIZE} per request`);
   }
 
   const customerIds = body.customer_ids as unknown[];
@@ -113,5 +120,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, { sent, failed, errors });
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withCompany(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(withWriteAccess(handler as never)));
