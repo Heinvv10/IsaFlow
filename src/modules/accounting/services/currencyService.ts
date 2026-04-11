@@ -28,9 +28,18 @@ export interface ExchangeRate {
 // ── Currencies ──────────────────────────────────────────────────────────────
 
 export async function getCurrencies(companyId: string, activeOnly = true): Promise<Currency[]> {
+  // Returns global currencies (company_id IS NULL) plus any company-specific overrides.
   const rows = activeOnly
-    ? ((await sql`SELECT * FROM currencies WHERE company_id = ${companyId} AND is_active = true ORDER BY code`) as Row[])
-    : ((await sql`SELECT * FROM currencies WHERE company_id = ${companyId} ORDER BY code`) as Row[]);
+    ? ((await sql`
+        SELECT * FROM currencies
+        WHERE (company_id = ${companyId} OR company_id IS NULL) AND is_active = true
+        ORDER BY code
+      `) as Row[])
+    : ((await sql`
+        SELECT * FROM currencies
+        WHERE (company_id = ${companyId} OR company_id IS NULL)
+        ORDER BY code
+      `) as Row[]);
   return rows.map(mapCurrency);
 }
 
@@ -101,7 +110,7 @@ export async function setExchangeRate(companyId: string, input: {
   const rows = (await sql`
     INSERT INTO exchange_rates (company_id, from_currency, to_currency, rate, effective_date, source, created_by)
     VALUES (${companyId}, ${input.fromCurrency}, ${input.toCurrency}, ${input.rate},
-            ${input.effectiveDate}::DATE, ${input.source || 'manual'}, ${userId}::UUID)
+            ${input.effectiveDate}::DATE, ${input.source || 'manual'}, ${userId})
     ON CONFLICT (company_id, from_currency, to_currency, effective_date)
     DO UPDATE SET rate = EXCLUDED.rate, source = EXCLUDED.source, created_by = EXCLUDED.created_by
     RETURNING *
@@ -111,6 +120,18 @@ export async function setExchangeRate(companyId: string, input: {
     rate: input.rate, date: input.effectiveDate,
   }, 'accounting');
   return mapRate(rows[0]!);
+}
+
+export async function deleteExchangeRate(companyId: string, id: string): Promise<void> {
+  const rows = (await sql`
+    DELETE FROM exchange_rates
+    WHERE id = ${id}::UUID AND company_id = ${companyId}
+    RETURNING id
+  `) as Row[];
+  if (rows.length === 0) {
+    throw new Error(`Exchange rate ${id} not found for company ${companyId}`);
+  }
+  log.info('Deleted exchange rate', { id, companyId }, 'accounting');
 }
 
 export async function convertAmount(companyId: string, 

@@ -13,6 +13,7 @@ import {
   setExchangeRate,
   getLatestRate,
   convertAmount,
+  deleteExchangeRate,
 } from '@/modules/accounting/services/currencyService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -63,7 +64,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, result);
   }
 
-  return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'POST']);
+  if (req.method === 'DELETE') {
+    const { id } = req.query;
+    if (!id || typeof id !== 'string') {
+      return apiResponse.badRequest(res, 'id query parameter is required');
+    }
+    await deleteExchangeRate(companyId, id);
+    return apiResponse.success(res, { deleted: true });
+  }
+
+  return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'POST', 'DELETE']);
 }
 
  
