@@ -69,7 +69,6 @@ export default function RegisterPage() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
-  const [emailLocked, setEmailLocked] = useState(false);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -80,7 +79,11 @@ export default function RegisterPage() {
 
   const strength = password ? checkClientPasswordStrength(password) : null;
 
-  // Load invite data when token is present
+  // Load invite data when token is present.
+  // NOTE: the API returns the invitee's email in MASKED form (e.g. "f***@x.com")
+  // to prevent enumeration via the public token URL, so we must NOT pre-fill or
+  // lock the email field from it. The user has to type their real email and the
+  // server-side invite-accept step will verify it matches the stored invitation.
   useEffect(() => {
     if (!inviteToken) return;
 
@@ -88,10 +91,7 @@ export default function RegisterPage() {
       .then((r) => (r.ok ? r.json() : null))
       .then((json) => {
         if (json?.data) {
-          const data = json.data as InviteData;
-          setInviteData(data);
-          setEmail(data.email);
-          setEmailLocked(true);
+          setInviteData(json.data as InviteData);
         }
       })
       .catch(() => null);
@@ -102,10 +102,38 @@ export default function RegisterPage() {
     ? `/login?registered=1&invite=${inviteToken}`
     : '/login?registered=1';
 
-  // Figure out where to send an authenticated user after register:
+  // Accept the invite (if present) now that the user is authenticated, then
+  // figure out where to send them:
+  // - Came from an invite → accept → /accounting (they're in an existing company)
   // - No companies yet → /onboarding wizard
-  // - Already has a company (invite flow) → /accounting
+  // - Already has a company → /accounting
   const postRegisterRedirect = async (): Promise<string> => {
+    if (inviteToken) {
+      try {
+        const acceptRes = await fetch(`/api/invite/${inviteToken}`, {
+          method: 'POST',
+          credentials: 'include',
+        });
+        if (acceptRes.ok) {
+          // Invitation accepted — the user is now in the inviting company.
+          return '/accounting';
+        }
+        // 403 usually means "this invitation was sent to a different email".
+        // Surface the server message to the user instead of silently landing
+        // them on the wrong screen.
+        const body = (await acceptRes.json().catch(() => ({}))) as {
+          error?: { message?: string };
+        };
+        setError(
+          body.error?.message ??
+            'Could not accept the invitation. It may have expired or been sent to a different email.',
+        );
+        // Fall through to /accounting anyway — they have a valid session.
+      } catch {
+        // Network error on accept — non-fatal, let them into the app.
+      }
+    }
+
     try {
       const res = await fetch('/api/accounting/companies?action=user-companies', {
         credentials: 'include',
@@ -250,18 +278,14 @@ export default function RegisterPage() {
                 required
                 value={email}
                 onChange={e => { setError(''); setEmail(e.target.value); }}
-                disabled={submitting || emailLocked}
-                readOnly={emailLocked}
-                className={`w-full bg-gray-800 border rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition ${
-                  emailLocked
-                    ? 'border-teal-700/50 text-gray-400 cursor-not-allowed'
-                    : 'border-gray-600 disabled:opacity-50'
-                }`}
+                disabled={submitting}
+                className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition"
                 placeholder="you@example.com"
               />
-              {emailLocked && (
+              {inviteData && (
                 <p className="mt-1 text-xs text-gray-500">
-                  Email address is set by the invitation.
+                  Enter the email address this invitation was sent to
+                  ({inviteData.email}).
                 </p>
               )}
             </div>
