@@ -4,8 +4,9 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { Users, User, Plus, Trash2, Star, Loader2 } from 'lucide-react';
+import { Users, User, Plus, Trash2, Star, Loader2, AlertCircle } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 
 interface SupplierContact {
   id: string;
@@ -21,17 +22,22 @@ const EMPTY_FORM = { fullName: '', role: '', email: '', phone: '', isPrimary: fa
 export function ContactsTab({ supplierId }: { supplierId: string }) {
   const [contacts, setContacts] = useState<SupplierContact[]>([]);
   const [loading, setLoading]   = useState(true);
+  const [error, setError]       = useState('');
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving]     = useState(false);
   const [form, setForm]         = useState(EMPTY_FORM);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError('');
     try {
       const res  = await apiFetch(`/api/accounting/supplier-contacts?supplierId=${supplierId}`);
       const json = await res.json() as { data?: SupplierContact[] } | SupplierContact[];
       const data = (json as { data?: SupplierContact[] }).data ?? (json as SupplierContact[]);
       setContacts(data);
+    } catch (err) {
+      log.error('Failed to load supplier contacts', { supplierId, error: err }, 'contacts-tab');
+      setError('Failed to load contacts');
     } finally {
       setLoading(false);
     }
@@ -42,6 +48,7 @@ export function ContactsTab({ supplierId }: { supplierId: string }) {
   const handleAdd = async () => {
     if (!form.fullName.trim()) return;
     setSaving(true);
+    setError('');
     try {
       await apiFetch('/api/accounting/supplier-contacts', {
         method: 'POST',
@@ -51,14 +58,23 @@ export function ContactsTab({ supplierId }: { supplierId: string }) {
       setForm(EMPTY_FORM);
       setShowForm(false);
       void load();
+    } catch (err) {
+      log.error('Failed to add supplier contact', { supplierId, error: err }, 'contacts-tab');
+      setError('Failed to save contact');
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async (id: string) => {
-    await apiFetch(`/api/accounting/supplier-contacts?id=${id}`, { method: 'DELETE' });
-    void load();
+    setError('');
+    try {
+      await apiFetch(`/api/accounting/supplier-contacts?id=${id}`, { method: 'DELETE' });
+      void load();
+    } catch (err) {
+      log.error('Failed to delete supplier contact', { id, error: err }, 'contacts-tab');
+      setError('Failed to delete contact');
+    }
   };
 
   if (loading) {
@@ -71,6 +87,11 @@ export function ContactsTab({ supplierId }: { supplierId: string }) {
 
   return (
     <div className="space-y-4">
+      {error && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+          <AlertCircle className="h-4 w-4 shrink-0" /> {error}
+        </div>
+      )}
       <div className="flex justify-between items-center">
         <h3 className="text-sm font-medium text-[var(--ff-text-secondary)] uppercase tracking-wide">
           Contacts
@@ -124,7 +145,7 @@ export function ContactsTab({ supplierId }: { supplierId: string }) {
           </label>
           <div className="flex gap-2">
             <button
-              onClick={handleAdd}
+              onClick={() => void handleAdd()}
               disabled={saving || !form.fullName.trim()}
               className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium transition-colors"
             >
@@ -185,7 +206,7 @@ export function ContactsTab({ supplierId }: { supplierId: string }) {
               </div>
             </div>
             <button
-              onClick={() => handleDelete(contact.id)}
+              onClick={() => void handleDelete(contact.id)}
               title="Delete contact"
               className="p-1.5 rounded hover:bg-red-500/10 text-[var(--ff-text-tertiary)] hover:text-red-400 transition-colors shrink-0"
             >

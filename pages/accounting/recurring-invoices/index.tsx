@@ -76,6 +76,7 @@ export default function RecurringInvoicesPage() {
     try {
       await apiFetch('/api/accounting/recurring-invoices-action', {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, id }),
       });
       await load();
@@ -94,6 +95,7 @@ export default function RecurringInvoicesPage() {
     try {
       const res = await apiFetch('/api/accounting/recurring-invoices-run', {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ recurring_invoice_id: id }),
       });
       const json = await res.json() as { data?: RunResult };
@@ -115,6 +117,7 @@ export default function RecurringInvoicesPage() {
     try {
       const res = await apiFetch('/api/accounting/recurring-invoices-run', {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
       const json = await res.json() as { data?: RunResult };

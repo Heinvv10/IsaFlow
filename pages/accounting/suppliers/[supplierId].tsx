@@ -32,7 +32,7 @@ export default function SupplierDetailPage() {
 
   useEffect(() => {
     if (!supplierId) return;
-    loadSupplier();
+    void loadSupplier();
   }, [supplierId]);
 
   const loadSupplier = async () => {

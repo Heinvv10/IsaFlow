@@ -127,6 +127,7 @@ export default function StatementsPage() {
     try {
       const res = await apiFetch('/api/accounting/customer-statements-send', {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           customer_ids: Array.from(selected),
           as_at_date: asAtDate,

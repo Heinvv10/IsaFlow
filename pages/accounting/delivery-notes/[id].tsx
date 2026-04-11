@@ -143,7 +143,7 @@ export default function DeliveryNoteDetailPage() {
                 </span>
                 {note.status === 'draft' && (
                   <button
-                    onClick={() => handleStatusChange('dispatched')}
+                    onClick={() => void handleStatusChange('dispatched')}
                     disabled={patching}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-50"
                   >
@@ -153,7 +153,7 @@ export default function DeliveryNoteDetailPage() {
                 )}
                 {note.status === 'dispatched' && (
                   <button
-                    onClick={() => handleStatusChange('delivered')}
+                    onClick={() => void handleStatusChange('delivered')}
                     disabled={patching}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-teal-600 hover:bg-teal-500 text-white rounded-lg disabled:opacity-50"
                   >
@@ -163,7 +163,7 @@ export default function DeliveryNoteDetailPage() {
                 )}
                 {note.status !== 'cancelled' && note.status !== 'delivered' && (
                   <button
-                    onClick={handleCancel}
+                    onClick={() => void handleCancel()}
                     disabled={patching}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-red-500/30 hover:bg-red-500/10 text-red-400 rounded-lg disabled:opacity-50"
                   >

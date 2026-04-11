@@ -196,7 +196,7 @@ export default function DeliveryNotesPage() {
                         >
                           {n.status === 'draft' && (
                             <button
-                              onClick={() => handleStatusChange(n.id, 'dispatched')}
+                              onClick={() => void handleStatusChange(n.id, 'dispatched')}
                               disabled={patching === n.id}
                               title="Mark Dispatched"
                               className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 disabled:opacity-50"
@@ -211,7 +211,7 @@ export default function DeliveryNotesPage() {
                           )}
                           {n.status === 'dispatched' && (
                             <button
-                              onClick={() => handleStatusChange(n.id, 'delivered')}
+                              onClick={() => void handleStatusChange(n.id, 'delivered')}
                               disabled={patching === n.id}
                               title="Mark Delivered"
                               className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-teal-500/10 hover:bg-teal-500/20 text-teal-400 disabled:opacity-50"
@@ -226,7 +226,7 @@ export default function DeliveryNotesPage() {
                           )}
                           {n.status !== 'cancelled' && n.status !== 'delivered' && (
                             <button
-                              onClick={() => handleCancel(n.id)}
+                              onClick={() => void handleCancel(n.id)}
                               disabled={deleting === n.id}
                               title="Cancel"
                               className="p-1.5 rounded hover:bg-red-500/10 text-red-400 disabled:opacity-50"
