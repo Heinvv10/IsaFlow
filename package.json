@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3200",
     "build": "NODE_OPTIONS=--max-old-space-size=4096 next build",
-    "start": "next start",
+    "start": "next start -p 3200",
     "lint": "eslint src pages --ext ts,tsx --report-unused-disable-directives",
     "type-check": "tsc --noEmit",
     "test:unit": "vitest run",
