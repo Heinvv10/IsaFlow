@@ -199,7 +199,7 @@ export async function getJournalCountsByYear(companyId: string, fiscalYear: numb
     const rows = (await sql`
       SELECT fp.id, COUNT(je.id)::int AS je_count
       FROM fiscal_periods fp
-      LEFT JOIN journal_entries je ON je.fiscal_period_id = fp.id AND je.company_id = ${companyId}
+      LEFT JOIN gl_journal_entries je ON je.fiscal_period_id = fp.id AND je.company_id = ${companyId}
       WHERE fp.company_id = ${companyId} AND fp.fiscal_year = ${fiscalYear}
       GROUP BY fp.id
     `) as Row[];

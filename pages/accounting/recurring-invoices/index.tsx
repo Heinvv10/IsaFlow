@@ -205,12 +205,19 @@ export default function RecurringInvoicesPage() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {items.filter(i => i.status === 'active' && isOverdue(i.nextRunDate)).length > 0 && (
-                <button onClick={() => void runAllDue()} disabled={runAllBusy} className="inline-flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium disabled:opacity-50">
-                  {runAllBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
-                  Run All Due ({items.filter(i => i.status === 'active' && isOverdue(i.nextRunDate)).length})
-                </button>
-              )}
+              {(() => {
+                const dueCount = items.filter(i => i.status === 'active' && isOverdue(i.nextRunDate)).length;
+                return (
+                  <button
+                    onClick={() => void runAllDue()}
+                    disabled={runAllBusy || dueCount === 0}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium disabled:opacity-50"
+                  >
+                    {runAllBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+                    Run All Due{dueCount > 0 ? ` (${dueCount})` : ''}
+                  </button>
+                );
+              })()}
               {items.length > 0 && (
                 <button onClick={exportCSV} className="inline-flex items-center gap-2 px-3 py-2 border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] rounded-lg hover:bg-[var(--ff-bg-primary)] text-sm">
                   <Download className="h-4 w-4" /> CSV
