@@ -50,10 +50,13 @@ describe('parseBankPdf — real fixture regressions', () => {
       expect(result.accountNumber).toBe('4096451384');
     });
 
-    it('parses exactly 80 transactions with zero errors', () => {
+    it('parses exactly 117 transactions with zero errors', () => {
       if (!result) return;
       expect(result.errors.length).toBe(0);
-      expect(result.transactions.length).toBe(80);
+      // Note: was 80 before the regex was relaxed to accept 1-2 digit day
+      // components (some rows on this statement use "1/06/2022" not
+      // "01/06/2022" and were silently dropped).
+      expect(result.transactions.length).toBe(117);
     });
 
     it('derives negative signs from running balance deltas', () => {
@@ -81,6 +84,51 @@ describe('parseBankPdf — real fixture regressions', () => {
       // No parsed description should end with the fee column pattern
       for (const tx of result.transactions) {
         expect(tx.description).not.toMatch(/Settlement\s+\d[\d\s,]*\.\d{2}\s+[TA]$/i);
+      }
+    });
+
+    it('stitches counterparty continuation lines onto the description', () => {
+      if (!result) return;
+      // Expected real descriptions we know should appear once continuation
+      // stitching works. These are on page-middle transactions so they
+      // exercise the happy path, not the page-boundary cutoff.
+      const descs = result.transactions.map(t => t.description);
+      expect(descs.some(d => d.includes('Frogfoot'))).toBe(true);
+      expect(descs.some(d => d.includes('Vox Telecom'))).toBe(true);
+      expect(descs.some(d => d.includes('Open Fibre'))).toBe(true);
+    });
+
+    it('does not absorb page footer or next-page header text', () => {
+      if (!result) return;
+      // None of these phrases should ever appear in a transaction
+      // description — they are page footer / legal boilerplate that
+      // the page-boundary detector must block during continuation
+      // stitching.
+      const forbidden = [
+        'NCRCP7',
+        'Authorised Financial Services Provider',
+        'Registration Number',
+        'Tax Invoice',
+        'YOUR PRICING PLAN',
+        'Date Transaction Description',
+        'Cheque Account Number',
+        'CHARGE LEGEND',
+      ];
+      for (const tx of result.transactions) {
+        for (const phrase of forbidden) {
+          expect(tx.description).not.toContain(phrase);
+        }
+      }
+    });
+
+    it('caps description length to prevent runaway bleed', () => {
+      if (!result) return;
+      // Empirically the longest legitimate description on this statement
+      // is ~65 chars (counterparty + reference). Anything over 200 chars
+      // means page-footer bleed slipped through — hard failure so we
+      // notice the regression.
+      for (const tx of result.transactions) {
+        expect(tx.description.length).toBeLessThan(200);
       }
     });
   });
