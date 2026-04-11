@@ -11,6 +11,7 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withCompany } from '@/lib/auth/withCompany';
+import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { suggestDescriptions } from '@/modules/accounting/services/descriptionTemplateService';
@@ -36,4 +37,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, { suggestions });
 }
 
-export default withCompany(withErrorHandler(handler));
+export default withCompany(withErrorHandler(withWriteAccess(handler)));

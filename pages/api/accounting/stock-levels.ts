@@ -4,7 +4,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withCompany, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import type { CompanyApiRequest } from '@/lib/auth/withCompany';
 type Row = Record<string, unknown>;
@@ -26,4 +26,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   };
   return apiResponse.success(res, { items: rows, summary });
 }
-export default withCompany(withErrorHandler(handler));
+export default withCompany(withErrorHandler(withWriteAccess(handler)));

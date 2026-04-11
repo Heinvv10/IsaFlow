@@ -4,7 +4,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withCompany, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { validateProject } from '@/modules/accounting/services/projectAccountingService';
@@ -46,4 +46,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST']);
 }
-export default withCompany(withErrorHandler(handler));
+export default withCompany(withErrorHandler(withWriteAccess(handler)));

@@ -4,7 +4,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { generateReminderMessage, selectReminderTone, calculateEscalationLevel, buildCollectionPlan, type DebtorProfile } from '@/modules/accounting/services/smartCollectionsService';
 type Row = Record<string, unknown>;
@@ -35,4 +35,4 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
 
   return apiResponse.success(res, { message, tone, escalation, plan, debtor: { name: c.name, outstanding, overdueDays: oldestDue, invoiceCount } });
 }
-export default withCompany(withErrorHandler(handler));
+export default withCompany(withErrorHandler(withWriteAccess(handler)));
