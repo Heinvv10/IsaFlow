@@ -79,10 +79,10 @@ export async function createBatch(companyId: string,
 
       const payRows = (await tx`
         INSERT INTO supplier_payments (
-          supplier_id, payment_date, total_amount, payment_method,
+          company_id, supplier_id, payment_date, total_amount, payment_method,
           status, batch_id, created_by
         ) VALUES (
-          ${p.supplierId}::UUID, ${batchDate},
+          ${companyId}::UUID, ${p.supplierId}::UUID, ${batchDate},
           ${payTotal}, ${paymentMethod}, 'draft', ${id}::UUID, ${userId}::UUID
         ) RETURNING id
       `) as Record<string, unknown>[];

@@ -110,10 +110,10 @@ export async function generateInvoiceFromRecurring(companyId: string,
   const invoiceId = await withTransaction(async (tx) => {
     const inv = (await tx`
       INSERT INTO customer_invoices (
-        client_id, project_id, invoice_date, due_date, subtotal,
+        company_id, client_id, project_id, invoice_date, due_date, subtotal,
         tax_amount, total_amount, status, description, created_by
       ) VALUES (
-        ${ri.client_id}::UUID, ${ri.project_id || null},
+        ${companyId}::UUID, ${ri.client_id}::UUID, ${ri.project_id || null},
         CURRENT_DATE, CURRENT_DATE + INTERVAL '30 days',
         ${Number(ri.subtotal)}, ${Number(ri.tax_amount)}, ${Number(ri.total_amount)},
         'approved', ${ri.description || ri.template_name}, ${userId}::UUID

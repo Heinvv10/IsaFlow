@@ -124,10 +124,10 @@ export async function createCustomerPayment(companyId: string,
     const paymentRow = await withTransaction(async (tx) => {
       const rows = (await tx`
         INSERT INTO customer_payments (
-          client_id, payment_date, total_amount, payment_method,
+          company_id, client_id, payment_date, total_amount, payment_method,
           bank_reference, bank_account_id, description, project_id, created_by
         ) VALUES (
-          ${input.clientId}::UUID, ${input.paymentDate}, ${input.totalAmount},
+          ${companyId}::UUID, ${input.clientId}::UUID, ${input.paymentDate}, ${input.totalAmount},
           ${input.paymentMethod || 'eft'}, ${input.bankReference || null},
           ${input.bankAccountId || null}, ${input.description || null},
           ${input.projectId || null}, ${userId}::UUID
