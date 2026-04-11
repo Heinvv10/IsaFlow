@@ -1,156 +1,239 @@
 /**
  * Bank Statement Import API
  * POST /api/accounting/bank-transactions-import
- *   Import CSV or PDF bank statement
  *
- * Body (CSV):
- *   { csvContent, bankAccountId, statementDate, bankFormat?, fileType?: 'csv' }
+ * Commit step of the import flow. The preview is served by
+ * /api/accounting/bank-transactions-import-preview and returns the same
+ * parsed metadata (detected bank, matched account, dedupe counts, rule
+ * match count) without writing anything — the UI should call preview
+ * first, show the review panel, then POST here to commit.
  *
  * Body (PDF):
- *   { pdfBase64, bankAccountId, statementDate, bankFormat?, fileType: 'pdf' }
+ *   { pdfBase64, bankAccountId, statementDate,
+ *     bankFormat?, fileType: 'pdf',
+ *     applyBankRules?: boolean }
+ *
+ * Body (CSV / OFX / QIF):
+ *   { csvContent, bankAccountId, statementDate,
+ *     bankFormat?, fileType: 'csv' | 'ofx' | 'qif',
+ *     applyBankRules?: boolean }
+ *
+ * Security:
+ *   - withWriteAccess (owner/admin/manager default)
+ *   - PDF path: compares the extracted account # against the selected
+ *     bank account's stored number (same gate as before). Mismatch → 403.
+ *   - Duplicate rows (matching content hash already present on the
+ *     target account) are silently skipped on insert. Returned counts
+ *     tell the UI how many were new vs duplicate.
+ *   - Optional applyBankRules=true calls bankRulesService.applyRules
+ *     after the insert, which populates suggestion fields on the new
+ *     rows (no journal entries are posted).
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
+import { withCompany, type CompanyApiRequest, withWriteAccess } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
-import { importBankStatement, importParsedTransactions } from '@/modules/accounting/services/bankReconciliationService';
-import { parseBankPdf } from '@/modules/accounting/utils/bankPdfParser';
+import { importParsedTransactions } from '@/modules/accounting/services/bankReconciliationService';
+import { applyRules as applyBankRulesService } from '@/modules/accounting/services/bankRulesService';
+import {
+  parseStatement,
+  type StatementFileType,
+} from '@/modules/accounting/services/bankStatementParseService';
 import { compareBankAccountNumbers } from '@/modules/accounting/utils/bankAccountNumberMatch';
-import type { BankFormat } from '@/modules/accounting/types/bank.types';
+import {
+  bankTransactionHash,
+  type HashableTransaction,
+} from '@/modules/accounting/utils/bankTransactionHash';
+import type { BankCsvParseResult, BankFormat } from '@/modules/accounting/types/bank.types';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
   }
 
-  const { companyId } = req as CompanyApiRequest;
+  const authReq = req as CompanyApiRequest;
+  const { companyId } = authReq;
 
-  try {
-    const {
-      csvContent,
-      pdfBase64,
-      fileType,
-      bankAccountId,
-      statementDate,
-      bankFormat,
-    } = req.body as {
-      csvContent?: string;
-      pdfBase64?: string;
-      fileType?: 'csv' | 'pdf';
-      bankAccountId: string;
-      statementDate: string;
-      bankFormat?: string;
-    };
+  const {
+    csvContent,
+    pdfBase64,
+    fileType,
+    bankAccountId,
+    statementDate,
+    bankFormat,
+    applyBankRules,
+  } = req.body as {
+    csvContent?: string;
+    pdfBase64?: string;
+    fileType?: StatementFileType;
+    bankAccountId: string;
+    statementDate: string;
+    bankFormat?: BankFormat;
+    applyBankRules?: boolean;
+  };
 
-    if (!bankAccountId || !statementDate) {
-      return apiResponse.badRequest(res, 'bankAccountId and statementDate are required');
-    }
-
-    // Look up the stored account number for the selected bank account.
-    // Used as one side of the security gate below. Scoped by company so the
-    // caller can't probe arbitrary accounts even if they know an ID.
-    const accountRows = (await sql`
-      SELECT bank_account_number
-      FROM gl_accounts
-      WHERE id = ${String(bankAccountId)}
-        AND company_id = ${companyId}
-        AND account_subtype = 'bank'
-      LIMIT 1
-    `) as Array<{ bank_account_number: string | null }>;
-    if (accountRows.length === 0) {
-      return apiResponse.badRequest(res, 'Selected bank account not found for this company');
-    }
-    const storedAccountNumber = accountRows[0]?.bank_account_number ?? null;
-
-    const resolvedFileType: 'csv' | 'pdf' = fileType || (pdfBase64 ? 'pdf' : 'csv');
-
-    if (resolvedFileType === 'pdf') {
-      if (!pdfBase64) {
-        return apiResponse.badRequest(res, 'pdfBase64 is required for PDF imports');
-      }
-
-      // Strip data-URL prefix if present: "data:application/pdf;base64,<data>"
-      const base64Data = pdfBase64.includes(',') ? pdfBase64.split(',')[1]! : pdfBase64;
-      const pdfBuffer = Buffer.from(base64Data, 'base64');
-
-      log.info('Starting PDF bank statement import', {
-        bankAccountId, statementDate, bankFormat, bufferSize: pdfBuffer.length,
-      }, 'accounting-api');
-
-      const parseResult = await parseBankPdf(pdfBuffer, bankFormat);
-
-      if (parseResult.errors.length > 0 && parseResult.transactions.length === 0) {
-        return apiResponse.badRequest(res, parseResult.errors[0]!.error);
-      }
-
-      // 🔒 Security gate: if the parser extracted an account number from
-      // the statement header, it MUST match the selected bank account's
-      // stored number. This prevents importing Account A's statement into
-      // Account B (accidental or otherwise).
-      const match = compareBankAccountNumbers(
-        parseResult.accountNumber ?? null,
-        storedAccountNumber,
-      );
-      if (match === 'mismatch') {
-        log.warn('Bank statement import blocked: account number mismatch', {
-          bankAccountId, companyId,
-          statementAccountNumber: parseResult.accountNumber,
-          // Don't log the stored number — it's a real customer secret.
-        }, 'accounting-api');
-        return apiResponse.forbidden(
-          res,
-          'This statement belongs to a different bank account than the one you selected. ' +
-            'Please choose the correct account or upload the matching statement.',
-        );
-      }
-      if (match === 'indeterminate') {
-        log.info('Bank statement account number could not be verified — import allowed', {
-          bankAccountId, bankFormat: parseResult.bankFormat,
-        }, 'accounting-api');
-      }
-
-      const result = await importParsedTransactions(
-        companyId,
-        parseResult,
-        String(bankAccountId),
-        String(statementDate),
-      );
-
-      return apiResponse.created(res, result);
-    }
-
-    // Default: CSV import
-    if (!csvContent) {
-      return apiResponse.badRequest(res, 'csvContent is required for CSV imports');
-    }
-
-    // CSV imports cannot be verified against the statement header —
-    // bank CSV exports don't include the account number. We rely entirely
-    // on the bankAccountId the user selected in the UI. Log the fact that
-    // this import bypasses the account-match security gate so audits can
-    // find it. PDFs get the real check above.
-    log.info('CSV bank statement import — account match skipped (CSV format has no account header)', {
-      bankAccountId, companyId, csvSize: csvContent.length,
-    }, 'accounting-api');
-
-    const result = await importBankStatement(
-      companyId,
-      csvContent,
-      String(bankAccountId),
-      String(statementDate),
-      (bankFormat || undefined) as BankFormat | undefined,
-    );
-
-    return apiResponse.created(res, result);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to import bank statement';
-    log.error('Failed to import bank statement', { error: err }, 'accounting-api');
-    return apiResponse.badRequest(res, message);
+  if (!bankAccountId || !statementDate) {
+    return apiResponse.badRequest(res, 'bankAccountId and statementDate are required');
   }
+
+  // 1. Verify the selected bank account belongs to this company and
+  //    fetch its stored account number for the PDF security gate.
+  const accountRows = (await sql`
+    SELECT bank_account_number
+    FROM gl_accounts
+    WHERE id = ${String(bankAccountId)}
+      AND company_id = ${companyId}
+      AND account_subtype = 'bank'
+      AND is_active = true
+    LIMIT 1
+  `) as Array<{ bank_account_number: string | null }>;
+  if (accountRows.length === 0) {
+    return apiResponse.badRequest(res, 'Selected bank account not found for this company');
+  }
+  const storedAccountNumber = accountRows[0]?.bank_account_number ?? null;
+
+  const resolvedFileType: StatementFileType = fileType ?? (pdfBase64 ? 'pdf' : 'csv');
+
+  // 2. Parse via the shared service (same code path as preview).
+  let parseResult: BankCsvParseResult;
+  try {
+    parseResult = await parseStatement({
+      fileType: resolvedFileType,
+      pdfBase64,
+      csvContent,
+      bankFormat,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Failed to parse statement';
+    log.warn('Bank import parse failed', { error: msg, fileType: resolvedFileType }, 'accounting-api');
+    return apiResponse.badRequest(res, msg);
+  }
+
+  if (parseResult.errors.length > 0 && parseResult.transactions.length === 0) {
+    return apiResponse.badRequest(res, parseResult.errors[0]!.error);
+  }
+
+  // 3. Security gate on PDFs: if the parser extracted an account number
+  //    from the statement header, it MUST match the selected bank
+  //    account's stored number.
+  if (resolvedFileType === 'pdf' && parseResult.accountNumber) {
+    const match = compareBankAccountNumbers(parseResult.accountNumber, storedAccountNumber);
+    if (match === 'mismatch') {
+      log.warn('Bank statement import blocked: account number mismatch', {
+        bankAccountId, companyId,
+        statementAccountNumber: parseResult.accountNumber,
+        // Don't log the stored number — customer secret.
+      }, 'accounting-api');
+      return apiResponse.forbidden(
+        res,
+        'This statement belongs to a different bank account than the one you selected. ' +
+          'Please choose the correct account or upload the matching statement.',
+      );
+    }
+  }
+
+  // 4. Duplicate detection. Pre-load existing bank_transactions in the
+  //    statement's date range and skip any parsed row whose content
+  //    hash already exists. This is what stops double-imports.
+  let dedupedTxs = parseResult.transactions;
+  let duplicateCount = 0;
+
+  if (parseResult.transactions.length > 0) {
+    // Compute the date window from the parsed file itself.
+    const dates = parseResult.transactions
+      .map(t => t.transactionDate)
+      .filter(d => /^\d{4}-\d{2}-\d{2}/.test(d))
+      .sort();
+    const from = dates[0];
+    const to = dates[dates.length - 1];
+
+    if (from && to) {
+      const existing = (await sql`
+        SELECT transaction_date::text AS transaction_date, amount, description
+        FROM bank_transactions
+        WHERE bank_account_id = ${String(bankAccountId)}
+          AND transaction_date BETWEEN ${from} AND ${to}
+      `) as Array<{ transaction_date: string; amount: string | number; description: string | null }>;
+
+      const existingHashes = new Set<string>();
+      for (const row of existing) {
+        const hashable: HashableTransaction = {
+          transactionDate: row.transaction_date,
+          amount: Number(row.amount),
+          description: row.description ?? '',
+        };
+        existingHashes.add(bankTransactionHash(hashable));
+      }
+
+      dedupedTxs = parseResult.transactions.filter(tx => {
+        const h = bankTransactionHash(tx);
+        if (existingHashes.has(h)) {
+          duplicateCount++;
+          return false;
+        }
+        return true;
+      });
+    }
+  }
+
+  // 5. Insert the non-duplicate rows. Short-circuit if nothing to insert.
+  if (dedupedTxs.length === 0) {
+    log.info('Bank import: all rows are duplicates, nothing inserted', {
+      bankAccountId, companyId, totalParsed: parseResult.transactions.length,
+    }, 'accounting-api');
+    return apiResponse.created(res, {
+      batchId: '',
+      transactionCount: 0,
+      duplicateCount,
+      totalParsed: parseResult.transactions.length,
+      appliedRules: 0,
+      errors: parseResult.errors,
+    });
+  }
+
+  const filteredResult: BankCsvParseResult = {
+    ...parseResult,
+    transactions: dedupedTxs,
+  };
+
+  const result = await importParsedTransactions(
+    companyId,
+    filteredResult,
+    String(bankAccountId),
+    String(statementDate),
+  );
+
+  // 6. Optionally apply bank rules to the newly-inserted transactions.
+  //    The service mutates suggested_* fields in place — no journal
+  //    entries are posted.
+  let appliedRuleCount = 0;
+  if (applyBankRules === true) {
+    try {
+      const ruleResult = await applyBankRulesService(
+        companyId,
+        String(bankAccountId),
+        authReq.user.id,
+      );
+      appliedRuleCount = ruleResult.applied;
+      log.info('Bank rules applied after import', {
+        bankAccountId, applied: appliedRuleCount,
+      }, 'accounting-api');
+    } catch (err) {
+      log.warn('Failed to apply bank rules after import', { error: err }, 'accounting-api');
+    }
+  }
+
+  return apiResponse.created(res, {
+    batchId: result.batchId,
+    transactionCount: result.transactionCount,
+    duplicateCount,
+    totalParsed: parseResult.transactions.length,
+    appliedRules: appliedRuleCount,
+    errors: result.errors,
+  });
 }
 
- 
 export default withCompany(withErrorHandler(withWriteAccess(handler)));
