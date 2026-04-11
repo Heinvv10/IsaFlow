@@ -214,6 +214,65 @@ export async function updateQuoteStatus(companyId: string, id: string, status: s
   return getQuote(companyId, id);
 }
 
+export async function convertToSalesOrder(
+  companyId: string,
+  id: string,
+  userId?: string
+): Promise<{ quote: Quote; salesOrderId: string } | null> {
+  const quote = await getQuote(companyId, id);
+  if (!quote) return null;
+
+  const salesOrderId = await withTransaction(async (tx) => {
+    // Generate SO number
+    const numRows = (await tx`
+      INSERT INTO company_document_numbers (company_id, document_type, prefix, next_number)
+      VALUES (${companyId}::UUID, 'sales_order', 'SO-', 1)
+      ON CONFLICT (company_id, document_type)
+      DO UPDATE SET next_number = company_document_numbers.next_number + 1
+      RETURNING next_number - 1 AS current_number, prefix
+    `) as Row[];
+    const num = Number(numRows[0]!.current_number);
+    const prefix = String(numRows[0]!.prefix || 'SO-');
+    const orderNumber = `${prefix}${String(num).padStart(5, '0')}`;
+
+    const soRows = (await tx`
+      INSERT INTO customer_sales_orders (
+        company_id, order_number, customer_id, order_date, delivery_date,
+        reference, subtotal, tax_amount, total_amount, notes, created_by
+      ) VALUES (
+        ${companyId}::UUID, ${orderNumber}, ${quote.clientId || null},
+        ${quote.quoteDate}, ${quote.expiryDate || null},
+        ${quote.quoteNumber}, ${quote.subtotal}, ${quote.taxAmount}, ${quote.total},
+        ${quote.notes || null}, ${userId || null}
+      ) RETURNING id
+    `) as Row[];
+    const newSoId = String(soRows[0]!.id);
+
+    for (let i = 0; i < (quote.lines || []).length; i++) {
+      const line = quote.lines![i]!;
+      await tx`
+        INSERT INTO customer_sales_order_items (
+          sales_order_id, line_number, description, quantity, unit_price, tax_rate, line_total
+        ) VALUES (
+          ${newSoId}::UUID, ${i + 1}, ${line.description}, ${line.quantity},
+          ${line.unitPrice}, ${line.taxRate}, ${line.lineTotal}
+        )
+      `;
+    }
+
+    await tx`
+      UPDATE customer_quotes
+      SET status = 'converted_to_order', converted_order_id = ${newSoId}::UUID, updated_at = NOW()
+      WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
+    `;
+
+    return newSoId;
+  });
+
+  log.info('Quote converted to sales order', { quoteId: id, salesOrderId });
+  return { quote: (await getQuote(companyId, id))!, salesOrderId };
+}
+
 export async function convertToInvoice(companyId: string, id: string, userId?: string): Promise<{ quote: Quote; invoiceId: string } | null> {
   const quote = await getQuote(companyId, id);
   if (!quote || quote.status !== 'accepted') return null;

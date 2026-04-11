@@ -7,7 +7,7 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
-import { updateQuoteStatus, convertToInvoice } from '@/modules/accounting/services/quoteService';
+import { updateQuoteStatus, convertToInvoice, convertToSalesOrder } from '@/modules/accounting/services/quoteService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
@@ -38,6 +38,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       const result = await convertToInvoice(companyId, id, userId);
       if (!result) return apiResponse.badRequest(res, 'Quote must be accepted to convert');
       return apiResponse.success(res, result);
+    }
+    case 'convert-to-order': {
+      const result = await convertToSalesOrder(companyId, id, userId);
+      if (!result) return apiResponse.notFound(res, 'Quote', id);
+      return apiResponse.success(res, { salesOrderId: result.salesOrderId });
     }
     default:
       return apiResponse.badRequest(res, `Unknown action: ${action}`);

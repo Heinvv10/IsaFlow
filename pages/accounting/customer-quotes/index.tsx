@@ -5,7 +5,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { FileText, Plus, Search, Loader2, Send, Check, X, ArrowRight, ExternalLink } from 'lucide-react';
+import { FileText, Plus, Search, Loader2, Send, Check, X, ArrowRight, ExternalLink, ClipboardList } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 
 interface Quote {
@@ -36,6 +36,7 @@ export default function CustomerQuotesPage() {
   const [showNew, setShowNew] = useState(false);
   const [saving, setSaving] = useState(false);
   const [converting, setConverting] = useState<string | null>(null);
+  const [convertingToSO, setConvertingToSO] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<{ text: string; invoiceId: string } | null>(null);
   const [form, setForm] = useState({ customerName: '', quoteDate: new Date().toISOString().split('T')[0], expiryDate: '', notes: '' });
   const [lines, setLines] = useState([{ description: '', quantity: 1, unitPrice: 0, taxRate: 15 }]);
@@ -88,6 +89,29 @@ export default function CustomerQuotesPage() {
       }
     } finally {
       setConverting(null);
+    }
+  };
+
+  const handleConvertToSO = async (q: Quote) => {
+    const confirmed = window.confirm(
+      `Convert quote ${q.quoteNumber} for ${q.customerName} to a Sales Order?`
+    );
+    if (!confirmed) return;
+    setConvertingToSO(q.id);
+    try {
+      const res = await apiFetch('/api/accounting/customer-quotes-action', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: q.id, action: 'convert-to-order' }),
+      });
+      const json = await res.json();
+      if (res.ok) {
+        const salesOrderId = json.data?.salesOrderId || json.salesOrderId;
+        await router.push(`/accounting/customer-sales-orders/${salesOrderId}`);
+      } else {
+        window.alert(json?.error?.message || 'Failed to convert quote to sales order');
+      }
+    } finally {
+      setConvertingToSO(null);
     }
   };
 
@@ -241,7 +265,16 @@ export default function CustomerQuotesPage() {
                             <button onClick={() => handleAction(q.id, 'decline')} title="Decline"
                               className="p-1.5 rounded hover:bg-red-500/10 text-red-400"><X className="h-3.5 w-3.5" /></button>
                           </>)}
-                          {q.status === 'accepted' && (
+                          {q.status === 'accepted' && (<>
+                            <button
+                              onClick={() => handleConvertToSO(q)}
+                              disabled={convertingToSO === q.id}
+                              title="Convert to Sales Order"
+                              className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 disabled:opacity-50"
+                            >
+                              {convertingToSO === q.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ClipboardList className="h-3.5 w-3.5" />}
+                              To SO
+                            </button>
                             <button
                               onClick={() => handleConvert(q)}
                               disabled={converting === q.id}
@@ -249,9 +282,9 @@ export default function CustomerQuotesPage() {
                               className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 disabled:opacity-50"
                             >
                               {converting === q.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowRight className="h-3.5 w-3.5" />}
-                              Convert
+                              Invoice
                             </button>
-                          )}
+                          </>)}
                           {q.status === 'converted' && q.invoiceId && (
                             <button
                               onClick={() => router.push(`/accounting/customer-invoices/${q.invoiceId}`)}
