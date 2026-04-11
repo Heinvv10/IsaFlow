@@ -17,6 +17,7 @@ export const suppliersTab: Tab = {
       section: 'Transactions',
       items: [
         { label: 'Purchase Orders', href: '/accounting/purchase-orders' },
+        { label: 'Goods Received', href: '/accounting/goods-received' },
         { label: 'Invoices', href: '/accounting/supplier-invoices' },
         { label: 'Returns', href: '/accounting/supplier-returns' },
         { label: 'Payments', href: '/accounting/supplier-payments' },
