@@ -114,7 +114,7 @@ export function parseSQLResponse(response: string): ParsedSQL | null {
 // DML/DDL keywords that must never appear in a read-only query
 const FORBIDDEN_KEYWORDS = [
   'INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'TRUNCATE', 'CREATE',
-  'GRANT', 'REVOKE', 'EXEC', 'EXECUTE', 'UNION', 'INFORMATION_SCHEMA',
+  'GRANT', 'REVOKE', 'EXEC', 'EXECUTE', 'INFORMATION_SCHEMA',
   'PG_CATALOG', 'INTO OUTFILE', 'LOAD_FILE',
   // PostgreSQL administrative / file-access / control keywords
   'COPY', 'DO', 'CALL', 'PREPARE', 'LISTEN', 'NOTIFY', 'LOAD', 'IMPORT',
@@ -141,6 +141,9 @@ const FORBIDDEN_PATTERNS: Array<{ label: string; regex: RegExp }> = [
   { label: 'SET statement', regex: /\bSET\s+\w/i },
   // Dollar-quoted DO blocks
   { label: 'DO $$ block', regex: /\bDO\s*\$\$/i },
+  // UNION without ALL — classic SQL injection vector. UNION ALL is safe (same column count
+  // requirement prevents blind injection) and useful for multi-table aggregations.
+  { label: 'UNION (without ALL)', regex: /\bUNION\b(?!\s+ALL\b)/i },
 ];
 
 // Tables that NL queries are permitted to access — accounting & business data
