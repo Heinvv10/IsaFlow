@@ -28,16 +28,26 @@ export interface PendingInvitation {
   email: string;
   role: string;
   invitedBy: string;
-  token: string;
   expiresAt: string;
   createdAt: string;
   emailSentAt: string | null;
   emailError: string | null;
 }
 
+/**
+ * Same as PendingInvitation but carries the raw, unhashed token.
+ * ONLY returned by createInvitation() so it can be embedded in the outbound
+ * email link. listPendingInvitations() MUST NOT return this shape — the DB
+ * only stores the SHA-256 hash, and exposing that hash is both useless
+ * (can't be reversed into a valid invite link) and a minor info leak.
+ */
+export interface InvitationWithToken extends PendingInvitation {
+  token: string;
+}
+
 export interface InvitationResult {
   autoAdded: boolean;
-  invitation?: PendingInvitation;
+  invitation?: InvitationWithToken;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -213,8 +223,12 @@ export async function createInvitation(
 }
 
 export async function listPendingInvitations(companyId: string): Promise<PendingInvitation[]> {
+  // Explicit column list — never select `token` so the SHA-256 hash
+  // stored in that column cannot accidentally leak via the list API.
   const rows = (await sql`
-    SELECT * FROM company_invitations
+    SELECT id, company_id, email, role, invited_by,
+           expires_at, created_at, email_sent_at, email_error
+    FROM company_invitations
     WHERE company_id = ${companyId}::UUID
       AND accepted_at IS NULL
       AND expires_at > NOW()
@@ -285,7 +299,6 @@ function mapInvitation(r: Row): PendingInvitation {
     email: r.email as string,
     role: r.role as string,
     invitedBy: r.invited_by as string,
-    token: r.token as string,
     expiresAt: toIso(r.expires_at as string | Date | null) ?? '',
     createdAt: toIso(r.created_at as string | Date | null) ?? '',
     emailSentAt: r.email_sent_at ? (toIso(r.email_sent_at as string | Date | null) ?? null) : null,
