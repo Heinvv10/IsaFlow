@@ -126,25 +126,50 @@ export function cleanDescription(desc: string): string {
 }
 
 /**
- * Extract account number from header text.
+ * Extract account number from bank statement text.
  *
- * Looks for patterns like:
- *   "Account Number: 12345678"
- *   "Acc No: 12345678"
- *   "Account No 12345678"
+ * Strategy (two passes):
+ *
+ *   Pass 1 — LABELLED match. Looks for patterns like:
+ *     "Account Number: 12345678"
+ *     "Acc No: 12345678"
+ *     "A/C 12345678"
+ *   This is the most reliable and runs first. Banks that emit clean
+ *   labelled headers (FNB, ABSA on newer statements) land here.
+ *
+ *   Pass 2 — UNLABELLED fallback. Some SA banks (notably Standard Bank)
+ *   print the account number in the header block without any "Account
+ *   Number:" label — e.g. "ISINDA 029 4069625895 0196". Pass 2 scans
+ *   the first ~3000 chars of the document for the first 9-13 digit
+ *   standalone token (SA consumer/business accounts are typically 9-11
+ *   digits). Only runs if Pass 1 failed, so labelled statements always
+ *   get the authoritative value.
+ *
+ * Returns the number with spaces/dashes stripped, or null if nothing
+ * plausible is found.
  */
 export function extractAccountNumber(text: string): string | null {
-  const patterns = [
+  // Pass 1: labelled patterns
+  const labelledPatterns = [
     /account\s+(?:number|no\.?|num\.?)\s*[:-]?\s*(\d[\d\s-]{4,20})/i,
     /acc(?:ount)?\s*(?:no\.?|num\.?|#)\s*[:-]?\s*(\d[\d\s-]{4,20})/i,
     /\bA\/C\s*[:-]?\s*(\d[\d\s-]{4,20})/i,
   ];
-  for (const pattern of patterns) {
+  for (const pattern of labelledPatterns) {
     const match = text.match(pattern);
     if (match?.[1]) {
       return match[1].replace(/[\s-]/g, '').trim();
     }
   }
+
+  // Pass 2: unlabelled fallback. Look in the header region only (first
+  // ~3000 chars) so we don't mis-pick a counterparty account from a
+  // transaction description further down. Find the first 9-13 digit
+  // standalone number — almost always the primary account.
+  const header = text.slice(0, 3000);
+  const unlabelled = header.match(/\b\d{9,13}\b/);
+  if (unlabelled?.[0]) return unlabelled[0];
+
   return null;
 }
 
