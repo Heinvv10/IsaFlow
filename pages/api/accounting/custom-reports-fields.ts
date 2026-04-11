@@ -7,7 +7,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany } from '@/lib/auth';
+import { withCompany, withWriteAccess} from '@/lib/auth';
 import { getAvailableFields } from '@/modules/accounting/services/customReportService';
 
 const VALID_SOURCES = [
@@ -38,4 +38,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, { source, fields });
 }
 
-export default withCompany(withErrorHandler(handler as never));
+export default withCompany(withErrorHandler(withWriteAccess(handler) as never));

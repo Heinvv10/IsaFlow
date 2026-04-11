@@ -1,7 +1,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { generateCloseChecklist, checkCompleteness, buildCloseProgressSummary } from '@/modules/accounting/services/monthEndCloseService';
 type Row = Record<string, unknown>;
@@ -37,4 +37,4 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
 }
  
-export default withCompany(withErrorHandler(handler));
+export default withCompany(withErrorHandler(withWriteAccess(handler)));

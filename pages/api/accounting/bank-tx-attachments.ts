@@ -15,7 +15,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { extractFromPdf, extractFromImage } from '@/modules/accounting/services/ocrService';
@@ -214,4 +214,4 @@ async function extractAttachmentData(dataUrl: string, mime: string, attachmentId
 }
 
  
-export default withCompany(withErrorHandler(handler));
+export default withCompany(withErrorHandler(withWriteAccess(handler)));
