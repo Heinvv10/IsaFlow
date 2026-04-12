@@ -98,7 +98,7 @@ export default function AdminUserDetailPage() {
     setActionLoading(true); setActionError('');
     try {
       const url = endpoint ? `/api/admin/users/${id}/${endpoint}` : `/api/admin/users/${id}`;
-      const res  = await apiFetch(url, { method, ...(body ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}) });
+      const res  = await apiFetch(url, { method, headers: { 'X-Admin-Request': 'true', ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error?.message || json.message || 'Failed');
       return true;
