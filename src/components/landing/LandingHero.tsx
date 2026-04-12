@@ -37,14 +37,14 @@ export function LandingHero() {
 
         {/* ISAFlow logo — slides in when video ends, sits in top 25% */}
         <div
-          className={`absolute inset-x-0 top-0 h-[25%] z-[5] flex items-center justify-center pointer-events-none transition-all duration-1000 ease-out ${
+          className={`absolute inset-x-0 top-0 h-[42%] z-[5] flex items-center justify-center pointer-events-none transition-all duration-1000 ease-out ${
             logoVisible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4'
           }`}
         >
           <img
             src="/BI/logo-primary-transparent.png"
             alt="ISAFlow"
-            className="w-48 sm:w-64 lg:w-72 drop-shadow-2xl"
+            className="w-56 sm:w-80 lg:w-96 drop-shadow-2xl"
           />
         </div>
 
