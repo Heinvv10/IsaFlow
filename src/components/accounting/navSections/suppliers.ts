@@ -44,6 +44,12 @@ export const suppliersTab: Tab = {
       ],
     },
     {
+      section: 'Data Quality',
+      items: [
+        { label: 'Find & Merge Duplicates', href: '/accounting/suppliers/dedup' },
+      ],
+    },
+    {
       section: 'Settings',
       items: [
         { label: 'Supplier Settings', href: '/accounting/company-settings?tab=documents', isSetting: true },
