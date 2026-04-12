@@ -1,106 +1,24 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { log } from '@/lib/logger';
+import {
+  ErrorCode,
+  STATUS_CODE_MAP,
+} from './apiResponse.types';
 
-/**
- * Standard API Response Types
- */
-export interface ApiSuccessResponse<T = any> {
-  success: true;
-  data: T;
-  message?: string;
-  meta?: {
-    timestamp?: string;
-    requestId?: string;
-    [key: string]: any;
-  };
-}
-
-export interface ApiErrorResponse {
-  success: false;
-  error: {
-    code: string;
-    message: string;
-    details?: any;
-  };
-  meta?: {
-    timestamp?: string;
-    requestId?: string;
-    [key: string]: any;
-  };
-}
-
-export interface ApiPaginatedResponse<T = any> extends ApiSuccessResponse<T[]> {
-  pagination: {
-    page: number;
-    pageSize: number;
-    total: number;
-    totalPages: number;
-  };
-}
-
-export type ApiResponse<T = any> = ApiSuccessResponse<T> | ApiErrorResponse;
-
-/**
- * Standard error codes
- */
-export enum ErrorCode {
-  // Client errors (400-499)
-  BAD_REQUEST = 'BAD_REQUEST',
-  UNAUTHORIZED = 'UNAUTHORIZED',
-  FORBIDDEN = 'FORBIDDEN',
-  NOT_FOUND = 'NOT_FOUND',
-  METHOD_NOT_ALLOWED = 'METHOD_NOT_ALLOWED',
-  CONFLICT = 'CONFLICT',
-  VALIDATION_ERROR = 'VALIDATION_ERROR',
-  RATE_LIMIT = 'RATE_LIMIT',
-  PAYLOAD_TOO_LARGE = 'PAYLOAD_TOO_LARGE',
-
-  // Server errors (500-599)
-  INTERNAL_ERROR = 'INTERNAL_ERROR',
-  DATABASE_ERROR = 'DATABASE_ERROR',
-  SERVICE_UNAVAILABLE = 'SERVICE_UNAVAILABLE',
-  GATEWAY_TIMEOUT = 'GATEWAY_TIMEOUT',
-
-  // Business logic errors
-  BUSINESS_RULE_VIOLATION = 'BUSINESS_RULE_VIOLATION',
-  INSUFFICIENT_PERMISSIONS = 'INSUFFICIENT_PERMISSIONS',
-  RESOURCE_LOCKED = 'RESOURCE_LOCKED',
-  DEPENDENCY_ERROR = 'DEPENDENCY_ERROR',
-}
-
-/**
- * HTTP status code mapping
- */
-const STATUS_CODE_MAP: Record<ErrorCode, number> = {
-  // Client errors
-  [ErrorCode.BAD_REQUEST]: 400,
-  [ErrorCode.UNAUTHORIZED]: 401,
-  [ErrorCode.FORBIDDEN]: 403,
-  [ErrorCode.NOT_FOUND]: 404,
-  [ErrorCode.METHOD_NOT_ALLOWED]: 405,
-  [ErrorCode.CONFLICT]: 409,
-  [ErrorCode.VALIDATION_ERROR]: 422,
-  [ErrorCode.RATE_LIMIT]: 429,
-  [ErrorCode.PAYLOAD_TOO_LARGE]: 413,
-
-  // Server errors
-  [ErrorCode.INTERNAL_ERROR]: 500,
-  [ErrorCode.DATABASE_ERROR]: 500,
-  [ErrorCode.SERVICE_UNAVAILABLE]: 503,
-  [ErrorCode.GATEWAY_TIMEOUT]: 504,
-
-  // Business logic errors (usually 400 or 422)
-  [ErrorCode.BUSINESS_RULE_VIOLATION]: 422,
-  [ErrorCode.INSUFFICIENT_PERMISSIONS]: 403,
-  [ErrorCode.RESOURCE_LOCKED]: 423,
-  [ErrorCode.DEPENDENCY_ERROR]: 424,
-};
+// Re-export all types and enums so existing imports continue to work
+export type {
+  ApiSuccessResponse,
+  ApiErrorResponse,
+  ApiPaginatedResponse,
+  ApiResponse,
+} from './apiResponse.types';
+export { ErrorCode, STATUS_CODE_MAP } from './apiResponse.types';
 
 /**
  * API Response Helper Class
  */
 export class ApiResponseHelper {
-  private static generateMeta(additionalMeta?: Record<string, any>) {
+  private static generateMeta(additionalMeta?: Record<string, unknown>) {
     return {
       timestamp: new Date().toISOString(),
       ...additionalMeta,
@@ -115,10 +33,10 @@ export class ApiResponseHelper {
     data: T,
     message?: string,
     statusCode = 200,
-    meta?: Record<string, any>
+    meta?: Record<string, unknown>
   ): void {
-    const response: ApiSuccessResponse<T> = {
-      success: true,
+    const response = {
+      success: true as const,
       data,
       ...(message && { message }),
       meta: this.generateMeta(meta),
@@ -134,7 +52,7 @@ export class ApiResponseHelper {
     res: NextApiResponse,
     data: T,
     message = 'Resource created successfully',
-    meta?: Record<string, any>
+    meta?: Record<string, unknown>
   ): void {
     this.success(res, data, message, 201, meta);
   }
@@ -158,12 +76,12 @@ export class ApiResponseHelper {
       total: number;
     },
     message?: string,
-    meta?: Record<string, any>
+    meta?: Record<string, unknown>
   ): void {
     const totalPages = Math.ceil(pagination.total / pagination.pageSize);
 
-    const response: ApiPaginatedResponse<T> = {
-      success: true,
+    const response = {
+      success: true as const,
       data,
       pagination: {
         ...pagination,
@@ -183,17 +101,17 @@ export class ApiResponseHelper {
     res: NextApiResponse,
     code: ErrorCode,
     message: string,
-    details?: any,
-    meta?: Record<string, any>
+    details?: unknown,
+    meta?: Record<string, unknown>
   ): void {
     const statusCode = STATUS_CODE_MAP[code] || 500;
 
-    const response: ApiErrorResponse = {
-      success: false,
+    const response = {
+      success: false as const,
       error: {
         code,
         message,
-        ...(details && { details }),
+        ...(details !== undefined && { details: details as Record<string, unknown> }),
       },
       meta: this.generateMeta(meta),
     };
@@ -207,7 +125,7 @@ export class ApiResponseHelper {
   static badRequest(
     res: NextApiResponse,
     message: string,
-    details?: any
+    details?: unknown
   ): void {
     this.error(res, ErrorCode.BAD_REQUEST, message, details);
   }
@@ -282,10 +200,8 @@ export class ApiResponseHelper {
     error: Error | unknown,
     detailedMessage?: string
   ): void {
-    // Log the actual error for debugging
     log.error('Internal Server Error', error instanceof Error ? { message: error.message, stack: error.stack } : { error }, 'ApiResponse');
 
-    // In production, never expose internal error details
     const isDevelopment = process.env.NODE_ENV === 'development';
     const message = isDevelopment
       ? (detailedMessage || 'An internal error occurred')
@@ -305,10 +221,8 @@ export class ApiResponseHelper {
     error: Error | unknown,
     message = 'A database error occurred'
   ): void {
-    // Log the actual error for debugging
     log.error('Database Error', error instanceof Error ? { message: error.message } : { error }, 'ApiResponse');
 
-    // In production, don't expose database error details
     const isDevelopment = process.env.NODE_ENV === 'development';
     const errorDetails = isDevelopment && error instanceof Error
       ? { originalMessage: error.message }
