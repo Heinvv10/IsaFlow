@@ -4,6 +4,7 @@ import { LandingNavbar } from '@/components/landing/LandingNavbar';
 import { LandingHero } from '@/components/landing/LandingHero';
 import { LandingFeaturesGrid, LandingDetailedFeatures } from '@/components/landing/LandingFeatures';
 import {
+  LandingTrustBar,
   LandingPricing,
   LandingTestimonials,
   LandingFAQ,
@@ -25,8 +26,11 @@ export default function LandingPage() {
   return (
     <>
       <Head>
-        <title>ISAFlow — Modern Accounting for South African Businesses</title>
-        <meta name="description" content="Cloud accounting software built for SA. VAT, SARS compliance, bank reconciliation, invoicing, payroll — all in one platform." />
+        <title>ISAFlow — Accounting Software for Modern Business</title>
+        <meta
+          name="description"
+          content="Invoicing, bank reconciliation, tax compliance and payroll — everything your business needs in one powerful platform."
+        />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="icon" href="/favicon.ico" />
       </Head>
@@ -39,10 +43,11 @@ export default function LandingPage() {
           onCloseMobile={() => setMobileMenuOpen(false)}
         />
         <LandingHero />
+        <LandingTrustBar />
         <LandingFeaturesGrid />
         <LandingDetailedFeatures />
-        <LandingPricing />
         <LandingTestimonials />
+        <LandingPricing />
         <LandingFAQ
           openFaq={openFaq}
           onToggle={(i) => setOpenFaq(openFaq === i ? null : i)}
