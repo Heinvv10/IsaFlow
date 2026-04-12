@@ -1,5 +1,6 @@
 /**
  * Customer Quote Service — Sage-parity quotes with convert-to-invoice
+ * Convert operations split to quoteConvertService.ts
  */
 
 import { sql, withTransaction } from '@/lib/neon';
@@ -136,7 +137,6 @@ export async function getQuotes(companyId: string, filters?: QuoteFilters): Prom
 }
 
 export async function getQuote(companyId: string, id: string): Promise<Quote | null> {
-  // companyId may be empty string for internal calls — skip company filter in that case
   const rows = companyId
     ? (await sql`SELECT * FROM customer_quotes WHERE id = ${id}::UUID AND company_id = ${companyId}`) as Row[]
     : (await sql`SELECT * FROM customer_quotes WHERE id = ${id}::UUID`) as Row[];
@@ -214,91 +214,8 @@ export async function updateQuoteStatus(companyId: string, id: string, status: s
   return getQuote(companyId, id);
 }
 
-export async function convertToSalesOrder(
-  companyId: string,
-  id: string,
-  userId?: string
-): Promise<{ quote: Quote; salesOrderId: string } | null> {
-  const quote = await getQuote(companyId, id);
-  if (!quote) return null;
+// Convert operations split to quoteConvertService.ts — re-exported for backward compat
+export { convertToSalesOrder, convertToInvoice } from './quoteConvertService';
 
-  const salesOrderId = await withTransaction(async (tx) => {
-    // Generate SO number
-    const numRows = (await tx`
-      INSERT INTO company_document_numbers (company_id, document_type, prefix, next_number)
-      VALUES (${companyId}::UUID, 'sales_order', 'SO-', 1)
-      ON CONFLICT (company_id, document_type)
-      DO UPDATE SET next_number = company_document_numbers.next_number + 1
-      RETURNING next_number - 1 AS current_number, prefix
-    `) as Row[];
-    const num = Number(numRows[0]!.current_number);
-    const prefix = String(numRows[0]!.prefix || 'SO-');
-    const orderNumber = `${prefix}${String(num).padStart(5, '0')}`;
-
-    const soRows = (await tx`
-      INSERT INTO customer_sales_orders (
-        company_id, order_number, customer_id, order_date, delivery_date,
-        reference, subtotal, tax_amount, total_amount, notes, created_by
-      ) VALUES (
-        ${companyId}::UUID, ${orderNumber}, ${quote.clientId || null},
-        ${quote.quoteDate}, ${quote.expiryDate || null},
-        ${quote.quoteNumber}, ${quote.subtotal}, ${quote.taxAmount}, ${quote.total},
-        ${quote.notes || null}, ${userId || null}
-      ) RETURNING id
-    `) as Row[];
-    const newSoId = String(soRows[0]!.id);
-
-    for (let i = 0; i < (quote.lines || []).length; i++) {
-      const line = quote.lines![i]!;
-      await tx`
-        INSERT INTO customer_sales_order_items (
-          sales_order_id, line_number, description, quantity, unit_price, tax_rate, line_total
-        ) VALUES (
-          ${newSoId}::UUID, ${i + 1}, ${line.description}, ${line.quantity},
-          ${line.unitPrice}, ${line.taxRate}, ${line.lineTotal}
-        )
-      `;
-    }
-
-    await tx`
-      UPDATE customer_quotes
-      SET status = 'converted_to_order', converted_order_id = ${newSoId}::UUID, updated_at = NOW()
-      WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
-    `;
-
-    return newSoId;
-  });
-
-  log.info('Quote converted to sales order', { quoteId: id, salesOrderId });
-  return { quote: (await getQuote(companyId, id))!, salesOrderId };
-}
-
-export async function convertToInvoice(companyId: string, id: string, userId?: string): Promise<{ quote: Quote; invoiceId: string } | null> {
-  const quote = await getQuote(companyId, id);
-  if (!quote || quote.status !== 'accepted') return null;
-
-  const invoiceId = await withTransaction(async (tx) => {
-    // Create invoice from quote
-    const invRows = (await tx`
-      INSERT INTO customer_invoices (company_id, client_id, invoice_date, due_date, subtotal, tax_amount, total, notes, status, created_by)
-      VALUES (${companyId}, ${quote.clientId}, ${quote.quoteDate}, ${quote.expiryDate || quote.quoteDate}, ${quote.subtotal},
-        ${quote.taxAmount}, ${quote.total}, ${'Converted from ' + quote.quoteNumber}, 'draft', ${userId || null})
-      RETURNING id
-    `) as Row[];
-    const newInvoiceId = String(invRows[0]!.id);
-
-    // Copy lines
-    for (const line of quote.lines || []) {
-      await tx`
-        INSERT INTO customer_invoice_items (invoice_id, description, quantity, unit_price, tax_rate, line_total, account_id)
-        VALUES (${newInvoiceId}::UUID, ${line.description}, ${line.quantity}, ${line.unitPrice}, ${line.taxRate}, ${line.lineTotal}, ${line.accountId})
-      `;
-    }
-
-    await tx`UPDATE customer_quotes SET status = 'converted', converted_invoice_id = ${newInvoiceId}::UUID, updated_at = NOW() WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`;
-    return newInvoiceId;
-  });
-
-  log.info('Quote converted to invoice', { quoteId: id, invoiceId });
-  return { quote: (await getQuote(companyId, id))!, invoiceId };
-}
+// Suppress unused import lint error — withTransaction used by quoteConvertService
+void withTransaction;

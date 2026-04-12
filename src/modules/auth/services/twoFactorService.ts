@@ -1,6 +1,7 @@
 /**
  * Two-Factor Authentication Service
- * Handles TOTP setup, verification, backup codes, and trusted devices.
+ * Handles TOTP setup, verification, backup codes.
+ * Trusted device operations split to trustedDeviceService.ts.
  */
 
 import { sql } from '@/lib/neon';
@@ -35,7 +36,7 @@ function hashBackupCode(code: string): string {
 
 function generateBackupCodes(): string[] {
   return Array.from({ length: 10 }, () =>
-    randomBytes(4).toString('hex').toUpperCase()
+    randomBytes(4).toString('hex').toUpperCase(),
   );
 }
 
@@ -43,7 +44,7 @@ function generateBackupCodes(): string[] {
 
 export async function generateTOTPSecret(
   userId: string,
-  userEmail: string
+  userEmail: string,
 ): Promise<{ secret: string; uri: string; qrCodeDataUrl: string }> {
   const totp = new OTPAuth.TOTP({
     issuer: 'ISAFlow',
@@ -58,7 +59,6 @@ export async function generateTOTPSecret(
   const uri = totp.toString();
   const encryptedSecret = encryptToken(secret);
 
-  // Upsert — replace any unverified pending setup
   await sql`
     INSERT INTO user_2fa (user_id, method, secret_encrypted, is_enabled, is_verified, updated_at)
     VALUES (${userId}, 'totp', ${encryptedSecret}, false, false, NOW())
@@ -86,7 +86,7 @@ export async function generateTOTPSecret(
 
 export async function verifyTOTPSetup(
   userId: string,
-  code: string
+  code: string,
 ): Promise<{ success: boolean; backupCodes?: string[] }> {
   const rows = await sql`
     SELECT secret_encrypted FROM user_2fa
@@ -145,7 +145,6 @@ export async function verifyTOTPCode(userId: string, code: string): Promise<bool
   const row = rows[0];
   if (!row?.secret_encrypted) return false;
 
-  // Check TOTP
   const plainSecret = decryptToken(row.secret_encrypted as string);
   const totp = new OTPAuth.TOTP({
     issuer: 'ISAFlow',
@@ -162,13 +161,11 @@ export async function verifyTOTPCode(userId: string, code: string): Promise<bool
     return true;
   }
 
-  // Check backup codes (one-time use)
   const storedCodes = (row.backup_codes as string[]) || [];
   const codeHash = hashBackupCode(code.toUpperCase().trim());
   const matchIndex = storedCodes.indexOf(codeHash);
 
   if (matchIndex !== -1) {
-    // Remove used backup code
     const updatedCodes = storedCodes.filter((_, i) => i !== matchIndex);
     await sql`
       UPDATE user_2fa SET backup_codes = ${updatedCodes}, updated_at = NOW()
@@ -223,79 +220,10 @@ export async function get2FAStatus(userId: string): Promise<TwoFactorStatus> {
   };
 }
 
-// ── Trusted Devices ───────────────────────────────────────────────────────────
-
-export async function addTrustedDevice(
-  userId: string,
-  fingerprint: string,
-  deviceName: string
-): Promise<void> {
-  const trustedUntil = new Date();
-  trustedUntil.setDate(trustedUntil.getDate() + 30);
-
-  await sql`
-    INSERT INTO user_trusted_devices (user_id, device_fingerprint, device_name, trusted_until, last_used_at)
-    VALUES (${userId}, ${fingerprint}, ${deviceName}, ${trustedUntil.toISOString()}, NOW())
-    ON CONFLICT (user_id, device_fingerprint)
-    DO UPDATE SET
-      trusted_until = EXCLUDED.trusted_until,
-      device_name = EXCLUDED.device_name,
-      last_used_at = NOW()
-  `;
-
-  log.info('Device trusted', { userId, deviceName }, 'twoFactorService');
-}
-
-export async function isTrustedDevice(
-  userId: string,
-  fingerprint: string
-): Promise<boolean> {
-  const rows = await sql`
-    SELECT id FROM user_trusted_devices
-    WHERE user_id = ${userId}
-      AND device_fingerprint = ${fingerprint}
-      AND trusted_until > NOW()
-    LIMIT 1
-  `;
-
-  return rows.length > 0;
-}
-
-export async function getTrustedDevices(userId: string): Promise<TrustedDevice[]> {
-  const rows = await sql`
-    SELECT id, device_name, device_fingerprint, trusted_until, last_used_at, created_at
-    FROM user_trusted_devices
-    WHERE user_id = ${userId} AND trusted_until > NOW()
-    ORDER BY last_used_at DESC
-  `;
-
-  return rows.map(r => {
-    const trustedUntil = r.trusted_until instanceof Date
-      ? r.trusted_until.toISOString() : r.trusted_until as string;
-    const lastUsedAt = r.last_used_at instanceof Date
-      ? r.last_used_at.toISOString() : r.last_used_at as string;
-    const createdAt = r.created_at instanceof Date
-      ? r.created_at.toISOString() : r.created_at as string;
-
-    return {
-      id: r.id as string,
-      deviceName: (r.device_name as string | null),
-      deviceFingerprint: r.device_fingerprint as string,
-      trustedUntil,
-      lastUsedAt,
-      createdAt,
-    };
-  });
-}
-
-export async function removeTrustedDevice(
-  userId: string,
-  deviceId: string
-): Promise<void> {
-  await sql`
-    DELETE FROM user_trusted_devices
-    WHERE id = ${deviceId}::UUID AND user_id = ${userId}
-  `;
-
-  log.info('Trusted device removed', { userId, deviceId }, 'twoFactorService');
-}
+// Trusted device operations re-exported from trustedDeviceService.ts for backward compat
+export {
+  addTrustedDevice,
+  isTrustedDevice,
+  getTrustedDevices,
+  removeTrustedDevice,
+} from './trustedDeviceService';

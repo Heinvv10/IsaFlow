@@ -1,13 +1,14 @@
 /**
  * Journal Entry CRUD Service
- * Create, read, and trial balance operations for GL journal entries.
+ * Create, read operations for GL journal entries.
+ * Trial balance split to trialBalanceService.ts.
  */
 
 import { sql, fmtDate, withTransaction } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { validateJournalEntry } from '../utils/doubleEntry';
-import type { JournalEntry, JournalLine, JournalEntryCreateInput, GLEntryStatus, GLEntrySource, TrialBalanceRow, VatType } from '../types/gl.types';
+import type { JournalEntry, JournalLine, JournalEntryCreateInput, GLEntryStatus, GLEntrySource, VatType } from '../types/gl.types';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -146,7 +147,7 @@ export async function getJournalEntries(companyId: string, filters?: JournalEntr
 }
 
 export async function getJournalEntryById(companyId: string,
-  id: string
+  id: string,
 ): Promise<(JournalEntry & { lines: JournalLine[] }) | null> {
   try {
     const entryRows = (await sql`
@@ -174,7 +175,7 @@ export async function getJournalEntryById(companyId: string,
 
 export async function createJournalEntry(companyId: string,
   input: JournalEntryCreateInput,
-  userId: string
+  userId: string,
 ): Promise<JournalEntry> {
   try {
     const validation = validateJournalEntry(input.lines);
@@ -192,7 +193,6 @@ export async function createJournalEntry(companyId: string,
 
     const safeUserId = await resolveUserUuid(userId);
 
-    // Wrap header + lines in a transaction so a failed line INSERT rolls back the header.
     const entryRow = await withTransaction(async (tx) => {
       const rows = (await tx`
         INSERT INTO gl_journal_entries (
@@ -241,63 +241,5 @@ export async function createJournalEntry(companyId: string,
   }
 }
 
-export async function getTrialBalance(companyId: string, fiscalPeriodId: string, costCentreId?: string): Promise<TrialBalanceRow[]> {
-  try {
-    if (!costCentreId) {
-      // Calculate from journal lines directly (not the summary table which may be stale)
-      const rows = (await sql`
-        SELECT ga.account_code, ga.account_name, ga.account_type, ga.normal_balance,
-          COALESCE(SUM(jl.debit), 0) AS debit_balance,
-          COALESCE(SUM(jl.credit), 0) AS credit_balance
-        FROM gl_journal_lines jl
-        JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-        JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-        WHERE je.status = 'posted'
-          AND je.company_id = ${companyId}::UUID
-          AND je.fiscal_period_id = ${fiscalPeriodId}::UUID
-        GROUP BY ga.id, ga.account_code, ga.account_name, ga.account_type, ga.normal_balance
-        HAVING COALESCE(SUM(jl.debit), 0) != 0 OR COALESCE(SUM(jl.credit), 0) != 0
-        ORDER BY ga.account_code
-      `) as Row[];
-      return rows.map(r => ({
-        accountCode: String(r.account_code),
-        accountName: String(r.account_name),
-        accountType: String(r.account_type),
-        normalBalance: String(r.normal_balance) as 'debit' | 'credit',
-        debitBalance: Number(r.debit_balance),
-        creditBalance: Number(r.credit_balance),
-      }));
-    }
-
-    const rows = (await sql`
-      SELECT ga.account_code, ga.account_name, ga.account_type, ga.normal_balance,
-        COALESCE(SUM(jl.debit), 0) AS total_debit,
-        COALESCE(SUM(jl.credit), 0) AS total_credit
-      FROM gl_journal_lines jl
-      JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-      JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-      WHERE je.status = 'posted'
-        AND je.company_id = ${companyId}::UUID
-        AND je.fiscal_period_id = ${fiscalPeriodId}::UUID
-        AND jl.cost_center_id = ${costCentreId}::UUID
-      GROUP BY ga.id, ga.account_code, ga.account_name, ga.account_type, ga.normal_balance
-      HAVING COALESCE(SUM(jl.debit), 0) != 0 OR COALESCE(SUM(jl.credit), 0) != 0
-      ORDER BY ga.account_code
-    `) as Row[];
-
-    return rows.map(r => {
-      const net = Number(r.total_debit) - Number(r.total_credit);
-      return {
-        accountCode: String(r.account_code),
-        accountName: String(r.account_name),
-        accountType: String(r.account_type),
-        normalBalance: String(r.normal_balance) as 'debit' | 'credit',
-        debitBalance: net > 0 ? net : 0,
-        creditBalance: net < 0 ? Math.abs(net) : 0,
-      };
-    });
-  } catch (err) {
-    log.error('Failed to get trial balance', { fiscalPeriodId, error: err }, 'accounting');
-    throw err;
-  }
-}
+// Trial balance split to trialBalanceService.ts — re-exported for backward compat
+export { getTrialBalance } from './trialBalanceService';
