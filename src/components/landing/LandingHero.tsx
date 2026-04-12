@@ -28,7 +28,14 @@ export function LandingHero() {
         <div
           className="absolute inset-0"
           style={{
-            background: 'linear-gradient(to bottom, rgba(5,10,15,0.88) 0%, rgba(5,10,15,0.78) 40%, rgba(5,10,15,0.78) 60%, rgba(5,10,15,0.92) 100%)',
+            background: 'linear-gradient(to bottom, rgba(5,10,15,0.85) 0%, rgba(5,10,15,0.5) 50%, rgba(5,10,15,0.9) 100%)',
+          }}
+        />
+        {/* Radial spot to suppress the video's centre watermark */}
+        <div
+          className="absolute inset-0"
+          style={{
+            background: 'radial-gradient(ellipse 55% 35% at 50% 52%, rgba(5,10,15,0.72) 0%, transparent 100%)',
           }}
         />
 
