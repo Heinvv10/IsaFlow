@@ -5,7 +5,6 @@
 
 import {
   FileText, RefreshCw, Shield, Zap,
-  Receipt, Landmark, Brain,
   Check, Star,
 } from 'lucide-react';
 
