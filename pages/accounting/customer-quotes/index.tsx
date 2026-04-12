@@ -13,6 +13,11 @@ interface Quote {
   expiryDate: string | null; status: string; total: number; invoiceId?: string;
 }
 
+interface CustomerOption {
+  id: string;
+  name: string;
+}
+
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
 const STATUS_BADGE: Record<string, string> = {
@@ -38,7 +43,8 @@ export default function CustomerQuotesPage() {
   const [converting, setConverting] = useState<string | null>(null);
   const [convertingToSO, setConvertingToSO] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<{ text: string; invoiceId: string } | null>(null);
-  const [form, setForm] = useState({ customerName: '', quoteDate: new Date().toISOString().split('T')[0], expiryDate: '', notes: '' });
+  const [customers, setCustomers] = useState<CustomerOption[]>([]);
+  const [form, setForm] = useState({ clientId: '', customerName: '', quoteDate: new Date().toISOString().split('T')[0], expiryDate: '', notes: '' });
   const [lines, setLines] = useState([{ description: '', quantity: 1, unitPrice: 0, taxRate: 15 }]);
 
   const load = useCallback(async () => {
@@ -55,6 +61,16 @@ export default function CustomerQuotesPage() {
   }, [tab, search]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    apiFetch('/api/accounting/customers')
+      .then(r => r.json())
+      .then((json: { data?: CustomerOption[] }) => {
+        const list = Array.isArray(json.data) ? json.data : [];
+        setCustomers(list.map((c: CustomerOption) => ({ id: String(c.id), name: String(c.name) })));
+      })
+      .catch(() => { /* non-fatal */ });
+  }, []);
 
   const handleAction = async (id: string, action: string) => {
     await apiFetch('/api/accounting/customer-quotes-action', {
@@ -116,15 +132,22 @@ export default function CustomerQuotesPage() {
   };
 
   const handleCreate = async () => {
-    if (!form.customerName || lines.every(l => !l.description)) return;
+    if (!form.clientId || lines.every(l => !l.description)) return;
     setSaving(true);
     await apiFetch('/api/accounting/customer-quotes', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...form, lines: lines.filter(l => l.description) }),
+      body: JSON.stringify({
+        clientId: form.clientId,
+        customerName: form.customerName,
+        quoteDate: form.quoteDate,
+        expiryDate: form.expiryDate,
+        notes: form.notes,
+        lines: lines.filter(l => l.description),
+      }),
     });
     setSaving(false);
     setShowNew(false);
-    setForm({ customerName: '', quoteDate: new Date().toISOString().split('T')[0], expiryDate: '', notes: '' });
+    setForm({ clientId: '', customerName: '', quoteDate: new Date().toISOString().split('T')[0], expiryDate: '', notes: '' });
     setLines([{ description: '', quantity: 1, unitPrice: 0, taxRate: 15 }]);
     load();
   };
@@ -169,8 +192,19 @@ export default function CustomerQuotesPage() {
           {showNew && (
             <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4 space-y-3">
               <div className="grid grid-cols-4 gap-3">
-                <input value={form.customerName} onChange={e => setForm(p => ({ ...p, customerName: e.target.value }))}
-                  placeholder="Customer name *" className="ff-input text-sm" />
+                <select
+                  value={form.clientId}
+                  onChange={e => {
+                    const selected = customers.find(c => c.id === e.target.value);
+                    setForm(p => ({ ...p, clientId: e.target.value, customerName: selected?.name ?? '' }));
+                  }}
+                  className="ff-input text-sm"
+                >
+                  <option value="">Select customer *</option>
+                  {customers.map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
                 <input type="date" value={form.quoteDate} onChange={e => setForm(p => ({ ...p, quoteDate: e.target.value }))}
                   className="ff-input text-sm" />
                 <input type="date" value={form.expiryDate} onChange={e => setForm(p => ({ ...p, expiryDate: e.target.value }))}
@@ -197,7 +231,7 @@ export default function CustomerQuotesPage() {
               </div>
               <div className="flex justify-end gap-2">
                 <button onClick={() => setShowNew(false)} className="px-3 py-1.5 text-sm text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)] rounded-lg">Cancel</button>
-                <button onClick={handleCreate} disabled={saving}
+                <button onClick={handleCreate} disabled={saving || !form.clientId || lines.every(l => !l.description)}
                   className="px-4 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-50">
                   {saving ? 'Saving...' : 'Create Quote'}
                 </button>
