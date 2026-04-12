@@ -159,26 +159,26 @@ export default function CustomerStatementsPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-light)]">
-                    <th className="text-left py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Customer</th>
-                    <th className="text-right py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Invoiced</th>
-                    <th className="text-right py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Paid</th>
-                    <th className="text-right py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Balance</th>
-                    <th className="text-center py-3 px-4 text-[var(--ff-text-secondary)] font-medium"># Invoices</th>
-                    <th className="text-left py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Last Payment</th>
-                    <th className="text-center py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Actions</th>
+                    <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Customer</th>
+                    <th className="text-right py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Invoiced</th>
+                    <th className="text-right py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Paid</th>
+                    <th className="text-right py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Balance</th>
+                    <th className="text-center py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase"># Invoices</th>
+                    <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Last Payment</th>
+                    <th className="text-center py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredCustomers.map((c) => (
-                    <tr key={c.client_id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-tertiary)]">
+                    <tr key={c.client_id} className="border-b border-[var(--ff-border-light)] hover:bg-teal-500/[0.04]">
                       <td className="py-3 px-4 text-[var(--ff-text-primary)] font-medium">
                         <Link href={`/accounting/customer-statements/${c.client_id}`} className="hover:text-purple-400 transition-colors">
                           {c.client_name}
                         </Link>
                       </td>
-                      <td className="py-3 px-4 text-right text-[var(--ff-text-primary)]">{formatCurrency(c.total_invoiced)}</td>
-                      <td className="py-3 px-4 text-right text-teal-400">{formatCurrency(c.total_paid)}</td>
-                      <td className="py-3 px-4 text-right font-medium text-[var(--ff-text-primary)]">{formatCurrency(c.balance)}</td>
+                      <td className="py-3 px-4 text-right tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(c.total_invoiced)}</td>
+                      <td className="py-3 px-4 text-right tabular-nums text-teal-400">{formatCurrency(c.total_paid)}</td>
+                      <td className="py-3 px-4 text-right tabular-nums font-medium text-[var(--ff-text-primary)]">{formatCurrency(c.balance)}</td>
                       <td className="py-3 px-4 text-center text-[var(--ff-text-secondary)]">{c.invoice_count}</td>
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{c.last_payment_date?.split('T')[0] || '-'}</td>
                       <td className="py-3 px-4 text-center">

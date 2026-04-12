@@ -43,7 +43,7 @@ export default function CostCentresPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(''); setBusy('save');
     try {

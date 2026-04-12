@@ -43,15 +43,15 @@ function Card({
   return (
     <div
       className={cn(
-        'rounded-lg border border-gray-200 bg-white shadow-sm',
-        'dark:border-gray-700 dark:bg-gray-900',
-        hoverable && 'cursor-pointer transition-shadow hover:shadow-md dark:hover:border-gray-600',
+        'rounded-xl border border-gray-200 bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06)]',
+        'dark:border-white/[0.08] dark:bg-gray-900 dark:ring-1 dark:ring-inset dark:ring-white/[0.04]',
+        hoverable && 'cursor-pointer transition-shadow hover:shadow-[0_4px_12px_rgba(0,0,0,0.12)] hover:border-teal-500/30 dark:hover:border-teal-500/20',
         className
       )}
       {...props}
     >
       {header && (
-        <div className="border-b border-gray-200 px-5 py-4 dark:border-gray-700">
+        <div className="border-b border-gray-100 px-5 py-4 dark:border-white/[0.06]">
           {header}
         </div>
       )}
@@ -59,7 +59,7 @@ function Card({
       <div className={cn(!noPadding && 'p-5')}>{children}</div>
 
       {footer && (
-        <div className="border-t border-gray-200 px-5 py-4 dark:border-gray-700">
+        <div className="border-t border-gray-100 px-5 py-4 dark:border-white/[0.06]">
           {footer}
         </div>
       )}
@@ -110,7 +110,7 @@ function CardFooter({ className, children, ...props }: CardFooterProps) {
   return (
     <div
       className={cn(
-        'border-t border-gray-200 px-5 py-4 dark:border-gray-700',
+        'border-t border-gray-100 px-5 py-4 dark:border-white/[0.06]',
         className
       )}
       {...props}

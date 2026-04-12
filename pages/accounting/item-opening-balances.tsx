@@ -106,12 +106,12 @@ export default function ItemOpeningBalancesPage() {
             ) : (
               <table className="w-full text-sm">
                 <thead><tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
-                  <th className="px-4 py-3 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Code</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Item</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">UOM</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Quantity</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Unit Cost</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Total Value</th>
+                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Code</th>
+                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Item</th>
+                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">UOM</th>
+                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Quantity</th>
+                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Unit Cost</th>
+                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Total Value</th>
                 </tr></thead>
                 <tbody className="divide-y divide-[var(--ff-border-light)]">
                   {filtered.map(item => {
@@ -120,7 +120,7 @@ export default function ItemOpeningBalancesPage() {
                     const cost = e ? Number(e.unitCost) : Number(item.cost_price || 0);
                     const changed = Boolean(e);
                     return (
-                      <tr key={item.id} className={`hover:bg-[var(--ff-bg-tertiary)] ${changed ? 'bg-teal-500/5' : ''}`}>
+                      <tr key={item.id} className={`hover:bg-teal-500/[0.04] ${changed ? 'bg-teal-500/5' : ''}`}>
                         <td className="px-4 py-2 font-mono text-xs text-[var(--ff-text-tertiary)]">{item.item_code}</td>
                         <td className="px-4 py-2 text-[var(--ff-text-primary)]">{item.name}</td>
                         <td className="px-4 py-2 text-[var(--ff-text-tertiary)]">{item.uom}</td>
@@ -134,7 +134,7 @@ export default function ItemOpeningBalancesPage() {
                             onChange={ev => setField(item.id, 'unitCost', ev.target.value)}
                             className={`w-32 px-2 py-1 text-right rounded bg-[var(--ff-bg-tertiary)] border text-[var(--ff-text-primary)] text-sm ${changed ? 'border-teal-500' : 'border-[var(--ff-border-light)]'}`} />
                         </td>
-                        <td className="px-4 py-2 text-right font-mono text-[var(--ff-text-primary)]">{fmt(qty * cost)}</td>
+                        <td className="px-4 py-2 text-right font-mono tabular-nums text-[var(--ff-text-primary)]">{fmt(qty * cost)}</td>
                       </tr>
                     );
                   })}

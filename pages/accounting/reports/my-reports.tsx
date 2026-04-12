@@ -137,16 +137,16 @@ export default function MyReportsPage() {
             <table className="min-w-full divide-y divide-gray-200 text-sm">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Name</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Data Source</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Last Updated</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Shared</th>
+                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-gray-500 uppercase">Name</th>
+                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-gray-500 uppercase">Data Source</th>
+                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-gray-500 uppercase">Last Updated</th>
+                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-gray-500 uppercase">Shared</th>
                   <th className="px-4 py-3" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {templates.map(t => (
-                  <tr key={t.id} className="hover:bg-gray-50 transition-colors">
+                  <tr key={t.id} className="hover:bg-teal-500/[0.04] transition-colors">
                     <td className="px-4 py-3">
                       <div className="font-medium text-gray-800">{t.name}</div>
                       {t.description && (

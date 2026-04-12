@@ -1,23 +1,19 @@
 /**
- * PDF Shared Utilities — formatting helpers, company details, and branding constants.
- * Used by invoicePdfBuilder and creditNotePdfBuilder.
+ * PDF Shared Utilities — formatting helpers, company details, premium design system.
+ * Used by all PDF builders: invoice, credit note, quote, statement.
  */
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
 type Row = Record<string, unknown>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type JsPdfDoc = any;
 
 // ── Formatting ────────────────────────────────────────────────────────────────
 
 export const fmtZAR = (amount: number): string =>
-  'R ' + Number(amount).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-
-/** Get the Y position after the last autoTable render (jspdf-autotable extension) */
-export function getLastAutoTableY(doc: unknown, fallback: number): number {
-  const d = doc as { lastAutoTable?: { finalY?: number } };
-  return d.lastAutoTable?.finalY ?? fallback;
-}
+  'R\u00a0' + Number(amount).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 
 export const fmtDate = (d: string | Date | null | undefined): string => {
   if (!d) return '—';
@@ -27,13 +23,35 @@ export const fmtDate = (d: string | Date | null | undefined): string => {
   return str;
 };
 
-// ── Branding ──────────────────────────────────────────────────────────────────
+/** Get the Y position after the last autoTable render */
+export function getLastAutoTableY(doc: unknown, fallback: number): number {
+  const d = doc as { lastAutoTable?: { finalY?: number } };
+  return d.lastAutoTable?.finalY ?? fallback;
+}
 
-export const TEAL = { r: 20, g: 184, b: 166 }; // #14b8a6
+// ── Premium Color Palette ─────────────────────────────────────────────────────
+
+export const COLORS = {
+  DARK:           [15,  23,  42]  as [number, number, number], // near-black dark blue
+  WHITE:          [255, 255, 255] as [number, number, number],
+  TEXT_PRIMARY:   [15,  23,  42]  as [number, number, number],
+  TEXT_SECONDARY: [100, 116, 139] as [number, number, number],
+  TEXT_MUTED:     [148, 163, 184] as [number, number, number],
+  HEADER_SUB:     [180, 195, 215] as [number, number, number], // light text in dark header
+  SURFACE:        [248, 250, 252] as [number, number, number],
+  BORDER:         [226, 232, 240] as [number, number, number],
+  SUCCESS:        [22,  163,  74] as [number, number, number],
+  DANGER:         [220,  38,  38] as [number, number, number],
+  AMBER:          [180, 120,  20] as [number, number, number],
+};
+
+// Legacy constant (kept for backward compat)
+export const TEAL = { r: 20, g: 184, b: 166 };
 
 // ── Layout types ──────────────────────────────────────────────────────────────
 
 export type DocumentLayout = 'classic' | 'modern' | 'minimal';
+export type DocumentType = 'invoice' | 'credit_note' | 'quote' | 'statement' | 'purchase_order';
 
 // ── Company Details ────────────────────────────────────────────────────────────
 
@@ -95,18 +113,12 @@ async function getCompanyDetailsFromSettings(): Promise<CompanyDetails> {
       address: '', phone: '', email: '', vatNumber: '',
       bankName: '', bankAccountName: '', bankAccountNumber: '',
       bankBranchCode: '', bankReference: '',
-      logoData: null,
-      primaryColor: '#0d9488',
-      invoiceLayout: 'classic',
-      quoteLayout: 'classic',
-      statementLayout: 'classic',
+      logoData: null, primaryColor: '#0d9488',
+      invoiceLayout: 'classic', quoteLayout: 'classic', statementLayout: 'classic',
     };
   }
 }
 
-/**
- * Load company details from the companies table, with fallback to app_settings.
- */
 export async function getCompanyDetailsFromCompany(companyId: string): Promise<CompanyDetails> {
   try {
     const rows = await sql`
@@ -119,7 +131,8 @@ export async function getCompanyDetailsFromCompany(companyId: string): Promise<C
     `;
     if (rows.length > 0) {
       const c = rows[0] as Row;
-      const addressParts = [c.address_line1, c.address_line2, c.city, c.province, c.postal_code].filter(Boolean).map(String);
+      const addressParts = [c.address_line1, c.address_line2, c.city, c.province, c.postal_code]
+        .filter(Boolean).map(String);
       return {
         name: c.name ? String(c.name) : 'Company Name Not Set',
         address: addressParts.join(', '),
@@ -146,7 +159,6 @@ export async function getCompanyDetailsFromCompany(companyId: string): Promise<C
 
 // ── Color helpers ─────────────────────────────────────────────────────────────
 
-/** Parse a hex color string into r/g/b numbers, fallback to TEAL. */
 export function hexToRgb(hex: string): { r: number; g: number; b: number } {
   const clean = hex.replace('#', '');
   if (clean.length !== 6) return TEAL;
@@ -156,10 +168,406 @@ export function hexToRgb(hex: string): { r: number; g: number; b: number } {
   return { r, g, b };
 }
 
-// ── Invoice header renderer ───────────────────────────────────────────────────
+function darken(color: { r: number; g: number; b: number }, factor = 0.6): [number, number, number] {
+  return [
+    Math.round(color.r * factor),
+    Math.round(color.g * factor),
+    Math.round(color.b * factor),
+  ];
+}
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type JsPdfDoc = any;
+// ── Premium Document Header ────────────────────────────────────────────────────
+
+export interface PremiumHeaderOptions {
+  doc: JsPdfDoc;
+  pageW: number;
+  margin: number;
+  company: CompanyDetails;
+  accent: { r: number; g: number; b: number };
+  docType: DocumentType;
+  docTitle: string;       // e.g. "TAX INVOICE", "QUOTATION", "CREDIT NOTE"
+  docNumber: string;      // e.g. "INV-0042"
+  docDate: string;        // formatted date string
+  docSecondaryDate?: string; // "Due: xx/xx" or "Valid Until: xx/xx" or undefined
+  docSecondaryLabel?: string; // label for secondary date
+}
+
+/**
+ * Renders the premium full-bleed dark header with accent strip.
+ * Returns the Y position to start body content.
+ */
+export function renderPremiumHeader(opts: PremiumHeaderOptions): number {
+  const { doc, pageW, margin, company, accent, docTitle, docNumber, docDate,
+    docSecondaryDate, docSecondaryLabel } = opts;
+
+  const HEADER_H = 44;
+  const STRIP_H = 3;
+
+  // ── Dark background
+  doc.setFillColor(...COLORS.DARK);
+  doc.rect(0, 0, pageW, HEADER_H, 'F');
+
+  // ── Accent strip at bottom of header
+  doc.setFillColor(accent.r, accent.g, accent.b);
+  doc.rect(0, HEADER_H, pageW, STRIP_H, 'F');
+
+  // ── Logo (if available)
+  let textLeftX = margin;
+  if (company.logoData) {
+    try {
+      doc.addImage(company.logoData, 'AUTO', margin, 8, 26, 26);
+      textLeftX = margin + 30;
+    } catch { /* skip broken logo */ }
+  }
+
+  // ── Company name
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(13);
+  doc.setTextColor(...COLORS.WHITE);
+  doc.text(company.name, textLeftX, 20);
+
+  // ── Company sub-details
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(...COLORS.HEADER_SUB);
+  const subParts: string[] = [];
+  if (company.email) subParts.push(company.email);
+  if (company.phone) subParts.push(company.phone);
+  if (company.vatNumber) subParts.push(`VAT: ${company.vatNumber}`);
+  if (subParts.length > 0) doc.text(subParts.join('  •  '), textLeftX, 27);
+  if (company.address) {
+    doc.setFontSize(7);
+    doc.text(company.address, textLeftX, 33);
+  }
+
+  // ── Right side: document type + number
+  const rx = pageW - margin;
+
+  // Document type label (small, uppercase, accent color)
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  doc.setTextColor(accent.r, accent.g, accent.b);
+  doc.text(docTitle, rx, 13, { align: 'right' });
+
+  // Document number (prominent)
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(16);
+  doc.setTextColor(...COLORS.WHITE);
+  doc.text(docNumber, rx, 25, { align: 'right' });
+
+  // Date
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(...COLORS.HEADER_SUB);
+  doc.text(`Date: ${docDate}`, rx, 33, { align: 'right' });
+
+  if (docSecondaryDate && docSecondaryLabel) {
+    doc.text(`${docSecondaryLabel}: ${docSecondaryDate}`, rx, 39, { align: 'right' });
+  }
+
+  return HEADER_H + STRIP_H + 8; // y start for body content
+}
+
+// ── Party Info Section ─────────────────────────────────────────────────────────
+
+export interface PartyInfo {
+  label: string;   // e.g. "FROM", "BILL TO", "CREDIT TO"
+  name: string;
+  address?: string;
+  email?: string;
+  phone?: string;
+  vatNumber?: string;
+  attention?: string;
+}
+
+/**
+ * Render two-column FROM / TO party info section.
+ * Returns new Y position after section.
+ */
+export function renderPartySection(
+  doc: JsPdfDoc,
+  y: number,
+  pageW: number,
+  margin: number,
+  accent: { r: number; g: number; b: number },
+  from: PartyInfo,
+  to: PartyInfo,
+): number {
+  const midX = pageW / 2;
+  const colW = midX - margin - 6;
+
+  function renderParty(info: PartyInfo, x: number, startY: number): number {
+    let cy = startY;
+
+    // Label
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.5);
+    doc.setTextColor(accent.r, accent.g, accent.b);
+    doc.text(info.label, x, cy);
+    cy += 1.5;
+
+    // Thin underline
+    doc.setDrawColor(accent.r, accent.g, accent.b);
+    doc.setLineWidth(0.3);
+    doc.line(x, cy, x + 28, cy);
+    cy += 4.5;
+
+    // Name
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(...COLORS.TEXT_PRIMARY);
+    doc.text(info.name, x, cy);
+    cy += 5.5;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(...COLORS.TEXT_SECONDARY);
+
+    if (info.address) {
+      const lines = String(info.address).split('\n').flatMap(l =>
+        doc.splitTextToSize(l.trim(), colW) as string[]
+      );
+      for (const line of lines) {
+        if (line.trim()) { doc.text(line, x, cy); cy += 4; }
+      }
+    }
+    if (info.attention) { doc.text(`Attn: ${info.attention}`, x, cy); cy += 4; }
+    if (info.email) { doc.text(info.email, x, cy); cy += 4; }
+    if (info.phone) { doc.text(info.phone, x, cy); cy += 4; }
+    if (info.vatNumber) { doc.text(`VAT: ${info.vatNumber}`, x, cy); cy += 4; }
+
+    return cy;
+  }
+
+  const leftBottom = renderParty(from, margin, y);
+  const rightBottom = renderParty(to, midX + 4, y);
+
+  // Thin vertical divider
+  const divH = Math.max(leftBottom, rightBottom) - y;
+  doc.setDrawColor(...COLORS.BORDER);
+  doc.setLineWidth(0.3);
+  doc.line(midX, y - 2, midX, y + divH - 2);
+
+  return Math.max(leftBottom, rightBottom) + 6;
+}
+
+// ── Reference Strip ────────────────────────────────────────────────────────────
+
+export interface RefField {
+  label: string;
+  value: string;
+}
+
+/**
+ * Render a subtle reference info strip with N columns.
+ * Returns new Y position.
+ */
+export function renderRefStrip(
+  doc: JsPdfDoc,
+  y: number,
+  pageW: number,
+  margin: number,
+  fields: RefField[],
+): number {
+  const STRIP_H = 14;
+  const contentW = pageW - margin * 2;
+
+  doc.setFillColor(...COLORS.SURFACE);
+  doc.setDrawColor(...COLORS.BORDER);
+  doc.setLineWidth(0.3);
+  doc.roundedRect(margin, y, contentW, STRIP_H, 1.5, 1.5, 'FD');
+
+  const colW = contentW / fields.length;
+  fields.forEach((field, i) => {
+    const cx = margin + colW * i + 5;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6);
+    doc.setTextColor(...COLORS.TEXT_MUTED);
+    doc.text(field.label.toUpperCase(), cx, y + 5);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(...COLORS.TEXT_PRIMARY);
+    doc.text(field.value, cx, y + 11);
+  });
+
+  return y + STRIP_H + 6;
+}
+
+// ── Premium Totals Block ───────────────────────────────────────────────────────
+
+export interface TotalLine {
+  label: string;
+  value: string;
+  isTotal?: boolean;
+  isMuted?: boolean;
+  [key: string]: unknown;
+}
+
+/**
+ * Render right-aligned totals block. Returns new Y position.
+ */
+export function renderTotalsBlock(
+  doc: JsPdfDoc,
+  y: number,
+  pageW: number,
+  margin: number,
+  accent: { r: number; g: number; b: number },
+  lines: TotalLine[],
+): number {
+  const BLOCK_W = 75;
+  const LEFT_X = pageW - margin - BLOCK_W;
+  const RIGHT_X = pageW - margin;
+  let cy = y;
+
+  // Top divider
+  doc.setDrawColor(...COLORS.BORDER);
+  doc.setLineWidth(0.4);
+  doc.line(LEFT_X, cy, RIGHT_X, cy);
+  cy += 5;
+
+  for (const line of lines) {
+    if (line.isTotal) {
+      // Accent fill box for total
+      const BOX_H = 9;
+      doc.setFillColor(accent.r, accent.g, accent.b);
+      doc.roundedRect(LEFT_X - 2, cy - 6, BLOCK_W + 4, BOX_H, 1, 1, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(...COLORS.WHITE);
+      doc.text(line.label, LEFT_X + 2, cy);
+      doc.text(line.value, RIGHT_X, cy, { align: 'right' });
+      cy += 10;
+    } else if (line.isMuted) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(...COLORS.TEXT_SECONDARY);
+      doc.text(line.label, LEFT_X, cy);
+      doc.text(line.value, RIGHT_X, cy, { align: 'right' });
+      cy += 5.5;
+    } else {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(...COLORS.TEXT_SECONDARY);
+      doc.text(line.label, LEFT_X, cy);
+      doc.setTextColor(...COLORS.TEXT_PRIMARY);
+      doc.text(line.value, RIGHT_X, cy, { align: 'right' });
+      cy += 6;
+    }
+  }
+
+  return cy + 4;
+}
+
+// ── Payment Details Block ──────────────────────────────────────────────────────
+
+export function renderPaymentDetails(
+  doc: JsPdfDoc,
+  y: number,
+  pageW: number,
+  margin: number,
+  accent: { r: number; g: number; b: number },
+  company: CompanyDetails,
+  reference: string,
+): number {
+  // Section header
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7);
+  doc.setTextColor(accent.r, accent.g, accent.b);
+  doc.text('PAYMENT INFORMATION', margin, y);
+  y += 2;
+  doc.setDrawColor(accent.r, accent.g, accent.b);
+  doc.setLineWidth(0.3);
+  doc.line(margin, y, margin + 40, y);
+  y += 5;
+
+  const fields = [
+    { label: 'Bank', value: company.bankName || '—' },
+    { label: 'Account Name', value: company.bankAccountName || company.name || '—' },
+    { label: 'Account Number', value: company.bankAccountNumber || '—' },
+    { label: 'Branch Code', value: company.bankBranchCode || '—' },
+    { label: 'Reference', value: reference || '—' },
+  ];
+
+  const ROW_H = 5.5;
+  const BOX_H = fields.length * ROW_H + 8;
+  const CONTENT_W = pageW - margin * 2;
+
+  doc.setFillColor(...COLORS.SURFACE);
+  doc.setDrawColor(...COLORS.BORDER);
+  doc.setLineWidth(0.3);
+  doc.roundedRect(margin, y, CONTENT_W * 0.55, BOX_H, 1.5, 1.5, 'FD');
+
+  let ry = y + 5;
+  for (const f of fields) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.setTextColor(...COLORS.TEXT_SECONDARY);
+    doc.text(f.label, margin + 4, ry);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...COLORS.TEXT_PRIMARY);
+    doc.text(f.value, margin + 36, ry);
+    ry += ROW_H;
+  }
+
+  return y + BOX_H + 6;
+}
+
+// ── Notes Block ───────────────────────────────────────────────────────────────
+
+export function renderNotesBlock(
+  doc: JsPdfDoc,
+  y: number,
+  pageW: number,
+  margin: number,
+  notes: string,
+): number {
+  const CONTENT_W = pageW - margin * 2;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7);
+  doc.setTextColor(...COLORS.TEXT_SECONDARY);
+  doc.text('NOTES', margin, y);
+  y += 4;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(...COLORS.TEXT_SECONDARY);
+  const noteLines = doc.splitTextToSize(notes, CONTENT_W * 0.7) as string[];
+  doc.text(noteLines, margin, y);
+  return y + noteLines.length * 4 + 4;
+}
+
+// ── Premium Page Footer ────────────────────────────────────────────────────────
+
+export function renderPageFooters(
+  doc: JsPdfDoc,
+  pageW: number,
+  pageH: number,
+  margin: number,
+  tagline = 'Thank you for your business.',
+): void {
+  const totalPages = (doc as { internal: { getNumberOfPages: () => number } })
+    .internal.getNumberOfPages();
+
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+
+    // Thin accent line (using TEAL default — will be overridden by callers if needed)
+    doc.setDrawColor(...COLORS.BORDER);
+    doc.setLineWidth(0.4);
+    doc.line(margin, pageH - 12, pageW - margin, pageH - 12);
+
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(7);
+    doc.setTextColor(...COLORS.TEXT_MUTED);
+    doc.text(tagline, margin, pageH - 7);
+
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Page ${i} of ${totalPages}`, pageW - margin, pageH - 7, { align: 'right' });
+  }
+}
+
+// ── Legacy header shim (kept for backward compat) ─────────────────────────────
 
 export interface InvoiceHeaderCtx {
   doc: JsPdfDoc;
@@ -171,90 +579,19 @@ export interface InvoiceHeaderCtx {
   company: CompanyDetails;
 }
 
-/** Render page header bar and return Y position after header. */
+/** @deprecated Use renderPremiumHeader instead */
 export function renderInvoiceHeader(ctx: InvoiceHeaderCtx): number {
-  const { doc, invoice, layout, pageW, margin, accent, company } = ctx;
-
-  if (layout === 'minimal') {
-    doc.setFontSize(18);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(30, 30, 30);
-    doc.text('TAX INVOICE', margin, 14);
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(80, 80, 80);
-    doc.text(String(invoice.invoice_number || ''), pageW - margin, 10, { align: 'right' });
-    doc.text(`Date: ${fmtDate(invoice.invoice_date as string | Date | null | undefined)}`, pageW - margin, 15, { align: 'right' });
-    doc.text(`Due: ${fmtDate(invoice.due_date as string | Date | null | undefined)}`, pageW - margin, 20, { align: 'right' });
-    doc.setDrawColor(180, 180, 180);
-    doc.setLineWidth(0.4);
-    doc.line(margin, 24, pageW - margin, 24);
-    return 30;
-  }
-
-  if (layout === 'modern') {
-    const bannerH = 36;
-    doc.setFillColor(accent.r, accent.g, accent.b);
-    doc.rect(0, 0, pageW, bannerH, 'F');
-    if (company.logoData) {
-      try { doc.addImage(company.logoData, 'AUTO', margin, 4, 28, 28); } catch { /* skip */ }
-    }
-    const textLeft = company.logoData ? margin + 32 : margin;
-    doc.setFontSize(20);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(255, 255, 255);
-    doc.text('TAX INVOICE', textLeft, 20);
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    doc.text(String(invoice.invoice_number || ''), pageW - margin, 12, { align: 'right' });
-    doc.setFontSize(8);
-    doc.text(`Date: ${fmtDate(invoice.invoice_date as string | Date | null | undefined)}`, pageW - margin, 19, { align: 'right' });
-    doc.text(`Due: ${fmtDate(invoice.due_date as string | Date | null | undefined)}`, pageW - margin, 25, { align: 'right' });
-    return bannerH + 8;
-  }
-
-  // Classic (default)
-  doc.setFillColor(TEAL.r, TEAL.g, TEAL.b);
-  doc.rect(0, 0, pageW, 28, 'F');
-  doc.setFontSize(22);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(255, 255, 255);
-  doc.text('TAX INVOICE', margin, 18);
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'normal');
-  doc.text(String(invoice.invoice_number || ''), pageW - margin, 12, { align: 'right' });
-  doc.setFontSize(8);
-  doc.text(`Date: ${fmtDate(invoice.invoice_date as string | Date | null | undefined)}`, pageW - margin, 18, { align: 'right' });
-  doc.text(`Due: ${fmtDate(invoice.due_date as string | Date | null | undefined)}`, pageW - margin, 23, { align: 'right' });
-  return 36;
+  const { doc, invoice, layout: _layout, pageW, margin, accent, company } = ctx;
+  return renderPremiumHeader({
+    doc, pageW, margin, company, accent,
+    docType: 'invoice',
+    docTitle: 'TAX INVOICE',
+    docNumber: String(invoice.invoice_number || ''),
+    docDate: fmtDate(invoice.invoice_date as string | Date | null | undefined),
+    docSecondaryDate: invoice.due_date ? fmtDate(invoice.due_date as string | Date | null | undefined) : undefined,
+    docSecondaryLabel: 'Due',
+  });
 }
 
-// ── Page footer renderer ──────────────────────────────────────────────────────
-
-/**
- * Render IsaFlow teal footer lines on every page of a jsPDF document.
- */
-export function renderPageFooters(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  doc: any,
-  pageW: number,
-  pageH: number,
-  margin: number,
-): void {
-  const totalPages = (doc as { internal: { getNumberOfPages: () => number } })
-    .internal.getNumberOfPages();
-
-  for (let i = 1; i <= totalPages; i++) {
-    doc.setPage(i);
-    doc.setFontSize(7);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(150, 150, 150);
-
-    doc.setDrawColor(TEAL.r, TEAL.g, TEAL.b);
-    doc.setLineWidth(0.3);
-    doc.line(margin, pageH - 12, pageW - margin, pageH - 12);
-
-    doc.text(`Page ${i} of ${totalPages}`, pageW - margin, pageH - 7, { align: 'right' });
-    doc.text('Generated by IsaFlow', margin, pageH - 7);
-  }
-}
+// Re-export darken for use in builders
+export { darken };

@@ -1,0 +1,23 @@
+node:internal/fs/watchers:262
+    throw error;
+    ^
+
+Error: EMFILE: too many open files, watch '/home/hein/Workspace/IsaFlow/.superpowers/brainstorm/1813130-1775988233/content'
+    at FSWatcher.<computed> (node:internal/fs/watchers:254:19)
+    at Object.watch (node:fs:2561:36)
+    at startServer (/home/hein/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.7/skills/brainstorming/scripts/server.cjs:276:22)
+    at Object.<anonymous> (/home/hein/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.7/skills/brainstorming/scripts/server.cjs:351:3)
+    at Module._compile (node:internal/modules/cjs/loader:1706:14)
+    at Object..js (node:internal/modules/cjs/loader:1839:10)
+    at Module.load (node:internal/modules/cjs/loader:1441:32)
+    at Function._load (node:internal/modules/cjs/loader:1263:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:237:24) {
+  errno: -24,
+  syscall: 'watch',
+  code: 'EMFILE',
+  path: '/home/hein/Workspace/IsaFlow/.superpowers/brainstorm/1813130-1775988233/content',
+  filename: '/home/hein/Workspace/IsaFlow/.superpowers/brainstorm/1813130-1775988233/content'
+}
+
+Node.js v22.22.0

@@ -231,26 +231,26 @@ export default function JournalEntryDetailPage() {
                   <table className="w-full">
                     <thead>
                       <tr className="bg-[var(--ff-bg-tertiary)] border-b border-[var(--ff-border-light)]">
-                        <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-[var(--ff-text-secondary)]">#</th>
-                        <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-[var(--ff-text-secondary)]">Account</th>
-                        <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-[var(--ff-text-secondary)]">Description</th>
-                        <th className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-[var(--ff-text-secondary)]">Debit</th>
-                        <th className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-[var(--ff-text-secondary)]">Credit</th>
+                        <th className="px-6 py-3 text-left text-[10px] tracking-[0.12em] font-semibold uppercase text-[var(--ff-text-secondary)]">#</th>
+                        <th className="px-6 py-3 text-left text-[10px] tracking-[0.12em] font-semibold uppercase text-[var(--ff-text-secondary)]">Account</th>
+                        <th className="px-6 py-3 text-left text-[10px] tracking-[0.12em] font-semibold uppercase text-[var(--ff-text-secondary)]">Description</th>
+                        <th className="px-6 py-3 text-right text-[10px] tracking-[0.12em] font-semibold uppercase text-[var(--ff-text-secondary)]">Debit</th>
+                        <th className="px-6 py-3 text-right text-[10px] tracking-[0.12em] font-semibold uppercase text-[var(--ff-text-secondary)]">Credit</th>
                       </tr>
                     </thead>
                     <tbody>
                       {entry.lines?.map((line, idx) => (
-                        <tr key={line.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-tertiary)] transition-colors">
+                        <tr key={line.id} className="border-b border-[var(--ff-border-light)] hover:bg-teal-500/[0.04] transition-colors">
                           <td className="px-6 py-3 text-sm text-[var(--ff-text-tertiary)]">{idx + 1}</td>
                           <td className="px-6 py-3">
                             <div className="text-sm font-medium text-[var(--ff-text-primary)]">{line.accountCode || '-'}</div>
                             <div className="text-xs text-[var(--ff-text-secondary)]">{line.accountName || ''}</div>
                           </td>
                           <td className="px-6 py-3 text-sm text-[var(--ff-text-primary)]">{line.description || '-'}</td>
-                          <td className="px-6 py-3 text-sm text-right font-medium text-[var(--ff-text-primary)]">
+                          <td className="px-6 py-3 text-sm text-right font-medium tabular-nums text-[var(--ff-text-primary)]">
                             {formatCurrency(line.debit)}
                           </td>
-                          <td className="px-6 py-3 text-sm text-right font-medium text-[var(--ff-text-primary)]">
+                          <td className="px-6 py-3 text-sm text-right font-medium tabular-nums text-[var(--ff-text-primary)]">
                             {formatCurrency(line.credit)}
                           </td>
                         </tr>

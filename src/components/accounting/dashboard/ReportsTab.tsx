@@ -116,18 +116,18 @@ export function ReportsTab() {
               <thead>
                 <tr className="bg-[var(--ff-bg-tertiary)] border-b border-[var(--ff-border-light)]">
                   {['Code', 'Account', 'Type', 'Debit', 'Credit'].map((h, i) => (
-                    <th key={h} className={`px-6 py-3 text-xs font-semibold uppercase tracking-wider text-[var(--ff-text-secondary)] ${i >= 3 ? 'text-right' : 'text-left'}`}>{h}</th>
+                    <th key={h} className={`px-6 py-3 text-[10px] tracking-[0.12em] font-semibold uppercase text-[var(--ff-text-secondary)] ${i >= 3 ? 'text-right' : 'text-left'}`}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {trialBalance.map(row => (
-                  <tr key={row.accountCode} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-tertiary)] transition-colors">
+                  <tr key={row.accountCode} className="border-b border-[var(--ff-border-light)] hover:bg-teal-500/[0.04] transition-colors">
                     <td className="px-6 py-3 text-sm font-mono text-[var(--ff-text-primary)]">{row.accountCode}</td>
                     <td className="px-6 py-3 text-sm text-[var(--ff-text-primary)]">{row.accountName}</td>
                     <td className="px-6 py-3 text-sm text-[var(--ff-text-secondary)] capitalize">{row.accountType}</td>
-                    <td className="px-6 py-3 text-sm text-right font-medium text-[var(--ff-text-primary)]">{fmtCurrency(row.debitBalance)}</td>
-                    <td className="px-6 py-3 text-sm text-right font-medium text-[var(--ff-text-primary)]">{fmtCurrency(row.creditBalance)}</td>
+                    <td className="px-6 py-3 text-sm text-right tabular-nums font-medium text-[var(--ff-text-primary)]">{fmtCurrency(row.debitBalance)}</td>
+                    <td className="px-6 py-3 text-sm text-right tabular-nums font-medium text-[var(--ff-text-primary)]">{fmtCurrency(row.creditBalance)}</td>
                   </tr>
                 ))}
               </tbody>

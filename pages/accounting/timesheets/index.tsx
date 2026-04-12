@@ -110,7 +110,7 @@ export default function TimesheetsPage() {
 
   const fc = (field: string, val: string | boolean) => setForm(p => ({ ...p, [field]: val }));
 
-  const handleSubmitForm = async (e: React.FormEvent) => {
+  const handleSubmitForm = async (e: React.FormEvent<Element>) => {
     e.preventDefault();
     if (!form.taskDescription.trim() || !form.hours) { showToast('Description and hours required', false); return; }
     setFormBusy(true);

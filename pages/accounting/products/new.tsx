@@ -27,7 +27,7 @@ export default function NewProductPage() {
       .then(r => r.json()).then(j => setCategories(j.data || [])).catch(() => {});
   }, []);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault(); setError(''); setSaving(true);
     try {
       const res = await apiFetch('/api/accounting/products', {

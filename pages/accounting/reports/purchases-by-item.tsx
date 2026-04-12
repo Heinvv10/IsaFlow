@@ -73,24 +73,24 @@ export default function PurchasesByItemReport() {
             ) : (
               <table className="w-full text-sm">
                 <thead><tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
-                  <th className="px-4 py-3 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Code</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Item</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Category</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">POs</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Qty Ordered</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Total Cost</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Avg Cost</th>
+                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Code</th>
+                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Item</th>
+                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Category</th>
+                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">POs</th>
+                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Qty Ordered</th>
+                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Total Cost</th>
+                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Avg Cost</th>
                 </tr></thead>
                 <tbody className="divide-y divide-[var(--ff-border-light)]">
                   {rows.map(r => (
-                    <tr key={r.id} className="hover:bg-[var(--ff-bg-tertiary)]">
+                    <tr key={r.id} className="hover:bg-teal-500/[0.04]">
                       <td className="px-4 py-3 font-mono text-xs text-[var(--ff-text-tertiary)]">{r.itemCode}</td>
                       <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">{r.name}</td>
                       <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.category}</td>
-                      <td className="px-4 py-3 text-right text-[var(--ff-text-secondary)]">{r.poCount}</td>
-                      <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{r.qtyOrdered}</td>
-                      <td className="px-4 py-3 text-right font-mono text-orange-400">{fmt(r.totalCost)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-secondary)]">{fmt(r.avgCost)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-secondary)]">{r.poCount}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{r.qtyOrdered}</td>
+                      <td className="px-4 py-3 text-right font-mono tabular-nums text-orange-400">{fmt(r.totalCost)}</td>
+                      <td className="px-4 py-3 text-right font-mono tabular-nums text-[var(--ff-text-secondary)]">{fmt(r.avgCost)}</td>
                     </tr>
                   ))}
                 </tbody>

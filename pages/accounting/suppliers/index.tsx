@@ -159,19 +159,19 @@ export default function SuppliersPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
-                    <th className="text-left py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Name</th>
-                    <th className="text-left py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Email</th>
-                    <th className="text-left py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Phone</th>
-                    <th className="text-left py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Contact Person</th>
-                    <th className="text-left py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Category</th>
-                    <th className="text-left py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Status</th>
+                    <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Name</th>
+                    <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Email</th>
+                    <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Phone</th>
+                    <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Contact Person</th>
+                    <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Category</th>
+                    <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {suppliers.map((s) => (
                     <tr
                       key={s.id}
-                      className="border-b border-[var(--ff-border-primary)] last:border-0 hover:bg-[var(--ff-bg-tertiary)] transition-colors"
+                      className="border-b border-[var(--ff-border-primary)] last:border-0 hover:bg-teal-500/[0.04] transition-colors"
                     >
                       <td className="py-3 px-4">
                         <Link

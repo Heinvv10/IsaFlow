@@ -85,12 +85,12 @@ export default function ItemPricingPage() {
             ) : (
               <table className="w-full text-sm">
                 <thead><tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
-                  <th className="px-4 py-3 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Code</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Item</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Category</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Cost Price</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Selling Price</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Margin</th>
+                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Code</th>
+                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Item</th>
+                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Category</th>
+                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Cost Price</th>
+                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Selling Price</th>
+                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Margin</th>
                 </tr></thead>
                 <tbody className="divide-y divide-[var(--ff-border-light)]">
                   {filtered.map(item => {
@@ -99,11 +99,11 @@ export default function ItemPricingPage() {
                     const margin = cp > 0 ? ((sp - cp) / cp * 100) : 0;
                     const changed = edits[item.id] !== undefined;
                     return (
-                      <tr key={item.id} className={`hover:bg-[var(--ff-bg-tertiary)] ${changed ? 'bg-blue-500/5' : ''}`}>
+                      <tr key={item.id} className={`hover:bg-teal-500/[0.04] ${changed ? 'bg-blue-500/5' : ''}`}>
                         <td className="px-4 py-2 font-mono text-xs text-[var(--ff-text-tertiary)]">{item.item_code}</td>
                         <td className="px-4 py-2 text-[var(--ff-text-primary)]">{item.name}</td>
                         <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{item.category || '—'}</td>
-                        <td className="px-4 py-2 text-right text-[var(--ff-text-secondary)]">{fmt(cp)}</td>
+                        <td className="px-4 py-2 text-right tabular-nums text-[var(--ff-text-secondary)]">{fmt(cp)}</td>
                         <td className="px-4 py-2 text-right">
                           <input type="number" step="0.01" min="0"
                             value={edits[item.id] !== undefined ? edits[item.id] : (item.selling_price ?? '')}

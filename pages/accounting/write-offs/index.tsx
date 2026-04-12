@@ -62,7 +62,7 @@ export default function WriteOffsPage() {
   const selectedInv = invoices.find(i => i.id === form.invoiceId);
   const maxAmount = selectedInv ? Number(selectedInv.total_amount) - Number(selectedInv.amount_paid) : 0;
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(''); setBusy('new');
     try {

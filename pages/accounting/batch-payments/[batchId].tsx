@@ -179,15 +179,15 @@ export default function BatchPaymentDetailPage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-[var(--ff-border-light)]">
-                        <th className="px-4 py-3 text-left text-[var(--ff-text-secondary)] font-medium">Payment #</th>
-                        <th className="px-4 py-3 text-left text-[var(--ff-text-secondary)] font-medium">Supplier</th>
-                        <th className="px-4 py-3 text-right text-[var(--ff-text-secondary)] font-medium">Amount</th>
-                        <th className="px-4 py-3 text-left text-[var(--ff-text-secondary)] font-medium">Status</th>
+                        <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Payment #</th>
+                        <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Supplier</th>
+                        <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Amount</th>
+                        <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Status</th>
                       </tr>
                     </thead>
                     <tbody>
                       {batch.payments.map((p) => (
-                        <tr key={p.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-tertiary)]">
+                        <tr key={p.id} className="border-b border-[var(--ff-border-light)] hover:bg-teal-500/[0.04]">
                           <td className="px-4 py-3 text-[var(--ff-text-primary)] font-mono">
                             <Link href={`/accounting/supplier-payments/${p.id}`} className="hover:text-indigo-400">
                               {p.paymentNumber}

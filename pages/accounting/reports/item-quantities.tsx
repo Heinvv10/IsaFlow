@@ -76,23 +76,23 @@ export default function ItemQuantitiesReport() {
             ) : (
               <table className="w-full text-sm">
                 <thead><tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
-                  <th className="px-4 py-3 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Code</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Item</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Category</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">UOM</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">On Hand</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Min Level</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Status</th>
+                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Code</th>
+                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Item</th>
+                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Category</th>
+                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">UOM</th>
+                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">On Hand</th>
+                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Min Level</th>
+                  <th className="px-4 py-3 text-center text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Status</th>
                 </tr></thead>
                 <tbody className="divide-y divide-[var(--ff-border-light)]">
                   {rows.map(r => (
-                    <tr key={r.id} className={`hover:bg-[var(--ff-bg-tertiary)] ${r.lowStock ? 'bg-red-500/5' : ''}`}>
+                    <tr key={r.id} className={`hover:bg-teal-500/[0.04] ${r.lowStock ? 'bg-red-500/5' : ''}`}>
                       <td className="px-4 py-3 font-mono text-xs text-[var(--ff-text-tertiary)]">{r.itemCode}</td>
                       <td className="px-4 py-3 text-[var(--ff-text-primary)]">{r.name}</td>
                       <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.category}</td>
                       <td className="px-4 py-3 text-[var(--ff-text-tertiary)]">{r.uom}</td>
-                      <td className={`px-4 py-3 text-right font-mono ${r.lowStock ? 'text-red-400 font-bold' : 'text-[var(--ff-text-primary)]'}`}>{r.qtyOnHand}</td>
-                      <td className="px-4 py-3 text-right text-[var(--ff-text-secondary)]">{r.minLevel > 0 ? r.minLevel : '—'}</td>
+                      <td className={`px-4 py-3 text-right font-mono tabular-nums ${r.lowStock ? 'text-red-400 font-bold' : 'text-[var(--ff-text-primary)]'}`}>{r.qtyOnHand}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-secondary)]">{r.minLevel > 0 ? r.minLevel : '—'}</td>
                       <td className="px-4 py-3 text-center">
                         {r.lowStock ? (
                           <span className="px-2 py-0.5 rounded text-xs font-medium bg-red-500/10 text-red-400">Low</span>

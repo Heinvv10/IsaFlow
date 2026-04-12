@@ -6,47 +6,37 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import {
-  Receipt, Plus, Loader2, AlertCircle, ChevronRight, Filter,
-} from 'lucide-react';
+import { FileText, Plus, Loader2, AlertCircle, ChevronRight } from 'lucide-react';
 import type { SupplierInvoice } from '@/modules/accounting/types/ap.types';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
 
-const STATUS_OPTIONS: { value: string; label: string }[] = [
-  { value: '', label: 'All Statuses' },
-  { value: 'draft', label: 'Draft' },
-  { value: 'pending_approval', label: 'Pending Approval' },
-  { value: 'approved', label: 'Approved' },
-  { value: 'partially_paid', label: 'Partially Paid' },
-  { value: 'paid', label: 'Paid' },
-  { value: 'disputed', label: 'Disputed' },
-  { value: 'cancelled', label: 'Cancelled' },
-];
+const TABS = ['all', 'draft', 'pending_approval', 'approved', 'partially_paid', 'paid', 'disputed', 'cancelled'] as const;
+type Tab = typeof TABS[number];
+
+const STATUS: Record<string, { label: string; cls: string }> = {
+  draft:            { label: 'Draft',            cls: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300' },
+  pending_approval: { label: 'Pending',          cls: 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' },
+  approved:         { label: 'Approved',         cls: 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' },
+  partially_paid:   { label: 'Partial',          cls: 'bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400' },
+  paid:             { label: 'Paid',             cls: 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' },
+  disputed:         { label: 'Disputed',         cls: 'bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400' },
+  cancelled:        { label: 'Cancelled',        cls: 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400' },
+};
 
 function StatusBadge({ status }: { status: string }) {
-  const colors: Record<string, string> = {
-    draft: 'bg-gray-500/20 text-gray-400',
-    pending_approval: 'bg-amber-500/20 text-amber-400',
-    approved: 'bg-blue-500/20 text-blue-400',
-    partially_paid: 'bg-purple-500/20 text-purple-400',
-    paid: 'bg-teal-500/20 text-teal-400',
-    disputed: 'bg-red-500/20 text-red-400',
-    cancelled: 'bg-gray-500/20 text-gray-500',
-  };
+  const s = STATUS[status];
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${colors[status] || 'bg-gray-500/20 text-gray-400'}`}>
-      {status.replace(/_/g, ' ')}
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${s?.cls || 'bg-slate-100 dark:bg-slate-800 text-slate-500'}`}>
+      {s?.label || status.replace(/_/g, ' ')}
     </span>
   );
 }
 
-
-
 export default function SupplierInvoicesPage() {
   const [invoices, setInvoices] = useState<SupplierInvoice[]>([]);
   const [total, setTotal] = useState(0);
-  const [statusFilter, setStatusFilter] = useState('');
+  const [tab, setTab] = useState<Tab>('all');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -55,120 +45,115 @@ export default function SupplierInvoicesPage() {
     setError('');
     try {
       const params = new URLSearchParams();
-      if (statusFilter) params.set('status', statusFilter);
+      if (tab !== 'all') params.set('status', tab);
       const res = await apiFetch(`/api/accounting/supplier-invoices?${params}`);
       const json = await res.json();
       const payload = json.data || json;
       setInvoices(payload.invoices || []);
       setTotal(payload.total || 0);
-    } catch (err) {
+    } catch {
       setError('Failed to load supplier invoices');
     } finally {
       setIsLoading(false);
     }
-  }, [statusFilter]);
+  }, [tab]);
 
-  useEffect(() => { loadInvoices(); }, [loadInvoices]);
+  useEffect(() => { void loadInvoices(); }, [loadInvoices]);
 
   return (
     <AppLayout>
-      <div className="min-h-screen bg-[var(--ff-bg-primary)]">
+      <div className="min-h-screen bg-slate-50 dark:bg-[var(--ff-bg-primary)]">
         {/* Header */}
-        <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-teal-500/10">
-                <Receipt className="h-6 w-6 text-teal-500" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Supplier Invoices</h1>
-                <p className="text-sm text-[var(--ff-text-secondary)]">
-                  Manage supplier invoices, 3-way matching & approvals
-                </p>
-              </div>
+        <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-6 py-8">
+          <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
+          <div className="absolute -top-12 right-8 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="relative z-10 flex items-center justify-between">
+            <div>
+              <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-1">Suppliers</p>
+              <h1 className="text-2xl font-bold text-white">Supplier Invoices</h1>
+              <p className="text-slate-400 text-sm mt-0.5">{total} {total === 1 ? 'invoice' : 'invoices'}</p>
             </div>
             <Link
               href="/accounting/supplier-invoices/new"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium"
+              className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-white rounded-xl text-sm font-semibold transition-colors shadow-lg shadow-amber-500/25"
             >
-              <Plus className="h-4 w-4" />
-              New Invoice
+              <Plus className="w-4 h-4" /> New Invoice
             </Link>
           </div>
         </div>
 
         <div className="p-6 space-y-4">
-          {/* Filters */}
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <Filter className="h-4 w-4 text-[var(--ff-text-tertiary)]" />
-              <select
-                value={statusFilter}
-                onChange={e => setStatusFilter(e.target.value)}
-                className="ff-select text-sm"
+          {/* Filter tabs */}
+          <div className="flex gap-1 p-1 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto">
+            {TABS.map(t => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg capitalize whitespace-nowrap transition-colors ${tab === t ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
               >
-                {STATUS_OPTIONS.map(opt => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </div>
-            <span className="text-sm text-[var(--ff-text-secondary)]">{total} invoice{total !== 1 ? 's' : ''}</span>
+                {t === 'pending_approval' ? 'Pending' : t === 'partially_paid' ? 'Partial' : t}
+              </button>
+            ))}
           </div>
 
           {/* Error */}
           {error && (
-            <div className="flex items-center gap-2 p-3 bg-red-500/10 rounded-lg text-red-400 text-sm">
-              <AlertCircle className="h-4 w-4" />{error}
+            <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-sm">
+              <AlertCircle className="h-4 w-4 flex-shrink-0" />{error}
             </div>
           )}
 
           {/* Table */}
-          <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
             {isLoading ? (
-              <div className="p-8 text-center">
-                <Loader2 className="h-6 w-6 animate-spin text-[var(--ff-text-tertiary)] mx-auto" />
+              <div className="p-16 flex items-center justify-center">
+                <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
               </div>
             ) : invoices.length === 0 ? (
-              <div className="p-8 text-center">
-                <Receipt className="h-8 w-8 text-[var(--ff-text-tertiary)] mx-auto mb-2" />
-                <p className="text-[var(--ff-text-secondary)]">No supplier invoices found</p>
+              <div className="p-16 text-center">
+                <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto mb-4">
+                  <FileText className="w-7 h-7 text-slate-400" />
+                </div>
+                <h3 className="text-base font-semibold text-slate-900 dark:text-white">No invoices found</h3>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Record your first supplier invoice</p>
+                <Link href="/accounting/supplier-invoices/new" className="inline-block mt-5 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-white text-sm font-semibold rounded-lg transition-colors">
+                  New Invoice
+                </Link>
               </div>
             ) : (
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
-                    <th className="ff-table-header px-4 py-3 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Invoice #</th>
-                    <th className="ff-table-header px-4 py-3 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Supplier</th>
-                    <th className="ff-table-header px-4 py-3 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Reference</th>
-                    <th className="ff-table-header px-4 py-3 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Date</th>
-                    <th className="ff-table-header px-4 py-3 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Total</th>
-                    <th className="ff-table-header px-4 py-3 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Outstanding</th>
-                    <th className="ff-table-header px-4 py-3 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Status</th>
-                    <th className="ff-table-header px-4 py-3"></th>
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800">
+                  <tr>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Invoice #</th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Supplier</th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Reference</th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Date</th>
+                    <th className="px-5 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Total</th>
+                    <th className="px-5 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Outstanding</th>
+                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Status</th>
+                    <th className="w-10" />
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[var(--ff-border-light)]">
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {invoices.map(inv => {
                     const outstanding = inv.balance ?? (inv.totalAmount - (inv.amountPaid || 0));
                     return (
-                      <tr key={inv.id} className="hover:bg-[var(--ff-bg-tertiary)] transition-colors">
-                        <td className="px-4 py-3 text-sm font-medium text-[var(--ff-text-primary)]">
-                          <Link href={`/accounting/supplier-invoices/${inv.id}`} className="hover:text-teal-400 transition-colors">
+                      <tr key={inv.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                        <td className="px-5 py-3.5 font-mono text-amber-500 font-semibold">
+                          <Link href={`/accounting/supplier-invoices/${inv.id}`} className="hover:underline">
                             {inv.invoiceNumber}
                           </Link>
                         </td>
-                        <td className="px-4 py-3 text-sm text-[var(--ff-text-secondary)]">{inv.supplierName || '-'}</td>
-                        <td className="px-4 py-3 text-sm text-[var(--ff-text-tertiary)] max-w-[240px] truncate" title={inv.reference}>
-                          {inv.reference || '-'}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-[var(--ff-text-secondary)] whitespace-nowrap">{formatDate(inv.invoiceDate)}</td>
-                        <td className="px-4 py-3 text-sm text-right font-mono text-[var(--ff-text-primary)]">{formatCurrency(inv.totalAmount)}</td>
-                        <td className={`px-4 py-3 text-sm text-right font-mono ${outstanding > 0 ? 'text-amber-400' : 'text-teal-400'}`}>
+                        <td className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{inv.supplierName || '—'}</td>
+                        <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 max-w-[200px] truncate" title={inv.reference}>{inv.reference || '—'}</td>
+                        <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs whitespace-nowrap">{formatDate(inv.invoiceDate)}</td>
+                        <td className="px-5 py-3.5 text-right font-mono font-semibold text-slate-900 dark:text-white">{formatCurrency(inv.totalAmount)}</td>
+                        <td className={`px-5 py-3.5 text-right font-mono font-semibold ${outstanding > 0 ? 'text-amber-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
                           {formatCurrency(outstanding)}
                         </td>
-                        <td className="px-4 py-3"><StatusBadge status={inv.status} /></td>
-                        <td className="px-4 py-3 text-right">
-                          <Link href={`/accounting/supplier-invoices/${inv.id}`} className="text-teal-600 hover:text-teal-700">
+                        <td className="px-5 py-3.5"><StatusBadge status={inv.status} /></td>
+                        <td className="px-4 py-3.5 text-right">
+                          <Link href={`/accounting/supplier-invoices/${inv.id}`} className="text-slate-400 hover:text-amber-500 transition-colors">
                             <ChevronRight className="h-4 w-4" />
                           </Link>
                         </td>

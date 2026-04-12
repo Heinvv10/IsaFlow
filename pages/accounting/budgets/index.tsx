@@ -56,7 +56,7 @@ export default function BudgetManagementPage() {
     });
   }, []);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(''); setBusy('save');
     try {

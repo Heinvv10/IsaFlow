@@ -212,8 +212,8 @@ export default function CustomerPaymentDetailPage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-[var(--ff-border-light)]">
-                        <th className="text-left px-4 py-3 text-[var(--ff-text-secondary)] font-medium">Invoice #</th>
-                        <th className="text-right px-4 py-3 text-[var(--ff-text-secondary)] font-medium">Amount Allocated</th>
+                        <th className="text-left px-4 py-3 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Invoice #</th>
+                        <th className="text-right px-4 py-3 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Amount Allocated</th>
                       </tr>
                     </thead>
                     <tbody>

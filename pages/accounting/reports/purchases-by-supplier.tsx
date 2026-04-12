@@ -77,20 +77,20 @@ export default function PurchasesBySupplierReport() {
             ) : (
               <table className="w-full text-sm">
                 <thead><tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
-                  <th className="px-4 py-3 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Supplier</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Invoices</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Total Purchases</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Paid</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Outstanding</th>
+                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Supplier</th>
+                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Invoices</th>
+                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Total Purchases</th>
+                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Paid</th>
+                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Outstanding</th>
                 </tr></thead>
                 <tbody className="divide-y divide-[var(--ff-border-light)]">
                   {rows.map(r => (
-                    <tr key={r.supplierId} className="hover:bg-[var(--ff-bg-tertiary)]">
+                    <tr key={r.supplierId} className="hover:bg-teal-500/[0.04]">
                       <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">{r.supplierName}</td>
-                      <td className="px-4 py-3 text-right text-[var(--ff-text-secondary)]">{r.invoiceCount}</td>
-                      <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">{fmt(r.totalPurchases)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-teal-400">{fmt(r.paymentsMade)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-amber-400">{fmt(r.outstanding)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-secondary)]">{r.invoiceCount}</td>
+                      <td className="px-4 py-3 text-right font-mono tabular-nums text-[var(--ff-text-primary)]">{fmt(r.totalPurchases)}</td>
+                      <td className="px-4 py-3 text-right font-mono tabular-nums text-teal-400">{fmt(r.paymentsMade)}</td>
+                      <td className="px-4 py-3 text-right font-mono tabular-nums text-amber-400">{fmt(r.outstanding)}</td>
                     </tr>
                   ))}
                 </tbody>

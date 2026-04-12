@@ -83,7 +83,7 @@ export default function UserAccessPage() {
     finally { setConfirmRemove(null); }
   }
 
-  async function handleInvite(e: React.FormEvent) {
+  async function handleInvite(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!inviteEmail.trim()) return;
     setInviting(true);

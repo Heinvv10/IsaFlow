@@ -81,7 +81,7 @@ export default function RecurringJournalsPage() {
     setFormLines([{ key: crypto.randomUUID(), glAccountId: '', debit: 0, credit: 0, description: '' }]);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError('');
     if (!editId && Math.abs(totalDebit - totalCredit) > 0.01) { setError('Lines must balance (DR = CR)'); return; }

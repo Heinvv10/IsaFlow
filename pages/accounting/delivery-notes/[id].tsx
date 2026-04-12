@@ -250,16 +250,16 @@ export default function DeliveryNoteDetailPage() {
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-[var(--ff-border-light)]">
-                      <th className="px-4 py-2.5 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Description</th>
-                      <th className="px-4 py-2.5 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Qty</th>
-                      <th className="px-4 py-2.5 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Unit</th>
+                      <th className="px-4 py-2.5 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Description</th>
+                      <th className="px-4 py-2.5 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Qty</th>
+                      <th className="px-4 py-2.5 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Unit</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[var(--ff-border-light)]">
                     {(note.lines ?? []).map((line) => (
-                      <tr key={line.id} className="hover:bg-[var(--ff-bg-tertiary)]">
+                      <tr key={line.id} className="hover:bg-teal-500/[0.04]">
                         <td className="px-4 py-2.5 text-sm text-[var(--ff-text-primary)]">{line.description}</td>
-                        <td className="px-4 py-2.5 text-sm text-right font-mono text-[var(--ff-text-primary)]">
+                        <td className="px-4 py-2.5 text-sm text-right font-mono tabular-nums text-[var(--ff-text-primary)]">
                           {Number(line.quantity).toLocaleString('en-ZA')}
                         </td>
                         <td className="px-4 py-2.5 text-sm text-[var(--ff-text-secondary)]">{line.unit ?? ''}</td>
