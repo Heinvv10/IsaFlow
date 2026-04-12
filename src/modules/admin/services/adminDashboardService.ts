@@ -18,26 +18,24 @@ function toISOString(value: unknown): string {
 
 /**
  * Fetch platform-wide dashboard statistics.
- * Runs aggregate queries in parallel for performance.
+ * Consolidates 4 scalar aggregates into a single round-trip to reduce
+ * Neon connection pool pressure under concurrent load, then fetches
+ * recent activity in a second query (UNION prevents combining cleanly).
  */
 export async function getDashboardStats(): Promise<DashboardStats> {
-  const [companyStats, userStats, mrrStats, signupCount, recentActivity] =
-    await Promise.all([
-      getCompanyStats(),
-      getUserStats(),
-      getMrrStats(),
-      getNewSignupCount(),
-      getRecentActivity(),
-    ]);
+  const [kpis, recentActivity] = await Promise.all([
+    getKpis(),
+    getRecentActivity(),
+  ]);
 
   const stats: DashboardStats = {
-    total_companies: companyStats.total,
-    active_companies: companyStats.active,
-    total_users: userStats.total,
-    active_users_30d: userStats.active_30d,
-    mrr_cents: mrrStats.mrr_cents,
-    arr_cents: mrrStats.arr_cents,
-    new_signups_30d: signupCount,
+    total_companies: kpis.total_companies,
+    active_companies: kpis.active_companies,
+    total_users: kpis.total_users,
+    active_users_30d: kpis.active_users_30d,
+    mrr_cents: kpis.mrr_cents,
+    arr_cents: kpis.arr_cents,
+    new_signups_30d: kpis.new_signups_30d,
     recent_activity: recentActivity,
   };
 
@@ -51,64 +49,42 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   return stats;
 }
 
-async function getCompanyStats(): Promise<{ total: number; active: number }> {
+/** Single query: all scalar KPIs in one round-trip. */
+async function getKpis(): Promise<{
+  total_companies: number; active_companies: number;
+  total_users: number; active_users_30d: number;
+  mrr_cents: number; arr_cents: number;
+  new_signups_30d: number;
+}> {
   const rows = await sql`
     SELECT
-      COUNT(*) AS total,
-      COUNT(*) FILTER (WHERE status = 'active') AS active
-    FROM companies
-    WHERE status IS DISTINCT FROM 'deleted'
-  `;
-  const row = rows[0] as Row;
-  return {
-    total: parseInt(row.total as string, 10),
-    active: parseInt(row.active as string, 10),
-  };
-}
-
-async function getUserStats(): Promise<{ total: number; active_30d: number }> {
-  const rows = await sql`
-    SELECT
-      COUNT(*) AS total,
-      COUNT(*) FILTER (WHERE last_login >= NOW() - INTERVAL '30 days') AS active_30d
-    FROM users
-    WHERE is_active = true
-  `;
-  const row = rows[0] as Row;
-  return {
-    total: parseInt(row.total as string, 10),
-    active_30d: parseInt(row.active_30d as string, 10),
-  };
-}
-
-async function getMrrStats(): Promise<{ mrr_cents: number; arr_cents: number }> {
-  // Monthly: sum monthly_price_cents
-  // Annual: normalise to monthly (divide by 12)
-  const rows = await sql`
-    SELECT
-      COALESCE(SUM(
+      (SELECT COUNT(*)            FROM companies WHERE status IS DISTINCT FROM 'deleted')                AS total_companies,
+      (SELECT COUNT(*)            FROM companies WHERE status = 'active')                               AS active_companies,
+      (SELECT COUNT(*)            FROM companies WHERE created_at >= NOW() - INTERVAL '30 days'
+                                                   AND status IS DISTINCT FROM 'deleted')              AS new_signups_30d,
+      (SELECT COUNT(*)            FROM users     WHERE is_active = true)                               AS total_users,
+      (SELECT COUNT(*)            FROM users     WHERE is_active = true
+                                                   AND last_login >= NOW() - INTERVAL '30 days')       AS active_users_30d,
+      (SELECT COALESCE(SUM(
         CASE
-          WHEN s.billing_cycle = 'monthly' THEN ROUND(p.monthly_price_cents::numeric * (100 - COALESCE(s.discount_percent, 0)::numeric) / 100.0)
-          WHEN s.billing_cycle = 'annual'  THEN ROUND(p.annual_price_cents::numeric * (100 - COALESCE(s.discount_percent, 0)::numeric) / 1200.0)
+          WHEN s.billing_cycle = 'monthly' THEN ROUND(p.monthly_price_cents::numeric * (100 - COALESCE(s.discount_percent,0)::numeric) / 100.0)
+          WHEN s.billing_cycle = 'annual'  THEN ROUND(p.annual_price_cents::numeric  * (100 - COALESCE(s.discount_percent,0)::numeric) / 1200.0)
           ELSE 0
-        END
-      ), 0) AS mrr_cents
-    FROM subscriptions s
-    INNER JOIN plans p ON p.id = s.plan_id
-    WHERE s.status = 'active'
+        END), 0)
+       FROM subscriptions s INNER JOIN plans p ON p.id = s.plan_id
+       WHERE s.status = 'active')                                                                       AS mrr_cents
   `;
-  const mrr = parseInt((rows[0] as Row).mrr_cents as string, 10);
-  return { mrr_cents: mrr, arr_cents: mrr * 12 };
-}
-
-async function getNewSignupCount(): Promise<number> {
-  const rows = await sql`
-    SELECT COUNT(*) AS count
-    FROM companies
-    WHERE created_at >= NOW() - INTERVAL '30 days'
-      AND status IS DISTINCT FROM 'deleted'
-  `;
-  return parseInt((rows[0] as Row).count as string, 10);
+  const row = rows[0] as Row;
+  const mrr = parseInt(row.mrr_cents as string, 10);
+  return {
+    total_companies:  parseInt(row.total_companies  as string, 10),
+    active_companies: parseInt(row.active_companies as string, 10),
+    new_signups_30d:  parseInt(row.new_signups_30d  as string, 10),
+    total_users:      parseInt(row.total_users      as string, 10),
+    active_users_30d: parseInt(row.active_users_30d as string, 10),
+    mrr_cents: mrr,
+    arr_cents: mrr * 12,
+  };
 }
 
 /**
