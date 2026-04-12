@@ -158,7 +158,7 @@ export default function AdminUserDetailPage() {
 
   function openImpersonationTab() {
     if (!loginAsToken) return;
-    const url = `https://app.isaflow.co.za?impersonate_token=${encodeURIComponent(loginAsToken)}`;
+    const url = `https://app.isaflow.co.za/impersonate?token=${encodeURIComponent(loginAsToken)}`;
     window.open(url, '_blank', 'noopener,noreferrer');
     setLoginAsModalOpen(false);
     showToast('Impersonation session opened in new tab');
