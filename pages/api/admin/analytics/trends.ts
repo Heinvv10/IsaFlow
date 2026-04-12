@@ -8,7 +8,7 @@ import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
-import { getTrends } from '@/modules/admin/services/analyticsService';
+import { getTrends } from '@/modules/admin/services/trendsService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
