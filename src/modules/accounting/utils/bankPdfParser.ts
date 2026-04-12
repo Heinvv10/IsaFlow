@@ -1,376 +1,52 @@
 /**
  * PRD-060: FibreFlow Accounting Module
- * Bank PDF Statement Parser
+ * Bank PDF Statement Parser — main router/factory
  *
- * Extracts transactions from bank PDF statements using pdf-parse.
- * Primary target: ABSA PDF statements.
- *
- * ABSA PDF transaction line format:
- *   15 Jan 2026  POS Purchase Woolworths  -1,234.56  45,678.90
+ * Detects bank from PDF text content and delegates to the appropriate
+ * bank-specific parser. ABSA is handled directly; other banks go via
+ * bankPdfParserFactory.ts; unknown formats fall back to VLM.
  */
 
 import { log } from '@/lib/logger';
-import type { BankCsvParseResult, ParsedBankTransaction } from '../types/bank.types';
+import type { BankCsvParseResult } from '../types/bank.types';
 import { isVlmAvailable, extractBankStatementWithVlm } from '../services/vlmService';
-import { extractAccountNumber } from './bankPdfParserUtils';
+import { parseAbsaSlashDateLines, parseAbsaTextLines } from './bankPdfParserAbsa';
+
+// Re-export for callers that import parseAbsaPdfText directly from this module
+export { parseAbsaPdfText } from './bankPdfParserAbsa';
 
 // pdf-parse v2 exposes a PDFParse class (not a default function).
-// Type definitions for the class-based v2 API.
-interface PdfParseV2Result {
-  text: string;
-  pages: unknown[];
-  total: number;
-}
-interface PdfParseV2Instance {
-  getText(): Promise<PdfParseV2Result>;
-}
-interface PdfParseV2Ctor {
-  new (options: { data: Buffer }): PdfParseV2Instance;
-}
-interface PdfParseV2Module {
-  PDFParse: PdfParseV2Ctor;
-}
-
-// Month name lookup for ABSA PDF date parsing ("15 Jan 2026")
-const MONTH_MAP: Record<string, string> = {
-  jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
-  jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12',
-};
+interface PdfParseV2Result { text: string; pages: unknown[]; total: number; }
+interface PdfParseV2Instance { getText(): Promise<PdfParseV2Result>; }
+interface PdfParseV2Ctor { new (options: { data: Buffer }): PdfParseV2Instance; }
+interface PdfParseV2Module { PDFParse: PdfParseV2Ctor; }
 
 /**
- * Parse a currency string that may contain commas, spaces, and a leading minus.
- * Examples: "-1,234.56", "45 678.90", "1234.56"
- */
-function parsePdfAmount(raw: string): number | null {
-  const cleaned = raw.replace(/\s/g, '').replace(/,/g, '');
-  const num = parseFloat(cleaned);
-  return isNaN(num) ? null : num;
-}
-
-/**
- * Parse ABSA-style date string "15 Jan 2026" → "2026-01-15".
- */
-function parseAbsaDate(day: string, mon: string, year: string): string | null {
-  const monthNum = MONTH_MAP[mon.toLowerCase()];
-  if (!monthNum) return null;
-  const d = parseInt(day, 10);
-  const y = parseInt(year, 10);
-  if (isNaN(d) || isNaN(y) || d < 1 || d > 31 || y < 2000 || y > 2099) return null;
-  return `${y}-${monthNum}-${String(d).padStart(2, '0')}`;
-}
-
-/**
- * Parse ABSA PDF transaction lines from extracted text.
- *
- * ABSA PDF lines follow this pattern:
- *   <day> <Mon> <year>  <description text>  <signed-amount>  <balance>
- *
- * The regex captures:
- *   - date: "15 Jan 2026"
- *   - description: arbitrary text (greedy, trimmed)
- *   - amount: "-1,234.56" or "1,234.56"
- *   - balance (optional): second numeric at end of line
- */
-/**
- * Public entry point for the factory to call ABSA parsing without
- * going through the full PDF extraction pipeline.
- * Exposed as a named export so bankPdfParserFactory.ts can import it.
- */
-export function parseAbsaPdfText(text: string): BankCsvParseResult {
-  const slashResult = parseAbsaSlashDateLines(text);
-  if (slashResult.transactions.length > 0) return slashResult;
-  return parseAbsaTextLines(text);
-}
-
-/**
- * Parse ABSA statements that use DD/MM/YYYY date format and tab/space
- * separated columns. Format seen on "Classic Business Account" PDFs:
- *
- *   22/12/2023 Digital Payment Dt Settlement 10.00 T 1 000.00 18 427.30
- *   23/12/2023 Digital Transf Cr Settlement 6 000.00 21 193.76
- *
- * The last two numeric tokens are amount and balance. Sign is derived
- * from the balance delta (running balance) so we don't rely on trailing
- * minus signs which are inconsistent across ABSA statement variants.
- */
-function parseAbsaSlashDateLines(text: string): BankCsvParseResult {
-  const result: BankCsvParseResult = { transactions: [], errors: [], bankFormat: 'absa' };
-
-  const accountNumber = extractAccountNumber(text) ?? undefined;
-  if (accountNumber) result.accountNumber = accountNumber;
-
-  const lines = text.split('\n').map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
-
-  // Accept 1-2 digit day and month — some ABSA rows use "1/06/2022" not "01/06/2022"
-  const datePat = /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(.+)$/;
-  const twoNumTail =
-    /^(.*?)\s+(\d{1,3}(?:[\s,]\d{3})*\.\d{2})\s+(\d{1,3}(?:[\s,]\d{3})*\.\d{2})\s*$/;
-  const oneNumTail = /^(.*?)\s+(\d{1,3}(?:[\s,]\d{3})*\.\d{2})\s*$/;
-  const cleanNum = (s: string) => parseFloat(s.replace(/[\s,]/g, ''));
-
-  let prevBalance: number | null = null;
-  let lineNum = 0;
-
-  // Lines we should never append as description context — ABSA page
-  // furniture, statement headers/footers, ABSA product names, and the
-  // "(Effective ...)" debit-card clearing footnote.
-  const ignoreContinuation = (line: string): boolean => {
-    if (!line) return true;
-    if (/^\(Effective\s/i.test(line)) return true;
-    if (/^(Balance Brought Forward|Sundry (Credits|Debits)|Charges|Total (Debits|Credits))/i.test(line)) return true;
-    if (/^Page\s+\d+/i.test(line)) return true;
-    if (/^(Classic Business Acc|Cheque account statement|Statement Number)/i.test(line)) return true;
-    if (/^BRIGHTSPHERE|BLITZ|VELOCITY/i.test(line)) return true;  // opening customer-name banner
-    if (/^(Return address|Reg No|Absa Bank Limited)/i.test(line)) return true;
-    if (/^\d{4,}$/.test(line)) return true;                        // lone page numbers / codes
-    return false;
-  };
-
-  // Page-boundary markers. Once we see ANY of these anywhere in a line,
-  // we stop stitching continuation onto the current transaction — the
-  // line is page footer / next-page header rather than counterparty
-  // context. Uses `includes` (not anchored ^) because ABSA sometimes
-  // glues multiple marker phrases onto a single line after whitespace
-  // collapse (e.g. "41-0242-6629 Cheque Account Number:").
-  const BOUNDARY_MARKERS = [
-    /-{2,}\s*\d+\s+of\s+\d+\s*-{2,}/i,         // "-- 3 of 6 --"
-    /Page\s+\d+\s+of\s+\d+/i,
-    /Tax Invoice/i,
-    /Your transactions/i,
-    /Cheque Account Number/i,
-    /Date\s+Transaction\s+Description/i,       // column header row
-    /Authorised Financial Services Provider/i,
-    /Registration Number\s+\d{4}/i,
-    /^CSP\d+|BFIBRE\s+\d+/i,                   // document-code footer
-    /YOUR PRICING PLAN/i,
-    /CREDIT INTEREST RATE/i,
-    /PRICING PLAN/i,
-    /CHARGE LEGEND/i,
-    /VAT REGISTRATION/i,
-    /NCRCP\d/i,                                // credit provider code
-    /^\d{2}-\d{4}-\d{4}\b/,                    // "41-0242-6629" bare ref
-    /SERVICE FEE:/i,                           // monthly statement fee line
-    /MNTHLY ACCT FEE/i,                        // "MNTHLY ACCT FEE : R95.00"
-    /Sms Notifications?/i,                     // "54 Sms Notifications" SMS fee block
-    /^CHARGES\s/i,                             // "CHARGES R 1,234.56" footer
-  ] as const;
-
-  const isPageBoundary = (line: string): boolean =>
-    BOUNDARY_MARKERS.some(re => re.test(line));
-
-  // Cap continuation lines per transaction. ABSA uses 1–2 lines for
-  // real counterparty context; anything beyond that is overwhelmingly
-  // page footer bleed, so stop absorbing.
-  const MAX_CONT_LINES = 2;
-
-  // Tracks which transaction index we're currently stitching onto, and
-  // how many lines we've already appended. Reset when we cross a page
-  // boundary so we don't keep stitching once the footer starts.
-  let stitchIdx: number | null = null;
-  let stitchCount = 0;
-
-  // Stitch continuation lines onto the most recent pushed transaction.
-  // The primary "type" label ("Digital Transf Cr", "Acb Credit" etc.) is
-  // useless without the counterparty / reference text ABSA prints on
-  // the FOLLOWING lines before the next dated row.
-  const appendContinuation = (line: string): void => {
-    if (stitchIdx === null) return;
-    if (isPageBoundary(line)) {
-      // Freeze the current transaction's description — no more bleed.
-      stitchIdx = null;
-      return;
-    }
-    if (ignoreContinuation(line)) return;
-    if (stitchCount >= MAX_CONT_LINES) return;
-    const last = result.transactions[stitchIdx];
-    if (!last) return;
-    // Skip if this line is already in the description (ABSA often prints
-    // the same beneficiary name twice for EFT transfers).
-    if (last.description.toLowerCase().includes(line.toLowerCase())) return;
-    last.description = `${last.description} — ${line}`;
-    stitchCount++;
-  };
-
-  for (const line of lines) {
-    lineNum++;
-    const m = line.match(datePat);
-    if (!m) {
-      // Non-dated line: either a description continuation for the last
-      // parsed transaction, or page furniture we should ignore.
-      appendContinuation(line);
-      continue;
-    }
-    const [, dd, mm, yyyy, rest] = m;
-
-    const d = parseInt(dd!, 10), mo = parseInt(mm!, 10), y = parseInt(yyyy!, 10);
-    if (d < 1 || d > 31 || mo < 1 || mo > 12 || y < 2000 || y > 2099) {
-      appendContinuation(line);
-      continue;
-    }
-    const transactionDate = `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-
-    const m2 = rest!.match(twoNumTail);
-    if (!m2) {
-      // "Bal Brought Forward 19 427.30" — single numeric, sets opening balance
-      const m1 = rest!.match(oneNumTail);
-      if (m1 && /bal|brought|forward/i.test(m1[1]!)) {
-        prevBalance = cleanNum(m1[2]!);
-      }
-      continue;
-    }
-
-    const rawDesc = m2[1]!.trim();
-    const amountAbs = cleanNum(m2[2]!);
-    const balance = cleanNum(m2[3]!);
-    if (isNaN(amountAbs) || isNaN(balance)) {
-      result.errors.push({ row: lineNum, error: `Invalid numeric in: ${line}` });
-      continue;
-    }
-
-    let signedAmount = amountAbs;
-    if (prevBalance !== null) {
-      signedAmount = Math.round((balance - prevBalance) * 100) / 100;
-    }
-
-    // Strip the "Settlement <fee> T|A" fee column suffix if present so the
-    // description matches what the user sees on the statement.
-    const description = rawDesc.replace(/\s+Settlement\s+\d[\d\s,]*\.\d{2}\s+[TA]$/i, '')
-      .replace(/\s+Settlement$/i, '')
-      .trim();
-
-    result.transactions.push({
-      transactionDate,
-      amount: signedAmount,
-      description,
-      balance,
-    });
-
-    // Arm the continuation-line stitcher to append onto this new row
-    // until we hit either another dated row, a page-boundary marker,
-    // or the MAX_CONT_LINES cap.
-    stitchIdx = result.transactions.length - 1;
-    stitchCount = 0;
-
-    prevBalance = balance;
-  }
-
-  return result;
-}
-
-function parseAbsaTextLines(text: string): BankCsvParseResult {
-  const result: BankCsvParseResult = {
-    transactions: [],
-    errors: [],
-    bankFormat: 'absa',
-  };
-
-  // Extract account number so the import API can verify the statement
-  // belongs to the bank account the user selected.
-  const accountNumber = extractAccountNumber(text) ?? undefined;
-  if (accountNumber) result.accountNumber = accountNumber;
-
-  // Match lines that start with a date pattern: "15 Jan 2026"
-  // Then description, then one or two signed/unsigned numeric amounts
-  const linePattern =
-    /^(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})\s+(.+?)\s+([-]?\d[\d,\s]*\.\d{2})\s+([-]?\d[\d,\s]*\.\d{2})?$/im;
-
-  const lines = text.split('\n');
-  let lineNum = 0;
-
-  for (const rawLine of lines) {
-    lineNum++;
-    const line = rawLine.trim();
-    if (!line) continue;
-
-    const match = line.match(linePattern);
-    if (!match) continue;
-
-    const [, day, mon, year, desc, amountRaw, balanceRaw] = match;
-
-    const transactionDate = parseAbsaDate(day!, mon!, year!);
-    if (!transactionDate) {
-      result.errors.push({ row: lineNum, error: `Invalid date: ${day} ${mon} ${year}` });
-      continue;
-    }
-
-    const amount = parsePdfAmount(amountRaw!);
-    if (amount === null) {
-      result.errors.push({ row: lineNum, error: `Invalid amount: ${amountRaw}` });
-      continue;
-    }
-
-    const tx: ParsedBankTransaction = {
-      transactionDate,
-      amount,
-      description: desc!.trim(),
-      balance: balanceRaw ? parsePdfAmount(balanceRaw) ?? undefined : undefined,
-    };
-
-    result.transactions.push(tx);
-  }
-
-  return result;
-}
-
-/**
- * Detect the bank from raw PDF text content.
- *
- * Uses a score-based scan with highly bank-specific marker phrases
- * (product names, legal footers, unique addresses) so we don't
- * false-positive on transaction descriptions. A cross-bank transfer
- * like "Absa Bank Shasti Van Vuuren" must NOT turn a Standard Bank
- * statement into an ABSA statement.
- *
- * Each bank has a set of weighted markers; we scan the entire text,
- * sum the hits per bank, and return the highest-scoring one. Ties and
- * zero-scores fall back to 'unknown'.
+ * Detect the bank from raw PDF text content using score-based marker matching.
+ * Returns 'unknown' when no bank scores at least 1 point.
  */
 function detectPdfBankFormat(text: string): string {
-  // PDFs often emit multi-whitespace between every visual word
-  // ("Private \tBag \tX18"), so we collapse all runs of whitespace to
-  // single spaces before matching against the markers below.
+  // Collapse whitespace so multi-space PDF tokens match cleanly
   const lower = text.toLowerCase().replace(/\s+/g, ' ');
-
-  // Priority: brand markers first (unique), then product/legal markers.
-  // Scoring keeps the old "only look at the first chunk" logic honest —
-  // transaction rows CAN mention other banks' names in counterparty
-  // descriptions, so we give the first 2000 chars double weight.
   const headerRegion = lower.substring(0, 2000);
 
-  // Each marker: [needle, weight in headerRegion, weight in whole doc]
-  // Markers must be strings that only appear in LEGAL / HEADER / FOOTER
-  // text, NOT in transaction descriptions or counterparty names. A
-  // cross-bank transfer from "Absa Bank Shasti Van Vuuren" is NOT a
-  // signal that the statement is ABSA — we need real legal entity
-  // phrases and regulatory identifiers.
-  //
-  // All five major SA banks print their Financial Services Provider
-  // + Registered Credit Provider disclosure on every page, and this
-  // phrase is almost never seen in transaction text. That's our
-  // strongest signal.
   type Marker = readonly [needle: string, headerW: number, fullW: number];
 
   const markers: Record<string, Marker[]> = {
     absa: [
-      // ABSA's legal footer: "Absa Bank Limited, Authorised Financial
-      // Services Provider and Registered Credit Provider (NCRCP7)".
-      // The NCRCP7 code is unique to ABSA.
       ['absa bank limited', 5, 3],
-      ['ncrcp7', 10, 10],                   // ABSA Bank's NCR credit provider number
+      ['ncrcp7', 10, 10],
       ['ncrcp 7', 10, 10],
       ['amalgamated banks of south africa', 5, 3],
-      ['reg no 1986/004794/06', 10, 10],    // ABSA Bank Limited company reg
+      ['reg no 1986/004794/06', 10, 10],
     ],
     standard_bank: [
-      // Standard Bank uses "The Standard Bank of South Africa Limited"
-      // as its full legal name. NCR code is NCRCP15.
       ['the standard bank of south africa limited', 10, 10],
       ['ncrcp15', 10, 10],
       ['reg no 1962/000738/06', 10, 10],
-      ['stanbic', 3, 1],                    // SB's Africa branding
+      ['stanbic', 3, 1],
     ],
     fnb: [
-      // FNB is a division of FirstRand Bank Limited. NCR code NCRCP20.
       ['firstrand bank limited', 10, 10],
       ['ncrcp20', 10, 10],
       ['first national bank', 4, 2],
@@ -378,13 +54,11 @@ function detectPdfBankFormat(text: string): string {
       ['fnb online banking', 4, 1],
     ],
     nedbank: [
-      // Nedbank Limited, NCR code NCRCP16.
       ['nedbank limited', 10, 5],
       ['ncrcp16', 10, 10],
       ['reg no 1951/000009/06', 10, 10],
     ],
     capitec: [
-      // Capitec Bank Limited, NCR code NCRCP13.
       ['capitec bank limited', 10, 5],
       ['ncrcp13', 10, 10],
       ['reg no 1980/003695/06', 10, 10],
@@ -402,14 +76,10 @@ function detectPdfBankFormat(text: string): string {
     }
   }
 
-  // Find the top scorer. Require at least 1 point — zero means nothing matched.
-  let best: string = 'unknown';
+  let best = 'unknown';
   let bestScore = 0;
   for (const [bank, score] of Object.entries(scores)) {
-    if (score > bestScore) {
-      best = bank;
-      bestScore = score;
-    }
+    if (score > bestScore) { best = bank; bestScore = score; }
   }
 
   return best;
@@ -418,12 +88,8 @@ function detectPdfBankFormat(text: string): string {
 /**
  * Parse a bank statement PDF and extract transactions.
  *
- * Accepts a Buffer of PDF bytes. Uses pdf-parse to extract text, then
- * applies bank-specific regex patterns to identify transaction lines.
- *
  * @param pdfBuffer - Raw PDF file bytes
  * @param bankFormat - Optional hint for which bank format to use
- * @returns Parsed transactions and any row-level errors
  */
 export async function parseBankPdf(
   pdfBuffer: Buffer,
@@ -432,7 +98,6 @@ export async function parseBankPdf(
   let PDFParse: PdfParseV2Ctor;
 
   try {
-    // pdf-parse v2 exposes a PDFParse class via CommonJS.
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const mod = require('pdf-parse') as PdfParseV2Module;
     PDFParse = mod.PDFParse;
@@ -483,27 +148,24 @@ export async function parseBankPdf(
     format: detectedFormat,
   }, 'accounting-pdf');
 
-  // Route to the appropriate parser based on detected format.
-  // ABSA is handled directly; all other SA banks go through the factory.
+  // Route to ABSA parser directly
   if (detectedFormat === 'absa') {
     const slash = parseAbsaSlashDateLines(text);
     if (slash.transactions.length > 0) return slash;
     return parseAbsaTextLines(text);
   }
 
+  // Other SA banks: delegate to factory
   if (['fnb', 'standard_bank', 'nedbank', 'capitec'].includes(detectedFormat)) {
     const { parseBankStatementText } = await import('./bankPdfParserFactory');
     const factoryResult = parseBankStatementText(text, detectedFormat);
-    if (factoryResult.transactions.length > 0) {
-      return factoryResult;
-    }
-    // Factory found no transactions — fall through to ABSA pattern & VLM
+    if (factoryResult.transactions.length > 0) return factoryResult;
     log.warn('Factory parser returned no transactions, trying fallbacks', {
       format: detectedFormat,
     }, 'accounting-pdf');
   }
 
-  // Fallback: attempt generic ABSA-style date-amount pattern for unknown formats
+  // Fallback: ABSA-style date-amount pattern for unknown formats
   const fallback = parseAbsaTextLines(text);
   if (fallback.transactions.length > 0) {
     log.info('PDF parsed using ABSA fallback pattern', {
@@ -512,7 +174,7 @@ export async function parseBankPdf(
     return { ...fallback, bankFormat: detectedFormat };
   }
 
-  // VLM fallback: use AI vision to extract from any bank format
+  // VLM fallback: AI vision extraction
   if (isVlmAvailable()) {
     try {
       log.info('Attempting VLM bank statement extraction', { format: detectedFormat }, 'accounting-pdf');

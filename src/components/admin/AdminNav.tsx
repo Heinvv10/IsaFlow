@@ -27,6 +27,8 @@ import {
   ArrowUpDown,
   Clock,
   Mail,
+  Activity,
+  Webhook,
 } from 'lucide-react';
 
 interface NavDef {
@@ -41,6 +43,7 @@ interface NavDef {
 /** Navigation definitions with relative paths — full hrefs built dynamically via useAdminHref */
 const NAV_DEFS: NavDef[] = [
   { label: 'Dashboard',   path: '',                          icon: LayoutDashboard },
+  { label: 'Health',      path: '/health',                   icon: Activity },
   { label: 'Companies',   path: '/companies',                icon: Building2 },
   { label: 'Users',       path: '/users',                    icon: Users },
   {
@@ -64,6 +67,7 @@ const NAV_DEFS: NavDef[] = [
       { label: 'Sage Import',    path: '/tools/sage-import',   icon: Database },
       { label: 'Migrations',     path: '/tools/migrations',    icon: ArrowUpDown },
       { label: 'Email Log',      path: '/email-log',           icon: Mail },
+      { label: 'Webhooks',       path: '/webhooks',            icon: Webhook },
     ],
   },
   { label: 'Trials',      path: '/trials',     icon: Clock },

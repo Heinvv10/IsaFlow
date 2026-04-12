@@ -275,3 +275,38 @@ export interface PlatformSettings {
   max_companies_per_user: number;
   smtp_configured: boolean;
 }
+
+// ── Revenue Intelligence ──────────────────────────────────────────────────────
+
+export interface PlanBreakdownRow {
+  plan_name: string;
+  billing_cycle: string;
+  company_count: number;
+  mrr_cents: number;
+  arr_cents: number;
+  pct_of_total: number;
+}
+
+export interface ChurnTrendPoint {
+  month: string;
+  churned_companies: number;
+  churn_rate_pct: number;
+}
+
+export interface CohortRetentionRow {
+  cohort_month: string;
+  cohort_size: number;
+  m0_pct: number;
+  m1_pct: number;
+  m2_pct: number;
+  m3_pct: number;
+}
+
+export interface RevenueIntelligence {
+  plan_breakdown: PlanBreakdownRow[];
+  churn_trend: ChurnTrendPoint[];
+  nrr: number;
+  arpu_cents: number;
+  ltv_estimate_cents: number;
+  cohort_retention: CohortRetentionRow[];
+}
