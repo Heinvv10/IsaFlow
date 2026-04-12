@@ -99,5 +99,7 @@ export function mapApiCompany(c: Record<string, any>): Company {
     socialFacebook: c.socialFacebook ?? c.social_facebook ?? null,
     socialLinkedin: c.socialLinkedin ?? c.social_linkedin ?? null,
     socialX: c.socialX ?? c.social_x ?? null,
+    invoiceLogoPosition: c.invoiceLogoPosition ?? c.invoice_logo_position ?? 'top-right',
+    roundingMethod: c.roundingMethod ?? c.rounding_method ?? 'half-up',
   };
 }

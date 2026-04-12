@@ -100,6 +100,9 @@ export interface Company {
   socialFacebook: string | null;
   socialLinkedin: string | null;
   socialX: string | null;
+  // Regional extended
+  invoiceLogoPosition: string;
+  roundingMethod: string;
 }
 
 export interface DocumentNumber {
