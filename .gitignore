@@ -42,3 +42,20 @@ tmp/
 # Tests that use them tolerate the files being absent in CI.
 test-docs/
 audit-screenshots/
+
+# Screenshots and dev artifacts
+tests/e2e/screenshots/
+xero-screenshots/
+public/$HOME/
+$HOME/
+scripts/qa-*.ts
+scripts/cols.ts
+scripts/inspect-db.ts
+scripts/integrity-check.ts
+scripts/perf-profile.ts
+scripts/security-scan.ts
+scripts/workflow-test.ts
+scripts/large-scale-seed.ts
+scripts/run-sql.mjs
+.env.local.bak-*
+.claude/scheduled_tasks.lock
