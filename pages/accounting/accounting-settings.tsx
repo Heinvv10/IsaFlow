@@ -130,6 +130,7 @@ export default function AccountingSettingsPage() {
                       <p className="text-xs text-[var(--ff-text-tertiary)] mb-3">{setting.description}</p>
                       {setting.type === 'select' ? (
                         <select
+                          name={setting.key}
                           value={setting.value}
                           onChange={e => updateSetting(setting.key, e.target.value)}
                           className="ff-select text-sm w-full max-w-xs"
@@ -142,6 +143,7 @@ export default function AccountingSettingsPage() {
                       ) : (
                         <input
                           type="text"
+                          name={setting.key}
                           value={setting.value}
                           onChange={e => updateSetting(setting.key, e.target.value)}
                           className="ff-input text-sm w-full max-w-xs"

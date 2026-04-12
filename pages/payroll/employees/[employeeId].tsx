@@ -255,10 +255,10 @@ export default function EmployeeDetailPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {isEditing ? (
                     <>
-                      <div><label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">First Name</label><input className={inputClass} value={editForm.first_name} onChange={e => setEditForm(p => ({ ...p, first_name: e.target.value }))} /></div>
-                      <div><label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Last Name</label><input className={inputClass} value={editForm.last_name} onChange={e => setEditForm(p => ({ ...p, last_name: e.target.value }))} /></div>
-                      <div><label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">ID Number</label><input className={inputClass} value={editForm.id_number} onChange={e => setEditForm(p => ({ ...p, id_number: e.target.value }))} /></div>
-                      <div><label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Tax Number</label><input className={inputClass} value={editForm.tax_number} onChange={e => setEditForm(p => ({ ...p, tax_number: e.target.value }))} /></div>
+                      <div><label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">First Name</label><input name="first_name" className={inputClass} value={editForm.first_name} onChange={e => setEditForm(p => ({ ...p, first_name: e.target.value }))} /></div>
+                      <div><label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Last Name</label><input name="last_name" className={inputClass} value={editForm.last_name} onChange={e => setEditForm(p => ({ ...p, last_name: e.target.value }))} /></div>
+                      <div><label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">ID Number</label><input name="id_number" className={inputClass} value={editForm.id_number} onChange={e => setEditForm(p => ({ ...p, id_number: e.target.value }))} /></div>
+                      <div><label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Tax Number</label><input name="tax_number" className={inputClass} value={editForm.tax_number} onChange={e => setEditForm(p => ({ ...p, tax_number: e.target.value }))} /></div>
                     </>
                   ) : (
                     <>
@@ -279,15 +279,15 @@ export default function EmployeeDetailPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {isEditing ? (
                     <>
-                      <div><label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Department</label><input className={inputClass} value={editForm.department} onChange={e => setEditForm(p => ({ ...p, department: e.target.value }))} /></div>
-                      <div><label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Position</label><input className={inputClass} value={editForm.position} onChange={e => setEditForm(p => ({ ...p, position: e.target.value }))} /></div>
+                      <div><label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Department</label><input name="department" className={inputClass} value={editForm.department} onChange={e => setEditForm(p => ({ ...p, department: e.target.value }))} /></div>
+                      <div><label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Position</label><input name="position" className={inputClass} value={editForm.position} onChange={e => setEditForm(p => ({ ...p, position: e.target.value }))} /></div>
                       <div><label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Employment Type</label>
-                        <select className={inputClass} value={editForm.employment_type} onChange={e => setEditForm(p => ({ ...p, employment_type: e.target.value }))}>
+                        <select name="employment_type" className={inputClass} value={editForm.employment_type} onChange={e => setEditForm(p => ({ ...p, employment_type: e.target.value }))}>
                           <option value="permanent">Permanent</option><option value="contract">Contract</option><option value="temporary">Temporary</option>
                         </select>
                       </div>
                       <div><label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Status</label>
-                        <select className={inputClass} value={editForm.status} onChange={e => setEditForm(p => ({ ...p, status: e.target.value }))}>
+                        <select name="status" className={inputClass} value={editForm.status} onChange={e => setEditForm(p => ({ ...p, status: e.target.value }))}>
                           <option value="active">Active</option><option value="inactive">Inactive</option>
                         </select>
                       </div>
@@ -309,9 +309,9 @@ export default function EmployeeDetailPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {isEditing ? (
                     <>
-                      <div><label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Bank Name</label><input className={inputClass} value={editForm.bank_name} onChange={e => setEditForm(p => ({ ...p, bank_name: e.target.value }))} /></div>
-                      <div><label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Account Number</label><input className={inputClass} value={editForm.bank_account_number} onChange={e => setEditForm(p => ({ ...p, bank_account_number: e.target.value }))} /></div>
-                      <div><label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Branch Code</label><input className={inputClass} value={editForm.bank_branch_code} onChange={e => setEditForm(p => ({ ...p, bank_branch_code: e.target.value }))} /></div>
+                      <div><label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Bank Name</label><input name="bank_name" className={inputClass} value={editForm.bank_name} onChange={e => setEditForm(p => ({ ...p, bank_name: e.target.value }))} /></div>
+                      <div><label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Account Number</label><input name="bank_account_number" className={inputClass} value={editForm.bank_account_number} onChange={e => setEditForm(p => ({ ...p, bank_account_number: e.target.value }))} /></div>
+                      <div><label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Branch Code</label><input name="bank_branch_code" className={inputClass} value={editForm.bank_branch_code} onChange={e => setEditForm(p => ({ ...p, bank_branch_code: e.target.value }))} /></div>
                     </>
                   ) : (
                     <>
@@ -330,13 +330,13 @@ export default function EmployeeDetailPage() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {isEditing ? (
                       <>
-                        <div><label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Basic Salary</label><input type="number" step="0.01" className={inputClass} value={editForm.basic_salary} onChange={e => setEditForm(p => ({ ...p, basic_salary: e.target.value }))} /></div>
-                        <div><label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Travel Allowance</label><input type="number" step="0.01" className={inputClass} value={editForm.travel_allowance} onChange={e => setEditForm(p => ({ ...p, travel_allowance: e.target.value }))} /></div>
-                        <div><label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Housing Allowance</label><input type="number" step="0.01" className={inputClass} value={editForm.housing_allowance} onChange={e => setEditForm(p => ({ ...p, housing_allowance: e.target.value }))} /></div>
-                        <div><label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Cell Allowance</label><input type="number" step="0.01" className={inputClass} value={editForm.cell_allowance} onChange={e => setEditForm(p => ({ ...p, cell_allowance: e.target.value }))} /></div>
-                        <div><label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Other Allowances</label><input type="number" step="0.01" className={inputClass} value={editForm.other_allowances} onChange={e => setEditForm(p => ({ ...p, other_allowances: e.target.value }))} /></div>
-                        <div><label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Medical Aid (Employer)</label><input type="number" step="0.01" className={inputClass} value={editForm.medical_aid_contribution} onChange={e => setEditForm(p => ({ ...p, medical_aid_contribution: e.target.value }))} /></div>
-                        <div><label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Retirement Fund (%)</label><input type="number" step="0.01" className={inputClass} value={editForm.retirement_fund_contribution_pct} onChange={e => setEditForm(p => ({ ...p, retirement_fund_contribution_pct: e.target.value }))} /></div>
+                        <div><label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Basic Salary</label><input type="number" name="basic_salary" step="0.01" className={inputClass} value={editForm.basic_salary} onChange={e => setEditForm(p => ({ ...p, basic_salary: e.target.value }))} /></div>
+                        <div><label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Travel Allowance</label><input type="number" name="travel_allowance" step="0.01" className={inputClass} value={editForm.travel_allowance} onChange={e => setEditForm(p => ({ ...p, travel_allowance: e.target.value }))} /></div>
+                        <div><label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Housing Allowance</label><input type="number" name="housing_allowance" step="0.01" className={inputClass} value={editForm.housing_allowance} onChange={e => setEditForm(p => ({ ...p, housing_allowance: e.target.value }))} /></div>
+                        <div><label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Cell Allowance</label><input type="number" name="cell_allowance" step="0.01" className={inputClass} value={editForm.cell_allowance} onChange={e => setEditForm(p => ({ ...p, cell_allowance: e.target.value }))} /></div>
+                        <div><label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Other Allowances</label><input type="number" name="other_allowances" step="0.01" className={inputClass} value={editForm.other_allowances} onChange={e => setEditForm(p => ({ ...p, other_allowances: e.target.value }))} /></div>
+                        <div><label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Medical Aid (Employer)</label><input type="number" name="medical_aid_contribution" step="0.01" className={inputClass} value={editForm.medical_aid_contribution} onChange={e => setEditForm(p => ({ ...p, medical_aid_contribution: e.target.value }))} /></div>
+                        <div><label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Retirement Fund (%)</label><input type="number" name="retirement_fund_contribution_pct" step="0.01" className={inputClass} value={editForm.retirement_fund_contribution_pct} onChange={e => setEditForm(p => ({ ...p, retirement_fund_contribution_pct: e.target.value }))} /></div>
                       </>
                     ) : (
                       <>

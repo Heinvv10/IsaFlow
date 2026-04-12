@@ -160,6 +160,7 @@ export default function NewPayrollRunPage() {
                     <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Period Start</label>
                     <input
                       type="date"
+                      name="periodStart"
                       value={periodStart}
                       onChange={(e) => setPeriodStart(e.target.value)}
                       className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500"
@@ -169,6 +170,7 @@ export default function NewPayrollRunPage() {
                     <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Period End</label>
                     <input
                       type="date"
+                      name="periodEnd"
                       value={periodEnd}
                       onChange={(e) => setPeriodEnd(e.target.value)}
                       className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500"

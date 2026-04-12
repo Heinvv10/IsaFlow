@@ -93,7 +93,7 @@ export default function ItemOpeningBalancesPage() {
           </div>
           <div className="relative mt-4 max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--ff-text-tertiary)]" />
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search items..." className="ff-input w-full pl-9" />
+            <input name="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search items..." className="ff-input w-full pl-9" />
           </div>
         </div>
 

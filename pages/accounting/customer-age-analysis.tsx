@@ -86,6 +86,7 @@ export default function CustomerAgeAnalysisPage() {
             <label className="text-sm text-[var(--ff-text-secondary)]">As at:</label>
             <input
               type="date"
+              name="asAtDate"
               value={asAtDate}
               onChange={e => setAsAtDate(e.target.value)}
               className="ff-input text-sm"
