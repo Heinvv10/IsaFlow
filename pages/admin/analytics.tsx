@@ -9,6 +9,7 @@ import { StatsCard } from '@/components/admin/StatsCard';
 import { MrrTrendChart } from '@/components/admin/charts/MrrTrendChart';
 import { EngagementTrendChart } from '@/components/admin/charts/EngagementTrendChart';
 import { SignupTrendChart } from '@/components/admin/charts/SignupTrendChart';
+import { RevenueIntelligenceSection } from '@/components/admin/RevenueIntelligenceSection';
 import { apiFetch } from '@/lib/apiFetch';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import type { AnalyticsTrends } from '@/modules/admin/types/admin.types';
@@ -138,6 +139,9 @@ export default function AdminAnalytics() {
               </div>
             )}
           </div>
+
+          {/* Revenue Intelligence */}
+          <RevenueIntelligenceSection />
 
           {/* Revenue by Plan */}
           <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm mb-6">
