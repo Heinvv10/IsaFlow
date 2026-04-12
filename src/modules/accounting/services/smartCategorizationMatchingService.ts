@@ -1,10 +1,7 @@
 /**
  * Smart Categorization Matching Service
  * Three-strategy matching: rules, patterns, historical learning.
- *
- * All DB-fetching functions (matchAgainstRules, matchAgainstPatterns, matchFromHistory)
- * have been replaced with in-memory equivalents that accept pre-loaded data.
- * This allows callers to cache the data once per bulk operation.
+ * Pattern learning split to smartCategorizationLearningService.ts.
  *
  * Security: all DB queries must be scoped to companyId — enforced by callers.
  */
@@ -38,12 +35,12 @@ export function toConfidenceLevel(score: number): ConfidenceLevel {
   return 'LOW';
 }
 
-// ── Strategy 1: In-memory rule matching (caller pre-loads rules) ──────────────
+// ── Strategy 1: In-memory rule matching ──────────────────────────────────────
 
 export function matchAgainstRulesInMemory(
   description: string,
   reference: string,
-  rules: CachedRule[]
+  rules: CachedRule[],
 ): CategorizationResult | null {
   for (const rule of rules) {
     const pattern   = String(rule.match_pattern).toUpperCase();
@@ -81,12 +78,12 @@ export function matchAgainstRulesInMemory(
   return null;
 }
 
-// ── Strategy 2: In-memory pattern matching (caller pre-loads patterns) ────────
+// ── Strategy 2: In-memory pattern matching ────────────────────────────────────
 
 export function matchAgainstPatternsInMemory(
   description: string,
   reference: string,
-  patterns: CachedPattern[]
+  patterns: CachedPattern[],
 ): CategorizationResult | null {
   const combined = `${description} ${reference}`;
 
@@ -123,7 +120,7 @@ export function matchAgainstPatternsInMemory(
         SET usage_count = usage_count + 1, last_used_at = NOW()
         WHERE id = ${p.id}::UUID
       `.catch((err) =>
-        log.warn('Failed to update pattern usage count', { patternId: p.id, error: String(err) }, 'categorization')
+        log.warn('Failed to update pattern usage count', { patternId: p.id, error: String(err) }, 'categorization'),
       );
 
       return {
@@ -142,26 +139,23 @@ export function matchAgainstPatternsInMemory(
   return null;
 }
 
-// ── Strategy 3: Bulk historical lookup (single query, company-scoped) ─────────
+// ── Strategy 3: Bulk historical lookup ─────────────────────────────────────
 
 export async function matchFromHistoryBulk(
   companyId: string,
-  transactions: Array<{ txId: string; description: string; amount: number }>
+  transactions: Array<{ txId: string; description: string; amount: number }>,
 ): Promise<Map<string, CategorizationResult | null>> {
   const result = new Map<string, CategorizationResult | null>(
-    transactions.map(t => [t.txId, null])
+    transactions.map(t => [t.txId, null]),
   );
 
   if (transactions.length === 0) return result;
 
-  // Build unique word sets for all descriptions
   const noiseWords = new Set([
     'THE', 'AND', 'FOR', 'FROM', 'WITH', 'PAYMENT', 'TRANSFER',
     'DEBIT', 'CREDIT', 'ORDER', 'REF', 'POS', 'PURCHASE', 'CARD',
   ]);
 
-  // For efficiency: run one query per unique "first word" cluster
-  // Group transactions by their primary keyword
   const groups = new Map<string, Array<{ txId: string; description: string; amount: number }>>();
 
   for (const tx of transactions) {
@@ -174,7 +168,6 @@ export async function matchFromHistoryBulk(
     groups.get(key)!.push(tx);
   }
 
-  // Query each group — all within companyId scope
   await Promise.all([...groups.entries()].map(async ([key, txGroup]) => {
     const likePattern = `%${key.replace(/ /g, '%')}%`;
     try {
@@ -217,7 +210,6 @@ export async function matchFromHistoryBulk(
         matchDetail: `Historical: ${matchCount} similar transaction(s)`,
       };
 
-      // Apply to all transactions in this group
       for (const tx of txGroup) {
         result.set(tx.txId, histResult);
       }
@@ -229,7 +221,7 @@ export async function matchFromHistoryBulk(
   return result;
 }
 
-// ── Pattern learning ─────────────────────────────────────────────────────────
+// ── Pattern learning helper ─────────────────────────────────────────────────
 
 export function extractLearningPattern(description: string): string {
   let clean = description.toUpperCase();
@@ -244,73 +236,5 @@ export function extractLearningPattern(description: string): string {
   return parts[0]?.trim() || clean;
 }
 
-export async function learnFromAllocation(companyId: string,
-  txId: string,
-  glAccountId: string,
-  category: string,
-  vatCode?: string
-): Promise<void> {
-  try {
-    const txRows = (await sql`
-      SELECT description FROM bank_transactions
-      WHERE id = ${txId}::UUID AND company_id = ${companyId}::uuid
-    `) as Row[];
-
-    const firstTx = txRows[0];
-    if (!firstTx) return;
-
-    const description = String(firstTx.description || '').trim();
-    if (description.length < 3) return;
-
-    const pattern = extractLearningPattern(description);
-    if (!pattern || pattern.length < 3) return;
-
-    const existing = (await sql`
-      SELECT id, usage_count FROM categorization_patterns
-      WHERE UPPER(pattern) = ${pattern.toUpperCase()}
-        AND source = 'learned'
-        AND company_id = ${companyId}::uuid
-      LIMIT 1
-    `) as Row[];
-
-    const existingRow = existing[0];
-    if (existingRow) {
-      const newCount = Number(existingRow.usage_count) + 1;
-      const newConfidence = Math.min(0.95, 0.60 + newCount * 0.05);
-      await sql`
-        UPDATE categorization_patterns
-        SET gl_account_id = ${glAccountId}::UUID,
-            category = ${category},
-            vat_code = ${vatCode || 'standard'},
-            usage_count = ${newCount},
-            confidence = ${newConfidence},
-            last_used_at = NOW()
-        WHERE id = ${existingRow.id}::UUID
-      `;
-    } else {
-      // Check if company_id column exists on categorization_patterns
-      // (older DBs may not have it — use a safe INSERT)
-      try {
-        await sql`
-          INSERT INTO categorization_patterns
-            (pattern, match_type, gl_account_id, category, vat_code, confidence, usage_count, last_used_at, source, company_id)
-          VALUES
-            (${pattern}, 'contains', ${glAccountId}::UUID, ${category}, ${vatCode || 'standard'}, 0.65, 1, NOW(), 'learned', ${companyId}::uuid)
-        `;
-      } catch {
-        // Fallback without company_id if column doesn't exist
-        await sql`
-          INSERT INTO categorization_patterns
-            (pattern, match_type, gl_account_id, category, vat_code, confidence, usage_count, last_used_at, source)
-          VALUES
-            (${pattern}, 'contains', ${glAccountId}::UUID, ${category}, ${vatCode || 'standard'}, 0.65, 1, NOW(), 'learned')
-        `;
-      }
-    }
-
-    log.info('Learned categorization pattern', { pattern, category, glAccountId, companyId }, 'accounting');
-  } catch (err) {
-    log.error('Failed to learn from allocation', { txId, error: err }, 'accounting');
-    // Non-critical: don't throw
-  }
-}
+// learnFromAllocation split to smartCategorizationLearningService.ts — re-exported for backward compat
+export { learnFromAllocation } from './smartCategorizationLearningService';

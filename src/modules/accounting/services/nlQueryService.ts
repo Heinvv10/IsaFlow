@@ -1,7 +1,7 @@
 /**
  * Natural Language Financial Query Service
  * Text-to-SQL with Claude, validation, formatting.
- * Pure business logic — no database dependencies.
+ * SQL validation extracted to nlQueryValidationService.ts.
  */
 
 export interface SchemaTable {
@@ -13,12 +13,6 @@ export interface SchemaTable {
 export interface ParsedSQL {
   sql: string;
   explanation: string;
-}
-
-export interface SQLValidation {
-  valid: boolean;
-  error?: string;
-  sanitizedSQL: string;
 }
 
 export type QueryIntent = 'revenue' | 'expense' | 'customer' | 'supplier' | 'cash' | 'tax' | 'payroll' | 'inventory' | 'general';
@@ -37,7 +31,7 @@ export interface QueryResult {
 
 export function buildSchemaDescription(tables: SchemaTable[]): string {
   return tables.map(t =>
-    `TABLE: ${t.name} (${t.columns.join(', ')}) — ${t.description}`
+    `TABLE: ${t.name} (${t.columns.join(', ')}) — ${t.description}`,
   ).join('\n');
 }
 
@@ -77,7 +71,6 @@ Respond in JSON format:
 export function parseSQLResponse(response: string): ParsedSQL | null {
   if (!response || response.trim() === '') return null;
 
-  // Try JSON parse first
   try {
     const jsonMatch = response.match(/\{[\s\S]*"sql"[\s\S]*\}/);
     if (jsonMatch) {
@@ -88,7 +81,6 @@ export function parseSQLResponse(response: string): ParsedSQL | null {
     }
   } catch { /* not JSON */ }
 
-  // Try SQL code block
   const sqlBlock = response.match(/```(?:sql)?\s*\n?([\s\S]*?)\n?```/);
   if (sqlBlock) {
     const sql = sqlBlock[1]!.trim();
@@ -98,171 +90,12 @@ export function parseSQLResponse(response: string): ParsedSQL | null {
     }
   }
 
-  // Try plain SQL
   const trimmed = response.trim();
   if (trimmed.toUpperCase().startsWith('SELECT') || trimmed.toUpperCase().startsWith('WITH')) {
     return { sql: trimmed, explanation: '' };
   }
 
   return null;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// SQL VALIDATION
-// ═══════════════════════════════════════════════════════════════════════════
-
-// DML/DDL keywords that must never appear in a read-only query
-const FORBIDDEN_KEYWORDS = [
-  'INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'TRUNCATE', 'CREATE',
-  'GRANT', 'REVOKE', 'EXEC', 'EXECUTE', 'INFORMATION_SCHEMA',
-  'PG_CATALOG', 'INTO OUTFILE', 'LOAD_FILE',
-  // PostgreSQL administrative / file-access / control keywords
-  'COPY', 'DO', 'CALL', 'PREPARE', 'LISTEN', 'NOTIFY', 'LOAD', 'IMPORT',
-  // PostgreSQL file-access and server-control functions
-  'PG_READ_FILE', 'PG_READ_BINARY_FILE', 'PG_LS_DIR',
-  'LO_IMPORT', 'LO_EXPORT', 'PG_SLEEP',
-  // Runtime configuration manipulation
-  'CURRENT_SETTING', 'SET_CONFIG', 'PG_TERMINATE_BACKEND', 'PG_CANCEL_BACKEND',
-  // Additional hardening — admin surface
-  'VACUUM', 'EXPLAIN',
-];
-
-// Dangerous function-call patterns that warrant a separate regex sweep
-const FORBIDDEN_PATTERNS: Array<{ label: string; regex: RegExp }> = [
-  // Any pg_ identifier (function call or schema prefix — covers pg_read_file, pg_catalog, etc.)
-  { label: 'pg_ reference', regex: /\bpg_/i },
-  // information_schema reference
-  { label: 'information_schema reference', regex: /\binformation_schema\b/i },
-  // dblink — cross-database tunnelling
-  { label: 'dblink call', regex: /\bdblink\s*\(/i },
-  // COPY with TO or FROM (data exfiltration / injection)
-  { label: 'COPY TO/FROM', regex: /\bCOPY\b[\s\S]*?\b(TO|FROM)\b/i },
-  // SET statement (session variable manipulation)
-  { label: 'SET statement', regex: /\bSET\s+\w/i },
-  // Dollar-quoted DO blocks
-  { label: 'DO $$ block', regex: /\bDO\s*\$\$/i },
-  // UNION without ALL — classic SQL injection vector. UNION ALL is safe (same column count
-  // requirement prevents blind injection) and useful for multi-table aggregations.
-  { label: 'UNION (without ALL)', regex: /\bUNION\b(?!\s+ALL\b)/i },
-];
-
-// Tables that NL queries are permitted to access — accounting & business data
-const ALLOWED_TABLES = new Set([
-  // General ledger
-  'gl_journal_entries', 'gl_journal_lines', 'gl_accounts', 'gl_account_balances',
-  'recurring_journals',
-  // Customers
-  'customers', 'customer_invoices', 'customer_invoice_items',
-  'customer_payments', 'customer_payment_allocations',
-  'customer_quotes', 'customer_quote_lines',
-  'customer_sales_orders', 'customer_sales_order_items',
-  'customer_write_offs', 'customer_categories', 'credit_notes',
-  'recurring_invoices', 'dunning_communications',
-  // Suppliers
-  'suppliers', 'supplier_invoices', 'supplier_invoice_items',
-  'supplier_payments', 'supplier_payment_allocations', 'supplier_payment_batches',
-  'supplier_purchase_orders', 'supplier_purchase_order_items',
-  'purchase_orders', 'supplier_categories',
-  // Banking
-  'bank_transactions', 'bank_accounts', 'bank_reconciliations',
-  'bank_categorisation_rules', 'bank_import_batches',
-  // Items & inventory
-  'items', 'item_categories', 'stock_items', 'stock_adjustments',
-  'products', 'product_categories',
-  // Tax & compliance
-  'vat_returns', 'vat_adjustments', 'sars_submissions',
-  // Assets
-  'assets', 'asset_categories', 'asset_depreciation_schedule', 'asset_disposals',
-  // Periods & budgets
-  'fiscal_periods', 'accounting_budgets', 'currencies', 'exchange_rates',
-  // Projects & time
-  'projects', 'project_time_entries', 'time_entries',
-  // Cost centres & business units
-  'cost_centres', 'business_units',
-  // Payroll (read-only summaries)
-  'payroll_runs', 'payslips', 'employees', 'leave_types',
-  'leave_balances', 'leave_applications',
-  // Documents
-  'captured_documents',
-]);
-
-const MAX_LIMIT = 100;
-
-export function validateGeneratedSQL(sql: string): SQLValidation {
-  if (!sql || sql.trim() === '') {
-    return { valid: false, error: 'Empty SQL', sanitizedSQL: '' };
-  }
-
-  const upper = sql.toUpperCase().trim();
-
-  // Must start with SELECT or WITH
-  if (!upper.startsWith('SELECT') && !upper.startsWith('WITH')) {
-    return { valid: false, error: 'Query must be a SELECT statement', sanitizedSQL: '' };
-  }
-
-  // Check for forbidden keywords using word-boundary, case-insensitive match
-  for (const kw of FORBIDDEN_KEYWORDS) {
-    const regex = new RegExp(`\\b${kw}\\b`, 'i');
-    if (regex.test(sql)) {
-      return { valid: false, error: `Forbidden keyword: ${kw}`, sanitizedSQL: '' };
-    }
-  }
-
-  // Check for dangerous function-call patterns
-  for (const { label, regex } of FORBIDDEN_PATTERNS) {
-    if (regex.test(sql)) {
-      return { valid: false, error: `Forbidden pattern detected: ${label}`, sanitizedSQL: '' };
-    }
-  }
-
-  // Reject semicolons that appear before the end of the statement — prevents stacked queries.
-  // Trailing ';' is acceptable (Claude consistently terminates statements with one) and is
-  // stripped by the sanitisation step below.
-  const withoutTrailingSemicolon = sql.trimEnd().replace(/;$/, '');
-  if (withoutTrailingSemicolon.includes(';')) {
-    return { valid: false, error: 'Multiple statements not allowed', sanitizedSQL: '' };
-  }
-
-  // Extract CTE aliases so they pass the table allowlist
-  const cteAliases = new Set<string>();
-  const ctePattern = /\bWITH\s+(\w+)\s+AS\b/gi;
-  let cteMatch: RegExpExecArray | null;
-  while ((cteMatch = ctePattern.exec(sql)) !== null) {
-    cteAliases.add(cteMatch[1]!.toLowerCase());
-  }
-
-  // Table allowlist — only accounting tables (and CTE aliases) may appear in FROM / JOIN clauses.
-  //
-  // A simple /(?:FROM|JOIN)\s+(\w+)/ regex incorrectly matches the FROM keyword inside
-  // SQL function calls such as EXTRACT(YEAR FROM col) or DATE_TRUNC('month', col FROM ...).
-  // Those tokens appear at paren depth > 0, not at the top-level query structure.
-  //
-  // We therefore walk the SQL character-by-character tracking parenthesis depth, and only
-  // inspect FROM/JOIN tokens found at depth 0 (top-level query context).
-  const kwPattern = /\b(FROM|JOIN)\s+(\w+)/gi;
-  let kwMatch: RegExpExecArray | null;
-  while ((kwMatch = kwPattern.exec(sql)) !== null) {
-    // Determine parenthesis depth at the position of this match
-    let depth = 0;
-    for (let i = 0; i < kwMatch.index; i++) {
-      if (sql[i] === '(') depth++;
-      else if (sql[i] === ')') depth--;
-    }
-    if (depth > 0) continue; // inside a function call — not a table reference
-
-    const tableName = kwMatch[2]!.toLowerCase();
-    if (!ALLOWED_TABLES.has(tableName) && !cteAliases.has(tableName)) {
-      return { valid: false, error: `Table '${kwMatch[2]}' not allowed`, sanitizedSQL: '' };
-    }
-  }
-
-  // Add LIMIT if not present
-  let sanitizedSQL = sql.trim().replace(/;$/, '');
-  if (!/\bLIMIT\b/i.test(sanitizedSQL)) {
-    sanitizedSQL += ` LIMIT ${MAX_LIMIT}`;
-  }
-
-  return { valid: true, sanitizedSQL };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -298,7 +131,7 @@ export function formatQueryResult(rows: Record<string, unknown>[], question: str
 
   const columns = Object.keys(rows[0]!);
   const numericColumns = columns.filter(col =>
-    rows.some(r => typeof r[col] === 'number' || (typeof r[col] === 'string' && !isNaN(Number(r[col])) && r[col] !== ''))
+    rows.some(r => typeof r[col] === 'number' || (typeof r[col] === 'string' && !isNaN(Number(r[col])) && r[col] !== '')),
   );
 
   let summary: string;
@@ -313,3 +146,6 @@ export function formatQueryResult(rows: Record<string, unknown>[], question: str
 
   return { rows, columns, numericColumns, summary, rowCount: rows.length };
 }
+
+// SQL validation re-exported from split file for backward compat
+export { validateGeneratedSQL, type SQLValidation } from './nlQueryValidationService';
