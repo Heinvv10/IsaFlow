@@ -57,7 +57,21 @@ if [ ! -f /etc/nginx/sites-available/app-isaflow ]; then
   sudo nginx -t && sudo systemctl reload nginx
 fi
 
-# 6. Restart service
+# 6. Run database migrations against production DB
+echo "Running database migrations..."
+PROD_ENV="$DEPLOY_DIR/.env.local"
+if [ -f "$PROD_ENV" ]; then
+  PROD_DB=$(grep "^DATABASE_URL=" "$PROD_ENV" | cut -d= -f2-)
+  if [ -n "$PROD_DB" ]; then
+    DATABASE_URL="$PROD_DB" node "$REPO_DIR/scripts/run-migrations.mjs" 2>&1 | grep -E "Running:|Done|Failed|complete|==="
+  else
+    echo "WARNING: DATABASE_URL not found in $PROD_ENV — skipping migrations"
+  fi
+else
+  echo "WARNING: $PROD_ENV not found — skipping migrations"
+fi
+
+# 7. Restart service
 echo "Restarting service..."
 sudo systemctl restart $SERVICE_NAME
 
