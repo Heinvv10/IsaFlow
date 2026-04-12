@@ -23,6 +23,10 @@ import {
   Palette,
   ToggleRight,
   Zap,
+  Database,
+  ArrowUpDown,
+  Clock,
+  Mail,
 } from 'lucide-react';
 
 interface NavDef {
@@ -57,8 +61,12 @@ const NAV_DEFS: NavDef[] = [
     children: [
       { label: 'Overview',       path: '/tools',               icon: Wrench },
       { label: 'Announcements',  path: '/tools/announcements', icon: Megaphone },
+      { label: 'Sage Import',    path: '/tools/sage-import',   icon: Database },
+      { label: 'Migrations',     path: '/tools/migrations',    icon: ArrowUpDown },
+      { label: 'Email Log',      path: '/email-log',           icon: Mail },
     ],
   },
+  { label: 'Trials',      path: '/trials',     icon: Clock },
   { label: 'Features',    path: '/features',   icon: ToggleRight },
   { label: 'Job Queue',   path: '/job-queue',  icon: Zap },
   { label: 'Audit Trail', path: '/audit',      icon: ScrollText },

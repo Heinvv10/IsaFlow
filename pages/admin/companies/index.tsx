@@ -1,10 +1,11 @@
 /**
  * Admin — Company List
- * Search, filter, sort, paginate companies.
+ * Search, filter, sort, paginate, and bulk-act on companies.
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
+import { BulkActionsBar } from '@/components/admin/companies/BulkActionsBar';
 import { apiFetch } from '@/lib/apiFetch';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
@@ -69,6 +70,10 @@ export default function AdminCompaniesPage() {
   const [createError, setCreateError]   = useState('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
+  // Bulk selection
+  const [selectedIds, setSelectedIds]   = useState<Set<string>>(new Set());
+  const [bulkLoading, setBulkLoading]   = useState(false);
+
   const LIMIT = 25;
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -81,8 +86,8 @@ export default function AdminCompaniesPage() {
       if (st) params.set('status', st);
       const res  = await apiFetch(`/api/admin/companies?${params}`);
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed to load companies');
-      const d = json.data as PagedResponse;
+      if (!res.ok) throw new Error((json as { message?: string }).message || 'Failed to load companies');
+      const d = (json as { data: PagedResponse }).data;
       setRows(d.items);
       setTotal(d.total);
     } catch (err) {
@@ -96,12 +101,14 @@ export default function AdminCompaniesPage() {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       setPage(1);
+      setSelectedIds(new Set());
       void load(search, status, 1, sortBy, sortDir);
     }, 300);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [search, status, sortBy, sortDir, load]);
 
   useEffect(() => {
+    setSelectedIds(new Set());
     void load(search, status, page, sortBy, sortDir);
   }, [page]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -121,6 +128,26 @@ export default function AdminCompaniesPage() {
     return <ChevronsUpDown className="w-3.5 h-3.5 text-teal-500" />;
   }
 
+  // Header checkbox state
+  const allSelected   = rows.length > 0 && rows.every(r => selectedIds.has(r.id));
+  const someSelected  = rows.some(r => selectedIds.has(r.id)) && !allSelected;
+
+  function toggleSelectAll() {
+    if (allSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(rows.map(r => r.id)));
+    }
+  }
+
+  function toggleRow(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     if (!createForm.name.trim()) { setCreateError('Name is required'); return; }
@@ -132,7 +159,7 @@ export default function AdminCompaniesPage() {
         body: JSON.stringify(createForm),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed to create company');
+      if (!res.ok) throw new Error((json as { message?: string }).message || 'Failed to create company');
       setShowCreate(false);
       setCreateForm({ name: '', trading_name: '', email: '', phone: '', plan_id: '' });
       setPage(1);
@@ -154,7 +181,7 @@ export default function AdminCompaniesPage() {
         body: JSON.stringify({ reason: 'Suspended by admin' }),
       });
       void load(search, status, page, sortBy, sortDir);
-    } catch { /* ignore */ }
+    } catch { /* surfaced via row reload */ }
     finally { setActionLoading(null); }
   }
 
@@ -164,7 +191,7 @@ export default function AdminCompaniesPage() {
     try {
       await apiFetch(`/api/admin/companies/${companyId}/activate`, { method: 'POST' });
       void load(search, status, page, sortBy, sortDir);
-    } catch { /* ignore */ }
+    } catch { /* surfaced via row reload */ }
     finally { setActionLoading(null); }
   }
 
@@ -173,10 +200,71 @@ export default function AdminCompaniesPage() {
     window.location.href = adminHref(`/admin/companies/${companyId}`);
   }
 
+  // --- Bulk actions ---
+  async function handleBulkSuspend() {
+    setBulkLoading(true);
+    try {
+      const res  = await apiFetch('/api/admin/companies/bulk-action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'suspend', company_ids: [...selectedIds], reason: 'Bulk suspended by admin' }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error((json as { message?: string }).message || 'Bulk suspend failed');
+      setSelectedIds(new Set());
+      void load(search, status, page, sortBy, sortDir);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Bulk suspend failed');
+    } finally {
+      setBulkLoading(false);
+    }
+  }
+
+  async function handleBulkExtendTrial() {
+    setBulkLoading(true);
+    try {
+      const res  = await apiFetch('/api/admin/companies/bulk-action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'extend_trial', company_ids: [...selectedIds], days: 7 }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error((json as { message?: string }).message || 'Extend trial failed');
+      setSelectedIds(new Set());
+      void load(search, status, page, sortBy, sortDir);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Extend trial failed');
+    } finally {
+      setBulkLoading(false);
+    }
+  }
+
+  function handleExportCsv() {
+    const selected = rows.filter(r => selectedIds.has(r.id));
+    const header   = ['Name', 'Plan', 'Status', 'Users', 'MRR (ZAR)', 'Created'].join(',');
+    const csvRows  = selected.map(r => [
+      `"${r.name.replace(/"/g, '""')}"`,
+      `"${(r.plan_name ?? '').replace(/"/g, '""')}"`,
+      r.status,
+      String(r.user_count),
+      (r.mrr_cents / 100).toFixed(2),
+      r.created_at.slice(0, 10),
+    ].join(','));
+    const blob = new Blob([[header, ...csvRows].join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `companies-export-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  const colSpan = 10; // checkbox + 7 data cols + actions
+
   return (
     <AdminLayout title="Companies">
       {/* Filters */}
-      <div className="flex gap-3 flex-wrap mb-5">
+      <div className="flex gap-3 flex-wrap mb-4">
         <div className="relative flex-1 min-w-[200px] max-w-xs">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
@@ -213,12 +301,33 @@ export default function AdminCompaniesPage() {
         </div>
       )}
 
+      {selectedIds.size > 0 && (
+        <BulkActionsBar
+          count={selectedIds.size}
+          loading={bulkLoading}
+          onSuspend={() => void handleBulkSuspend()}
+          onExtendTrial={() => void handleBulkExtendTrial()}
+          onExportCsv={handleExportCsv}
+          onClear={() => setSelectedIds(new Set())}
+        />
+      )}
+
       {/* Table */}
       <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
+                <th className="px-3 py-3 w-8">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    ref={el => { if (el) el.indeterminate = someSelected; }}
+                    onChange={toggleSelectAll}
+                    className="rounded border-gray-300 dark:border-gray-600 text-teal-600 focus:ring-teal-500"
+                    aria-label="Select all"
+                  />
+                </th>
                 {([
                   ['name',        'Name'],
                   ['plan_name',   'Plan'],
@@ -244,22 +353,31 @@ export default function AdminCompaniesPage() {
             <tbody>
               {loading && rows.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center">
+                  <td colSpan={colSpan} className="px-4 py-12 text-center">
                     <Loader2 className="w-5 h-5 animate-spin text-teal-500 mx-auto" />
                   </td>
                 </tr>
               )}
               {!loading && rows.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center text-gray-400">No companies found</td>
+                  <td colSpan={colSpan} className="px-4 py-12 text-center text-gray-400">No companies found</td>
                 </tr>
               )}
               {rows.map(c => (
                 <tr
                   key={c.id}
-                  className="border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800/40 cursor-pointer transition-colors"
+                  className={`border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800/40 cursor-pointer transition-colors ${selectedIds.has(c.id) ? 'bg-teal-50/50 dark:bg-teal-900/10' : ''}`}
                   onClick={() => { window.location.href = adminHref(`/admin/companies/${c.id}`); }}
                 >
+                  <td className="px-3 py-3 w-8" onClick={e => { e.stopPropagation(); toggleRow(c.id); }}>
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(c.id)}
+                      onChange={() => toggleRow(c.id)}
+                      className="rounded border-gray-300 dark:border-gray-600 text-teal-600 focus:ring-teal-500"
+                      aria-label={`Select ${c.name}`}
+                    />
+                  </td>
                   <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{c.name}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-300 capitalize">{c.plan_name}</td>
                   <td className="px-4 py-3">
@@ -315,9 +433,7 @@ export default function AdminCompaniesPage() {
 
         {/* Pagination */}
         <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-gray-700 text-sm">
-          <span className="text-gray-500 dark:text-gray-400">
-            Page {page} of {totalPages}
-          </span>
+          <span className="text-gray-500 dark:text-gray-400">Page {page} of {totalPages}</span>
           <div className="flex gap-2">
             <button
               disabled={page <= 1}
@@ -355,18 +471,14 @@ export default function AdminCompaniesPage() {
               )}
               <div>
                 <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Company Name *</label>
-                <input
-                  type="text" required
-                  value={createForm.name}
+                <input type="text" required value={createForm.name}
                   onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))}
                   className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Trading Name</label>
-                <input
-                  type="text"
-                  value={createForm.trading_name}
+                <input type="text" value={createForm.trading_name}
                   onChange={e => setCreateForm(f => ({ ...f, trading_name: e.target.value }))}
                   className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
@@ -374,18 +486,14 @@ export default function AdminCompaniesPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Email</label>
-                  <input
-                    type="email"
-                    value={createForm.email}
+                  <input type="email" value={createForm.email}
                     onChange={e => setCreateForm(f => ({ ...f, email: e.target.value }))}
                     className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                   />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Phone</label>
-                  <input
-                    type="tel"
-                    value={createForm.phone}
+                  <input type="tel" value={createForm.phone}
                     onChange={e => setCreateForm(f => ({ ...f, phone: e.target.value }))}
                     className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                   />

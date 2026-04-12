@@ -46,6 +46,7 @@ export interface AdminUserListItem {
   status: string;
   company_count: number;
   company_names: string[];
+  primary_company: string | null;
   last_login: string | null;
   login_count: number;
   created_at: string;
@@ -102,6 +103,7 @@ export interface AuditLogEntry {
 export interface AdminListFilters {
   search?: string;
   status?: string;
+  company?: string;
   page?: number;
   limit?: number;
   sort_by?: string;
@@ -239,6 +241,31 @@ export interface UsageAnalytics {
   feature_adoption: Array<{ feature: string; adoption_percent: number; user_count: number }>;
   revenue_by_plan: Array<{ plan_name: string; mrr_cents: number; company_count: number }>;
   churn_signals: Array<{ company_id: string; company_name: string; days_inactive: number; last_login: string | null }>;
+}
+
+export interface MrrTrendPoint {
+  date: string;
+  mrr_cents: number;
+  company_count: number;
+}
+
+export interface EngagementTrendPoint {
+  date: string;
+  dau: number;
+  wau: number;
+  mau: number;
+}
+
+export interface SignupTrendPoint {
+  date: string;
+  new_companies: number;
+  new_users: number;
+}
+
+export interface AnalyticsTrends {
+  mrr_trend: MrrTrendPoint[];
+  engagement_trend: EngagementTrendPoint[];
+  signup_trend: SignupTrendPoint[];
 }
 
 export interface PlatformSettings {

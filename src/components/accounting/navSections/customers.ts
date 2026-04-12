@@ -54,6 +54,12 @@ export const customersTab: Tab = {
       ],
     },
     {
+      section: 'Data Quality',
+      items: [
+        { label: 'Find & Merge Duplicates', href: '/accounting/customers/dedup' },
+      ],
+    },
+    {
       section: 'Settings',
       items: [
         { label: 'Customer Settings', href: '/accounting/company-settings?tab=documents', isSetting: true },
