@@ -145,30 +145,30 @@ export default function SupplierStatementsPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-light)]">
-                    <th className="text-left px-4 py-3 text-[var(--ff-text-secondary)] font-medium">Supplier</th>
-                    <th className="text-right px-4 py-3 text-teal-400 font-medium">Current</th>
-                    <th className="text-right px-4 py-3 text-amber-400 font-medium">1-30</th>
-                    <th className="text-right px-4 py-3 text-orange-400 font-medium">31-60</th>
-                    <th className="text-right px-4 py-3 text-red-400 font-medium">61-90</th>
-                    <th className="text-right px-4 py-3 text-purple-400 font-medium">90+</th>
-                    <th className="text-right px-4 py-3 text-[var(--ff-text-secondary)] font-medium">Total</th>
+                    <th className="text-left px-4 py-3 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Supplier</th>
+                    <th className="text-right px-4 py-3 text-[10px] tracking-[0.12em] font-semibold text-teal-400 uppercase">Current</th>
+                    <th className="text-right px-4 py-3 text-[10px] tracking-[0.12em] font-semibold text-amber-400 uppercase">1-30</th>
+                    <th className="text-right px-4 py-3 text-[10px] tracking-[0.12em] font-semibold text-orange-400 uppercase">31-60</th>
+                    <th className="text-right px-4 py-3 text-[10px] tracking-[0.12em] font-semibold text-red-400 uppercase">61-90</th>
+                    <th className="text-right px-4 py-3 text-[10px] tracking-[0.12em] font-semibold text-purple-400 uppercase">90+</th>
+                    <th className="text-right px-4 py-3 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Total</th>
                     <th className="text-center px-4 py-3 w-16"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredSuppliers.map(s => (
-                    <tr key={s.entityId} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-tertiary)]">
+                    <tr key={s.entityId} className="border-b border-[var(--ff-border-light)] hover:bg-teal-500/[0.04]">
                       <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">
                         <Link href={`/accounting/supplier-statements/${s.entityId}`} className="hover:text-orange-400 transition-colors">
                           {s.entityName}
                         </Link>
                       </td>
-                      <td className="px-4 py-3 text-right font-mono text-teal-400">{formatCurrency(s.current)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-amber-400">{formatCurrency(s.days30)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-orange-400">{formatCurrency(s.days60)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-red-400">{formatCurrency(s.days90)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-purple-400">{formatCurrency(s.days120Plus)}</td>
-                      <td className="px-4 py-3 text-right font-mono font-bold text-[var(--ff-text-primary)]">{formatCurrency(s.total)}</td>
+                      <td className="px-4 py-3 text-right font-mono tabular-nums text-teal-400">{formatCurrency(s.current)}</td>
+                      <td className="px-4 py-3 text-right font-mono tabular-nums text-amber-400">{formatCurrency(s.days30)}</td>
+                      <td className="px-4 py-3 text-right font-mono tabular-nums text-orange-400">{formatCurrency(s.days60)}</td>
+                      <td className="px-4 py-3 text-right font-mono tabular-nums text-red-400">{formatCurrency(s.days90)}</td>
+                      <td className="px-4 py-3 text-right font-mono tabular-nums text-purple-400">{formatCurrency(s.days120Plus)}</td>
+                      <td className="px-4 py-3 text-right font-mono tabular-nums font-bold text-[var(--ff-text-primary)]">{formatCurrency(s.total)}</td>
                       <td className="px-4 py-3 text-center">
                         <Link href={`/accounting/supplier-statements/${s.entityId}`}
                           className="inline-flex items-center justify-center px-4 py-3 rounded-lg text-orange-400 hover:bg-orange-500/10 hover:text-orange-300 transition-colors"

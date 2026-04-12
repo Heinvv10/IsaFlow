@@ -52,7 +52,7 @@ export default function AdjustmentsPage() {
     });
   }, [entityType]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(''); setBusy('new');
     try {

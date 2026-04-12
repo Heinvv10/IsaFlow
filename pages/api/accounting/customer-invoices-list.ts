@@ -20,15 +20,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   try {
-    const { status, limit: limitParam = '25', page: pageParam = '1', q } = req.query;
+    const { status, limit: limitParam = '25', page: pageParam = '1', q, client_id } = req.query;
     const limit = Math.min(Number(limitParam), 200);
     const page = Math.max(1, Number(pageParam));
     const offset = (page - 1) * limit;
     const searchTerm = typeof q === 'string' && q.trim() ? `%${q.trim()}%` : null;
+    const clientIdFilter = typeof client_id === 'string' && client_id.trim() ? client_id.trim() : null;
+
+    // Normalize status: can be a single value or array (e.g. ?status=approved&status=sent)
+    const statusValues = Array.isArray(status) ? status : (status && status !== 'all' ? [status] : null);
 
     let invoices;
     let countResult;
-    if (status && status !== 'all') {
+    if (statusValues && statusValues.length > 0 && clientIdFilter) {
       [invoices, countResult] = await Promise.all([
         sql`
           SELECT
@@ -42,7 +46,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
           WHERE ci.company_id = ${companyId}
             AND ci.deleted_at IS NULL
-            AND ci.status = ${status as string}
+            AND ci.status = ANY(${statusValues}::text[])
+            AND COALESCE(ci.client_id, ci.customer_id) = ${clientIdFilter}
           ORDER BY ci.invoice_date DESC
           LIMIT ${limit} OFFSET ${offset}
         `,
@@ -50,7 +55,33 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           SELECT COUNT(*) as total FROM customer_invoices ci
           WHERE ci.company_id = ${companyId}
             AND ci.deleted_at IS NULL
-            AND ci.status = ${status as string}
+            AND ci.status = ANY(${statusValues}::text[])
+            AND COALESCE(ci.client_id, ci.customer_id) = ${clientIdFilter}
+        `,
+      ]);
+    } else if (statusValues && statusValues.length > 0) {
+      [invoices, countResult] = await Promise.all([
+        sql`
+          SELECT
+            ci.id, ci.invoice_number, ci.project_id,
+            COALESCE(ci.client_id, ci.customer_id) as client_id,
+            ci.total_amount, ci.amount_paid, ci.status,
+            ci.invoice_date, ci.due_date, ci.sent_at, ci.paid_at,
+            ci.currency_code, ci.exchange_rate, ci.functional_total,
+            c.name as client_name
+          FROM customer_invoices ci
+          LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
+          WHERE ci.company_id = ${companyId}
+            AND ci.deleted_at IS NULL
+            AND ci.status = ANY(${statusValues}::text[])
+          ORDER BY ci.invoice_date DESC
+          LIMIT ${limit} OFFSET ${offset}
+        `,
+        sql`
+          SELECT COUNT(*) as total FROM customer_invoices ci
+          WHERE ci.company_id = ${companyId}
+            AND ci.deleted_at IS NULL
+            AND ci.status = ANY(${statusValues}::text[])
         `,
       ]);
     } else if (searchTerm) {

@@ -79,13 +79,13 @@ function DebtorDetailPanel({ clientId, clientName }: { clientId: string; clientN
         <table className="w-full">
           <thead>
             <tr className="bg-[var(--ff-bg-tertiary)]">
-              <th className="pl-12 pr-4 py-2 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Invoice #</th>
-              <th className="px-4 py-2 text-left text-xs text-[var(--ff-text-secondary)] uppercase">Invoice Date</th>
-              <th className="px-4 py-2 text-left text-xs text-[var(--ff-text-secondary)] uppercase">Due Date</th>
-              <th className="px-4 py-2 text-right text-xs text-[var(--ff-text-secondary)] uppercase">Total</th>
-              <th className="px-4 py-2 text-right text-xs text-[var(--ff-text-secondary)] uppercase">Paid</th>
-              <th className="px-4 py-2 text-right text-xs text-[var(--ff-text-secondary)] uppercase">Outstanding</th>
-              <th className="px-4 py-2 text-right text-xs text-[var(--ff-text-secondary)] uppercase">Days Overdue</th>
+              <th className="pl-12 pr-4 py-2 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Invoice #</th>
+              <th className="px-4 py-2 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Invoice Date</th>
+              <th className="px-4 py-2 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Due Date</th>
+              <th className="px-4 py-2 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Total</th>
+              <th className="px-4 py-2 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Paid</th>
+              <th className="px-4 py-2 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Outstanding</th>
+              <th className="px-4 py-2 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Days Overdue</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--ff-border-light)]">
@@ -203,14 +203,14 @@ export default function DebtorsManagerPage() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
-                    <th className="px-4 py-3 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase w-6"></th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Customer</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-teal-500 uppercase">Current</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-amber-500 uppercase">1–30 Days</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-orange-500 uppercase">31–60 Days</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-red-400 uppercase">61–90 Days</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-red-600 uppercase">90+ Days</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Total</th>
+                    <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase w-6"></th>
+                    <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Customer</th>
+                    <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-teal-500 uppercase">Current</th>
+                    <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-amber-500 uppercase">1–30 Days</th>
+                    <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-orange-500 uppercase">31–60 Days</th>
+                    <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-red-400 uppercase">61–90 Days</th>
+                    <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-red-600 uppercase">90+ Days</th>
+                    <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Total</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[var(--ff-border-light)]">
@@ -218,7 +218,7 @@ export default function DebtorsManagerPage() {
                     <>
                       <tr
                         key={d.clientId}
-                        className="hover:bg-[var(--ff-bg-tertiary)] transition-colors cursor-pointer"
+                        className="hover:bg-teal-500/[0.04] transition-colors cursor-pointer"
                         onClick={() => toggleExpand(d.clientId)}
                       >
                         <td className="px-4 py-3 text-[var(--ff-text-tertiary)]">
@@ -270,21 +270,21 @@ export default function DebtorsManagerPage() {
               <table className="w-full">
                 <thead>
                   <tr className="bg-[var(--ff-bg-tertiary)] border-b border-[var(--ff-border-light)]">
-                    <th className="px-4 py-2 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Invoice #</th>
-                    <th className="px-4 py-2 text-left text-xs text-[var(--ff-text-secondary)] uppercase">Customer</th>
-                    <th className="px-4 py-2 text-left text-xs text-[var(--ff-text-secondary)] uppercase">Due Date</th>
-                    <th className="px-4 py-2 text-right text-xs text-[var(--ff-text-secondary)] uppercase">Days Overdue</th>
-                    <th className="px-4 py-2 text-right text-xs text-[var(--ff-text-secondary)] uppercase">Outstanding</th>
+                    <th className="px-4 py-2 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Invoice #</th>
+                    <th className="px-4 py-2 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Customer</th>
+                    <th className="px-4 py-2 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Due Date</th>
+                    <th className="px-4 py-2 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Days Overdue</th>
+                    <th className="px-4 py-2 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Outstanding</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[var(--ff-border-light)]">
                   {overdueInvoices.slice(0, 10).map(inv => (
-                    <tr key={inv.id} className="hover:bg-[var(--ff-bg-tertiary)]">
+                    <tr key={inv.id} className="hover:bg-teal-500/[0.04]">
                       <td className="px-4 py-2 text-sm font-mono text-[var(--ff-text-primary)]">{inv.invoiceNumber}</td>
                       <td className="px-4 py-2 text-sm text-[var(--ff-text-secondary)]">{inv.clientName}</td>
                       <td className="px-4 py-2 text-sm text-[var(--ff-text-secondary)]">{fmtDate(inv.dueDate)}</td>
-                      <td className="px-4 py-2 text-sm text-right font-mono text-red-400">{inv.daysOverdue}d</td>
-                      <td className="px-4 py-2 text-sm text-right font-mono font-bold text-red-500">{fmt(inv.outstanding)}</td>
+                      <td className="px-4 py-2 text-sm text-right font-mono tabular-nums text-red-400">{inv.daysOverdue}d</td>
+                      <td className="px-4 py-2 text-sm text-right font-mono tabular-nums font-bold text-red-500">{fmt(inv.outstanding)}</td>
                     </tr>
                   ))}
                 </tbody>

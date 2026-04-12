@@ -105,7 +105,7 @@ export default function EliminationsPage() {
     setFormLines(BLANK_LINES.map((l) => ({ ...l }))); setFormError('');
   }
 
-  async function handleCreateSubmit(e: React.FormEvent) {
+  async function handleCreateSubmit(e: React.FormEvent<Element>) {
     e.preventDefault();
     if (!selectedGroupId) return;
     const totalDebit = formLines.reduce((s, l) => s + Number(l.debit || 0), 0);

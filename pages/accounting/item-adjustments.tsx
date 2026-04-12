@@ -35,7 +35,7 @@ export default function ItemAdjustmentsPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const submit = async (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setSaving(true); setMsg('');
     const res = await apiFetch('/api/accounting/item-adjustments', {
@@ -120,19 +120,19 @@ export default function ItemAdjustmentsPage() {
             ) : (
               <table className="w-full text-sm">
                 <thead><tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
-                  <th className="px-4 py-3 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Code</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Item</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Category</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">On Hand</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">UOM</th>
+                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Code</th>
+                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Item</th>
+                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Category</th>
+                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">On Hand</th>
+                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">UOM</th>
                 </tr></thead>
                 <tbody className="divide-y divide-[var(--ff-border-light)]">
                   {items.map(i => (
-                    <tr key={i.id} className="hover:bg-[var(--ff-bg-tertiary)]">
+                    <tr key={i.id} className="hover:bg-teal-500/[0.04]">
                       <td className="px-4 py-3 font-mono text-xs text-[var(--ff-text-tertiary)]">{i.item_code}</td>
                       <td className="px-4 py-3 text-[var(--ff-text-primary)]">{i.item_name}</td>
                       <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{(i as unknown as Record<string, unknown>).category as string || '—'}</td>
-                      <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">{fmtQty(i.current_quantity)}</td>
+                      <td className="px-4 py-3 text-right font-mono tabular-nums text-[var(--ff-text-primary)]">{fmtQty(i.current_quantity)}</td>
                       <td className="px-4 py-3 text-[var(--ff-text-tertiary)]">{i.uom}</td>
                     </tr>
                   ))}

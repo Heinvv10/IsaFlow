@@ -50,18 +50,18 @@ export function CustomerStatementTable({ rows, selected, onToggle, onToggleAll }
                   : <Square className="h-4 w-4" />}
               </button>
             </th>
-            <th className="text-left px-4 py-3 text-[var(--ff-text-secondary)] font-medium">Customer</th>
-            <th className="text-left px-4 py-3 text-[var(--ff-text-secondary)] font-medium">Email</th>
-            <th className="text-right px-4 py-3 text-[var(--ff-text-secondary)] font-medium">Balance</th>
-            <th className="text-right px-4 py-3 text-[var(--ff-text-secondary)] font-medium">Overdue</th>
-            <th className="text-center px-4 py-3 text-[var(--ff-text-secondary)] font-medium">Preview</th>
+            <th className="text-left px-4 py-3 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Customer</th>
+            <th className="text-left px-4 py-3 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Email</th>
+            <th className="text-right px-4 py-3 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Balance</th>
+            <th className="text-right px-4 py-3 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Overdue</th>
+            <th className="text-center px-4 py-3 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Preview</th>
           </tr>
         </thead>
         <tbody>
           {rows.map(c => (
             <tr
               key={c.client_id}
-              className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-tertiary)]"
+              className="border-b border-[var(--ff-border-light)] hover:bg-teal-500/[0.04]"
             >
               <td className="text-center px-4 py-3">
                 {c.email ? (

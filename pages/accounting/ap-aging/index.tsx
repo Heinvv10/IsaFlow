@@ -128,18 +128,18 @@ export default function APAgingPage() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
-                    <th className="px-4 py-3 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Supplier</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-teal-500 uppercase">Current</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-amber-500 uppercase">30 Days</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-orange-500 uppercase">60 Days</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-red-400 uppercase">90 Days</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-red-600 uppercase">120+ Days</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Total</th>
+                    <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Supplier</th>
+                    <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-teal-500 uppercase">Current</th>
+                    <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-amber-500 uppercase">30 Days</th>
+                    <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-orange-500 uppercase">60 Days</th>
+                    <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-red-400 uppercase">90 Days</th>
+                    <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-red-600 uppercase">120+ Days</th>
+                    <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Total</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[var(--ff-border-light)]">
                   {buckets.map(b => (
-                    <tr key={b.entityId} className="hover:bg-[var(--ff-bg-tertiary)] transition-colors">
+                    <tr key={b.entityId} className="hover:bg-teal-500/[0.04] transition-colors">
                       <td className="px-4 py-3 text-sm font-medium text-[var(--ff-text-primary)]">
                         <Link href={`/accounting/supplier-statements/${b.entityId}`} className="hover:text-teal-400 transition-colors">
                           {b.entityName}

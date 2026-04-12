@@ -187,8 +187,8 @@ export default function SupplierPaymentDetailPage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-[var(--ff-border-light)]">
-                        <th className="px-4 py-3 text-left text-[var(--ff-text-secondary)] font-medium">Invoice</th>
-                        <th className="px-4 py-3 text-right text-[var(--ff-text-secondary)] font-medium">Amount Allocated</th>
+                        <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Invoice</th>
+                        <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Amount Allocated</th>
                       </tr>
                     </thead>
                     <tbody>

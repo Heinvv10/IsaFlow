@@ -1,24 +1,24 @@
 /**
- * Invoice PDF Builder — generates Tax Invoice PDFs using jsPDF + jspdf-autotable.
+ * Invoice PDF Builder — premium Tax Invoice PDF using jsPDF + jspdf-autotable.
  * Returns a Node.js Buffer suitable for API responses and email attachments.
- * Supports layout: 'classic' | 'modern' | 'minimal' via company.invoiceLayout.
  */
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import {
-  fmtZAR, fmtDate, TEAL,
-  getCompanyDetailsFromCompany, renderPageFooters, getLastAutoTableY,
-  hexToRgb, renderInvoiceHeader,
-  type DocumentLayout,
+  fmtZAR, fmtDate, COLORS,
+  getCompanyDetailsFromCompany, renderPageFooters,
+  getLastAutoTableY, hexToRgb,
+  renderPremiumHeader, renderPartySection, renderRefStrip,
+  renderTotalsBlock, renderPaymentDetails, renderNotesBlock,
+  type TotalLine,
 } from './pdfShared';
 
 type Row = DbRow;
 
 export async function generateInvoicePdf(companyId: string, invoiceId: string): Promise<Buffer> {
   const COMPANY = await getCompanyDetailsFromCompany(companyId);
-  const layout: DocumentLayout = COMPANY.invoiceLayout;
   const accent = hexToRgb(COMPANY.primaryColor);
 
   const invoiceRows = (await sql`
@@ -34,10 +34,11 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
     LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
     LEFT JOIN projects p ON p.id = ci.project_id
     WHERE ci.id = ${invoiceId}::UUID
+      AND ci.company_id = ${companyId}::UUID
   `) as Row[];
 
   if (invoiceRows.length === 0) throw new Error(`Invoice not found: ${invoiceId}`);
-  const invoice = invoiceRows[0]!;
+  const inv = invoiceRows[0]!;
 
   const items = (await sql`
     SELECT * FROM customer_invoice_items
@@ -45,8 +46,8 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
     ORDER BY created_at
   `) as Row[];
 
-  log.info('Generating invoice PDF', {
-    invoiceId, invoiceNumber: invoice.invoice_number, itemCount: items.length, layout,
+  log.info('Generating premium invoice PDF', {
+    invoiceId, invoiceNumber: inv.invoice_number, itemCount: items.length,
   }, 'invoicePdfBuilder');
 
   const [{ jsPDF }, { default: autoTable }] = await Promise.all([
@@ -57,191 +58,158 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const PAGE_W = doc.internal.pageSize.getWidth();
   const PAGE_H = doc.internal.pageSize.getHeight();
-  const MARGIN = layout === 'minimal' ? 12 : 14;
+  const MARGIN = 14;
   const CONTENT_W = PAGE_W - MARGIN * 2;
-  const isMinimal = layout === 'minimal';
-  const baseFontSz = isMinimal ? 7.5 : 8;
 
-  let y = renderInvoiceHeader({ doc, invoice, layout, pageW: PAGE_W, margin: MARGIN, accent, company: COMPANY });
-
-  // Company details (left)
-  doc.setFontSize(isMinimal ? 9 : 10);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(30, 30, 30);
-  doc.text(COMPANY.name, MARGIN, y);
-  doc.setFontSize(baseFontSz);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(80, 80, 80);
-  y += 5; doc.text(COMPANY.address, MARGIN, y);
-  y += 4; doc.text(`Tel: ${COMPANY.phone}`, MARGIN, y);
-  y += 4; doc.text(`Email: ${COMPANY.email}`, MARGIN, y);
-  y += 4; doc.text(`VAT No: ${COMPANY.vatNumber}`, MARGIN, y);
-
-  // Client details (right)
-  const rightX = PAGE_W / 2 + 10;
-  let ry = y - 17;
-  doc.setFontSize(baseFontSz);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(isMinimal ? 60 : accent.r, isMinimal ? 60 : accent.g, isMinimal ? 60 : accent.b);
-  doc.text('BILL TO:', rightX, ry);
-  ry += 5;
-  doc.setFontSize(isMinimal ? 9 : 10);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(30, 30, 30);
-  doc.text(String(invoice.client_name || 'Unknown Client'), rightX, ry);
-  ry += 5;
-  doc.setFontSize(baseFontSz);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(80, 80, 80);
-  if (invoice.client_address) {
-    for (const line of String(invoice.client_address).split('\n')) {
-      doc.text(line.trim(), rightX, ry); ry += 4;
-    }
-  }
-  if (invoice.client_contact) { doc.text(`Attn: ${invoice.client_contact}`, rightX, ry); ry += 4; }
-  if (invoice.client_email) { doc.text(String(invoice.client_email), rightX, ry); ry += 4; }
-  if (invoice.client_phone) { doc.text(`Tel: ${invoice.client_phone}`, rightX, ry); ry += 4; }
-  if (invoice.client_vat) { doc.text(`VAT No: ${invoice.client_vat}`, rightX, ry); ry += 4; }
-
-  y = Math.max(y, ry) + 6;
-
-  // Reference info bar
-  if (!isMinimal) {
-    doc.setFillColor(245, 247, 250);
-    doc.setDrawColor(210, 215, 225);
-    doc.roundedRect(MARGIN, y, CONTENT_W, 12, 1.5, 1.5, 'FD');
-  }
-  const refCols = [
-    { label: 'Invoice #', value: String(invoice.invoice_number || '') },
-    { label: 'Project', value: String(invoice.project_name || '—') },
-    { label: 'Period', value: invoice.billing_period_start ? `${fmtDate(invoice.billing_period_start as string | Date | null)} - ${fmtDate(invoice.billing_period_end as string | Date | null)}` : '—' },
-    { label: 'Terms', value: invoice.due_date ? `Due ${fmtDate(invoice.due_date as string | Date | null)}` : 'On receipt' },
-  ];
-  const colW = CONTENT_W / refCols.length;
-  refCols.forEach((col, i) => {
-    const cx = MARGIN + colW * i + 4;
-    doc.setFontSize(6); doc.setFont('helvetica', 'normal'); doc.setTextColor(120, 120, 120);
-    doc.text(col.label.toUpperCase(), cx, y + 4);
-    doc.setFontSize(7.5); doc.setFont('helvetica', 'bold'); doc.setTextColor(30, 30, 30);
-    doc.text(col.value, cx, y + 9);
+  // ── Premium Header ────────────────────────────────────────────────────────
+  let y = renderPremiumHeader({
+    doc, pageW: PAGE_W, margin: MARGIN, company: COMPANY, accent,
+    docType: 'invoice',
+    docTitle: 'TAX INVOICE',
+    docNumber: String(inv.invoice_number || ''),
+    docDate: fmtDate(inv.invoice_date as string | Date | null | undefined),
+    docSecondaryDate: inv.due_date ? fmtDate(inv.due_date as string | Date | null | undefined) : undefined,
+    docSecondaryLabel: 'Due',
   });
-  y += isMinimal ? 14 : 18;
 
-  // Line items table
-  const headFill: [number, number, number] = isMinimal ? [60, 60, 60] : [accent.r, accent.g, accent.b];
+  // ── Party Section (FROM / BILL TO) ────────────────────────────────────────
+  const statusStr = String(inv.status || '').toUpperCase();
+  const statusColors: Record<string, [number, number, number]> = {
+    PAID:           COLORS.SUCCESS,
+    OVERDUE:        COLORS.DANGER,
+    PARTIALLY_PAID: COLORS.AMBER,
+    SENT:           [accent.r, accent.g, accent.b],
+    APPROVED:       [accent.r, accent.g, accent.b],
+  };
+  const badgeColor = statusColors[statusStr] ?? COLORS.TEXT_SECONDARY;
+
+  // Status badge top-right of body
+  doc.setFillColor(...badgeColor);
+  doc.roundedRect(PAGE_W - MARGIN - 26, y - 2, 26, 7, 1, 1, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.5);
+  doc.setTextColor(...COLORS.WHITE);
+  doc.text(statusStr, PAGE_W - MARGIN - 13, y + 2.5, { align: 'center' });
+
+  y = renderPartySection(doc, y, PAGE_W, MARGIN, accent,
+    {
+      label: 'FROM',
+      name: COMPANY.name,
+      address: COMPANY.address,
+      email: COMPANY.email,
+      phone: COMPANY.phone,
+      vatNumber: COMPANY.vatNumber,
+    },
+    {
+      label: 'BILL TO',
+      name: String(inv.client_name || 'Unknown Client'),
+      address: inv.client_address ? String(inv.client_address) : undefined,
+      attention: inv.client_contact ? String(inv.client_contact) : undefined,
+      email: inv.client_email ? String(inv.client_email) : undefined,
+      phone: inv.client_phone ? String(inv.client_phone) : undefined,
+      vatNumber: inv.client_vat ? String(inv.client_vat) : undefined,
+    },
+  );
+
+  // ── Reference Strip ───────────────────────────────────────────────────────
+  const refFields = [
+    { label: 'Invoice #', value: String(inv.invoice_number || '—') },
+    {
+      label: 'Project',
+      value: inv.project_name ? String(inv.project_name) : '—',
+    },
+    {
+      label: 'Issue Date',
+      value: fmtDate(inv.invoice_date as string | Date | null | undefined),
+    },
+    {
+      label: 'Due Date',
+      value: inv.due_date ? fmtDate(inv.due_date as string | Date | null | undefined) : 'On Receipt',
+    },
+    {
+      label: 'Terms',
+      value: inv.payment_terms ? String(inv.payment_terms) : '30 Days',
+    },
+  ];
+  y = renderRefStrip(doc, y, PAGE_W, MARGIN, refFields);
+
+  // ── Line Items Table ───────────────────────────────────────────────────────
   autoTable(doc, {
     startY: y,
     head: [['Description', 'Qty', 'Unit Price', 'VAT', 'Amount']],
     body: items.map((item: Row) => [
       item.description || '—',
-      Number(item.quantity).toFixed(2),
-      fmtZAR(Number(item.unit_price)),
+      Number(item.quantity || 0).toFixed(2),
+      fmtZAR(Number(item.unit_price || 0)),
       fmtZAR(Number(item.tax_amount || 0)),
       fmtZAR(Number(item.line_total || item.amount || 0)),
     ]),
-    styles: { fontSize: baseFontSz, cellPadding: isMinimal ? 2 : 3 },
-    headStyles: { fillColor: headFill, textColor: 255, fontStyle: 'bold', fontSize: baseFontSz },
-    alternateRowStyles: isMinimal ? {} : { fillColor: [248, 250, 252] },
+    styles: {
+      fontSize: 8,
+      cellPadding: { top: 4, bottom: 4, left: 4, right: 4 },
+      textColor: COLORS.TEXT_PRIMARY,
+    },
+    headStyles: {
+      fillColor: COLORS.DARK,
+      textColor: COLORS.WHITE,
+      fontStyle: 'bold',
+      fontSize: 7,
+      cellPadding: { top: 5, bottom: 5, left: 4, right: 4 },
+    },
+    alternateRowStyles: { fillColor: COLORS.SURFACE },
     columnStyles: {
       0: { cellWidth: 'auto' },
-      1: { halign: 'right', cellWidth: 20 },
-      2: { halign: 'right', cellWidth: 30 },
-      3: { halign: 'right', cellWidth: 28 },
-      4: { halign: 'right', cellWidth: 32, fontStyle: 'bold' },
+      1: { halign: 'right', cellWidth: 18 },
+      2: { halign: 'right', cellWidth: 28 },
+      3: { halign: 'right', cellWidth: 25 },
+      4: { halign: 'right', cellWidth: 30, fontStyle: 'bold' },
     },
     tableWidth: CONTENT_W,
     margin: { left: MARGIN, right: MARGIN },
   });
 
-  y = getLastAutoTableY(doc, y + 40);
-  y += 6;
+  y = getLastAutoTableY(doc, y + 40) + 8;
 
-  // Totals
-  const totalsX = PAGE_W - MARGIN - 70;
-  const totalsW = 70;
-  const subtotal = Number(invoice.subtotal || 0);
-  const taxAmount = Number(invoice.tax_amount || 0);
-  const totalAmount = Number(invoice.total_amount || 0);
-  const amountPaid = Number(invoice.amount_paid || 0);
+  // ── Totals ────────────────────────────────────────────────────────────────
+  const subtotal = Number(inv.subtotal || 0);
+  const taxAmount = Number(inv.tax_amount || 0);
+  const totalAmount = Number(inv.total_amount || 0);
+  const amountPaid = Number(inv.amount_paid || 0);
   const balanceDue = totalAmount - amountPaid;
 
-  const totalsData: Array<{ label: string; value: string; bold?: boolean }> = [
+  const totalLines: TotalLine[] = [
     { label: 'Subtotal', value: fmtZAR(subtotal) },
-    { label: `VAT (${Number(invoice.tax_rate || 15)}%)`, value: fmtZAR(taxAmount) },
-    { label: 'Total', value: fmtZAR(totalAmount), bold: true },
+    { label: `VAT (${Number(inv.tax_rate || 15)}%)`, value: fmtZAR(taxAmount) },
+    { label: 'TOTAL DUE', value: fmtZAR(totalAmount), isTotal: true },
   ];
   if (amountPaid > 0) {
-    totalsData.push({ label: 'Paid', value: `(${fmtZAR(amountPaid)})` });
-    totalsData.push({ label: 'Balance Due', value: fmtZAR(balanceDue), bold: true });
+    totalLines.push({ label: 'Amount Paid', value: `(${fmtZAR(amountPaid)})`, isMuted: true });
+    totalLines.push({ label: 'BALANCE DUE', value: fmtZAR(balanceDue), isTotal: true });
   }
 
-  totalsData.forEach((row, i) => {
-    const rowY = y + i * 7;
-    if (row.bold) {
-      const boldFill: [number, number, number] = isMinimal ? [40, 40, 40] : [accent.r, accent.g, accent.b];
-      doc.setFillColor(...boldFill);
-      doc.rect(totalsX - 2, rowY - 4, totalsW + 4, 7, 'F');
-      doc.setTextColor(255, 255, 255);
-      doc.setFont('helvetica', 'bold');
-    } else {
-      doc.setTextColor(60, 60, 60);
-      doc.setFont('helvetica', 'normal');
-    }
-    doc.setFontSize(baseFontSz);
-    doc.text(row.label, totalsX, rowY);
-    doc.text(row.value, totalsX + totalsW, rowY, { align: 'right' });
-  });
-  y += totalsData.length * 7 + 10;
+  y = renderTotalsBlock(doc, y, PAGE_W, MARGIN, accent, totalLines);
 
-  // Payment details
-  if (y + 40 > PAGE_H - 30) { doc.addPage(); y = MARGIN + 10; }
-  const accentOrGrey = isMinimal ? { r: 40, g: 40, b: 40 } : accent;
-  doc.setFontSize(isMinimal ? 8 : 9);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(accentOrGrey.r, accentOrGrey.g, accentOrGrey.b);
-  doc.text('PAYMENT DETAILS', MARGIN, y); y += 5;
-  doc.setDrawColor(isMinimal ? 150 : accent.r, isMinimal ? 150 : accent.g, isMinimal ? 150 : accent.b);
-  doc.setLineWidth(0.5);
-  doc.line(MARGIN, y, MARGIN + 50, y); y += 5;
+  // ── Payment Details ───────────────────────────────────────────────────────
+  if (y + 50 > PAGE_H - 20) { doc.addPage(); y = MARGIN + 8; }
+  y = renderPaymentDetails(doc, y, PAGE_W, MARGIN, accent, COMPANY,
+    String(inv.invoice_number || ''));
 
-  const paymentDetails = [
-    { label: 'Bank', value: COMPANY.bankName },
-    { label: 'Account Name', value: COMPANY.bankAccountName },
-    { label: 'Account Number', value: COMPANY.bankAccountNumber },
-    { label: 'Branch Code', value: COMPANY.bankBranchCode },
-    { label: 'Reference', value: String(invoice.invoice_number || '') },
-  ];
-  doc.setFontSize(baseFontSz);
-  paymentDetails.forEach((pd) => {
-    doc.setFont('helvetica', 'bold'); doc.setTextColor(60, 60, 60);
-    doc.text(`${pd.label}:`, MARGIN, y);
-    doc.setFont('helvetica', 'normal'); doc.setTextColor(30, 30, 30);
-    doc.text(pd.value, MARGIN + 32, y);
-    y += 5;
-  });
-  y += 5;
-
-  // Notes
-  if (invoice.notes) {
-    doc.setFontSize(baseFontSz); doc.setFont('helvetica', 'bold'); doc.setTextColor(80, 80, 80);
-    doc.text('Notes:', MARGIN, y); y += 4;
-    doc.setFont('helvetica', 'normal');
-    const noteLines = doc.splitTextToSize(String(invoice.notes), CONTENT_W);
-    doc.text(noteLines, MARGIN, y);
-    y += noteLines.length * 4 + 4;
+  // ── Notes ─────────────────────────────────────────────────────────────────
+  if (inv.notes && String(inv.notes).trim()) {
+    if (y + 20 > PAGE_H - 20) { doc.addPage(); y = MARGIN + 8; }
+    y = renderNotesBlock(doc, y, PAGE_W, MARGIN, String(inv.notes));
   }
 
-  // Terms
-  if (y + 20 > PAGE_H - 20) { doc.addPage(); y = MARGIN + 10; }
-  doc.setFontSize(7); doc.setFont('helvetica', 'normal'); doc.setTextColor(130, 130, 130);
-  doc.text('Terms & Conditions: Payment is due within the stated terms. Late payments may incur interest at 2% per month.', MARGIN, y);
-  y += 4;
-  doc.text('E&OE - Errors and Omissions Excepted. Please advise of any discrepancies within 7 days.', MARGIN, y);
-
-  // Suppress unused var warning — y used for positional rendering
-  void (y as number);
+  // ── Terms ─────────────────────────────────────────────────────────────────
+  if (y + 12 > PAGE_H - 16) { doc.addPage(); y = MARGIN + 8; }
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.5);
+  doc.setTextColor(...COLORS.TEXT_MUTED);
+  doc.text(
+    'Payment is due within the stated terms. Late payments may accrue interest at 2% per month compounded. E&OE.',
+    MARGIN, y, { maxWidth: CONTENT_W * 0.8 }
+  );
 
   renderPageFooters(doc, PAGE_W, PAGE_H, MARGIN);
-
   return Buffer.from(doc.output('arraybuffer'));
 }

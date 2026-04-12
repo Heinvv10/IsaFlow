@@ -37,7 +37,7 @@ export function IntercompanyTable({ transactions, loading, matchSelection, onTog
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-[var(--ff-border-light)] text-[var(--ff-text-tertiary)] text-xs uppercase">
+            <tr className="border-b border-[var(--ff-border-light)] text-[var(--ff-text-tertiary)] text-[10px] tracking-[0.12em] font-semibold uppercase">
               <th className="px-4 py-3 text-left w-8" />
               <th className="px-4 py-3 text-left">Date</th>
               <th className="px-4 py-3 text-left">Source Company</th>
@@ -55,7 +55,7 @@ export function IntercompanyTable({ transactions, loading, matchSelection, onTog
                 <tr
                   key={tx.id}
                   onClick={() => canSelect && onToggleSelect(tx.id)}
-                  className={`hover:bg-[var(--ff-bg-tertiary)] transition-colors ${
+                  className={`hover:bg-teal-500/[0.04] transition-colors ${
                     canSelect ? 'cursor-pointer' : ''
                   } ${isSelected ? 'bg-purple-500/5' : ''}`}
                 >
@@ -77,7 +77,7 @@ export function IntercompanyTable({ transactions, loading, matchSelection, onTog
                   <td className="px-4 py-3 text-[var(--ff-text-secondary)] capitalize">
                     {tx.type.replace('_', ' ')}
                   </td>
-                  <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">
+                  <td className="px-4 py-3 text-right font-mono tabular-nums text-[var(--ff-text-primary)]">
                     {fmt(tx.amount, tx.currency)}
                   </td>
                   <td className="px-4 py-3 text-center">

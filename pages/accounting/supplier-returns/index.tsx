@@ -1,11 +1,9 @@
 /**
- * Supplier Returns / Debit Notes
- * Sage equivalent: Suppliers > Returns
+ * Supplier Returns / Debit Notes — redesigned to match ISAFlow design system
  */
-
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { TrendingDown, Loader2, AlertCircle, Plus, X } from 'lucide-react';
+import { TrendingDown, Loader2, Plus, X, Trash2, Receipt } from 'lucide-react';
 import { notify } from '@/utils/toast';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
@@ -15,16 +13,25 @@ interface SupplierReturn {
   original_invoice_number?: string; amount: number;
   status: string; return_date: string; reason: string;
 }
-interface Supplier { id: number; name: string; }
-interface Form { supplierId: string; originalInvoiceNumber: string; amount: string; reason: string; }
+interface Supplier { id: number; name: string }
+interface Form { supplierId: string; originalInvoiceNumber: string; amount: string; reason: string }
 
 const EMPTY: Form = { supplierId: '', originalInvoiceNumber: '', amount: '', reason: '' };
+
+const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
+const lbl = 'block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
+const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm';
+
+const STATUS: Record<string, { label: string; cls: string }> = {
+  processed: { label: 'Processed', cls: 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' },
+  pending:   { label: 'Pending',   cls: 'bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400' },
+};
 
 export default function SupplierReturnsPage() {
   const [returns, setReturns] = useState<SupplierReturn[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  const [showForm, setShowForm] = useState(false);
+  const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState<Form>(EMPTY);
   const [submitting, setSubmitting] = useState(false);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -44,175 +51,146 @@ export default function SupplierReturnsPage() {
   useEffect(() => {
     apiFetch('/api/accounting/suppliers-list').then(r => r.json()).then(json => {
       const data = json.data || json;
-      setSuppliers((data.suppliers || []).map((s: Record<string, unknown>) => ({
-        id: s.id as number,
-        name: (s.company_name || s.name) as string,
-      })));
+      setSuppliers((data.suppliers || []).map((s: Record<string, unknown>) => ({ id: s.id as number, name: (s.company_name || s.name) as string })));
     }).catch(() => { /* non-critical */ });
   }, []);
 
-  function set(field: keyof Form, value: string) {
-    setForm(f => ({ ...f, [field]: value }));
-  }
+  function setField(field: keyof Form, value: string) { setForm(f => ({ ...f, [field]: value })); }
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!form.supplierId) { notify.error('Please select a supplier'); return; }
     if (!form.amount || Number(form.amount) <= 0) { notify.error('Please enter a valid amount'); return; }
     setSubmitting(true);
     try {
       const res = await apiFetch('/api/accounting/supplier-returns', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          supplierId: Number(form.supplierId),
-          originalInvoiceNumber: form.originalInvoiceNumber || undefined,
-          amount: Number(form.amount),
-          reason: form.reason || undefined,
-        }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ supplierId: Number(form.supplierId), originalInvoiceNumber: form.originalInvoiceNumber || undefined, amount: Number(form.amount), reason: form.reason || undefined }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error?.message || 'Failed to create return');
       notify.success('Supplier return created');
-      setShowForm(false); setForm(EMPTY);
+      setShowModal(false); setForm(EMPTY);
       await loadReturns();
-    } catch (err) {
-      notify.error(err instanceof Error ? err.message : 'Failed to create return');
-    } finally { setSubmitting(false); }
+    } catch (err) { notify.error(err instanceof Error ? err.message : 'Failed to create return'); }
+    finally { setSubmitting(false); }
   }
-
-  const inp = 'w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-teal-500';
-  const lbl = 'block text-xs font-medium text-[var(--ff-text-secondary)] mb-1';
 
   return (
     <AppLayout>
-      <div className="min-h-screen bg-[var(--ff-bg-primary)]">
-        {/* Header */}
-        <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
-          <div className="px-6 py-4 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-red-500/10">
-                <TrendingDown className="h-6 w-6 text-red-500" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Supplier Returns</h1>
-                <p className="text-sm text-[var(--ff-text-secondary)]">Debit notes and returns to suppliers</p>
-              </div>
+      <div className="min-h-screen bg-slate-50 dark:bg-[var(--ff-bg-primary)]">
+        <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-6 py-8">
+          <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
+          <div className="absolute -top-12 right-8 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="relative z-10 flex items-center justify-between">
+            <div>
+              <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-1">Suppliers</p>
+              <h1 className="text-2xl font-bold text-white">Supplier Returns</h1>
+              <p className="text-slate-400 text-sm mt-0.5">{returns.length} {returns.length === 1 ? 'return' : 'returns'}</p>
             </div>
-            <button onClick={() => { setForm(EMPTY); setShowForm(true); }}
-              className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg flex items-center gap-2 text-sm">
-              <Plus className="h-4 w-4" /> New Return
+            <button onClick={() => { setForm(EMPTY); setShowModal(true); }} className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-white rounded-xl text-sm font-semibold transition-colors shadow-lg shadow-amber-500/25">
+              <Plus className="w-4 h-4" /> New Return
             </button>
           </div>
         </div>
 
-        {/* Create form panel */}
-        {showForm && (
-          <div className="px-6 pt-6">
-            <div className="rounded-xl border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] p-6 mb-4">
-              <div className="flex items-center justify-between mb-5">
-                <h2 className="text-base font-semibold text-[var(--ff-text-primary)]">New Supplier Return</h2>
-                <button onClick={() => { setShowForm(false); setForm(EMPTY); }}
-                  className="text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)]">
-                  <X className="h-5 w-5" />
-                </button>
+        <div className="p-6">
+          {error && <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm">{error}</div>}
+
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
+            {isLoading ? (
+              <div className="p-16 flex items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-slate-400" /></div>
+            ) : returns.length === 0 ? (
+              <div className="p-16 text-center">
+                <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto mb-4"><TrendingDown className="w-7 h-7 text-slate-400" /></div>
+                <h3 className="text-base font-semibold text-slate-900 dark:text-white">No supplier returns found</h3>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Create a debit note to process a return to a supplier</p>
+                <button onClick={() => setShowModal(true)} className="mt-5 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-white text-sm font-semibold rounded-lg transition-colors">New Return</button>
               </div>
-              <form onSubmit={handleSubmit}>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+            ) : (
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800">
+                  <tr>
+                    {['Return #', 'Supplier', 'Original Invoice', 'Date', 'Amount', 'Reason', 'Status'].map((h, i) => (
+                      <th key={i} className={`px-5 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider ${i === 4 ? 'text-right' : 'text-left'}`}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {returns.map(r => {
+                    const sc = STATUS[r.status] || { label: r.status, cls: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300' };
+                    return (
+                      <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                        <td className="px-5 py-3.5 font-mono text-amber-500 font-semibold">{r.return_number}</td>
+                        <td className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{r.supplier_name}</td>
+                        <td className="px-5 py-3.5 font-mono text-xs text-slate-500 dark:text-slate-400">{r.original_invoice_number || '—'}</td>
+                        <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400">{r.return_date?.split('T')[0]}</td>
+                        <td className="px-5 py-3.5 text-right font-mono font-semibold text-red-500 dark:text-red-400">{formatCurrency(r.amount)}</td>
+                        <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs max-w-[200px] truncate">{r.reason}</td>
+                        <td className="px-5 py-3.5"><span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${sc.cls}`}>{sc.label}</span></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center pt-10 pb-8 px-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto" onClick={e => e.target === e.currentTarget && setShowModal(false)}>
+          <div className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+            <div className="px-6 py-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-amber-500/10 flex items-center justify-center"><Trash2 className="w-4 h-4 text-amber-500" /></div>
+                <div><h2 className="text-base font-semibold text-slate-900 dark:text-white">New Supplier Return</h2><p className="text-xs text-slate-500 dark:text-slate-400">Debit note / return to supplier</p></div>
+              </div>
+              <button onClick={() => setShowModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition-colors"><X className="w-4 h-4" /></button>
+            </div>
+            <form onSubmit={handleSubmit}>
+              <div className="p-6 space-y-4">
+                <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className={lbl}>Supplier <span className="text-red-400">*</span></label>
-                    <select className={inp} value={form.supplierId}
-                      onChange={e => set('supplierId', e.target.value)} required>
+                    <label className={lbl}>Supplier *</label>
+                    <select className={inp} value={form.supplierId} onChange={e => setField('supplierId', e.target.value)} required>
                       <option value="">Select supplier…</option>
                       {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </select>
                   </div>
                   <div>
                     <label className={lbl}>Original Invoice #</label>
-                    <input type="text" className={inp} placeholder="e.g. INV-00123"
-                      value={form.originalInvoiceNumber}
-                      onChange={e => set('originalInvoiceNumber', e.target.value)} />
+                    <input type="text" className={inp} placeholder="e.g. INV-00123" value={form.originalInvoiceNumber} onChange={e => setField('originalInvoiceNumber', e.target.value)} />
                   </div>
                   <div>
-                    <label className={lbl}>Amount <span className="text-red-400">*</span></label>
+                    <label className={lbl}>Amount *</label>
                     <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ff-text-secondary)] text-sm">R</span>
-                      <input type="number" min="0.01" step="0.01" className={`${inp} pl-7`}
-                        placeholder="0.00" value={form.amount}
-                        onChange={e => set('amount', e.target.value)} required />
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">R</span>
+                      <input type="number" min="0.01" step="0.01" className={`${inp} pl-7`} placeholder="0.00" value={form.amount} onChange={e => setField('amount', e.target.value)} required />
                     </div>
                   </div>
                   <div>
                     <label className={lbl}>Reason</label>
-                    <textarea className={`${inp} resize-none h-[42px]`} placeholder="Reason for return…"
-                      value={form.reason} onChange={e => set('reason', e.target.value)} />
+                    <textarea className={`${inp} resize-none`} rows={1} placeholder="Reason for return…" value={form.reason} onChange={e => setField('reason', e.target.value)} />
                   </div>
                 </div>
-                <div className="flex justify-end gap-3">
-                  <button type="button"
-                    onClick={() => { setShowForm(false); setForm(EMPTY); }}
-                    className="px-4 py-2 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] border border-[var(--ff-border-light)] rounded-lg">
-                    Cancel
-                  </button>
-                  <button type="submit" disabled={submitting}
-                    className="px-4 py-2 text-sm bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded-lg flex items-center gap-2">
-                    {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-                    Create Return
-                  </button>
-                </div>
-              </form>
-            </div>
+                {form.amount && Number(form.amount) > 0 && (
+                  <div className={`${card} p-4`}>
+                    <div className="flex items-center gap-2 mb-2"><Receipt className="w-4 h-4 text-amber-500" /><span className="text-sm font-semibold text-slate-900 dark:text-white">Return Amount</span></div>
+                    <p className="font-mono font-bold text-lg text-red-500 dark:text-red-400">{formatCurrency(Number(form.amount))}</p>
+                  </div>
+                )}
+              </div>
+              <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-2 bg-slate-50/50 dark:bg-slate-800/20">
+                <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">Cancel</button>
+                <button type="submit" disabled={submitting} className="px-5 py-2 text-sm font-semibold bg-amber-500 hover:bg-amber-400 text-white rounded-lg transition-colors disabled:opacity-40 flex items-center gap-2">
+                  {submitting ? <><Loader2 className="w-4 h-4 animate-spin" />Creating…</> : 'Create Return'}
+                </button>
+              </div>
+            </form>
           </div>
-        )}
-
-        {/* List */}
-        <div className="p-6">
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-red-500" />
-            </div>
-          ) : error ? (
-            <div className="flex items-center gap-2 text-red-400 py-8 justify-center">
-              <AlertCircle className="h-5 w-5" /><span>{error}</span>
-            </div>
-          ) : returns.length === 0 ? (
-            <div className="text-center py-12">
-              <TrendingDown className="h-12 w-12 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
-              <p className="text-[var(--ff-text-secondary)]">No supplier returns found</p>
-              <p className="text-sm text-[var(--ff-text-tertiary)] mt-1">Create a debit note to process a return to a supplier</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-[var(--ff-border-light)]">
-                    {['Return #', 'Supplier', 'Original Invoice', 'Date', 'Amount', 'Reason', 'Status'].map(h => (
-                      <th key={h} className={`py-3 px-4 text-[var(--ff-text-secondary)] font-medium ${h === 'Amount' ? 'text-right' : 'text-left'}`}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {returns.map(r => (
-                    <tr key={r.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-tertiary)]">
-                      <td className="py-3 px-4 text-[var(--ff-text-primary)] font-mono">{r.return_number}</td>
-                      <td className="py-3 px-4 text-[var(--ff-text-primary)]">{r.supplier_name}</td>
-                      <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{r.original_invoice_number || '-'}</td>
-                      <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{r.return_date?.split('T')[0]}</td>
-                      <td className="py-3 px-4 text-right text-red-400">{formatCurrency(r.amount)}</td>
-                      <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{r.reason}</td>
-                      <td className="py-3 px-4">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${r.status === 'processed' ? 'bg-teal-500/10 text-teal-400' : 'bg-yellow-500/10 text-yellow-400'}`}>
-                          {r.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
         </div>
-      </div>
+      )}
     </AppLayout>
   );
 }

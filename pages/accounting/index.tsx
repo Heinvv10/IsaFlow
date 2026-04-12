@@ -10,9 +10,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useCompany } from '@/contexts/CompanyContext';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
-import Link from 'next/link';
 import {
-  Calculator, BookOpen, FileSpreadsheet, Calendar, BarChart3, Plus, Loader2,
+  Calculator, BookOpen, FileSpreadsheet, Calendar, BarChart3, Loader2,
 } from 'lucide-react';
 import { OverviewTab } from '@/components/accounting/dashboard/OverviewTab';
 import { ChartOfAccountsTab } from '@/components/accounting/dashboard/ChartOfAccountsTab';
@@ -139,19 +138,7 @@ export default function AccountingPage() {
           />
         </div>
 
-        {/* Tab content — "New Journal Entry" action floats top-right */}
         <div className="p-6 pt-5">
-          {activeTab === 'journal-entries' && (
-            <div className="flex justify-end mb-4">
-              <Link
-                href="/accounting/journal-entries/new"
-                className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium"
-              >
-                <Plus className="h-4 w-4" />
-                New Journal Entry
-              </Link>
-            </div>
-          )}
           {activeTab === 'overview'          && <OverviewTab />}
           {activeTab === 'chart-of-accounts' && <ChartOfAccountsTab />}
           {activeTab === 'journal-entries'   && <JournalEntriesTab />}

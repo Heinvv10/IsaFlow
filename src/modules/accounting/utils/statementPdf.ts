@@ -1,10 +1,7 @@
 /**
- * Customer Statement PDF Generator
- * Produces a portrait A4 PDF statement for a single customer
- * using jsPDF + jspdf-autotable (same pattern as reconReportPdf.ts)
- *
- * jsPDF and jspdf-autotable are loaded dynamically to keep them out of the
- * initial page bundle — they are only needed when the user clicks "Download PDF".
+ * Customer Statement PDF Generator — premium design.
+ * Produces a portrait A4 PDF statement for a single customer.
+ * Dynamically imports jsPDF + jspdf-autotable (browser-side lazy load).
  */
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -31,34 +28,39 @@ export interface StatementData {
   transactions: StatementTransaction[];
   companyName?: string;
   companyVatNumber?: string;
+  companyEmail?: string;
+  companyPhone?: string;
+  companyAddress?: string;
+  accentColor?: string; // hex, e.g. "#0d9488"
 }
 
-// ─── Private helpers (no jsPDF type reference — avoids static import) ─────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const fmtZAR = (amount: number): string =>
-  new Intl.NumberFormat('en-ZA', {
-    style: 'currency',
-    currency: 'ZAR',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(amount);
+const fmtR = (n: number): string =>
+  'R\u00a0' + Number(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 
-const fmtDate = (d: string): string => {
+const fmtD = (d: string): string => {
   if (!d) return '—';
   const parts = d.split('T')[0]?.split('-') ?? [];
-  if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
-  return d;
+  return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : d;
 };
 
-// ─── Main Export Function ─────────────────────────────────────────────────────
+function hexToTriple(hex: string): [number, number, number] {
+  const c = hex.replace('#', '');
+  if (c.length !== 6) return [20, 184, 166];
+  return [parseInt(c.slice(0,2), 16), parseInt(c.slice(2,4), 16), parseInt(c.slice(4,6), 16)];
+}
 
-/**
- * Generate a portrait A4 PDF customer statement and return it as a Blob.
- * Call `URL.createObjectURL(blob)` to download in the browser.
- *
- * This function is async because it dynamically imports jsPDF and
- * jspdf-autotable to avoid including them in the initial page bundle.
- */
+const DARK:   [number,number,number] = [15,  23,  42];
+const WHITE:  [number,number,number] = [255, 255, 255];
+const MUTED:  [number,number,number] = [148, 163, 184];
+const BORDER: [number,number,number] = [226, 232, 240];
+const SURF:   [number,number,number] = [248, 250, 252];
+const TPRI:   [number,number,number] = [15,  23,  42];
+const TSEC:   [number,number,number] = [100, 116, 139];
+
+// ─── Main Export ──────────────────────────────────────────────────────────────
+
 // 🟢 WORKING: generateStatementPdf
 export async function generateStatementPdf(data: StatementData): Promise<Blob> {
   const [{ jsPDF }, { default: autoTable }] = await Promise.all([
@@ -66,125 +68,201 @@ export async function generateStatementPdf(data: StatementData): Promise<Blob> {
     import('jspdf-autotable'),
   ]);
 
+  const accent = hexToTriple(data.accentColor || '#0d9488');
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const PAGE_W = doc.internal.pageSize.getWidth();
+  const PAGE_H = doc.internal.pageSize.getHeight();
+  const M = 14;
 
-  // ── Header ──────────────────────────────────────────────────────────────────
-  doc.setFontSize(18);
+  // ── Header ────────────────────────────────────────────────────────────────
+  const HDR_H = 42;
+  const STRIP_H = 3;
+
+  doc.setFillColor(...DARK);
+  doc.rect(0, 0, PAGE_W, HDR_H, 'F');
+
+  doc.setFillColor(...accent);
+  doc.rect(0, HDR_H, PAGE_W, STRIP_H, 'F');
+
+  // Left: company info
   doc.setFont('helvetica', 'bold');
-  doc.setTextColor(30, 30, 30);
-  doc.text('STATEMENT', 14, 18);
+  doc.setFontSize(13);
+  doc.setTextColor(...WHITE);
+  doc.text(data.companyName || 'Company', M, 19);
 
-  doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
-  doc.setTextColor(80, 80, 80);
-  doc.text(data.companyName || 'Company Name Not Set', 14, 26);
-  doc.text(data.companyVatNumber ? `VAT No: ${data.companyVatNumber}` : '', 14, 31);
+  doc.setFontSize(7.5);
+  doc.setTextColor(180, 195, 215);
+  const subLeft: string[] = [];
+  if (data.companyEmail) subLeft.push(data.companyEmail);
+  if (data.companyPhone) subLeft.push(data.companyPhone);
+  if (data.companyVatNumber) subLeft.push(`VAT: ${data.companyVatNumber}`);
+  if (subLeft.length) doc.text(subLeft.join('  •  '), M, 26);
+  if (data.companyAddress) {
+    doc.setFontSize(7);
+    doc.text(data.companyAddress, M, 32);
+  }
+
+  // Right: document type + client
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  doc.setTextColor(...accent);
+  doc.text('ACCOUNT STATEMENT', PAGE_W - M, 13, { align: 'right' });
 
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.setTextColor(30, 30, 30);
-  doc.text(data.clientName, PAGE_W - 14, 18, { align: 'right' });
+  doc.setFontSize(14);
+  doc.setTextColor(...WHITE);
+  doc.text(data.clientName, PAGE_W - M, 25, { align: 'right' });
 
   doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(180, 195, 215);
+  if (data.clientEmail) doc.text(data.clientEmail, PAGE_W - M, 32, { align: 'right' });
+  if (data.clientPhone) doc.text(data.clientPhone, PAGE_W - M, 37.5, { align: 'right' });
+
+  let y = HDR_H + STRIP_H + 8;
+
+  // ── As At date strip ──────────────────────────────────────────────────────
+  const CONTENT_W = PAGE_W - M * 2;
+  doc.setFillColor(...SURF);
+  doc.setDrawColor(...BORDER);
+  doc.setLineWidth(0.3);
+  doc.roundedRect(M, y, CONTENT_W, 10, 1.5, 1.5, 'FD');
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.setTextColor(...MUTED);
+  doc.text('STATEMENT DATE', M + 4, y + 4);
+  doc.setFont('helvetica', 'bold');
   doc.setFontSize(8);
-  doc.setTextColor(80, 80, 80);
-  if (data.clientEmail) doc.text(data.clientEmail, PAGE_W - 14, 24, { align: 'right' });
-  if (data.clientPhone) doc.text(data.clientPhone, PAGE_W - 14, 29, { align: 'right' });
+  doc.setTextColor(...TPRI);
+  doc.text(fmtD(data.asAtDate), M + 4, y + 9);
 
-  doc.text(`Statement Date: ${fmtDate(data.asAtDate)}`, PAGE_W - 14, 35, { align: 'right' });
-  doc.text(`Generated: ${new Date().toLocaleString('en-ZA')}`, PAGE_W - 14, 40, { align: 'right' });
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.setTextColor(...MUTED);
+  doc.text('GENERATED', PAGE_W - M - 50, y + 4);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.setTextColor(...TPRI);
+  doc.text(new Date().toLocaleDateString('en-ZA'), PAGE_W - M - 50, y + 9);
 
-  doc.setDrawColor(200, 200, 200);
-  doc.line(14, 44, PAGE_W - 14, 44);
+  y += 16;
 
-  // ── Summary box ─────────────────────────────────────────────────────────────
-  const BOX_H = 28;
-  const COL = (PAGE_W - 28) / 4;
-  let cursor = 48;
-
-  doc.setFillColor(245, 247, 250);
-  doc.setDrawColor(210, 215, 225);
-  doc.roundedRect(14, cursor, PAGE_W - 28, BOX_H, 2, 2, 'FD');
-
-  const labelY = cursor + 9;
-  const valueY = cursor + 20;
-  const summaryCols = [
-    { label: 'Total Invoiced', value: data.totalInvoiced },
-    { label: 'Total Paid', value: data.totalPaid },
-    { label: 'Credits Applied', value: data.totalCredits },
-    { label: 'Balance Due', value: data.balanceOutstanding },
+  // ── Summary cards ─────────────────────────────────────────────────────────
+  const CARD_W = (CONTENT_W - 9) / 4;
+  const CARD_H = 20;
+  const summaryItems = [
+    { label: 'Total Invoiced',   value: data.totalInvoiced,      color: TPRI },
+    { label: 'Total Paid',       value: data.totalPaid,          color: [22, 163, 74]  as [number,number,number] },
+    { label: 'Credits Applied',  value: data.totalCredits,       color: TPRI },
+    { label: 'Balance Due',      value: data.balanceOutstanding, color: data.balanceOutstanding > 0 ? [220,38,38] as [number,number,number] : [22,163,74] as [number,number,number] },
   ];
 
-  summaryCols.forEach((col, i) => {
-    const x = 14 + COL * i + COL / 2;
-    doc.setFontSize(7.5);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(100, 100, 100);
-    doc.text(col.label, x, labelY, { align: 'center' });
+  summaryItems.forEach((item, i) => {
+    const cx = M + i * (CARD_W + 3);
+    const isLast = i === 3;
 
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'bold');
-    const isBalance = i === 3;
-    if (isBalance && col.value > 0) {
-      doc.setTextColor(180, 50, 50);
-    } else if (isBalance) {
-      doc.setTextColor(22, 163, 74);
+    if (isLast && data.balanceOutstanding > 0) {
+      doc.setFillColor(...accent);
     } else {
-      doc.setTextColor(30, 30, 30);
+      doc.setFillColor(...SURF);
     }
-    doc.text(fmtZAR(col.value), x, valueY, { align: 'center' });
+    doc.setDrawColor(...BORDER);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(cx, y, CARD_W, CARD_H, 1.5, 1.5, 'FD');
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.setTextColor(isLast && data.balanceOutstanding > 0 ? 220 : MUTED[0], isLast && data.balanceOutstanding > 0 ? 220 : MUTED[1], isLast && data.balanceOutstanding > 0 ? 220 : MUTED[2]);
+    doc.text(item.label.toUpperCase(), cx + CARD_W / 2, y + 6.5, { align: 'center' });
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(isLast && data.balanceOutstanding > 0 ? 255 : item.color[0], isLast && data.balanceOutstanding > 0 ? 255 : item.color[1], isLast && data.balanceOutstanding > 0 ? 255 : item.color[2]);
+    doc.text(fmtR(item.value), cx + CARD_W / 2, y + 15, { align: 'center' });
   });
 
-  cursor += BOX_H + 6;
+  y += CARD_H + 8;
 
-  // ── Transactions table ───────────────────────────────────────────────────────
+  // ── Transactions table ────────────────────────────────────────────────────
   const typeLabels: Record<string, string> = {
-    invoice: 'Invoice',
-    payment: 'Payment',
+    invoice:     'Invoice',
+    payment:     'Payment',
     credit_note: 'Credit Note',
   };
 
-  const rows = data.transactions.map(t => [
-    fmtDate(t.date),
+  const tableRows = data.transactions.map(t => [
+    fmtD(t.date),
     typeLabels[t.type] || t.type,
-    t.reference,
-    t.description?.substring(0, 40) || '—',
-    t.debit > 0 ? fmtZAR(t.debit) : '',
-    t.credit > 0 ? fmtZAR(t.credit) : '',
-    fmtZAR(t.balance),
+    t.reference || '—',
+    t.description?.substring(0, 38) || '—',
+    t.debit  > 0 ? fmtR(t.debit)  : '',
+    t.credit > 0 ? fmtR(t.credit) : '',
+    fmtR(t.balance),
   ]);
 
   autoTable(doc, {
-    startY: cursor,
+    startY: y,
     head: [['Date', 'Type', 'Reference', 'Description', 'Debit', 'Credit', 'Balance']],
-    body: rows,
-    styles: { fontSize: 7.5, cellPadding: 2 },
-    headStyles: { fillColor: [41, 82, 140], textColor: 255, fontStyle: 'bold', fontSize: 8 },
-    alternateRowStyles: { fillColor: [248, 250, 252] },
-    columnStyles: {
-      4: { halign: 'right', font: 'courier' },
-      5: { halign: 'right', font: 'courier' },
-      6: { halign: 'right', font: 'courier', fontStyle: 'bold' },
+    body: tableRows,
+    styles: {
+      fontSize: 7.5,
+      cellPadding: { top: 3.5, bottom: 3.5, left: 3, right: 3 },
+      textColor: TPRI,
     },
-    tableWidth: PAGE_W - 28,
-    margin: { left: 14, right: 14 },
+    headStyles: {
+      fillColor: DARK,
+      textColor: WHITE,
+      fontStyle: 'bold',
+      fontSize: 7,
+      cellPadding: { top: 5, bottom: 5, left: 3, right: 3 },
+    },
+    alternateRowStyles: { fillColor: SURF },
+    columnStyles: {
+      0: { cellWidth: 18 },
+      1: { cellWidth: 20 },
+      2: { cellWidth: 24 },
+      3: { cellWidth: 'auto' },
+      4: { halign: 'right', cellWidth: 24, textColor: [220, 38, 38] as [number,number,number] },
+      5: { halign: 'right', cellWidth: 24, textColor: [22, 163, 74]  as [number,number,number] },
+      6: { halign: 'right', cellWidth: 24, fontStyle: 'bold' },
+    },
+    tableWidth: CONTENT_W,
+    margin: { left: M, right: M },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    didDrawCell: (data: any) => {
+      // Highlight rows where balance is overdue (debit > 0, balance > 0)
+      if (data.section === 'body' && data.column.index === 6) {
+        const row = tableRows[data.row.index];
+        if (row && data.row.raw[4] !== '' && Number(data.row.raw[6]?.replace(/[^0-9.-]/g, '')) > 0) {
+          // debit row — already colored by column style
+        }
+      }
+    },
   });
 
-  // ── Page footers ─────────────────────────────────────────────────────────────
-  const PAGE_H = doc.internal.pageSize.getHeight();
-  const totalPages = (doc as typeof doc & { internal: { getNumberOfPages: () => number } })
+  // ── Page footers ──────────────────────────────────────────────────────────
+  const totalPages = (doc as unknown as { internal: { getNumberOfPages: () => number } })
     .internal.getNumberOfPages();
 
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i);
+    doc.setDrawColor(...BORDER);
+    doc.setLineWidth(0.4);
+    doc.line(M, PAGE_H - 12, PAGE_W - M, PAGE_H - 12);
+
+    doc.setFont('helvetica', 'italic');
     doc.setFontSize(7);
+    doc.setTextColor(...MUTED);
+    doc.text('This statement is for account reconciliation purposes only. Please contact us for any discrepancies.', M, PAGE_H - 7);
+
     doc.setFont('helvetica', 'normal');
-    doc.setTextColor(150, 150, 150);
-    doc.line(14, PAGE_H - 10, PAGE_W - 14, PAGE_H - 10);
-    doc.text(`Page ${i} of ${totalPages}`, PAGE_W - 14, PAGE_H - 5, { align: 'right' });
-    doc.text('FibreFlow Customer Statement — Confidential', 14, PAGE_H - 5);
+    doc.text(`Page ${i} of ${totalPages}`, PAGE_W - M, PAGE_H - 7, { align: 'right' });
   }
+
+  // Suppress unused TSEC
+  void TSEC;
 
   return doc.output('blob');
 }

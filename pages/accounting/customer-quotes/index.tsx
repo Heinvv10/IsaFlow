@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { FileText, Plus, Search, Loader2, Send, Check, X, ArrowRight,
-  ExternalLink, ClipboardList, Trash2 } from 'lucide-react';
+  ExternalLink, ClipboardList, Trash2, Download } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 
 interface Quote { id: string; quoteNumber: string; customerName: string; quoteDate: string; expiryDate: string | null; status: string; total: number; invoiceId?: string }
@@ -245,6 +245,7 @@ export default function CustomerQuotesPage() {
                         <td className="px-5 py-3.5"><span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${sc?.cls || ''}`}>{sc?.label || q.status}</span></td>
                         <td className="px-4 py-3.5">
                           <div className="flex justify-end gap-1.5">
+                            <a href={`/api/accounting/quote-pdf?quoteId=${q.id}`} target="_blank" rel="noreferrer" title="Download PDF" className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"><Download className="h-3.5 w-3.5" /></a>
                             {q.status === 'draft' && <button onClick={() => handleAction(q.id, 'send')} title="Mark Sent" className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 text-slate-400 hover:text-blue-500 transition-colors"><Send className="h-3.5 w-3.5" /></button>}
                             {q.status === 'sent' && (<>
                               <button onClick={() => handleAction(q.id, 'accept')} className="p-1.5 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-900/20 text-slate-400 hover:text-emerald-500 transition-colors"><Check className="h-3.5 w-3.5" /></button>

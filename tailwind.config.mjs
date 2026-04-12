@@ -151,12 +151,11 @@ export default {
       },
       fontFamily: {
         sans: [
-          'Inter',
+          'var(--font-dm-sans)',
           'system-ui',
           '-apple-system',
           'BlinkMacSystemFont',
           'Segoe UI',
-          'Roboto',
           'sans-serif',
         ],
         serif: ['Georgia', 'serif'],

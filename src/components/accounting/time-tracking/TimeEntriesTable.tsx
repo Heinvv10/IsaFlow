@@ -55,15 +55,15 @@ export function TimeEntriesTable({
                   onChange={onToggleSelectAll}
                   className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
               </th>
-              <th className="px-4 py-3">Date</th>
-              <th className="px-4 py-3">Project</th>
-              <th className="px-4 py-3">Task</th>
-              <th className="px-4 py-3">Customer</th>
-              <th className="px-4 py-3 text-right">Hours</th>
-              <th className="px-4 py-3 text-right">Rate</th>
-              <th className="px-4 py-3 text-right">Amount</th>
-              <th className="px-4 py-3 text-center">Billable</th>
-              <th className="px-4 py-3 text-center">Status</th>
+              <th className="px-4 py-3 text-[10px] tracking-[0.12em] font-semibold uppercase">Date</th>
+              <th className="px-4 py-3 text-[10px] tracking-[0.12em] font-semibold uppercase">Project</th>
+              <th className="px-4 py-3 text-[10px] tracking-[0.12em] font-semibold uppercase">Task</th>
+              <th className="px-4 py-3 text-[10px] tracking-[0.12em] font-semibold uppercase">Customer</th>
+              <th className="px-4 py-3 text-[10px] tracking-[0.12em] font-semibold uppercase text-right">Hours</th>
+              <th className="px-4 py-3 text-[10px] tracking-[0.12em] font-semibold uppercase text-right">Rate</th>
+              <th className="px-4 py-3 text-[10px] tracking-[0.12em] font-semibold uppercase text-right">Amount</th>
+              <th className="px-4 py-3 text-[10px] tracking-[0.12em] font-semibold uppercase text-center">Billable</th>
+              <th className="px-4 py-3 text-[10px] tracking-[0.12em] font-semibold uppercase text-center">Status</th>
               <th className="px-4 py-3 w-20"></th>
             </tr>
           </thead>
@@ -75,7 +75,7 @@ export function TimeEntriesTable({
                 </td>
               </tr>
             ) : entries.map(entry => (
-              <tr key={entry.id} className="border-b dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30">
+              <tr key={entry.id} className="border-b dark:border-gray-700/50 hover:bg-teal-500/[0.04]">
                 <td className="px-4 py-3">
                   <input type="checkbox" checked={selected.has(entry.id)}
                     onChange={() => onToggleSelect(entry.id)}
@@ -87,11 +87,11 @@ export function TimeEntriesTable({
                 <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{entry.projectName || '-'}</td>
                 <td className="px-4 py-3 text-gray-900 dark:text-white max-w-xs truncate">{entry.taskDescription}</td>
                 <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{entry.customerName || '-'}</td>
-                <td className="px-4 py-3 text-right text-gray-900 dark:text-white font-mono">{fmtHours(entry.hours)}</td>
-                <td className="px-4 py-3 text-right text-gray-600 dark:text-gray-400 font-mono">
+                <td className="px-4 py-3 text-right text-gray-900 dark:text-white font-mono tabular-nums">{fmtHours(entry.hours)}</td>
+                <td className="px-4 py-3 text-right text-gray-600 dark:text-gray-400 font-mono tabular-nums">
                   {entry.rate != null ? fmt(entry.rate) : '-'}
                 </td>
-                <td className="px-4 py-3 text-right text-gray-900 dark:text-white font-mono font-medium">
+                <td className="px-4 py-3 text-right text-gray-900 dark:text-white font-mono tabular-nums font-medium">
                   {entry.amount != null ? fmt(entry.amount) : '-'}
                 </td>
                 <td className="px-4 py-3 text-center">

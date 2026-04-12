@@ -73,24 +73,24 @@ export default function UnallocatedReceiptsReport() {
             ) : (
               <table className="w-full text-sm">
                 <thead><tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
-                  <th className="px-4 py-3 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Receipt No</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Customer</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Date</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Total</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Allocated</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Unallocated</th>
+                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Receipt No</th>
+                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Customer</th>
+                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Date</th>
+                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Total</th>
+                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Allocated</th>
+                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Unallocated</th>
                 </tr></thead>
                 <tbody className="divide-y divide-[var(--ff-border-light)]">
                   {items.map(r => (
-                    <tr key={r.id} className="hover:bg-[var(--ff-bg-tertiary)]">
+                    <tr key={r.id} className="hover:bg-teal-500/[0.04]">
                       <td className="px-4 py-3 font-medium text-[var(--ff-text-primary)]">
                         <Link href={`/accounting/customer-payments/${r.id}`} className="hover:text-blue-400">{r.paymentNumber}</Link>
                       </td>
                       <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.clientName}</td>
                       <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.date?.split('T')[0]}</td>
-                      <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">{fmt(Number(r.amount))}</td>
-                      <td className="px-4 py-3 text-right font-mono text-teal-400">{fmt(Number(r.allocatedAmount))}</td>
-                      <td className="px-4 py-3 text-right font-mono font-bold text-amber-400">{fmt(Number(r.amount) - Number(r.allocatedAmount))}</td>
+                      <td className="px-4 py-3 text-right font-mono tabular-nums text-[var(--ff-text-primary)]">{fmt(Number(r.amount))}</td>
+                      <td className="px-4 py-3 text-right font-mono tabular-nums text-teal-400">{fmt(Number(r.allocatedAmount))}</td>
+                      <td className="px-4 py-3 text-right font-mono tabular-nums font-bold text-amber-400">{fmt(Number(r.amount) - Number(r.allocatedAmount))}</td>
                     </tr>
                   ))}
                 </tbody>

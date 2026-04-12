@@ -42,7 +42,7 @@ export default function BusinessUnitsPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(''); setBusy('save');
     try {

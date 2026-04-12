@@ -1,86 +1,53 @@
 /**
- * Credit Notes List Page
- * PRD-060 Phase 3: Customer & Supplier credit notes
+ * Credit Notes List Page — redesigned to match ISAFlow design system
  */
-
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import {
-  FileText, Plus, Loader2, AlertCircle, ChevronRight, Filter, Download,
-} from 'lucide-react';
+import { FileText, Plus, Loader2, Download, ChevronRight } from 'lucide-react';
 import type { CreditNote } from '@/modules/accounting/types/ar.types';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
 
-const STATUS_OPTIONS: { value: string; label: string }[] = [
-  { value: '', label: 'All Statuses' },
-  { value: 'draft', label: 'Draft' },
-  { value: 'approved', label: 'Approved' },
-  { value: 'applied', label: 'Applied' },
-  { value: 'cancelled', label: 'Cancelled' },
-];
+const TABS = ['all', 'draft', 'approved', 'applied', 'cancelled'] as const;
+type Tab = typeof TABS[number];
 
-const TYPE_OPTIONS: { value: string; label: string }[] = [
-  { value: '', label: 'All Types' },
-  { value: 'customer', label: 'Customer' },
-  { value: 'supplier', label: 'Supplier' },
-];
+const STATUS: Record<string, { label: string; cls: string }> = {
+  draft:     { label: 'Draft',     cls: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300' },
+  approved:  { label: 'Approved',  cls: 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' },
+  applied:   { label: 'Applied',   cls: 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' },
+  cancelled: { label: 'Cancelled', cls: 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400' },
+};
 
-function StatusBadge({ status }: { status: string }) {
-  const colors: Record<string, string> = {
-    draft: 'bg-gray-500/20 text-gray-400',
-    approved: 'bg-teal-500/20 text-teal-400',
-    applied: 'bg-blue-500/20 text-blue-400',
-    cancelled: 'bg-red-500/20 text-red-400',
-  };
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${colors[status] || 'bg-gray-500/20 text-gray-400'}`}>
-      {status}
-    </span>
-  );
-}
-
-function TypeBadge({ type }: { type: string }) {
-  const colors: Record<string, string> = {
-    customer: 'bg-blue-500/20 text-blue-400',
-    supplier: 'bg-orange-500/20 text-orange-400',
-  };
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${colors[type] || 'bg-gray-500/20 text-gray-400'}`}>
-      {type}
-    </span>
-  );
-}
+const TYPE_CLS: Record<string, string> = {
+  customer: 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400',
+  supplier: 'bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400',
+};
 
 export default function CreditNotesPage() {
   const [creditNotes, setCreditNotes] = useState<CreditNote[]>([]);
   const [total, setTotal] = useState(0);
-  const [statusFilter, setStatusFilter] = useState('');
+  const [tab, setTab] = useState<Tab>('all');
   const [typeFilter, setTypeFilter] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const loadCreditNotes = useCallback(async () => {
-    setIsLoading(true);
-    setError('');
+  const load = useCallback(async () => {
+    setIsLoading(true); setError('');
     try {
-      const params = new URLSearchParams();
-      if (statusFilter) params.set('status', statusFilter);
-      if (typeFilter) params.set('type', typeFilter);
-      const res = await apiFetch(`/api/accounting/credit-notes?${params}`);
+      const p = new URLSearchParams();
+      if (tab !== 'all') p.set('status', tab);
+      if (typeFilter) p.set('type', typeFilter);
+      const res = await apiFetch(`/api/accounting/credit-notes?${p}`);
       const json = await res.json();
       const payload = json.data || json;
       setCreditNotes(payload.creditNotes || []);
       setTotal(payload.total || 0);
-    } catch {
-      setError('Failed to load credit notes');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [statusFilter, typeFilter]);
+    } catch { setError('Failed to load credit notes'); }
+    finally { setIsLoading(false); }
+  }, [tab, typeFilter]);
 
-  useEffect(() => { loadCreditNotes(); }, [loadCreditNotes]);
+  useEffect(() => { load(); }, [load]);
 
   const exportCSV = () => {
     const headers = ['CN #', 'Type', 'Client/Supplier', 'Invoice', 'Date', 'Amount', 'Status'];
@@ -98,113 +65,88 @@ export default function CreditNotesPage() {
 
   return (
     <AppLayout>
-      <div className="min-h-screen bg-[var(--ff-bg-primary)]">
-        {/* Header */}
-        <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
-          <div className="px-6 py-4 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-teal-500/10">
-                <FileText className="h-6 w-6 text-teal-500" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Credit Notes</h1>
-                <p className="text-sm text-[var(--ff-text-secondary)]">
-                  {total} credit note{total !== 1 ? 's' : ''} recorded
-                </p>
-              </div>
+      <div className="min-h-screen bg-slate-50 dark:bg-[var(--ff-bg-primary)]">
+        <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-6 py-8">
+          <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
+          <div className="absolute -top-12 right-8 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="relative z-10 flex items-center justify-between">
+            <div>
+              <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-1">Customers &amp; Suppliers</p>
+              <h1 className="text-2xl font-bold text-white">Credit Notes</h1>
+              <p className="text-slate-400 text-sm mt-0.5">{total} {total === 1 ? 'credit note' : 'credit notes'}</p>
             </div>
             <div className="flex items-center gap-2">
               {creditNotes.length > 0 && (
-                <button onClick={exportCSV} className="inline-flex items-center gap-2 px-3 py-2 border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] rounded-lg hover:bg-[var(--ff-bg-primary)] text-sm">
-                  <Download className="h-4 w-4" /> CSV
+                <button onClick={exportCSV} className="flex items-center gap-2 px-3 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl text-sm font-medium transition-colors">
+                  <Download className="w-4 h-4" /> CSV
                 </button>
               )}
-              <Link
-                href="/accounting/credit-notes/new"
-                className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium"
-              >
-                <Plus className="h-4 w-4" /> New Credit Note
+              <Link href="/accounting/credit-notes/new" className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-white rounded-xl text-sm font-semibold transition-colors shadow-lg shadow-amber-500/25">
+                <Plus className="w-4 h-4" /> New Credit Note
               </Link>
             </div>
           </div>
         </div>
 
         <div className="p-6 space-y-4">
-          {/* Filters */}
-          <div className="flex items-center gap-3">
-            <Filter className="h-4 w-4 text-[var(--ff-text-tertiary)]" />
-            <select
-              value={typeFilter}
-              onChange={e => setTypeFilter(e.target.value)}
-              className="ff-select text-sm"
-            >
-              {TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-            <select
-              value={statusFilter}
-              onChange={e => setStatusFilter(e.target.value)}
-              className="ff-select text-sm"
-            >
-              {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex gap-1 p-1 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
+              {TABS.map(t => (
+                <button key={t} onClick={() => setTab(t)} className={`px-3 py-1.5 text-xs font-medium rounded-lg capitalize transition-colors ${tab === t ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>{t}</button>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              {(['', 'customer', 'supplier'] as const).map(v => (
+                <button key={v} onClick={() => setTypeFilter(v)} className={`px-3 py-1.5 text-xs font-medium rounded-lg capitalize transition-colors ${typeFilter === v ? 'bg-slate-800 dark:bg-slate-200 text-white dark:text-slate-900 shadow-sm' : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
+                  {v === '' ? 'All Types' : v}
+                </button>
+              ))}
+            </div>
           </div>
 
           {error && (
-            <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
-              <AlertCircle className="h-4 w-4" /> {error}
-            </div>
+            <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm">{error}</div>
           )}
 
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-6 w-6 animate-spin text-teal-500" />
-            </div>
-          ) : creditNotes.length === 0 ? (
-            <div className="text-center py-12 text-[var(--ff-text-secondary)]">
-              No credit notes found
-            </div>
-          ) : (
-            <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
+            {isLoading ? (
+              <div className="p-16 flex items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-slate-400" /></div>
+            ) : creditNotes.length === 0 ? (
+              <div className="p-16 text-center">
+                <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto mb-4"><FileText className="w-7 h-7 text-slate-400" /></div>
+                <h3 className="text-base font-semibold text-slate-900 dark:text-white">No credit notes found</h3>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Create your first credit note to get started</p>
+                <Link href="/accounting/credit-notes/new" className="inline-flex mt-5 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-white text-sm font-semibold rounded-lg transition-colors">Create Credit Note</Link>
+              </div>
+            ) : (
               <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-[var(--ff-border-light)]">
-                    <th className="text-left px-4 py-3 text-[var(--ff-text-secondary)] font-medium">CN #</th>
-                    <th className="text-left px-4 py-3 text-[var(--ff-text-secondary)] font-medium">Type</th>
-                    <th className="text-left px-4 py-3 text-[var(--ff-text-secondary)] font-medium">Client / Supplier</th>
-                    <th className="text-left px-4 py-3 text-[var(--ff-text-secondary)] font-medium">Invoice</th>
-                    <th className="text-left px-4 py-3 text-[var(--ff-text-secondary)] font-medium">Date</th>
-                    <th className="text-right px-4 py-3 text-[var(--ff-text-secondary)] font-medium">Amount</th>
-                    <th className="text-left px-4 py-3 text-[var(--ff-text-secondary)] font-medium">Status</th>
-                    <th className="px-4 py-3"></th>
+                <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800">
+                  <tr>
+                    {['CN #', 'Type', 'Client / Supplier', 'Invoice', 'Date', 'Amount', 'Status', ''].map((h, i) => (
+                      <th key={i} className={`px-5 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider ${i === 5 ? 'text-right' : i === 7 ? 'text-right' : 'text-left'}`}>{h}</th>
+                    ))}
                   </tr>
                 </thead>
-                <tbody>
-                  {creditNotes.map(cn => (
-                    <tr key={cn.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)] transition-colors cursor-pointer" onClick={() => window.location.href = `/accounting/credit-notes/${cn.id}`}>
-                      <td className="px-4 py-3 font-mono text-[var(--ff-text-primary)]">{cn.creditNoteNumber}</td>
-                      <td className="px-4 py-3"><TypeBadge type={cn.type} /></td>
-                      <td className="px-4 py-3 text-[var(--ff-text-primary)]">
-                        {cn.type === 'customer' ? cn.clientName : cn.supplierName || '—'}
-                      </td>
-                      <td className="px-4 py-3 text-[var(--ff-text-secondary)] font-mono text-xs">
-                        {cn.invoiceNumber || '—'}
-                      </td>
-                      <td className="px-4 py-3 text-[var(--ff-text-secondary)]">
-                        {new Date(cn.creditDate).toLocaleDateString('en-ZA')}
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">
-                        {formatCurrency(cn.totalAmount)}
-                      </td>
-                      <td className="px-4 py-3"><StatusBadge status={cn.status} /></td>
-                      <td className="px-4 py-3 text-right">
-                        <ChevronRight className="h-4 w-4 text-[var(--ff-text-tertiary)]" />
-                      </td>
-                    </tr>
-                  ))}
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {creditNotes.map(cn => {
+                    const sc = STATUS[cn.status];
+                    return (
+                      <tr key={cn.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors cursor-pointer" onClick={() => { window.location.href = `/accounting/credit-notes/${cn.id}`; }}>
+                        <td className="px-5 py-3.5 font-mono text-amber-500 font-semibold">{cn.creditNoteNumber}</td>
+                        <td className="px-5 py-3.5"><span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${TYPE_CLS[cn.type] || ''}`}>{cn.type}</span></td>
+                        <td className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{cn.type === 'customer' ? cn.clientName : cn.supplierName || '—'}</td>
+                        <td className="px-5 py-3.5 font-mono text-xs text-slate-500 dark:text-slate-400">{cn.invoiceNumber || '—'}</td>
+                        <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400">{new Date(cn.creditDate).toLocaleDateString('en-ZA')}</td>
+                        <td className="px-5 py-3.5 text-right font-mono font-semibold text-slate-900 dark:text-white">{formatCurrency(cn.totalAmount)}</td>
+                        <td className="px-5 py-3.5"><span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${sc?.cls || ''}`}>{sc?.label || cn.status}</span></td>
+                        <td className="px-4 py-3.5 text-right"><ChevronRight className="h-4 w-4 text-slate-400 ml-auto" /></td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
     </AppLayout>

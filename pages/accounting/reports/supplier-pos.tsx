@@ -127,27 +127,27 @@ function SupplierGroup({ group }: { group: SupplierPoGroup }) {
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-[var(--ff-bg-tertiary)] border-t border-b border-[var(--ff-border-light)]">
-              <th className="px-4 py-2 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">PO Number</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Order Date</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Delivery Date</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Reference</th>
-              <th className="px-4 py-2 text-center text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Status</th>
-              <th className="px-4 py-2 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Subtotal</th>
-              <th className="px-4 py-2 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Tax</th>
-              <th className="px-4 py-2 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Total</th>
+              <th className="px-4 py-2 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">PO Number</th>
+              <th className="px-4 py-2 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Order Date</th>
+              <th className="px-4 py-2 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Delivery Date</th>
+              <th className="px-4 py-2 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Reference</th>
+              <th className="px-4 py-2 text-center text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Status</th>
+              <th className="px-4 py-2 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Subtotal</th>
+              <th className="px-4 py-2 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Tax</th>
+              <th className="px-4 py-2 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Total</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--ff-border-light)]">
             {group.pos.map(po => (
-              <tr key={po.id} className="hover:bg-[var(--ff-bg-tertiary)] bg-[var(--ff-bg-primary)]">
+              <tr key={po.id} className="hover:bg-teal-500/[0.04] bg-[var(--ff-bg-primary)]">
                 <td className="px-4 py-2 text-[var(--ff-text-primary)] font-mono text-xs">{po.orderNumber}</td>
                 <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{po.orderDate}</td>
                 <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{po.deliveryDate ?? '—'}</td>
                 <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{po.reference ?? '—'}</td>
                 <td className="px-4 py-2 text-center">{statusBadge(po.status)}</td>
-                <td className="px-4 py-2 text-right font-mono text-[var(--ff-text-secondary)]">{fmt(po.subtotal)}</td>
-                <td className="px-4 py-2 text-right font-mono text-[var(--ff-text-secondary)]">{fmt(po.taxAmount)}</td>
-                <td className="px-4 py-2 text-right font-mono text-[var(--ff-text-primary)] font-semibold">{fmt(po.totalAmount)}</td>
+                <td className="px-4 py-2 text-right font-mono tabular-nums text-[var(--ff-text-secondary)]">{fmt(po.subtotal)}</td>
+                <td className="px-4 py-2 text-right font-mono tabular-nums text-[var(--ff-text-secondary)]">{fmt(po.taxAmount)}</td>
+                <td className="px-4 py-2 text-right font-mono tabular-nums text-[var(--ff-text-primary)] font-semibold">{fmt(po.totalAmount)}</td>
               </tr>
             ))}
           </tbody>

@@ -37,6 +37,9 @@ import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import type { ShortcutConfig } from '@/lib/keyboard-shortcuts';
 import { AccountingTour } from '@/components/onboarding/AccountingTour';
 import { SetupGuideButton } from '@/components/onboarding/SetupGuideButton';
+import { DM_Sans } from 'next/font/google';
+
+const dmSans = DM_Sans({ subsets: ['latin'], variable: '--font-dm-sans', display: 'swap' });
 
 const AccountingNav = dynamic(
   () => import('@/components/accounting/AccountingNav').then(mod => ({ default: mod.AccountingNav })),
@@ -283,23 +286,21 @@ export function AppLayout({ children }: AppLayoutProps) {
   const showSidebar = navMode === 'side';
 
   return (
-    <div className="flex h-screen bg-white dark:bg-gray-950 overflow-hidden">
+    <div className={`${dmSans.variable} flex h-screen overflow-hidden`} style={{ background: 'var(--ff-canvas-base)' }}>
 
       {/* ── Desktop sidebar (only in side mode) ──────────────────────────── */}
       {showSidebar && (
         <aside
-          className={`
-            hidden lg:flex flex-col bg-gray-50 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700
-            transition-all duration-300 flex-shrink-0
-            ${collapsed ? 'w-16' : 'w-64'}
-          `}
+          className={`hidden lg:flex flex-col transition-all duration-300 flex-shrink-0 ${collapsed ? 'w-16' : 'w-64'}`}
+          style={{ background: 'var(--ff-canvas-base)', borderRight: '1px solid rgba(255,255,255,0.06)' }}
         >
           {SidebarContent}
 
           {/* Collapse toggle */}
           <button
             onClick={() => setCollapsed(c => !c)}
-            className="flex items-center justify-center h-10 border-t border-gray-200 dark:border-gray-700 text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors"
+            className="flex items-center justify-center h-10 text-slate-500 hover:text-slate-100 hover:bg-white/5 transition-colors"
+            style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}
             title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
             {collapsed
@@ -318,11 +319,8 @@ export function AppLayout({ children }: AppLayoutProps) {
         />
       )}
       <aside
-        className={`
-          fixed inset-y-0 left-0 z-40 w-64 bg-gray-50 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700
-          flex flex-col lg:hidden transition-transform duration-300
-          ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}
-        `}
+        className={`fixed inset-y-0 left-0 z-40 w-64 flex flex-col lg:hidden transition-transform duration-300 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}
+        style={{ background: 'var(--ff-canvas-base)', borderRight: '1px solid rgba(255,255,255,0.06)' }}
       >
         {SidebarContent}
       </aside>
@@ -349,7 +347,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         )}
 
         {/* Header bar */}
-        <header className="bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 h-14 flex items-center px-4 gap-3 flex-shrink-0">
+        <header className="h-14 flex items-center px-4 gap-3 flex-shrink-0" style={{ background: 'var(--ff-canvas-mid)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           {/* Mobile hamburger */}
           <button
             className="lg:hidden text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
@@ -397,7 +395,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           {/* Mobile search icon */}
           <button
             onClick={() => setCommandPaletteOpen(true)}
-            className="sm:hidden p-2 rounded-lg text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors"
+            className="sm:hidden p-2 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-white/5 transition-colors"
             title="Search"
             aria-label="Open search"
           >
@@ -410,7 +408,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           {/* Nav mode toggle */}
           <button
             onClick={toggleNavMode}
-            className="p-2 rounded-lg text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors"
+            className="p-2 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-white/5 transition-colors"
             title={navMode === 'top' ? 'Switch to sidebar navigation' : 'Switch to top navigation'}
           >
             {navMode === 'top' ? <PanelLeft className="w-4 h-4" /> : <PanelTop className="w-4 h-4" />}
@@ -419,7 +417,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           {/* Theme toggle */}
           <button
             onClick={toggleTheme}
-            className="p-2 rounded-lg text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors"
+            className="p-2 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-white/5 transition-colors"
             title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
           >
             {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
@@ -427,7 +425,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
           {/* User info */}
           {user && (
-            <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+            <div className="flex items-center gap-2 text-sm text-slate-400">
               <User className="w-4 h-4" />
               <span className="hidden sm:inline truncate max-w-[160px]">
                 {user.firstName} {user.lastName}
@@ -439,7 +437,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           {!showSidebar && (
             <button
               onClick={() => void logout()}
-              className="p-2 rounded-lg text-gray-400 hover:text-red-500 transition-colors"
+              className="p-2 rounded-lg text-slate-400 hover:text-red-400 hover:bg-white/5 transition-colors"
               title="Log out"
             >
               <LogOut className="w-4 h-4" />
@@ -455,7 +453,10 @@ export function AppLayout({ children }: AppLayoutProps) {
         )}
 
         {/* Page content */}
-        <main className="flex-1 overflow-y-auto bg-white dark:bg-gray-950 p-4 lg:p-6 relative z-0">
+        <main
+          className="flex-1 overflow-y-auto p-4 lg:p-6 relative z-0"
+          style={{ background: 'radial-gradient(ellipse at 20% 0%, rgba(20,184,166,0.04) 0%, transparent 60%), linear-gradient(180deg, #0f172a 0%, #0c1424 100%)' }}
+        >
           {children}
         </main>
       </div>

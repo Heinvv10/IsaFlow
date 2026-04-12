@@ -107,7 +107,7 @@ export default function TimeTrackingPage() {
   const resetForm = () => { setForm({ ...BLANK_FORM }); setEditId(null); };
   const handleFormChange = (field: string, value: string | boolean) => setForm(prev => ({ ...prev, [field]: value }));
 
-  const handleSubmitForm = async (e: React.FormEvent) => {
+  const handleSubmitForm = async (e: React.FormEvent<Element>) => {
     e.preventDefault(); setError(''); setBusy('save');
     try {
       const body: Record<string, unknown> = {

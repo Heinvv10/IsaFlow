@@ -1,0 +1,106 @@
+<h2>How Video + Logo + Text Works</h2>
+<p class="subtitle">Three approaches — pick what feels right</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="font-family:Inter,sans-serif;position:relative;overflow:hidden;min-height:240px;border-radius:8px;">
+      <!-- Simulated video bg -->
+      <div style="position:absolute;inset:0;background:linear-gradient(135deg,#050a0a 0%,#0a1a10 40%,#1a0a00 100%);"></div>
+      <!-- Animated "data river" suggestion -->
+      <div style="position:absolute;left:30%;top:0;bottom:0;width:25%;background:linear-gradient(to bottom,transparent,rgba(249,115,22,0.15),rgba(249,115,22,0.3),rgba(249,115,22,0.15),transparent);transform:skewX(-5deg);"></div>
+      <!-- Gradient overlay — left heavy -->
+      <div style="position:absolute;inset:0;background:linear-gradient(to right,rgba(5,10,15,0.92) 0%,rgba(5,10,15,0.75) 50%,rgba(5,10,15,0.4) 100%);"></div>
+      <!-- Nav -->
+      <div style="position:absolute;top:0;left:0;right:0;padding:12px 20px;display:flex;align-items:center;justify-content:space-between;z-index:10;">
+        <div style="color:#fff;font-weight:800;font-size:14px;letter-spacing:1px;">IsaFlow</div>
+        <div style="display:flex;gap:12px;align-items:center;">
+          <span style="font-size:9px;color:rgba(255,255,255,0.6);">Features</span>
+          <span style="font-size:9px;color:rgba(255,255,255,0.6);">Pricing</span>
+          <span style="font-size:9px;color:rgba(255,255,255,0.6);">Sign In</span>
+          <span style="font-size:9px;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.25);color:#fff;padding:4px 10px;border-radius:4px;">Start Free</span>
+        </div>
+      </div>
+      <!-- Hero text -->
+      <div style="position:absolute;left:20px;top:50%;transform:translateY(-50%);z-index:10;max-width:240px;">
+        <div style="font-size:9px;letter-spacing:3px;color:rgba(255,255,255,0.5);text-transform:uppercase;margin-bottom:8px;">Built for South Africa</div>
+        <div style="font-size:22px;font-weight:900;color:#fff;line-height:1.1;margin-bottom:8px;">Your finances,<br/>finally clear.</div>
+        <div style="font-size:10px;color:rgba(255,255,255,0.55);margin-bottom:14px;">SARS · VAT · Payroll · AI</div>
+        <div style="display:flex;gap:8px;">
+          <div style="background:#fff;color:#0f172a;padding:7px 14px;border-radius:6px;font-size:9px;font-weight:800;">Start Free →</div>
+          <div style="border:1px solid rgba(255,255,255,0.25);color:#fff;padding:7px 14px;border-radius:6px;font-size:9px;">Watch Demo</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Always-On Overlay (Recommended)</h3>
+      <p>Video plays and loops silently in the background forever. A left-heavy dark gradient sits on top — opaque on the left where text lives, semi-transparent on the right so the city and data river show through. Logo in the navbar, text and CTAs always visible. No timing issues, always readable.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="font-family:Inter,sans-serif;position:relative;overflow:hidden;min-height:240px;border-radius:8px;">
+      <div style="position:absolute;inset:0;background:linear-gradient(135deg,#050a0a 0%,#0a1a10 40%,#1a0a00 100%);"></div>
+      <div style="position:absolute;left:30%;top:0;bottom:0;width:25%;background:linear-gradient(to bottom,transparent,rgba(249,115,22,0.15),rgba(249,115,22,0.3),rgba(249,115,22,0.15),transparent);transform:skewX(-5deg);"></div>
+      <!-- Full dark overlay -->
+      <div style="position:absolute;inset:0;background:rgba(5,10,15,0.92);"></div>
+      <!-- Nav -->
+      <div style="position:absolute;top:0;left:0;right:0;padding:12px 20px;display:flex;align-items:center;justify-content:space-between;z-index:10;">
+        <div style="color:#fff;font-weight:800;font-size:14px;">IsaFlow</div>
+        <span style="font-size:9px;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.25);color:#fff;padding:4px 10px;border-radius:4px;">Start Free</span>
+      </div>
+      <!-- Text — fading in simulation -->
+      <div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:10;text-align:center;width:80%;">
+        <div style="font-size:9px;letter-spacing:3px;color:rgba(255,255,255,0.4);text-transform:uppercase;margin-bottom:8px;">Video plays first...</div>
+        <div style="font-size:18px;font-weight:900;color:rgba(255,255,255,0.4);line-height:1.1;margin-bottom:8px;">Then text fades in</div>
+        <div style="font-size:9px;color:rgba(255,255,255,0.3);margin-bottom:14px;">after the sunrise completes</div>
+        <div style="display:flex;gap:8px;justify-content:center;opacity:0.4;">
+          <div style="background:#fff;color:#0f172a;padding:7px 14px;border-radius:6px;font-size:9px;font-weight:800;">Start Free →</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Video First, Then Reveal</h3>
+      <p>Video plays through the full night-to-dawn sequence (12 sec). Overlay lifts, text fades in dramatically as the sun rises. Very cinematic — but risky. Users who skip past or land mid-scroll won't see the CTA until the animation completes. Needs a skip button.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="font-family:Inter,sans-serif;position:relative;overflow:hidden;min-height:240px;border-radius:8px;">
+      <div style="position:absolute;inset:0;background:linear-gradient(135deg,#050a0a 0%,#0a1a10 40%,#1a0a00 100%);"></div>
+      <div style="position:absolute;left:30%;top:0;bottom:0;width:25%;background:linear-gradient(to bottom,transparent,rgba(249,115,22,0.2),rgba(249,115,22,0.35),rgba(249,115,22,0.2),transparent);transform:skewX(-5deg);"></div>
+      <div style="position:absolute;inset:0;background:linear-gradient(to bottom,rgba(5,10,15,0.85) 0%,rgba(5,10,15,0.6) 60%,rgba(5,10,15,0.95) 100%);"></div>
+      <!-- Nav -->
+      <div style="position:absolute;top:0;left:0;right:0;padding:12px 20px;display:flex;align-items:center;justify-content:space-between;z-index:10;background:rgba(5,10,15,0.6);backdrop-filter:blur(10px);border-bottom:1px solid rgba(255,255,255,0.08);">
+        <div style="color:#fff;font-weight:800;font-size:14px;">IsaFlow</div>
+        <div style="display:flex;gap:12px;align-items:center;">
+          <span style="font-size:9px;color:rgba(255,255,255,0.6);">Features</span>
+          <span style="font-size:9px;color:rgba(255,255,255,0.6);">Pricing</span>
+          <span style="font-size:9px;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.25);color:#fff;padding:4px 10px;border-radius:4px;">Start Free</span>
+        </div>
+      </div>
+      <!-- Centred text -->
+      <div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:10;text-align:center;width:75%;">
+        <div style="font-size:9px;letter-spacing:3px;color:rgba(255,255,255,0.5);text-transform:uppercase;margin-bottom:8px;">Built for South Africa</div>
+        <div style="font-size:22px;font-weight:900;color:#fff;line-height:1.1;margin-bottom:8px;">Your finances,<br/>finally clear.</div>
+        <div style="font-size:10px;color:rgba(255,255,255,0.55);margin-bottom:14px;">SARS · VAT · Payroll · AI</div>
+        <div style="display:flex;gap:8px;justify-content:center;">
+          <div style="background:#fff;color:#0f172a;padding:7px 14px;border-radius:6px;font-size:9px;font-weight:800;">Start Free →</div>
+          <div style="border:1px solid rgba(255,255,255,0.25);color:#fff;padding:7px 14px;border-radius:6px;font-size:9px;">Watch Demo</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Glass Nav + Centred Text</h3>
+      <p>Video loops. Frosted glass navbar (blur + dark tint) keeps logo always crisp. Text centred over the video with top and bottom gradient vignettes for readability. Most modern pattern — used by Apple, Notion, Linear.</p>
+    </div>
+  </div>
+
+</div>
+
+<div class="section" style="margin-top:24px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:16px;">
+  <h3 style="margin-bottom:8px;">My Recommendation: A or C</h3>
+  <p><strong>A</strong> if you want the city to be a backdrop — text dominates, always readable, no risk.<br/>
+  <strong>C</strong> if you want the video to feel like the hero — text floats over it, glass nav keeps logo crisp, most premium feel.<br/>
+  <strong>Avoid B</strong> — hiding the CTA behind a 12-second animation will hurt conversions.</p>
+</div>

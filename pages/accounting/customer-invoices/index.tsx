@@ -151,20 +151,20 @@ export default function CustomerInvoicesPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-light)]">
-                    <th className="text-left py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Invoice #</th>
-                    <th className="text-left py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Client</th>
-                    <th className="text-left py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Reference</th>
-                    <th className="text-left py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Date</th>
-                    <th className="text-right py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Amount</th>
-                    <th className="text-right py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Outstanding</th>
-                    <th className="text-left py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Status</th>
+                    <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Invoice #</th>
+                    <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Client</th>
+                    <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Reference</th>
+                    <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Date</th>
+                    <th className="text-right py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Amount</th>
+                    <th className="text-right py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Outstanding</th>
+                    <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {invoices.map((inv) => {
                     const outstanding = Number(inv.total_amount) - Number(inv.amount_paid);
                     return (
-                      <tr key={inv.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-tertiary)]">
+                      <tr key={inv.id} className="border-b border-[var(--ff-border-light)] hover:bg-teal-500/[0.04]">
                         <td className="py-3 px-4 font-mono">
                           <Link href={`/accounting/customer-invoices/${inv.id}`} className="text-blue-400 hover:text-blue-300">{inv.invoice_number}</Link>
                         </td>
@@ -173,8 +173,8 @@ export default function CustomerInvoicesPage() {
                           {inv.reference || inv.project_name || '-'}
                         </td>
                         <td className="py-3 px-4 text-[var(--ff-text-secondary)] whitespace-nowrap">{formatDate(inv.invoice_date)}</td>
-                        <td className="py-3 px-4 text-right font-mono text-[var(--ff-text-primary)]">{formatCurrency(Number(inv.total_amount))}</td>
-                        <td className={`py-3 px-4 text-right font-mono ${outstanding > 0 ? 'text-amber-400' : 'text-teal-400'}`}>
+                        <td className="py-3 px-4 text-right font-mono tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(Number(inv.total_amount))}</td>
+                        <td className={`py-3 px-4 text-right font-mono tabular-nums ${outstanding > 0 ? 'text-amber-400' : 'text-teal-400'}`}>
                           {formatCurrency(outstanding)}
                         </td>
                         <td className="py-3 px-4">
