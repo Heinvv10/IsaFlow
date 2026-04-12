@@ -11,7 +11,7 @@ import { formatCurrency, formatDate } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import {
   Search, AlertCircle, Loader2, ChevronLeft, ChevronRight,
-  ChevronsUpDown, Plus, UserCog, ShieldOff, ShieldCheck, X,
+  ChevronsUpDown, Plus, UserCog, ShieldOff, ShieldCheck, X, Download,
 } from 'lucide-react';
 
 interface Company {
@@ -287,9 +287,16 @@ export default function AdminCompaniesPage() {
           <option value="cancelled">Cancelled</option>
         </select>
         <span className="text-sm text-gray-500 dark:text-gray-400 self-center">{total} total</span>
+        <a
+          href={`/api/admin/companies/export${status ? `?status=${encodeURIComponent(status)}` : ''}`}
+          download
+          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+        >
+          <Download className="w-4 h-4" /> Export CSV
+        </a>
         <button
           onClick={() => setShowCreate(true)}
-          className="ml-auto inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-teal-600 hover:bg-teal-700 text-white transition-colors"
+          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-teal-600 hover:bg-teal-700 text-white transition-colors"
         >
           <Plus className="w-4 h-4" /> Add Company
         </button>
