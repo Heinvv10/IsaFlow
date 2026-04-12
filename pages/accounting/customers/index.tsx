@@ -101,6 +101,7 @@ export default function CustomersPage() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--ff-text-tertiary)]" />
               <input
                 type="text"
+                name="search"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search by name, email or VAT..."

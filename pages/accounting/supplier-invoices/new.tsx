@@ -202,13 +202,13 @@ export default function NewSupplierInvoicePage() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Invoice Number *</label>
-                <input type="text" required value={form.invoiceNumber}
+                <input type="text" name="invoiceNumber" required value={form.invoiceNumber}
                   onChange={e => setForm(f => ({ ...f, invoiceNumber: e.target.value }))}
                   className="ff-input w-full" placeholder="INV-001" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Supplier *</label>
-                <select required value={form.supplierId}
+                <select name="supplierId" required value={form.supplierId}
                   onChange={e => setForm(f => ({ ...f, supplierId: e.target.value }))}
                   className="ff-select w-full">
                   <option value="">Select supplier...</option>
@@ -217,13 +217,13 @@ export default function NewSupplierInvoicePage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Invoice Date *</label>
-                <input type="date" required value={form.invoiceDate}
+                <input type="date" name="invoiceDate" required value={form.invoiceDate}
                   onChange={e => setForm(f => ({ ...f, invoiceDate: e.target.value }))}
                   className="ff-input w-full" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Payment Terms</label>
-                <select value={form.paymentTerms}
+                <select name="paymentTerms" value={form.paymentTerms}
                   onChange={e => setForm(f => ({ ...f, paymentTerms: e.target.value }))}
                   className="ff-select w-full">
                   <option value="">None</option>
@@ -235,13 +235,13 @@ export default function NewSupplierInvoicePage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Reference</label>
-                <input type="text" value={form.reference}
+                <input type="text" name="reference" value={form.reference}
                   onChange={e => setForm(f => ({ ...f, reference: e.target.value }))}
                   className="ff-input w-full" placeholder="PO ref or delivery note" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">VAT Rate (%)</label>
-                <input type="number" step="0.01" value={form.taxRate}
+                <input type="number" name="taxRate" step="0.01" value={form.taxRate}
                   onChange={e => setForm(f => ({ ...f, taxRate: Number(e.target.value) }))}
                   className="ff-input w-full" />
               </div>
@@ -329,7 +329,7 @@ export default function NewSupplierInvoicePage() {
           {/* Notes */}
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-6">
             <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Notes</label>
-            <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+            <textarea name="notes" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
               className="ff-input w-full" rows={3} placeholder="Optional notes..." />
           </div>
 

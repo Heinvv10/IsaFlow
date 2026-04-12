@@ -174,6 +174,7 @@ export default function NewCustomerPaymentPage() {
               <div>
                 <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Client *</label>
                 <select
+                  name="clientId"
                   value={form.clientId}
                   onChange={e => setForm(f => ({ ...f, clientId: e.target.value }))}
                   className="ff-select w-full"
@@ -188,6 +189,7 @@ export default function NewCustomerPaymentPage() {
                 <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Payment Date *</label>
                 <input
                   type="date"
+                  name="paymentDate"
                   value={form.paymentDate}
                   onChange={e => setForm(f => ({ ...f, paymentDate: e.target.value }))}
                   className="ff-input w-full"
@@ -198,6 +200,7 @@ export default function NewCustomerPaymentPage() {
               <div>
                 <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Payment Method</label>
                 <select
+                  name="paymentMethod"
                   value={form.paymentMethod}
                   onChange={e => setForm(f => ({ ...f, paymentMethod: e.target.value }))}
                   className="ff-select w-full"
@@ -213,6 +216,7 @@ export default function NewCustomerPaymentPage() {
                 <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Bank Reference</label>
                 <input
                   type="text"
+                  name="bankReference"
                   value={form.bankReference}
                   onChange={e => setForm(f => ({ ...f, bankReference: e.target.value }))}
                   className="ff-input w-full"
@@ -225,6 +229,7 @@ export default function NewCustomerPaymentPage() {
               <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Description</label>
               <input
                 type="text"
+                name="description"
                 value={form.description}
                 onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
                 className="ff-input w-full"

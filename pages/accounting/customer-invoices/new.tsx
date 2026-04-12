@@ -141,14 +141,14 @@ export default function NewCustomerInvoicePage() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">Client *</label>
-                <select value={form.clientId} onChange={e => setForm(p => ({ ...p, clientId: e.target.value }))} className="ff-select w-full text-sm">
+                <select name="clientId" value={form.clientId} onChange={e => setForm(p => ({ ...p, clientId: e.target.value }))} className="ff-select w-full text-sm">
                   <option value="">Select client...</option>
                   {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
               <div>
                 <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">VAT Rate %</label>
-                <input type="number" value={form.taxRate} onChange={e => setForm(p => ({ ...p, taxRate: Number(e.target.value) }))} className="ff-input w-full text-sm" />
+                <input type="number" name="taxRate" value={form.taxRate} onChange={e => setForm(p => ({ ...p, taxRate: Number(e.target.value) }))} className="ff-input w-full text-sm" />
               </div>
             </div>
 
@@ -157,6 +157,7 @@ export default function NewCustomerInvoicePage() {
               <div>
                 <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">Currency</label>
                 <select
+                  name="currencyCode"
                   value={form.currencyCode}
                   onChange={e => setForm(p => ({ ...p, currencyCode: e.target.value, exchangeRate: e.target.value === 'ZAR' ? 1 : p.exchangeRate }))}
                   className="ff-select w-full text-sm"
@@ -174,6 +175,7 @@ export default function NewCustomerInvoicePage() {
                   </label>
                   <input
                     type="number"
+                    name="exchangeRate"
                     min={0.000001}
                     step={0.000001}
                     value={form.exchangeRate}
@@ -188,24 +190,24 @@ export default function NewCustomerInvoicePage() {
             <div className="grid grid-cols-4 gap-4">
               <div>
                 <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">Invoice Date</label>
-                <input type="date" value={form.invoiceDate} onChange={e => setForm(p => ({ ...p, invoiceDate: e.target.value }))} className="ff-input w-full text-sm" />
+                <input type="date" name="invoiceDate" value={form.invoiceDate} onChange={e => setForm(p => ({ ...p, invoiceDate: e.target.value }))} className="ff-input w-full text-sm" />
               </div>
               <div>
                 <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">Due Date</label>
-                <input type="date" value={form.dueDate} onChange={e => setForm(p => ({ ...p, dueDate: e.target.value }))} className="ff-input w-full text-sm" />
+                <input type="date" name="dueDate" value={form.dueDate} onChange={e => setForm(p => ({ ...p, dueDate: e.target.value }))} className="ff-input w-full text-sm" />
               </div>
               <div>
                 <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">Period Start</label>
-                <input type="date" value={form.billingPeriodStart} onChange={e => setForm(p => ({ ...p, billingPeriodStart: e.target.value }))} className="ff-input w-full text-sm" />
+                <input type="date" name="billingPeriodStart" value={form.billingPeriodStart} onChange={e => setForm(p => ({ ...p, billingPeriodStart: e.target.value }))} className="ff-input w-full text-sm" />
               </div>
               <div>
                 <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">Period End</label>
-                <input type="date" value={form.billingPeriodEnd} onChange={e => setForm(p => ({ ...p, billingPeriodEnd: e.target.value }))} className="ff-input w-full text-sm" />
+                <input type="date" name="billingPeriodEnd" value={form.billingPeriodEnd} onChange={e => setForm(p => ({ ...p, billingPeriodEnd: e.target.value }))} className="ff-input w-full text-sm" />
               </div>
             </div>
             <div>
               <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">Notes</label>
-              <textarea value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} rows={2} className="ff-input w-full text-sm" />
+              <textarea name="notes" value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} rows={2} className="ff-input w-full text-sm" />
             </div>
           </div>
 
