@@ -10,6 +10,7 @@ import { log } from '@/lib/logger';
 import { sendEmail } from './emailService';
 import type { EmailResult } from './emailService';
 import { buildStatementEmailHtml } from './statementEmailTemplate';
+import { appendSignatureToHtml } from '@/lib/email-templates';
 
 type Row = DbRow;
 
@@ -178,7 +179,8 @@ export async function sendStatementEmail(
   customerId: string,
   asAtDate: string,
   companyName: string,
-  message?: string
+  message?: string,
+  signature?: string | null
 ): Promise<EmailResult> {
   const data = await fetchStatementData(companyId, customerId, asAtDate);
 
@@ -190,7 +192,7 @@ export async function sendStatementEmail(
     return { success: false, error: `No email address for ${data.customer.name}` };
   }
 
-  const html = buildStatementEmailHtml({
+  const baseHtml = buildStatementEmailHtml({
     customerName: data.customer.name,
     asAtDate: data.toDate,
     fromDate: data.fromDate,
@@ -199,6 +201,7 @@ export async function sendStatementEmail(
     summary: data.summary,
     transactions: data.transactions,
   });
+  const html = appendSignatureToHtml(baseHtml, signature ?? null);
 
   const subject = `Account Statement as at ${fmtDate(asAtDate)} — ${companyName || 'ISAFlow'}`;
   const result = await sendEmail({ to: data.customer.email, subject, html });

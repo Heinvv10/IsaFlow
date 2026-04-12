@@ -87,10 +87,22 @@ export interface Company {
   // Email templates
   invoiceEmailSubject: string;
   invoiceEmailBody: string | null;
+  invoiceEmailSignature: string | null;
   quoteEmailSubject: string;
   quoteEmailBody: string | null;
+  quoteEmailSignature: string | null;
   statementEmailSubject: string;
   statementEmailBody: string | null;
+  statementEmailSignature: string | null;
+  creditNoteEmailSubject: string;
+  creditNoteEmailBody: string | null;
+  creditNoteEmailSignature: string | null;
+  salesOrderEmailSubject: string;
+  salesOrderEmailBody: string | null;
+  salesOrderEmailSignature: string | null;
+  recurringInvoiceEmailSubject: string;
+  recurringInvoiceEmailBody: string | null;
+  recurringInvoiceEmailSignature: string | null;
   // Regional format extras
   decimalSeparator: string;
   thousandsSeparator: string;
