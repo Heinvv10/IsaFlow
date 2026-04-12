@@ -1,21 +1,24 @@
+import { useState } from 'react';
 import { ArrowRight, PlayCircle } from 'lucide-react';
 import { APP_URL, STATS } from './landingData';
 
 export function LandingHero() {
+  const [logoVisible, setLogoVisible] = useState(false);
+
   return (
     <>
       {/* ── Video Hero ── */}
       <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
-        {/* Video background — hidden on mobile, static image shown instead */}
+        {/* Video background — plays once, no loop */}
         <video
           autoPlay
           muted
-          loop
           playsInline
           className="absolute inset-0 w-full h-full object-cover hidden sm:block"
           poster="/landing/seq2-1-midnight.png"
+          onEnded={() => setLogoVisible(true)}
         >
-          <source src="/landing/IsaFlow Video.mp4" type="video/mp4" />
+          <source src="/landing/IsaFlow Hero Vid.mp4" type="video/mp4" />
         </video>
 
         {/* Mobile static fallback */}
@@ -24,20 +27,26 @@ export function LandingHero() {
           style={{ backgroundImage: 'url(/landing/seq2-1-midnight.png)' }}
         />
 
-        {/* Dark gradient overlay — darkens top/bottom for readability, lets city show on sides */}
+        {/* Dark gradient overlay */}
         <div
           className="absolute inset-0"
           style={{
             background: 'linear-gradient(to bottom, rgba(5,10,15,0.85) 0%, rgba(5,10,15,0.5) 50%, rgba(5,10,15,0.9) 100%)',
           }}
         />
-        {/* Radial spot to suppress the video's centre watermark */}
+
+        {/* ISAFlow logo — slides in when video ends */}
         <div
-          className="absolute inset-0"
-          style={{
-            background: 'radial-gradient(ellipse 55% 35% at 50% 52%, rgba(5,10,15,0.72) 0%, transparent 100%)',
-          }}
-        />
+          className={`absolute inset-0 z-[5] flex items-center justify-center pointer-events-none transition-all duration-1000 ease-out ${
+            logoVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
+          }`}
+        >
+          <img
+            src="/logo.png"
+            alt="ISAFlow"
+            className="w-48 sm:w-64 lg:w-80 brightness-0 invert drop-shadow-2xl"
+          />
+        </div>
 
         {/* Hero content */}
         <div className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center pt-20">
