@@ -22,7 +22,10 @@ export default function NewPurchaseOrderPage() {
   const [items, setItems] = useState<LineItem[]>([{ productId: '', description: '', quantity: '1', unitPrice: '0', taxRate: '15' }]);
 
   useEffect(() => {
-    apiFetch('/api/accounting/suppliers-list', { credentials: 'include' }).then(r => r.json()).then(j => setSuppliers(j.data || [])).catch(() => {});
+    apiFetch('/api/accounting/suppliers-list', { credentials: 'include' }).then(r => r.json()).then(j => {
+      const d = j.data ?? j;
+      setSuppliers(Array.isArray(d) ? d : (d.suppliers ?? []));
+    }).catch(() => {});
   }, []);
 
   const addItem = () => setItems(prev => [...prev, { productId: '', description: '', quantity: '1', unitPrice: '0', taxRate: '15' }]);

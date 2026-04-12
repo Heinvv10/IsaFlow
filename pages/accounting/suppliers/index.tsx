@@ -36,16 +36,23 @@ function StatusBadge({ active }: { active: boolean }) {
   );
 }
 
+const LIMIT = 25;
+
 export default function SuppliersPage() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
 
-  // Debounce search input
+  // Debounce search input, reset to page 1
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    const t = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, 300);
     return () => clearTimeout(t);
   }, [search]);
 
@@ -55,16 +62,20 @@ export default function SuppliersPage() {
     try {
       const params = new URLSearchParams();
       if (debouncedSearch) params.set('q', debouncedSearch);
+      params.set('page', String(page));
+      params.set('limit', String(LIMIT));
       const res = await apiFetch(`/api/accounting/suppliers-list?${params}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
-      setSuppliers((json.data ?? json) as Supplier[]);
+      const data = json.data ?? json;
+      setSuppliers((data.suppliers ?? data) as Supplier[]);
+      setTotal(data.total ?? 0);
     } catch {
       setError('Failed to load suppliers');
     } finally {
       setIsLoading(false);
     }
-  }, [debouncedSearch]);
+  }, [debouncedSearch, page]);
 
   useEffect(() => {
     loadSuppliers();
@@ -110,7 +121,7 @@ export default function SuppliersPage() {
             </div>
             {!isLoading && (
               <span className="text-sm text-[var(--ff-text-secondary)]">
-                {suppliers.length} supplier{suppliers.length !== 1 ? 's' : ''}
+                {total} supplier{total !== 1 ? 's' : ''}
               </span>
             )}
           </div>
@@ -191,6 +202,31 @@ export default function SuppliersPage() {
                   ))}
                 </tbody>
               </table>
+
+              {/* Pagination */}
+              {total > LIMIT && (
+                <div className="flex items-center justify-between px-4 py-3 border-t border-[var(--ff-border-primary)]">
+                  <span className="text-sm text-[var(--ff-text-secondary)]">
+                    Showing {(page - 1) * LIMIT + 1}–{Math.min(page * LIMIT, total)} of {total}
+                  </span>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setPage(p => Math.max(1, p - 1))}
+                      disabled={page === 1}
+                      className="px-3 py-1.5 text-sm bg-[var(--ff-bg-tertiary)] hover:bg-[var(--ff-bg-secondary)] disabled:opacity-40 rounded-lg text-[var(--ff-text-primary)] border border-[var(--ff-border-primary)]"
+                    >
+                      Previous
+                    </button>
+                    <button
+                      onClick={() => setPage(p => p + 1)}
+                      disabled={page * LIMIT >= total}
+                      className="px-3 py-1.5 text-sm bg-[var(--ff-bg-tertiary)] hover:bg-[var(--ff-bg-secondary)] disabled:opacity-40 rounded-lg text-[var(--ff-text-primary)] border border-[var(--ff-border-primary)]"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

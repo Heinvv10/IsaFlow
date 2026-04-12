@@ -58,7 +58,8 @@ export function useBankTxRefData(setters: Setters): void {
         }))
       );
 
-      const suppList = Array.isArray(suppJson.data) ? suppJson.data : [];
+      const suppD = suppJson.data ?? suppJson;
+      const suppList: { id: number | string; name: string; code?: string }[] = Array.isArray(suppD) ? suppD : (suppD.suppliers ?? []);
       setSuppliers(suppList.map((s: { id: number | string; name: string; code?: string }) => ({
         id: String(s.id), name: s.name, code: s.code,
       })));

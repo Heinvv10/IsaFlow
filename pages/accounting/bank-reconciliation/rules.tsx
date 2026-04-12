@@ -121,8 +121,9 @@ export default function BankRulesPage() {
       if (mapped.length > 0) setSelectedBankId(String(mapped[0].id));
     });
     apiFetch('/api/accounting/suppliers-list?status=active', { credentials: 'include' }).then(r => r.json()).then(res => {
-      const list = Array.isArray(res.data) ? res.data : [];
-      setSuppliers(list.map((s: { id: number | string; name: string }) => ({
+      const d = res.data ?? res;
+      const list: { id: number | string; name: string }[] = Array.isArray(d) ? d : (d.suppliers ?? []);
+      setSuppliers(list.map((s) => ({
         id: String(s.id), name: s.name,
       })));
     });
