@@ -87,7 +87,7 @@ export function LandingHero() {
       {/* ── Stats Bar ── */}
       <section className="bg-gray-900 py-14">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-3 gap-8 text-center">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 text-center">
             {STATS.map((s) => (
               <div key={s.label}>
                 <p className="text-4xl lg:text-5xl font-extrabold text-white mb-1">{s.value}</p>
