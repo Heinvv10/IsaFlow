@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Building2, Save, Loader2, AlertCircle, CheckCircle2, Settings2, Receipt, FileDigit, Palette, Layers, BarChart2, MessageSquare, Mail, Globe, LayoutList } from 'lucide-react';
+import { Building2, Save, Loader2, AlertCircle, CheckCircle2, Settings2, Receipt, FileDigit, Palette, Layers, BarChart2, MessageSquare, Mail, Globe, LayoutList, Banknote } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
 import { Company, DocumentNumber, CompanyDocument } from '@/components/accounting/settings/settingsTypes';
@@ -21,8 +21,10 @@ import { DocMessagesTab } from '@/components/accounting/settings/DocMessagesTab'
 import { EmailTemplatesTab } from '@/components/accounting/settings/EmailTemplatesTab';
 import { UdfTab } from '@/components/accounting/settings/UdfTab';
 import { RegionalTab } from '@/components/accounting/settings/RegionalTab';
+import { CustomerZoneTab } from '@/components/accounting/settings/CustomerZoneTab';
+import { NetcashTab } from '@/components/accounting/settings/NetcashTab';
 
-type TabId = 'details' | 'general' | 'vat' | 'documents' | 'branding' | 'dimensions' | 'aging' | 'doc-messages' | 'email-templates' | 'udf' | 'regional';
+type TabId = 'details' | 'general' | 'vat' | 'documents' | 'branding' | 'dimensions' | 'aging' | 'doc-messages' | 'email-templates' | 'udf' | 'regional' | 'customer-zone' | 'netcash';
 
 const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: 'details', label: 'Company Details', icon: <Building2 className="h-4 w-4" /> },
@@ -33,9 +35,11 @@ const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: 'doc-messages', label: 'Document Messages', icon: <MessageSquare className="h-4 w-4" /> },
   { id: 'email-templates', label: 'Email Templates', icon: <Mail className="h-4 w-4" /> },
   { id: 'branding', label: 'Branding', icon: <Palette className="h-4 w-4" /> },
+  { id: 'customer-zone', label: 'Customer Zone', icon: <Globe className="h-4 w-4" /> },
   { id: 'dimensions', label: 'Dimensions', icon: <Layers className="h-4 w-4" /> },
   { id: 'udf', label: 'User Fields', icon: <LayoutList className="h-4 w-4" /> },
   { id: 'regional', label: 'Regional', icon: <Globe className="h-4 w-4" /> },
+  { id: 'netcash', label: 'Netcash', icon: <Banknote className="h-4 w-4" /> },
 ];
 
 export default function CompanySettingsPage() {
@@ -217,11 +221,13 @@ export default function CompanySettingsPage() {
               {activeTab === 'branding' && (
                 <BrandingTab company={company} onChange={update} onCompanyChange={setCompany} onError={setError} />
               )}
+              {activeTab === 'customer-zone' && <CustomerZoneTab company={company} onChange={update} />}
               {activeTab === 'dimensions' && (
                 <DimensionsTab enableCC={enableCC} enableBU={enableBU} dimLoaded={dimLoaded} onCCChange={setEnableCC} onBUChange={setEnableBU} />
               )}
               {activeTab === 'udf' && <UdfTab />}
               {activeTab === 'regional' && <RegionalTab company={company} onChange={update} />}
+              {activeTab === 'netcash' && <NetcashTab company={company} onChange={update} />}
             </div>
           </>
         ) : (

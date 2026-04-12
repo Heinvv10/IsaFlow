@@ -37,6 +37,10 @@ interface PortalInvoiceData {
   company_name: string;
   company_logo_url: string | null;
   portal_viewed_at: string | null;
+  portal_display_name: string | null;
+  portal_primary_color: string | null;
+  portal_allow_payments: boolean;
+  portal_payment_instructions: string | null;
   items: PortalInvoiceLineItem[];
 }
 
@@ -62,7 +66,11 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
       ci.portal_viewed_at,
       cu.name  AS customer_name,
       co.name  AS company_name,
-      co.logo_url AS company_logo_url
+      co.logo_url AS company_logo_url,
+      co.portal_display_name,
+      co.portal_primary_color,
+      co.portal_allow_payments,
+      co.portal_payment_instructions
     FROM customer_invoices ci
     LEFT JOIN customers cu ON cu.id = ci.client_id
     LEFT JOIN companies co ON co.id = ci.company_id
@@ -120,6 +128,10 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     company_name: String(inv.company_name ?? 'ISAFlow'),
     company_logo_url: inv.company_logo_url != null ? String(inv.company_logo_url) : null,
     portal_viewed_at: inv.portal_viewed_at != null ? String(inv.portal_viewed_at) : null,
+    portal_display_name: inv.portal_display_name != null ? String(inv.portal_display_name) : null,
+    portal_primary_color: inv.portal_primary_color != null ? String(inv.portal_primary_color) : null,
+    portal_allow_payments: Boolean(inv.portal_allow_payments ?? true),
+    portal_payment_instructions: inv.portal_payment_instructions != null ? String(inv.portal_payment_instructions) : null,
     items,
   };
 

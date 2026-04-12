@@ -1,18 +1,25 @@
 /**
  * Invoice PDF Builder — generates Tax Invoice PDFs using jsPDF + jspdf-autotable.
  * Returns a Node.js Buffer suitable for API responses and email attachments.
+ * Supports layout: 'classic' | 'modern' | 'minimal' via company.invoiceLayout.
  */
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { fmtZAR, fmtDate, TEAL, getCompanyDetailsFromCompany, renderPageFooters, getLastAutoTableY } from './pdfShared';
+import {
+  fmtZAR, fmtDate, TEAL,
+  getCompanyDetailsFromCompany, renderPageFooters, getLastAutoTableY,
+  hexToRgb, renderInvoiceHeader,
+  type DocumentLayout,
+} from './pdfShared';
 
 type Row = DbRow;
 
-
 export async function generateInvoicePdf(companyId: string, invoiceId: string): Promise<Buffer> {
   const COMPANY = await getCompanyDetailsFromCompany(companyId);
+  const layout: DocumentLayout = COMPANY.invoiceLayout;
+  const accent = hexToRgb(COMPANY.primaryColor);
 
   const invoiceRows = (await sql`
     SELECT ci.*,
@@ -39,9 +46,7 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
   `) as Row[];
 
   log.info('Generating invoice PDF', {
-    invoiceId,
-    invoiceNumber: invoice.invoice_number,
-    itemCount: items.length,
+    invoiceId, invoiceNumber: invoice.invoice_number, itemCount: items.length, layout,
   }, 'invoicePdfBuilder');
 
   const [{ jsPDF }, { default: autoTable }] = await Promise.all([
@@ -52,31 +57,19 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const PAGE_W = doc.internal.pageSize.getWidth();
   const PAGE_H = doc.internal.pageSize.getHeight();
-  const MARGIN = 14;
+  const MARGIN = layout === 'minimal' ? 12 : 14;
   const CONTENT_W = PAGE_W - MARGIN * 2;
+  const isMinimal = layout === 'minimal';
+  const baseFontSz = isMinimal ? 7.5 : 8;
 
-  // Header bar
-  doc.setFillColor(TEAL.r, TEAL.g, TEAL.b);
-  doc.rect(0, 0, PAGE_W, 28, 'F');
-  doc.setFontSize(22);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(255, 255, 255);
-  doc.text('TAX INVOICE', MARGIN, 18);
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'normal');
-  doc.text(String(invoice.invoice_number || ''), PAGE_W - MARGIN, 12, { align: 'right' });
-  doc.setFontSize(8);
-  doc.text(`Date: ${fmtDate(invoice.invoice_date as string | Date | null | undefined)}`, PAGE_W - MARGIN, 18, { align: 'right' });
-  doc.text(`Due: ${fmtDate(invoice.due_date as string | Date | null | undefined)}`, PAGE_W - MARGIN, 23, { align: 'right' });
-
-  let y = 36;
+  let y = renderInvoiceHeader({ doc, invoice, layout, pageW: PAGE_W, margin: MARGIN, accent, company: COMPANY });
 
   // Company details (left)
-  doc.setFontSize(10);
+  doc.setFontSize(isMinimal ? 9 : 10);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(30, 30, 30);
   doc.text(COMPANY.name, MARGIN, y);
-  doc.setFontSize(8);
+  doc.setFontSize(baseFontSz);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(80, 80, 80);
   y += 5; doc.text(COMPANY.address, MARGIN, y);
@@ -86,18 +79,18 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
 
   // Client details (right)
   const rightX = PAGE_W / 2 + 10;
-  let ry = 36;
-  doc.setFontSize(8);
+  let ry = y - 17;
+  doc.setFontSize(baseFontSz);
   doc.setFont('helvetica', 'bold');
-  doc.setTextColor(TEAL.r, TEAL.g, TEAL.b);
+  doc.setTextColor(isMinimal ? 60 : accent.r, isMinimal ? 60 : accent.g, isMinimal ? 60 : accent.b);
   doc.text('BILL TO:', rightX, ry);
   ry += 5;
-  doc.setFontSize(10);
+  doc.setFontSize(isMinimal ? 9 : 10);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(30, 30, 30);
   doc.text(String(invoice.client_name || 'Unknown Client'), rightX, ry);
   ry += 5;
-  doc.setFontSize(8);
+  doc.setFontSize(baseFontSz);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(80, 80, 80);
   if (invoice.client_address) {
@@ -113,9 +106,11 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
   y = Math.max(y, ry) + 6;
 
   // Reference info bar
-  doc.setFillColor(245, 247, 250);
-  doc.setDrawColor(210, 215, 225);
-  doc.roundedRect(MARGIN, y, CONTENT_W, 12, 1.5, 1.5, 'FD');
+  if (!isMinimal) {
+    doc.setFillColor(245, 247, 250);
+    doc.setDrawColor(210, 215, 225);
+    doc.roundedRect(MARGIN, y, CONTENT_W, 12, 1.5, 1.5, 'FD');
+  }
   const refCols = [
     { label: 'Invoice #', value: String(invoice.invoice_number || '') },
     { label: 'Project', value: String(invoice.project_name || '—') },
@@ -127,12 +122,13 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
     const cx = MARGIN + colW * i + 4;
     doc.setFontSize(6); doc.setFont('helvetica', 'normal'); doc.setTextColor(120, 120, 120);
     doc.text(col.label.toUpperCase(), cx, y + 4);
-    doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(30, 30, 30);
+    doc.setFontSize(7.5); doc.setFont('helvetica', 'bold'); doc.setTextColor(30, 30, 30);
     doc.text(col.value, cx, y + 9);
   });
-  y += 18;
+  y += isMinimal ? 14 : 18;
 
   // Line items table
+  const headFill: [number, number, number] = isMinimal ? [60, 60, 60] : [accent.r, accent.g, accent.b];
   autoTable(doc, {
     startY: y,
     head: [['Description', 'Qty', 'Unit Price', 'VAT', 'Amount']],
@@ -143,9 +139,9 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
       fmtZAR(Number(item.tax_amount || 0)),
       fmtZAR(Number(item.line_total || item.amount || 0)),
     ]),
-    styles: { fontSize: 8, cellPadding: 3 },
-    headStyles: { fillColor: [TEAL.r, TEAL.g, TEAL.b], textColor: 255, fontStyle: 'bold', fontSize: 8.5 },
-    alternateRowStyles: { fillColor: [248, 250, 252] },
+    styles: { fontSize: baseFontSz, cellPadding: isMinimal ? 2 : 3 },
+    headStyles: { fillColor: headFill, textColor: 255, fontStyle: 'bold', fontSize: baseFontSz },
+    alternateRowStyles: isMinimal ? {} : { fillColor: [248, 250, 252] },
     columnStyles: {
       0: { cellWidth: 'auto' },
       1: { halign: 'right', cellWidth: 20 },
@@ -160,7 +156,7 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
   y = getLastAutoTableY(doc, y + 40);
   y += 6;
 
-  // Totals section
+  // Totals
   const totalsX = PAGE_W - MARGIN - 70;
   const totalsW = 70;
   const subtotal = Number(invoice.subtotal || 0);
@@ -182,7 +178,8 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
   totalsData.forEach((row, i) => {
     const rowY = y + i * 7;
     if (row.bold) {
-      doc.setFillColor(TEAL.r, TEAL.g, TEAL.b);
+      const boldFill: [number, number, number] = isMinimal ? [40, 40, 40] : [accent.r, accent.g, accent.b];
+      doc.setFillColor(...boldFill);
       doc.rect(totalsX - 2, rowY - 4, totalsW + 4, 7, 'F');
       doc.setTextColor(255, 255, 255);
       doc.setFont('helvetica', 'bold');
@@ -190,7 +187,7 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
       doc.setTextColor(60, 60, 60);
       doc.setFont('helvetica', 'normal');
     }
-    doc.setFontSize(8.5);
+    doc.setFontSize(baseFontSz);
     doc.text(row.label, totalsX, rowY);
     doc.text(row.value, totalsX + totalsW, rowY, { align: 'right' });
   });
@@ -198,9 +195,13 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
 
   // Payment details
   if (y + 40 > PAGE_H - 30) { doc.addPage(); y = MARGIN + 10; }
-  doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.setTextColor(TEAL.r, TEAL.g, TEAL.b);
+  const accentOrGrey = isMinimal ? { r: 40, g: 40, b: 40 } : accent;
+  doc.setFontSize(isMinimal ? 8 : 9);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(accentOrGrey.r, accentOrGrey.g, accentOrGrey.b);
   doc.text('PAYMENT DETAILS', MARGIN, y); y += 5;
-  doc.setDrawColor(TEAL.r, TEAL.g, TEAL.b); doc.setLineWidth(0.5);
+  doc.setDrawColor(isMinimal ? 150 : accent.r, isMinimal ? 150 : accent.g, isMinimal ? 150 : accent.b);
+  doc.setLineWidth(0.5);
   doc.line(MARGIN, y, MARGIN + 50, y); y += 5;
 
   const paymentDetails = [
@@ -210,7 +211,7 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
     { label: 'Branch Code', value: COMPANY.bankBranchCode },
     { label: 'Reference', value: String(invoice.invoice_number || '') },
   ];
-  doc.setFontSize(8);
+  doc.setFontSize(baseFontSz);
   paymentDetails.forEach((pd) => {
     doc.setFont('helvetica', 'bold'); doc.setTextColor(60, 60, 60);
     doc.text(`${pd.label}:`, MARGIN, y);
@@ -222,7 +223,7 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
 
   // Notes
   if (invoice.notes) {
-    doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(80, 80, 80);
+    doc.setFontSize(baseFontSz); doc.setFont('helvetica', 'bold'); doc.setTextColor(80, 80, 80);
     doc.text('Notes:', MARGIN, y); y += 4;
     doc.setFont('helvetica', 'normal');
     const noteLines = doc.splitTextToSize(String(invoice.notes), CONTENT_W);
@@ -236,6 +237,9 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
   doc.text('Terms & Conditions: Payment is due within the stated terms. Late payments may incur interest at 2% per month.', MARGIN, y);
   y += 4;
   doc.text('E&OE - Errors and Omissions Excepted. Please advise of any discrepancies within 7 days.', MARGIN, y);
+
+  // Suppress unused var warning — y used for positional rendering
+  void (y as number);
 
   renderPageFooters(doc, PAGE_W, PAGE_H, MARGIN);
 

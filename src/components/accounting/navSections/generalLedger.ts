@@ -8,6 +8,7 @@ export const accountsTab: Tab = {
       items: [
         { label: 'Chart of Accounts', href: '/accounting/chart-of-accounts' },
         { label: 'Default Accounts', href: '/accounting/default-accounts' },
+        { label: 'Reporting Groups', href: '/accounting/settings/account-reporting-groups' },
         { label: 'Currencies', href: '/accounting/settings/currencies' },
         { label: 'Exchange Rates', href: '/accounting/settings/exchange-rates' },
       ],

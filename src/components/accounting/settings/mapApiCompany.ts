@@ -113,5 +113,22 @@ export function mapApiCompany(c: Record<string, any>): Company {
     socialX: c.socialX ?? c.social_x ?? null,
     invoiceLogoPosition: c.invoiceLogoPosition ?? c.invoice_logo_position ?? 'top-right',
     roundingMethod: c.roundingMethod ?? c.rounding_method ?? 'half-up',
+    invoiceLayout: (c.invoiceLayout ?? c.invoice_layout ?? 'classic') as 'classic' | 'modern' | 'minimal',
+    quoteLayout: (c.quoteLayout ?? c.quote_layout ?? 'classic') as 'classic' | 'modern' | 'minimal',
+    statementLayout: (c.statementLayout ?? c.statement_layout ?? 'classic') as 'classic' | 'modern' | 'minimal',
+    // Customer Zone
+    portalDisplayName: c.portalDisplayName ?? c.portal_display_name ?? null,
+    portalTagline: c.portalTagline ?? c.portal_tagline ?? null,
+    portalMode: (c.portalMode ?? c.portal_mode ?? 'full') as 'full' | 'invoices_only' | 'statements_only',
+    portalShowAccountBalance: c.portalShowAccountBalance ?? c.portal_show_account_balance ?? true,
+    portalShowTransactionHistory: c.portalShowTransactionHistory ?? c.portal_show_transaction_history ?? true,
+    portalAllowPayments: c.portalAllowPayments ?? c.portal_allow_payments ?? true,
+    portalPaymentInstructions: c.portalPaymentInstructions ?? c.portal_payment_instructions ?? null,
+    portalWelcomeMessage: c.portalWelcomeMessage ?? c.portal_welcome_message ?? null,
+    portalPrimaryColor: c.portalPrimaryColor ?? c.portal_primary_color ?? null,
+    // Netcash
+    netcashServiceKey: c.netcashServiceKey ?? c.netcash_service_key ?? null,
+    netcashPayoutsKey: c.netcashPayoutsKey ?? c.netcash_payouts_key ?? null,
+    netcashEnabled: c.netcashEnabled ?? c.netcash_enabled ?? false,
   };
 }

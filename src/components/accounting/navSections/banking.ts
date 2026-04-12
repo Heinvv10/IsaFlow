@@ -26,6 +26,13 @@ export const bankingTab: Tab = {
       ],
     },
     {
+      section: 'Netcash',
+      items: [
+        { label: 'Netcash Submissions', href: '/accounting/netcash' },
+        { label: 'Netcash Settings', href: '/accounting/company-settings?tab=netcash', isSetting: true },
+      ],
+    },
+    {
       section: 'Settings',
       items: [
         { label: 'Banking Settings', href: '/accounting/company-settings?tab=general', isSetting: true },

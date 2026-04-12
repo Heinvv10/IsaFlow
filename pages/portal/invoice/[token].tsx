@@ -34,6 +34,10 @@ interface PortalInvoiceProps {
     customer_name: string;
     company_name: string;
     company_logo_url: string | null;
+    portal_display_name: string | null;
+    portal_primary_color: string | null;
+    portal_allow_payments: boolean;
+    portal_payment_instructions: string | null;
     items: LineItem[];
   };
   token: string;
@@ -61,22 +65,31 @@ const STATUS_META: Record<string, { label: string; icon: React.ReactNode; classe
 
 // ── Payment Modal ─────────────────────────────────────────────────────────────
 
-function PayModal({ onClose }: { onClose: () => void }) {
+function PayModal({ onClose, paymentInstructions, accentColor }: {
+  onClose: () => void;
+  paymentInstructions: string | null;
+  accentColor: string;
+}) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6" onClick={e => e.stopPropagation()}>
         <div className="flex items-center gap-3 mb-4">
           <div className="w-10 h-10 rounded-full bg-teal-50 flex items-center justify-center">
-            <CreditCard className="h-5 w-5 text-teal-600" />
+            <CreditCard className="h-5 w-5" style={{ color: accentColor }} />
           </div>
           <h2 className="text-lg font-semibold text-gray-900">Pay Invoice</h2>
         </div>
-        <p className="text-sm text-gray-600 mb-6">
-          To arrange payment for this invoice, please contact us directly and we will assist you with the payment process.
-        </p>
+        {paymentInstructions ? (
+          <p className="text-sm text-gray-700 whitespace-pre-wrap mb-6">{paymentInstructions}</p>
+        ) : (
+          <p className="text-sm text-gray-600 mb-6">
+            To arrange payment for this invoice, please contact us directly and we will assist you with the payment process.
+          </p>
+        )}
         <button
           onClick={onClose}
-          className="w-full bg-teal-600 hover:bg-teal-500 text-white font-medium text-sm px-4 py-2.5 rounded-lg transition-colors"
+          className="w-full text-white font-medium text-sm px-4 py-2.5 rounded-lg transition-colors"
+          style={{ backgroundColor: accentColor }}
         >
           Close
         </button>
@@ -94,7 +107,10 @@ export default function PortalInvoicePage({ invoice, token, isOverdue }: PortalI
   const statusMeta = STATUS_META[displayStatus] ?? STATUS_META['sent']!;
   const balance = invoice.total_amount - invoice.amount_paid;
   const isPaid = invoice.status === 'paid' || balance <= 0;
-  const canPay = !isPaid && !['draft', 'cancelled'].includes(invoice.status);
+  const canPay = !isPaid && !['draft', 'cancelled'].includes(invoice.status) && invoice.portal_allow_payments;
+
+  const headerName = invoice.portal_display_name ?? invoice.company_name;
+  const accentColor = invoice.portal_primary_color ?? '#0d9488';
 
   return (
     <>
@@ -110,13 +126,13 @@ export default function PortalInvoicePage({ invoice, token, isOverdue }: PortalI
             <div className="flex items-center gap-2.5">
               {invoice.company_logo_url ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={invoice.company_logo_url} alt={invoice.company_name} className="h-8 w-auto object-contain" />
+                <img src={invoice.company_logo_url} alt={headerName} className="h-8 w-auto object-contain" />
               ) : (
-                <div className="w-8 h-8 rounded-lg bg-teal-600 flex items-center justify-center">
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: accentColor }}>
                   <FileText className="w-4 h-4 text-white" />
                 </div>
               )}
-              <span className="font-semibold text-gray-900 text-sm">{invoice.company_name}</span>
+              <span className="font-semibold text-gray-900 text-sm">{headerName}</span>
             </div>
             <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${statusMeta.classes}`}>
               {statusMeta.icon}
@@ -232,7 +248,8 @@ export default function PortalInvoicePage({ invoice, token, isOverdue }: PortalI
             {canPay && (
               <button
                 onClick={() => setShowPayModal(true)}
-                className="inline-flex items-center gap-2 px-5 py-2.5 bg-teal-600 hover:bg-teal-500 text-white font-medium text-sm rounded-xl transition-colors shadow-sm"
+                className="inline-flex items-center gap-2 px-5 py-2.5 text-white font-medium text-sm rounded-xl transition-colors shadow-sm hover:opacity-90"
+                style={{ backgroundColor: accentColor }}
               >
                 <CreditCard className="h-4 w-4" />
                 Pay Now
@@ -256,7 +273,13 @@ export default function PortalInvoicePage({ invoice, token, isOverdue }: PortalI
         </div>
       </div>
 
-      {showPayModal && <PayModal onClose={() => setShowPayModal(false)} />}
+      {showPayModal && (
+        <PayModal
+          onClose={() => setShowPayModal(false)}
+          paymentInstructions={invoice.portal_payment_instructions}
+          accentColor={accentColor}
+        />
+      )}
     </>
   );
 }
