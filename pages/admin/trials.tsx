@@ -266,26 +266,18 @@ export default function AdminTrialsPage() {
                     <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{trial.user_count}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <button
-                          onClick={() => void extendOne(trial.id, 7)}
-                          disabled={extending.has(trial.id)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs bg-teal-600/20 hover:bg-teal-600/40 text-teal-400 rounded-md transition-colors disabled:opacity-40"
-                        >
-                          {extending.has(trial.id) ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
-                          +7 days
+                        <button onClick={() => void extendOne(trial.id, 7)} disabled={extending.has(trial.id)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs bg-teal-600/20 hover:bg-teal-600/40 text-teal-400 rounded-md transition-colors disabled:opacity-40">
+                          {extending.has(trial.id) ? <Loader2 className="w-3 h-3 animate-spin" /> : null}+7 days
                         </button>
                         {trial.status !== 'active' && (
-                          <button
-                            onClick={() => setConvertTarget(trial)}
-                            className="px-2.5 py-1 text-xs bg-green-600/20 hover:bg-green-600/40 text-green-400 rounded-md transition-colors"
-                          >
+                          <button onClick={() => setConvertTarget(trial)}
+                            className="px-2.5 py-1 text-xs bg-green-600/20 hover:bg-green-600/40 text-green-400 rounded-md transition-colors">
                             Convert to Paid
                           </button>
                         )}
-                        <Link
-                          href={adminHref(`/admin/companies/${trial.id}`)}
-                          className="px-2.5 py-1 text-xs bg-gray-700/40 hover:bg-gray-700/70 text-gray-300 rounded-md transition-colors"
-                        >
+                        <Link href={adminHref(`/admin/companies/${trial.id}`)}
+                          className="px-2.5 py-1 text-xs bg-gray-700/40 hover:bg-gray-700/70 text-gray-300 rounded-md transition-colors">
                           View
                         </Link>
                       </div>
@@ -297,14 +289,8 @@ export default function AdminTrialsPage() {
           </div>
         </>
       )}
-      {convertTarget && (
-        <ConvertTrialModal
-          companyId={convertTarget.id}
-          companyName={convertTarget.name}
-          onClose={() => setConvertTarget(null)}
-          onConverted={() => { setConvertTarget(null); void load(); }}
-        />
-      )}
+      {convertTarget && <ConvertTrialModal companyId={convertTarget.id} companyName={convertTarget.name}
+        onClose={() => setConvertTarget(null)} onConverted={() => { setConvertTarget(null); void load(); }} />}
     </AdminLayout>
   );
 }
