@@ -1,0 +1,158 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - generic [ref=e7]:
+        - img [ref=e8]
+        - generic [ref=e11]: Install IsaFlow for a faster, app-like experience
+      - generic [ref=e12]:
+        - button "Install" [ref=e13] [cursor=pointer]
+        - button "Dismiss" [ref=e14] [cursor=pointer]:
+          - img [ref=e15]
+    - banner [ref=e18]:
+      - img "ISAFlow" [ref=e19]
+      - button "Search Ctrl+K" [ref=e20] [cursor=pointer]:
+        - img [ref=e21]
+        - generic [ref=e24]: Search
+        - generic [ref=e25]: Ctrl+K
+      - button "Switch to sidebar navigation" [ref=e26] [cursor=pointer]:
+        - img [ref=e27]
+      - button "Switch to light mode" [ref=e29] [cursor=pointer]:
+        - img [ref=e30]
+      - generic [ref=e36]:
+        - img [ref=e37]
+        - generic [ref=e40]: Hein van Vuuren
+      - button "Log out" [ref=e41] [cursor=pointer]:
+        - img [ref=e42]
+    - main [ref=e45]:
+      - generic [ref=e46]:
+        - complementary [ref=e47]:
+          - paragraph [ref=e49]: Admin Console
+          - navigation [ref=e50]:
+            - link "Dashboard" [ref=e51] [cursor=pointer]:
+              - /url: /
+              - img [ref=e52]
+              - generic [ref=e57]: Dashboard
+            - link "Health" [ref=e58] [cursor=pointer]:
+              - /url: /health
+              - img [ref=e59]
+              - generic [ref=e61]: Health
+            - link "Companies" [ref=e62] [cursor=pointer]:
+              - /url: /companies
+              - img [ref=e63]
+              - generic [ref=e67]: Companies
+            - link "Users" [ref=e68] [cursor=pointer]:
+              - /url: /users
+              - img [ref=e69]
+              - generic [ref=e74]: Users
+            - generic [ref=e75]:
+              - link "Billing" [ref=e76] [cursor=pointer]:
+                - /url: /billing
+                - img [ref=e77]
+                - generic [ref=e79]: Billing
+                - img [ref=e80]
+              - generic [ref=e82]:
+                - link "Overview" [ref=e83] [cursor=pointer]:
+                  - /url: /billing
+                  - img [ref=e84]
+                  - generic [ref=e86]: Overview
+                - link "Plans" [ref=e87] [cursor=pointer]:
+                  - /url: /billing/plans
+                  - img [ref=e88]
+                  - generic [ref=e90]: Plans
+                - link "Subscriptions" [ref=e91] [cursor=pointer]:
+                  - /url: /billing/subscriptions
+                  - img [ref=e92]
+                  - generic [ref=e93]: Subscriptions
+                - link "Invoices" [ref=e94] [cursor=pointer]:
+                  - /url: /billing/invoices
+                  - img [ref=e95]
+                  - generic [ref=e98]: Invoices
+            - link "Tools" [ref=e100] [cursor=pointer]:
+              - /url: /tools
+              - img [ref=e101]
+              - generic [ref=e103]: Tools
+              - img [ref=e104]
+            - link "Trials" [ref=e106] [cursor=pointer]:
+              - /url: /trials
+              - img [ref=e107]
+              - generic [ref=e110]: Trials
+            - link "Features" [ref=e111] [cursor=pointer]:
+              - /url: /features
+              - img [ref=e112]
+              - generic [ref=e115]: Features
+            - link "Job Queue" [ref=e116] [cursor=pointer]:
+              - /url: /job-queue
+              - img [ref=e117]
+              - generic [ref=e119]: Job Queue
+            - link "Audit Trail" [ref=e120] [cursor=pointer]:
+              - /url: /audit
+              - img [ref=e121]
+              - generic [ref=e124]: Audit Trail
+            - link "Analytics" [ref=e125] [cursor=pointer]:
+              - /url: /analytics
+              - img [ref=e126]
+              - generic [ref=e127]: Analytics
+            - link "Components" [ref=e128] [cursor=pointer]:
+              - /url: /components
+              - img [ref=e129]
+              - generic [ref=e135]: Components
+            - link "Settings" [ref=e136] [cursor=pointer]:
+              - /url: /settings
+              - img [ref=e137]
+              - generic [ref=e140]: Settings
+        - main [ref=e141]:
+          - heading "Invoices" [level=1] [ref=e142]
+          - generic [ref=e143]:
+            - generic [ref=e144]:
+              - img [ref=e145]
+              - 'textbox "Search company or invoice #..." [ref=e148]'
+            - combobox [ref=e149]:
+              - option "All statuses" [selected]
+              - option "Draft"
+              - option "Sent"
+              - option "Paid"
+              - option "Overdue"
+              - option "Cancelled"
+              - option "Credited"
+            - textbox "From date" [ref=e150]
+            - textbox "To date" [ref=e151]
+            - generic [ref=e152]: 1 total
+            - button "Create Invoice" [ref=e153] [cursor=pointer]:
+              - img [ref=e154]
+              - text: Create Invoice
+          - generic [ref=e155]:
+            - table [ref=e157]:
+              - rowgroup [ref=e158]:
+                - 'row "Invoice # Company Status Subtotal Tax Total Due Date Paid At Created Actions" [ref=e159]':
+                  - 'columnheader "Invoice #" [ref=e160]'
+                  - columnheader "Company" [ref=e161]
+                  - columnheader "Status" [ref=e162]
+                  - columnheader "Subtotal" [ref=e163]
+                  - columnheader "Tax" [ref=e164]
+                  - columnheader "Total" [ref=e165]
+                  - columnheader "Due Date" [ref=e166]
+                  - columnheader "Paid At" [ref=e167]
+                  - columnheader "Created" [ref=e168]
+                  - columnheader "Actions" [ref=e169]
+              - rowgroup [ref=e170]:
+                - row "INV-202604-0001 Brightsphere Technologies (Pty) Ltd draft R 100,00 R 15,00 R 115,00 — — 2026/04/04" [ref=e171]:
+                  - cell "INV-202604-0001" [ref=e172]
+                  - cell "Brightsphere Technologies (Pty) Ltd" [ref=e173]
+                  - cell "draft" [ref=e174]
+                  - cell "R 100,00" [ref=e175]
+                  - cell "R 15,00" [ref=e176]
+                  - cell "R 115,00" [ref=e177]
+                  - cell "—" [ref=e178]
+                  - cell "—" [ref=e179]
+                  - cell "2026/04/04" [ref=e180]
+                  - cell [ref=e181]:
+                    - button "Send" [ref=e183] [cursor=pointer]:
+                      - img [ref=e184]
+            - generic [ref=e187]:
+              - generic [ref=e188]: Page 1 of 1
+              - generic [ref=e189]:
+                - button [disabled] [ref=e190]:
+                  - img [ref=e191]
+                - button [disabled] [ref=e193]:
+                  - img [ref=e194]
+  - alert [ref=e196]

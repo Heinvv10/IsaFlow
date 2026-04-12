@@ -1,0 +1,3 @@
+[    4549ms] [ERROR] Failed to load resource: the server responded with a status of 400 () @ https://admin.isaflow.co.za/api/accounting/reports-balance-sheet?asAt=2026-04-12:0
+[    4549ms] [ERROR] Failed to load resource: the server responded with a status of 400 () @ https://admin.isaflow.co.za/api/accounting/reports-trial-balance?startDate=2025-04-01&endDate=2026-04-12:0
+[    4550ms] [ERROR] Failed to load resource: the server responded with a status of 400 () @ https://admin.isaflow.co.za/api/accounting/reports-income-statement?startDate=2025-04-01&endDate=2026-04-12:0

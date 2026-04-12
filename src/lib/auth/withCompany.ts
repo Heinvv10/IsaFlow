@@ -40,6 +40,13 @@ export function withCompany(handler: CompanyHandler): NextApiHandler {
       const companyId = req.headers['x-company-id'] as string | undefined;
 
       if (companyId) {
+        // super_admin can access any company (impersonation and support access)
+        if (authReq.user.role === 'super_admin') {
+          (req as CompanyApiRequest).companyId = companyId;
+          (req as CompanyApiRequest).companyRole = 'owner';
+          return handler(req, res);
+        }
+
         // Validate user has access to this specific company
         const access = await sql`
           SELECT role FROM company_users

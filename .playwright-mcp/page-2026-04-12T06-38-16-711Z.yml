@@ -1,0 +1,790 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e9]:
+    - banner [ref=e10]:
+      - img "ISAFlow" [ref=e11]
+      - button "Search Ctrl+K" [ref=e12] [cursor=pointer]:
+        - img [ref=e13]
+        - generic [ref=e16]: Search
+        - generic [ref=e17]: Ctrl+K
+      - button "Switch to sidebar navigation" [ref=e18] [cursor=pointer]:
+        - img [ref=e19]
+      - button "Switch to light mode" [ref=e21] [cursor=pointer]:
+        - img [ref=e22]
+      - generic [ref=e28]:
+        - img [ref=e29]
+        - generic [ref=e32]: Admin User
+      - button "Log out" [ref=e33] [cursor=pointer]:
+        - img [ref=e34]
+    - main [ref=e37]:
+      - generic [ref=e38]:
+        - complementary [ref=e39]:
+          - paragraph [ref=e41]: Admin Console
+          - navigation [ref=e42]:
+            - link "Dashboard" [ref=e43] [cursor=pointer]:
+              - /url: /
+              - img [ref=e44]
+              - generic [ref=e49]: Dashboard
+            - link "Health" [ref=e50] [cursor=pointer]:
+              - /url: /health
+              - img [ref=e51]
+              - generic [ref=e53]: Health
+            - link "Companies" [ref=e54] [cursor=pointer]:
+              - /url: /companies
+              - img [ref=e55]
+              - generic [ref=e59]: Companies
+            - link "Users" [ref=e60] [cursor=pointer]:
+              - /url: /users
+              - img [ref=e61]
+              - generic [ref=e66]: Users
+            - link "Billing" [ref=e68] [cursor=pointer]:
+              - /url: /billing
+              - img [ref=e69]
+              - generic [ref=e71]: Billing
+              - img [ref=e72]
+            - link "Tools" [ref=e75] [cursor=pointer]:
+              - /url: /tools
+              - img [ref=e76]
+              - generic [ref=e78]: Tools
+              - img [ref=e79]
+            - link "Trials" [ref=e81] [cursor=pointer]:
+              - /url: /trials
+              - img [ref=e82]
+              - generic [ref=e85]: Trials
+            - link "Features" [ref=e86] [cursor=pointer]:
+              - /url: /features
+              - img [ref=e87]
+              - generic [ref=e90]: Features
+            - link "Job Queue" [ref=e91] [cursor=pointer]:
+              - /url: /job-queue
+              - img [ref=e92]
+              - generic [ref=e94]: Job Queue
+            - link "Audit Trail" [ref=e95] [cursor=pointer]:
+              - /url: /audit
+              - img [ref=e96]
+              - generic [ref=e99]: Audit Trail
+            - link "Analytics" [ref=e100] [cursor=pointer]:
+              - /url: /analytics
+              - img [ref=e101]
+              - generic [ref=e102]: Analytics
+            - link "Components" [ref=e103] [cursor=pointer]:
+              - /url: /components
+              - img [ref=e104]
+              - generic [ref=e110]: Components
+            - link "Settings" [ref=e111] [cursor=pointer]:
+              - /url: /settings
+              - img [ref=e112]
+              - generic [ref=e115]: Settings
+        - main [ref=e116]:
+          - heading "Audit Trail" [level=1] [ref=e117]
+          - generic [ref=e118]:
+            - generic [ref=e119]:
+              - generic [ref=e120]: From
+              - textbox [ref=e121]: 2026-03-31
+            - generic [ref=e122]:
+              - generic [ref=e123]: To
+              - textbox [ref=e124]: 2026-04-12
+            - generic [ref=e125]:
+              - generic [ref=e126]: Source
+              - combobox [ref=e127]:
+                - option "All Sources" [selected]
+                - option "Admin Actions"
+                - option "Accounting"
+                - option "User Auth"
+            - generic [ref=e128]:
+              - generic [ref=e129]: Company
+              - combobox [ref=e130]:
+                - option "All Companies" [selected]
+                - option "Brightsphere Technologies (Pty) Ltd"
+                - option "ISAFlow Demo (Pty) Ltd"
+            - generic [ref=e131]:
+              - generic [ref=e132]: Action
+              - combobox [ref=e133]:
+                - option "All Actions" [selected]
+                - option "create"
+                - option "update"
+                - option "delete"
+                - option "post"
+                - option "reverse"
+                - option "approve"
+                - option "reject"
+                - option "login"
+                - option "export"
+                - option "suspend"
+                - option "activate"
+                - option "reset password"
+                - option "logout"
+            - generic [ref=e134]:
+              - generic [ref=e135]: Entity Type
+              - combobox [ref=e136]:
+                - option "All Types" [selected]
+                - option "journal entry"
+                - option "customer invoice"
+                - option "supplier invoice"
+                - option "customer"
+                - option "supplier"
+                - option "bank transaction"
+                - option "payment"
+                - option "credit note"
+                - option "quote"
+                - option "purchase order"
+                - option "plan"
+                - option "subscription"
+                - option "announcement"
+                - option "feature flag"
+                - option "settings"
+                - option "session"
+                - option "company"
+                - option "user"
+          - generic [ref=e137]:
+            - generic [ref=e138]:
+              - generic [ref=e139]: Search
+              - textbox "Email, ref, or action…" [ref=e140]
+            - generic [ref=e141]:
+              - generic [ref=e142]: 128 entries
+              - button "Export CSV" [ref=e143] [cursor=pointer]:
+                - img [ref=e144]
+                - text: Export CSV
+          - generic [ref=e147]:
+            - table [ref=e149]:
+              - rowgroup [ref=e150]:
+                - row "Date / Time Source User Company Action Entity Details IP" [ref=e151]:
+                  - columnheader "Date / Time" [ref=e152]
+                  - columnheader "Source" [ref=e153]
+                  - columnheader "User" [ref=e154]
+                  - columnheader "Company" [ref=e155]
+                  - columnheader "Action" [ref=e156]
+                  - columnheader "Entity" [ref=e157]
+                  - columnheader "Details" [ref=e158]
+                  - columnheader "IP" [ref=e159]
+              - rowgroup [ref=e160]:
+                - row "11 Apr 2026, 22:46 Auth Admin User admin@isaflow.co.za — login session — 105.209.151.70" [ref=e161]:
+                  - cell "11 Apr 2026, 22:46" [ref=e162]
+                  - cell "Auth" [ref=e163]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e164]:
+                    - generic [ref=e165]: Admin User
+                    - generic [ref=e166]: admin@isaflow.co.za
+                  - cell "—" [ref=e167]
+                  - cell "login" [ref=e168]
+                  - cell "session" [ref=e169]:
+                    - generic [ref=e170]: session
+                  - cell "—" [ref=e171]
+                  - cell "105.209.151.70" [ref=e172]
+                - row "11 Apr 2026, 22:21 Auth Admin User admin@isaflow.co.za — login session — 105.209.151.70" [ref=e173]:
+                  - cell "11 Apr 2026, 22:21" [ref=e174]
+                  - cell "Auth" [ref=e175]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e176]:
+                    - generic [ref=e177]: Admin User
+                    - generic [ref=e178]: admin@isaflow.co.za
+                  - cell "—" [ref=e179]
+                  - cell "login" [ref=e180]
+                  - cell "session" [ref=e181]:
+                    - generic [ref=e182]: session
+                  - cell "—" [ref=e183]
+                  - cell "105.209.151.70" [ref=e184]
+                - row "11 Apr 2026, 22:20 Auth Admin User admin@isaflow.co.za — login session — 105.209.151.70" [ref=e185]:
+                  - cell "11 Apr 2026, 22:20" [ref=e186]
+                  - cell "Auth" [ref=e187]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e188]:
+                    - generic [ref=e189]: Admin User
+                    - generic [ref=e190]: admin@isaflow.co.za
+                  - cell "—" [ref=e191]
+                  - cell "login" [ref=e192]
+                  - cell "session" [ref=e193]:
+                    - generic [ref=e194]: session
+                  - cell "—" [ref=e195]
+                  - cell "105.209.151.70" [ref=e196]
+                - row "10 Apr 2026, 17:54 Admin Admin User admin@isaflow.co.za — user.force logout user — 105.209.151.70" [ref=e197]:
+                  - cell "10 Apr 2026, 17:54" [ref=e198]
+                  - cell "Admin" [ref=e199]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e200]:
+                    - generic [ref=e201]: Admin User
+                    - generic [ref=e202]: admin@isaflow.co.za
+                  - cell "—" [ref=e203]
+                  - cell "user.force logout" [ref=e204]
+                  - cell "user" [ref=e205]:
+                    - generic [ref=e206]: user
+                  - cell "—" [ref=e207]
+                  - cell "105.209.151.70" [ref=e208]
+                - 'row "10 Apr 2026, 17:54 Admin Admin User admin@isaflow.co.za — user.reset onboarding user {} 105.209.151.70" [ref=e209]':
+                  - cell "10 Apr 2026, 17:54" [ref=e210]
+                  - cell "Admin" [ref=e211]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e212]:
+                    - generic [ref=e213]: Admin User
+                    - generic [ref=e214]: admin@isaflow.co.za
+                  - cell "—" [ref=e215]
+                  - cell "user.reset onboarding" [ref=e216]
+                  - cell "user" [ref=e217]:
+                    - generic [ref=e218]: user
+                  - 'cell "{}" [ref=e219]':
+                    - generic [ref=e220]: "{}"
+                  - cell "105.209.151.70" [ref=e221]
+                - row "10 Apr 2026, 17:53 Admin Admin User admin@isaflow.co.za — user.force logout user — 105.209.151.70" [ref=e222]:
+                  - cell "10 Apr 2026, 17:53" [ref=e223]
+                  - cell "Admin" [ref=e224]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e225]:
+                    - generic [ref=e226]: Admin User
+                    - generic [ref=e227]: admin@isaflow.co.za
+                  - cell "—" [ref=e228]
+                  - cell "user.force logout" [ref=e229]
+                  - cell "user" [ref=e230]:
+                    - generic [ref=e231]: user
+                  - cell "—" [ref=e232]
+                  - cell "105.209.151.70" [ref=e233]
+                - 'row "10 Apr 2026, 17:53 Admin Admin User admin@isaflow.co.za — user.reset onboarding user {} 105.209.151.70" [ref=e234]':
+                  - cell "10 Apr 2026, 17:53" [ref=e235]
+                  - cell "Admin" [ref=e236]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e237]:
+                    - generic [ref=e238]: Admin User
+                    - generic [ref=e239]: admin@isaflow.co.za
+                  - cell "—" [ref=e240]
+                  - cell "user.reset onboarding" [ref=e241]
+                  - cell "user" [ref=e242]:
+                    - generic [ref=e243]: user
+                  - 'cell "{}" [ref=e244]':
+                    - generic [ref=e245]: "{}"
+                  - cell "105.209.151.70" [ref=e246]
+                - row "10 Apr 2026, 17:53 Admin Admin User admin@isaflow.co.za — user.force logout user — 105.209.151.70" [ref=e247]:
+                  - cell "10 Apr 2026, 17:53" [ref=e248]
+                  - cell "Admin" [ref=e249]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e250]:
+                    - generic [ref=e251]: Admin User
+                    - generic [ref=e252]: admin@isaflow.co.za
+                  - cell "—" [ref=e253]
+                  - cell "user.force logout" [ref=e254]
+                  - cell "user" [ref=e255]:
+                    - generic [ref=e256]: user
+                  - cell "—" [ref=e257]
+                  - cell "105.209.151.70" [ref=e258]
+                - 'row "10 Apr 2026, 17:53 Admin Admin User admin@isaflow.co.za — user.reset onboarding user {} 105.209.151.70" [ref=e259]':
+                  - cell "10 Apr 2026, 17:53" [ref=e260]
+                  - cell "Admin" [ref=e261]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e262]:
+                    - generic [ref=e263]: Admin User
+                    - generic [ref=e264]: admin@isaflow.co.za
+                  - cell "—" [ref=e265]
+                  - cell "user.reset onboarding" [ref=e266]
+                  - cell "user" [ref=e267]:
+                    - generic [ref=e268]: user
+                  - 'cell "{}" [ref=e269]':
+                    - generic [ref=e270]: "{}"
+                  - cell "105.209.151.70" [ref=e271]
+                - row "10 Apr 2026, 17:48 Admin Admin User admin@isaflow.co.za — user.force logout user — 105.209.151.70" [ref=e272]:
+                  - cell "10 Apr 2026, 17:48" [ref=e273]
+                  - cell "Admin" [ref=e274]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e275]:
+                    - generic [ref=e276]: Admin User
+                    - generic [ref=e277]: admin@isaflow.co.za
+                  - cell "—" [ref=e278]
+                  - cell "user.force logout" [ref=e279]
+                  - cell "user" [ref=e280]:
+                    - generic [ref=e281]: user
+                  - cell "—" [ref=e282]
+                  - cell "105.209.151.70" [ref=e283]
+                - row "10 Apr 2026, 17:48 Admin Admin User admin@isaflow.co.za — user.force logout user — 105.209.151.70" [ref=e284]:
+                  - cell "10 Apr 2026, 17:48" [ref=e285]
+                  - cell "Admin" [ref=e286]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e287]:
+                    - generic [ref=e288]: Admin User
+                    - generic [ref=e289]: admin@isaflow.co.za
+                  - cell "—" [ref=e290]
+                  - cell "user.force logout" [ref=e291]
+                  - cell "user" [ref=e292]:
+                    - generic [ref=e293]: user
+                  - cell "—" [ref=e294]
+                  - cell "105.209.151.70" [ref=e295]
+                - 'row "10 Apr 2026, 17:48 Admin Admin User admin@isaflow.co.za — user.reset onboarding user {} 105.209.151.70" [ref=e296]':
+                  - cell "10 Apr 2026, 17:48" [ref=e297]
+                  - cell "Admin" [ref=e298]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e299]:
+                    - generic [ref=e300]: Admin User
+                    - generic [ref=e301]: admin@isaflow.co.za
+                  - cell "—" [ref=e302]
+                  - cell "user.reset onboarding" [ref=e303]
+                  - cell "user" [ref=e304]:
+                    - generic [ref=e305]: user
+                  - 'cell "{}" [ref=e306]':
+                    - generic [ref=e307]: "{}"
+                  - cell "105.209.151.70" [ref=e308]
+                - 'row "10 Apr 2026, 17:47 Admin Admin User admin@isaflow.co.za — user.remove from company user {\"company_id\":\"d27bac33-cdc0-4e58-bf6b-709c1597d41c\"} 105.209.151.70" [ref=e309]':
+                  - cell "10 Apr 2026, 17:47" [ref=e310]
+                  - cell "Admin" [ref=e311]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e312]:
+                    - generic [ref=e313]: Admin User
+                    - generic [ref=e314]: admin@isaflow.co.za
+                  - cell "—" [ref=e315]
+                  - cell "user.remove from company" [ref=e316]
+                  - cell "user" [ref=e317]:
+                    - generic [ref=e318]: user
+                  - 'cell "{\"company_id\":\"d27bac33-cdc0-4e58-bf6b-709c1597d41c\"}" [ref=e319]':
+                    - generic [ref=e320]: "{\"company_id\":\"d27bac33-cdc0-4e58-bf6b-709c1597d41c\"}"
+                  - cell "105.209.151.70" [ref=e321]
+                - 'row "10 Apr 2026, 17:43 Admin Admin User admin@isaflow.co.za — user.add to company user {\"role\":\"bookkeeper\",\"company_id\":\"d27bac33-cdc0-4e58-bf6b-7… more 105.209.151.70" [ref=e322]':
+                  - cell "10 Apr 2026, 17:43" [ref=e323]
+                  - cell "Admin" [ref=e324]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e325]:
+                    - generic [ref=e326]: Admin User
+                    - generic [ref=e327]: admin@isaflow.co.za
+                  - cell "—" [ref=e328]
+                  - cell "user.add to company" [ref=e329]
+                  - cell "user" [ref=e330]:
+                    - generic [ref=e331]: user
+                  - 'cell "{\"role\":\"bookkeeper\",\"company_id\":\"d27bac33-cdc0-4e58-bf6b-7… more" [ref=e332]':
+                    - generic [ref=e333]:
+                      - text: "{\"role\":\"bookkeeper\",\"company_id\":\"d27bac33-cdc0-4e58-bf6b-7…"
+                      - button "more" [ref=e334] [cursor=pointer]
+                  - cell "105.209.151.70" [ref=e335]
+                - 'row "10 Apr 2026, 17:33 Admin Admin User admin@isaflow.co.za — user.remove from company user {\"company_id\":\"d27bac33-cdc0-4e58-bf6b-709c1597d41c\"} 105.209.151.70" [ref=e336]':
+                  - cell "10 Apr 2026, 17:33" [ref=e337]
+                  - cell "Admin" [ref=e338]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e339]:
+                    - generic [ref=e340]: Admin User
+                    - generic [ref=e341]: admin@isaflow.co.za
+                  - cell "—" [ref=e342]
+                  - cell "user.remove from company" [ref=e343]
+                  - cell "user" [ref=e344]:
+                    - generic [ref=e345]: user
+                  - 'cell "{\"company_id\":\"d27bac33-cdc0-4e58-bf6b-709c1597d41c\"}" [ref=e346]':
+                    - generic [ref=e347]: "{\"company_id\":\"d27bac33-cdc0-4e58-bf6b-709c1597d41c\"}"
+                  - cell "105.209.151.70" [ref=e348]
+                - 'row "10 Apr 2026, 17:32 Admin Admin User admin@isaflow.co.za — user.add to company user {\"role\":\"bookkeeper\",\"company_id\":\"d27bac33-cdc0-4e58-bf6b-7… more 105.209.151.70" [ref=e349]':
+                  - cell "10 Apr 2026, 17:32" [ref=e350]
+                  - cell "Admin" [ref=e351]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e352]:
+                    - generic [ref=e353]: Admin User
+                    - generic [ref=e354]: admin@isaflow.co.za
+                  - cell "—" [ref=e355]
+                  - cell "user.add to company" [ref=e356]
+                  - cell "user" [ref=e357]:
+                    - generic [ref=e358]: user
+                  - 'cell "{\"role\":\"bookkeeper\",\"company_id\":\"d27bac33-cdc0-4e58-bf6b-7… more" [ref=e359]':
+                    - generic [ref=e360]:
+                      - text: "{\"role\":\"bookkeeper\",\"company_id\":\"d27bac33-cdc0-4e58-bf6b-7…"
+                      - button "more" [ref=e361] [cursor=pointer]
+                  - cell "105.209.151.70" [ref=e362]
+                - 'row "10 Apr 2026, 17:29 Admin Admin User admin@isaflow.co.za — user.update user {\"fields\":[\"first_name\",\"last_name\",\"phone\",\"role\"]} 105.209.151.70" [ref=e363]':
+                  - cell "10 Apr 2026, 17:29" [ref=e364]
+                  - cell "Admin" [ref=e365]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e366]:
+                    - generic [ref=e367]: Admin User
+                    - generic [ref=e368]: admin@isaflow.co.za
+                  - cell "—" [ref=e369]
+                  - cell "user.update" [ref=e370]
+                  - cell "user" [ref=e371]:
+                    - generic [ref=e372]: user
+                  - 'cell "{\"fields\":[\"first_name\",\"last_name\",\"phone\",\"role\"]}" [ref=e373]':
+                    - generic [ref=e374]: "{\"fields\":[\"first_name\",\"last_name\",\"phone\",\"role\"]}"
+                  - cell "105.209.151.70" [ref=e375]
+                - 'row "10 Apr 2026, 17:29 Admin Admin User admin@isaflow.co.za — user.remove from company user {\"company_id\":\"d27bac33-cdc0-4e58-bf6b-709c1597d41c\"} 105.209.151.70" [ref=e376]':
+                  - cell "10 Apr 2026, 17:29" [ref=e377]
+                  - cell "Admin" [ref=e378]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e379]:
+                    - generic [ref=e380]: Admin User
+                    - generic [ref=e381]: admin@isaflow.co.za
+                  - cell "—" [ref=e382]
+                  - cell "user.remove from company" [ref=e383]
+                  - cell "user" [ref=e384]:
+                    - generic [ref=e385]: user
+                  - 'cell "{\"company_id\":\"d27bac33-cdc0-4e58-bf6b-709c1597d41c\"}" [ref=e386]':
+                    - generic [ref=e387]: "{\"company_id\":\"d27bac33-cdc0-4e58-bf6b-709c1597d41c\"}"
+                  - cell "105.209.151.70" [ref=e388]
+                - row "10 Apr 2026, 17:28 Admin Admin User admin@isaflow.co.za — company.delete company — 105.209.151.70" [ref=e389]:
+                  - cell "10 Apr 2026, 17:28" [ref=e390]
+                  - cell "Admin" [ref=e391]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e392]:
+                    - generic [ref=e393]: Admin User
+                    - generic [ref=e394]: admin@isaflow.co.za
+                  - cell "—" [ref=e395]
+                  - cell "company.delete" [ref=e396]
+                  - cell "company" [ref=e397]:
+                    - generic [ref=e398]: company
+                  - cell "—" [ref=e399]
+                  - cell "105.209.151.70" [ref=e400]
+                - row "10 Apr 2026, 17:28 Admin Admin User admin@isaflow.co.za — company.delete company — 105.209.151.70" [ref=e401]:
+                  - cell "10 Apr 2026, 17:28" [ref=e402]
+                  - cell "Admin" [ref=e403]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e404]:
+                    - generic [ref=e405]: Admin User
+                    - generic [ref=e406]: admin@isaflow.co.za
+                  - cell "—" [ref=e407]
+                  - cell "company.delete" [ref=e408]
+                  - cell "company" [ref=e409]:
+                    - generic [ref=e410]: company
+                  - cell "—" [ref=e411]
+                  - cell "105.209.151.70" [ref=e412]
+                - row "10 Apr 2026, 17:28 Admin Admin User admin@isaflow.co.za — company.delete company — 105.209.151.70" [ref=e413]:
+                  - cell "10 Apr 2026, 17:28" [ref=e414]
+                  - cell "Admin" [ref=e415]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e416]:
+                    - generic [ref=e417]: Admin User
+                    - generic [ref=e418]: admin@isaflow.co.za
+                  - cell "—" [ref=e419]
+                  - cell "company.delete" [ref=e420]
+                  - cell "company" [ref=e421]:
+                    - generic [ref=e422]: company
+                  - cell "—" [ref=e423]
+                  - cell "105.209.151.70" [ref=e424]
+                - row "10 Apr 2026, 17:28 Admin Admin User admin@isaflow.co.za — company.delete company — 105.209.151.70" [ref=e425]:
+                  - cell "10 Apr 2026, 17:28" [ref=e426]
+                  - cell "Admin" [ref=e427]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e428]:
+                    - generic [ref=e429]: Admin User
+                    - generic [ref=e430]: admin@isaflow.co.za
+                  - cell "—" [ref=e431]
+                  - cell "company.delete" [ref=e432]
+                  - cell "company" [ref=e433]:
+                    - generic [ref=e434]: company
+                  - cell "—" [ref=e435]
+                  - cell "105.209.151.70" [ref=e436]
+                - 'row "10 Apr 2026, 17:27 Admin Admin User admin@isaflow.co.za — user.add to company user {\"role\":\"bookkeeper\",\"company_id\":\"d27bac33-cdc0-4e58-bf6b-7… more 105.209.151.70" [ref=e437]':
+                  - cell "10 Apr 2026, 17:27" [ref=e438]
+                  - cell "Admin" [ref=e439]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e440]:
+                    - generic [ref=e441]: Admin User
+                    - generic [ref=e442]: admin@isaflow.co.za
+                  - cell "—" [ref=e443]
+                  - cell "user.add to company" [ref=e444]
+                  - cell "user" [ref=e445]:
+                    - generic [ref=e446]: user
+                  - 'cell "{\"role\":\"bookkeeper\",\"company_id\":\"d27bac33-cdc0-4e58-bf6b-7… more" [ref=e447]':
+                    - generic [ref=e448]:
+                      - text: "{\"role\":\"bookkeeper\",\"company_id\":\"d27bac33-cdc0-4e58-bf6b-7…"
+                      - button "more" [ref=e449] [cursor=pointer]
+                  - cell "105.209.151.70" [ref=e450]
+                - 'row "10 Apr 2026, 17:26 Admin Admin User admin@isaflow.co.za — user.update user {\"fields\":[\"first_name\",\"last_name\",\"phone\",\"role\"]} 105.209.151.70" [ref=e451]':
+                  - cell "10 Apr 2026, 17:26" [ref=e452]
+                  - cell "Admin" [ref=e453]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e454]:
+                    - generic [ref=e455]: Admin User
+                    - generic [ref=e456]: admin@isaflow.co.za
+                  - cell "—" [ref=e457]
+                  - cell "user.update" [ref=e458]
+                  - cell "user" [ref=e459]:
+                    - generic [ref=e460]: user
+                  - 'cell "{\"fields\":[\"first_name\",\"last_name\",\"phone\",\"role\"]}" [ref=e461]':
+                    - generic [ref=e462]: "{\"fields\":[\"first_name\",\"last_name\",\"phone\",\"role\"]}"
+                  - cell "105.209.151.70" [ref=e463]
+                - 'row "10 Apr 2026, 17:25 Admin Admin User admin@isaflow.co.za — user.activate user {} 105.209.151.70" [ref=e464]':
+                  - cell "10 Apr 2026, 17:25" [ref=e465]
+                  - cell "Admin" [ref=e466]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e467]:
+                    - generic [ref=e468]: Admin User
+                    - generic [ref=e469]: admin@isaflow.co.za
+                  - cell "—" [ref=e470]
+                  - cell "user.activate" [ref=e471]
+                  - cell "user" [ref=e472]:
+                    - generic [ref=e473]: user
+                  - 'cell "{}" [ref=e474]':
+                    - generic [ref=e475]: "{}"
+                  - cell "105.209.151.70" [ref=e476]
+                - 'row "10 Apr 2026, 17:24 Admin Admin User admin@isaflow.co.za — user.remove from company user {\"company_id\":\"d27bac33-cdc0-4e58-bf6b-709c1597d41c\"} 105.209.151.70" [ref=e477]':
+                  - cell "10 Apr 2026, 17:24" [ref=e478]
+                  - cell "Admin" [ref=e479]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e480]:
+                    - generic [ref=e481]: Admin User
+                    - generic [ref=e482]: admin@isaflow.co.za
+                  - cell "—" [ref=e483]
+                  - cell "user.remove from company" [ref=e484]
+                  - cell "user" [ref=e485]:
+                    - generic [ref=e486]: user
+                  - 'cell "{\"company_id\":\"d27bac33-cdc0-4e58-bf6b-709c1597d41c\"}" [ref=e487]':
+                    - generic [ref=e488]: "{\"company_id\":\"d27bac33-cdc0-4e58-bf6b-709c1597d41c\"}"
+                  - cell "105.209.151.70" [ref=e489]
+                - 'row "10 Apr 2026, 17:24 Admin Admin User admin@isaflow.co.za — user.add to company user {\"role\":\"bookkeeper\",\"company_id\":\"d27bac33-cdc0-4e58-bf6b-7… more 105.209.151.70" [ref=e490]':
+                  - cell "10 Apr 2026, 17:24" [ref=e491]
+                  - cell "Admin" [ref=e492]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e493]:
+                    - generic [ref=e494]: Admin User
+                    - generic [ref=e495]: admin@isaflow.co.za
+                  - cell "—" [ref=e496]
+                  - cell "user.add to company" [ref=e497]
+                  - cell "user" [ref=e498]:
+                    - generic [ref=e499]: user
+                  - 'cell "{\"role\":\"bookkeeper\",\"company_id\":\"d27bac33-cdc0-4e58-bf6b-7… more" [ref=e500]':
+                    - generic [ref=e501]:
+                      - text: "{\"role\":\"bookkeeper\",\"company_id\":\"d27bac33-cdc0-4e58-bf6b-7…"
+                      - button "more" [ref=e502] [cursor=pointer]
+                  - cell "105.209.151.70" [ref=e503]
+                - row "10 Apr 2026, 17:18 Auth Admin User admin@isaflow.co.za — login session — 105.209.151.70" [ref=e504]:
+                  - cell "10 Apr 2026, 17:18" [ref=e505]
+                  - cell "Auth" [ref=e506]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e507]:
+                    - generic [ref=e508]: Admin User
+                    - generic [ref=e509]: admin@isaflow.co.za
+                  - cell "—" [ref=e510]
+                  - cell "login" [ref=e511]
+                  - cell "session" [ref=e512]:
+                    - generic [ref=e513]: session
+                  - cell "—" [ref=e514]
+                  - cell "105.209.151.70" [ref=e515]
+                - row "10 Apr 2026, 15:15 Auth Admin User admin@isaflow.co.za — login session — 105.209.151.70" [ref=e516]:
+                  - cell "10 Apr 2026, 15:15" [ref=e517]
+                  - cell "Auth" [ref=e518]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e519]:
+                    - generic [ref=e520]: Admin User
+                    - generic [ref=e521]: admin@isaflow.co.za
+                  - cell "—" [ref=e522]
+                  - cell "login" [ref=e523]
+                  - cell "session" [ref=e524]:
+                    - generic [ref=e525]: session
+                  - cell "—" [ref=e526]
+                  - cell "105.209.151.70" [ref=e527]
+                - row "10 Apr 2026, 15:07 Auth Hein van Vuuren heinvv@xinox.co.za — login session — 105.209.151.70" [ref=e528]:
+                  - cell "10 Apr 2026, 15:07" [ref=e529]
+                  - cell "Auth" [ref=e530]
+                  - cell "Hein van Vuuren heinvv@xinox.co.za" [ref=e531]:
+                    - generic [ref=e532]: Hein van Vuuren
+                    - generic [ref=e533]: heinvv@xinox.co.za
+                  - cell "—" [ref=e534]
+                  - cell "login" [ref=e535]
+                  - cell "session" [ref=e536]:
+                    - generic [ref=e537]: session
+                  - cell "—" [ref=e538]
+                  - cell "105.209.151.70" [ref=e539]
+                - row "10 Apr 2026, 15:06 Auth Admin User admin@isaflow.co.za — login session — 105.209.151.70" [ref=e540]:
+                  - cell "10 Apr 2026, 15:06" [ref=e541]
+                  - cell "Auth" [ref=e542]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e543]:
+                    - generic [ref=e544]: Admin User
+                    - generic [ref=e545]: admin@isaflow.co.za
+                  - cell "—" [ref=e546]
+                  - cell "login" [ref=e547]
+                  - cell "session" [ref=e548]:
+                    - generic [ref=e549]: session
+                  - cell "—" [ref=e550]
+                  - cell "105.209.151.70" [ref=e551]
+                - row "10 Apr 2026, 15:06 Auth Admin User admin@isaflow.co.za — login session — 105.209.151.70" [ref=e552]:
+                  - cell "10 Apr 2026, 15:06" [ref=e553]
+                  - cell "Auth" [ref=e554]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e555]:
+                    - generic [ref=e556]: Admin User
+                    - generic [ref=e557]: admin@isaflow.co.za
+                  - cell "—" [ref=e558]
+                  - cell "login" [ref=e559]
+                  - cell "session" [ref=e560]:
+                    - generic [ref=e561]: session
+                  - cell "—" [ref=e562]
+                  - cell "105.209.151.70" [ref=e563]
+                - row "10 Apr 2026, 15:02 Auth Admin User admin@isaflow.co.za — login session — 105.209.151.70" [ref=e564]:
+                  - cell "10 Apr 2026, 15:02" [ref=e565]
+                  - cell "Auth" [ref=e566]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e567]:
+                    - generic [ref=e568]: Admin User
+                    - generic [ref=e569]: admin@isaflow.co.za
+                  - cell "—" [ref=e570]
+                  - cell "login" [ref=e571]
+                  - cell "session" [ref=e572]:
+                    - generic [ref=e573]: session
+                  - cell "—" [ref=e574]
+                  - cell "105.209.151.70" [ref=e575]
+                - row "10 Apr 2026, 15:00 Auth Hein van Vuuren heinvv@xinox.co.za — login session — 105.209.151.70" [ref=e576]:
+                  - cell "10 Apr 2026, 15:00" [ref=e577]
+                  - cell "Auth" [ref=e578]
+                  - cell "Hein van Vuuren heinvv@xinox.co.za" [ref=e579]:
+                    - generic [ref=e580]: Hein van Vuuren
+                    - generic [ref=e581]: heinvv@xinox.co.za
+                  - cell "—" [ref=e582]
+                  - cell "login" [ref=e583]
+                  - cell "session" [ref=e584]:
+                    - generic [ref=e585]: session
+                  - cell "—" [ref=e586]
+                  - cell "105.209.151.70" [ref=e587]
+                - row "10 Apr 2026, 14:57 Auth Hein van Vuuren heinvv@xinox.co.za — login session — 105.209.151.70" [ref=e588]:
+                  - cell "10 Apr 2026, 14:57" [ref=e589]
+                  - cell "Auth" [ref=e590]
+                  - cell "Hein van Vuuren heinvv@xinox.co.za" [ref=e591]:
+                    - generic [ref=e592]: Hein van Vuuren
+                    - generic [ref=e593]: heinvv@xinox.co.za
+                  - cell "—" [ref=e594]
+                  - cell "login" [ref=e595]
+                  - cell "session" [ref=e596]:
+                    - generic [ref=e597]: session
+                  - cell "—" [ref=e598]
+                  - cell "105.209.151.70" [ref=e599]
+                - row "10 Apr 2026, 14:57 Auth Hein van Vuuren heinvv@xinox.co.za — login session — 105.209.151.70" [ref=e600]:
+                  - cell "10 Apr 2026, 14:57" [ref=e601]
+                  - cell "Auth" [ref=e602]
+                  - cell "Hein van Vuuren heinvv@xinox.co.za" [ref=e603]:
+                    - generic [ref=e604]: Hein van Vuuren
+                    - generic [ref=e605]: heinvv@xinox.co.za
+                  - cell "—" [ref=e606]
+                  - cell "login" [ref=e607]
+                  - cell "session" [ref=e608]:
+                    - generic [ref=e609]: session
+                  - cell "—" [ref=e610]
+                  - cell "105.209.151.70" [ref=e611]
+                - row "10 Apr 2026, 14:40 Admin Hein van Vuuren hein@h10.co.za — plan.archive plan — 105.209.151.70" [ref=e612]:
+                  - cell "10 Apr 2026, 14:40" [ref=e613]
+                  - cell "Admin" [ref=e614]
+                  - cell "Hein van Vuuren hein@h10.co.za" [ref=e615]:
+                    - generic [ref=e616]: Hein van Vuuren
+                    - generic [ref=e617]: hein@h10.co.za
+                  - cell "—" [ref=e618]
+                  - cell "plan.archive" [ref=e619]
+                  - cell "plan" [ref=e620]:
+                    - generic [ref=e621]: plan
+                  - cell "—" [ref=e622]
+                  - cell "105.209.151.70" [ref=e623]
+                - row "10 Apr 2026, 14:36 Auth Willie Marneweck willie@dotbiz.co.za — login session — 102.141.184.199" [ref=e624]:
+                  - cell "10 Apr 2026, 14:36" [ref=e625]
+                  - cell "Auth" [ref=e626]
+                  - cell "Willie Marneweck willie@dotbiz.co.za" [ref=e627]:
+                    - generic [ref=e628]: Willie Marneweck
+                    - generic [ref=e629]: willie@dotbiz.co.za
+                  - cell "—" [ref=e630]
+                  - cell "login" [ref=e631]
+                  - cell "session" [ref=e632]:
+                    - generic [ref=e633]: session
+                  - cell "—" [ref=e634]
+                  - cell "102.141.184.199" [ref=e635]
+                - row "10 Apr 2026, 14:32 Auth Admin User admin@isaflow.co.za — login session — 105.209.151.70" [ref=e636]:
+                  - cell "10 Apr 2026, 14:32" [ref=e637]
+                  - cell "Auth" [ref=e638]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e639]:
+                    - generic [ref=e640]: Admin User
+                    - generic [ref=e641]: admin@isaflow.co.za
+                  - cell "—" [ref=e642]
+                  - cell "login" [ref=e643]
+                  - cell "session" [ref=e644]:
+                    - generic [ref=e645]: session
+                  - cell "—" [ref=e646]
+                  - cell "105.209.151.70" [ref=e647]
+                - row "10 Apr 2026, 11:30 Auth Admin User admin@isaflow.co.za — login session — 102.141.184.199" [ref=e648]:
+                  - cell "10 Apr 2026, 11:30" [ref=e649]
+                  - cell "Auth" [ref=e650]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e651]:
+                    - generic [ref=e652]: Admin User
+                    - generic [ref=e653]: admin@isaflow.co.za
+                  - cell "—" [ref=e654]
+                  - cell "login" [ref=e655]
+                  - cell "session" [ref=e656]:
+                    - generic [ref=e657]: session
+                  - cell "—" [ref=e658]
+                  - cell "102.141.184.199" [ref=e659]
+                - row "05 Apr 2026, 19:38 Auth Admin User admin@isaflow.co.za — login session — 105.209.151.70" [ref=e660]:
+                  - cell "05 Apr 2026, 19:38" [ref=e661]
+                  - cell "Auth" [ref=e662]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e663]:
+                    - generic [ref=e664]: Admin User
+                    - generic [ref=e665]: admin@isaflow.co.za
+                  - cell "—" [ref=e666]
+                  - cell "login" [ref=e667]
+                  - cell "session" [ref=e668]:
+                    - generic [ref=e669]: session
+                  - cell "—" [ref=e670]
+                  - cell "105.209.151.70" [ref=e671]
+                - row "05 Apr 2026, 18:22 Auth Admin User admin@isaflow.co.za — login session — 105.209.151.70" [ref=e672]:
+                  - cell "05 Apr 2026, 18:22" [ref=e673]
+                  - cell "Auth" [ref=e674]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e675]:
+                    - generic [ref=e676]: Admin User
+                    - generic [ref=e677]: admin@isaflow.co.za
+                  - cell "—" [ref=e678]
+                  - cell "login" [ref=e679]
+                  - cell "session" [ref=e680]:
+                    - generic [ref=e681]: session
+                  - cell "—" [ref=e682]
+                  - cell "105.209.151.70" [ref=e683]
+                - row "05 Apr 2026, 17:54 Auth Admin User admin@isaflow.co.za — login session — 105.209.151.70" [ref=e684]:
+                  - cell "05 Apr 2026, 17:54" [ref=e685]
+                  - cell "Auth" [ref=e686]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e687]:
+                    - generic [ref=e688]: Admin User
+                    - generic [ref=e689]: admin@isaflow.co.za
+                  - cell "—" [ref=e690]
+                  - cell "login" [ref=e691]
+                  - cell "session" [ref=e692]:
+                    - generic [ref=e693]: session
+                  - cell "—" [ref=e694]
+                  - cell "105.209.151.70" [ref=e695]
+                - row "05 Apr 2026, 13:32 Auth Admin User admin@isaflow.co.za — login session — 127.0.0.1" [ref=e696]:
+                  - cell "05 Apr 2026, 13:32" [ref=e697]
+                  - cell "Auth" [ref=e698]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e699]:
+                    - generic [ref=e700]: Admin User
+                    - generic [ref=e701]: admin@isaflow.co.za
+                  - cell "—" [ref=e702]
+                  - cell "login" [ref=e703]
+                  - cell "session" [ref=e704]:
+                    - generic [ref=e705]: session
+                  - cell "—" [ref=e706]
+                  - cell "127.0.0.1" [ref=e707]
+                - row "05 Apr 2026, 13:32 Auth Admin User admin@isaflow.co.za — login session — 127.0.0.1" [ref=e708]:
+                  - cell "05 Apr 2026, 13:32" [ref=e709]
+                  - cell "Auth" [ref=e710]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e711]:
+                    - generic [ref=e712]: Admin User
+                    - generic [ref=e713]: admin@isaflow.co.za
+                  - cell "—" [ref=e714]
+                  - cell "login" [ref=e715]
+                  - cell "session" [ref=e716]:
+                    - generic [ref=e717]: session
+                  - cell "—" [ref=e718]
+                  - cell "127.0.0.1" [ref=e719]
+                - row "05 Apr 2026, 13:32 Auth Admin User admin@isaflow.co.za — login session — 127.0.0.1" [ref=e720]:
+                  - cell "05 Apr 2026, 13:32" [ref=e721]
+                  - cell "Auth" [ref=e722]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e723]:
+                    - generic [ref=e724]: Admin User
+                    - generic [ref=e725]: admin@isaflow.co.za
+                  - cell "—" [ref=e726]
+                  - cell "login" [ref=e727]
+                  - cell "session" [ref=e728]:
+                    - generic [ref=e729]: session
+                  - cell "—" [ref=e730]
+                  - cell "127.0.0.1" [ref=e731]
+                - row "05 Apr 2026, 13:31 Auth Admin User admin@isaflow.co.za — login session — 127.0.0.1" [ref=e732]:
+                  - cell "05 Apr 2026, 13:31" [ref=e733]
+                  - cell "Auth" [ref=e734]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e735]:
+                    - generic [ref=e736]: Admin User
+                    - generic [ref=e737]: admin@isaflow.co.za
+                  - cell "—" [ref=e738]
+                  - cell "login" [ref=e739]
+                  - cell "session" [ref=e740]:
+                    - generic [ref=e741]: session
+                  - cell "—" [ref=e742]
+                  - cell "127.0.0.1" [ref=e743]
+                - row "05 Apr 2026, 11:10 Auth Admin User admin@isaflow.co.za — login session — 105.209.151.70" [ref=e744]:
+                  - cell "05 Apr 2026, 11:10" [ref=e745]
+                  - cell "Auth" [ref=e746]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e747]:
+                    - generic [ref=e748]: Admin User
+                    - generic [ref=e749]: admin@isaflow.co.za
+                  - cell "—" [ref=e750]
+                  - cell "login" [ref=e751]
+                  - cell "session" [ref=e752]:
+                    - generic [ref=e753]: session
+                  - cell "—" [ref=e754]
+                  - cell "105.209.151.70" [ref=e755]
+                - row "04 Apr 2026, 19:37 Auth Admin User admin@isaflow.co.za — login session — 41.121.230.42" [ref=e756]:
+                  - cell "04 Apr 2026, 19:37" [ref=e757]
+                  - cell "Auth" [ref=e758]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e759]:
+                    - generic [ref=e760]: Admin User
+                    - generic [ref=e761]: admin@isaflow.co.za
+                  - cell "—" [ref=e762]
+                  - cell "login" [ref=e763]
+                  - cell "session" [ref=e764]:
+                    - generic [ref=e765]: session
+                  - cell "—" [ref=e766]
+                  - cell "41.121.230.42" [ref=e767]
+                - row "04 Apr 2026, 17:52 Auth Admin User admin@isaflow.co.za — login session — 105.209.151.70" [ref=e768]:
+                  - cell "04 Apr 2026, 17:52" [ref=e769]
+                  - cell "Auth" [ref=e770]
+                  - cell "Admin User admin@isaflow.co.za" [ref=e771]:
+                    - generic [ref=e772]: Admin User
+                    - generic [ref=e773]: admin@isaflow.co.za
+                  - cell "—" [ref=e774]
+                  - cell "login" [ref=e775]
+                  - cell "session" [ref=e776]:
+                    - generic [ref=e777]: session
+                  - cell "—" [ref=e778]
+                  - cell "105.209.151.70" [ref=e779]
+            - generic [ref=e780]:
+              - generic [ref=e781]: Page 1 of 3 · 128 total entries
+              - generic [ref=e782]:
+                - button [disabled] [ref=e783]:
+                  - img [ref=e784]
+                - button [ref=e786] [cursor=pointer]:
+                  - img [ref=e787]
+  - alert [ref=e8]

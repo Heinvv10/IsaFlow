@@ -1,0 +1,211 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e9]:
+    - generic [ref=e10]:
+      - generic [ref=e11]:
+        - img [ref=e12]
+        - generic [ref=e15]: Install IsaFlow for a faster, app-like experience
+      - generic [ref=e16]:
+        - button "Install" [ref=e17] [cursor=pointer]
+        - button "Dismiss" [ref=e18] [cursor=pointer]:
+          - img [ref=e19]
+    - banner [ref=e22]:
+      - img "ISAFlow" [ref=e23]
+      - generic [ref=e28]:
+        - button "Create new" [ref=e29] [cursor=pointer]:
+          - img [ref=e30]
+        - tooltip: Create new (N)
+      - button "Search Ctrl+K" [ref=e31] [cursor=pointer]:
+        - img [ref=e32]
+        - generic [ref=e35]: Search
+        - generic [ref=e36]: Ctrl+K
+      - button "Setup guide — 14 tasks remaining" [ref=e37] [cursor=pointer]:
+        - img [ref=e38]
+        - generic [ref=e41]: "14"
+      - button "Switch to sidebar navigation" [ref=e42] [cursor=pointer]:
+        - img [ref=e43]
+      - button "Switch to light mode" [ref=e45] [cursor=pointer]:
+        - img [ref=e46]
+      - generic [ref=e52]:
+        - img [ref=e53]
+        - generic [ref=e56]: Hein van Vuuren
+      - button "Log out" [ref=e57] [cursor=pointer]:
+        - img [ref=e58]
+    - navigation [ref=e62]:
+      - generic [ref=e63]:
+        - link "Dashboard" [ref=e65] [cursor=pointer]:
+          - /url: /accounting
+        - button "Customers" [ref=e67] [cursor=pointer]:
+          - text: Customers
+          - img [ref=e68]
+        - button "Suppliers" [ref=e71] [cursor=pointer]:
+          - text: Suppliers
+          - img [ref=e72]
+        - button "Items" [ref=e75] [cursor=pointer]:
+          - text: Items
+          - img [ref=e76]
+        - button "Banking" [ref=e79] [cursor=pointer]:
+          - text: Banking
+          - img [ref=e80]
+        - button "Accounts" [ref=e83] [cursor=pointer]:
+          - text: Accounts
+          - img [ref=e84]
+        - button "VAT" [ref=e87] [cursor=pointer]:
+          - text: VAT
+          - img [ref=e88]
+        - button "Accountant's Area" [ref=e91] [cursor=pointer]:
+          - text: Accountant's Area
+          - img [ref=e92]
+        - button "Reports" [ref=e95] [cursor=pointer]:
+          - text: Reports
+          - img [ref=e96]
+        - button "SARS" [ref=e99] [cursor=pointer]:
+          - text: SARS
+          - img [ref=e100]
+        - button "Tools" [ref=e103] [cursor=pointer]:
+          - text: Tools
+          - img [ref=e104]
+        - button "Group" [ref=e107] [cursor=pointer]:
+          - text: Group
+          - img [ref=e108]
+        - link "Data Import" [ref=e111] [cursor=pointer]:
+          - /url: /accounting/migration
+        - button "Payroll" [ref=e113] [cursor=pointer]:
+          - text: Payroll
+          - img [ref=e114]
+    - main [ref=e116]:
+      - generic [ref=e117]:
+        - generic [ref=e119]:
+          - generic [ref=e120]:
+            - img [ref=e122]
+            - generic [ref=e127]:
+              - heading "Suppliers" [level=1] [ref=e128]
+              - paragraph [ref=e129]: Manage your supplier accounts
+          - link "New Supplier" [ref=e130] [cursor=pointer]:
+            - /url: /accounting/suppliers/new
+            - img [ref=e131]
+            - text: New Supplier
+        - generic [ref=e132]:
+          - generic [ref=e133]:
+            - generic [ref=e134]:
+              - img [ref=e135]
+              - textbox "Search by name, email or category..." [ref=e138]
+            - generic [ref=e139]: 11 suppliers
+          - table [ref=e141]:
+            - rowgroup [ref=e142]:
+              - row "Name Email Phone Contact Person Category Status" [ref=e143]:
+                - columnheader "Name" [ref=e144]
+                - columnheader "Email" [ref=e145]
+                - columnheader "Phone" [ref=e146]
+                - columnheader "Contact Person" [ref=e147]
+                - columnheader "Category" [ref=e148]
+                - columnheader "Status" [ref=e149]
+            - rowgroup [ref=e150]:
+              - 'row "Bidvest Cleaning VAT: 4100000010 finance@bidvest.com 011-876-5432 Nomsa Dlamini - Active" [ref=e151]':
+                - 'cell "Bidvest Cleaning VAT: 4100000010" [ref=e152]':
+                  - link "Bidvest Cleaning" [ref=e153] [cursor=pointer]:
+                    - /url: /accounting/suppliers/d1000000-0000-0000-0000-000000000010
+                  - generic [ref=e154]: "VAT: 4100000010"
+                - cell "finance@bidvest.com" [ref=e155]
+                - cell "011-876-5432" [ref=e156]
+                - cell "Nomsa Dlamini" [ref=e157]
+                - cell "-" [ref=e158]
+                - cell "Active" [ref=e159]
+              - 'row "Builders Warehouse VAT: 4100000002 finance@builders.co.za 012-345-6789 Pieter Botha - Active" [ref=e160]':
+                - 'cell "Builders Warehouse VAT: 4100000002" [ref=e161]':
+                  - link "Builders Warehouse" [ref=e162] [cursor=pointer]:
+                    - /url: /accounting/suppliers/d1000000-0000-0000-0000-000000000002
+                  - generic [ref=e163]: "VAT: 4100000002"
+                - cell "finance@builders.co.za" [ref=e164]
+                - cell "012-345-6789" [ref=e165]
+                - cell "Pieter Botha" [ref=e166]
+                - cell "-" [ref=e167]
+                - cell "Active" [ref=e168]
+              - row "City of Johannesburg revenue@joburg.org.za 011-375-5555 - - Active" [ref=e169]:
+                - cell "City of Johannesburg" [ref=e170]:
+                  - link "City of Johannesburg" [ref=e171] [cursor=pointer]:
+                    - /url: /accounting/suppliers/d1000000-0000-0000-0000-000000000007
+                - cell "revenue@joburg.org.za" [ref=e172]
+                - cell "011-375-5555" [ref=e173]
+                - cell "-" [ref=e174]
+                - cell "-" [ref=e175]
+                - cell "Active" [ref=e176]
+              - 'row "Engen Petroleum VAT: 4100000004 accounts@engen.co.za 021-403-4000 Thandi Zulu - Active" [ref=e177]':
+                - 'cell "Engen Petroleum VAT: 4100000004" [ref=e178]':
+                  - link "Engen Petroleum" [ref=e179] [cursor=pointer]:
+                    - /url: /accounting/suppliers/d1000000-0000-0000-0000-000000000004
+                  - generic [ref=e180]: "VAT: 4100000004"
+                - cell "accounts@engen.co.za" [ref=e181]
+                - cell "021-403-4000" [ref=e182]
+                - cell "Thandi Zulu" [ref=e183]
+                - cell "-" [ref=e184]
+                - cell "Active" [ref=e185]
+              - 'row "Karabina Technologies VAT: 4100000009 invoicing@karabina.com 011-234-5678 David Kim - Active" [ref=e186]':
+                - 'cell "Karabina Technologies VAT: 4100000009" [ref=e187]':
+                  - link "Karabina Technologies" [ref=e188] [cursor=pointer]:
+                    - /url: /accounting/suppliers/d1000000-0000-0000-0000-000000000009
+                  - generic [ref=e189]: "VAT: 4100000009"
+                - cell "invoicing@karabina.com" [ref=e190]
+                - cell "011-234-5678" [ref=e191]
+                - cell "David Kim" [ref=e192]
+                - cell "-" [ref=e193]
+                - cell "Active" [ref=e194]
+              - 'row "Makro SA (Pty) Ltd VAT: 4100000001 accounts@makro.co.za 011-123-4567 Johan van der Merwe - Active" [ref=e195]':
+                - 'cell "Makro SA (Pty) Ltd VAT: 4100000001" [ref=e196]':
+                  - link "Makro SA (Pty) Ltd" [ref=e197] [cursor=pointer]:
+                    - /url: /accounting/suppliers/d1000000-0000-0000-0000-000000000001
+                  - generic [ref=e198]: "VAT: 4100000001"
+                - cell "accounts@makro.co.za" [ref=e199]
+                - cell "011-123-4567" [ref=e200]
+                - cell "Johan van der Merwe" [ref=e201]
+                - cell "-" [ref=e202]
+                - cell "Active" [ref=e203]
+              - 'row "Office National VAT: 4100000005 invoices@officenational.co.za 011-555-1234 Lerato Mokoena - Active" [ref=e204]':
+                - 'cell "Office National VAT: 4100000005" [ref=e205]':
+                  - link "Office National" [ref=e206] [cursor=pointer]:
+                    - /url: /accounting/suppliers/d1000000-0000-0000-0000-000000000005
+                  - generic [ref=e207]: "VAT: 4100000005"
+                - cell "invoices@officenational.co.za" [ref=e208]
+                - cell "011-555-1234" [ref=e209]
+                - cell "Lerato Mokoena" [ref=e210]
+                - cell "-" [ref=e211]
+                - cell "Active" [ref=e212]
+              - row "QA Test Supplier Pty Ltd - - - - Active" [ref=e213]:
+                - cell "QA Test Supplier Pty Ltd" [ref=e214]:
+                  - link "QA Test Supplier Pty Ltd" [ref=e215] [cursor=pointer]:
+                    - /url: /accounting/suppliers/46f46c3f-8cc0-4e1e-a737-81ee353f388f
+                - cell "-" [ref=e216]
+                - cell "-" [ref=e217]
+                - cell "-" [ref=e218]
+                - cell "-" [ref=e219]
+                - cell "Active" [ref=e220]
+              - 'row "Sage SA (Pty) Ltd VAT: 4100000008 accounts@sage.co.za 011-304-3333 Anel Pretorius - Active" [ref=e221]':
+                - 'cell "Sage SA (Pty) Ltd VAT: 4100000008" [ref=e222]':
+                  - link "Sage SA (Pty) Ltd" [ref=e223] [cursor=pointer]:
+                    - /url: /accounting/suppliers/d1000000-0000-0000-0000-000000000008
+                  - generic [ref=e224]: "VAT: 4100000008"
+                - cell "accounts@sage.co.za" [ref=e225]
+                - cell "011-304-3333" [ref=e226]
+                - cell "Anel Pretorius" [ref=e227]
+                - cell "-" [ref=e228]
+                - cell "Active" [ref=e229]
+              - 'row "Telkom SA SOC Ltd VAT: 4100000003 billing@telkom.co.za 010-210-1000 Sipho Ndlovu - Active" [ref=e230]':
+                - 'cell "Telkom SA SOC Ltd VAT: 4100000003" [ref=e231]':
+                  - link "Telkom SA SOC Ltd" [ref=e232] [cursor=pointer]:
+                    - /url: /accounting/suppliers/d1000000-0000-0000-0000-000000000003
+                  - generic [ref=e233]: "VAT: 4100000003"
+                - cell "billing@telkom.co.za" [ref=e234]
+                - cell "010-210-1000" [ref=e235]
+                - cell "Sipho Ndlovu" [ref=e236]
+                - cell "-" [ref=e237]
+                - cell "Active" [ref=e238]
+              - 'row "Vodacom Business VAT: 4100000006 business@vodacom.co.za 082-111-1234 Kabelo Mabena - Active" [ref=e239]':
+                - 'cell "Vodacom Business VAT: 4100000006" [ref=e240]':
+                  - link "Vodacom Business" [ref=e241] [cursor=pointer]:
+                    - /url: /accounting/suppliers/d1000000-0000-0000-0000-000000000006
+                  - generic [ref=e242]: "VAT: 4100000006"
+                - cell "business@vodacom.co.za" [ref=e243]
+                - cell "082-111-1234" [ref=e244]
+                - cell "Kabelo Mabena" [ref=e245]
+                - cell "-" [ref=e246]
+                - cell "Active" [ref=e247]
+  - alert [ref=e8]

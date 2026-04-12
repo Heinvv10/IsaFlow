@@ -186,9 +186,15 @@ export default function AdminCompanyDetailPage() {
     try {
       const res  = await apiFetch(`/api/admin/companies/${id}/impersonate`, { method: 'POST', headers: { 'X-Admin-Request': 'true' } });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Impersonation failed');
+      if (res.status === 429) throw new Error(json.error?.message || 'Rate limited — please wait a moment and try again');
+      if (!res.ok) throw new Error(json.error?.message || json.message || 'Impersonation failed');
       const token = (json.data as { token: string })?.token;
-      if (token) window.open(`/accounting?impersonate=${token}`, '_blank');
+      if (token) {
+        const appBase = process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin;
+        window.open(`${appBase}/accounting?impersonate=${encodeURIComponent(token)}`, '_blank');
+      } else {
+        throw new Error('No token returned — impersonation failed');
+      }
     } catch (err) { setActionError(err instanceof Error ? err.message : 'Impersonation failed'); }
     finally { setActionLoading(false); }
   }

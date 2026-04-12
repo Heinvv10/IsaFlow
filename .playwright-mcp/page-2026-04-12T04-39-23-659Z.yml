@@ -1,0 +1,103 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e213]:
+    - banner [ref=e214]:
+      - img "ISAFlow" [ref=e215]
+      - button "Search Ctrl+K" [ref=e216] [cursor=pointer]:
+        - img [ref=e217]
+        - generic [ref=e220]: Search
+        - generic [ref=e221]: Ctrl+K
+      - button "Switch to sidebar navigation" [ref=e222] [cursor=pointer]:
+        - img [ref=e223]
+      - button "Switch to light mode" [ref=e225] [cursor=pointer]:
+        - img [ref=e226]
+      - generic [ref=e232]:
+        - img [ref=e233]
+        - generic [ref=e236]: Admin User
+      - button "Log out" [ref=e237] [cursor=pointer]:
+        - img [ref=e238]
+    - main [ref=e241]:
+      - generic [ref=e242]:
+        - complementary [ref=e243]:
+          - paragraph [ref=e245]: Admin Console
+          - navigation [ref=e246]:
+            - link "Dashboard" [ref=e247] [cursor=pointer]:
+              - /url: /
+              - img [ref=e248]
+              - generic [ref=e253]: Dashboard
+            - link "Health" [ref=e254] [cursor=pointer]:
+              - /url: /health
+              - img [ref=e255]
+              - generic [ref=e257]: Health
+            - link "Companies" [ref=e258] [cursor=pointer]:
+              - /url: /companies
+              - img [ref=e259]
+              - generic [ref=e263]: Companies
+            - link "Users" [ref=e264] [cursor=pointer]:
+              - /url: /users
+              - img [ref=e265]
+              - generic [ref=e270]: Users
+            - link "Billing" [ref=e272] [cursor=pointer]:
+              - /url: /billing
+              - img [ref=e273]
+              - generic [ref=e275]: Billing
+              - img [ref=e276]
+            - link "Tools" [ref=e279] [cursor=pointer]:
+              - /url: /tools
+              - img [ref=e280]
+              - generic [ref=e282]: Tools
+              - img [ref=e283]
+            - link "Trials" [ref=e285] [cursor=pointer]:
+              - /url: /trials
+              - img [ref=e286]
+              - generic [ref=e289]: Trials
+            - link "Features" [ref=e290] [cursor=pointer]:
+              - /url: /features
+              - img [ref=e291]
+              - generic [ref=e294]: Features
+            - link "Job Queue" [ref=e295] [cursor=pointer]:
+              - /url: /job-queue
+              - img [ref=e296]
+              - generic [ref=e298]: Job Queue
+            - link "Audit Trail" [ref=e299] [cursor=pointer]:
+              - /url: /audit
+              - img [ref=e300]
+              - generic [ref=e303]: Audit Trail
+            - link "Analytics" [ref=e304] [cursor=pointer]:
+              - /url: /analytics
+              - img [ref=e305]
+              - generic [ref=e306]: Analytics
+            - link "Components" [ref=e307] [cursor=pointer]:
+              - /url: /components
+              - img [ref=e308]
+              - generic [ref=e314]: Components
+            - link "Settings" [ref=e315] [cursor=pointer]:
+              - /url: /settings
+              - img [ref=e316]
+              - generic [ref=e319]: Settings
+        - main [ref=e320]:
+          - heading "Background Jobs" [level=1] [ref=e321]
+          - generic [ref=e322]:
+            - generic [ref=e323]:
+              - generic [ref=e324]:
+                - generic [ref=e325]:
+                  - img [ref=e327]
+                  - generic [ref=e329]:
+                    - heading "Background Jobs" [level=1] [ref=e330]
+                    - paragraph [ref=e331]: 0 total jobs · refreshed 06:39:22
+                - generic [ref=e332]:
+                  - button "Delete Old Jobs (30d)" [ref=e333] [cursor=pointer]:
+                    - img [ref=e334]
+                    - text: Delete Old Jobs (30d)
+                  - button "Refresh" [ref=e337] [cursor=pointer]:
+                    - img [ref=e338]
+                    - text: Refresh
+              - generic [ref=e343]:
+                - button "all" [ref=e344] [cursor=pointer]
+                - button "pending" [ref=e345] [cursor=pointer]
+                - button "running" [ref=e346] [cursor=pointer]
+                - button "completed" [ref=e347] [cursor=pointer]
+                - button "failed" [ref=e348] [cursor=pointer]
+            - generic [ref=e351]:
+              - img [ref=e352]
+              - paragraph [ref=e354]: No jobs found
+  - alert [ref=e8]: Background Jobs

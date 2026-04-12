@@ -1,0 +1,1 @@
+- generic [ref=e2]: "{\"success\":false,\"error\":{\"code\":\"METHOD_NOT_ALLOWED\",\"message\":\"Method GET not allowed. Allowed methods: POST\"},\"meta\":{\"timestamp\":\"2026-04-12T04:26:51.268Z\"}}"

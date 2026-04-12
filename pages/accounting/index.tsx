@@ -19,6 +19,7 @@ import { ChartOfAccountsTab } from '@/components/accounting/dashboard/ChartOfAcc
 import { JournalEntriesTab } from '@/components/accounting/dashboard/JournalEntriesTab';
 import { FiscalPeriodsTab } from '@/components/accounting/dashboard/FiscalPeriodsTab';
 import { ReportsTab } from '@/components/accounting/dashboard/ReportsTab';
+import { DashboardHero } from '@/components/accounting/dashboard/DashboardHero';
 import { WidgetGrid } from '@/components/dashboard/WidgetGrid';
 import { type WidgetConfig, DEFAULT_WIDGET_LAYOUT } from '@/components/dashboard/widgetTypes';
 
@@ -43,6 +44,30 @@ export default function AccountingPage() {
 
   useEffect(() => { setIsMounted(true); }, []);
 
+  // Impersonation: exchange the ?impersonate=<token> query param for company info,
+  // inject it into localStorage so CompanyContext picks it up, then reload cleanly.
+  useEffect(() => {
+    if (!isMounted || !router.isReady) return;
+    const impersonateToken = router.query.impersonate as string | undefined;
+    if (!impersonateToken) return;
+
+    apiFetch(`/api/auth/impersonate-exchange?token=${encodeURIComponent(impersonateToken)}`)
+      .then(async res => {
+        const json = await res.json() as { data?: { company_id: string; company_name: string } };
+        if (!res.ok || !json.data) throw new Error('Exchange failed');
+        const { company_id, company_name } = json.data;
+        localStorage.setItem('isaflow_active_company', JSON.stringify({ id: company_id, name: company_name }));
+        // Strip the impersonate param and reload so CompanyContext picks up the new company
+        void router.replace('/accounting', undefined, { shallow: false });
+      })
+      .catch(err => {
+        log.error('Impersonation exchange failed', { error: err }, 'accounting-page');
+        // Remove the broken token from the URL so the page can still load
+        void router.replace('/accounting', undefined, { shallow: false });
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMounted, router.isReady, router.query.impersonate]);
+
   // Defensive guard: if a real authenticated user somehow lands here with
   // zero companies (deep link, bookmark, stale session), send them through
   // onboarding rather than showing a skeleton dashboard with 400-ing APIs.
@@ -51,9 +76,11 @@ export default function AccountingPage() {
   // will briefly report `loading: false, companies: []` on a fresh mount
   // before AuthContext has finished its own bootstrap, and without the
   // authLoading/user gate we'd race into a false redirect loop.
+  // Skip the redirect when an impersonation token is being processed.
   useEffect(() => {
     if (!isMounted || authLoading || companiesLoading) return;
     if (!user) return;
+    if (router.query.impersonate) return; // wait for impersonation exchange to complete
     if (companies.length === 0) {
       void router.replace('/onboarding');
     }
@@ -108,52 +135,16 @@ export default function AccountingPage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
-        {/* Page Header */}
-        <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]" data-tour="dashboard">
-          <div className="px-6 py-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-teal-500/10">
-                  <Calculator className="h-6 w-6 text-teal-500" />
-                </div>
-                <div>
-                  <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">
-                    {activeCompany?.tradingName || activeCompany?.name || 'ISAFlow'}
-                  </h1>
-                  <p className="text-sm text-[var(--ff-text-secondary)]">
-                    General Ledger, Journal Entries &amp; Financial Reports
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {activeTab === 'overview' && (
-                  <button
-                    onClick={() => setWidgetEditMode(m => !m)}
-                    className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
-                      widgetEditMode
-                        ? 'bg-teal-600 text-white border-teal-600 hover:bg-teal-700'
-                        : 'border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-secondary)]'
-                    }`}
-                  >
-                    <Settings2 className="h-4 w-4" />
-                    {widgetEditMode ? 'Done' : 'Edit Widgets'}
-                  </button>
-                )}
-                {activeTab === 'journal-entries' && (
-                  <Link
-                    href="/accounting/journal-entries/new"
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium"
-                  >
-                    <Plus className="h-4 w-4" />
-                    New Journal Entry
-                  </Link>
-                )}
-              </div>
-            </div>
-          </div>
+        {/* Premium Hero Header */}
+        <div data-tour="dashboard">
+          <DashboardHero
+            companyName={activeCompany?.tradingName ?? activeCompany?.name ?? 'ISAFlow'}
+          />
+        </div>
 
-          {/* Tab Navigation */}
-          <div className="px-6 border-t border-[var(--ff-border-light)]">
+        {/* Tab bar + actions */}
+        <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
+          <div className="px-6 flex items-center justify-between">
             <nav className="flex gap-0 -mb-px overflow-x-auto" aria-label="Accounting tabs">
               {TABS.map(tab => {
                 const Icon = tab.icon;
@@ -176,6 +167,30 @@ export default function AccountingPage() {
                 );
               })}
             </nav>
+            <div className="flex items-center gap-2 py-2">
+              {activeTab === 'overview' && (
+                <button
+                  onClick={() => setWidgetEditMode(m => !m)}
+                  className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                    widgetEditMode
+                      ? 'bg-teal-600 text-white border-teal-600 hover:bg-teal-700'
+                      : 'border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-secondary)]'
+                  }`}
+                >
+                  <Settings2 className="h-4 w-4" />
+                  {widgetEditMode ? 'Done' : 'Edit Widgets'}
+                </button>
+              )}
+              {activeTab === 'journal-entries' && (
+                <Link
+                  href="/accounting/journal-entries/new"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium"
+                >
+                  <Plus className="h-4 w-4" />
+                  New Journal Entry
+                </Link>
+              )}
+            </div>
           </div>
         </div>
 

@@ -1,0 +1,47 @@
+[      27ms] [ERROR] Loading the script 'https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516' violates the following Content Security Policy directive: "script-src 'self'". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked. @ https://admin.isaflow.co.za/login:0
+[      53ms] [WARNING] <meta name="apple-mobile-web-app-capable" content="yes"> is deprecated. Please include <meta name="mobile-web-app-capable" content="yes"> @ https://admin.isaflow.co.za/login:0
+[     213ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://admin.isaflow.co.za/api/auth/me:0
+[    1627ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3101/api/auth/me:0
+[    1628ms] [WARNING] <meta name="apple-mobile-web-app-capable" content="yes"> is deprecated. Please include <meta name="mobile-web-app-capable" content="yes"> @ http://localhost:3101/login:0
+[    2148ms] [WARNING] <meta name="apple-mobile-web-app-capable" content="yes"> is deprecated. Please include <meta name="mobile-web-app-capable" content="yes"> @ http://localhost:3101/accounting/customers:0
+[    2151ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:3101/accounting/customers:0
+[    2306ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3101/api/accounting/customers?:0
+[    2308ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3101/api/accounting/page-visits:0
+[    2635ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3101/api/auth/me:0
+[    2805ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3101/api/auth/preferences:0
+[    2807ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3101/api/accounting/setup-guide:0
+[    2970ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3101/api/auth/preferences:0
+[    3491ms] [ERROR] Failed to load resource: the server responded with a status of 429 (Too Many Requests) @ http://localhost:3101/api/auth/login:0
+[   13443ms] [WARNING] <meta name="apple-mobile-web-app-capable" content="yes"> is deprecated. Please include <meta name="mobile-web-app-capable" content="yes"> @ http://localhost:3101/accounting/customers:0
+[   13445ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:3101/accounting/customers:0
+[   13920ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3101/api/accounting/customers?:0
+[   13927ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3101/api/auth/me:0
+[   13930ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3101/api/accounting/page-visits:0
+[   14094ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3101/api/auth/preferences:0
+[   14097ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3101/api/accounting/setup-guide:0
+[   14256ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3101/api/auth/preferences:0
+[   21234ms] [ERROR] Loading the script 'https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516' violates the following Content Security Policy directive: "script-src 'self'". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked. @ https://app.isaflow.co.za/accounting:0
+[   21263ms] [WARNING] <meta name="apple-mobile-web-app-capable" content="yes"> is deprecated. Please include <meta name="mobile-web-app-capable" content="yes"> @ https://app.isaflow.co.za/accounting:0
+[   21266ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ https://app.isaflow.co.za/accounting:0
+[   21788ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://app.isaflow.co.za/_next/data/zc8hmZcqbxCUPBVDtPEX6/accounting/contacts/new.json:0
+[   21906ms] [ERROR] Failed to load resource: the server responded with a status of 403 () @ https://app.isaflow.co.za/api/accounting/widget-layout:0
+[   22408ms] [ERROR] Failed to load resource: the server responded with a status of 403 () @ https://app.isaflow.co.za/api/accounting/kpi-dashboard:0
+[   22410ms] [ERROR] Failed to load resource: the server responded with a status of 403 () @ https://app.isaflow.co.za/api/accounting/page-visits?limit=6:0
+[   22413ms] [ERROR] Failed to load resource: the server responded with a status of 403 () @ https://app.isaflow.co.za/api/accounting/bank-accounts:0
+[   22416ms] [ERROR] Failed to load resource: the server responded with a status of 403 () @ https://app.isaflow.co.za/api/accounting/setup-guide:0
+[   23241ms] [ERROR] Loading the script 'https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516' violates the following Content Security Policy directive: "script-src 'self'". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked. @ https://app.isaflow.co.za/login:0
+[   23265ms] [WARNING] <meta name="apple-mobile-web-app-capable" content="yes"> is deprecated. Please include <meta name="mobile-web-app-capable" content="yes"> @ https://app.isaflow.co.za/login:0
+[   24281ms] [ERROR] Loading the script 'https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516' violates the following Content Security Policy directive: "script-src 'self'". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked. @ https://app.isaflow.co.za/accounting/suppliers:0
+[   24310ms] [WARNING] <meta name="apple-mobile-web-app-capable" content="yes"> is deprecated. Please include <meta name="mobile-web-app-capable" content="yes"> @ https://app.isaflow.co.za/accounting/suppliers:0
+[   24312ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ https://app.isaflow.co.za/accounting/suppliers:0
+[   24628ms] [ERROR] Failed to load resource: the server responded with a status of 403 () @ https://app.isaflow.co.za/api/accounting/page-visits:0
+[   24632ms] [ERROR] Failed to load resource: the server responded with a status of 403 () @ https://app.isaflow.co.za/api/accounting/suppliers-list?:0
+[   24812ms] [ERROR] Failed to load resource: the server responded with a status of 403 () @ https://app.isaflow.co.za/api/accounting/setup-guide:0
+[   35174ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3101/api/auth/me:0
+[   35175ms] [WARNING] <meta name="apple-mobile-web-app-capable" content="yes"> is deprecated. Please include <meta name="mobile-web-app-capable" content="yes"> @ http://localhost:3101/login:0
+[   35697ms] [WARNING] <meta name="apple-mobile-web-app-capable" content="yes"> is deprecated. Please include <meta name="mobile-web-app-capable" content="yes"> @ http://localhost:3101/accounting/customers:0
+[   35699ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:3101/accounting/customers:0
+[   35855ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3101/api/accounting/page-visits:0
+[   36105ms] [ERROR] Loading the script 'https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516' violates the following Content Security Policy directive: "script-src 'self'". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked. @ https://app.isaflow.co.za/login?returnTo=%2Faccounting:0
+[   36133ms] [WARNING] <meta name="apple-mobile-web-app-capable" content="yes"> is deprecated. Please include <meta name="mobile-web-app-capable" content="yes"> @ https://app.isaflow.co.za/login?returnTo=%2Faccounting:0
+[   36135ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://app.isaflow.co.za/api/auth/me:0

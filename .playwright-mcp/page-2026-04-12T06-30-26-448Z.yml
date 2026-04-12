@@ -1,0 +1,84 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - generic [ref=e7]:
+        - img [ref=e8]
+        - generic [ref=e11]: Install IsaFlow for a faster, app-like experience
+      - generic [ref=e12]:
+        - button "Install" [ref=e13] [cursor=pointer]
+        - button "Dismiss" [ref=e14] [cursor=pointer]:
+          - img [ref=e15]
+    - banner [ref=e18]:
+      - img "ISAFlow" [ref=e19]
+      - generic [ref=e24]:
+        - button "Create new" [ref=e25] [cursor=pointer]:
+          - img [ref=e26]
+        - tooltip: Create new (N)
+      - button "Search Ctrl+K" [ref=e27] [cursor=pointer]:
+        - img [ref=e28]
+        - generic [ref=e31]: Search
+        - generic [ref=e32]: Ctrl+K
+      - button "Switch to sidebar navigation" [ref=e33] [cursor=pointer]:
+        - img [ref=e34]
+      - button "Switch to light mode" [ref=e36] [cursor=pointer]:
+        - img [ref=e37]
+      - generic [ref=e43]:
+        - img [ref=e44]
+        - generic [ref=e47]: Admin User
+      - button "Log out" [ref=e48] [cursor=pointer]:
+        - img [ref=e49]
+    - navigation [ref=e53]:
+      - generic [ref=e54]:
+        - link "Dashboard" [ref=e56] [cursor=pointer]:
+          - /url: /accounting
+        - button "Customers" [ref=e58] [cursor=pointer]:
+          - text: Customers
+          - img [ref=e59]
+        - button "Suppliers" [ref=e62] [cursor=pointer]:
+          - text: Suppliers
+          - img [ref=e63]
+        - button "Items" [ref=e66] [cursor=pointer]:
+          - text: Items
+          - img [ref=e67]
+        - button "Banking" [ref=e70] [cursor=pointer]:
+          - text: Banking
+          - img [ref=e71]
+        - button "Accounts" [ref=e74] [cursor=pointer]:
+          - text: Accounts
+          - img [ref=e75]
+        - button "VAT" [ref=e78] [cursor=pointer]:
+          - text: VAT
+          - img [ref=e79]
+        - button "Accountant's Area" [ref=e82] [cursor=pointer]:
+          - text: Accountant's Area
+          - img [ref=e83]
+        - button "Reports" [ref=e86] [cursor=pointer]:
+          - text: Reports
+          - img [ref=e87]
+        - button "SARS" [ref=e90] [cursor=pointer]:
+          - text: SARS
+          - img [ref=e91]
+        - button "Tools" [ref=e94] [cursor=pointer]:
+          - text: Tools
+          - img [ref=e95]
+        - button "Group" [ref=e98] [cursor=pointer]:
+          - text: Group
+          - img [ref=e99]
+        - link "Data Import" [ref=e102] [cursor=pointer]:
+          - /url: /accounting/migration
+        - button "Payroll" [ref=e104] [cursor=pointer]:
+          - text: Payroll
+          - img [ref=e105]
+    - main [ref=e107]:
+      - generic [ref=e108]:
+        - generic [ref=e109]:
+          - generic [ref=e110]:
+            - img [ref=e112]
+            - generic [ref=e116]:
+              - heading "Company Settings" [level=1] [ref=e117]
+              - paragraph [ref=e118]: Manage your company details and preferences
+          - button "Save Changes" [disabled] [ref=e119]:
+            - img [ref=e120]
+            - text: Save Changes
+        - img [ref=e125]
+  - alert [ref=e127]

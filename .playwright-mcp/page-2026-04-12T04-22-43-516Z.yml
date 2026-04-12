@@ -1,0 +1,23 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - img "ISAFlow" [ref=e7]
+      - paragraph [ref=e8]: Sign in to your account
+    - generic [ref=e10]:
+      - generic [ref=e11]:
+        - generic [ref=e12]: Email address
+        - textbox "Email address" [ref=e13]:
+          - /placeholder: you@example.com
+      - generic [ref=e14]:
+        - generic [ref=e15]: Password
+        - generic [ref=e16]:
+          - textbox "Password" [ref=e17]:
+            - /placeholder: Enter your password
+          - button "Show password" [ref=e18] [cursor=pointer]:
+            - img [ref=e19]
+      - button "Sign In" [disabled] [ref=e22]
+    - paragraph [ref=e23]:
+      - text: Don't have an account?
+      - link "Create one" [ref=e24] [cursor=pointer]:
+        - /url: /register
+  - alert [ref=e25]

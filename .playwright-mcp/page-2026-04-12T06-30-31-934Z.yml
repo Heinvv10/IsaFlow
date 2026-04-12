@@ -1,0 +1,339 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - generic [ref=e7]:
+        - img [ref=e8]
+        - generic [ref=e11]: Install IsaFlow for a faster, app-like experience
+      - generic [ref=e12]:
+        - button "Install" [ref=e13] [cursor=pointer]
+        - button "Dismiss" [ref=e14] [cursor=pointer]:
+          - img [ref=e15]
+    - banner [ref=e18]:
+      - img "ISAFlow" [ref=e19]
+      - button "ISAFlow Demo" [ref=e128] [cursor=pointer]:
+        - img [ref=e130]
+        - generic [ref=e134]: ISAFlow Demo
+        - img [ref=e135]
+      - generic [ref=e24]:
+        - button "Create new" [ref=e25] [cursor=pointer]:
+          - img [ref=e26]
+        - tooltip: Create new (N)
+      - button "Search Ctrl+K" [ref=e27] [cursor=pointer]:
+        - img [ref=e28]
+        - generic [ref=e31]: Search
+        - generic [ref=e32]: Ctrl+K
+      - button "Setup guide — 14 tasks remaining" [ref=e137] [cursor=pointer]:
+        - img [ref=e138]
+        - generic [ref=e141]: "14"
+      - button "Switch to sidebar navigation" [ref=e33] [cursor=pointer]:
+        - img [ref=e34]
+      - button "Switch to light mode" [ref=e36] [cursor=pointer]:
+        - img [ref=e37]
+      - generic [ref=e43]:
+        - img [ref=e44]
+        - generic [ref=e47]: Admin User
+      - button "Log out" [ref=e48] [cursor=pointer]:
+        - img [ref=e49]
+    - navigation [ref=e53]:
+      - generic [ref=e54]:
+        - link "Dashboard" [ref=e56] [cursor=pointer]:
+          - /url: /accounting
+        - button "Customers" [ref=e58] [cursor=pointer]:
+          - text: Customers
+          - img [ref=e59]
+        - button "Suppliers" [ref=e62] [cursor=pointer]:
+          - text: Suppliers
+          - img [ref=e63]
+        - button "Items" [ref=e66] [cursor=pointer]:
+          - text: Items
+          - img [ref=e67]
+        - button "Banking" [ref=e70] [cursor=pointer]:
+          - text: Banking
+          - img [ref=e71]
+        - button "Accounts" [ref=e74] [cursor=pointer]:
+          - text: Accounts
+          - img [ref=e75]
+        - button "VAT" [ref=e78] [cursor=pointer]:
+          - text: VAT
+          - img [ref=e79]
+        - button "Accountant's Area" [ref=e82] [cursor=pointer]:
+          - text: Accountant's Area
+          - img [ref=e83]
+        - button "Reports" [ref=e86] [cursor=pointer]:
+          - text: Reports
+          - img [ref=e87]
+        - button "SARS" [ref=e90] [cursor=pointer]:
+          - text: SARS
+          - img [ref=e91]
+        - button "Tools" [ref=e94] [cursor=pointer]:
+          - text: Tools
+          - img [ref=e95]
+        - button "Group" [ref=e98] [cursor=pointer]:
+          - text: Group
+          - img [ref=e99]
+        - link "Data Import" [ref=e102] [cursor=pointer]:
+          - /url: /accounting/migration
+        - button "Payroll" [ref=e104] [cursor=pointer]:
+          - text: Payroll
+          - img [ref=e105]
+    - main [ref=e107]:
+      - generic [ref=e108]:
+        - generic [ref=e109]:
+          - generic [ref=e110]:
+            - img [ref=e112]
+            - generic [ref=e116]:
+              - heading "Company Settings" [level=1] [ref=e117]
+              - paragraph [ref=e118]: Manage your company details and preferences
+          - button "Save Changes" [ref=e119] [cursor=pointer]:
+            - img [ref=e120]
+            - text: Save Changes
+        - generic [ref=e142]:
+          - button "Company Details" [ref=e143] [cursor=pointer]:
+            - img [ref=e144]
+            - text: Company Details
+          - button "General Settings" [ref=e148] [cursor=pointer]:
+            - img [ref=e149]
+            - text: General Settings
+          - button "VAT Settings" [ref=e152] [cursor=pointer]:
+            - img [ref=e153]
+            - text: VAT Settings
+          - button "Documents & Statements" [ref=e156] [cursor=pointer]:
+            - img [ref=e157]
+            - text: Documents & Statements
+          - button "Aging" [ref=e162] [cursor=pointer]:
+            - img [ref=e163]
+            - text: Aging
+          - button "Document Messages" [ref=e164] [cursor=pointer]:
+            - img [ref=e165]
+            - text: Document Messages
+          - button "Email Templates" [ref=e167] [cursor=pointer]:
+            - img [ref=e168]
+            - text: Email Templates
+          - button "Branding" [ref=e171] [cursor=pointer]:
+            - img [ref=e172]
+            - text: Branding
+          - button "Dimensions" [ref=e178] [cursor=pointer]:
+            - img [ref=e179]
+            - text: Dimensions
+          - button "User Fields" [ref=e183] [cursor=pointer]:
+            - img [ref=e184]
+            - text: User Fields
+          - button "Regional" [ref=e187] [cursor=pointer]:
+            - img [ref=e188]
+            - text: Regional
+        - generic [ref=e191]:
+          - generic [ref=e192]:
+            - heading "Company Details" [level=2] [ref=e193]
+            - generic [ref=e194]:
+              - generic [ref=e195]:
+                - generic [ref=e196]: Company Name *
+                - textbox [ref=e197]: ISAFlow Demo (Pty) Ltd
+              - generic [ref=e198]:
+                - generic [ref=e199]: Trading Name
+                - textbox [ref=e200]: ISAFlow Demo
+              - generic [ref=e201]:
+                - generic [ref=e202]: Registered Name
+                - textbox [ref=e203]: ISAFlow Demo (Pty) Ltd
+              - generic [ref=e204]:
+                - generic [ref=e205]: Registration Number
+                - textbox [ref=e206]: K2024/567890
+              - generic [ref=e207]:
+                - generic [ref=e208]: Entity Type
+                - combobox [ref=e209]:
+                  - option "Company (Pty Ltd)" [selected]
+                  - option "Close Corporation (CC)"
+                  - option "Sole Proprietor"
+                  - option "Trust"
+                  - option "Partnership"
+                  - option "Non-Profit Company (NPC)"
+                  - option "Other"
+              - generic [ref=e210]:
+                - generic [ref=e211]: Industry
+                - combobox [ref=e212]:
+                  - option "Select industry..." [selected]
+                  - option "Accounting & Financial Services"
+                  - option "Agriculture"
+                  - option "Automotive"
+                  - option "Construction"
+                  - option "Education"
+                  - option "Engineering"
+                  - option "Healthcare"
+                  - option "Hospitality"
+                  - option "Information Technology"
+                  - option "Legal"
+                  - option "Manufacturing"
+                  - option "Mining"
+                  - option "Property"
+                  - option "Retail"
+                  - option "Telecommunications"
+                  - option "Transport & Logistics"
+                  - option "Other"
+              - generic [ref=e213]:
+                - generic [ref=e214]: Business Structure
+                - combobox [ref=e215]:
+                  - option "Select structure..." [selected]
+                  - option "Sole Proprietor"
+                  - option "Partnership"
+                  - option "Close Corporation (CC)"
+                  - option "Private Company (Pty Ltd)"
+                  - option "Public Company (Ltd)"
+                  - option "Non-Profit Organisation (NPC)"
+                  - option "Trust"
+                  - option "Other"
+              - generic [ref=e216]:
+                - generic [ref=e217]: Contact Name
+                - textbox [ref=e218]
+              - generic [ref=e219]:
+                - generic [ref=e220]: Email
+                - textbox [ref=e221]: hein@h10.co.za
+              - generic [ref=e222]:
+                - generic [ref=e223]: Phone
+                - textbox [ref=e224]
+              - generic [ref=e225]:
+                - generic [ref=e226]: Mobile
+                - textbox [ref=e227]
+              - generic [ref=e228]:
+                - generic [ref=e229]: Fax
+                - textbox [ref=e230]
+              - generic [ref=e231]:
+                - generic [ref=e232]: Website
+                - textbox [ref=e233]
+              - generic [ref=e234]:
+                - generic [ref=e235]: Country
+                - textbox [ref=e236]: South Africa
+            - generic [ref=e237]:
+              - generic [ref=e238] [cursor=pointer]:
+                - switch "Use this Email for Communication" [checked] [ref=e239]
+                - generic [ref=e241]: Use this Email for Communication
+              - generic [ref=e242] [cursor=pointer]:
+                - switch "Always CC this Email Address" [ref=e243]
+                - generic [ref=e245]: Always CC this Email Address
+              - generic [ref=e246] [cursor=pointer]:
+                - switch "Use Mail Service as From Address" [ref=e247]
+                - generic [ref=e249]: Use Mail Service as From Address
+          - generic [ref=e250]:
+            - heading "Postal Address" [level=2] [ref=e251]
+            - generic [ref=e252]:
+              - generic [ref=e253]:
+                - generic [ref=e254]: Address Line 1
+                - textbox [ref=e255]: 26 Demo Rd,
+              - generic [ref=e256]:
+                - generic [ref=e257]: Address Line 2
+                - textbox [ref=e258]: Demo Suburb
+              - generic [ref=e259]:
+                - generic [ref=e260]: City
+                - textbox [ref=e261]: Demo City
+              - generic [ref=e262]:
+                - generic [ref=e263]: Province
+                - textbox [ref=e264]: Demo
+              - generic [ref=e265]:
+                - generic [ref=e266]: Postal Code
+                - textbox [ref=e267]: "9999"
+          - generic [ref=e268]:
+            - heading "Physical Address" [level=2] [ref=e269]
+            - generic [ref=e270] [cursor=pointer]:
+              - checkbox "Same as postal address" [ref=e271]
+              - generic [ref=e272]: Same as postal address
+            - generic [ref=e273]:
+              - generic [ref=e274]:
+                - generic [ref=e275]: Address Line 1
+                - textbox [ref=e276]
+              - generic [ref=e277]:
+                - generic [ref=e278]: Address Line 2
+                - textbox [ref=e279]
+              - generic [ref=e280]:
+                - generic [ref=e281]: City
+                - textbox [ref=e282]
+              - generic [ref=e283]:
+                - generic [ref=e284]: Province
+                - textbox [ref=e285]
+              - generic [ref=e286]:
+                - generic [ref=e287]: Postal Code
+                - textbox [ref=e288]
+          - generic [ref=e289]:
+            - heading "Social Media Links" [level=2] [ref=e290]
+            - generic [ref=e291]:
+              - generic [ref=e292]:
+                - generic [ref=e293]: Facebook URL
+                - textbox "https://facebook.com/yourpage" [ref=e294]
+              - generic [ref=e295]:
+                - generic [ref=e296]: LinkedIn URL
+                - textbox "https://linkedin.com/company/yourcompany" [ref=e297]
+              - generic [ref=e298]:
+                - generic [ref=e299]: X (Twitter) URL
+                - textbox "https://x.com/yourhandle" [ref=e300]
+          - generic [ref=e301]:
+            - heading "Statutory Information" [level=2] [ref=e302]
+            - generic [ref=e303]:
+              - generic [ref=e304]:
+                - generic [ref=e305]: Income Tax Number
+                - textbox [ref=e306]: "9876543210"
+              - generic [ref=e307]:
+                - generic [ref=e308]: Tax Office
+                - textbox [ref=e309]
+          - generic [ref=e310]:
+            - heading "Tax Practitioner Details" [level=2] [ref=e311]
+            - generic [ref=e312]:
+              - generic [ref=e313]:
+                - generic [ref=e314]: Practitioner Reg Number
+                - textbox [ref=e315]
+              - generic [ref=e316]:
+                - generic [ref=e317]: Practitioner Name
+                - textbox [ref=e318]
+          - generic [ref=e319]:
+            - heading "SARS Company Contact Information" [level=2] [ref=e320]
+            - generic [ref=e321]:
+              - generic [ref=e322]:
+                - generic [ref=e323]: First Name
+                - textbox [ref=e324]
+              - generic [ref=e325]:
+                - generic [ref=e326]: Last Name
+                - textbox [ref=e327]
+              - generic [ref=e328]:
+                - generic [ref=e329]: Capacity
+                - textbox [ref=e330]
+              - generic [ref=e331]:
+                - generic [ref=e332]: Contact Number
+                - textbox [ref=e333]
+              - generic [ref=e334]:
+                - generic [ref=e335]: Telephone
+                - textbox [ref=e336]
+          - generic [ref=e337]:
+            - heading "Banking Details" [level=2] [ref=e338]
+            - paragraph [ref=e339]: Used on invoices and statements for payment instructions
+            - generic [ref=e340]:
+              - generic [ref=e341]:
+                - generic [ref=e342]: Bank Name
+                - textbox [ref=e343]: First
+              - generic [ref=e344]:
+                - generic [ref=e345]: Account Number
+                - textbox [ref=e346]: "445566998877"
+              - generic [ref=e347]:
+                - generic [ref=e348]: Branch Code
+                - textbox [ref=e349]: "622053"
+              - generic [ref=e350]:
+                - generic [ref=e351]: Account Type
+                - combobox [ref=e352]:
+                  - option "Select..." [selected]
+                  - option "Current"
+                  - option "Savings"
+                  - option "Transmission"
+                  - option "Credit Card"
+          - generic [ref=e353]:
+            - heading "Statutory Documents" [level=2] [ref=e354]
+            - paragraph [ref=e355]: Upload company registration certificates, tax clearance, and other statutory documents.
+            - generic [ref=e356]:
+              - generic [ref=e357]:
+                - generic [ref=e358]: Document Type
+                - combobox [ref=e359]:
+                  - option "CIPC Registration Certificate" [selected]
+                  - option "Tax Clearance Certificate"
+                  - option "B-BBEE Certificate"
+                  - option "VAT Registration Certificate"
+                  - option "Other Document"
+              - generic [ref=e360] [cursor=pointer]:
+                - img [ref=e361]
+                - text: Upload Document
+              - paragraph [ref=e364]: Images or PDF. Max 10MB.
+            - paragraph [ref=e365]: No documents uploaded yet.
+  - alert [ref=e127]
