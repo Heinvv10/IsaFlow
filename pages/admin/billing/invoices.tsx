@@ -105,7 +105,14 @@ export default function InvoicesPage() {
   async function handleAction(id: string, action: 'send' | 'mark_paid') {
     setActionId(id);
     try {
-      const res  = await apiFetch(`/api/admin/billing/invoices/${id}/${action}`, { method: 'POST', headers: { 'X-Admin-Request': 'true' } });
+      // Route files use hyphens; mark_paid → mark-paid
+      const route = action === 'mark_paid' ? 'mark-paid' : action;
+      const body  = action === 'mark_paid' ? JSON.stringify({ payment_method: 'manual' }) : undefined;
+      const res   = await apiFetch(`/api/admin/billing/invoices/${id}/${route}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        body,
+      });
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Action failed');
       void load(search, status, dateFrom, dateTo, page);

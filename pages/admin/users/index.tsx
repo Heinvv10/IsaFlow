@@ -9,7 +9,7 @@ import { AdminLayout } from '@/components/admin/AdminLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { formatDate } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
-import { Search, Building2, AlertCircle, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Building2, AlertCircle, Loader2, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import { UserDeleteCell } from '@/components/admin/UserDeleteCell';
 
 interface AdminUser {
@@ -190,9 +190,22 @@ export default function AdminUsersPage() {
           <option value="inactive">Inactive</option>
         </select>
 
-        <span className="ml-auto text-sm text-gray-500 dark:text-gray-400 self-center">
+        <span className="text-sm text-gray-500 dark:text-gray-400 self-center">
           {total} total
         </span>
+        <a
+          href={[
+            '/api/admin/users/export',
+            [
+              role   ? `role=${encodeURIComponent(role)}`     : '',
+              status ? `is_active=${status === 'active' ? 'true' : 'false'}` : '',
+            ].filter(Boolean).join('&'),
+          ].filter(Boolean).join('?')}
+          download
+          className="ml-auto inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+        >
+          <Download className="w-4 h-4" /> Export CSV
+        </a>
       </div>
 
       {error && (

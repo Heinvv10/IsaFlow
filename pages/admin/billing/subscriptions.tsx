@@ -8,7 +8,7 @@ import { AdminLayout } from '@/components/admin/AdminLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
-import { AlertCircle, Loader2, Search, ChevronLeft, ChevronRight, Plus, X, Check, Ban } from 'lucide-react';
+import { AlertCircle, Loader2, Search, ChevronLeft, ChevronRight, Plus, X, Check, Ban, Download } from 'lucide-react';
 
 interface Subscription {
   id: string;
@@ -182,7 +182,14 @@ export default function SubscriptionsPage() {
           <option value="cancelled">Cancelled</option>
           <option value="paused">Paused</option>
         </select>
-        <span className="text-sm text-gray-500 dark:text-gray-400 self-center ml-auto">{total} total</span>
+        <span className="text-sm text-gray-500 dark:text-gray-400 self-center">{total} total</span>
+        <a
+          href="/api/admin/billing/subscriptions/export"
+          download
+          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+        >
+          <Download className="w-4 h-4" /> Export CSV
+        </a>
         <button onClick={() => { setShowForm(true); setFormError(''); setForm(EMPTY_FORM); }}
           className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium rounded-lg transition-colors">
           <Plus className="w-4 h-4" /> Add Subscription

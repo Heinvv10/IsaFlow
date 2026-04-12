@@ -10,12 +10,13 @@ import { apiFetch } from '@/lib/apiFetch';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import {
   ArrowLeft, AlertCircle, Loader2, User, CheckCircle2,
-  ShieldOff, ShieldCheck, KeyRound, LogOut, Pencil, RotateCcw, UserCog,
+  ShieldOff, ShieldCheck, KeyRound, LogOut, Pencil, RotateCcw, UserCog, LogIn,
 } from 'lucide-react';
 import Link from 'next/link';
 import { UserCompaniesTable, type UserCompany, type CompanyOption } from '@/components/admin/users/UserCompaniesTable';
 import { UserAuditLog } from '@/components/admin/users/UserAuditLog';
 import { UserProfileForm } from '@/components/admin/users/UserProfileForm';
+import { LoginAsModal } from '@/components/admin/users/LoginAsModal';
 import { log } from '@/lib/logger';
 
 interface UserDetail {
@@ -52,8 +53,10 @@ export default function AdminUserDetailPage() {
   const [editing, setEditing]             = useState(false);
   const [editState, setEditState]         = useState({ firstName: '', lastName: '', phone: '', role: '' });
   const [allCompanies, setAllCompanies]   = useState<CompanyOption[]>([]);
-  const [confirmAction, setConfirmAction] = useState<string | null>(null);
-  const [toast, setToast]                 = useState<string | null>(null);
+  const [confirmAction, setConfirmAction]         = useState<string | null>(null);
+  const [toast, setToast]                         = useState<string | null>(null);
+  const [loginAsModalOpen, setLoginAsModalOpen]   = useState(false);
+  const [loginAsToken, setLoginAsToken]           = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function showToast(msg: string) {
@@ -133,6 +136,44 @@ export default function AdminUserDetailPage() {
     } finally { setActionLoading(false); }
   }
 
+  async function handleLoginAs() {
+    if (!user || !id || typeof id !== 'string') return;
+    setActionLoading(true); setActionError('');
+    try {
+      const res  = await apiFetch(`/api/admin/users/${id}/impersonate`, {
+        method:  'POST',
+        headers: { 'X-Admin-Request': 'true' },
+      });
+      const json = await res.json() as { data?: { token?: string }; message?: string; error?: { message?: string } };
+      if (!res.ok) throw new Error(json.error?.message || json.message || 'Failed');
+      const token = json.data?.token ?? null;
+      if (!token) throw new Error('No token returned');
+      setLoginAsToken(token);
+      setLoginAsModalOpen(true);
+    } catch (err) {
+      log.error('Login-as impersonation failed', { userId: user.id, error: err }, 'admin-ui');
+      setActionError(err instanceof Error ? err.message : 'Failed to create impersonation session');
+    } finally { setActionLoading(false); }
+  }
+
+  function openImpersonationTab() {
+    if (!loginAsToken) return;
+    const url = `https://app.isaflow.co.za?impersonate_token=${encodeURIComponent(loginAsToken)}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+    setLoginAsModalOpen(false);
+    showToast('Impersonation session opened in new tab');
+  }
+
+  async function copyTokenToClipboard() {
+    if (!loginAsToken) return;
+    try {
+      await navigator.clipboard.writeText(loginAsToken);
+      showToast('Token copied to clipboard');
+    } catch {
+      setActionError('Clipboard access denied — copy the token manually');
+    }
+  }
+
   async function handleToggleSuspend() {
     const endpoint = user?.status === 'suspended' ? 'activate' : 'suspend';
     const body     = endpoint === 'suspend' ? { reason: 'Suspended by admin' } : undefined;
@@ -191,6 +232,18 @@ export default function AdminUserDetailPage() {
               <button onClick={() => void handleImpersonate()} disabled={actionLoading} className={btnBlue}>
                 {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserCog className="w-4 h-4" />} Impersonate
               </button>
+              <button
+                onClick={() => {
+                  if (!user) return;
+                  if (user.role === 'super_admin') { setActionError('Cannot login as another super_admin'); return; }
+                  setLoginAsModalOpen(true); setLoginAsToken(null);
+                }}
+                disabled={actionLoading}
+                className={`${btnBase} border-amber-400 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-500/10`}
+                title="Open a 1-hour session as this user in the main app"
+              >
+                <LogIn className="w-4 h-4" /> Login As
+              </button>
               <button onClick={() => confirmAndRun('reset-password', () => void doAction('reset-password').then(ok => ok && showToast('Password reset sent')))} disabled={actionLoading}
                 className={`${btnBase} ${confirmAction === 'reset-password' ? 'border-red-500 bg-red-500 text-white' : 'border-blue-400 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/10'}`}>
                 <KeyRound className="w-4 h-4" /> {confirmAction === 'reset-password' ? 'Click to confirm' : 'Reset Password'}
@@ -247,6 +300,18 @@ export default function AdminUserDetailPage() {
         <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-lg bg-teal-600 text-white text-sm font-medium shadow-lg animate-[fadeIn_0.2s_ease-out]">
           <CheckCircle2 className="w-4 h-4 flex-shrink-0" /> {toast}
         </div>
+      )}
+
+      {loginAsModalOpen && user && (
+        <LoginAsModal
+          user={user}
+          token={loginAsToken}
+          loading={actionLoading}
+          onConfirm={() => void handleLoginAs()}
+          onOpenTab={openImpersonationTab}
+          onCopyToken={() => void copyTokenToClipboard()}
+          onClose={() => { setLoginAsModalOpen(false); setLoginAsToken(null); }}
+        />
       )}
     </AdminLayout>
   );

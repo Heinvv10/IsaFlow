@@ -52,6 +52,7 @@ export interface AuditLogFilters {
 /** Critical actions that MUST be audit-logged — fail the request if logging fails. */
 const CRITICAL_ACTIONS = new Set([
   'user.suspend', 'user.reset_password', 'user.update', 'user.force_logout',
+  'user.impersonate',
   'company.suspend', 'company.delete', 'company.impersonate',
   'company.activate', 'company.export_data',
   'subscription.cancel', 'subscription.update',

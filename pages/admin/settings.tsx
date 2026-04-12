@@ -5,7 +5,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { apiFetch } from '@/lib/apiFetch';
-import { AlertCircle, CheckCircle2, Loader2, Save } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Loader2, Save, Bell } from 'lucide-react';
 
 interface PlatformSettings {
   maintenance_mode: boolean;
@@ -13,6 +13,11 @@ interface PlatformSettings {
   default_trial_days: number;
   max_companies_per_user: number;
   smtp_configured: boolean;
+}
+
+interface AlertSettings {
+  health_alert_email: string;
+  health_alert_webhook_url: string;
 }
 
 function Toggle({ label, checked, onChange, disabled }: {
@@ -67,21 +72,56 @@ function NumberInput({ label, value, onChange, min, max }: {
   );
 }
 
+function TextInput({ label, value, onChange, placeholder, type = 'text' }: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  type?: 'text' | 'email' | 'url';
+}) {
+  return (
+    <div className="flex flex-col gap-1 py-3">
+      <span className="text-sm text-gray-700 dark:text-gray-300">{label}</span>
+      <input
+        type={type}
+        value={value}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)}
+        className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+      />
+    </div>
+  );
+}
+
 export default function AdminSettings() {
   const [settings, setSettings] = useState<PlatformSettings | null>(null);
-  const [loading, setLoading]   = useState(true);
-  const [saving, setSaving]     = useState(false);
-  const [error, setError]       = useState('');
-  const [success, setSuccess]   = useState('');
+  const [alertSettings, setAlertSettings] = useState<AlertSettings>({
+    health_alert_email: '',
+    health_alert_webhook_url: '',
+  });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [savingAlerts, setSavingAlerts] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [alertSuccess, setAlertSuccess] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const res  = await apiFetch('/api/admin/settings');
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed to load settings');
-      setSettings(json.data as PlatformSettings);
+      const [settingsRes, alertRes] = await Promise.all([
+        apiFetch('/api/admin/settings'),
+        apiFetch('/api/admin/alert-settings'),
+      ]);
+      const settingsJson = await settingsRes.json() as { data: PlatformSettings };
+      if (!settingsRes.ok) throw new Error('Failed to load settings');
+      setSettings(settingsJson.data);
+
+      if (alertRes.ok) {
+        const alertJson = await alertRes.json() as { data: AlertSettings };
+        setAlertSettings(alertJson.data ?? { health_alert_email: '', health_alert_webhook_url: '' });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load settings');
     } finally {
@@ -98,7 +138,7 @@ export default function AdminSettings() {
     setSuccess('');
     try {
       const res  = await apiFetch('/api/admin/settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify(settings) });
-      const json = await res.json();
+      const json = await res.json() as { message?: string };
       if (!res.ok) throw new Error(json.message || 'Failed to save settings');
       setSuccess('Settings saved successfully.');
     } catch (err) {
@@ -108,8 +148,28 @@ export default function AdminSettings() {
     }
   };
 
+  const saveAlerts = async () => {
+    setSavingAlerts(true);
+    setError('');
+    setAlertSuccess('');
+    try {
+      const res = await apiFetch('/api/admin/alert-settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify(alertSettings) });
+      const json = await res.json() as { message?: string };
+      if (!res.ok) throw new Error(json.message || 'Failed to save alert settings');
+      setAlertSuccess('Alert settings saved.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save alert settings');
+    } finally {
+      setSavingAlerts(false);
+    }
+  };
+
   const update = (key: keyof PlatformSettings, value: unknown) => {
     setSettings((prev) => prev ? { ...prev, [key]: value } : prev);
+  };
+
+  const updateAlert = (key: keyof AlertSettings, value: string) => {
+    setAlertSettings((prev) => ({ ...prev, [key]: value }));
   };
 
   return (
@@ -188,6 +248,51 @@ export default function AdminSettings() {
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
               {saving ? 'Saving...' : 'Save Settings'}
             </button>
+          </div>
+
+          {/* ── Health Alerts ─────────────────────────────────────── */}
+          <div className="mt-8 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm">
+            <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2">
+              <Bell className="w-4 h-4 text-teal-500" />
+              <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Health Alerts</h2>
+            </div>
+            <div className="px-5 py-1 divide-y divide-gray-100 dark:divide-gray-800">
+              <TextInput
+                label="Alert Email"
+                type="email"
+                value={alertSettings.health_alert_email}
+                onChange={(v) => updateAlert('health_alert_email', v)}
+                placeholder="admin@isaflow.co.za"
+              />
+              <TextInput
+                label="Webhook URL"
+                type="url"
+                value={alertSettings.health_alert_webhook_url}
+                onChange={(v) => updateAlert('health_alert_webhook_url', v)}
+                placeholder="https://hooks.example.com/health-alert"
+              />
+            </div>
+            <div className="px-5 pb-4">
+              {alertSuccess && (
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-teal-500/10 text-teal-500 text-sm mb-3">
+                  <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                  {alertSuccess}
+                </div>
+              )}
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                Alerts fire on transition to <strong>degraded</strong>/<strong>critical</strong>, or every hour while unhealthy. Leave Webhook URL blank to disable webhook delivery.
+              </p>
+              <div className="flex justify-end">
+                <button
+                  onClick={() => void saveAlerts()}
+                  disabled={savingAlerts}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 disabled:opacity-60 text-white text-sm font-medium rounded-lg transition-colors"
+                >
+                  {savingAlerts ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  {savingAlerts ? 'Saving...' : 'Save Alert Settings'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

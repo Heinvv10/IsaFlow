@@ -10,6 +10,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { checkAndAlert } from '@/modules/admin/services/healthAlertService';
 
 type Row = DbRow;
 
@@ -77,87 +78,65 @@ async function getDbHealth(): Promise<DbHealth> {
   }
 }
 
-// ─── Job Queue Health ─────────────────────────────────────────────────────────
+// ─── Scalar Health Metrics (single round-trip) ───────────────────────────────
 
-async function getJobQueueHealth(): Promise<JobQueueHealth> {
-  try {
-    const rows = await sql`
-      SELECT
-        COUNT(*) FILTER (WHERE status = 'pending')  AS pending,
-        COUNT(*) FILTER (WHERE status = 'running')  AS running,
-        COUNT(*) FILTER (WHERE status = 'failed')   AS failed,
-        EXTRACT(EPOCH FROM (NOW() - MIN(created_at) FILTER (WHERE status = 'pending'))) / 60
-          AS oldest_pending_age_minutes
-      FROM background_jobs
-    `;
-    const row = rows[0] as Row;
-    return {
-      pending: parseInt(row.pending as string, 10) || 0,
-      running: parseInt(row.running as string, 10) || 0,
-      failed:  parseInt(row.failed  as string, 10) || 0,
-      oldest_pending_age_minutes: row.oldest_pending_age_minutes != null
-        ? Math.round(parseFloat(row.oldest_pending_age_minutes as string))
-        : null,
-    };
-  } catch {
-    return { pending: 0, running: 0, failed: 0, oldest_pending_age_minutes: null };
-  }
+interface ScalarHealthMetrics {
+  job_queue: JobQueueHealth;
+  email: EmailHealth;
+  active_sessions_24h: number;
+  trials: TrialHealth;
 }
 
-// ─── Email Health ─────────────────────────────────────────────────────────────
-
-async function getEmailHealth(): Promise<EmailHealth> {
+async function getScalarHealthMetrics(): Promise<ScalarHealthMetrics> {
   try {
     const rows = await sql`
       SELECT
-        COUNT(*) FILTER (WHERE status = 'sent')   AS sent_24h,
-        COUNT(*) FILTER (WHERE status = 'failed') AS failed_24h
-      FROM email_log
-      WHERE sent_at >= NOW() - INTERVAL '24 hours'
+        (SELECT COUNT(*) FILTER (WHERE status = 'pending') FROM background_jobs)::int  AS pending,
+        (SELECT COUNT(*) FILTER (WHERE status = 'running') FROM background_jobs)::int  AS running,
+        (SELECT COUNT(*) FILTER (WHERE status = 'failed')  FROM background_jobs)::int  AS failed,
+        (SELECT EXTRACT(EPOCH FROM (NOW() - MIN(created_at) FILTER (WHERE status = 'pending'))) / 60
+         FROM background_jobs)                                                          AS oldest_pending_age_minutes,
+        (SELECT COUNT(*) FILTER (WHERE status = 'sent')
+         FROM email_log WHERE sent_at >= NOW() - INTERVAL '24 hours')::int             AS sent_24h,
+        (SELECT COUNT(*) FILTER (WHERE status = 'failed')
+         FROM email_log WHERE sent_at >= NOW() - INTERVAL '24 hours')::int             AS failed_24h,
+        (SELECT COUNT(*)::int FROM user_sessions
+         WHERE created_at >= NOW() - INTERVAL '24 hours'
+           AND expires_at > NOW())                                                      AS active_sessions_24h,
+        (SELECT COUNT(*)::int FROM companies
+         WHERE status = 'trial'
+           AND trial_ends_at BETWEEN NOW() AND NOW() + INTERVAL '7 days')              AS expiring_in_7d
     `;
-    const row = rows[0] as Row;
-    const sent   = parseInt(row.sent_24h   as string, 10) || 0;
-    const failed = parseInt(row.failed_24h as string, 10) || 0;
+    const r = rows[0] as Row;
+    const sent   = parseInt(r.sent_24h   as string, 10) || 0;
+    const failed = parseInt(r.failed_24h as string, 10) || 0;
     const total  = sent + failed;
     return {
-      sent_24h:   sent,
-      failed_24h: failed,
-      success_rate_percent: total > 0 ? Math.round((sent / total) * 1000) / 10 : 100,
+      job_queue: {
+        pending: parseInt(r.pending as string, 10) || 0,
+        running: parseInt(r.running as string, 10) || 0,
+        failed:  parseInt(r.failed  as string, 10) || 0,
+        oldest_pending_age_minutes: r.oldest_pending_age_minutes != null
+          ? Math.round(parseFloat(r.oldest_pending_age_minutes as string))
+          : null,
+      },
+      email: {
+        sent_24h:   sent,
+        failed_24h: failed,
+        success_rate_percent: total > 0 ? Math.round((sent / total) * 1000) / 10 : 100,
+      },
+      active_sessions_24h: parseInt(r.active_sessions_24h as string, 10) || 0,
+      trials: {
+        expiring_in_7d: parseInt(r.expiring_in_7d as string, 10) || 0,
+      },
     };
   } catch {
-    return { sent_24h: 0, failed_24h: 0, success_rate_percent: 100 };
-  }
-}
-
-// ─── Active Sessions ──────────────────────────────────────────────────────────
-
-async function getActiveSessions(): Promise<number> {
-  try {
-    const rows = await sql`
-      SELECT COUNT(*) AS cnt
-      FROM user_sessions
-      WHERE created_at >= NOW() - INTERVAL '24 hours'
-        AND expires_at > NOW()
-    `;
-    return parseInt((rows[0] as Row).cnt as string, 10) || 0;
-  } catch {
-    return 0;
-  }
-}
-
-// ─── Trials Expiring ──────────────────────────────────────────────────────────
-
-async function getTrialHealth(): Promise<TrialHealth> {
-  try {
-    const rows = await sql`
-      SELECT COUNT(*) AS cnt
-      FROM companies
-      WHERE status = 'trial'
-        AND trial_ends_at BETWEEN NOW() AND NOW() + INTERVAL '7 days'
-    `;
-    return { expiring_in_7d: parseInt((rows[0] as Row).cnt as string, 10) || 0 };
-  } catch {
-    return { expiring_in_7d: 0 };
+    return {
+      job_queue: { pending: 0, running: 0, failed: 0, oldest_pending_age_minutes: null },
+      email:     { sent_24h: 0, failed_24h: 0, success_rate_percent: 100 },
+      active_sessions_24h: 0,
+      trials:    { expiring_in_7d: 0 },
+    };
   }
 }
 
@@ -216,15 +195,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   try {
-    const [db, job_queue, email, active_sessions_24h, trials, recent_errors] = await Promise.all([
+    const [db, scalars, recent_errors] = await Promise.all([
       getDbHealth(),
-      getJobQueueHealth(),
-      getEmailHealth(),
-      getActiveSessions(),
-      getTrialHealth(),
+      getScalarHealthMetrics(),
       getRecentErrors(),
     ]);
 
+    const { job_queue, email, active_sessions_24h, trials } = scalars;
     const overall_status = deriveOverallStatus(db, job_queue, email);
 
     const payload: SystemHealthResponse = {
@@ -239,6 +216,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     };
 
     log.info('System health check', { overall_status, db_latency: db.latency_ms }, 'admin-health-api');
+
+    // Fire-and-forget: never fail the health response because alerting failed
+    checkAndAlert(payload).catch((err: unknown) =>
+      log.error('Health alert check failed', { error: err }, 'admin-health-api'),
+    );
+
     return apiResponse.success(res, payload);
   } catch (err) {
     log.error('System health check failed', { error: err }, 'admin-health-api');
