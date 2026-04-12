@@ -1,7 +1,0 @@
-[      26ms] [ERROR] Loading the script 'https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516' violates the following Content Security Policy directive: "script-src 'self'". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked. @ https://admin.isaflow.co.za/login:0
-[      52ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://admin.isaflow.co.za/api/auth/me:0
-[      53ms] [WARNING] <meta name="apple-mobile-web-app-capable" content="yes"> is deprecated. Please include <meta name="mobile-web-app-capable" content="yes"> @ https://admin.isaflow.co.za/login:0
-[    3539ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3101/api/auth/me:0
-[    3540ms] [WARNING] <meta name="apple-mobile-web-app-capable" content="yes"> is deprecated. Please include <meta name="mobile-web-app-capable" content="yes"> @ http://localhost:3101/login:0
-[    7537ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3101/api/accounting/companies?action=user-companies:0
-[    7538ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3101/api/accounting/companies?action=user-companies:0

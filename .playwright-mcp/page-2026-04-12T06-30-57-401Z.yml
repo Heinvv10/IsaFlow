@@ -1,5 +1,0 @@
-- generic [active] [ref=e1]:
-  - generic [ref=e5]:
-    - status "Loading" [ref=e6]
-    - paragraph [ref=e7]: Loading...
-  - alert [ref=e8]

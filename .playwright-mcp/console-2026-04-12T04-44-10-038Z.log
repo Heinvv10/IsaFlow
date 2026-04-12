@@ -1,8 +1,0 @@
-[      24ms] [ERROR] Loading the script 'https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516' violates the following Content Security Policy directive: "script-src 'self'". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked. @ https://app.isaflow.co.za/accounting/company-settings:0
-[      42ms] [WARNING] <meta name="apple-mobile-web-app-capable" content="yes"> is deprecated. Please include <meta name="mobile-web-app-capable" content="yes"> @ https://app.isaflow.co.za/accounting/company-settings:0
-[      45ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ https://app.isaflow.co.za/accounting/company-settings:0
-[     519ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://app.isaflow.co.za/api/auth/me:0
-[     547ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://app.isaflow.co.za/api/accounting/page-visits:0
-[     694ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://app.isaflow.co.za/api/auth/preferences:0
-[    1004ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://app.isaflow.co.za/api/auth/preferences:0
-[    1005ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://app.isaflow.co.za/api/accounting/setup-guide:0
