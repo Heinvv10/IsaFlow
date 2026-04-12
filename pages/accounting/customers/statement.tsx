@@ -226,6 +226,7 @@ export default function CustomerStatementPage() {
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--ff-text-tertiary)]" />
                   <input
                     type="text"
+                    name="search"
                     placeholder="Type to search..."
                     value={customerSearch}
                     onChange={e => handleSearchChange(e.target.value)}
@@ -254,12 +255,12 @@ export default function CustomerStatementPage() {
               {/* Date Range */}
               <div>
                 <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">From Date</label>
-                <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)}
+                <input type="date" name="dateFrom" value={fromDate} onChange={e => setFromDate(e.target.value)}
                   className="ff-input w-full" />
               </div>
               <div>
                 <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">To Date</label>
-                <input type="date" value={toDate} onChange={e => setToDate(e.target.value)}
+                <input type="date" name="dateTo" value={toDate} onChange={e => setToDate(e.target.value)}
                   className="ff-input w-full" />
               </div>
             </div>

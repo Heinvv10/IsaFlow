@@ -175,6 +175,7 @@ export default function NewDeliveryNotePage() {
                   </div>
                 ) : (
                   <select
+                    name="customerId"
                     value={customerId}
                     onChange={(e) => { setCustomerId(e.target.value); setSalesOrderId(''); }}
                     className="ff-input text-sm"
@@ -193,6 +194,7 @@ export default function NewDeliveryNotePage() {
                 <label className="text-xs text-[var(--ff-text-secondary)]">Delivery Date *</label>
                 <input
                   type="date"
+                  name="deliveryDate"
                   value={deliveryDate}
                   onChange={(e) => setDeliveryDate(e.target.value)}
                   className="ff-input text-sm"
@@ -209,6 +211,7 @@ export default function NewDeliveryNotePage() {
                   </div>
                 ) : (
                   <select
+                    name="salesOrderId"
                     value={salesOrderId}
                     onChange={(e) => setSalesOrderId(e.target.value)}
                     disabled={!customerId}
@@ -225,6 +228,7 @@ export default function NewDeliveryNotePage() {
               <div className="flex flex-col gap-1">
                 <label className="text-xs text-[var(--ff-text-secondary)]">Delivery Address</label>
                 <input
+                  name="deliveryAddress"
                   value={deliveryAddress}
                   onChange={(e) => setDeliveryAddress(e.target.value)}
                   placeholder="Delivery address..."
@@ -236,6 +240,7 @@ export default function NewDeliveryNotePage() {
             <div className="flex flex-col gap-1">
               <label className="text-xs text-[var(--ff-text-secondary)]">Notes</label>
               <textarea
+                name="notes"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 rows={2}

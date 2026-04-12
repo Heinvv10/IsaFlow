@@ -151,6 +151,7 @@ export default function NewGRNPage() {
                 <Loader2 className="h-4 w-4 animate-spin text-[var(--ff-text-tertiary)]" />
               ) : (
                 <select
+                  name="selectedPO"
                   value={selectedPO}
                   onChange={(e) => setSelectedPO(e.target.value)}
                   className="ff-input text-sm w-full"
@@ -173,6 +174,7 @@ export default function NewGRNPage() {
                 </label>
                 <input
                   type="date"
+                  name="receivedDate"
                   value={receivedDate}
                   onChange={(e) => setReceivedDate(e.target.value)}
                   className="ff-input text-sm w-full"
@@ -183,6 +185,7 @@ export default function NewGRNPage() {
                   Delivery Note #
                 </label>
                 <input
+                  name="deliveryNote"
                   value={deliveryNote}
                   onChange={(e) => setDeliveryNote(e.target.value)}
                   placeholder="Supplier delivery note reference"
@@ -196,6 +199,7 @@ export default function NewGRNPage() {
                 Notes
               </label>
               <input
+                name="notes"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Optional notes"

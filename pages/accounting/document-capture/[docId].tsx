@@ -265,6 +265,7 @@ export default function DocumentCaptureDetailPage() {
               <div>
                 <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Document Type</label>
                 <select
+                  name="documentType"
                   value={documentType}
                   onChange={(e) => setDocumentType(e.target.value)}
                   className="ff-select w-full text-sm"
@@ -281,6 +282,7 @@ export default function DocumentCaptureDetailPage() {
                 <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Vendor Name</label>
                 <input
                   type="text"
+                  name="vendorName"
                   value={vendorName}
                   onChange={(e) => setVendorName(e.target.value)}
                   className="ff-input w-full text-sm"
@@ -292,6 +294,7 @@ export default function DocumentCaptureDetailPage() {
                 <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Date</label>
                 <input
                   type="date"
+                  name="documentDate"
                   value={documentDate}
                   onChange={(e) => setDocumentDate(e.target.value)}
                   className="ff-input w-full text-sm"
@@ -302,6 +305,7 @@ export default function DocumentCaptureDetailPage() {
                 <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Reference / Invoice No.</label>
                 <input
                   type="text"
+                  name="referenceNumber"
                   value={referenceNumber}
                   onChange={(e) => setReferenceNumber(e.target.value)}
                   className="ff-input w-full text-sm"
@@ -313,6 +317,7 @@ export default function DocumentCaptureDetailPage() {
                 <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Total Amount (ZAR)</label>
                 <input
                   type="number"
+                  name="totalAmount"
                   step="0.01"
                   value={totalAmount}
                   onChange={(e) => setTotalAmount(e.target.value)}
@@ -325,6 +330,7 @@ export default function DocumentCaptureDetailPage() {
                 <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">VAT Amount (ZAR)</label>
                 <input
                   type="number"
+                  name="vatAmount"
                   step="0.01"
                   value={vatAmount}
                   onChange={(e) => setVatAmount(e.target.value)}
@@ -358,6 +364,7 @@ export default function DocumentCaptureDetailPage() {
               <div className="md:col-span-2">
                 <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Notes</label>
                 <textarea
+                  name="notes"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   className="ff-input w-full text-sm"
@@ -437,6 +444,7 @@ export default function DocumentCaptureDetailPage() {
                   <div className="flex items-center gap-3">
                     <input
                       type="text"
+                      name="bankTxId"
                       value={bankTxId}
                       onChange={(e) => setBankTxId(e.target.value)}
                       className="ff-input flex-1 text-sm"

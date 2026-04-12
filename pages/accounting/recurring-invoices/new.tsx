@@ -156,6 +156,7 @@ export default function NewRecurringInvoicePage() {
               <div>
                 <label className={labelCls}>Template Name</label>
                 <input
+                  name="templateName"
                   className={inputCls}
                   value={form.templateName}
                   onChange={e => setForm(f => ({ ...f, templateName: e.target.value }))}
@@ -165,6 +166,7 @@ export default function NewRecurringInvoicePage() {
               <div>
                 <label className={labelCls}>Customer *</label>
                 <select
+                  name="clientId"
                   className={inputCls}
                   value={form.clientId}
                   onChange={e => setForm(f => ({ ...f, clientId: e.target.value }))}
@@ -179,6 +181,7 @@ export default function NewRecurringInvoicePage() {
               <div>
                 <label className={labelCls}>Description</label>
                 <input
+                  name="description"
                   className={inputCls}
                   value={form.description}
                   onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
@@ -188,6 +191,7 @@ export default function NewRecurringInvoicePage() {
               <div>
                 <label className={labelCls}>Payment Terms</label>
                 <select
+                  name="paymentTerms"
                   className={inputCls}
                   value={form.paymentTerms}
                   onChange={e => setForm(f => ({ ...f, paymentTerms: e.target.value }))}
@@ -209,6 +213,7 @@ export default function NewRecurringInvoicePage() {
               <div>
                 <label className={labelCls}>Frequency *</label>
                 <select
+                  name="frequency"
                   className={inputCls}
                   value={form.frequency}
                   onChange={e => setForm(f => ({ ...f, frequency: e.target.value }))}
@@ -223,6 +228,7 @@ export default function NewRecurringInvoicePage() {
                 <label className={labelCls}>First Run Date *</label>
                 <input
                   type="date"
+                  name="nextRunDate"
                   className={inputCls}
                   value={form.nextRunDate}
                   onChange={e => setForm(f => ({ ...f, nextRunDate: e.target.value }))}
@@ -233,6 +239,7 @@ export default function NewRecurringInvoicePage() {
                 <label className={labelCls}>End Date (optional)</label>
                 <input
                   type="date"
+                  name="endDate"
                   className={inputCls}
                   value={form.endDate}
                   onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))}
@@ -244,6 +251,7 @@ export default function NewRecurringInvoicePage() {
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
+                  name="autoSendEmail"
                   checked={form.autoSendEmail}
                   onChange={e => setForm(f => ({ ...f, autoSendEmail: e.target.checked }))}
                   className="w-4 h-4 rounded border-[var(--ff-border-light)] text-violet-600 focus:ring-violet-500"

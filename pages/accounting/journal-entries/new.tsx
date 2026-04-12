@@ -188,6 +188,7 @@ export default function NewJournalEntryPage() {
                   </label>
                   <input
                     type="date"
+                    name="entryDate"
                     value={entryDate}
                     onChange={e => setEntryDate(e.target.value)}
                     required

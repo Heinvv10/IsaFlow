@@ -59,31 +59,31 @@ export default function NewProductPage() {
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5 space-y-4">
             <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Product Details</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Name *</label><input type="text" required value={form.name} onChange={e => update('name', e.target.value)} className="ff-input w-full" /></div>
-              <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Code *</label><input type="text" required value={form.code} onChange={e => update('code', e.target.value)} className="ff-input w-full" placeholder="PRD-0001" /></div>
+              <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Name *</label><input type="text" name="name" required value={form.name} onChange={e => update('name', e.target.value)} className="ff-input w-full" /></div>
+              <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Code *</label><input type="text" name="code" required value={form.code} onChange={e => update('code', e.target.value)} className="ff-input w-full" placeholder="PRD-0001" /></div>
             </div>
-            <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Description</label><textarea value={form.description} onChange={e => update('description', e.target.value)} className="ff-input w-full" rows={2} /></div>
+            <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Description</label><textarea name="description" value={form.description} onChange={e => update('description', e.target.value)} className="ff-input w-full" rows={2} /></div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Category</label><select value={form.category} onChange={e => update('category', e.target.value)} className="ff-select w-full"><option value="">Select...</option>{categories.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}</select></div>
-              <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Type *</label><select value={form.type} onChange={e => update('type', e.target.value)} className="ff-select w-full"><option value="inventory">Inventory</option><option value="non_inventory">Non-Inventory</option><option value="service">Service</option></select></div>
-              <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Unit</label><input type="text" value={form.unit} onChange={e => update('unit', e.target.value)} className="ff-input w-full" /></div>
+              <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Category</label><select name="category" value={form.category} onChange={e => update('category', e.target.value)} className="ff-select w-full"><option value="">Select...</option>{categories.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}</select></div>
+              <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Type *</label><select name="type" value={form.type} onChange={e => update('type', e.target.value)} className="ff-select w-full"><option value="inventory">Inventory</option><option value="non_inventory">Non-Inventory</option><option value="service">Service</option></select></div>
+              <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Unit</label><input type="text" name="unit" value={form.unit} onChange={e => update('unit', e.target.value)} className="ff-input w-full" /></div>
             </div>
-            <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Barcode</label><input type="text" value={form.barcode} onChange={e => update('barcode', e.target.value)} className="ff-input w-full" /></div>
+            <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Barcode</label><input type="text" name="barcode" value={form.barcode} onChange={e => update('barcode', e.target.value)} className="ff-input w-full" /></div>
           </div>
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5 space-y-4">
             <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Pricing & Costing</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Cost Price (ZAR)</label><input type="number" step="0.01" min="0" value={form.costPrice} onChange={e => update('costPrice', e.target.value)} className="ff-input w-full" /></div>
-              <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Selling Price (ZAR)</label><input type="number" step="0.01" min="0" value={form.sellingPrice} onChange={e => update('sellingPrice', e.target.value)} className="ff-input w-full" /></div>
-              <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Cost Method</label><select value={form.costMethod} onChange={e => update('costMethod', e.target.value)} className="ff-select w-full"><option value="weighted_average">Weighted Average</option><option value="fifo">FIFO</option></select></div>
-              <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">VAT Rate (%)</label><input type="number" step="0.01" value={form.taxRate} onChange={e => update('taxRate', e.target.value)} className="ff-input w-full" /></div>
+              <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Cost Price (ZAR)</label><input type="number" name="costPrice" step="0.01" min="0" value={form.costPrice} onChange={e => update('costPrice', e.target.value)} className="ff-input w-full" /></div>
+              <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Selling Price (ZAR)</label><input type="number" name="sellingPrice" step="0.01" min="0" value={form.sellingPrice} onChange={e => update('sellingPrice', e.target.value)} className="ff-input w-full" /></div>
+              <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Cost Method</label><select name="costMethod" value={form.costMethod} onChange={e => update('costMethod', e.target.value)} className="ff-select w-full"><option value="weighted_average">Weighted Average</option><option value="fifo">FIFO</option></select></div>
+              <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">VAT Rate (%)</label><input type="number" name="taxRate" step="0.01" value={form.taxRate} onChange={e => update('taxRate', e.target.value)} className="ff-input w-full" /></div>
             </div>
           </div>
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5 space-y-4">
             <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Stock Management</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Reorder Level</label><input type="number" min="0" value={form.reorderLevel} onChange={e => update('reorderLevel', e.target.value)} className="ff-input w-full" /></div>
-              <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Reorder Quantity</label><input type="number" min="0" value={form.reorderQuantity} onChange={e => update('reorderQuantity', e.target.value)} className="ff-input w-full" /></div>
+              <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Reorder Level</label><input type="number" name="reorderLevel" min="0" value={form.reorderLevel} onChange={e => update('reorderLevel', e.target.value)} className="ff-input w-full" /></div>
+              <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Reorder Quantity</label><input type="number" name="reorderQuantity" min="0" value={form.reorderQuantity} onChange={e => update('reorderQuantity', e.target.value)} className="ff-input w-full" /></div>
             </div>
           </div>
           <div className="flex justify-end gap-3">

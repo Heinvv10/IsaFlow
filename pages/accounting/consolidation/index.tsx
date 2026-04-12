@@ -108,7 +108,7 @@ export default function ConsolidationPage() {
               <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
                 <Calendar className="h-4 w-4 text-gray-500" />
                 <input
-                  type="date" value={periodStart}
+                  type="date" name="periodStart" value={periodStart}
                   onChange={(e) => setPeriodStart(e.target.value)}
                   className="bg-transparent text-sm text-white focus:outline-none"
                 />
@@ -119,7 +119,7 @@ export default function ConsolidationPage() {
               <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
                 <Calendar className="h-4 w-4 text-gray-500" />
                 <input
-                  type="date" value={periodEnd}
+                  type="date" name="periodEnd" value={periodEnd}
                   onChange={(e) => setPeriodEnd(e.target.value)}
                   className="bg-transparent text-sm text-white focus:outline-none"
                 />

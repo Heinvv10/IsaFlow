@@ -207,6 +207,7 @@ export default function EditRecurringInvoicePage() {
               <div>
                 <label className={labelCls}>Template Name</label>
                 <input
+                  name="templateName"
                   className={inputCls}
                   value={form.templateName}
                   onChange={e => setForm(f => ({ ...f, templateName: e.target.value }))}
@@ -216,6 +217,7 @@ export default function EditRecurringInvoicePage() {
               <div>
                 <label className={labelCls}>Customer</label>
                 <select
+                  name="clientId"
                   className={inputCls}
                   value={form.clientId}
                   onChange={e => setForm(f => ({ ...f, clientId: e.target.value }))}
@@ -231,6 +233,7 @@ export default function EditRecurringInvoicePage() {
               <div>
                 <label className={labelCls}>Description</label>
                 <input
+                  name="description"
                   className={inputCls}
                   value={form.description}
                   onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
@@ -240,6 +243,7 @@ export default function EditRecurringInvoicePage() {
               <div>
                 <label className={labelCls}>Payment Terms</label>
                 <select
+                  name="paymentTerms"
                   className={inputCls}
                   value={form.paymentTerms}
                   onChange={e => setForm(f => ({ ...f, paymentTerms: e.target.value }))}
@@ -262,6 +266,7 @@ export default function EditRecurringInvoicePage() {
               <div>
                 <label className={labelCls}>Frequency *</label>
                 <select
+                  name="frequency"
                   className={inputCls}
                   value={form.frequency}
                   onChange={e => setForm(f => ({ ...f, frequency: e.target.value }))}
@@ -276,6 +281,7 @@ export default function EditRecurringInvoicePage() {
                 <label className={labelCls}>Next Run Date *</label>
                 <input
                   type="date"
+                  name="nextRunDate"
                   className={inputCls}
                   value={form.nextRunDate}
                   onChange={e => setForm(f => ({ ...f, nextRunDate: e.target.value }))}
@@ -286,6 +292,7 @@ export default function EditRecurringInvoicePage() {
                 <label className={labelCls}>End Date (optional)</label>
                 <input
                   type="date"
+                  name="endDate"
                   className={inputCls}
                   value={form.endDate}
                   onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))}

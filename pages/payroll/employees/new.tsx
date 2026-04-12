@@ -171,28 +171,28 @@ export default function NewEmployeePage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className={labelClass}>Employee Number *</label>
-                <input type="text" value={form.employee_number} onChange={(e) => updateField('employee_number', e.target.value)} className={inputClass('employee_number')} placeholder="EMP001" />
+                <input type="text" name="employee_number" value={form.employee_number} onChange={(e) => updateField('employee_number', e.target.value)} className={inputClass('employee_number')} placeholder="EMP001" />
                 {fieldErrors.employee_number && <p className="text-xs text-red-400 mt-1">{fieldErrors.employee_number}</p>}
               </div>
               <div />
               <div>
                 <label className={labelClass}>First Name *</label>
-                <input type="text" value={form.first_name} onChange={(e) => updateField('first_name', e.target.value)} className={inputClass('first_name')} />
+                <input type="text" name="first_name" value={form.first_name} onChange={(e) => updateField('first_name', e.target.value)} className={inputClass('first_name')} />
                 {fieldErrors.first_name && <p className="text-xs text-red-400 mt-1">{fieldErrors.first_name}</p>}
               </div>
               <div>
                 <label className={labelClass}>Last Name *</label>
-                <input type="text" value={form.last_name} onChange={(e) => updateField('last_name', e.target.value)} className={inputClass('last_name')} />
+                <input type="text" name="last_name" value={form.last_name} onChange={(e) => updateField('last_name', e.target.value)} className={inputClass('last_name')} />
                 {fieldErrors.last_name && <p className="text-xs text-red-400 mt-1">{fieldErrors.last_name}</p>}
               </div>
               <div>
                 <label className={labelClass}>SA ID Number</label>
-                <input type="text" value={form.id_number} onChange={(e) => updateField('id_number', e.target.value)} className={inputClass('id_number')} placeholder="13 digits" maxLength={13} />
+                <input type="text" name="id_number" value={form.id_number} onChange={(e) => updateField('id_number', e.target.value)} className={inputClass('id_number')} placeholder="13 digits" maxLength={13} />
                 {fieldErrors.id_number && <p className="text-xs text-red-400 mt-1">{fieldErrors.id_number}</p>}
               </div>
               <div>
                 <label className={labelClass}>Tax Number</label>
-                <input type="text" value={form.tax_number} onChange={(e) => updateField('tax_number', e.target.value)} className={inputClass('tax_number')} />
+                <input type="text" name="tax_number" value={form.tax_number} onChange={(e) => updateField('tax_number', e.target.value)} className={inputClass('tax_number')} />
               </div>
             </div>
           </div>
@@ -203,20 +203,20 @@ export default function NewEmployeePage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className={labelClass}>Start Date *</label>
-                <input type="date" value={form.start_date} onChange={(e) => updateField('start_date', e.target.value)} className={inputClass('start_date')} />
+                <input type="date" name="start_date" value={form.start_date} onChange={(e) => updateField('start_date', e.target.value)} className={inputClass('start_date')} />
                 {fieldErrors.start_date && <p className="text-xs text-red-400 mt-1">{fieldErrors.start_date}</p>}
               </div>
               <div>
                 <label className={labelClass}>Department</label>
-                <input type="text" value={form.department} onChange={(e) => updateField('department', e.target.value)} className={inputClass('department')} />
+                <input type="text" name="department" value={form.department} onChange={(e) => updateField('department', e.target.value)} className={inputClass('department')} />
               </div>
               <div>
                 <label className={labelClass}>Position</label>
-                <input type="text" value={form.position} onChange={(e) => updateField('position', e.target.value)} className={inputClass('position')} />
+                <input type="text" name="position" value={form.position} onChange={(e) => updateField('position', e.target.value)} className={inputClass('position')} />
               </div>
               <div>
                 <label className={labelClass}>Employment Type</label>
-                <select value={form.employment_type} onChange={(e) => updateField('employment_type', e.target.value)} className={inputClass('employment_type')}>
+                <select name="employment_type" value={form.employment_type} onChange={(e) => updateField('employment_type', e.target.value)} className={inputClass('employment_type')}>
                   <option value="permanent">Permanent</option>
                   <option value="contract">Contract</option>
                   <option value="temporary">Temporary</option>
@@ -224,7 +224,7 @@ export default function NewEmployeePage() {
               </div>
               <div>
                 <label className={labelClass}>Pay Frequency</label>
-                <select value={form.pay_frequency} onChange={(e) => updateField('pay_frequency', e.target.value)} className={inputClass('pay_frequency')}>
+                <select name="pay_frequency" value={form.pay_frequency} onChange={(e) => updateField('pay_frequency', e.target.value)} className={inputClass('pay_frequency')}>
                   <option value="monthly">Monthly</option>
                   <option value="weekly">Weekly</option>
                 </select>
@@ -238,7 +238,7 @@ export default function NewEmployeePage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className={labelClass}>Bank Name</label>
-                <select value={form.bank_name} onChange={(e) => updateField('bank_name', e.target.value)} className={inputClass('bank_name')}>
+                <select name="bank_name" value={form.bank_name} onChange={(e) => updateField('bank_name', e.target.value)} className={inputClass('bank_name')}>
                   <option value="">Select bank...</option>
                   {SA_BANKS.map(bank => (
                     <option key={bank} value={bank}>{bank}</option>
@@ -247,11 +247,11 @@ export default function NewEmployeePage() {
               </div>
               <div>
                 <label className={labelClass}>Account Number</label>
-                <input type="text" value={form.bank_account_number} onChange={(e) => updateField('bank_account_number', e.target.value)} className={inputClass('bank_account_number')} />
+                <input type="text" name="bank_account_number" value={form.bank_account_number} onChange={(e) => updateField('bank_account_number', e.target.value)} className={inputClass('bank_account_number')} />
               </div>
               <div>
                 <label className={labelClass}>Branch Code</label>
-                <input type="text" value={form.bank_branch_code} onChange={(e) => updateField('bank_branch_code', e.target.value)} className={inputClass('bank_branch_code')} />
+                <input type="text" name="bank_branch_code" value={form.bank_branch_code} onChange={(e) => updateField('bank_branch_code', e.target.value)} className={inputClass('bank_branch_code')} />
               </div>
             </div>
           </div>
@@ -262,32 +262,32 @@ export default function NewEmployeePage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className={labelClass}>Basic Salary (Monthly) *</label>
-                <input type="number" step="0.01" min="0" value={form.basic_salary} onChange={(e) => updateField('basic_salary', e.target.value)} className={inputClass('basic_salary')} placeholder="0.00" />
+                <input type="number" name="basic_salary" step="0.01" min="0" value={form.basic_salary} onChange={(e) => updateField('basic_salary', e.target.value)} className={inputClass('basic_salary')} placeholder="0.00" />
                 {fieldErrors.basic_salary && <p className="text-xs text-red-400 mt-1">{fieldErrors.basic_salary}</p>}
               </div>
               <div>
                 <label className={labelClass}>Travel Allowance</label>
-                <input type="number" step="0.01" min="0" value={form.travel_allowance} onChange={(e) => updateField('travel_allowance', e.target.value)} className={inputClass('travel_allowance')} />
+                <input type="number" name="travel_allowance" step="0.01" min="0" value={form.travel_allowance} onChange={(e) => updateField('travel_allowance', e.target.value)} className={inputClass('travel_allowance')} />
               </div>
               <div>
                 <label className={labelClass}>Housing Allowance</label>
-                <input type="number" step="0.01" min="0" value={form.housing_allowance} onChange={(e) => updateField('housing_allowance', e.target.value)} className={inputClass('housing_allowance')} />
+                <input type="number" name="housing_allowance" step="0.01" min="0" value={form.housing_allowance} onChange={(e) => updateField('housing_allowance', e.target.value)} className={inputClass('housing_allowance')} />
               </div>
               <div>
                 <label className={labelClass}>Cell Allowance</label>
-                <input type="number" step="0.01" min="0" value={form.cell_allowance} onChange={(e) => updateField('cell_allowance', e.target.value)} className={inputClass('cell_allowance')} />
+                <input type="number" name="cell_allowance" step="0.01" min="0" value={form.cell_allowance} onChange={(e) => updateField('cell_allowance', e.target.value)} className={inputClass('cell_allowance')} />
               </div>
               <div>
                 <label className={labelClass}>Other Allowances</label>
-                <input type="number" step="0.01" min="0" value={form.other_allowances} onChange={(e) => updateField('other_allowances', e.target.value)} className={inputClass('other_allowances')} />
+                <input type="number" name="other_allowances" step="0.01" min="0" value={form.other_allowances} onChange={(e) => updateField('other_allowances', e.target.value)} className={inputClass('other_allowances')} />
               </div>
               <div>
                 <label className={labelClass}>Medical Aid (Employer Contribution)</label>
-                <input type="number" step="0.01" min="0" value={form.medical_aid_contribution} onChange={(e) => updateField('medical_aid_contribution', e.target.value)} className={inputClass('medical_aid_contribution')} />
+                <input type="number" name="medical_aid_contribution" step="0.01" min="0" value={form.medical_aid_contribution} onChange={(e) => updateField('medical_aid_contribution', e.target.value)} className={inputClass('medical_aid_contribution')} />
               </div>
               <div>
                 <label className={labelClass}>Retirement Fund Contribution (%)</label>
-                <input type="number" step="0.01" min="0" max="27.5" value={form.retirement_fund_contribution_pct} onChange={(e) => updateField('retirement_fund_contribution_pct', e.target.value)} className={inputClass('retirement_fund_contribution_pct')} />
+                <input type="number" name="retirement_fund_contribution_pct" step="0.01" min="0" max="27.5" value={form.retirement_fund_contribution_pct} onChange={(e) => updateField('retirement_fund_contribution_pct', e.target.value)} className={inputClass('retirement_fund_contribution_pct')} />
               </div>
             </div>
           </div>
