@@ -19,7 +19,7 @@ import { ChartOfAccountsTab } from '@/components/accounting/dashboard/ChartOfAcc
 import { JournalEntriesTab } from '@/components/accounting/dashboard/JournalEntriesTab';
 import { FiscalPeriodsTab } from '@/components/accounting/dashboard/FiscalPeriodsTab';
 import { ReportsTab } from '@/components/accounting/dashboard/ReportsTab';
-import { DashboardHero } from '@/components/accounting/dashboard/DashboardHero';
+import { DashboardHero, type DashboardHeroStats } from '@/components/accounting/dashboard/DashboardHero';
 import { WidgetGrid } from '@/components/dashboard/WidgetGrid';
 import { type WidgetConfig, DEFAULT_WIDGET_LAYOUT } from '@/components/dashboard/widgetTypes';
 
@@ -33,6 +33,16 @@ const TABS: { id: AccountingTab; label: string; icon: React.ElementType }[] = [
   { id: 'reports',           label: 'Reports',            icon: BarChart3      },
 ];
 
+interface KpiResponse {
+  data?: {
+    kpis?: {
+      revenue?:      { total?: number };
+      receivables?:  { total?: number };
+      cash?:         { total?: number };
+    };
+  };
+}
+
 export default function AccountingPage() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
@@ -41,6 +51,7 @@ export default function AccountingPage() {
   const [isMounted, setIsMounted] = useState(false);
   const [widgetLayout, setWidgetLayout] = useState<WidgetConfig[]>(DEFAULT_WIDGET_LAYOUT);
   const [widgetEditMode, setWidgetEditMode] = useState(false);
+  const [heroStats, setHeroStats] = useState<DashboardHeroStats | undefined>();
 
   useEffect(() => { setIsMounted(true); }, []);
 
@@ -57,30 +68,20 @@ export default function AccountingPage() {
         if (!res.ok || !json.data) throw new Error('Exchange failed');
         const { company_id, company_name } = json.data;
         localStorage.setItem('isaflow_active_company', JSON.stringify({ id: company_id, name: company_name }));
-        // Strip the impersonate param and reload so CompanyContext picks up the new company
         void router.replace('/accounting', undefined, { shallow: false });
       })
       .catch(err => {
         log.error('Impersonation exchange failed', { error: err }, 'accounting-page');
-        // Remove the broken token from the URL so the page can still load
         void router.replace('/accounting', undefined, { shallow: false });
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMounted, router.isReady, router.query.impersonate]);
 
-  // Defensive guard: if a real authenticated user somehow lands here with
-  // zero companies (deep link, bookmark, stale session), send them through
-  // onboarding rather than showing a skeleton dashboard with 400-ing APIs.
-  //
-  // CRITICAL: wait for BOTH auth and company loads to finish. CompanyContext
-  // will briefly report `loading: false, companies: []` on a fresh mount
-  // before AuthContext has finished its own bootstrap, and without the
-  // authLoading/user gate we'd race into a false redirect loop.
-  // Skip the redirect when an impersonation token is being processed.
+  // Redirect users with no companies to onboarding
   useEffect(() => {
     if (!isMounted || authLoading || companiesLoading) return;
     if (!user) return;
-    if (router.query.impersonate) return; // wait for impersonation exchange to complete
+    if (router.query.impersonate) return;
     if (companies.length === 0) {
       void router.replace('/onboarding');
     }
@@ -98,7 +99,7 @@ export default function AccountingPage() {
     router.push({ pathname: '/accounting', query: { tab } }, undefined, { shallow: true });
   }, [router]);
 
-  // Load and persist widget layout
+  // Load widget layout
   useEffect(() => {
     if (!isMounted) return;
     apiFetch('/api/accounting/widget-layout')
@@ -108,6 +109,23 @@ export default function AccountingPage() {
         if (Array.isArray(layout) && layout.length > 0) setWidgetLayout(layout);
       })
       .catch(err => log.error('Failed to load widget layout', { error: err }, 'accounting-page'));
+  }, [isMounted]);
+
+  // Load hero KPI stats
+  useEffect(() => {
+    if (!isMounted) return;
+    apiFetch('/api/accounting/kpi-dashboard')
+      .then(res => res.json())
+      .then((json: KpiResponse) => {
+        const kpis = json.data?.kpis;
+        if (!kpis) return;
+        setHeroStats({
+          revenueMtd:           kpis.revenue?.total      ?? 0,
+          outstandingInvoices:  kpis.receivables?.total  ?? 0,
+          cashPosition:         kpis.cash?.total         ?? 0,
+        });
+      })
+      .catch(err => log.error('Failed to load hero stats', { error: err }, 'accounting-page'));
   }, [isMounted]);
 
   const handleLayoutChange = useCallback((layout: WidgetConfig[]) => {
@@ -139,11 +157,12 @@ export default function AccountingPage() {
         <div data-tour="dashboard">
           <DashboardHero
             companyName={activeCompany?.tradingName ?? activeCompany?.name ?? 'ISAFlow'}
+            stats={heroStats}
           />
         </div>
 
-        {/* Tab bar + actions */}
-        <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
+        {/* Tab bar + actions — dark to match hero */}
+        <div className="border-b border-white/10 bg-slate-900/95 backdrop-blur-sm">
           <div className="px-6 flex items-center justify-between">
             <nav className="flex gap-0 -mb-px overflow-x-auto" aria-label="Accounting tabs">
               {TABS.map(tab => {
@@ -156,8 +175,8 @@ export default function AccountingPage() {
                     className={`
                       flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap
                       ${isActive
-                        ? 'border-teal-500 text-teal-600'
-                        : 'border-transparent text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:border-[var(--ff-border-medium)]'
+                        ? 'border-teal-500 text-teal-400'
+                        : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-600'
                       }
                     `}
                   >
@@ -174,7 +193,7 @@ export default function AccountingPage() {
                   className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
                     widgetEditMode
                       ? 'bg-teal-600 text-white border-teal-600 hover:bg-teal-700'
-                      : 'border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-secondary)]'
+                      : 'border-white/10 text-slate-400 hover:text-slate-200 hover:bg-white/5'
                   }`}
                 >
                   <Settings2 className="h-4 w-4" />

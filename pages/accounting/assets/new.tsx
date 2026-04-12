@@ -125,31 +125,31 @@ export default function NewAssetPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Name *</label>
-                <input type="text" required value={form.name} onChange={e => update('name', e.target.value)}
+                <input type="text" name="name" required value={form.name} onChange={e => update('name', e.target.value)}
                   className="ff-input w-full" placeholder="Dell Laptop XPS 15" />
               </div>
               <div>
                 <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Serial Number</label>
-                <input type="text" value={form.serialNumber} onChange={e => update('serialNumber', e.target.value)}
+                <input type="text" name="serialNumber" value={form.serialNumber} onChange={e => update('serialNumber', e.target.value)}
                   className="ff-input w-full" placeholder="SN-12345" />
               </div>
             </div>
 
             <div>
               <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Description</label>
-              <textarea value={form.description} onChange={e => update('description', e.target.value)}
+              <textarea name="description" value={form.description} onChange={e => update('description', e.target.value)}
                 className="ff-input w-full" rows={2} />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Location</label>
-                <input type="text" value={form.location} onChange={e => update('location', e.target.value)}
+                <input type="text" name="location" value={form.location} onChange={e => update('location', e.target.value)}
                   className="ff-input w-full" placeholder="Head Office" />
               </div>
               <div>
                 <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Status</label>
-                <select value={form.status} onChange={e => update('status', e.target.value)} className="ff-select w-full">
+                <select name="status" value={form.status} onChange={e => update('status', e.target.value)} className="ff-select w-full">
                   <option value="available">Available</option>
                   <option value="assigned">Assigned</option>
                   <option value="in_maintenance">In Maintenance</option>
@@ -164,7 +164,7 @@ export default function NewAssetPage() {
 
             <div>
               <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Category *</label>
-              <select value={form.category} onChange={e => handleCategoryChange(e.target.value)} className="ff-select w-full" required>
+              <select name="category" value={form.category} onChange={e => handleCategoryChange(e.target.value)} className="ff-select w-full" required>
                 <option value="">Select category...</option>
                 {categories.map(c => (
                   <option key={c.code} value={c.code}>{c.name} ({c.sars_rate}% — {c.sars_years} years)</option>
@@ -184,7 +184,7 @@ export default function NewAssetPage() {
 
             <div>
               <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Depreciation Method *</label>
-              <select value={form.depreciationMethod} onChange={e => update('depreciationMethod', e.target.value)} className="ff-select w-full">
+              <select name="depreciationMethod" value={form.depreciationMethod} onChange={e => update('depreciationMethod', e.target.value)} className="ff-select w-full">
                 {DEPRECIATION_METHODS.map(m => (
                   <option key={m.value} value={m.value}>{m.label}</option>
                 ))}
@@ -199,22 +199,22 @@ export default function NewAssetPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Purchase Date *</label>
-                <input type="date" required value={form.purchaseDate} onChange={e => update('purchaseDate', e.target.value)}
+                <input type="date" name="purchaseDate" required value={form.purchaseDate} onChange={e => update('purchaseDate', e.target.value)}
                   className="ff-input w-full" />
               </div>
               <div>
                 <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Cost (Purchase Price) *</label>
-                <input type="number" required step="0.01" min="0.01" value={form.cost}
+                <input type="number" name="cost" required step="0.01" min="0.01" value={form.cost}
                   onChange={e => update('cost', e.target.value)} className="ff-input w-full" placeholder="25000.00" />
               </div>
               <div>
                 <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Salvage (Residual) Value</label>
-                <input type="number" step="0.01" min="0" value={form.salvageValue}
+                <input type="number" name="salvageValue" step="0.01" min="0" value={form.salvageValue}
                   onChange={e => update('salvageValue', e.target.value)} className="ff-input w-full" placeholder="0.00" />
               </div>
               <div>
                 <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Useful Life (years) *</label>
-                <input type="number" required step="0.5" min="0.5" value={form.usefulLifeYears}
+                <input type="number" name="usefulLifeYears" required step="0.5" min="0.5" value={form.usefulLifeYears}
                   onChange={e => update('usefulLifeYears', e.target.value)} className="ff-input w-full" />
               </div>
             </div>

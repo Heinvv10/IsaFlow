@@ -202,7 +202,7 @@ export default function NewItemPage() {
 
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5 space-y-4">
             <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Notes</h2>
-            <textarea value={form.notes} onChange={e => update('notes', e.target.value)}
+            <textarea name="notes" value={form.notes} onChange={e => update('notes', e.target.value)}
               className="ff-input w-full" rows={3} placeholder="Additional notes about this item..." />
           </div>
 

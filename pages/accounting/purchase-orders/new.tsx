@@ -95,10 +95,10 @@ export default function NewPurchaseOrderPage() {
                   const lineTotal = Number(item.quantity || 0) * Number(item.unitPrice || 0);
                   return (
                     <tr key={idx} className="border-b border-[var(--ff-border-light)]">
-                      <td className="py-2 pr-2"><input type="text" required value={item.description} onChange={e => updateItem(idx, 'description', e.target.value)} className="ff-input w-full text-sm" placeholder="Item description" /></td>
-                      <td className="py-2 pr-2"><input type="number" required min="0.01" step="0.01" value={item.quantity} onChange={e => updateItem(idx, 'quantity', e.target.value)} className="ff-input w-full text-sm text-right" /></td>
-                      <td className="py-2 pr-2"><input type="number" required min="0" step="0.01" value={item.unitPrice} onChange={e => updateItem(idx, 'unitPrice', e.target.value)} className="ff-input w-full text-sm text-right" /></td>
-                      <td className="py-2 pr-2"><input type="number" min="0" step="0.01" value={item.taxRate} onChange={e => updateItem(idx, 'taxRate', e.target.value)} className="ff-input w-full text-sm text-right" /></td>
+                      <td className="py-2 pr-2"><input type="text" required name="description" value={item.description} onChange={e => updateItem(idx, 'description', e.target.value)} className="ff-input w-full text-sm" placeholder="Item description" /></td>
+                      <td className="py-2 pr-2"><input type="number" required name="quantity" min="0.01" step="0.01" value={item.quantity} onChange={e => updateItem(idx, 'quantity', e.target.value)} className="ff-input w-full text-sm text-right" /></td>
+                      <td className="py-2 pr-2"><input type="number" required name="unitPrice" min="0" step="0.01" value={item.unitPrice} onChange={e => updateItem(idx, 'unitPrice', e.target.value)} className="ff-input w-full text-sm text-right" /></td>
+                      <td className="py-2 pr-2"><input type="number" name="taxRate" min="0" step="0.01" value={item.taxRate} onChange={e => updateItem(idx, 'taxRate', e.target.value)} className="ff-input w-full text-sm text-right" /></td>
                       <td className="py-2 text-right text-[var(--ff-text-primary)]">{fmt(lineTotal)}</td>
                       <td className="py-2">{items.length > 1 && <button type="button" onClick={() => removeItem(idx)} className="text-red-400 hover:text-red-300"><Trash2 className="h-3.5 w-3.5" /></button>}</td>
                     </tr>

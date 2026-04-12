@@ -181,6 +181,7 @@ export default function StatementRunPage() {
               <label className="text-sm text-[var(--ff-text-secondary)]">As at:</label>
               <input
                 type="date"
+                name="asAtDate"
                 value={asAtDate}
                 onChange={e => setAsAtDate(e.target.value)}
                 className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm"
@@ -190,6 +191,7 @@ export default function StatementRunPage() {
               <label className="text-sm text-[var(--ff-text-secondary)]">Min balance:</label>
               <input
                 type="number"
+                name="minBalance"
                 value={minBalance}
                 onChange={e => setMinBalance(Number(e.target.value))}
                 className="w-32 px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm"

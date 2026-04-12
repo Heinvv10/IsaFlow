@@ -74,6 +74,8 @@ const REPORT_DESCRIPTIONS: Record<string, string> = {
   'management-accounts':     'One-click combined P&L, Balance Sheet and Cash Flow for a selected period',
   // Audit
   'audit-trail':             'Full journal entry log with timestamps and user attribution for compliance',
+  // Compliance
+  'disclosure-notes':        'Annual financial statement disclosure notes and IFRS compliance notes.',
 };
 
 const reports: ReportCard[] = [
@@ -87,7 +89,7 @@ const reports: ReportCard[] = [
   { id: 'bank-transactions',   title: 'Bank Transactions',    description: REPORT_DESCRIPTIONS['bank-transactions'],    href: '/accounting/reports/bank-transactions',      icon: Landmark,        color: 'cyan',   category: 'Transaction Reports' },
   { id: 'account-transactions', title: 'Account Transactions', description: REPORT_DESCRIPTIONS['account-transactions'], href: '/accounting/reports/account-transactions',  icon: BookOpen,        color: 'violet', category: 'Transaction Reports' },
   { id: 'ar-aging',            title: 'Aged Receivables',     description: REPORT_DESCRIPTIONS['ar-aging'],             href: '/accounting/ar-aging',                       icon: Clock,           color: 'rose',   category: 'Transaction Reports' },
-  { id: 'ap-aging',            title: 'Aged Payables',        description: REPORT_DESCRIPTIONS['ap-aging'],             href: '/accounting/ap-aging',                       icon: Receipt,         color: 'pink',   category: 'Transaction Reports' },
+  { id: 'ap-aging',            title: 'Aged Payables',        description: REPORT_DESCRIPTIONS['ap-aging'],             href: '/accounting/reports/ap-aging',               icon: Receipt,         color: 'pink',   category: 'Transaction Reports' },
   { id: 'unallocated-receipts', title: 'Unallocated Receipts', description: REPORT_DESCRIPTIONS['unallocated-receipts'], href: '/accounting/reports/unallocated-receipts',  icon: Inbox,           color: 'amber',  category: 'Transaction Reports' },
   { id: 'unallocated-payments', title: 'Unallocated Payments', description: REPORT_DESCRIPTIONS['unallocated-payments'], href: '/accounting/reports/unallocated-payments',  icon: Send,            color: 'orange', category: 'Transaction Reports' },
   { id: 'sales-by-customer',   title: 'Sales by Customer',    description: REPORT_DESCRIPTIONS['sales-by-customer'],    href: '/accounting/reports/sales-by-customer',      icon: UserCheck,       color: 'blue',   category: 'Analysis' },
@@ -108,6 +110,7 @@ const reports: ReportCard[] = [
   { id: 'report-packs',          title: 'Report Packs',           description: REPORT_DESCRIPTIONS['report-packs'],           href: '/accounting/reports/report-packs',             icon: FolderOpen,      color: 'amber',  category: 'Analytics' },
   { id: 'three-way-forecast',    title: 'Three-Way Forecast',     description: REPORT_DESCRIPTIONS['three-way-forecast'],     href: '/accounting/reports/three-way-forecast',       icon: GitBranch,       color: 'teal',   category: 'Analytics' },
   { id: 'management-accounts',   title: 'Management Accounts',    description: REPORT_DESCRIPTIONS['management-accounts'],    href: '/accounting/reports/management-accounts',      icon: BarChart3,       color: 'indigo', category: 'Analytics' },
+  { id: 'disclosure-notes',      title: 'Disclosure Notes',       description: REPORT_DESCRIPTIONS['disclosure-notes'],       href: '/accounting/reports/disclosure-notes',         icon: BookOpen,        color: 'indigo', category: 'Analytics' },
 ];
 
 const reportById = new Map(reports.map(r => [r.id, r]));

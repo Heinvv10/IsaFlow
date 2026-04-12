@@ -188,7 +188,7 @@ export default function NewBankTransactionPage() {
                 {/* Bank Account */}
                 <div>
                   <label className={LABEL_CLS}>Bank Account *</label>
-                  <select value={form.bankAccountId} onChange={e => patch({ bankAccountId: e.target.value })}
+                  <select name="bankAccountId" value={form.bankAccountId} onChange={e => patch({ bankAccountId: e.target.value })}
                     className={INPUT_CLS} required>
                     <option value="">Select bank account…</option>
                     {bankAccounts.map(b => (
@@ -204,12 +204,12 @@ export default function NewBankTransactionPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className={LABEL_CLS}>Date *</label>
-                    <input type="date" value={form.date} onChange={e => patch({ date: e.target.value })}
+                    <input type="date" name="date" value={form.date} onChange={e => patch({ date: e.target.value })}
                       className={INPUT_CLS} required />
                   </div>
                   <div>
                     <label className={LABEL_CLS}>Reference</label>
-                    <input type="text" value={form.reference} onChange={e => patch({ reference: e.target.value })}
+                    <input type="text" name="reference" value={form.reference} onChange={e => patch({ reference: e.target.value })}
                       placeholder="e.g. INV-001" className={INPUT_CLS} />
                   </div>
                 </div>
@@ -217,14 +217,14 @@ export default function NewBankTransactionPage() {
                 {/* Description */}
                 <div>
                   <label className={LABEL_CLS}>Description</label>
-                  <input type="text" value={form.description} onChange={e => patch({ description: e.target.value })}
+                  <input type="text" name="description" value={form.description} onChange={e => patch({ description: e.target.value })}
                     placeholder="Transaction description…" className={INPUT_CLS} />
                 </div>
 
                 {/* Amount */}
                 <div>
                   <label className={LABEL_CLS}>Amount (ZAR) *</label>
-                  <input type="number" min="0.01" step="0.01" value={form.amount}
+                  <input type="number" name="amount" min="0.01" step="0.01" value={form.amount}
                     onChange={e => patch({ amount: e.target.value })} placeholder="0.00"
                     className={INPUT_CLS} required />
                 </div>
@@ -251,7 +251,7 @@ export default function NewBankTransactionPage() {
                 {/* Searchable entity picker */}
                 <div className="relative">
                   <label className={LABEL_CLS}>{entityLabel}</label>
-                  <input type="text" value={entitySearch}
+                  <input type="text" name="search" value={entitySearch}
                     onChange={e => {
                       setEntitySearch(e.target.value);
                       if (form.allocationType === 'account') patch({ contraAccountId: '' });
@@ -281,7 +281,7 @@ export default function NewBankTransactionPage() {
                 {/* VAT Code */}
                 <div>
                   <label className={LABEL_CLS}>VAT Code</label>
-                  <select value={form.vatCode} onChange={e => patch({ vatCode: e.target.value as VatCode })}
+                  <select name="vatCode" value={form.vatCode} onChange={e => patch({ vatCode: e.target.value as VatCode })}
                     className={INPUT_CLS}>
                     {VAT_OPTIONS.map(v => <option key={v.value} value={v.value}>{v.label}</option>)}
                   </select>

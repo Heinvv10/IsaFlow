@@ -224,7 +224,7 @@ export default function NewSupplierPaymentPage() {
                   <div key={alloc.key} className="grid grid-cols-12 gap-2 items-end">
                     <div className="col-span-6">
                       {idx === 0 && <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Invoice</label>}
-                      <select value={alloc.invoiceId}
+                      <select name="invoiceId" value={alloc.invoiceId}
                         onChange={e => updateAllocation(alloc.key, 'invoiceId', e.target.value)}
                         className="ff-select w-full text-sm">
                         <option value="">Select invoice...</option>

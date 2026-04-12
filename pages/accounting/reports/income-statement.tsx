@@ -110,15 +110,15 @@ export default function IncomeStatementPage() {
           <div className="flex flex-wrap items-end gap-4">
             <div>
               <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">From</label>
-              <input type="date" value={periodStart} onChange={e => setPeriodStart(e.target.value)} className="ff-input text-sm" />
+              <input type="date" name="periodStart" value={periodStart} onChange={e => setPeriodStart(e.target.value)} className="ff-input text-sm" />
             </div>
             <div>
               <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">To</label>
-              <input type="date" value={periodEnd} onChange={e => setPeriodEnd(e.target.value)} className="ff-input text-sm" />
+              <input type="date" name="periodEnd" value={periodEnd} onChange={e => setPeriodEnd(e.target.value)} className="ff-input text-sm" />
             </div>
             <div>
               <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Cost Centre</label>
-              <select value={costCentreId} onChange={e => setCostCentreId(e.target.value)}
+              <select name="costCentreId" value={costCentreId} onChange={e => setCostCentreId(e.target.value)}
                 className="ff-input text-sm min-w-[160px]">
                 <option value="">All Cost Centres</option>
                 {costCentres.map(cc => (
@@ -127,7 +127,7 @@ export default function IncomeStatementPage() {
               </select>
             </div>
             <label className="flex items-center gap-2 text-sm text-[var(--ff-text-secondary)] cursor-pointer select-none pb-1">
-              <input type="checkbox" checked={showComparative} onChange={e => setShowComparative(e.target.checked)}
+              <input type="checkbox" name="showComparative" checked={showComparative} onChange={e => setShowComparative(e.target.checked)}
                 className="rounded border-[var(--ff-border-light)]" />
               Compare prior period
             </label>

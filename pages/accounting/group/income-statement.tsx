@@ -256,6 +256,7 @@ export default function ConsolidatedIncomeStatementPage() {
             </div>
             <div className="flex items-center gap-3 flex-wrap">
               <select
+                name="groupId"
                 value={selectedGroupId}
                 onChange={e => setSelectedGroupId(e.target.value)}
                 className={selectClass}
@@ -267,12 +268,14 @@ export default function ConsolidatedIncomeStatementPage() {
               </select>
               <input
                 type="date"
+                name="periodStart"
                 value={periodStart}
                 onChange={e => setPeriodStart(e.target.value)}
                 className={inputClass}
               />
               <input
                 type="date"
+                name="periodEnd"
                 value={periodEnd}
                 onChange={e => setPeriodEnd(e.target.value)}
                 className={inputClass}

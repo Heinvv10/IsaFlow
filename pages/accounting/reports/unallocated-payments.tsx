@@ -35,7 +35,7 @@ export default function UnallocatedPaymentsReport() {
 
   useEffect(() => { load(); }, [load]);
 
-  const totalUnalloc = items.reduce((s, p) => s + (p.amount - p.allocatedAmount), 0);
+  const totalUnalloc = items.reduce((s, p) => s + (Number(p.amount) - Number(p.allocatedAmount)), 0);
 
   return (
     <AppLayout>
@@ -88,9 +88,9 @@ export default function UnallocatedPaymentsReport() {
                       </td>
                       <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{p.supplierName}</td>
                       <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{p.date?.split('T')[0]}</td>
-                      <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">{fmt(p.amount)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-teal-400">{fmt(p.allocatedAmount)}</td>
-                      <td className="px-4 py-3 text-right font-mono font-bold text-amber-400">{fmt(p.amount - p.allocatedAmount)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">{fmt(Number(p.amount))}</td>
+                      <td className="px-4 py-3 text-right font-mono text-teal-400">{fmt(Number(p.allocatedAmount))}</td>
+                      <td className="px-4 py-3 text-right font-mono font-bold text-amber-400">{fmt(Number(p.amount) - Number(p.allocatedAmount))}</td>
                     </tr>
                   ))}
                 </tbody>

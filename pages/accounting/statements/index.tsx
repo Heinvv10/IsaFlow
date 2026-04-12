@@ -180,6 +180,7 @@ export default function StatementsPage() {
               As at:
               <input
                 type="date"
+                name="asAtDate"
                 value={asAtDate}
                 onChange={e => setAsAtDate(e.target.value)}
                 className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm"
@@ -188,6 +189,7 @@ export default function StatementsPage() {
             <label className="flex items-center gap-2 text-sm text-[var(--ff-text-secondary)] cursor-pointer select-none">
               <input
                 type="checkbox"
+                name="showAll"
                 checked={showAll}
                 onChange={e => setShowAll(e.target.checked)}
                 className="rounded border-[var(--ff-border-light)]"
@@ -206,6 +208,7 @@ export default function StatementsPage() {
             </label>
             <input
               type="text"
+              name="message"
               value={message}
               onChange={e => setMessage(e.target.value)}
               placeholder="e.g. Please find your statement. Contact us if you have any queries."

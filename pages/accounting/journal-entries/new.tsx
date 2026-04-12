@@ -242,7 +242,7 @@ export default function NewJournalEntryPage() {
                         <td className="px-4 py-2 text-sm text-[var(--ff-text-tertiary)]">{idx + 1}</td>
                         <td className="px-4 py-2">
                           <select
-                            value={line.accountId}
+                            name="accountId" value={line.accountId}
                             onChange={e => updateLine(line.key, 'accountId', e.target.value)}
                             className="ff-select text-sm py-1.5"
                             required

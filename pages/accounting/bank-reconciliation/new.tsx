@@ -95,6 +95,7 @@ export default function NewReconciliationPage() {
             <div>
               <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Bank Account *</label>
               <select
+                name="bankAccountId"
                 value={form.bankAccountId}
                 onChange={e => setForm(f => ({ ...f, bankAccountId: e.target.value }))}
                 className="ff-select w-full"
@@ -115,6 +116,7 @@ export default function NewReconciliationPage() {
                 <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Statement Date *</label>
                 <input
                   type="date"
+                  name="statementDate"
                   value={form.statementDate}
                   onChange={e => setForm(f => ({ ...f, statementDate: e.target.value }))}
                   className="ff-input w-full"
@@ -126,6 +128,7 @@ export default function NewReconciliationPage() {
                 <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Statement Closing Balance *</label>
                 <input
                   type="number"
+                  name="statementBalance"
                   step="0.01"
                   value={form.statementBalance || ''}
                   onChange={e => setForm(f => ({ ...f, statementBalance: Number(e.target.value) }))}

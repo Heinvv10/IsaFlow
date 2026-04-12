@@ -255,7 +255,7 @@ export default function NewSupplierCreditNotePage() {
                       </td>
                       <td className="py-2 px-2">
                         <select
-                          value={li.vatType}
+                          name="vatType" value={li.vatType}
                           onChange={e => updateLine(idx, { vatType: e.target.value })}
                           className="ff-select w-full text-sm"
                         >

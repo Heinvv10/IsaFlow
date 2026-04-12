@@ -262,6 +262,7 @@ export default function NewCustomerPaymentPage() {
                 return (
                   <div key={alloc.key} className="flex items-center gap-3">
                     <select
+                      name="invoiceId"
                       value={alloc.invoiceId}
                       onChange={e => updateAllocation(alloc.key, 'invoiceId', e.target.value)}
                       className="ff-select flex-1"
@@ -275,6 +276,7 @@ export default function NewCustomerPaymentPage() {
                     </select>
                     <input
                       type="number"
+                      name="amount"
                       step="0.01"
                       min="0"
                       max={balance || undefined}
