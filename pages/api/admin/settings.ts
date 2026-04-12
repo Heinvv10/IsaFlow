@@ -27,7 +27,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method === 'PATCH') {
     try {
       const data = req.body as Partial<PlatformSettings>;
-      await updatePlatformSettings(data);
+      await updatePlatformSettings(data, req.user.id);
+
+      log.info('Platform settings PATCH', { keys: Object.keys(data), userId: req.user.id }, 'admin-settings-api');
 
       // Audit log
       await sql`
@@ -42,7 +44,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         )
       `;
 
-      return apiResponse.success(res, { message: 'Settings updated (note: no persistence yet)' });
+      return apiResponse.success(res, { message: 'Settings saved.' });
     } catch (err) {
       log.error('Failed to update platform settings', { error: err }, 'admin-settings-api');
       return apiResponse.badRequest(res, 'Failed to update platform settings');

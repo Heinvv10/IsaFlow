@@ -110,6 +110,7 @@ function rowToSubscription(r: Row): SubscriptionListItem {
 }
 
 export async function listSubscriptions(filters: {
+  company_id?: string;
   status?: string;
   plan_id?: string;
   search?: string;
@@ -128,13 +129,15 @@ export async function listSubscriptions(filters: {
   if (rawDir !== 'ASC' && rawDir !== 'DESC') throw new Error('Invalid sort direction');
   const sortDir = rawDir === 'ASC' ? sql`ASC` : sql`DESC`;
   const search = filters.search ? `%${filters.search}%` : null;
+  const companyIdFilter = filters.company_id ?? null;
 
   const [countRow] = await sql`
     SELECT COUNT(*) AS total
     FROM subscriptions s
     INNER JOIN companies c ON c.id = s.company_id
     INNER JOIN plans p ON p.id = s.plan_id
-    WHERE (${filters.status ?? null}::text IS NULL OR s.status = ${filters.status ?? null})
+    WHERE (${companyIdFilter}::uuid IS NULL OR s.company_id = ${companyIdFilter}::uuid)
+      AND (${filters.status ?? null}::text IS NULL OR s.status = ${filters.status ?? null})
       AND (${filters.plan_id ?? null}::uuid IS NULL OR s.plan_id = ${filters.plan_id ?? null}::uuid)
       AND (${search}::text IS NULL OR c.name ILIKE ${search})
   `;
@@ -151,7 +154,8 @@ export async function listSubscriptions(filters: {
     FROM subscriptions s
     INNER JOIN companies c ON c.id = s.company_id
     INNER JOIN plans p ON p.id = s.plan_id
-    WHERE (${filters.status ?? null}::text IS NULL OR s.status = ${filters.status ?? null})
+    WHERE (${companyIdFilter}::uuid IS NULL OR s.company_id = ${companyIdFilter}::uuid)
+      AND (${filters.status ?? null}::text IS NULL OR s.status = ${filters.status ?? null})
       AND (${filters.plan_id ?? null}::uuid IS NULL OR s.plan_id = ${filters.plan_id ?? null}::uuid)
       AND (${search}::text IS NULL OR c.name ILIKE ${search})
     ORDER BY ${sql.unsafe(sortCol)} ${sortDir}

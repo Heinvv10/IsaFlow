@@ -7,7 +7,6 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { generateRandomPassword, hashPassword } from '@/lib/auth';
 import type {
   AdminUserListItem,
   AdminUserDetail,
@@ -244,106 +243,5 @@ export async function updateUser(
   log.info('updateUser', { userId }, 'AdminUserService');
 }
 
-export async function suspendUser(
-  userId: string,
-  reason: string
-): Promise<void> {
-  await sql`
-    UPDATE users
-    SET is_active        = false,
-        suspended_reason = ${reason},
-        suspended_at     = NOW(),
-        updated_at       = NOW()
-    WHERE id = ${userId}
-  `;
-  // Invalidate all active sessions immediately
-  await sql`DELETE FROM user_sessions WHERE user_id = ${userId}`;
-  log.info('suspendUser', { userId, reason }, 'AdminUserService');
-}
-
-export async function activateUser(userId: string): Promise<void> {
-  await sql`
-    UPDATE users
-    SET is_active        = true,
-        suspended_reason = NULL,
-        suspended_at     = NULL,
-        updated_at       = NOW()
-    WHERE id = ${userId}
-  `;
-  log.info('activateUser', { userId }, 'AdminUserService');
-}
-
-/**
- * Generate a temporary password, hash and store it, return plain text.
- * Caller is responsible for emailing the reset token/password.
- */
-export async function resetPassword(userId: string): Promise<string> {
-  const temporaryPassword = generateRandomPassword();
-  const hashed = await hashPassword(temporaryPassword);
-
-  await sql`
-    UPDATE users
-    SET password_hash        = ${hashed},
-        must_change_password = true,
-        updated_at           = NOW()
-    WHERE id = ${userId}
-  `;
-
-  log.info('resetPassword — temporary password issued', { userId }, 'AdminUserService');
-  return temporaryPassword;
-}
-
-/**
- * Force logout by deleting all active sessions for a user.
- * A no-op placeholder message is logged if no sessions exist.
- */
-export async function forceLogout(userId: string): Promise<void> {
-  await sql`DELETE FROM user_sessions WHERE user_id = ${userId}`;
-  log.info('forceLogout — sessions cleared', { userId }, 'AdminUserService');
-}
-
-const ALLOWED_COMPANY_ROLES = ['admin', 'accountant', 'bookkeeper', 'viewer'];
-
-export async function addUserToCompany(
-  userId: string,
-  companyId: string,
-  role: string
-): Promise<void> {
-  if (role && !ALLOWED_COMPANY_ROLES.includes(role)) {
-    throw new Error(`Invalid role: ${role}`);
-  }
-  await sql`
-    INSERT INTO company_users (user_id, company_id, role, created_at)
-    VALUES (${userId}, ${companyId}, ${role}, NOW())
-    ON CONFLICT (user_id, company_id) DO UPDATE
-      SET role = EXCLUDED.role
-  `;
-  log.info('addUserToCompany', { userId, companyId, role }, 'AdminUserService');
-}
-
-export async function removeUserFromCompany(
-  userId: string,
-  companyId: string
-): Promise<void> {
-  await sql`
-    DELETE FROM company_users
-    WHERE user_id = ${userId} AND company_id = ${companyId}
-  `;
-  log.info('removeUserFromCompany', { userId, companyId }, 'AdminUserService');
-}
-
-/**
- * Reset a user's onboarding state so they go through the company wizard again
- * on next login. Removes all company links and clears sessions.
- */
-export async function resetOnboarding(userId: string): Promise<void> {
-  await sql`
-    UPDATE users
-    SET onboarding_completed = false,
-        updated_at           = NOW()
-    WHERE id = ${userId}
-  `;
-  await sql`DELETE FROM company_users WHERE user_id = ${userId}`;
-  await sql`DELETE FROM user_sessions WHERE user_id = ${userId}`;
-  log.info('resetOnboarding — user must re-onboard', { userId }, 'AdminUserService');
-}
+// Action functions (suspend, activate, delete, resetPassword, etc.) are in
+// adminUserActionsService.ts to keep this file within the 300-line limit.

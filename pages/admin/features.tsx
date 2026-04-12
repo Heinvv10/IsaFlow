@@ -7,26 +7,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { apiFetch } from '@/lib/apiFetch';
-import { AlertCircle, Loader2, Pencil, Globe, Lock, X, Check } from 'lucide-react';
-
-interface FeatureFlag {
-  id: string;
-  code: string;
-  name: string;
-  description: string | null;
-  is_global: boolean;
-  created_at: string;
-}
-
-interface EditState {
-  name: string;
-  description: string;
-  is_global: boolean;
-}
-
-function fmtDate(d: string) {
-  return new Date(d).toLocaleDateString('en-ZA');
-}
+import { AlertCircle, Loader2, ToggleLeft, ToggleRight } from 'lucide-react';
+import {
+  FeatureFlagRow,
+  type FeatureFlag,
+  type EditState,
+} from '@/components/admin/FeatureFlagRow';
 
 export default function AdminFeaturesPage() {
   const [flags, setFlags]         = useState<FeatureFlag[]>([]);
@@ -36,6 +22,8 @@ export default function AdminFeaturesPage() {
   const [editState, setEditState] = useState<EditState>({ name: '', description: '', is_global: false });
   const [saving, setSaving]       = useState(false);
   const [saveError, setSaveError] = useState('');
+  const [selected, setSelected]   = useState<Set<string>>(new Set());
+  const [bulkWorking, setBulkWorking] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -56,18 +44,11 @@ export default function AdminFeaturesPage() {
 
   function openEdit(flag: FeatureFlag) {
     setEditing(flag.id);
-    setEditState({
-      name: flag.name,
-      description: flag.description ?? '',
-      is_global: flag.is_global,
-    });
+    setEditState({ name: flag.name, description: flag.description ?? '', is_global: flag.is_global });
     setSaveError('');
   }
 
-  function cancelEdit() {
-    setEditing(null);
-    setSaveError('');
-  }
+  function cancelEdit() { setEditing(null); setSaveError(''); }
 
   async function saveEdit(id: string) {
     setSaving(true);
@@ -84,10 +65,7 @@ export default function AdminFeaturesPage() {
       });
       const json = await res.json() as { data?: FeatureFlag; message?: string };
       if (!res.ok) throw new Error(json.message || 'Failed to save');
-
-      setFlags((prev) =>
-        prev.map((f) => (f.id === id && json.data ? json.data : f))
-      );
+      setFlags((prev) => prev.map((f) => (f.id === id && json.data ? json.data : f)));
       setEditing(null);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Failed to save');
@@ -95,6 +73,36 @@ export default function AdminFeaturesPage() {
       setSaving(false);
     }
   }
+
+  async function bulkSetGlobal(isGlobal: boolean) {
+    if (selected.size === 0) return;
+    setBulkWorking(true);
+    try {
+      await Promise.all(
+        Array.from(selected).map((id) =>
+          apiFetch(`/api/admin/features/${id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ is_global: isGlobal }),
+          })
+        )
+      );
+      setSelected(new Set());
+      await load();
+    } catch {
+      setError('Bulk update failed — some flags may not have updated');
+    } finally {
+      setBulkWorking(false);
+    }
+  }
+
+  const toggleSelectAll = () => {
+    setSelected(selected.size === flags.length ? new Set() : new Set(flags.map((f) => f.id)));
+  };
+
+  const toggleOne = (id: string) => {
+    setSelected((prev) => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  };
 
   return (
     <AdminLayout title="Feature Flags">
@@ -105,6 +113,31 @@ export default function AdminFeaturesPage() {
         </p>
         <span className="text-sm text-gray-500 dark:text-gray-400">{flags.length} flags</span>
       </div>
+
+      {selected.size > 0 && (
+        <div className="flex items-center gap-3 mb-4 px-4 py-2 bg-teal-500/10 border border-teal-500/30 rounded-lg">
+          <span className="text-sm text-teal-400 font-medium">{selected.size} selected</span>
+          <button
+            onClick={() => void bulkSetGlobal(true)}
+            disabled={bulkWorking}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors"
+          >
+            {bulkWorking ? <Loader2 className="w-3 h-3 animate-spin" /> : <ToggleRight className="w-3.5 h-3.5" />}
+            Enable Selected
+          </button>
+          <button
+            onClick={() => void bulkSetGlobal(false)}
+            disabled={bulkWorking}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors"
+          >
+            {bulkWorking ? <Loader2 className="w-3 h-3 animate-spin" /> : <ToggleLeft className="w-3.5 h-3.5" />}
+            Disable Selected
+          </button>
+          <button onClick={() => setSelected(new Set())} className="text-xs text-gray-400 hover:text-gray-200 ml-1">
+            Clear
+          </button>
+        </div>
+      )}
 
       {error && (
         <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm mb-4">
@@ -117,6 +150,14 @@ export default function AdminFeaturesPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
+                <th className="px-4 py-3 w-8">
+                  <input
+                    type="checkbox"
+                    checked={flags.length > 0 && selected.size === flags.length}
+                    onChange={toggleSelectAll}
+                    className="rounded"
+                  />
+                </th>
                 <th className="px-4 py-3 font-medium">Code</th>
                 <th className="px-4 py-3 font-medium">Name</th>
                 <th className="px-4 py-3 font-medium">Description</th>
@@ -128,136 +169,32 @@ export default function AdminFeaturesPage() {
             <tbody>
               {loading && flags.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center">
+                  <td colSpan={7} className="px-4 py-12 text-center">
                     <Loader2 className="w-5 h-5 animate-spin text-teal-500 mx-auto" />
                   </td>
                 </tr>
               )}
               {!loading && flags.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center text-gray-400">
-                    No feature flags found
-                  </td>
+                  <td colSpan={7} className="px-4 py-12 text-center text-gray-400">No feature flags found</td>
                 </tr>
               )}
-
-              {flags.map((flag) =>
-                editing === flag.id ? (
-                  // Edit row
-                  <tr
-                    key={flag.id}
-                    className="border-b border-gray-100 dark:border-gray-800 last:border-0 bg-teal-50/40 dark:bg-teal-900/10"
-                  >
-                    <td className="px-4 py-3">
-                      <code className="text-xs font-mono text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
-                        {flag.code}
-                      </code>
-                    </td>
-                    <td className="px-4 py-3">
-                      <input
-                        type="text"
-                        value={editState.name}
-                        onChange={(e) => setEditState((s) => ({ ...s, name: e.target.value }))}
-                        className="w-full px-2 py-1 text-sm rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
-                        placeholder="Feature name"
-                      />
-                    </td>
-                    <td className="px-4 py-3">
-                      <input
-                        type="text"
-                        value={editState.description}
-                        onChange={(e) => setEditState((s) => ({ ...s, description: e.target.value }))}
-                        className="w-full px-2 py-1 text-sm rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
-                        placeholder="Description"
-                      />
-                    </td>
-                    <td className="px-4 py-3">
-                      <button
-                        type="button"
-                        onClick={() => setEditState((s) => ({ ...s, is_global: !s.is_global }))}
-                        className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-colors ${
-                          editState.is_global
-                            ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300'
-                            : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
-                        }`}
-                      >
-                        {editState.is_global
-                          ? <><Globe className="w-3 h-3" /> Global</>
-                          : <><Lock className="w-3 h-3" /> Plan only</>
-                        }
-                      </button>
-                    </td>
-                    <td className="px-4 py-3 text-gray-400 text-xs">{fmtDate(flag.created_at)}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-1">
-                        {saveError && (
-                          <span className="text-xs text-red-500 mr-1">{saveError}</span>
-                        )}
-                        <button
-                          onClick={() => void saveEdit(flag.id)}
-                          disabled={saving}
-                          className="p-1.5 rounded text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-900/20 disabled:opacity-40 transition-colors"
-                          title="Save"
-                        >
-                          {saving
-                            ? <Loader2 className="w-4 h-4 animate-spin" />
-                            : <Check className="w-4 h-4" />
-                          }
-                        </button>
-                        <button
-                          onClick={cancelEdit}
-                          disabled={saving}
-                          className="p-1.5 rounded text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40 transition-colors"
-                          title="Cancel"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ) : (
-                  // Read-only row
-                  <tr
-                    key={flag.id}
-                    className="border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors"
-                  >
-                    <td className="px-4 py-3">
-                      <code className="text-xs font-mono text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
-                        {flag.code}
-                      </code>
-                    </td>
-                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">
-                      {flag.name}
-                    </td>
-                    <td className="px-4 py-3 text-gray-500 dark:text-gray-400 max-w-xs truncate">
-                      {flag.description || <span className="italic text-gray-300 dark:text-gray-600">No description</span>}
-                    </td>
-                    <td className="px-4 py-3">
-                      {flag.is_global ? (
-                        <span className="flex items-center gap-1 text-xs text-teal-600 dark:text-teal-400">
-                          <Globe className="w-3.5 h-3.5" /> Global
-                        </span>
-                      ) : (
-                        <span className="flex items-center gap-1 text-xs text-gray-400">
-                          <Lock className="w-3.5 h-3.5" /> Plan only
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-gray-400 text-xs whitespace-nowrap">
-                      {fmtDate(flag.created_at)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={() => openEdit(flag)}
-                        className="p-1.5 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                        title="Edit feature flag"
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </button>
-                    </td>
-                  </tr>
-                )
-              )}
+              {flags.map((flag) => (
+                <FeatureFlagRow
+                  key={flag.id}
+                  flag={flag}
+                  isEditing={editing === flag.id}
+                  editState={editState}
+                  saving={saving}
+                  saveError={saveError}
+                  isSelected={selected.has(flag.id)}
+                  onToggleSelect={() => toggleOne(flag.id)}
+                  onOpenEdit={() => openEdit(flag)}
+                  onCancelEdit={cancelEdit}
+                  onSaveEdit={() => void saveEdit(flag.id)}
+                  onEditChange={(patch) => setEditState((s) => ({ ...s, ...patch }))}
+                />
+              ))}
             </tbody>
           </table>
         </div>

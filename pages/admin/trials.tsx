@@ -5,6 +5,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { AlertCircle, Loader2, Clock, CheckCircle, TrendingUp, XCircle } from 'lucide-react';
 import Link from 'next/link';
+import { ConvertTrialModal } from '@/components/admin/ConvertTrialModal';
 
 /* ------------------------------------------------------------------ types */
 interface TrialCompany {
@@ -57,6 +58,7 @@ export default function AdminTrialsPage() {
   const [selected, setSelected]     = useState<Set<string>>(new Set());
   const [extending, setExtending]   = useState<Set<string>>(new Set());
   const [bulkWorking, setBulkWorking] = useState(false);
+  const [convertTarget, setConvertTarget] = useState<TrialCompany | null>(null);
 
   /* ----------------------------------------------------------- load data */
   const load = useCallback(async () => {
@@ -263,7 +265,7 @@ export default function AdminTrialsPage() {
                     </td>
                     <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{trial.user_count}</td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <button
                           onClick={() => void extendOne(trial.id, 7)}
                           disabled={extending.has(trial.id)}
@@ -272,11 +274,19 @@ export default function AdminTrialsPage() {
                           {extending.has(trial.id) ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
                           +7 days
                         </button>
+                        {trial.status !== 'active' && (
+                          <button
+                            onClick={() => setConvertTarget(trial)}
+                            className="px-2.5 py-1 text-xs bg-green-600/20 hover:bg-green-600/40 text-green-400 rounded-md transition-colors"
+                          >
+                            Convert to Paid
+                          </button>
+                        )}
                         <Link
                           href={adminHref(`/admin/companies/${trial.id}`)}
                           className="px-2.5 py-1 text-xs bg-gray-700/40 hover:bg-gray-700/70 text-gray-300 rounded-md transition-colors"
                         >
-                          Upgrade
+                          View
                         </Link>
                       </div>
                     </td>
@@ -286,6 +296,14 @@ export default function AdminTrialsPage() {
             </table>
           </div>
         </>
+      )}
+      {convertTarget && (
+        <ConvertTrialModal
+          companyId={convertTarget.id}
+          companyName={convertTarget.name}
+          onClose={() => setConvertTarget(null)}
+          onConverted={() => { setConvertTarget(null); void load(); }}
+        />
       )}
     </AdminLayout>
   );

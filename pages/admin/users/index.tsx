@@ -9,7 +9,7 @@ import { AdminLayout } from '@/components/admin/AdminLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { formatDate } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
-import { Search, Building2, AlertCircle, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Building2, AlertCircle, Loader2, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
 
 interface AdminUser {
   id: string;
@@ -73,6 +73,8 @@ export default function AdminUsersPage() {
   const [company, setCompany]       = useState('');
   const [role, setRole]             = useState('');
   const [status, setStatus]         = useState('');
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deleting, setDeleting]     = useState<string | null>(null);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -118,6 +120,24 @@ export default function AdminUsersPage() {
   }, [page]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const totalPages = Math.max(1, Math.ceil(total / LIMIT));
+
+  const handleDelete = useCallback(async (userId: string) => {
+    setDeleting(userId);
+    setError('');
+    try {
+      const res = await apiFetch(`/api/admin/users/${userId}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const json = await res.json() as { message?: string };
+        throw new Error(json.message ?? 'Delete failed');
+      }
+      setConfirmDeleteId(null);
+      void load(search, company, role, status, page);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete user');
+    } finally {
+      setDeleting(null);
+    }
+  }, [load, search, company, role, status, page]);
 
   return (
     <AdminLayout title="Users">
@@ -193,19 +213,20 @@ export default function AdminUsersPage() {
                 <th className="px-4 py-3 font-medium">Last Login</th>
                 <th className="px-4 py-3 font-medium">Status</th>
                 <th className="px-4 py-3 font-medium">Created</th>
+                <th className="px-4 py-3 font-medium w-10"></th>
               </tr>
             </thead>
             <tbody>
               {loading && rows.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center">
+                  <td colSpan={8} className="px-4 py-12 text-center">
                     <Loader2 className="w-5 h-5 animate-spin text-teal-500 mx-auto" />
                   </td>
                 </tr>
               )}
               {!loading && rows.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-gray-400">No users found</td>
+                  <td colSpan={8} className="px-4 py-12 text-center text-gray-400">No users found</td>
                 </tr>
               )}
               {rows.map(u => (
@@ -233,6 +254,36 @@ export default function AdminUsersPage() {
                   <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">
                     {formatDate(u.created_at)}
                   </td>
+                  {u.role !== 'super_admin' && (
+                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                      {confirmDeleteId === u.id ? (
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => void handleDelete(u.id)}
+                            disabled={deleting === u.id}
+                            className="px-2 py-1 text-xs bg-red-600 hover:bg-red-700 text-white rounded disabled:opacity-40 transition-colors"
+                          >
+                            {deleting === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Confirm'}
+                          </button>
+                          <button
+                            onClick={() => setConfirmDeleteId(null)}
+                            className="px-2 py-1 text-xs bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded transition-colors"
+                          >
+                            No
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setConfirmDeleteId(u.id)}
+                          className="p-1.5 rounded text-gray-400 hover:text-red-500 hover:bg-red-500/10 transition-colors"
+                          title="Delete user"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </td>
+                  )}
+                  {u.role === 'super_admin' && <td className="px-4 py-3" />}
                 </tr>
               ))}
             </tbody>

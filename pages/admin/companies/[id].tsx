@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { ConfirmModal } from '@/components/admin/ConfirmModal';
+import { CompanyBillingTab } from '@/components/admin/companies/CompanyBillingTab';
 import { apiFetch } from '@/lib/apiFetch';
 import { formatDate } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
@@ -80,7 +81,7 @@ export default function AdminCompanyDetailPage() {
   const [featuresLoading, setFeaturesLoading] = useState(false);
   const [featureActionId, setFeatureActionId] = useState<string | null>(null);
   const [error, setError]         = useState('');
-  const [activeTab, setActiveTab] = useState<'info' | 'users' | 'features'>('info');
+  const [activeTab, setActiveTab] = useState<'info' | 'users' | 'features' | 'billing'>('info');
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError]     = useState('');
   const [suspendOpen, setSuspendOpen]     = useState(false);
@@ -276,7 +277,7 @@ export default function AdminCompanyDetailPage() {
           </div>
 
           <div className="flex gap-1 mb-5 border-b border-gray-200 dark:border-gray-700">
-            {(['info', 'users', 'features'] as const).map(tab => (
+            {(['info', 'users', 'features', 'billing'] as const).map(tab => (
               <button key={tab} onClick={() => setActiveTab(tab)}
                 className={`px-4 py-2 text-sm font-medium capitalize border-b-2 -mb-px transition-colors ${
                   activeTab === tab
@@ -343,6 +344,10 @@ export default function AdminCompanyDetailPage() {
                 )
               }
             </div>
+          )}
+
+          {activeTab === 'billing' && (
+            <CompanyBillingTab companyId={company.id} />
           )}
 
           {activeTab === 'features' && (

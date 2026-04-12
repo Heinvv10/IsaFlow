@@ -188,6 +188,40 @@ export async function extendTrial(companyId: string, days: number): Promise<stri
   return toIso((rows[0] as Row).trial_ends_at);
 }
 
+/**
+ * Convert a trial company to an active paid subscription.
+ * - Sets company status = 'active'
+ * - Upserts a subscription record for the given plan with status = 'active'
+ * - Logs the admin action via auditService (caller must pass adminUserId)
+ */
+export async function markAsConverted(
+  companyId: string,
+  planId: string,
+): Promise<void> {
+  // 1. Activate the company
+  await sql`
+    UPDATE companies
+    SET status     = 'active',
+        plan_id    = ${planId}::uuid,
+        updated_at = NOW()
+    WHERE id = ${companyId}::uuid
+      AND status IS DISTINCT FROM 'deleted'
+  `;
+
+  // 2. Upsert subscription — if a trial sub exists upgrade it, else insert
+  await sql`
+    INSERT INTO subscriptions (company_id, plan_id, status, created_at, updated_at)
+    VALUES (${companyId}::uuid, ${planId}::uuid, 'active', NOW(), NOW())
+    ON CONFLICT (company_id)
+    DO UPDATE SET
+      plan_id    = EXCLUDED.plan_id,
+      status     = 'active',
+      updated_at = NOW()
+  `;
+
+  log.info('markAsConverted', { companyId, planId }, 'trialService');
+}
+
 /** Extend multiple companies' trials by N days. */
 export async function bulkExtendTrials(companyIds: string[], days: number): Promise<number> {
   // Use unnest for a single UPDATE across all IDs

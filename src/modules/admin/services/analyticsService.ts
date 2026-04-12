@@ -229,20 +229,53 @@ async function getChurnSignals(): Promise<UsageAnalytics['churn_signals']> {
   }));
 }
 
+const SETTINGS_DEFAULTS: PlatformSettings = {
+  maintenance_mode: false,
+  registration_enabled: true,
+  default_trial_days: 14,
+  max_companies_per_user: 5,
+  smtp_configured: false,
+};
+
 export async function getPlatformSettings(): Promise<PlatformSettings> {
-  // MVP: sensible defaults — persistence table not yet implemented
+  const rows = await sql`SELECT key, value FROM admin_settings`;
+
+  const persisted: Partial<Record<string, unknown>> = {};
+  for (const r of rows as Row[]) {
+    persisted[r.key as string] = r.value;
+  }
+
   return {
-    maintenance_mode: false,
-    registration_enabled: true,
-    default_trial_days: 14,
-    max_companies_per_user: 5,
+    maintenance_mode:       (persisted['maintenance_mode']       as boolean)  ?? SETTINGS_DEFAULTS.maintenance_mode,
+    registration_enabled:   (persisted['registration_enabled']   as boolean)  ?? SETTINGS_DEFAULTS.registration_enabled,
+    default_trial_days:     (persisted['default_trial_days']     as number)   ?? SETTINGS_DEFAULTS.default_trial_days,
+    max_companies_per_user: (persisted['max_companies_per_user'] as number)   ?? SETTINGS_DEFAULTS.max_companies_per_user,
+    // smtp_configured is runtime-only — not persisted, always derived from env
     smtp_configured: !!(process.env.SMTP_HOST ?? process.env.RESEND_API_KEY),
   };
 }
 
-export async function updatePlatformSettings(data: Partial<PlatformSettings>): Promise<void> {
-  // MVP: no persistence table yet — log the intent only
-  log.info('Platform settings update requested (no persistence yet)', {
-    changes: data,
-  }, 'analyticsService');
+export async function updatePlatformSettings(
+  data: Partial<PlatformSettings>,
+  updatedBy?: string,
+): Promise<void> {
+  // smtp_configured is read-only (derived from env) — strip it before upsert
+  const { smtp_configured: _ignored, ...persistable } = data;
+
+  const entries = Object.entries(persistable) as [string, unknown][];
+  if (entries.length === 0) return;
+
+  for (const [key, val] of entries) {
+    await sql`
+      INSERT INTO admin_settings (key, value, updated_at, updated_by)
+      VALUES (${key}, ${JSON.stringify(val)}::jsonb, NOW(), ${updatedBy ?? null})
+      ON CONFLICT (key)
+      DO UPDATE SET
+        value      = EXCLUDED.value,
+        updated_at = NOW(),
+        updated_by = EXCLUDED.updated_by
+    `;
+  }
+
+  log.info('Platform settings updated', { keys: Object.keys(persistable), updatedBy }, 'analyticsService');
 }

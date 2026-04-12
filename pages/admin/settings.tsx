@@ -5,7 +5,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { apiFetch } from '@/lib/apiFetch';
-import { AlertCircle, CheckCircle2, Loader2, Save, Info } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Loader2, Save } from 'lucide-react';
 
 interface PlatformSettings {
   maintenance_mode: boolean;
@@ -114,12 +114,6 @@ export default function AdminSettings() {
 
   return (
     <AdminLayout title="Platform Settings">
-      {/* Persistence notice */}
-      <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 text-sm mb-6">
-        <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
-        <span>Settings persistence is coming soon — changes are not saved between server restarts.</span>
-      </div>
-
       {error && (
         <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm mb-6">
           <AlertCircle className="w-4 h-4 flex-shrink-0" />
