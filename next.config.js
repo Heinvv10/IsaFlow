@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 
-const cspDev = "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.isaflow.co.za https://*.gravatar.com; font-src 'self' data:; connect-src 'self' https://api.anthropic.com https://*.sageone.co.za https://*.isaflow.co.za https://*.cloudflare.com http://localhost:3101 http://localhost:3004; frame-ancestors 'none'";
-const cspProd = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.isaflow.co.za https://*.gravatar.com; font-src 'self' data:; connect-src 'self' https://api.anthropic.com https://*.sageone.co.za https://*.isaflow.co.za https://*.cloudflare.com; frame-ancestors 'none'";
+const cspDev = "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.isaflow.co.za https://*.gravatar.com; font-src 'self' data:; connect-src 'self' https://api.anthropic.com https://*.sageone.co.za https://*.isaflow.co.za https://*.cloudflare.com https://cloudflareinsights.com http://localhost:3101 http://localhost:3004; frame-ancestors 'none'";
+const cspProd = "default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.isaflow.co.za https://*.gravatar.com; font-src 'self' data:; connect-src 'self' https://api.anthropic.com https://*.sageone.co.za https://*.isaflow.co.za https://*.cloudflare.com https://cloudflareinsights.com; frame-ancestors 'none'";
 
 const nextConfig = {
   reactStrictMode: true,
@@ -28,6 +28,10 @@ const nextConfig = {
       { source: '/accounting/reports/customer', destination: '/accounting/reports/customer-reports', permanent: true },
       { source: '/accounting/reports/supplier', destination: '/accounting/reports/supplier-reports', permanent: true },
       { source: '/accounting/reports/trial-balance', destination: '/accounting/trial-balance', permanent: true },
+      { source: '/accounting/balance-sheet', destination: '/accounting/reports/balance-sheet', permanent: true },
+      { source: '/accounting/income-statement', destination: '/accounting/reports/income-statement', permanent: true },
+      { source: '/accounting/quotes', destination: '/accounting/customer-quotes', permanent: false },
+      { source: '/accounting/sales-orders', destination: '/accounting/customer-sales-orders', permanent: false },
     ];
   },
 
