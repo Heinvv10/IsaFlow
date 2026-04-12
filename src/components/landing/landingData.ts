@@ -3,6 +3,7 @@
  * Separated to keep page shell and section components lean.
  */
 
+import { type LucideProps } from 'lucide-react';
 import {
   FileText, RefreshCw, Shield, Zap,
   Check, Star,
@@ -10,9 +11,53 @@ import {
 
 export { Check, Star };
 
+export interface Stat {
+  value: string;
+  label: string;
+}
+
+export interface FeaturePillar {
+  icon: React.ComponentType<LucideProps>;
+  title: string;
+  desc: string;
+}
+
+export interface DetailedFeature {
+  badge: string;
+  title: string;
+  desc: string;
+  bullets: string[];
+  imgKey: string;
+}
+
+export interface PricingTier {
+  name: string;
+  price: string;
+  period: string;
+  desc: string;
+  features: string[];
+  cta: string;
+  popular: boolean;
+}
+
+export interface Testimonial {
+  name: string;
+  role: string;
+  company: string;
+  quote: string;
+  metric?: string;
+  stars: number;
+  featured: boolean;
+}
+
+export interface FAQItem {
+  q: string;
+  a: string;
+}
+
 export const APP_URL = 'https://app.isaflow.co.za';
 
-export const STATS = [
+export const STATS: Stat[] = [
   { value: 'R 2.4B+', label: 'Transactions Processed' },
   { value: '500+', label: 'Businesses' },
   { value: '30+', label: 'Financial Reports' },
@@ -26,7 +71,7 @@ export const TRUST_COMPANIES = [
   'SA Retail Group',
 ];
 
-export const FEATURE_PILLARS = [
+export const FEATURE_PILLARS: FeaturePillar[] = [
   {
     icon: FileText,
     title: 'Get paid faster',
@@ -49,7 +94,7 @@ export const FEATURE_PILLARS = [
   },
 ];
 
-export const DETAILED_FEATURES = [
+export const DETAILED_FEATURES: DetailedFeature[] = [
   {
     badge: 'Accounts Receivable',
     title: 'Get paid faster with smart invoicing',
@@ -94,7 +139,7 @@ export const DETAILED_FEATURES = [
   },
 ];
 
-export const PRICING_TIERS = [
+export const PRICING_TIERS: PricingTier[] = [
   {
     name: 'Starter',
     price: 'R 499',
@@ -167,7 +212,7 @@ export const PRICING_TIERS = [
   },
 ];
 
-export const TESTIMONIALS = [
+export const TESTIMONIALS: Testimonial[] = [
   {
     name: 'Thandi Molefe',
     role: 'CFO',
@@ -195,7 +240,7 @@ export const TESTIMONIALS = [
   },
 ];
 
-export const FAQ_ITEMS = [
+export const FAQ_ITEMS: FAQItem[] = [
   {
     q: 'Can I try ISAFlow for free?',
     a: 'Yes. Every plan comes with a 14-day free trial — no credit card required. You get full access to all features in your selected tier so you can evaluate ISAFlow with your real data before committing.',
