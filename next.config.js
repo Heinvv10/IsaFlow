@@ -32,6 +32,7 @@ const nextConfig = {
       { source: '/accounting/income-statement', destination: '/accounting/reports/income-statement', permanent: true },
       { source: '/accounting/quotes', destination: '/accounting/customer-quotes', permanent: false },
       { source: '/accounting/sales-orders', destination: '/accounting/customer-sales-orders', permanent: false },
+      { source: '/accounting/sars/vat-adjustments', destination: '/accounting/vat-adjustments', permanent: true },
     ];
   },
 
@@ -54,7 +55,10 @@ const nextConfig = {
   },
 
   // Webpack config
-  webpack: (config, { isServer }) => {
+  webpack: (config, { isServer, dev }) => {
+    // Prevent corrupted on-disk chunk cache that causes "Cannot find module" errors.
+    // Using memory cache in all modes avoids stale pack files between builds.
+    config.cache = { type: 'memory' };
     if (!isServer) {
       config.resolve.fallback = {
         ...config.resolve.fallback,

@@ -80,7 +80,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (body.sarsCategory || body.category) {
       const catCode = body.sarsCategory || body.category;
       const cats = await sql`
-        SELECT id, sars_rate, sars_years FROM asset_categories WHERE code = ${catCode} AND company_id = ${companyId}::UUID LIMIT 1
+        SELECT id, sars_rate, sars_years FROM asset_categories WHERE code = ${catCode} LIMIT 1
       ` as Row[];
       if (cats[0]) {
         categoryId = String(cats[0].id);

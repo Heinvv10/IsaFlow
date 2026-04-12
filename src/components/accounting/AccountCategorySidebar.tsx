@@ -82,10 +82,10 @@ export function AccountCategorySidebar({
   const total = accounts.length;
 
   return (
-    <div className="w-52 flex-shrink-0 flex flex-col gap-3">
+    <div className="w-52 flex-shrink-0 flex flex-col gap-3 bg-slate-800/50 border border-white/10 rounded-xl p-4">
       {/* Prefix search */}
       <div>
-        <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1.5">
+        <label className="block text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">
           Jump to prefix
         </label>
         <input
@@ -94,39 +94,41 @@ export function AccountCategorySidebar({
           onChange={e => onSearchPrefixChange(e.target.value)}
           placeholder="e.g. 41"
           maxLength={6}
-          className="w-full px-3 py-1.5 text-sm rounded-lg border border-[var(--ff-border-primary)]
-            bg-[var(--ff-bg-secondary)] text-[var(--ff-text-primary)]
-            placeholder:text-[var(--ff-text-tertiary)]
+          className="w-full px-3 py-1.5 text-sm rounded-lg border border-white/10
+            bg-slate-900/50 text-slate-200
+            placeholder:text-slate-500
             focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500
             transition-colors"
         />
         {searchPrefix && (
           <button
             onClick={() => onSearchPrefixChange('')}
-            className="mt-1 text-xs text-teal-500 hover:text-teal-400 transition-colors"
+            className="mt-1 text-xs text-teal-400 hover:text-teal-300 transition-colors"
           >
             Clear
           </button>
         )}
       </div>
 
+      <div className="border-t border-white/10" />
+
       {/* Category list */}
       <div>
-        <p className="text-xs font-medium text-[var(--ff-text-secondary)] mb-1.5">
+        <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">
           Account Type
         </p>
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-0.5">
           {/* All Accounts */}
           <button
             onClick={() => { onSelectType('all'); onSearchPrefixChange(''); }}
             className={`flex items-center justify-between w-full px-3 py-2 rounded-lg text-sm transition-colors text-left
               ${selectedType === 'all' && !searchPrefix
-                ? 'bg-teal-500/10 border border-teal-500/30 text-teal-600 dark:text-teal-400 font-medium'
-                : 'hover:bg-[var(--ff-bg-secondary)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] border border-transparent'
+                ? 'bg-teal-500/15 border border-teal-500/30 text-teal-300 font-medium'
+                : 'hover:bg-white/5 text-slate-400 hover:text-slate-200 border border-transparent'
               }`}
           >
             <span>All Accounts</span>
-            <span className="text-xs bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 rounded-full px-1.5 py-0.5">
+            <span className="text-xs bg-slate-700 text-slate-300 rounded-full px-1.5 py-0.5">
               {total}
             </span>
           </button>
@@ -141,11 +143,11 @@ export function AccountCategorySidebar({
                 className={`flex items-center justify-between w-full px-3 py-2 rounded-lg text-sm transition-colors text-left
                   ${isSelected
                     ? `${cat.bgClass} border ${cat.borderClass} ${cat.colorClass} font-medium`
-                    : 'hover:bg-[var(--ff-bg-secondary)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] border border-transparent'
+                    : 'hover:bg-white/5 text-slate-400 hover:text-slate-200 border border-transparent'
                   }`}
               >
                 <div className="flex items-center gap-2">
-                  <span className={`text-xs font-mono font-bold ${isSelected ? cat.colorClass : 'text-gray-400 dark:text-gray-500'}`}>
+                  <span className={`text-xs font-mono font-bold ${isSelected ? cat.colorClass : 'text-slate-500'}`}>
                     {cat.prefix}
                   </span>
                   <span>{cat.label}</span>
@@ -153,7 +155,7 @@ export function AccountCategorySidebar({
                 <span className={`text-xs rounded-full px-1.5 py-0.5 ${
                   isSelected
                     ? `${cat.bgClass} ${cat.colorClass}`
-                    : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'
+                    : 'bg-slate-700 text-slate-300'
                 }`}>
                   {count}
                 </span>

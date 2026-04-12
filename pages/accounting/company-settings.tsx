@@ -43,7 +43,7 @@ const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
 ];
 
 export default function CompanySettingsPage() {
-  const { activeCompany } = useCompany();
+  const { activeCompany, loading: companiesLoading } = useCompany();
   const [company, setCompany] = useState<Company | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -111,8 +111,11 @@ export default function CompanySettingsPage() {
     if (activeCompany?.id) {
       void fetchCompany(activeCompany.id);
       void fetchSupplementary(activeCompany.id);
+    } else if (!companiesLoading) {
+      // Company context finished loading but no active company — stop spinning
+      setLoading(false);
     }
-  }, [activeCompany?.id, fetchCompany, fetchSupplementary]);
+  }, [activeCompany?.id, companiesLoading, fetchCompany, fetchSupplementary]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 

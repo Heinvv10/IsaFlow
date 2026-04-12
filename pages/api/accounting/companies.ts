@@ -23,10 +23,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, { items: companies });
     }
     if (req.query.id) {
-      // Verify user has access to this company
-      const userCompanies = await getUserCompanies(userId);
-      const hasAccess = userCompanies.some(c => c.companyId === req.query.id);
-      if (!hasAccess) return apiResponse.forbidden(res, 'You do not have access to this company');
+      // super_admin can access any company (impersonation / support access)
+      const isSuperAdmin = (req as AuthenticatedNextApiRequest).user.role === 'super_admin';
+      if (!isSuperAdmin) {
+        const userCompanies = await getUserCompanies(userId);
+        const hasAccess = userCompanies.some(c => c.companyId === req.query.id);
+        if (!hasAccess) return apiResponse.forbidden(res, 'You do not have access to this company');
+      }
       const company = await getCompany(req.query.id as string);
       if (!company) return apiResponse.notFound(res, 'Company');
       return apiResponse.success(res, company);

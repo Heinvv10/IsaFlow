@@ -40,7 +40,11 @@ export default function OnboardingWizard() {
   const [error, setError]           = useState('');
   const [authChecked, setAuthChecked] = useState(false);
 
-  // Auth check — then verify user doesn't already have companies (e.g. via invitation)
+  // Auth check — fires once on mount only.
+  // router is intentionally excluded from deps: it is only used for navigation
+  // (router.replace), not for reading state. Including it caused repeated fires
+  // each time Next.js updated the router reference during navigation, creating
+  // an accounting → onboarding → accounting redirect loop.
   useEffect(() => {
     apiFetch('/api/auth/me').then(async (r) => {
       if (!r.ok) { void router.replace('/login'); return; }
@@ -70,7 +74,8 @@ export default function OnboardingWizard() {
 
       setAuthChecked(true);
     }).catch(() => void router.replace('/login'));
-  }, [router]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const set = useCallback(<K extends keyof WizardData>(k: K, v: WizardData[K]) => {
     setD(prev => ({ ...prev, [k]: v }));
