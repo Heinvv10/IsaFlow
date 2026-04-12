@@ -68,7 +68,7 @@ export default function JobQueuePage() {
     try {
       await apiFetch('/api/admin/job-queue', {
         method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ action: 'retry', jobId }),
       });
       await load();
@@ -89,7 +89,7 @@ export default function JobQueuePage() {
   const callBulk = async (action: 'retry' | 'cancel') => {
     const res = await apiFetch('/api/admin/job-queue/bulk-action', {
       method: 'POST', credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
       body: JSON.stringify({ action, ids: [...selectedIds] }),
     });
     return ((await res.json()) as { data: BulkResult }).data;
@@ -118,7 +118,7 @@ export default function JobQueuePage() {
     try {
       const res = await apiFetch('/api/admin/job-queue/bulk-action', {
         method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ action: 'delete_old', olderThanDays: 30 }),
       });
       const json = await res.json() as { data: { processed: number } };

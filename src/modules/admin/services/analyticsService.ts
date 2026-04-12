@@ -255,6 +255,15 @@ export async function getPlatformSettings(): Promise<PlatformSettings> {
   };
 }
 
+// Allowlist of keys that may be persisted — derived directly from PlatformSettings fields
+// (smtp_configured is excluded because it is runtime-only, derived from env vars).
+const ALLOWED_SETTINGS_KEYS: ReadonlyArray<keyof Omit<PlatformSettings, 'smtp_configured'>> = [
+  'maintenance_mode',
+  'registration_enabled',
+  'default_trial_days',
+  'max_companies_per_user',
+] as const;
+
 export async function updatePlatformSettings(
   data: Partial<PlatformSettings>,
   updatedBy?: string,
@@ -262,7 +271,10 @@ export async function updatePlatformSettings(
   // smtp_configured is read-only (derived from env) — strip it before upsert
   const { smtp_configured: _ignored, ...persistable } = data;
 
-  const entries = Object.entries(persistable) as [string, unknown][];
+  // Drop any keys not in the explicit allowlist to prevent arbitrary key injection
+  const entries = (Object.entries(persistable) as [string, unknown][]).filter(
+    ([key]) => (ALLOWED_SETTINGS_KEYS as readonly string[]).includes(key),
+  );
   if (entries.length === 0) return;
 
   for (const [key, val] of entries) {

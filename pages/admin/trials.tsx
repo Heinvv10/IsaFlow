@@ -99,7 +99,7 @@ export default function AdminTrialsPage() {
     try {
       const res  = await apiFetch('/api/admin/trials', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ company_id: id, days }),
       });
       if (!res.ok) throw new Error('Extend failed');
@@ -118,7 +118,7 @@ export default function AdminTrialsPage() {
     try {
       const res = await apiFetch('/api/admin/trials', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ company_ids: Array.from(selected), days: 7 }),
       });
       if (!res.ok) throw new Error('Bulk extend failed');

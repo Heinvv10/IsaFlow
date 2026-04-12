@@ -56,7 +56,7 @@ export default function AdminFeaturesPage() {
     try {
       const res = await apiFetch(`/api/admin/features/${id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({
           name: editState.name.trim() || undefined,
           description: editState.description.trim() || undefined,
@@ -82,7 +82,7 @@ export default function AdminFeaturesPage() {
         Array.from(selected).map((id) =>
           apiFetch(`/api/admin/features/${id}`, {
             method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
             body: JSON.stringify({ is_global: isGlobal }),
           })
         )

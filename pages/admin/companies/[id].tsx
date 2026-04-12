@@ -132,7 +132,7 @@ export default function AdminCompanyDetailPage() {
     try {
       const res  = await apiFetch(`/api/admin/companies/${id}/suspend`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ reason: suspendReason }),
       });
       const json = await res.json();
@@ -146,7 +146,7 @@ export default function AdminCompanyDetailPage() {
     if (!id || typeof id !== 'string') return;
     setActionLoading(true); setActionError('');
     try {
-      const res  = await apiFetch(`/api/admin/companies/${id}/activate`, { method: 'POST' });
+      const res  = await apiFetch(`/api/admin/companies/${id}/activate`, { method: 'POST', headers: { 'X-Admin-Request': 'true' } });
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Failed');
       void load();
@@ -158,7 +158,7 @@ export default function AdminCompanyDetailPage() {
     if (!id || typeof id !== 'string') return;
     setActionLoading(true); setActionError('');
     try {
-      const res  = await apiFetch(`/api/admin/companies/${id}`, { method: 'DELETE' });
+      const res  = await apiFetch(`/api/admin/companies/${id}`, { method: 'DELETE', headers: { 'X-Admin-Request': 'true' } });
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Failed');
       void router.push(adminHref('/admin/companies'));
@@ -184,7 +184,7 @@ export default function AdminCompanyDetailPage() {
     if (!id || typeof id !== 'string') return;
     setActionLoading(true); setActionError('');
     try {
-      const res  = await apiFetch(`/api/admin/companies/${id}/impersonate`, { method: 'POST' });
+      const res  = await apiFetch(`/api/admin/companies/${id}/impersonate`, { method: 'POST', headers: { 'X-Admin-Request': 'true' } });
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Impersonation failed');
       const token = (json.data as { token: string })?.token;
@@ -199,7 +199,7 @@ export default function AdminCompanyDetailPage() {
     try {
       await apiFetch(`/api/admin/companies/${id}/features`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ feature_id: feature.id, enabled: !feature.enabled, reason: 'Toggled via admin' }),
       });
       void loadFeatures();
@@ -213,7 +213,7 @@ export default function AdminCompanyDetailPage() {
     try {
       await apiFetch(`/api/admin/companies/${id}/features`, {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ feature_id: feature.id }),
       });
       void loadFeatures();

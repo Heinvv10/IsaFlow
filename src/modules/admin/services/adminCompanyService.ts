@@ -40,6 +40,10 @@ export async function listCompanies(
   if (sortColKey && !ALLOWED_SORT_COLUMNS[sortColKey]) throw new Error(`Invalid sort column: ${sortColKey}`);
   const sortCol = ALLOWED_SORT_COLUMNS[sortColKey] ?? 'c.created_at';
   const rawDir = (filters.sort_dir ?? 'desc').toUpperCase();
+  // F-06: sortDir is validated against an explicit two-value allowlist and then passed
+  // through a tagged-template literal (sql`ASC` / sql`DESC`), never via sql.unsafe().
+  // sortCol is safe because it is resolved from the ALLOWED_SORT_COLUMNS map above —
+  // sql.unsafe() is only used on the resolved column reference, never on raw user input.
   if (rawDir !== 'ASC' && rawDir !== 'DESC') throw new Error('Invalid sort direction');
   const sortDir = rawDir === 'ASC' ? sql`ASC` : sql`DESC`;
 

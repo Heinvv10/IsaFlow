@@ -18,14 +18,30 @@ import type { EmailType } from '@/modules/accounting/services/emailService';
 
 type Row = Record<string, unknown>;
 
+// ─── XSS guard ────────────────────────────────────────────────────────────────
+
+/** Escape DB-sourced strings before interpolating into HTML to prevent XSS. */
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 // ─── Simple generic HTML for resent emails ────────────────────────────────────
 
 function buildResendHtml(subject: string, recipientEmail: string, emailType: string): string {
+  // F-05: All three values come from the DB — escape them before HTML interpolation.
+  const safeSubject   = escapeHtml(subject);
+  const safeEmail     = escapeHtml(recipientEmail);
+  const safeEmailType = escapeHtml(emailType);
   return `<!DOCTYPE html>
 <html>
 <body style="font-family:sans-serif;color:#333;max-width:600px;margin:40px auto;padding:0 20px">
-  <h2 style="color:#0d9488">${subject}</h2>
-  <p>This is a resent copy of the original <strong>${emailType}</strong> email originally sent to <em>${recipientEmail}</em>.</p>
+  <h2 style="color:#0d9488">${safeSubject}</h2>
+  <p>This is a resent copy of the original <strong>${safeEmailType}</strong> email originally sent to <em>${safeEmail}</em>.</p>
   <p>If you have questions, please contact us at <a href="mailto:accounts@isaflow.co.za">accounts@isaflow.co.za</a>.</p>
   <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0"/>
   <p style="font-size:12px;color:#9ca3af">Sent by ISAFlow &mdash; <a href="https://app.isaflow.co.za">app.isaflow.co.za</a></p>

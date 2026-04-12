@@ -126,7 +126,7 @@ export default function AdminUsersPage() {
     setDeleting(userId);
     setError('');
     try {
-      const res = await apiFetch(`/api/admin/users/${userId}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/admin/users/${userId}`, { method: 'DELETE', headers: { 'X-Admin-Request': 'true' } });
       if (!res.ok) {
         const json = await res.json() as { message?: string };
         throw new Error(json.message ?? 'Delete failed');
