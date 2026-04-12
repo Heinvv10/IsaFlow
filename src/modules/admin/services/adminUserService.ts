@@ -47,6 +47,7 @@ export async function listUsers(
   const sortDir = rawDir === 'ASC' ? sql`ASC` : sql`DESC`;
 
   const searchPattern = filters.search ? `%${filters.search}%` : null;
+  const companyFilter = filters.company ? `%${filters.company}%` : null;
 
   const [countRow] = await sql`
     SELECT COUNT(DISTINCT u.id) AS total
@@ -61,6 +62,11 @@ export async function listUsers(
       AND (${filters.status ?? null}::text IS NULL
            OR (${filters.status ?? null} = 'active'    AND u.is_active = true)
            OR (${filters.status ?? null} = 'suspended' AND u.is_active = false))
+      AND (${companyFilter}::text IS NULL OR EXISTS (
+        SELECT 1 FROM company_users cu4
+        JOIN companies c4 ON c4.id = cu4.company_id
+        WHERE cu4.user_id = u.id AND c4.name ILIKE ${companyFilter}
+      ))
   `;
 
   const rows = await sql`
@@ -82,6 +88,12 @@ export async function listUsers(
          ORDER BY c.name
          LIMIT 10
       )                                                               AS company_names,
+      (SELECT c.name
+         FROM company_users cup
+         JOIN companies c ON c.id = cup.company_id
+        WHERE cup.user_id = u.id
+        ORDER BY cup.created_at ASC
+        LIMIT 1)                                                      AS primary_company,
       u.last_login,
       COALESCE(
         (SELECT COUNT(*) FROM user_sessions s WHERE s.user_id = u.id)::int,
@@ -99,6 +111,11 @@ export async function listUsers(
       AND (${filters.status ?? null}::text IS NULL
            OR (${filters.status ?? null} = 'active'    AND u.is_active = true)
            OR (${filters.status ?? null} = 'suspended' AND u.is_active = false))
+      AND (${companyFilter}::text IS NULL OR EXISTS (
+        SELECT 1 FROM company_users cu4
+        JOIN companies c4 ON c4.id = cu4.company_id
+        WHERE cu4.user_id = u.id AND c4.name ILIKE ${companyFilter}
+      ))
     GROUP BY u.id, u.email, u.first_name, u.last_name, u.role, u.is_active,
              u.last_login, u.created_at
     ORDER BY ${sql.unsafe(sortCol)} ${sortDir}
@@ -119,6 +136,7 @@ export async function listUsers(
       status: r.status as string,
       company_count: r.company_count as number,
       company_names: (r.company_names as string[]) ?? [],
+      primary_company: (r.primary_company as string | null) ?? null,
       last_login: toIso(r.last_login),
       login_count: r.login_count as number,
       created_at: toIso(r.created_at) ?? '',
@@ -188,6 +206,7 @@ export async function getUserDetail(
     status: r.status as string,
     company_count: companies.length,
     company_names: companies.map((c) => c.company_name),
+    primary_company: companies.length > 0 ? (companies[0]?.company_name ?? null) : null,
     last_login: toIso(r.last_login),
     login_count: r.login_count as number,
     created_at: toIso(r.created_at) ?? '',

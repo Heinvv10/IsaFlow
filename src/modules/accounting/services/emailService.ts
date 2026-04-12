@@ -13,6 +13,39 @@ import { fireWebhook } from './webhookService';
 type Row = Record<string, unknown>;
 
 
+// ─── Email Log ────────────────────────────────────────────────────────────────
+
+export type EmailType = 'invoice' | 'statement' | 'quote' | 'payment_receipt' | 'invite' | 'other';
+
+interface EmailLogPayload {
+  companyId: string | null;
+  recipientEmail: string;
+  subject: string;
+  emailType: EmailType;
+  status: 'sent' | 'failed';
+  errorMessage?: string;
+  sentBy?: string | null;
+}
+
+/** Fire-and-forget: inserts a row into email_log; never throws. */
+function logEmailAttempt(payload: EmailLogPayload): void {
+  sql`
+    INSERT INTO email_log
+      (company_id, recipient_email, subject, email_type, status, error_message, sent_by)
+    VALUES (
+      ${payload.companyId}::UUID,
+      ${payload.recipientEmail},
+      ${payload.subject},
+      ${payload.emailType},
+      ${payload.status},
+      ${payload.errorMessage ?? null},
+      ${payload.sentBy ?? null}
+    )
+  `.catch((err: unknown) => {
+    log.error('Failed to write email_log row', { error: err instanceof Error ? err.message : err }, 'emailService');
+  });
+}
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface EmailAttachment {
@@ -26,6 +59,8 @@ export interface EmailOptions {
   subject: string;
   html: string;
   attachments?: EmailAttachment[];
+  /** Optional metadata used to write an email_log row. */
+  _log?: { companyId: string | null; emailType: EmailType; sentBy?: string | null };
 }
 
 export interface EmailResult {
@@ -68,9 +103,21 @@ function getSmtpConfig(): SmtpConfig | null {
 
 export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
   const config = getSmtpConfig();
+  const recipients = Array.isArray(options.to) ? options.to.join(', ') : options.to;
 
   if (!config) {
     log.warn('SMTP not configured. Set SMTP_HOST, SMTP_USER, SMTP_PASS environment variables.', {}, 'emailService');
+    if (options._log) {
+      logEmailAttempt({
+        companyId: options._log.companyId,
+        recipientEmail: recipients,
+        subject: options.subject,
+        emailType: options._log.emailType,
+        status: 'failed',
+        errorMessage: 'SMTP not configured',
+        sentBy: options._log.sentBy ?? null,
+      });
+    }
     return { success: false, error: 'SMTP not configured' };
   }
 
@@ -91,8 +138,6 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
         rejectUnauthorized: process.env.NODE_ENV === 'production',
       },
     });
-
-    const recipients = Array.isArray(options.to) ? options.to.join(', ') : options.to;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const mailOptions: any = {
@@ -115,6 +160,17 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
       subject: options.subject,
     }, 'emailService');
 
+    if (options._log) {
+      logEmailAttempt({
+        companyId: options._log.companyId,
+        recipientEmail: recipients,
+        subject: options.subject,
+        emailType: options._log.emailType,
+        status: 'sent',
+        sentBy: options._log.sentBy ?? null,
+      });
+    }
+
     return {
       success: true,
       messageId: info.messageId,
@@ -122,6 +178,19 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown email error';
     log.error('Failed to send email', { error: message, to: options.to }, 'emailService');
+
+    if (options._log) {
+      logEmailAttempt({
+        companyId: options._log.companyId,
+        recipientEmail: recipients,
+        subject: options.subject,
+        emailType: options._log.emailType,
+        status: 'failed',
+        errorMessage: message,
+        sentBy: options._log.sentBy ?? null,
+      });
+    }
+
     return { success: false, error: message };
   }
 }
@@ -195,6 +264,7 @@ export async function sendInvoiceEmail(companyId: string,
         contentType: 'application/pdf',
       },
     ],
+    _log: { companyId, emailType: 'invoice' },
   });
 
   // Update tracking fields on the invoice
@@ -252,6 +322,7 @@ export async function sendInviteEmail(options: InviteEmailOptions): Promise<Emai
     to: options.recipientEmail,
     subject: `You've been invited to join ${options.companyName} on ISAFlow`,
     html: inviteEmailHtml(inviteData),
+    _log: { companyId: null, emailType: 'invite' },
   });
 }
 

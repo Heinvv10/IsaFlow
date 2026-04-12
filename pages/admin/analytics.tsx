@@ -1,12 +1,17 @@
 /**
- * Admin Usage Analytics — DAU/WAU/MAU, feature adoption, revenue by plan, churn signals.
+ * Admin Usage Analytics — DAU/WAU/MAU, feature adoption, revenue by plan, churn signals,
+ * and 30-day time-series trend charts.
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { StatsCard } from '@/components/admin/StatsCard';
+import { MrrTrendChart } from '@/components/admin/charts/MrrTrendChart';
+import { EngagementTrendChart } from '@/components/admin/charts/EngagementTrendChart';
+import { SignupTrendChart } from '@/components/admin/charts/SignupTrendChart';
 import { apiFetch } from '@/lib/apiFetch';
 import { AlertCircle, Loader2 } from 'lucide-react';
+import type { AnalyticsTrends } from '@/modules/admin/types/admin.types';
 
 interface UsageAnalytics {
   dau: number;
@@ -28,19 +33,31 @@ function fmtDate(dateStr: string | null) {
   return new Date(dateStr).toLocaleDateString('en-ZA');
 }
 
+function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm p-5">
+      <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">{title}</h3>
+      {children}
+    </div>
+  );
+}
+
 export default function AdminAnalytics() {
-  const [data, setData]       = useState<UsageAnalytics | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState('');
+  const [data,   setData]   = useState<UsageAnalytics | null>(null);
+  const [trends, setTrends] = useState<AnalyticsTrends | null>(null);
+  const [loading,        setLoading]        = useState(true);
+  const [trendsLoading,  setTrendsLoading]  = useState(true);
+  const [error,          setError]          = useState('');
+  const [trendsError,    setTrendsError]    = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
       const res  = await apiFetch('/api/admin/analytics/usage');
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed to load analytics');
-      setData(json.data as UsageAnalytics);
+      const json = await res.json() as { data: UsageAnalytics };
+      if (!res.ok) throw new Error((json as unknown as { message?: string }).message ?? 'Failed to load analytics');
+      setData(json.data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load analytics');
     } finally {
@@ -48,7 +65,22 @@ export default function AdminAnalytics() {
     }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  const loadTrends = useCallback(async () => {
+    setTrendsLoading(true);
+    setTrendsError('');
+    try {
+      const res  = await apiFetch('/api/admin/analytics/trends');
+      const json = await res.json() as { data: AnalyticsTrends };
+      if (!res.ok) throw new Error((json as unknown as { message?: string }).message ?? 'Failed to load trends');
+      setTrends(json.data);
+    } catch (err) {
+      setTrendsError(err instanceof Error ? err.message : 'Failed to load trends');
+    } finally {
+      setTrendsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void load(); void loadTrends(); }, [load, loadTrends]);
 
   return (
     <AdminLayout title="Usage Analytics">
@@ -69,10 +101,42 @@ export default function AdminAnalytics() {
         <>
           {/* Engagement Row */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-            <StatsCard title="DAU"          value={data.dau} subtitle="daily active users" />
-            <StatsCard title="WAU"          value={data.wau} subtitle="weekly active users" />
-            <StatsCard title="MAU"          value={data.mau} subtitle="monthly active users" />
-            <StatsCard title="Stickiness"   value={`${data.stickiness_percent}%`} subtitle="DAU / MAU" />
+            <StatsCard title="DAU"        value={data.dau}                    subtitle="daily active users" />
+            <StatsCard title="WAU"        value={data.wau}                    subtitle="weekly active users" />
+            <StatsCard title="MAU"        value={data.mau}                    subtitle="monthly active users" />
+            <StatsCard title="Stickiness" value={`${data.stickiness_percent}%`} subtitle="DAU / MAU" />
+          </div>
+
+          {/* Trends Section */}
+          <div className="mb-8">
+            <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">30-Day Trends</h2>
+
+            {trendsError && (
+              <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm mb-4">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                {trendsError}
+              </div>
+            )}
+
+            {trendsLoading && !trends && (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="w-5 h-5 animate-spin text-teal-500" />
+              </div>
+            )}
+
+            {trends && (
+              <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+                <ChartCard title="MRR Trend (ZAR)">
+                  <MrrTrendChart data={trends.mrr_trend} />
+                </ChartCard>
+                <ChartCard title="Active Users">
+                  <EngagementTrendChart data={trends.engagement_trend} />
+                </ChartCard>
+                <ChartCard title="New Signups">
+                  <SignupTrendChart data={trends.signup_trend} />
+                </ChartCard>
+              </div>
+            )}
           </div>
 
           {/* Revenue by Plan */}
@@ -127,9 +191,7 @@ export default function AdminAnalytics() {
                     <tr key={i} className="border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800/40">
                       <td className="px-5 py-3 text-gray-800 dark:text-gray-200">{row.feature}</td>
                       <td className="px-5 py-3 text-right">
-                        <span className="inline-flex items-center gap-1">
-                          <span className="text-gray-700 dark:text-gray-300 font-medium">{row.adoption_percent}%</span>
-                        </span>
+                        <span className="text-gray-700 dark:text-gray-300 font-medium">{row.adoption_percent}%</span>
                       </td>
                       <td className="px-5 py-3 text-right text-gray-600 dark:text-gray-400">{row.user_count}</td>
                     </tr>

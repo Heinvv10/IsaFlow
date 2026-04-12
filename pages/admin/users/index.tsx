@@ -1,6 +1,7 @@
 /**
  * Admin — User List
- * Search, filter by role and status, paginate.
+ * Search, filter by role / status / company name, paginate.
+ * Shows primary company with "+N more" badge when user has multiple companies.
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -8,7 +9,7 @@ import { AdminLayout } from '@/components/admin/AdminLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { formatDate } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
-import { Search, AlertCircle, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Building2, AlertCircle, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface AdminUser {
   id: string;
@@ -18,7 +19,7 @@ interface AdminUser {
   role: string;
   status: 'active' | 'suspended' | 'inactive';
   company_count: number;
-  company_names: string | null;
+  primary_company: string | null;
   last_login: string | null;
   login_count: number;
   created_at: string;
@@ -41,31 +42,58 @@ const ROLES = ['super_admin', 'admin', 'manager', 'storeman', 'technician', 'vie
 
 const LIMIT = 25;
 
+function CompanyCell({ primaryCompany, count }: { primaryCompany: string | null; count: number }) {
+  if (!primaryCompany) {
+    return <span className="text-gray-400 dark:text-gray-600 italic text-xs">None</span>;
+  }
+  const extra = count - 1;
+  return (
+    <span className="flex items-center gap-1.5 flex-wrap">
+      <span className="text-gray-700 dark:text-gray-300 truncate max-w-[160px]" title={primaryCompany}>
+        {primaryCompany}
+      </span>
+      {extra > 0 && (
+        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 whitespace-nowrap">
+          +{extra} more
+        </span>
+      )}
+    </span>
+  );
+}
+
 export default function AdminUsersPage() {
   const adminHref = useAdminHref();
 
-  const [rows, setRows]       = useState<AdminUser[]>([]);
-  const [total, setTotal]     = useState(0);
-  const [page, setPage]       = useState(1);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState('');
-  const [search, setSearch]   = useState('');
-  const [role, setRole]       = useState('');
-  const [status, setStatus]   = useState('');
+  const [rows, setRows]             = useState<AdminUser[]>([]);
+  const [total, setTotal]           = useState(0);
+  const [page, setPage]             = useState(1);
+  const [loading, setLoading]       = useState(true);
+  const [error, setError]           = useState('');
+  const [search, setSearch]         = useState('');
+  const [company, setCompany]       = useState('');
+  const [role, setRole]             = useState('');
+  const [status, setStatus]         = useState('');
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const load = useCallback(async (q: string, r: string, st: string, pg: number) => {
+  const load = useCallback(async (
+    q: string,
+    co: string,
+    r: string,
+    st: string,
+    pg: number,
+  ) => {
     setLoading(true);
     setError('');
     try {
       const params = new URLSearchParams({ page: String(pg), limit: String(LIMIT) });
       if (q)  params.set('search', q);
+      if (co) params.set('company', co);
       if (r)  params.set('role', r);
       if (st) params.set('status', st);
       const res  = await apiFetch(`/api/admin/users?${params}`);
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed to load users');
+      const json = await res.json() as { data?: PagedResponse; message?: string };
+      if (!res.ok) throw new Error(json.message ?? 'Failed to load users');
       const d = json.data as PagedResponse;
       setRows(d.items);
       setTotal(d.total);
@@ -80,13 +108,13 @@ export default function AdminUsersPage() {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       setPage(1);
-      void load(search, role, status, 1);
+      void load(search, company, role, status, 1);
     }, 300);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [search, role, status, load]);
+  }, [search, company, role, status, load]);
 
   useEffect(() => {
-    void load(search, role, status, page);
+    void load(search, company, role, status, page);
   }, [page]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const totalPages = Math.max(1, Math.ceil(total / LIMIT));
@@ -95,7 +123,8 @@ export default function AdminUsersPage() {
     <AdminLayout title="Users">
       {/* Filters */}
       <div className="flex gap-3 flex-wrap mb-5">
-        <div className="relative flex-1 min-w-[200px] max-w-xs">
+        {/* Name / email search */}
+        <div className="relative flex-1 min-w-[180px] max-w-xs">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
             type="text"
@@ -105,6 +134,20 @@ export default function AdminUsersPage() {
             className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500"
           />
         </div>
+
+        {/* Company name filter */}
+        <div className="relative flex-1 min-w-[180px] max-w-xs">
+          <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Filter by company..."
+            value={company}
+            onChange={e => setCompany(e.target.value)}
+            className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500"
+          />
+        </div>
+
+        {/* Role select */}
         <select
           value={role}
           onChange={e => { setRole(e.target.value); setPage(1); }}
@@ -113,6 +156,8 @@ export default function AdminUsersPage() {
           <option value="">All roles</option>
           {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
         </select>
+
+        {/* Status select */}
         <select
           value={status}
           onChange={e => { setStatus(e.target.value); setPage(1); }}
@@ -123,7 +168,10 @@ export default function AdminUsersPage() {
           <option value="suspended">Suspended</option>
           <option value="inactive">Inactive</option>
         </select>
-        <span className="ml-auto text-sm text-gray-500 dark:text-gray-400 self-center">{total} total</span>
+
+        <span className="ml-auto text-sm text-gray-500 dark:text-gray-400 self-center">
+          {total} total
+        </span>
       </div>
 
       {error && (
@@ -141,7 +189,7 @@ export default function AdminUsersPage() {
                 <th className="px-4 py-3 font-medium">Name</th>
                 <th className="px-4 py-3 font-medium">Email</th>
                 <th className="px-4 py-3 font-medium">Role</th>
-                <th className="px-4 py-3 font-medium">Companies</th>
+                <th className="px-4 py-3 font-medium">Company</th>
                 <th className="px-4 py-3 font-medium">Last Login</th>
                 <th className="px-4 py-3 font-medium">Status</th>
                 <th className="px-4 py-3 font-medium">Created</th>
@@ -166,17 +214,25 @@ export default function AdminUsersPage() {
                   className="border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800/40 cursor-pointer transition-colors"
                   onClick={() => { window.location.href = adminHref(`/admin/users/${u.id}`); }}
                 >
-                  <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{u.first_name} {u.last_name}</td>
+                  <td className="px-4 py-3 font-medium text-gray-900 dark:text-white whitespace-nowrap">
+                    {u.first_name} {u.last_name}
+                  </td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{u.email}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-300 capitalize">{u.role}</td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{u.company_count}</td>
-                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(u.last_login)}</td>
+                  <td className="px-4 py-3">
+                    <CompanyCell primaryCompany={u.primary_company} count={u.company_count} />
+                  </td>
+                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                    {formatDate(u.last_login)}
+                  </td>
                   <td className="px-4 py-3">
                     <span className={`px-2 py-0.5 rounded text-xs font-medium capitalize ${STATUS_BADGE[u.status] ?? ''}`}>
                       {u.status}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(u.created_at)}</td>
+                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                    {formatDate(u.created_at)}
+                  </td>
                 </tr>
               ))}
             </tbody>
