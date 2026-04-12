@@ -8,7 +8,7 @@ import { AdminLayout } from '@/components/admin/AdminLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
-import { AlertCircle, Loader2, Search, ChevronLeft, ChevronRight, Plus, X, Check } from 'lucide-react';
+import { AlertCircle, Loader2, Search, ChevronLeft, ChevronRight, Plus, X, Check, Ban } from 'lucide-react';
 
 interface Subscription {
   id: string;
@@ -70,6 +70,9 @@ export default function SubscriptionsPage() {
   const [form, setForm]         = useState<SubForm>(EMPTY_FORM);
   const [formError, setFormError] = useState('');
   const [saving, setSaving]     = useState(false);
+  const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
+  const [cancelling, setCancelling]           = useState(false);
+  const [cancelError, setCancelError]         = useState('');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const LIMIT = 25;
   void adminHref; // used for future navigation
@@ -144,6 +147,22 @@ export default function SubscriptionsPage() {
     }
   }
 
+  async function handleCancel(id: string) {
+    setCancelling(true);
+    setCancelError('');
+    try {
+      const res  = await apiFetch(`/api/admin/billing/subscriptions/${id}/cancel`, { method: 'POST', body: JSON.stringify({ at_period_end: false }) });
+      const json = await res.json();
+      if (!res.ok) throw new Error((json as { message?: string }).message || 'Failed to cancel');
+      setConfirmCancelId(null);
+      void load(search, status, page);
+    } catch (err) {
+      setCancelError(err instanceof Error ? err.message : 'Failed to cancel subscription');
+    } finally {
+      setCancelling(false);
+    }
+  }
+
   return (
     <AdminLayout title="Subscriptions">
       {/* Toolbar */}
@@ -172,6 +191,11 @@ export default function SubscriptionsPage() {
       {error && (
         <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm mb-4">
           <AlertCircle className="w-4 h-4 flex-shrink-0" /> {error}
+        </div>
+      )}
+      {cancelError && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm mb-4">
+          <AlertCircle className="w-4 h-4 flex-shrink-0" /> {cancelError}
         </div>
       )}
 
@@ -243,31 +267,64 @@ export default function SubscriptionsPage() {
                 <th className="px-4 py-3 font-medium">Amount</th>
                 <th className="px-4 py-3 font-medium">Period End</th>
                 <th className="px-4 py-3 font-medium">Created</th>
+                <th className="px-4 py-3 font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading && rows.length === 0 && (
-                <tr><td colSpan={8} className="px-4 py-12 text-center"><Loader2 className="w-5 h-5 animate-spin text-teal-500 mx-auto" /></td></tr>
+                <tr><td colSpan={9} className="px-4 py-12 text-center"><Loader2 className="w-5 h-5 animate-spin text-teal-500 mx-auto" /></td></tr>
               )}
               {!loading && rows.length === 0 && (
-                <tr><td colSpan={8} className="px-4 py-12 text-center text-gray-400">No subscriptions found</td></tr>
+                <tr><td colSpan={9} className="px-4 py-12 text-center text-gray-400">No subscriptions found</td></tr>
               )}
-              {rows.map(s => (
-                <tr key={s.id} className="border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors">
-                  <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{s.company_name}</td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{s.plan_name}</td>
-                  <td className="px-4 py-3">
-                    <span className={`px-2 py-0.5 rounded text-xs font-medium capitalize ${STATUS_BADGE[s.status] ?? 'bg-gray-500/10 text-gray-500'}`}>
-                      {s.status.replaceAll('_', ' ')}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300 capitalize">{s.billing_cycle}</td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{s.discount_percent > 0 ? `${s.discount_percent}%` : '\u2014'}</td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300 font-mono text-xs">{formatCurrency(s.monthly_amount_cents / 100)}</td>
-                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(s.current_period_end)}</td>
-                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(s.created_at)}</td>
-                </tr>
-              ))}
+              {rows.map(s => {
+                const canCancel = s.status === 'active' || s.status === 'trial';
+                const isConfirming = confirmCancelId === s.id;
+                return (
+                  <tr key={s.id} className="border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors">
+                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{s.company_name}</td>
+                    <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{s.plan_name}</td>
+                    <td className="px-4 py-3">
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium capitalize ${STATUS_BADGE[s.status] ?? 'bg-gray-500/10 text-gray-500'}`}>
+                        {s.status.replaceAll('_', ' ')}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-gray-600 dark:text-gray-300 capitalize">{s.billing_cycle}</td>
+                    <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{s.discount_percent > 0 ? `${s.discount_percent}%` : '\u2014'}</td>
+                    <td className="px-4 py-3 text-gray-600 dark:text-gray-300 font-mono text-xs">{formatCurrency(s.monthly_amount_cents / 100)}</td>
+                    <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(s.current_period_end)}</td>
+                    <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(s.created_at)}</td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {canCancel && !isConfirming && (
+                        <button
+                          onClick={() => { setCancelError(''); setConfirmCancelId(s.id); }}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-red-400 border border-red-500/40 rounded hover:bg-red-500/10 transition-colors"
+                        >
+                          <Ban className="w-3 h-3" /> Cancel
+                        </button>
+                      )}
+                      {canCancel && isConfirming && (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs text-gray-500 dark:text-gray-400">Confirm?</span>
+                          <button
+                            onClick={() => void handleCancel(s.id)}
+                            disabled={cancelling}
+                            className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded disabled:opacity-50 transition-colors"
+                          >
+                            {cancelling ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Yes
+                          </button>
+                          <button
+                            onClick={() => { setConfirmCancelId(null); setCancelError(''); }}
+                            className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+                          >
+                            No
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

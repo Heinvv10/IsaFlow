@@ -5,6 +5,7 @@
 
 import { useState } from 'react';
 import { Loader2, X } from 'lucide-react';
+import { CompanyPicker } from './CompanyPicker';
 
 export const EMPTY_FORM = {
   title: '', message: '', type: 'info', target: 'all',
@@ -16,6 +17,7 @@ export type AnnouncementFormState = {
   message: string;
   type: string;
   target: string;
+  /** Comma-separated UUIDs (plan target) or serialised company IDs (company target) */
   target_ids: string;
   starts_at: string;
   ends_at: string;
@@ -36,6 +38,30 @@ export function AnnouncementModal({ initial, onClose, onSave, saving }: Props) {
   const [form, setForm] = useState<AnnouncementFormState>(initial);
   const set = <K extends keyof AnnouncementFormState>(k: K, v: AnnouncementFormState[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
+
+  // Company picker owns its own array; serialised into target_ids on save
+  const [companyIds, setCompanyIds] = useState<string[]>(() =>
+    initial.target === 'company' && initial.target_ids
+      ? initial.target_ids.split(',').map(s => s.trim()).filter(Boolean)
+      : []
+  );
+
+  const handleTargetChange = (newTarget: string) => {
+    set('target', newTarget);
+    // Reset IDs when switching target mode
+    setCompanyIds([]);
+    set('target_ids', '');
+  };
+
+  const handleSave = () => {
+    const merged: AnnouncementFormState = {
+      ...form,
+      target_ids: form.target === 'company'
+        ? companyIds.join(', ')
+        : form.target_ids,
+    };
+    onSave(merged);
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -73,7 +99,7 @@ export function AnnouncementModal({ initial, onClose, onSave, saving }: Props) {
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Target</label>
-              <select value={form.target} onChange={e => set('target', e.target.value)} className={INPUT_CLS}>
+              <select value={form.target} onChange={e => handleTargetChange(e.target.value)} className={INPUT_CLS}>
                 <option value="all">All</option>
                 <option value="plan">Plan</option>
                 <option value="company">Company</option>
@@ -81,13 +107,22 @@ export function AnnouncementModal({ initial, onClose, onSave, saving }: Props) {
             </div>
           </div>
 
-          {form.target !== 'all' && (
+          {form.target === 'plan' && (
             <div>
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                Target IDs (comma-separated UUIDs)
+                Plan IDs (comma-separated)
               </label>
               <input value={form.target_ids} onChange={e => set('target_ids', e.target.value)}
-                placeholder="uuid1, uuid2, ..." className={INPUT_CLS} />
+                placeholder="plan-code1, plan-code2, ..." className={INPUT_CLS} />
+            </div>
+          )}
+
+          {form.target === 'company' && (
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                Target Companies
+              </label>
+              <CompanyPicker value={companyIds} onChange={setCompanyIds} />
             </div>
           )}
 
@@ -120,7 +155,7 @@ export function AnnouncementModal({ initial, onClose, onSave, saving }: Props) {
             Cancel
           </button>
           <button
-            onClick={() => onSave(form)}
+            onClick={handleSave}
             disabled={saving || !form.title || !form.message || !form.starts_at}
             className="px-4 py-2 text-sm font-medium bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 flex items-center gap-2"
           >

@@ -17,9 +17,10 @@ import { getIp } from '@/utils/getIp';
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
     try {
-      const { status, plan_id, search, page, limit } = req.query;
+      const { company_id, status, plan_id, search, page, limit } = req.query;
 
       const result = await listSubscriptions({
+        company_id: company_id as string | undefined,
         status: status as string | undefined,
         plan_id: plan_id as string | undefined,
         search: search as string | undefined,

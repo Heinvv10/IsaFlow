@@ -102,6 +102,22 @@ export interface Company {
   // Ageing
   ageingMonthly: boolean;
   ageingBasedOn: string;
+  agingBasis: string;
+  agingPeriodType: string;
+  agingBucket1Days: number;
+  agingBucket2Days: number;
+  agingBucket3Days: number;
+  // Email templates
+  invoiceEmailSubject: string;
+  invoiceEmailBody: string | null;
+  quoteEmailSubject: string;
+  quoteEmailBody: string | null;
+  statementEmailSubject: string;
+  statementEmailBody: string | null;
+  // Regional format extras
+  decimalSeparator: string;
+  thousandsSeparator: string;
+  decimalPlaces: number;
   // Org classification
   industry: string | null;
   businessStructure: string | null;
@@ -274,6 +290,20 @@ export async function updateCompany(id: string, input: Partial<Record<string, un
       display_inactive_bundles = COALESCE(${v('displayInactiveBundles') ?? null}, display_inactive_bundles),
       ageing_monthly = COALESCE(${v('ageingMonthly') ?? null}, ageing_monthly),
       ageing_based_on = COALESCE(${v('ageingBasedOn') ?? null}, ageing_based_on),
+      aging_basis = COALESCE(${v('agingBasis') ?? null}, aging_basis),
+      aging_period_type = COALESCE(${v('agingPeriodType') ?? null}, aging_period_type),
+      aging_bucket1_days = COALESCE(${v('agingBucket1Days') ?? null}::int, aging_bucket1_days),
+      aging_bucket2_days = COALESCE(${v('agingBucket2Days') ?? null}::int, aging_bucket2_days),
+      aging_bucket3_days = COALESCE(${v('agingBucket3Days') ?? null}::int, aging_bucket3_days),
+      invoice_email_subject = COALESCE(${v('invoiceEmailSubject') ?? null}, invoice_email_subject),
+      invoice_email_body = COALESCE(${v('invoiceEmailBody') ?? null}, invoice_email_body),
+      quote_email_subject = COALESCE(${v('quoteEmailSubject') ?? null}, quote_email_subject),
+      quote_email_body = COALESCE(${v('quoteEmailBody') ?? null}, quote_email_body),
+      statement_email_subject = COALESCE(${v('statementEmailSubject') ?? null}, statement_email_subject),
+      statement_email_body = COALESCE(${v('statementEmailBody') ?? null}, statement_email_body),
+      decimal_separator = COALESCE(${v('decimalSeparator') ?? null}, decimal_separator),
+      thousands_separator = COALESCE(${v('thousandsSeparator') ?? null}, thousands_separator),
+      decimal_places = COALESCE(${v('decimalPlaces') ?? null}::int, decimal_places),
       industry = COALESCE(${v('industry') ?? null}, industry),
       business_structure = COALESCE(${v('businessStructure') ?? null}, business_structure),
       social_facebook = COALESCE(${v('socialFacebook') ?? null}, social_facebook),
@@ -412,6 +442,22 @@ function mapCompany(r: Record<string, unknown>): Company {
     // Ageing
     ageingMonthly: bool(r.ageing_monthly, true),
     ageingBasedOn: r.ageing_based_on != null ? String(r.ageing_based_on) : 'invoice_date',
+    agingBasis: r.aging_basis != null ? String(r.aging_basis) : 'due_date',
+    agingPeriodType: r.aging_period_type != null ? String(r.aging_period_type) : 'monthly',
+    agingBucket1Days: num(r.aging_bucket1_days, 30),
+    agingBucket2Days: num(r.aging_bucket2_days, 60),
+    agingBucket3Days: num(r.aging_bucket3_days, 90),
+    // Email templates
+    invoiceEmailSubject: r.invoice_email_subject != null ? String(r.invoice_email_subject) : 'Invoice {number} from {company}',
+    invoiceEmailBody: strN(r.invoice_email_body),
+    quoteEmailSubject: r.quote_email_subject != null ? String(r.quote_email_subject) : 'Quote {number} from {company}',
+    quoteEmailBody: strN(r.quote_email_body),
+    statementEmailSubject: r.statement_email_subject != null ? String(r.statement_email_subject) : 'Statement from {company}',
+    statementEmailBody: strN(r.statement_email_body),
+    // Regional format extras
+    decimalSeparator: r.decimal_separator != null ? String(r.decimal_separator) : '.',
+    thousandsSeparator: r.thousands_separator != null ? String(r.thousands_separator) : ',',
+    decimalPlaces: num(r.decimal_places, 2),
     // Org classification
     industry: strN(r.industry),
     businessStructure: strN(r.business_structure),

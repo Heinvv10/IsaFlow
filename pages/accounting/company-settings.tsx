@@ -5,24 +5,31 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Building2, Save, Loader2, AlertCircle, CheckCircle2, Settings2, Receipt, FileDigit, Palette, Layers } from 'lucide-react';
+import { Building2, Save, Loader2, AlertCircle, CheckCircle2, Settings2, Receipt, FileDigit, Palette, Layers, BarChart2, MessageSquare, Mail } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
 import { Company, DocumentNumber, CompanyDocument } from '@/components/accounting/settings/settingsTypes';
+import { mapApiCompany } from '@/components/accounting/settings/mapApiCompany';
 import { DetailsTab } from '@/components/accounting/settings/DetailsTab';
 import { GeneralTab } from '@/components/accounting/settings/GeneralTab';
 import { VatTab } from '@/components/accounting/settings/VatTab';
 import { DocumentsTab } from '@/components/accounting/settings/DocumentsTab';
 import { BrandingTab } from '@/components/accounting/settings/BrandingTab';
 import { DimensionsTab } from '@/components/accounting/settings/DimensionsTab';
+import { AgingTab } from '@/components/accounting/settings/AgingTab';
+import { DocMessagesTab } from '@/components/accounting/settings/DocMessagesTab';
+import { EmailTemplatesTab } from '@/components/accounting/settings/EmailTemplatesTab';
 
-type TabId = 'details' | 'general' | 'vat' | 'documents' | 'branding' | 'dimensions';
+type TabId = 'details' | 'general' | 'vat' | 'documents' | 'branding' | 'dimensions' | 'aging' | 'doc-messages' | 'email-templates';
 
 const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: 'details', label: 'Company Details', icon: <Building2 className="h-4 w-4" /> },
   { id: 'general', label: 'General Settings', icon: <Settings2 className="h-4 w-4" /> },
   { id: 'vat', label: 'VAT Settings', icon: <Receipt className="h-4 w-4" /> },
   { id: 'documents', label: 'Documents & Statements', icon: <FileDigit className="h-4 w-4" /> },
+  { id: 'aging', label: 'Aging', icon: <BarChart2 className="h-4 w-4" /> },
+  { id: 'doc-messages', label: 'Document Messages', icon: <MessageSquare className="h-4 w-4" /> },
+  { id: 'email-templates', label: 'Email Templates', icon: <Mail className="h-4 w-4" /> },
   { id: 'branding', label: 'Branding', icon: <Palette className="h-4 w-4" /> },
   { id: 'dimensions', label: 'Dimensions', icon: <Layers className="h-4 w-4" /> },
 ];
@@ -60,88 +67,7 @@ export default function CompanySettingsPage() {
       const res = await apiFetch(`/api/accounting/companies?id=${companyId}`);
       const json = await res.json();
       const c = json.data;
-      if (c) {
-        setCompany({
-          id: c.id, name: c.name,
-          tradingName: c.tradingName ?? c.trading_name ?? null,
-          registrationNumber: c.registrationNumber ?? c.registration_number ?? null,
-          vatNumber: c.vatNumber ?? c.vat_number ?? null,
-          taxNumber: c.taxNumber ?? c.tax_number ?? null,
-          addressLine1: c.addressLine1 ?? c.address_line1 ?? null,
-          addressLine2: c.addressLine2 ?? c.address_line2 ?? null,
-          city: c.city ?? null, province: c.province ?? null,
-          postalCode: c.postalCode ?? c.postal_code ?? null,
-          phone: c.phone ?? null, email: c.email ?? null,
-          website: c.website ?? null, country: c.country ?? 'South Africa',
-          logoData: c.logoData ?? c.logo_data ?? null,
-          bankName: c.bankName ?? c.bank_name ?? null,
-          bankAccountNumber: c.bankAccountNumber ?? c.bank_account_number ?? null,
-          bankBranchCode: c.bankBranchCode ?? c.bank_branch_code ?? null,
-          bankAccountType: c.bankAccountType ?? c.bank_account_type ?? null,
-          financialYearStart: c.financialYearStart ?? c.financial_year_start ?? 3,
-          vatPeriod: c.vatPeriod ?? c.vat_period ?? 'bi-monthly',
-          vatPeriodAlignment: c.vatPeriodAlignment ?? c.vat_period_alignment ?? 'odd',
-          defaultCurrency: c.defaultCurrency ?? c.default_currency ?? 'ZAR',
-          lockdownEnabled: c.lockdownEnabled ?? c.lockdown_enabled ?? false,
-          lockdownDate: c.lockdownDate ?? c.lockdown_date ?? null,
-          vatSystemType: c.vatSystemType ?? c.vat_system_type ?? 'invoice',
-          entityType: c.entityType ?? c.entity_type ?? 'company',
-          registeredName: c.registeredName ?? c.registered_name ?? null,
-          taxOffice: c.taxOffice ?? c.tax_office ?? null,
-          contactName: c.contactName ?? c.contact_name ?? null,
-          fax: c.fax ?? null, mobile: c.mobile ?? null,
-          physicalAddressLine1: c.physicalAddressLine1 ?? c.physical_address_line1 ?? null,
-          physicalAddressLine2: c.physicalAddressLine2 ?? c.physical_address_line2 ?? null,
-          physicalCity: c.physicalCity ?? c.physical_city ?? null,
-          physicalProvince: c.physicalProvince ?? c.physical_province ?? null,
-          physicalPostalCode: c.physicalPostalCode ?? c.physical_postal_code ?? null,
-          taxPractitionerRegNumber: c.taxPractitionerRegNumber ?? c.tax_practitioner_reg_number ?? null,
-          taxPractitionerName: c.taxPractitionerName ?? c.tax_practitioner_name ?? null,
-          sarsContactFirstName: c.sarsContactFirstName ?? c.sars_contact_first_name ?? null,
-          sarsContactLastName: c.sarsContactLastName ?? c.sars_contact_last_name ?? null,
-          sarsContactCapacity: c.sarsContactCapacity ?? c.sars_contact_capacity ?? null,
-          sarsContactNumber: c.sarsContactNumber ?? c.sars_contact_number ?? null,
-          sarsContactTelephone: c.sarsContactTelephone ?? c.sars_contact_telephone ?? null,
-          logoPosition: c.logoPosition ?? c.logo_position ?? 'top-left',
-          logoOnEmails: c.logoOnEmails ?? c.logo_on_emails ?? true,
-          logoOnPortal: c.logoOnPortal ?? c.logo_on_portal ?? true,
-          roundingType: c.roundingType ?? c.rounding_type ?? 'none',
-          roundToNearest: c.roundToNearest ?? c.round_to_nearest ?? 0,
-          qtyDecimalPlaces: c.qtyDecimalPlaces ?? c.qty_decimal_places ?? 2,
-          valueDecimalPlaces: c.valueDecimalPlaces ?? c.value_decimal_places ?? 2,
-          hoursDecimalPlaces: c.hoursDecimalPlaces ?? c.hours_decimal_places ?? 2,
-          costPriceDecimalPlaces: c.costPriceDecimalPlaces ?? c.cost_price_decimal_places ?? 2,
-          sellingPriceDecimalPlaces: c.sellingPriceDecimalPlaces ?? c.selling_price_decimal_places ?? 2,
-          currencySymbol: c.currencySymbol ?? c.currency_symbol ?? 'R',
-          dateFormat: c.dateFormat ?? c.date_format ?? 'dd/mm/yyyy',
-          emailUseForCommunication: c.emailUseForCommunication ?? c.email_use_for_communication ?? true,
-          emailAlwaysCc: c.emailAlwaysCc ?? c.email_always_cc ?? false,
-          emailUseServiceFrom: c.emailUseServiceFrom ?? c.email_use_service_from ?? false,
-          warnDuplicateCustomerRef: c.warnDuplicateCustomerRef ?? c.warn_duplicate_customer_ref ?? true,
-          warnDuplicateSupplierInv: c.warnDuplicateSupplierInv ?? c.warn_duplicate_supplier_inv ?? true,
-          displayInactiveCustomersProcessing: c.displayInactiveCustomersProcessing ?? c.display_inactive_customers_processing ?? false,
-          displayInactiveSuppliersProcessing: c.displayInactiveSuppliersProcessing ?? c.display_inactive_suppliers_processing ?? false,
-          displayInactiveCustomersReports: c.displayInactiveCustomersReports ?? c.display_inactive_customers_reports ?? false,
-          displayInactiveSuppliersReports: c.displayInactiveSuppliersReports ?? c.display_inactive_suppliers_reports ?? false,
-          useInclusiveProcessing: c.useInclusiveProcessing ?? c.use_inclusive_processing ?? true,
-          useAccountDefaultLineType: c.useAccountDefaultLineType ?? c.use_account_default_line_type ?? false,
-          warnItemQtyBelowZero: c.warnItemQtyBelowZero ?? c.warn_item_qty_below_zero ?? true,
-          blockItemQtyBelowZero: c.blockItemQtyBelowZero ?? c.block_item_qty_below_zero ?? false,
-          warnItemCostZero: c.warnItemCostZero ?? c.warn_item_cost_zero ?? false,
-          warnItemSellingBelowCost: c.warnItemSellingBelowCost ?? c.warn_item_selling_below_cost ?? false,
-          displayInactiveItemsProcessing: c.displayInactiveItemsProcessing ?? c.display_inactive_items_processing ?? false,
-          displayInactiveItemsReports: c.displayInactiveItemsReports ?? c.display_inactive_items_reports ?? false,
-          salesOrdersReserveQty: c.salesOrdersReserveQty ?? c.sales_orders_reserve_qty ?? false,
-          displayInactiveBundles: c.displayInactiveBundles ?? c.display_inactive_bundles ?? false,
-          ageingMonthly: c.ageingMonthly ?? c.ageing_monthly ?? true,
-          ageingBasedOn: c.ageingBasedOn ?? c.ageing_based_on ?? 'invoice_date',
-          industry: c.industry ?? null,
-          businessStructure: c.businessStructure ?? c.business_structure ?? null,
-          socialFacebook: c.socialFacebook ?? c.social_facebook ?? null,
-          socialLinkedin: c.socialLinkedin ?? c.social_linkedin ?? null,
-          socialX: c.socialX ?? c.social_x ?? null,
-        });
-      }
+      if (c) setCompany(mapApiCompany(c as Record<string, unknown>));
     } catch {
       setError('Failed to load company');
     } finally {
@@ -276,6 +202,14 @@ export default function CompanySettingsPage() {
                   onDisplayFieldChange={(k, v) => setDocDisplayFields(prev => ({ ...prev, [k]: v }))}
                 />
               )}
+              {activeTab === 'aging' && <AgingTab company={company} onChange={update} />}
+              {activeTab === 'doc-messages' && (
+                <DocMessagesTab
+                  messages={messages}
+                  onMessageChange={(k, v) => setMessages(prev => ({ ...prev, [k]: v }))}
+                />
+              )}
+              {activeTab === 'email-templates' && <EmailTemplatesTab company={company} onChange={update} />}
               {activeTab === 'branding' && (
                 <BrandingTab company={company} onChange={update} onCompanyChange={setCompany} onError={setError} />
               )}

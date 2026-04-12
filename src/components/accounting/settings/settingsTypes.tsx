@@ -79,6 +79,22 @@ export interface Company {
   displayInactiveBundles: boolean;
   ageingMonthly: boolean;
   ageingBasedOn: string;
+  agingBasis: string;
+  agingPeriodType: string;
+  agingBucket1Days: number;
+  agingBucket2Days: number;
+  agingBucket3Days: number;
+  // Email templates
+  invoiceEmailSubject: string;
+  invoiceEmailBody: string | null;
+  quoteEmailSubject: string;
+  quoteEmailBody: string | null;
+  statementEmailSubject: string;
+  statementEmailBody: string | null;
+  // Regional format extras
+  decimalSeparator: string;
+  thousandsSeparator: string;
+  decimalPlaces: number;
   industry: string | null;
   businessStructure: string | null;
   socialFacebook: string | null;

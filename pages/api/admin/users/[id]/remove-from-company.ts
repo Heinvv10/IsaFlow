@@ -8,7 +8,7 @@ import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
-import { removeUserFromCompany } from '@/modules/admin/services/adminUserService';
+import { removeUserFromCompany } from '@/modules/admin/services/adminUserActionsService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 

@@ -13,6 +13,7 @@ import {
   getUserDetail,
   updateUser,
 } from '@/modules/admin/services/adminUserService';
+import { deleteUser } from '@/modules/admin/services/adminUserActionsService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 
@@ -65,7 +66,27 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
   }
 
-  return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'PATCH']);
+  if (req.method === 'DELETE') {
+    try {
+      await deleteUser(userId);
+
+      await logAdminAction(
+        req.user.id,
+        'user.delete',
+        'user',
+        userId,
+        {},
+        getIp(req),
+      );
+
+      return apiResponse.success(res, { deleted: true });
+    } catch (err) {
+      log.error('Failed to delete user', { userId, error: err }, 'admin-api');
+      return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Failed to delete user');
+    }
+  }
+
+  return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'PATCH', 'DELETE']);
 }
 
 export default withAdmin(handler);

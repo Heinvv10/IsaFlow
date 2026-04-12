@@ -7,7 +7,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { apiFetch } from '@/lib/apiFetch';
-import { Loader2, RefreshCw, Mail, AlertCircle, CheckCircle, Clock } from 'lucide-react';
+import { Loader2, RefreshCw, Mail, AlertCircle, CheckCircle, Clock, Send } from 'lucide-react';
 import type { EmailLogItem, EmailLogStats } from '../api/admin/email-log';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -87,6 +87,8 @@ export default function EmailLogPage() {
   const [dateTo, setDateTo]             = useState('');
   const [search, setSearch]             = useState('');
   const [expandedId, setExpandedId]     = useState<string | null>(null);
+  const [resendingId, setResendingId]   = useState<string | null>(null);
+  const [resendStatus, setResendStatus] = useState<Record<string, 'ok' | 'err'>>({});
 
   const LIMIT = 25;
 
@@ -116,6 +118,22 @@ export default function EmailLogPage() {
   }, [page, statusFilter, typeFilter, dateFrom, dateTo, search]);
 
   useEffect(() => { void load(page); }, [load, page]);
+
+  async function handleResend(logId: string) {
+    setResendingId(logId);
+    try {
+      const res  = await apiFetch('/api/admin/email-log/resend', { method: 'POST', body: JSON.stringify({ logId }), credentials: 'include' });
+      const json = await res.json() as { message?: string };
+      if (!res.ok) throw new Error(json.message ?? 'Resend failed');
+      setResendStatus(prev => ({ ...prev, [logId]: 'ok' }));
+      setTimeout(() => setResendStatus(prev => { const n = { ...prev }; delete n[logId]; return n; }), 4000);
+    } catch {
+      setResendStatus(prev => ({ ...prev, [logId]: 'err' }));
+      setTimeout(() => setResendStatus(prev => { const n = { ...prev }; delete n[logId]; return n; }), 4000);
+    } finally {
+      setResendingId(null);
+    }
+  }
 
   const handleFilter = () => { setPage(1); void load(1); };
   const handleClear  = () => {
@@ -256,6 +274,7 @@ export default function EmailLogPage() {
                       <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">Subject</th>
                       <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">Type</th>
                       <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">Status</th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-700">
@@ -293,10 +312,34 @@ export default function EmailLogPage() {
                                 {item.status}
                               </span>
                             </td>
+                            <td className="px-4 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                              {isFailed && (
+                                resendStatus[item.id] === 'ok' ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs text-teal-400 border border-teal-500/30 rounded-full">
+                                    <CheckCircle className="w-3 h-3" /> Sent
+                                  </span>
+                                ) : resendStatus[item.id] === 'err' ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs text-red-400 border border-red-500/30 rounded-full">
+                                    <AlertCircle className="w-3 h-3" /> Failed
+                                  </span>
+                                ) : (
+                                  <button
+                                    onClick={() => void handleResend(item.id)}
+                                    disabled={resendingId === item.id}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-amber-400 border border-amber-500/40 rounded hover:bg-amber-500/10 disabled:opacity-50 transition-colors"
+                                  >
+                                    {resendingId === item.id
+                                      ? <Loader2 className="w-3 h-3 animate-spin" />
+                                      : <Send className="w-3 h-3" />}
+                                    Resend
+                                  </button>
+                                )
+                              )}
+                            </td>
                           </tr>
                           {isExpanded && item.error_message && (
                             <tr key={`${item.id}-err`} className="bg-red-900/10">
-                              <td colSpan={6} className="px-6 py-2">
+                              <td colSpan={7} className="px-6 py-2">
                                 <p className="text-xs text-red-400 font-mono break-all">
                                   Error: {item.error_message}
                                 </p>
@@ -305,7 +348,7 @@ export default function EmailLogPage() {
                           )}
                           {isExpanded && !item.error_message && (
                             <tr key={`${item.id}-detail`} className="bg-gray-700/20">
-                              <td colSpan={6} className="px-6 py-2">
+                              <td colSpan={7} className="px-6 py-2">
                                 <p className="text-xs text-gray-400">
                                   ID: <span className="font-mono text-gray-300">{item.id}</span>
                                   {item.sent_by && (
