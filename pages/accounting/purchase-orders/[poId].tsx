@@ -123,7 +123,10 @@ export default function PurchaseOrderDetailPage() {
   useEffect(() => {
     if (!editing) return;
     apiFetch('/api/accounting/suppliers-list', { credentials: 'include' })
-      .then(r => r.json()).then(j => setSuppliers(j.data || [])).catch(() => {});
+      .then(r => r.json()).then(j => {
+        const d = j.data ?? j;
+        setSuppliers(Array.isArray(d) ? d : (d.suppliers ?? []));
+      }).catch(() => {});
     apiFetch('/api/accounting/chart-of-accounts', { credentials: 'include' })
       .then(r => r.json()).then(j => setAccounts((j.data || []).filter((a: GlAccount & { is_active?: boolean }) => a.is_active !== false))).catch(() => {});
   }, [editing]);

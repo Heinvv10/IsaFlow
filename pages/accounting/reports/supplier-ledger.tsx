@@ -98,7 +98,8 @@ export default function SupplierLedgerPage() {
       const res = await apiFetch('/api/accounting/suppliers-list', { credentials: 'include' });
       const json = await res.json();
       if (res.ok) {
-        setSuppliers((json.data as Supplier[]) || []);
+        const d = json.data ?? json;
+        setSuppliers((Array.isArray(d) ? d : (d.suppliers ?? [])) as Supplier[]);
         setSuppliersLoaded(true);
       }
     } catch {

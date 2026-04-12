@@ -26,12 +26,29 @@ interface Invoice {
   due_date?: string;
 }
 
+const LIMIT = 25;
+
 export default function CustomerInvoicesPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+
+  // Debounce search input
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // Reset page when filter changes
+  useEffect(() => { setPage(1); }, [statusFilter]);
 
   const loadInvoices = useCallback(async () => {
     setIsLoading(true);
@@ -39,24 +56,24 @@ export default function CustomerInvoicesPage() {
     try {
       const params = new URLSearchParams();
       if (statusFilter !== 'all') params.set('status', statusFilter);
+      if (debouncedSearch) params.set('q', debouncedSearch);
+      params.set('page', String(page));
+      params.set('limit', String(LIMIT));
       const res = await apiFetch(`/api/accounting/customer-invoices-list?${params}`);
       const json = await res.json();
       const data = json.data || json;
       setInvoices(data.invoices || []);
+      setTotal(data.total ?? 0);
     } catch {
       setError('Failed to load customer invoices');
     } finally {
       setIsLoading(false);
     }
-  }, [statusFilter]);
+  }, [statusFilter, debouncedSearch, page]);
 
   useEffect(() => { loadInvoices(); }, [loadInvoices]);
 
   const statuses = ['all', 'draft', 'approved', 'sent', 'partially_paid', 'paid', 'overdue'];
-  const lowerSearch = search.toLowerCase();
-  const filteredInvoices = invoices.filter(inv =>
-    !search || inv.invoice_number?.toLowerCase().includes(lowerSearch) || inv.client_name?.toLowerCase().includes(lowerSearch)
-  );
 
   return (
     <AppLayout>
@@ -104,7 +121,9 @@ export default function CustomerInvoicesPage() {
               placeholder="Search invoice # or client..."
               className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm w-64"
             />
-            <span className="text-sm text-[var(--ff-text-secondary)]">{filteredInvoices.length} invoices</span>
+            {!isLoading && (
+              <span className="text-sm text-[var(--ff-text-secondary)]">{total} invoice{total !== 1 ? 's' : ''}</span>
+            )}
           </div>
 
           {/* Content */}
@@ -117,7 +136,7 @@ export default function CustomerInvoicesPage() {
               <AlertCircle className="h-5 w-5" />
               <span>{error}</span>
             </div>
-          ) : filteredInvoices.length === 0 ? (
+          ) : invoices.length === 0 ? (
             <div className="text-center py-12">
               <FileText className="h-12 w-12 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
               <p className="text-[var(--ff-text-secondary)]">No customer invoices found</p>
@@ -140,7 +159,7 @@ export default function CustomerInvoicesPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredInvoices.map((inv) => {
+                  {invoices.map((inv) => {
                     const outstanding = Number(inv.total_amount) - Number(inv.amount_paid);
                     return (
                       <tr key={inv.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-tertiary)]">
@@ -171,6 +190,31 @@ export default function CustomerInvoicesPage() {
                   })}
                 </tbody>
               </table>
+
+              {/* Pagination */}
+              {total > LIMIT && (
+                <div className="flex items-center justify-between px-4 py-3 border-t border-[var(--ff-border-light)]">
+                  <span className="text-sm text-[var(--ff-text-secondary)]">
+                    Showing {(page - 1) * LIMIT + 1}–{Math.min(page * LIMIT, total)} of {total}
+                  </span>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setPage(p => Math.max(1, p - 1))}
+                      disabled={page === 1}
+                      className="px-3 py-1.5 text-sm bg-[var(--ff-bg-tertiary)] hover:bg-[var(--ff-bg-secondary)] disabled:opacity-40 rounded-lg text-[var(--ff-text-primary)] border border-[var(--ff-border-light)]"
+                    >
+                      Previous
+                    </button>
+                    <button
+                      onClick={() => setPage(p => p + 1)}
+                      disabled={page * LIMIT >= total}
+                      className="px-3 py-1.5 text-sm bg-[var(--ff-bg-tertiary)] hover:bg-[var(--ff-bg-secondary)] disabled:opacity-40 rounded-lg text-[var(--ff-text-primary)] border border-[var(--ff-border-light)]"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
