@@ -59,7 +59,8 @@ interface CompanyContextType {
 const CompanyContext = createContext<CompanyContextType | undefined>(undefined);
 
 export function CompanyProvider({ children }: { children: ReactNode }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
+  const userRole = user?.role ?? null;
   const [activeCompany, setActiveCompany] = useState<Company | null>(null);
   const [companies, setCompanies] = useState<CompanyUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -114,6 +115,26 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
     if (!isAuthenticated) {
       setLoading(false);
       return;
+    }
+
+    // Super admins: prefer localStorage (impersonation / manual selection),
+    // but fall through to the regular user-companies fetch when nothing is stored.
+    // This handles super_admins who also have company_users rows of their own.
+    if (userRole === 'super_admin') {
+      try {
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (stored) {
+          const { id } = JSON.parse(stored);
+          if (id) {
+            setCompanyRole('owner');
+            await loadCompanyDetails(id);
+            return;
+          }
+        }
+      } catch (e) {
+        log.warn('Failed to load super_admin company from localStorage', { error: e }, 'context');
+      }
+      // No localStorage entry — fall through to regular user-companies fetch below
     }
 
     try {
@@ -181,7 +202,7 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [isAuthenticated, loadCompanyDetails]);
+  }, [isAuthenticated, userRole, loadCompanyDetails]);
 
   useEffect(() => {
     loadUserCompanies();

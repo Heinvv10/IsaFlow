@@ -53,7 +53,7 @@ const ACTIONS: QuickAction[] = [
   },
   {
     label: 'New Contact',
-    href: '/accounting/contacts/new',
+    href: '/accounting/customers/new',
     icon: Users,
     color: 'text-pink-600 dark:text-pink-400',
     bg: 'bg-pink-50 dark:bg-pink-900/20 hover:bg-pink-100 dark:hover:bg-pink-900/40',

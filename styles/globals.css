@@ -33,6 +33,19 @@
     /* Design token colours */
     --ff-primary: #f59e0b;
 
+    /* Brand — teal accent used across the entire app */
+    --ff-brand:         #14b8a6;
+    --ff-brand-light:   #2dd4bf;
+    --ff-brand-dark:    #0d9488;
+    --ff-brand-muted:   rgba(20, 184, 166, 0.15);
+    --ff-brand-subtle:  rgba(20, 184, 166, 0.08);
+
+    /* Hero / dark canvas — premium dark surfaces */
+    --ff-canvas-base:   #0f172a;
+    --ff-canvas-mid:    #1e293b;
+    --ff-canvas-raised: #334155;
+    --ff-canvas-border: rgba(255, 255, 255, 0.08);
+
     --ff-bg-primary: #ffffff;
     --ff-bg-secondary: #f9fafb;
     --ff-bg-tertiary: #f3f4f6;
@@ -92,6 +105,19 @@
     --chart-3: 30 80% 55%;
     --chart-4: 280 65% 60%;
     --chart-5: 340 75% 55%;
+
+    /* Brand unchanged in dark mode */
+    --ff-brand:         #14b8a6;
+    --ff-brand-light:   #2dd4bf;
+    --ff-brand-dark:    #0d9488;
+    --ff-brand-muted:   rgba(20, 184, 166, 0.20);
+    --ff-brand-subtle:  rgba(20, 184, 166, 0.10);
+
+    /* Canvas — same values, explicit for dark scope */
+    --ff-canvas-base:   #0f172a;
+    --ff-canvas-mid:    #1e293b;
+    --ff-canvas-raised: #334155;
+    --ff-canvas-border: rgba(255, 255, 255, 0.08);
 
     --ff-bg-primary: #0f172a;
     --ff-bg-secondary: #1e293b;

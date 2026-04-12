@@ -166,7 +166,7 @@ export async function createWebhook(companyId: string, input: WebhookInput): Pro
   const rows = (await sql`
     INSERT INTO webhook_endpoints (company_id, name, url, secret, events, is_active)
     VALUES (${companyId}, ${input.name}, ${input.url}, ${input.secret ?? null},
-            ${JSON.stringify(input.events)}::TEXT[], ${input.isActive ?? true})
+            ${input.events}, ${input.isActive ?? true})
     RETURNING *
   `) as Row[];
   log.info('Webhook created', { id: rows[0]?.id }, 'webhook');
@@ -189,7 +189,7 @@ export async function updateWebhook(
     await sql`UPDATE webhook_endpoints SET secret = ${updates.secret ?? null} WHERE id = ${id}::UUID AND company_id = ${companyId}`;
   }
   if (updates.events !== undefined) {
-    await sql`UPDATE webhook_endpoints SET events = ${updates.events}::TEXT[] WHERE id = ${id}::UUID AND company_id = ${companyId}`;
+    await sql`UPDATE webhook_endpoints SET events = ${updates.events} WHERE id = ${id}::UUID AND company_id = ${companyId}`;
   }
   if (updates.isActive !== undefined) {
     await sql`UPDATE webhook_endpoints SET is_active = ${updates.isActive} WHERE id = ${id}::UUID AND company_id = ${companyId}`;

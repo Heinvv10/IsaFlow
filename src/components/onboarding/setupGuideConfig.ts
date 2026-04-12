@@ -154,7 +154,7 @@ export const SETUP_CATEGORIES: SetupCategory[] = [
         id: 'bank-feed',
         label: 'Set up bank feed',
         description: 'Configure automatic transaction import rules',
-        href: '/accounting/bank-reconciliation/rules',
+        href: '/accounting/bank-transactions',
       },
     ],
   },
