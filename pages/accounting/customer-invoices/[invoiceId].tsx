@@ -29,6 +29,7 @@ interface Invoice {
   status: string; invoice_date: string; due_date: string; billing_period_start: string;
   billing_period_end: string; subtotal: number; tax_rate: number; tax_amount: number;
   total_amount: number; amount_paid: number; notes: string; gl_journal_entry_id: string;
+  client_id?: string; customer_id?: string;
   client_email?: string; email_sent_at?: string; email_sent_to?: string;
   online_payment_enabled?: boolean; payment_url?: string;
   items: InvoiceItem[];
@@ -179,6 +180,8 @@ export default function CustomerInvoiceDetailPage() {
   const canApprove = invoice.status === 'draft' || invoice.status === 'pending_approval';
   const canSend = invoice.status === 'approved';
   const canCancel = !['paid', 'cancelled'].includes(invoice.status);
+  const canRecordPayment = ['approved', 'sent', 'overdue', 'partially_paid'].includes(invoice.status);
+  const recordPaymentClientId = invoice.client_id ?? invoice.customer_id ?? '';
 
   return (
     <AppLayout>
@@ -245,6 +248,13 @@ export default function CustomerInvoiceDetailPage() {
                   className="inline-flex items-center gap-1.5 px-3 py-2 border border-teal-500/50 text-teal-400 rounded-lg text-sm hover:bg-teal-500/10 disabled:opacity-50">
                   {portalLinkCopied ? <CheckCircle2 className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                   {portalLinkLoading ? 'Generating...' : portalLinkCopied ? 'Link Copied!' : 'Copy Portal Link'}
+                </button>
+              )}
+              {canRecordPayment && (
+                <button
+                  onClick={() => void router.push(`/accounting/customer-payments/new?invoiceId=${invoiceId as string}&clientId=${recordPaymentClientId}&amount=${balance.toFixed(2)}`)}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-500">
+                  <CreditCard className="h-4 w-4" />Record Payment
                 </button>
               )}
               {canApprove && <button onClick={() => handleAction('approve')} disabled={!!actionLoading}

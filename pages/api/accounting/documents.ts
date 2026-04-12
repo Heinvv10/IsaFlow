@@ -103,7 +103,7 @@ async function verifyEntityOwnership(entityId: string, companyId: string): Promi
     SELECT 1 AS ok FROM sage_supplier_invoices WHERE id = ${entityId}::uuid AND company_id = ${companyId}
     UNION ALL SELECT 1 FROM customer_invoices WHERE id = ${entityId}::uuid AND company_id = ${companyId}
     UNION ALL SELECT 1 FROM supplier_payments WHERE id = ${entityId}::uuid AND company_id = ${companyId}
-    UNION ALL SELECT 1 FROM customer_receipts WHERE id = ${entityId}::uuid AND company_id = ${companyId}
+    UNION ALL SELECT 1 FROM customer_payments WHERE id = ${entityId}::uuid AND company_id = ${companyId}
     UNION ALL SELECT 1 FROM credit_notes WHERE id = ${entityId}::uuid AND company_id = ${companyId}
     LIMIT 1
   `;
