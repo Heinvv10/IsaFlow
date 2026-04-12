@@ -21,7 +21,7 @@ const BASE_URL = 'https://admin.isaflow.co.za';
 
 // ─── CLI Args ─────────────────────────────────────────────────────────────────
 
-function parseArgs(): { email: string; password: string; vu: number; scenario: number | null } {
+function parseArgs(): { email: string; password: string; token: string; vu: number; scenario: number | null } {
   const args = process.argv.slice(2);
   const get = (flag: string): string | undefined => {
     const idx = args.indexOf(flag);
@@ -30,17 +30,19 @@ function parseArgs(): { email: string; password: string; vu: number; scenario: n
 
   const email = get('--email') ?? process.env['ADMIN_EMAIL'] ?? '';
   const password = get('--password') ?? process.env['ADMIN_PASSWORD'] ?? '';
+  const token = get('--token') ?? process.env['ADMIN_JWT'] ?? '';
   const vuStr = get('--vu');
   const scenarioStr = get('--scenario');
 
-  if (!email || !password) {
-    console.error('ERROR: --email and --password are required (or set ADMIN_EMAIL / ADMIN_PASSWORD)');
+  if (!token && (!email || !password)) {
+    console.error('ERROR: provide --token <jwt> OR --email + --password');
     process.exit(1);
   }
 
   return {
     email,
     password,
+    token,
     vu: vuStr ? parseInt(vuStr, 10) : 10,
     scenario: scenarioStr ? parseInt(scenarioStr, 10) : null,
   };
@@ -114,7 +116,7 @@ function printFinalSummary(results: ScenarioResult[]): boolean {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
-  const { email, password, vu, scenario } = parseArgs();
+  const { email, password, token, vu, scenario } = parseArgs();
 
   console.log('╔══════════════════════════════════════════════════════════╗');
   console.log('║       ISAFlow Admin Stress Test                          ║');
@@ -123,17 +125,22 @@ async function main() {
   console.log('╚══════════════════════════════════════════════════════════╝');
 
   // ── Step 1: Authenticate N VUs concurrently ──────────────────────────────
-  console.log(`\nAuthenticating ${vu} VU(s)...`);
   let cookies: string[];
-  try {
-    cookies = await Promise.all(
-      Array.from({ length: vu }, () => getAdminCookie(email, password)),
-    );
-  } catch (err) {
-    console.error('Authentication failed:', err instanceof Error ? err.message : String(err));
-    process.exit(1);
+  if (token) {
+    console.log(`\nUsing provided JWT token for ${vu} VU(s)...`);
+    cookies = Array.from({ length: vu }, () => `ff_auth_token=${token}`);
+  } else {
+    console.log(`\nAuthenticating ${vu} VU(s)...`);
+    try {
+      cookies = await Promise.all(
+        Array.from({ length: vu }, () => getAdminCookie(email, password)),
+      );
+    } catch (err) {
+      console.error('Authentication failed:', err instanceof Error ? err.message : String(err));
+      process.exit(1);
+    }
   }
-  console.log(`\x1b[32m✓ ${cookies.length} VU(s) authenticated\x1b[0m`);
+  console.log(`\x1b[32m✓ ${cookies.length} VU(s) ready\x1b[0m`);
 
   const results: ScenarioResult[] = [];
   const passes: boolean[] = [];
