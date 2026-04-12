@@ -1,11 +1,11 @@
 /**
- * Supplier Credit Notes Page
- * Standalone view filtered to supplier credit notes only
+ * Supplier Credit Notes — List Page
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
+import { useRouter } from 'next/router';
 import {
   FileText, Plus, Loader2, AlertCircle, ChevronRight, Filter, Download,
 } from 'lucide-react';
@@ -13,7 +13,7 @@ import type { CreditNote } from '@/modules/accounting/types/ar.types';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
 
-const STATUS_OPTIONS: { value: string; label: string }[] = [
+const STATUS_OPTIONS = [
   { value: '', label: 'All Statuses' },
   { value: 'draft', label: 'Draft' },
   { value: 'approved', label: 'Approved' },
@@ -29,13 +29,14 @@ function StatusBadge({ status }: { status: string }) {
     cancelled: 'bg-red-500/20 text-red-400',
   };
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${colors[status] || 'bg-gray-500/20 text-gray-400'}`}>
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${colors[status] ?? 'bg-gray-500/20 text-gray-400'}`}>
       {status}
     </span>
   );
 }
 
 export default function SupplierCreditNotesPage() {
+  const router = useRouter();
   const [creditNotes, setCreditNotes] = useState<CreditNote[]>([]);
   const [total, setTotal] = useState(0);
   const [statusFilter, setStatusFilter] = useState('');
@@ -46,13 +47,13 @@ export default function SupplierCreditNotesPage() {
     setIsLoading(true);
     setError('');
     try {
-      const params = new URLSearchParams({ type: 'supplier' });
+      const params = new URLSearchParams();
       if (statusFilter) params.set('status', statusFilter);
-      const res = await apiFetch(`/api/accounting/credit-notes?${params}`);
-      const json = await res.json();
-      const payload = json.data || json;
-      setCreditNotes(payload.creditNotes || []);
-      setTotal(payload.total || 0);
+      const res = await apiFetch(`/api/accounting/supplier-credit-notes?${params.toString()}`);
+      const json = await res.json() as { data?: { creditNotes?: CreditNote[]; total?: number } };
+      const payload = json.data ?? {};
+      setCreditNotes(payload.creditNotes ?? []);
+      setTotal(payload.total ?? 0);
     } catch {
       setError('Failed to load supplier credit notes');
     } finally {
@@ -60,19 +61,26 @@ export default function SupplierCreditNotesPage() {
     }
   }, [statusFilter]);
 
-  useEffect(() => { loadCreditNotes(); }, [loadCreditNotes]);
+  useEffect(() => { void loadCreditNotes(); }, [loadCreditNotes]);
 
   const exportCSV = () => {
     const headers = ['CN #', 'Supplier', 'Invoice', 'Date', 'Amount', 'Status'];
     const rows = creditNotes.map(cn => [
-      cn.creditNoteNumber, cn.supplierName || '',
-      cn.invoiceNumber || '', new Date(cn.creditDate).toLocaleDateString('en-ZA'),
-      cn.totalAmount, cn.status,
+      cn.creditNoteNumber,
+      cn.supplierName ?? '',
+      cn.invoiceNumber ?? '',
+      new Date(cn.creditDate).toLocaleDateString('en-ZA'),
+      cn.totalAmount,
+      cn.status,
     ]);
-    const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const csv = [headers, ...rows]
+      .map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-    a.download = `supplier-credit-notes-${new Date().toISOString().split('T')[0]}.csv`; a.click();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `supplier-credit-notes-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
   };
 
   return (
@@ -94,12 +102,15 @@ export default function SupplierCreditNotesPage() {
             </div>
             <div className="flex items-center gap-2">
               {creditNotes.length > 0 && (
-                <button onClick={exportCSV} className="inline-flex items-center gap-2 px-3 py-2 border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] rounded-lg hover:bg-[var(--ff-bg-primary)] text-sm">
+                <button
+                  onClick={exportCSV}
+                  className="inline-flex items-center gap-2 px-3 py-2 border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] rounded-lg hover:bg-[var(--ff-bg-primary)] text-sm"
+                >
                   <Download className="h-4 w-4" /> CSV
                 </button>
               )}
               <Link
-                href="/accounting/credit-notes/new?type=supplier"
+                href="/accounting/supplier-credit-notes/new"
                 className="inline-flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors text-sm font-medium"
               >
                 <Plus className="h-4 w-4" /> New Credit Note
@@ -133,7 +144,10 @@ export default function SupplierCreditNotesPage() {
             </div>
           ) : creditNotes.length === 0 ? (
             <div className="text-center py-12 text-[var(--ff-text-secondary)]">
-              No supplier credit notes found
+              No supplier credit notes found.{' '}
+              <Link href="/accounting/supplier-credit-notes/new" className="text-orange-400 hover:text-orange-300">
+                Create one
+              </Link>
             </div>
           ) : (
             <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
@@ -151,11 +165,15 @@ export default function SupplierCreditNotesPage() {
                 </thead>
                 <tbody>
                   {creditNotes.map(cn => (
-                    <tr key={cn.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)] transition-colors cursor-pointer" onClick={() => window.location.href = `/accounting/credit-notes/${cn.id}`}>
+                    <tr
+                      key={cn.id}
+                      className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)] transition-colors cursor-pointer"
+                      onClick={() => { void router.push(`/accounting/supplier-credit-notes/${cn.id}`); }}
+                    >
                       <td className="px-4 py-3 font-mono text-[var(--ff-text-primary)]">{cn.creditNoteNumber}</td>
-                      <td className="px-4 py-3 text-[var(--ff-text-primary)]">{cn.supplierName || '—'}</td>
+                      <td className="px-4 py-3 text-[var(--ff-text-primary)]">{cn.supplierName ?? '—'}</td>
                       <td className="px-4 py-3 text-[var(--ff-text-secondary)] font-mono text-xs">
-                        {cn.invoiceNumber || '—'}
+                        {cn.invoiceNumber ?? '—'}
                       </td>
                       <td className="px-4 py-3 text-[var(--ff-text-secondary)]">
                         {new Date(cn.creditDate).toLocaleDateString('en-ZA')}

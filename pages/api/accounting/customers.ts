@@ -21,7 +21,60 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // ─── GET: List customers ────────────────────────────────────────────────────
   if (req.method === 'GET') {
     try {
-      const { q } = req.query;
+      const { q, id, include } = req.query;
+
+      // ── Activity feed for a specific customer ────────────────────────────
+      if (id && include === 'activity') {
+        const customerId = id as string;
+        const activity = (await sql`
+          SELECT
+            id,
+            invoice_number AS reference,
+            invoice_date   AS date,
+            due_date,
+            total_amount,
+            status,
+            'invoice' AS type
+          FROM customer_invoices
+          WHERE company_id = ${companyId}
+            AND COALESCE(client_id, customer_id) = ${customerId}::uuid
+            AND deleted_at IS NULL
+
+          UNION ALL
+
+          SELECT
+            id,
+            payment_number AS reference,
+            payment_date   AS date,
+            NULL           AS due_date,
+            total_amount,
+            status,
+            'payment' AS type
+          FROM customer_payments
+          WHERE company_id = ${companyId}
+            AND client_id = ${customerId}::uuid
+
+          UNION ALL
+
+          SELECT
+            id,
+            credit_note_number AS reference,
+            credit_date        AS date,
+            NULL               AS due_date,
+            total_amount,
+            status,
+            'credit_note' AS type
+          FROM credit_notes
+          WHERE company_id = ${companyId}
+            AND client_id = ${customerId}::uuid
+            AND type = 'customer'
+
+          ORDER BY date DESC NULLS LAST
+          LIMIT 100
+        `) as Row[];
+        return apiResponse.success(res, activity);
+      }
+
       const searchTerm = typeof q === 'string' && q.trim() ? `%${q.trim()}%` : null;
 
       let rows: Row[];

@@ -23,6 +23,7 @@ export const suppliersTab: Tab = {
         { label: 'Payments', href: '/accounting/supplier-payments' },
         { label: 'Batch Payments', href: '/accounting/batch-payments' },
         { label: 'Allocate Payments', href: '/accounting/supplier-allocations' },
+        { label: 'Credit Notes', href: '/accounting/supplier-credit-notes' },
         { label: 'Adjustments', href: '/accounting/adjustments?type=supplier' },
       ],
     },
