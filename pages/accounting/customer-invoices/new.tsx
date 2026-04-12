@@ -243,12 +243,12 @@ export default function NewCustomerInvoicePage() {
               <tbody>
                 {lines.map(l => (
                   <tr key={l.key} className="border-b border-[var(--ff-border-light)]">
-                    <td className="px-3 py-2"><input value={l.description} onChange={e => updateLine(l.key, 'description', e.target.value)} placeholder="Description *" className="ff-input w-full text-sm" /></td>
-                    <td className="px-3 py-2"><select value={l.incomeType} onChange={e => updateLine(l.key, 'incomeType', e.target.value)} className="ff-select text-sm">
+                    <td className="px-3 py-2"><input name="description" value={l.description} onChange={e => updateLine(l.key, 'description', e.target.value)} placeholder="Description *" className="ff-input w-full text-sm" /></td>
+                    <td className="px-3 py-2"><select name="incomeType" value={l.incomeType} onChange={e => updateLine(l.key, 'incomeType', e.target.value)} className="ff-select text-sm">
                       <option value="activation">Activation</option><option value="bonus">Bonus</option><option value="adjustment">Adjustment</option><option value="other">Other</option>
                     </select></td>
-                    <td className="px-3 py-2 w-20"><input type="number" value={l.quantity} onChange={e => updateLine(l.key, 'quantity', Number(e.target.value))} className="ff-input w-full text-sm text-right" /></td>
-                    <td className="px-3 py-2 w-28"><input type="number" value={l.unitPrice} onChange={e => updateLine(l.key, 'unitPrice', Number(e.target.value))} className="ff-input w-full text-sm text-right" /></td>
+                    <td className="px-3 py-2 w-20"><input type="number" name="quantity" value={l.quantity} onChange={e => updateLine(l.key, 'quantity', Number(e.target.value))} className="ff-input w-full text-sm text-right" /></td>
+                    <td className="px-3 py-2 w-28"><input type="number" name="unitPrice" value={l.unitPrice} onChange={e => updateLine(l.key, 'unitPrice', Number(e.target.value))} className="ff-input w-full text-sm text-right" /></td>
                     {showDiscount && (
                       <td className="px-3 py-2 w-20">
                         <input

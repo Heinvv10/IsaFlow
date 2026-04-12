@@ -96,13 +96,13 @@ export default function NewBatchPaymentPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Payment Method</label>
-                <select value={method} onChange={e => setMethod(e.target.value)} className="ff-select w-full">
+                <select name="paymentMethod" value={method} onChange={e => setMethod(e.target.value)} className="ff-select w-full">
                   <option value="eft">EFT</option><option value="cheque">Cheque</option>
                 </select>
               </div>
               <div>
                 <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Notes</label>
-                <input value={notes} onChange={e => setNotes(e.target.value)} className="ff-input w-full" placeholder="Optional batch notes" />
+                <input name="notes" value={notes} onChange={e => setNotes(e.target.value)} className="ff-input w-full" placeholder="Optional batch notes" />
               </div>
             </div>
           </div>
@@ -122,15 +122,15 @@ export default function NewBatchPaymentPage() {
                 const balance = inv ? Number(inv.total_amount) - Number(inv.amount_paid) : 0;
                 return (
                   <div key={line.key} className="flex items-center gap-3">
-                    <select value={line.supplierId} onChange={e => setLines(p => p.map(l => l.key === line.key ? { ...l, supplierId: e.target.value, invoiceId: '' } : l))} className="ff-select flex-1">
+                    <select name="supplierId" value={line.supplierId} onChange={e => setLines(p => p.map(l => l.key === line.key ? { ...l, supplierId: e.target.value, invoiceId: '' } : l))} className="ff-select flex-1">
                       <option value="">Select Supplier</option>
                       {suppliers.map(s => <option key={s.id} value={s.id}>{s.company_name}</option>)}
                     </select>
-                    <select value={line.invoiceId} onChange={e => { const i = invoices.find(x => x.id === e.target.value); setLines(p => p.map(l => l.key === line.key ? { ...l, invoiceId: e.target.value, amount: i ? Number(i.total_amount) - Number(i.amount_paid) : 0 } : l)); }} className="ff-select flex-1">
+                    <select name="invoiceId" value={line.invoiceId} onChange={e => { const i = invoices.find(x => x.id === e.target.value); setLines(p => p.map(l => l.key === line.key ? { ...l, invoiceId: e.target.value, amount: i ? Number(i.total_amount) - Number(i.amount_paid) : 0 } : l)); }} className="ff-select flex-1">
                       <option value="">Select Invoice</option>
                       {supplierInvoices.map(i => <option key={i.id} value={i.id}>{i.invoice_number} — {fmt(Number(i.total_amount) - Number(i.amount_paid))}</option>)}
                     </select>
-                    <input type="number" step="0.01" min="0" max={balance || undefined} value={line.amount || ''} onChange={e => setLines(p => p.map(l => l.key === line.key ? { ...l, amount: Number(e.target.value) } : l))} className="ff-input w-36" placeholder="Amount" />
+                    <input type="number" step="0.01" min="0" max={balance || undefined} name="amount" value={line.amount || ''} onChange={e => setLines(p => p.map(l => l.key === line.key ? { ...l, amount: Number(e.target.value) } : l))} className="ff-input w-36" placeholder="Amount" />
                     {lines.length > 1 && <button type="button" onClick={() => removeLine(line.key)} className="p-2 text-red-400 hover:text-red-300"><Trash2 className="h-4 w-4" /></button>}
                   </div>
                 );

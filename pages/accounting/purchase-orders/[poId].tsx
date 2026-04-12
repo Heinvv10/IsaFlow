@@ -470,27 +470,27 @@ export default function PurchaseOrderDetailPage() {
                         return (
                           <tr key={idx} className="border-b border-[var(--ff-border-light)]">
                             <td className="py-2 pr-2">
-                              <input type="text" required value={item.description}
+                              <input type="text" required name="description" value={item.description}
                                 onChange={e => updateItem(idx, 'description', e.target.value)}
                                 className="ff-input w-full text-sm" placeholder="Item description" />
                             </td>
                             <td className="py-2 pr-2">
-                              <input type="number" required min="0.01" step="0.01" value={item.quantity}
+                              <input type="number" required name="quantity" min="0.01" step="0.01" value={item.quantity}
                                 onChange={e => updateItem(idx, 'quantity', e.target.value)}
                                 className="ff-input w-full text-sm text-right" />
                             </td>
                             <td className="py-2 pr-2">
-                              <input type="number" required min="0" step="0.01" value={item.unit_price}
+                              <input type="number" required name="unitPrice" min="0" step="0.01" value={item.unit_price}
                                 onChange={e => updateItem(idx, 'unit_price', e.target.value)}
                                 className="ff-input w-full text-sm text-right" />
                             </td>
                             <td className="py-2 pr-2">
-                              <input type="number" min="0" step="0.01" value={item.tax_rate}
+                              <input type="number" name="taxRate" min="0" step="0.01" value={item.tax_rate}
                                 onChange={e => updateItem(idx, 'tax_rate', e.target.value)}
                                 className="ff-input w-full text-sm text-right" />
                             </td>
                             <td className="py-2 pr-2">
-                              <select value={item.gl_account_id}
+                              <select name="glAccountId" value={item.gl_account_id}
                                 onChange={e => updateItem(idx, 'gl_account_id', e.target.value)}
                                 className="ff-select w-full text-sm">
                                 <option value="">No account</option>

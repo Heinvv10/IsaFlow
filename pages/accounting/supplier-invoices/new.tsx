@@ -262,25 +262,25 @@ export default function NewSupplierInvoicePage() {
                 <div key={line.key} className="grid grid-cols-12 gap-2 items-end">
                   <div className="col-span-4">
                     {idx === 0 && <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Description *</label>}
-                    <input type="text" required value={line.description}
+                    <input type="text" required name="description" value={line.description}
                       onChange={e => updateLine(line.key, 'description', e.target.value)}
                       className="ff-input w-full text-sm" placeholder="Item description" />
                   </div>
                   <div className="col-span-1">
                     {idx === 0 && <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Qty</label>}
-                    <input type="number" step="0.01" min="0.01" required value={line.quantity}
+                    <input type="number" step="0.01" min="0.01" required name="quantity" value={line.quantity}
                       onChange={e => updateLine(line.key, 'quantity', Number(e.target.value))}
                       className="ff-input w-full text-sm text-right" />
                   </div>
                   <div className="col-span-2">
                     {idx === 0 && <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Unit Price</label>}
-                    <input type="number" step="0.01" min="0" required value={line.unitPrice}
+                    <input type="number" step="0.01" min="0" required name="unitPrice" value={line.unitPrice}
                       onChange={e => updateLine(line.key, 'unitPrice', Number(e.target.value))}
                       className="ff-input w-full text-sm text-right" />
                   </div>
                   <div className="col-span-2">
                     {idx === 0 && <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">GL Account</label>}
-                    <select value={line.glAccountId}
+                    <select name="glAccountId" value={line.glAccountId}
                       onChange={e => updateLine(line.key, 'glAccountId', e.target.value)}
                       className="ff-select w-full text-sm">
                       <option value="">Default (5100)</option>

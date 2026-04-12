@@ -299,6 +299,7 @@ export default function BankAccountsPage() {
                 </label>
                 <input
                   type="text"
+                  name="accountCode"
                   placeholder="e.g. 1114"
                   value={form.accountCode}
                   onChange={e => setForm(f => ({ ...f, accountCode: e.target.value }))}
@@ -312,6 +313,7 @@ export default function BankAccountsPage() {
                 </label>
                 <input
                   type="text"
+                  name="accountName"
                   placeholder="e.g. Bank - FNB Current"
                   value={form.accountName}
                   onChange={e => setForm(f => ({ ...f, accountName: e.target.value }))}
@@ -325,6 +327,7 @@ export default function BankAccountsPage() {
                 </label>
                 <input
                   type="text"
+                  name="bankAccountNumber"
                   placeholder="e.g. 4078012345"
                   value={form.bankAccountNumber}
                   onChange={e => setForm(f => ({ ...f, bankAccountNumber: e.target.value }))}
@@ -340,6 +343,7 @@ export default function BankAccountsPage() {
                 </label>
                 <input
                   type="text"
+                  name="description"
                   placeholder="Optional description"
                   value={form.description}
                   onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
@@ -393,6 +397,7 @@ export default function BankAccountsPage() {
                 </label>
                 <input
                   type="text"
+                  name="accountName"
                   value={editForm.accountName}
                   onChange={e => setEditForm(f => ({ ...f, accountName: e.target.value }))}
                   className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-cyan-500"
@@ -405,6 +410,7 @@ export default function BankAccountsPage() {
                 </label>
                 <input
                   type="text"
+                  name="bankAccountNumber"
                   placeholder="e.g. 4078012345"
                   value={editForm.bankAccountNumber}
                   onChange={e => setEditForm(f => ({ ...f, bankAccountNumber: e.target.value }))}
@@ -420,6 +426,7 @@ export default function BankAccountsPage() {
                 </label>
                 <input
                   type="text"
+                  name="description"
                   placeholder="Optional description"
                   value={editForm.description}
                   onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))}
