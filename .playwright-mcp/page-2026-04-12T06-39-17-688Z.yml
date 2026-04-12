@@ -1,0 +1,154 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e9]:
+    - generic [ref=e10]:
+      - generic [ref=e11]:
+        - img [ref=e12]
+        - generic [ref=e15]: Install IsaFlow for a faster, app-like experience
+      - generic [ref=e16]:
+        - button "Install" [ref=e17] [cursor=pointer]
+        - button "Dismiss" [ref=e18] [cursor=pointer]:
+          - img [ref=e19]
+    - banner [ref=e22]:
+      - img "ISAFlow" [ref=e23]
+      - button "Brightsphere Technologies" [ref=e26] [cursor=pointer]:
+        - img [ref=e28]
+        - generic [ref=e32]: Brightsphere Technologies
+        - img [ref=e33]
+      - generic [ref=e35]:
+        - button "Create new" [ref=e36] [cursor=pointer]:
+          - img [ref=e37]
+        - tooltip: Create new (N)
+      - button "Search Ctrl+K" [ref=e38] [cursor=pointer]:
+        - img [ref=e39]
+        - generic [ref=e42]: Search
+        - generic [ref=e43]: Ctrl+K
+      - button "Setup guide — 16 tasks remaining" [ref=e44] [cursor=pointer]:
+        - img [ref=e45]
+        - generic [ref=e48]: "16"
+      - button "Switch to sidebar navigation" [ref=e49] [cursor=pointer]:
+        - img [ref=e50]
+      - button "Switch to light mode" [ref=e52] [cursor=pointer]:
+        - img [ref=e53]
+      - generic [ref=e59]:
+        - img [ref=e60]
+        - generic [ref=e63]: Admin User
+      - button "Log out" [ref=e64] [cursor=pointer]:
+        - img [ref=e65]
+    - navigation [ref=e69]:
+      - generic [ref=e70]:
+        - link "Dashboard" [ref=e72] [cursor=pointer]:
+          - /url: /accounting
+        - button "Customers" [ref=e74] [cursor=pointer]:
+          - text: Customers
+          - img [ref=e75]
+        - button "Suppliers" [ref=e78] [cursor=pointer]:
+          - text: Suppliers
+          - img [ref=e79]
+        - button "Items" [ref=e82] [cursor=pointer]:
+          - text: Items
+          - img [ref=e83]
+        - button "Banking" [ref=e86] [cursor=pointer]:
+          - text: Banking
+          - img [ref=e87]
+        - button "Accounts" [ref=e90] [cursor=pointer]:
+          - text: Accounts
+          - img [ref=e91]
+        - button "VAT" [ref=e94] [cursor=pointer]:
+          - text: VAT
+          - img [ref=e95]
+        - button "Accountant's Area" [ref=e98] [cursor=pointer]:
+          - text: Accountant's Area
+          - img [ref=e99]
+        - button "Reports" [ref=e102] [cursor=pointer]:
+          - text: Reports
+          - img [ref=e103]
+        - button "SARS" [ref=e106] [cursor=pointer]:
+          - text: SARS
+          - img [ref=e107]
+        - button "Tools" [ref=e110] [cursor=pointer]:
+          - text: Tools
+          - img [ref=e111]
+        - button "Group" [ref=e114] [cursor=pointer]:
+          - text: Group
+          - img [ref=e115]
+        - link "Data Import" [ref=e118] [cursor=pointer]:
+          - /url: /accounting/migration
+        - button "Payroll" [ref=e120] [cursor=pointer]:
+          - text: Payroll
+          - img [ref=e121]
+    - main [ref=e123]:
+      - generic [ref=e124]:
+        - generic [ref=e126]:
+          - img [ref=e128]
+          - generic [ref=e131]:
+            - heading "Asset Categories — SARS Wear-and-Tear" [level=1] [ref=e132]
+            - paragraph [ref=e133]: Standard SARS depreciation rates per Interpretation Note 47
+        - table [ref=e136]:
+          - rowgroup [ref=e137]:
+            - row "Category Description SARS Rate Useful Life" [ref=e138]:
+              - columnheader "Category" [ref=e139]
+              - columnheader "Description" [ref=e140]
+              - columnheader "SARS Rate" [ref=e141]
+              - columnheader "Useful Life" [ref=e142]
+          - rowgroup [ref=e143]:
+            - row "Aircraft Aircraft used for business purposes 25.00% 4 years" [ref=e144]:
+              - cell "Aircraft" [ref=e145]
+              - cell "Aircraft used for business purposes" [ref=e146]
+              - cell "25.00%" [ref=e147]
+              - cell "4 years" [ref=e148]
+            - row "Buildings Commercial buildings and improvements 5.00% 20 years" [ref=e149]:
+              - cell "Buildings" [ref=e150]
+              - cell "Commercial buildings and improvements" [ref=e151]
+              - cell "5.00%" [ref=e152]
+              - cell "20 years" [ref=e153]
+            - row "Computers Computers, laptops, tablets, and peripheral devices 33.33% 3 years" [ref=e154]:
+              - cell "Computers" [ref=e155]
+              - cell "Computers, laptops, tablets, and peripheral devices" [ref=e156]
+              - cell "33.33%" [ref=e157]
+              - cell "3 years" [ref=e158]
+            - row "Electronic Equipment Electronic equipment, servers, networking gear 25.00% 4 years" [ref=e159]:
+              - cell "Electronic Equipment" [ref=e160]
+              - cell "Electronic equipment, servers, networking gear" [ref=e161]
+              - cell "25.00%" [ref=e162]
+              - cell "4 years" [ref=e163]
+            - row "Furniture Office furniture, desks, chairs, shelving 16.67% 6 years" [ref=e164]:
+              - cell "Furniture" [ref=e165]
+              - cell "Office furniture, desks, chairs, shelving" [ref=e166]
+              - cell "16.67%" [ref=e167]
+              - cell "6 years" [ref=e168]
+            - row "Leasehold Improvements Leasehold improvements (or lease term if shorter) 20.00% 5 years" [ref=e169]:
+              - cell "Leasehold Improvements" [ref=e170]
+              - cell "Leasehold improvements (or lease term if shorter)" [ref=e171]
+              - cell "20.00%" [ref=e172]
+              - cell "5 years" [ref=e173]
+            - row "Machinery General machinery and plant equipment 12.50% 8 years" [ref=e174]:
+              - cell "Machinery" [ref=e175]
+              - cell "General machinery and plant equipment" [ref=e176]
+              - cell "12.50%" [ref=e177]
+              - cell "8 years" [ref=e178]
+            - row "Manufacturing Equipment Manufacturing plant and equipment (Section 12C) 25.00% 4 years" [ref=e179]:
+              - cell "Manufacturing Equipment" [ref=e180]
+              - cell "Manufacturing plant and equipment (Section 12C)" [ref=e181]
+              - cell "25.00%" [ref=e182]
+              - cell "4 years" [ref=e183]
+            - row "Motor Vehicles Motor vehicles used for business purposes 20.00% 5 years" [ref=e184]:
+              - cell "Motor Vehicles" [ref=e185]
+              - cell "Motor vehicles used for business purposes" [ref=e186]
+              - cell "20.00%" [ref=e187]
+              - cell "5 years" [ref=e188]
+            - row "Office Equipment Printers, copiers, telephones, fax machines 20.00% 5 years" [ref=e189]:
+              - cell "Office Equipment" [ref=e190]
+              - cell "Printers, copiers, telephones, fax machines" [ref=e191]
+              - cell "20.00%" [ref=e192]
+              - cell "5 years" [ref=e193]
+            - row "Signage Business signage, billboards, displays 10.00% 10 years" [ref=e194]:
+              - cell "Signage" [ref=e195]
+              - cell "Business signage, billboards, displays" [ref=e196]
+              - cell "10.00%" [ref=e197]
+              - cell "10 years" [ref=e198]
+            - row "Small Tools Small tools, implements, and utensils 50.00% 2 years" [ref=e199]:
+              - cell "Small Tools" [ref=e200]
+              - cell "Small tools, implements, and utensils" [ref=e201]
+              - cell "50.00%" [ref=e202]
+              - cell "2 years" [ref=e203]
+  - alert [ref=e8]

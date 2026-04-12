@@ -38,7 +38,7 @@ export function withAdmin(
       }
       return req.socket.remoteAddress || 'unknown';
     })();
-    const limited = checkRateLimit(`admin:${ip}`, { windowMs: 60000, maxRequests: 30 });
+    const limited = checkRateLimit(`admin:${ip}`, { windowMs: 60000, maxRequests: 120 });
     if (limited) {
       res.status(429).json({
         success: false,

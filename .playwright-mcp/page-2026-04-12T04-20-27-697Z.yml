@@ -1,0 +1,146 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e29]:
+    - complementary [ref=e30]:
+      - img "ISAFlow" [ref=e32]
+      - navigation [ref=e33]:
+        - link "Dashboard" [ref=e34] [cursor=pointer]:
+          - /url: /accounting
+        - generic [ref=e35] [cursor=pointer]:
+          - generic [ref=e36]: Customers
+          - img [ref=e37]
+        - generic [ref=e39] [cursor=pointer]:
+          - generic [ref=e40]: Suppliers
+          - img [ref=e41]
+        - generic [ref=e43] [cursor=pointer]:
+          - generic [ref=e44]: Items
+          - img [ref=e45]
+        - generic [ref=e47] [cursor=pointer]:
+          - generic [ref=e48]: Banking
+          - img [ref=e49]
+        - generic [ref=e51] [cursor=pointer]:
+          - generic [ref=e52]: Accounts
+          - img [ref=e53]
+        - generic [ref=e55] [cursor=pointer]:
+          - generic [ref=e56]: VAT
+          - img [ref=e57]
+        - generic [ref=e59] [cursor=pointer]:
+          - generic [ref=e60]: Accountant's Area
+          - img [ref=e61]
+        - generic [ref=e63] [cursor=pointer]:
+          - generic [ref=e64]: Reports
+          - img [ref=e65]
+        - generic [ref=e67] [cursor=pointer]:
+          - generic [ref=e68]: SARS
+          - img [ref=e69]
+        - generic [ref=e71] [cursor=pointer]:
+          - generic [ref=e72]: Tools
+          - img [ref=e73]
+        - generic [ref=e75] [cursor=pointer]:
+          - generic [ref=e76]: Group
+          - img [ref=e77]
+        - link "Data Import" [ref=e79] [cursor=pointer]:
+          - /url: /accounting/migration
+        - generic [ref=e80] [cursor=pointer]:
+          - generic [ref=e81]: Payroll
+          - img [ref=e82]
+      - generic [ref=e84]:
+        - generic [ref=e85]:
+          - generic [ref=e87]: AU
+          - generic [ref=e88]:
+            - paragraph [ref=e89]: Admin User
+            - paragraph [ref=e90]: owner
+        - button "Log out" [ref=e91] [cursor=pointer]:
+          - img [ref=e92]
+          - generic [ref=e95]: Log out
+    - generic [ref=e96]:
+      - banner [ref=e97]:
+        - button "Open menu" [ref=e98] [cursor=pointer]:
+          - img [ref=e99]
+        - img "ISAFlow" [ref=e100]
+        - button "Search Ctrl+K" [ref=e101] [cursor=pointer]:
+          - img [ref=e102]
+          - generic [ref=e105]: Search
+          - generic [ref=e106]: Ctrl+K
+        - button "Switch to sidebar navigation" [ref=e107] [cursor=pointer]:
+          - img [ref=e108]
+        - button "Switch to light mode" [ref=e110] [cursor=pointer]:
+          - img [ref=e111]
+        - generic [ref=e117]:
+          - img [ref=e118]
+          - generic [ref=e121]: Admin User
+        - button "Log out" [ref=e122] [cursor=pointer]:
+          - img [ref=e123]
+      - main [ref=e126]:
+        - generic [ref=e127]:
+          - complementary [ref=e128]:
+            - paragraph [ref=e130]: Admin Console
+            - navigation [ref=e131]:
+              - link "Dashboard" [ref=e132] [cursor=pointer]:
+                - /url: /
+                - img [ref=e133]
+                - generic [ref=e138]: Dashboard
+              - link "Health" [ref=e139] [cursor=pointer]:
+                - /url: /health
+                - img [ref=e140]
+                - generic [ref=e142]: Health
+              - link "Companies" [ref=e143] [cursor=pointer]:
+                - /url: /companies
+                - img [ref=e144]
+                - generic [ref=e148]: Companies
+              - link "Users" [ref=e149] [cursor=pointer]:
+                - /url: /users
+                - img [ref=e150]
+                - generic [ref=e155]: Users
+              - link "Billing" [ref=e157] [cursor=pointer]:
+                - /url: /billing
+                - img [ref=e158]
+                - generic [ref=e160]: Billing
+                - img [ref=e161]
+              - link "Tools" [ref=e164] [cursor=pointer]:
+                - /url: /tools
+                - img [ref=e165]
+                - generic [ref=e167]: Tools
+                - img [ref=e168]
+              - link "Trials" [ref=e170] [cursor=pointer]:
+                - /url: /trials
+                - img [ref=e171]
+                - generic [ref=e174]: Trials
+              - link "Features" [ref=e175] [cursor=pointer]:
+                - /url: /features
+                - img [ref=e176]
+                - generic [ref=e179]: Features
+              - link "Job Queue" [ref=e180] [cursor=pointer]:
+                - /url: /job-queue
+                - img [ref=e181]
+                - generic [ref=e183]: Job Queue
+              - link "Audit Trail" [ref=e184] [cursor=pointer]:
+                - /url: /audit
+                - img [ref=e185]
+                - generic [ref=e188]: Audit Trail
+              - link "Analytics" [ref=e189] [cursor=pointer]:
+                - /url: /analytics
+                - img [ref=e190]
+                - generic [ref=e191]: Analytics
+              - link "Components" [ref=e192] [cursor=pointer]:
+                - /url: /components
+                - img [ref=e193]
+                - generic [ref=e199]: Components
+              - link "Settings" [ref=e200] [cursor=pointer]:
+                - /url: /settings
+                - img [ref=e201]
+                - generic [ref=e204]: Settings
+          - main [ref=e205]:
+            - heading "Admin Dashboard" [level=1] [ref=e206]
+            - img [ref=e208]
+            - generic [ref=e210]:
+              - link "Manage Companies" [ref=e211] [cursor=pointer]:
+                - /url: /companies
+                - img [ref=e212]
+                - text: Manage Companies
+                - img [ref=e216]
+              - link "Manage Users" [ref=e218] [cursor=pointer]:
+                - /url: /users
+                - img [ref=e219]
+                - text: Manage Users
+                - img [ref=e224]
+  - alert [ref=e25]: Admin Dashboard

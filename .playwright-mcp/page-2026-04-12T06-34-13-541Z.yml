@@ -1,0 +1,110 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e9]:
+    - generic [ref=e10]:
+      - generic [ref=e11]:
+        - img [ref=e12]
+        - generic [ref=e15]: Install IsaFlow for a faster, app-like experience
+      - generic [ref=e16]:
+        - button "Install" [ref=e17] [cursor=pointer]
+        - button "Dismiss" [ref=e18] [cursor=pointer]:
+          - img [ref=e19]
+    - banner [ref=e22]:
+      - img "ISAFlow" [ref=e23]
+      - button "ISAFlow Demo" [ref=e26] [cursor=pointer]:
+        - img [ref=e28]
+        - generic [ref=e32]: ISAFlow Demo
+        - img [ref=e33]
+      - generic [ref=e35]:
+        - button "Create new" [ref=e36] [cursor=pointer]:
+          - img [ref=e37]
+        - tooltip: Create new (N)
+      - button "Search Ctrl+K" [ref=e38] [cursor=pointer]:
+        - img [ref=e39]
+        - generic [ref=e42]: Search
+        - generic [ref=e43]: Ctrl+K
+      - button "Setup guide — 14 tasks remaining" [ref=e44] [cursor=pointer]:
+        - img [ref=e45]
+        - generic [ref=e48]: "14"
+      - button "Switch to sidebar navigation" [ref=e49] [cursor=pointer]:
+        - img [ref=e50]
+      - button "Switch to light mode" [ref=e52] [cursor=pointer]:
+        - img [ref=e53]
+      - generic [ref=e59]:
+        - img [ref=e60]
+        - generic [ref=e63]: Admin User
+      - button "Log out" [ref=e64] [cursor=pointer]:
+        - img [ref=e65]
+    - navigation [ref=e69]:
+      - generic [ref=e70]:
+        - link "Dashboard" [ref=e72] [cursor=pointer]:
+          - /url: /accounting
+        - button "Customers" [ref=e74] [cursor=pointer]:
+          - text: Customers
+          - img [ref=e75]
+        - button "Suppliers" [ref=e78] [cursor=pointer]:
+          - text: Suppliers
+          - img [ref=e79]
+        - button "Items" [ref=e82] [cursor=pointer]:
+          - text: Items
+          - img [ref=e83]
+        - button "Banking" [ref=e86] [cursor=pointer]:
+          - text: Banking
+          - img [ref=e87]
+        - button "Accounts" [ref=e90] [cursor=pointer]:
+          - text: Accounts
+          - img [ref=e91]
+        - button "VAT" [ref=e94] [cursor=pointer]:
+          - text: VAT
+          - img [ref=e95]
+        - button "Accountant's Area" [ref=e98] [cursor=pointer]:
+          - text: Accountant's Area
+          - img [ref=e99]
+        - button "Reports" [ref=e102] [cursor=pointer]:
+          - text: Reports
+          - img [ref=e103]
+        - button "SARS" [ref=e106] [cursor=pointer]:
+          - text: SARS
+          - img [ref=e107]
+        - button "Tools" [ref=e110] [cursor=pointer]:
+          - text: Tools
+          - img [ref=e111]
+        - button "Group" [ref=e114] [cursor=pointer]:
+          - text: Group
+          - img [ref=e115]
+        - link "Data Import" [ref=e118] [cursor=pointer]:
+          - /url: /accounting/migration
+        - button "Payroll" [ref=e120] [cursor=pointer]:
+          - text: Payroll
+          - img [ref=e121]
+    - main [ref=e123]:
+      - generic [ref=e124]:
+        - generic [ref=e127]:
+          - generic [ref=e128]:
+            - img [ref=e130]
+            - generic [ref=e132]:
+              - heading "Bank Accounts" [level=1] [ref=e133]
+              - paragraph [ref=e134]: Manage bank accounts and view balances
+          - button "Add Bank Account" [ref=e135] [cursor=pointer]:
+            - img [ref=e136]
+            - text: Add Bank Account
+        - generic [ref=e139]:
+          - button "Edit account" [ref=e140] [cursor=pointer]:
+            - img [ref=e141]
+          - generic [ref=e144]:
+            - generic [ref=e145]: "1110"
+            - generic [ref=e146]: Active
+          - heading "Bank - Primary" [level=3] [ref=e147]
+          - generic [ref=e148]:
+            - paragraph [ref=e149]: Net Balance
+            - paragraph [ref=e150]: R 35 210 973,52
+          - generic [ref=e151]:
+            - generic [ref=e152]:
+              - img [ref=e153]
+              - generic [ref=e156]: R 46 767 732,10
+            - generic [ref=e157]:
+              - img [ref=e158]
+              - generic [ref=e161]: R 11 556 758,58
+          - generic [ref=e162]:
+            - generic [ref=e163]: 877 transactions
+            - generic [ref=e164]: 2024-03-02 → 2027-03-27
+  - alert [ref=e8]

@@ -1,0 +1,160 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e9]:
+    - generic [ref=e10]:
+      - generic [ref=e11]:
+        - img [ref=e12]
+        - generic [ref=e15]: Install IsaFlow for a faster, app-like experience
+      - generic [ref=e16]:
+        - button "Install" [ref=e17] [cursor=pointer]
+        - button "Dismiss" [ref=e18] [cursor=pointer]:
+          - img [ref=e19]
+    - banner [ref=e22]:
+      - img "ISAFlow" [ref=e23]
+      - button "ISAFlow Demo" [ref=e204] [cursor=pointer]:
+        - img [ref=e206]
+        - generic [ref=e210]: ISAFlow Demo
+        - img [ref=e211]
+      - generic [ref=e28]:
+        - button "Create new" [ref=e29] [cursor=pointer]:
+          - img [ref=e30]
+        - tooltip: Create new (N)
+      - button "Search Ctrl+K" [ref=e31] [cursor=pointer]:
+        - img [ref=e32]
+        - generic [ref=e35]: Search
+        - generic [ref=e36]: Ctrl+K
+      - button "Setup guide — 14 tasks remaining" [ref=e37] [cursor=pointer]:
+        - img [ref=e38]
+        - generic [ref=e41]: "14"
+      - button "Switch to sidebar navigation" [ref=e42] [cursor=pointer]:
+        - img [ref=e43]
+      - button "Switch to light mode" [ref=e45] [cursor=pointer]:
+        - img [ref=e46]
+      - generic [ref=e52]:
+        - img [ref=e53]
+        - generic [ref=e56]: Admin User
+      - button "Log out" [ref=e57] [cursor=pointer]:
+        - img [ref=e58]
+    - navigation [ref=e62]:
+      - generic [ref=e63]:
+        - link "Dashboard" [ref=e65] [cursor=pointer]:
+          - /url: /accounting
+        - button "Customers" [ref=e67] [cursor=pointer]:
+          - text: Customers
+          - img [ref=e68]
+        - button "Suppliers" [ref=e71] [cursor=pointer]:
+          - text: Suppliers
+          - img [ref=e72]
+        - button "Items" [ref=e75] [cursor=pointer]:
+          - text: Items
+          - img [ref=e76]
+        - button "Banking" [ref=e79] [cursor=pointer]:
+          - text: Banking
+          - img [ref=e80]
+        - button "Accounts" [ref=e83] [cursor=pointer]:
+          - text: Accounts
+          - img [ref=e84]
+        - button "VAT" [ref=e87] [cursor=pointer]:
+          - text: VAT
+          - img [ref=e88]
+        - button "Accountant's Area" [ref=e91] [cursor=pointer]:
+          - text: Accountant's Area
+          - img [ref=e92]
+        - button "Reports" [ref=e95] [cursor=pointer]:
+          - text: Reports
+          - img [ref=e96]
+        - button "SARS" [ref=e99] [cursor=pointer]:
+          - text: SARS
+          - img [ref=e100]
+        - button "Tools" [ref=e103] [cursor=pointer]:
+          - text: Tools
+          - img [ref=e104]
+        - button "Group" [ref=e107] [cursor=pointer]:
+          - text: Group
+          - img [ref=e108]
+        - link "Data Import" [ref=e111] [cursor=pointer]:
+          - /url: /accounting/migration
+        - button "Payroll" [ref=e113] [cursor=pointer]:
+          - text: Payroll
+          - img [ref=e114]
+    - main [ref=e116]:
+      - generic [ref=e117]:
+        - generic [ref=e119]:
+          - link "Back to Reports" [ref=e120] [cursor=pointer]:
+            - /url: /accounting?tab=reports
+            - img [ref=e121]
+            - text: Back to Reports
+          - generic [ref=e123]:
+            - generic [ref=e124]:
+              - img [ref=e126]
+              - heading "Balance Sheet" [level=1] [ref=e128]
+            - button "Export CSV" [ref=e129] [cursor=pointer]:
+              - img [ref=e130]
+              - text: Export CSV
+        - generic [ref=e133]:
+          - generic [ref=e134]:
+            - generic [ref=e135]:
+              - generic [ref=e136]: As at
+              - textbox [ref=e137]: 2026-04-12
+            - generic [ref=e138]:
+              - generic [ref=e139]: Cost Centre
+              - combobox [ref=e140]:
+                - option "All Cost Centres" [selected]
+            - generic [ref=e141] [cursor=pointer]:
+              - checkbox "Compare prior year" [ref=e142]
+              - text: Compare prior year
+          - generic [ref=e143]:
+            - generic [ref=e144]:
+              - img [ref=e145]
+              - text: Out of balance by R 312 394,10
+            - generic [ref=e147]:
+              - generic [ref=e148]:
+                - generic [ref=e149]:
+                  - heading "Assets" [level=3] [ref=e150]
+                  - generic [ref=e151]: Click to drill down
+                - generic [ref=e152]:
+                  - button "1110 Bank - Primary -R 104 117,56" [ref=e154] [cursor=pointer]:
+                    - generic [ref=e155]:
+                      - img [ref=e156]
+                      - generic [ref=e158]: "1110"
+                      - text: Bank - Primary
+                    - generic [ref=e159]: "-R 104 117,56"
+                  - button "1230 Accumulated Depreciation R 156 197,05" [ref=e161] [cursor=pointer]:
+                    - generic [ref=e162]:
+                      - img [ref=e163]
+                      - generic [ref=e165]: "1230"
+                      - text: Accumulated Depreciation
+                    - generic [ref=e166]: R 156 197,05
+                - generic [ref=e167]:
+                  - generic [ref=e168]: Total Assets
+                  - generic [ref=e169]: R 52 079,49
+              - generic [ref=e170]:
+                - generic [ref=e171]:
+                  - generic [ref=e172]:
+                    - heading "Liabilities" [level=3] [ref=e173]
+                    - generic [ref=e174]: Click to drill down
+                  - button "2110 Accounts Payable R 2 516 612,05" [ref=e177] [cursor=pointer]:
+                    - generic [ref=e178]:
+                      - img [ref=e179]
+                      - generic [ref=e181]: "2110"
+                      - text: Accounts Payable
+                    - generic [ref=e182]: R 2 516 612,05
+                  - generic [ref=e183]:
+                    - generic [ref=e184]: Total Liabilities
+                    - generic [ref=e185]: R 2 516 612,05
+                - generic [ref=e186]:
+                  - generic [ref=e187]:
+                    - heading "Equity" [level=3] [ref=e188]
+                    - generic [ref=e189]: Click to drill down
+                  - button "3200 Retained Earnings (Current) -R 2 776 926,66" [ref=e192] [cursor=pointer]:
+                    - generic [ref=e193]:
+                      - img [ref=e194]
+                      - generic [ref=e196]: "3200"
+                      - text: Retained Earnings (Current)
+                    - generic [ref=e197]: "-R 2 776 926,66"
+                  - generic [ref=e198]:
+                    - generic [ref=e199]: Total Equity
+                    - generic [ref=e200]: "-R 2 776 926,66"
+                - generic [ref=e201]:
+                  - generic [ref=e202]: Total L + E
+                  - generic [ref=e203]: "-R 260 314,61"
+  - alert [ref=e8]

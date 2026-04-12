@@ -1,0 +1,126 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e9]:
+    - generic [ref=e10]:
+      - generic [ref=e11]:
+        - img [ref=e12]
+        - generic [ref=e15]: Install IsaFlow for a faster, app-like experience
+      - generic [ref=e16]:
+        - button "Install" [ref=e17] [cursor=pointer]
+        - button "Dismiss" [ref=e18] [cursor=pointer]:
+          - img [ref=e19]
+    - banner [ref=e22]:
+      - img "ISAFlow" [ref=e23]
+      - generic [ref=e28]:
+        - button "Create new" [ref=e29] [cursor=pointer]:
+          - img [ref=e30]
+        - tooltip: Create new (N)
+      - button "Search Ctrl+K" [ref=e31] [cursor=pointer]:
+        - img [ref=e32]
+        - generic [ref=e35]: Search
+        - generic [ref=e36]: Ctrl+K
+      - button "Switch to sidebar navigation" [ref=e37] [cursor=pointer]:
+        - img [ref=e38]
+      - button "Switch to light mode" [ref=e40] [cursor=pointer]:
+        - img [ref=e41]
+      - generic [ref=e47]:
+        - img [ref=e48]
+        - generic [ref=e51]: Admin User
+      - button "Log out" [ref=e52] [cursor=pointer]:
+        - img [ref=e53]
+    - navigation [ref=e57]:
+      - generic [ref=e58]:
+        - link "Dashboard" [ref=e60] [cursor=pointer]:
+          - /url: /accounting
+        - button "Customers" [ref=e62] [cursor=pointer]:
+          - text: Customers
+          - img [ref=e63]
+        - button "Suppliers" [ref=e66] [cursor=pointer]:
+          - text: Suppliers
+          - img [ref=e67]
+        - button "Items" [ref=e70] [cursor=pointer]:
+          - text: Items
+          - img [ref=e71]
+        - button "Banking" [ref=e74] [cursor=pointer]:
+          - text: Banking
+          - img [ref=e75]
+        - button "Accounts" [ref=e78] [cursor=pointer]:
+          - text: Accounts
+          - img [ref=e79]
+        - button "VAT" [ref=e82] [cursor=pointer]:
+          - text: VAT
+          - img [ref=e83]
+        - button "Accountant's Area" [ref=e86] [cursor=pointer]:
+          - text: Accountant's Area
+          - img [ref=e87]
+        - button "Reports" [ref=e90] [cursor=pointer]:
+          - text: Reports
+          - img [ref=e91]
+        - button "SARS" [ref=e94] [cursor=pointer]:
+          - text: SARS
+          - img [ref=e95]
+        - button "Tools" [ref=e98] [cursor=pointer]:
+          - text: Tools
+          - img [ref=e99]
+        - button "Group" [ref=e102] [cursor=pointer]:
+          - text: Group
+          - img [ref=e103]
+        - link "Data Import" [ref=e106] [cursor=pointer]:
+          - /url: /accounting/migration
+        - button "Payroll" [ref=e108] [cursor=pointer]:
+          - text: Payroll
+          - img [ref=e109]
+    - main [ref=e111]:
+      - generic [ref=e112]:
+        - generic [ref=e114]:
+          - link "Back to Reports" [ref=e115] [cursor=pointer]:
+            - /url: /accounting?tab=reports
+            - img [ref=e116]
+            - text: Back to Reports
+          - generic [ref=e118]:
+            - generic [ref=e119]:
+              - img [ref=e121]
+              - heading "Income Statement" [level=1] [ref=e123]
+            - button "Export CSV" [ref=e124] [cursor=pointer]:
+              - img [ref=e125]
+              - text: Export CSV
+        - generic [ref=e128]:
+          - generic [ref=e129]:
+            - generic [ref=e130]:
+              - generic [ref=e131]: From
+              - textbox [ref=e132]: 2026-03-31
+            - generic [ref=e133]:
+              - generic [ref=e134]: To
+              - textbox [ref=e135]: 2026-04-12
+            - generic [ref=e136]:
+              - generic [ref=e137]: Cost Centre
+              - combobox [ref=e138]:
+                - option "All Cost Centres" [selected]
+            - generic [ref=e139] [cursor=pointer]:
+              - checkbox "Compare prior period" [ref=e140]
+              - text: Compare prior period
+          - generic [ref=e141]:
+            - heading "Profit & Loss — 2026-03-31 to 2026-04-12" [level=2] [ref=e143]
+            - generic [ref=e144]:
+              - generic [ref=e145]:
+                - generic [ref=e146]:
+                  - generic [ref=e147]: Revenue
+                  - generic [ref=e148]: Click account to expand
+                - generic [ref=e149]: No entries
+                - generic [ref=e150]:
+                  - generic [ref=e151]: Total Revenue
+                  - generic [ref=e152]: R 0,00
+              - generic [ref=e153]:
+                - generic [ref=e154]: Gross Profit
+                - generic [ref=e155]: R 0,00
+              - generic [ref=e156]:
+                - generic [ref=e157]:
+                  - generic [ref=e158]: Operating Expenses
+                  - generic [ref=e159]: Click account to expand
+                - generic [ref=e160]: No entries
+                - generic [ref=e161]:
+                  - generic [ref=e162]: Total Operating Expenses
+                  - generic [ref=e163]: R 0,00
+              - generic [ref=e164]:
+                - generic [ref=e165]: Net Profit / (Loss)
+                - generic [ref=e166]: R 0,00
+  - alert [ref=e8]

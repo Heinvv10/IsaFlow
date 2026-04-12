@@ -1,0 +1,168 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e9]:
+    - generic [ref=e10]:
+      - generic [ref=e11]:
+        - img [ref=e12]
+        - generic [ref=e15]: Install IsaFlow for a faster, app-like experience
+      - generic [ref=e16]:
+        - button "Install" [ref=e17] [cursor=pointer]
+        - button "Dismiss" [ref=e18] [cursor=pointer]:
+          - img [ref=e19]
+    - banner [ref=e22]:
+      - img "ISAFlow" [ref=e23]
+      - generic [ref=e28]:
+        - button "Create new" [ref=e29] [cursor=pointer]:
+          - img [ref=e30]
+        - tooltip: Create new (N)
+      - button "Search Ctrl+K" [ref=e31] [cursor=pointer]:
+        - img [ref=e32]
+        - generic [ref=e35]: Search
+        - generic [ref=e36]: Ctrl+K
+      - button "Setup guide — 16 tasks remaining" [ref=e37] [cursor=pointer]:
+        - img [ref=e38]
+        - generic [ref=e41]: "16"
+      - button "Switch to sidebar navigation" [ref=e42] [cursor=pointer]:
+        - img [ref=e43]
+      - button "Switch to light mode" [ref=e45] [cursor=pointer]:
+        - img [ref=e46]
+      - generic [ref=e52]:
+        - img [ref=e53]
+        - generic [ref=e56]: Admin User
+      - button "Log out" [ref=e57] [cursor=pointer]:
+        - img [ref=e58]
+    - navigation [ref=e62]:
+      - generic [ref=e63]:
+        - link "Dashboard" [ref=e65] [cursor=pointer]:
+          - /url: /accounting
+        - button "Customers" [ref=e67] [cursor=pointer]:
+          - text: Customers
+          - img [ref=e68]
+        - button "Suppliers" [ref=e71] [cursor=pointer]:
+          - text: Suppliers
+          - img [ref=e72]
+        - button "Items" [ref=e75] [cursor=pointer]:
+          - text: Items
+          - img [ref=e76]
+        - button "Banking" [ref=e79] [cursor=pointer]:
+          - text: Banking
+          - img [ref=e80]
+        - button "Accounts" [ref=e83] [cursor=pointer]:
+          - text: Accounts
+          - img [ref=e84]
+        - button "VAT" [ref=e87] [cursor=pointer]:
+          - text: VAT
+          - img [ref=e88]
+        - button "Accountant's Area" [ref=e91] [cursor=pointer]:
+          - text: Accountant's Area
+          - img [ref=e92]
+        - button "Reports" [ref=e95] [cursor=pointer]:
+          - text: Reports
+          - img [ref=e96]
+        - button "SARS" [ref=e99] [cursor=pointer]:
+          - text: SARS
+          - img [ref=e100]
+        - button "Tools" [ref=e103] [cursor=pointer]:
+          - text: Tools
+          - img [ref=e104]
+        - button "Group" [ref=e107] [cursor=pointer]:
+          - text: Group
+          - img [ref=e108]
+        - link "Data Import" [ref=e111] [cursor=pointer]:
+          - /url: /accounting/migration
+        - button "Payroll" [ref=e113] [cursor=pointer]:
+          - text: Payroll
+          - img [ref=e114]
+    - main [ref=e116]:
+      - generic [ref=e117]:
+        - generic [ref=e120]:
+          - generic [ref=e121]:
+            - img [ref=e123]
+            - generic [ref=e126]:
+              - heading "AR Aging Report" [level=1] [ref=e127]
+              - paragraph [ref=e128]: Accounts Receivable by aging period
+          - button "Export CSV" [ref=e129] [cursor=pointer]:
+            - img [ref=e130]
+            - text: Export CSV
+        - generic [ref=e133]:
+          - generic [ref=e134]:
+            - generic [ref=e135]: "As at:"
+            - textbox [ref=e136]: 2026-04-12
+          - generic [ref=e137]:
+            - generic [ref=e138]:
+              - paragraph [ref=e139]: Current
+              - paragraph [ref=e140]: R 0,00
+            - generic [ref=e141]:
+              - paragraph [ref=e142]: 1-30 Days
+              - paragraph [ref=e143]: R 439 300,00
+            - generic [ref=e144]:
+              - paragraph [ref=e145]: 31-60 Days
+              - paragraph [ref=e146]: R 81 650,00
+            - generic [ref=e147]:
+              - paragraph [ref=e148]: 61-90 Days
+              - paragraph [ref=e149]: R 139 775,00
+            - generic [ref=e150]:
+              - paragraph [ref=e151]: 90+ Days
+              - paragraph [ref=e152]: R 3 485 246,50
+            - generic [ref=e153]:
+              - paragraph [ref=e154]: Total
+              - paragraph [ref=e155]: R 4 145 971,50
+          - table [ref=e157]:
+            - rowgroup [ref=e158]:
+              - row "Client Current 1-30 31-60 61-90 90+ Total" [ref=e159]:
+                - columnheader "Client" [ref=e160]
+                - columnheader "Current" [ref=e161]
+                - columnheader "1-30" [ref=e162]
+                - columnheader "31-60" [ref=e163]
+                - columnheader "61-90" [ref=e164]
+                - columnheader "90+" [ref=e165]
+                - columnheader "Total" [ref=e166]
+            - rowgroup [ref=e167]:
+              - row "Blitz Fibre R 0,00 R 57 500,00 R 57 500,00 R 57 500,00 R 3 019 324,00 R 3 191 824,00" [ref=e168]:
+                - cell "Blitz Fibre" [ref=e169]:
+                  - link "Blitz Fibre" [ref=e170] [cursor=pointer]:
+                    - /url: /accounting/customer-statements/c45cd071-e200-40ae-b4d5-29d4a5930967
+                - cell "R 0,00" [ref=e171]
+                - cell "R 57 500,00" [ref=e172]
+                - cell "R 57 500,00" [ref=e173]
+                - cell "R 57 500,00" [ref=e174]
+                - cell "R 3 019 324,00" [ref=e175]
+                - cell "R 3 191 824,00" [ref=e176]
+              - row "Velocity Fibre (Pty) Ltd R 0,00 R 381 800,00 R 24 150,00 R 82 275,00 R 0,00 R 488 225,00" [ref=e177]:
+                - cell "Velocity Fibre (Pty) Ltd" [ref=e178]:
+                  - link "Velocity Fibre (Pty) Ltd" [ref=e179] [cursor=pointer]:
+                    - /url: /accounting/customer-statements/e50200fa-0e46-4dce-bcf5-00c5dfbf7ab4
+                - cell "R 0,00" [ref=e180]
+                - cell "R 381 800,00" [ref=e181]
+                - cell "R 24 150,00" [ref=e182]
+                - cell "R 82 275,00" [ref=e183]
+                - cell "R 0,00" [ref=e184]
+                - cell "R 488 225,00" [ref=e185]
+              - row "Vortex Media Group R 0,00 R 0,00 R 0,00 R 0,00 R 465 750,00 R 465 750,00" [ref=e186]:
+                - cell "Vortex Media Group" [ref=e187]:
+                  - link "Vortex Media Group" [ref=e188] [cursor=pointer]:
+                    - /url: /accounting/customer-statements/12da4900-88f1-44b7-ae14-4440c2d9da81
+                - cell "R 0,00" [ref=e189]
+                - cell "R 0,00" [ref=e190]
+                - cell "R 0,00" [ref=e191]
+                - cell "R 0,00" [ref=e192]
+                - cell "R 465 750,00" [ref=e193]
+                - cell "R 465 750,00" [ref=e194]
+              - row "Blitz PE (Pty) Ltd R 0,00 R 0,00 R 0,00 R 0,00 R 172,50 R 172,50" [ref=e195]:
+                - cell "Blitz PE (Pty) Ltd" [ref=e196]:
+                  - link "Blitz PE (Pty) Ltd" [ref=e197] [cursor=pointer]:
+                    - /url: /accounting/customer-statements/4cfde89b-eecf-4d85-9149-9a63df77fe91
+                - cell "R 0,00" [ref=e198]
+                - cell "R 0,00" [ref=e199]
+                - cell "R 0,00" [ref=e200]
+                - cell "R 0,00" [ref=e201]
+                - cell "R 172,50" [ref=e202]
+                - cell "R 172,50" [ref=e203]
+              - row "TOTAL R 0,00 R 439 300,00 R 81 650,00 R 139 775,00 R 3 485 246,50 R 4 145 971,50" [ref=e204]:
+                - cell "TOTAL" [ref=e205]
+                - cell "R 0,00" [ref=e206]
+                - cell "R 439 300,00" [ref=e207]
+                - cell "R 81 650,00" [ref=e208]
+                - cell "R 139 775,00" [ref=e209]
+                - cell "R 3 485 246,50" [ref=e210]
+                - cell "R 4 145 971,50" [ref=e211]
+  - alert [ref=e8]

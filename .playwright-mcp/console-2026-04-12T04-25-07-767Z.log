@@ -1,0 +1,3 @@
+[       9ms] [ERROR] Failed to load resource: the server responded with a status of 405 (Method Not Allowed) @ http://localhost:3101/api/auth/logout:0
+[    1788ms] [ERROR] Failed to load resource: the server responded with a status of 429 (Too Many Requests) @ http://localhost:3101/api/auth/login:0
+[    3707ms] [ERROR] Failed to load resource: the server responded with a status of 429 (Too Many Requests) @ http://localhost:3101/api/auth/login:0

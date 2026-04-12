@@ -9,6 +9,7 @@ import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
+import { checkRateLimit } from '@/lib/rateLimit';
 import { createImpersonationToken } from '@/modules/admin/services/impersonationService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
@@ -20,6 +21,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   const companyId = req.query.id as string;
+
+  // Per-user impersonation limit: 5 per minute to prevent abuse
+  if (checkRateLimit(`impersonate:${req.user.id}`, { windowMs: 60000, maxRequests: 5 })) {
+    return res.status(429).json({
+      success: false,
+      error: { code: 'RATE_LIMITED', message: 'Too many impersonation attempts. Please wait a minute.' },
+    });
+  }
 
   try {
     const { token, expires_at } = await createImpersonationToken(req.user.id, companyId);

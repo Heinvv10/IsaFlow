@@ -1,0 +1,176 @@
+- generic [ref=e1]:
+  - generic [ref=e9]:
+    - generic [ref=e10]:
+      - generic [ref=e11]:
+        - img [ref=e12]
+        - generic [ref=e15]: Install IsaFlow for a faster, app-like experience
+      - generic [ref=e16]:
+        - button "Install" [ref=e17] [cursor=pointer]
+        - button "Dismiss" [ref=e18] [cursor=pointer]:
+          - img [ref=e19]
+    - banner [ref=e22]:
+      - img "ISAFlow" [ref=e23]
+      - generic [ref=e28]:
+        - button "Create new" [ref=e29] [cursor=pointer]:
+          - img [ref=e30]
+        - tooltip: Create new (N)
+      - button "Search Ctrl+K" [ref=e31] [cursor=pointer]:
+        - img [ref=e32]
+        - generic [ref=e35]: Search
+        - generic [ref=e36]: Ctrl+K
+      - button "Setup guide — 14 tasks remaining" [ref=e37] [cursor=pointer]:
+        - img [ref=e38]
+        - generic [ref=e41]: "14"
+      - button "Switch to sidebar navigation" [ref=e42] [cursor=pointer]:
+        - img [ref=e43]
+      - button "Switch to light mode" [ref=e45] [cursor=pointer]:
+        - img [ref=e46]
+      - generic [ref=e52]:
+        - img [ref=e53]
+        - generic [ref=e56]: Admin User
+      - button "Log out" [ref=e57] [cursor=pointer]:
+        - img [ref=e58]
+    - navigation [ref=e62]:
+      - generic [ref=e63]:
+        - link "Dashboard" [ref=e65] [cursor=pointer]:
+          - /url: /accounting
+        - button "Customers" [ref=e67] [cursor=pointer]:
+          - text: Customers
+          - img [ref=e68]
+        - button "Suppliers" [ref=e71] [cursor=pointer]:
+          - text: Suppliers
+          - img [ref=e72]
+        - button "Items" [ref=e75] [cursor=pointer]:
+          - text: Items
+          - img [ref=e76]
+        - button "Banking" [ref=e79] [cursor=pointer]:
+          - text: Banking
+          - img [ref=e80]
+        - button "Accounts" [ref=e83] [cursor=pointer]:
+          - text: Accounts
+          - img [ref=e84]
+        - button "VAT" [ref=e87] [cursor=pointer]:
+          - text: VAT
+          - img [ref=e88]
+        - button "Accountant's Area" [ref=e91] [cursor=pointer]:
+          - text: Accountant's Area
+          - img [ref=e92]
+        - button "Reports" [ref=e95] [cursor=pointer]:
+          - text: Reports
+          - img [ref=e96]
+        - button "SARS" [ref=e99] [cursor=pointer]:
+          - text: SARS
+          - img [ref=e100]
+        - button "Tools" [ref=e103] [cursor=pointer]:
+          - text: Tools
+          - img [ref=e104]
+        - button "Group" [ref=e107] [cursor=pointer]:
+          - text: Group
+          - img [ref=e108]
+        - link "Data Import" [ref=e111] [cursor=pointer]:
+          - /url: /accounting/migration
+        - button "Payroll" [ref=e113] [cursor=pointer]:
+          - text: Payroll
+          - img [ref=e114]
+    - main [ref=e116]:
+      - generic [ref=e117]:
+        - generic [ref=e119]:
+          - link [ref=e120] [cursor=pointer]:
+            - /url: /accounting/suppliers
+            - img [ref=e121]
+          - img [ref=e124]
+          - generic [ref=e129]:
+            - heading "New Supplier" [level=1] [ref=e130]
+            - paragraph [ref=e131]: Add a new supplier account
+        - generic [ref=e133]:
+          - generic [ref=e134]:
+            - heading "Basic Information" [level=2] [ref=e135]
+            - generic [ref=e136]:
+              - generic [ref=e137]:
+                - generic [ref=e138]: Supplier Name*
+                - textbox "e.g. ABC Supplies (Pty) Ltd" [active] [ref=e139]
+              - generic [ref=e140]:
+                - generic [ref=e141]: Company / Trading Name
+                - textbox "Trading name" [ref=e142]
+                - paragraph [ref=e143]: If different from supplier name
+              - generic [ref=e144]:
+                - generic [ref=e145]: Email Address
+                - textbox "accounts@supplier.com" [ref=e146]
+              - generic [ref=e147]:
+                - generic [ref=e148]: Phone Number
+                - textbox "+27 11 000 0000" [ref=e149]
+              - generic [ref=e150]:
+                - generic [ref=e151]: Contact Person
+                - textbox "Jane Doe" [ref=e152]
+              - generic [ref=e153]:
+                - generic [ref=e154]: Category
+                - combobox [ref=e155] [cursor=pointer]:
+                  - option "Select category..." [selected]
+                  - option "Materials"
+                  - option "Services"
+                  - option "Equipment"
+                  - option "Subcontractor"
+                  - option "Utilities"
+                  - option "Professional Services"
+                  - option "Logistics"
+                  - option "Other"
+              - generic [ref=e156]:
+                - generic [ref=e157]: VAT Number
+                - textbox "4123456789" [ref=e158]
+              - generic [ref=e159]:
+                - generic [ref=e160]: Registration Number
+                - textbox "2020/123456/07" [ref=e161]
+              - generic [ref=e162]:
+                - generic [ref=e163]: Payment Terms
+                - spinbutton [ref=e164]: "30"
+                - paragraph [ref=e165]: Days until payment is due
+              - generic [ref=e167]:
+                - generic [ref=e168]: Physical Address
+                - textbox "Street address, city, postal code" [ref=e169]
+          - generic [ref=e170]:
+            - heading "Opening Balance" [level=2] [ref=e171]
+            - generic [ref=e172]:
+              - generic [ref=e173]:
+                - generic [ref=e174]: Opening Balance
+                - spinbutton [ref=e175]
+              - generic [ref=e176]:
+                - generic [ref=e177]: Opening Balance as At
+                - textbox [ref=e178]: 2026-04-12
+            - generic [ref=e179]:
+              - switch [ref=e180] [cursor=pointer]
+              - generic [ref=e182]: Auto Allocate Payments to Oldest Invoice
+          - generic [ref=e183]:
+            - heading "Bank Details" [level=2] [ref=e184]
+            - paragraph [ref=e185]: Required for EFT payments and batch payment runs
+            - generic [ref=e186]:
+              - generic [ref=e187]:
+                - generic [ref=e188]: Bank Name
+                - textbox "e.g. First National Bank" [ref=e189]
+              - generic [ref=e190]:
+                - generic [ref=e191]: Account Type
+                - combobox [ref=e192] [cursor=pointer]:
+                  - option "Current / Cheque" [selected]
+                  - option "Savings"
+                  - option "Transmission"
+              - generic [ref=e193]:
+                - generic [ref=e194]: Account Number
+                - textbox "62012345678" [ref=e195]
+              - generic [ref=e196]:
+                - generic [ref=e197]: Branch Code
+                - textbox "250655" [ref=e198]
+          - generic [ref=e199]:
+            - heading "Additional" [level=2] [ref=e200]
+            - generic [ref=e201]:
+              - generic [ref=e202]:
+                - generic [ref=e203]: Notes
+                - textbox "Internal notes about this supplier..." [ref=e204]
+              - generic [ref=e205]:
+                - switch [checked] [ref=e206] [cursor=pointer]
+                - generic [ref=e208]: Active supplier
+          - generic [ref=e209]:
+            - link "Cancel" [ref=e210] [cursor=pointer]:
+              - /url: /accounting/suppliers
+            - button "Save Supplier" [ref=e211] [cursor=pointer]:
+              - img [ref=e212]
+              - text: Save Supplier
+  - alert [ref=e8]

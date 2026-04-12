@@ -1,0 +1,469 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e10]:
+    - banner [ref=e11]:
+      - img "ISAFlow" [ref=e12]
+      - button "ISAFlow Demo" [ref=e15] [cursor=pointer]:
+        - img [ref=e17]
+        - generic [ref=e21]: ISAFlow Demo
+        - img [ref=e22]
+      - generic [ref=e24]:
+        - button "Create new" [ref=e25] [cursor=pointer]:
+          - img [ref=e26]
+        - tooltip: Create new (N)
+      - button "Search Ctrl+K" [ref=e27] [cursor=pointer]:
+        - img [ref=e28]
+        - generic [ref=e31]: Search
+        - generic [ref=e32]: Ctrl+K
+      - button "Setup guide — 14 tasks remaining" [ref=e33] [cursor=pointer]:
+        - img [ref=e34]
+        - generic [ref=e37]: "14"
+      - button "Switch to sidebar navigation" [ref=e38] [cursor=pointer]:
+        - img [ref=e39]
+      - button "Switch to light mode" [ref=e41] [cursor=pointer]:
+        - img [ref=e42]
+      - generic [ref=e48]:
+        - img [ref=e49]
+        - generic [ref=e52]: Admin User
+      - button "Log out" [ref=e53] [cursor=pointer]:
+        - img [ref=e54]
+    - navigation [ref=e58]:
+      - generic [ref=e59]:
+        - link "Dashboard" [ref=e61] [cursor=pointer]:
+          - /url: /accounting
+        - button "Customers" [ref=e63] [cursor=pointer]:
+          - text: Customers
+          - img [ref=e64]
+        - button "Suppliers" [ref=e67] [cursor=pointer]:
+          - text: Suppliers
+          - img [ref=e68]
+        - button "Items" [ref=e71] [cursor=pointer]:
+          - text: Items
+          - img [ref=e72]
+        - button "Banking" [ref=e75] [cursor=pointer]:
+          - text: Banking
+          - img [ref=e76]
+        - button "Accounts" [ref=e79] [cursor=pointer]:
+          - text: Accounts
+          - img [ref=e80]
+        - button "VAT" [ref=e83] [cursor=pointer]:
+          - text: VAT
+          - img [ref=e84]
+        - button "Accountant's Area" [ref=e87] [cursor=pointer]:
+          - text: Accountant's Area
+          - img [ref=e88]
+        - button "Reports" [ref=e91] [cursor=pointer]:
+          - text: Reports
+          - img [ref=e92]
+        - button "SARS" [ref=e95] [cursor=pointer]:
+          - text: SARS
+          - img [ref=e96]
+        - button "Tools" [ref=e99] [cursor=pointer]:
+          - text: Tools
+          - img [ref=e100]
+        - button "Group" [ref=e103] [cursor=pointer]:
+          - text: Group
+          - img [ref=e104]
+        - link "Data Import" [ref=e107] [cursor=pointer]:
+          - /url: /accounting/migration
+        - button "Payroll" [ref=e109] [cursor=pointer]:
+          - text: Payroll
+          - img [ref=e110]
+    - main [ref=e112]:
+      - generic [ref=e113]:
+        - generic [ref=e114]:
+          - generic [ref=e116]:
+            - generic [ref=e117]:
+              - img [ref=e119]
+              - generic [ref=e121]:
+                - heading "ISAFlow Demo" [level=1] [ref=e122]
+                - paragraph [ref=e123]: General Ledger, Journal Entries & Financial Reports
+            - button "Edit Widgets" [ref=e125] [cursor=pointer]:
+              - img [ref=e126]
+              - text: Edit Widgets
+          - navigation "Accounting tabs" [ref=e130]:
+            - button "Overview" [ref=e131] [cursor=pointer]:
+              - img [ref=e132]
+              - text: Overview
+            - button "Chart of Accounts" [ref=e134] [cursor=pointer]:
+              - img [ref=e135]
+              - text: Chart of Accounts
+            - button "Journal Entries" [ref=e138] [cursor=pointer]:
+              - img [ref=e139]
+              - text: Journal Entries
+            - button "Fiscal Periods" [ref=e142] [cursor=pointer]:
+              - img [ref=e143]
+              - text: Fiscal Periods
+            - button "Reports" [ref=e145] [cursor=pointer]:
+              - img [ref=e146]
+              - text: Reports
+        - generic [ref=e149]:
+          - generic [ref=e151]:
+            - generic [ref=e154]:
+              - generic [ref=e155]: Quick Actions
+              - generic [ref=e157]:
+                - link "New Invoice" [ref=e158] [cursor=pointer]:
+                  - /url: /accounting/customer-invoices/new
+                  - img [ref=e159]
+                  - generic [ref=e162]: New Invoice
+                - link "New Bill" [ref=e163] [cursor=pointer]:
+                  - /url: /accounting/supplier-invoices/new
+                  - img [ref=e164]
+                  - generic [ref=e167]: New Bill
+                - link "Record Payment" [ref=e168] [cursor=pointer]:
+                  - /url: /accounting/supplier-payments/new
+                  - img [ref=e169]
+                  - generic [ref=e171]: Record Payment
+                - link "New Journal" [ref=e172] [cursor=pointer]:
+                  - /url: /accounting/journal-entries/new
+                  - img [ref=e173]
+                  - generic [ref=e176]: New Journal
+                - link "Import Statement" [ref=e177] [cursor=pointer]:
+                  - /url: /accounting/bank-transactions
+                  - img [ref=e178]
+                  - generic [ref=e181]: Import Statement
+                - link "New Contact" [ref=e182] [cursor=pointer]:
+                  - /url: /accounting/contacts/new
+                  - img [ref=e183]
+                  - generic [ref=e188]: New Contact
+            - generic [ref=e191]:
+              - generic [ref=e193]:
+                - generic [ref=e194]:
+                  - img [ref=e195]
+                  - generic [ref=e197]: Bank Accounts
+                - generic [ref=e198]: R 0,00
+              - generic [ref=e201]:
+                - generic [ref=e202]:
+                  - paragraph
+                  - paragraph [ref=e203]: • •••• ----
+                - generic [ref=e204]:
+                  - paragraph [ref=e205]: R 0,00
+                  - paragraph [ref=e206]: Reconciled
+            - generic [ref=e209]:
+              - generic [ref=e211]:
+                - img [ref=e212]
+                - generic [ref=e215]: Invoices Owed
+              - generic [ref=e217]:
+                - generic [ref=e218]:
+                  - paragraph [ref=e219]: R 18 326 975,95
+                  - paragraph [ref=e220]: Total awaiting payment
+                - generic [ref=e221]:
+                  - generic [ref=e222]:
+                    - generic [ref=e223]:
+                      - img [ref=e224]
+                      - text: Current
+                    - generic [ref=e227]: R 18 326 975,95
+                  - generic [ref=e228]:
+                    - generic [ref=e229]:
+                      - img [ref=e230]
+                      - text: Overdue
+                    - generic [ref=e232]: R 0,00
+                - link "View all invoices" [ref=e233] [cursor=pointer]:
+                  - /url: /accounting/customer-invoices
+                  - text: View all invoices
+                  - img [ref=e234]
+            - generic [ref=e238]:
+              - generic [ref=e240]:
+                - img [ref=e241]
+                - generic [ref=e244]: Bills to Pay
+              - generic [ref=e246]:
+                - generic [ref=e247]:
+                  - paragraph [ref=e248]: R 5 029 473,24
+                  - paragraph [ref=e249]: Total payables outstanding
+                - generic [ref=e250]:
+                  - generic [ref=e251]:
+                    - generic [ref=e252]:
+                      - img [ref=e253]
+                      - text: Current
+                    - generic [ref=e256]: R 5 029 473,24
+                  - generic [ref=e257]:
+                    - generic [ref=e258]:
+                      - img [ref=e259]
+                      - text: Overdue
+                    - generic [ref=e261]: R 0,00
+                - link "View all bills" [ref=e262] [cursor=pointer]:
+                  - /url: /accounting/supplier-invoices
+                  - text: View all bills
+                  - img [ref=e263]
+            - generic [ref=e267]:
+              - generic [ref=e269]:
+                - generic [ref=e270]:
+                  - img [ref=e271]
+                  - generic [ref=e273]: P&L Snapshot
+                - generic [ref=e274]: April 2026
+              - generic [ref=e276]:
+                - generic [ref=e277]:
+                  - generic [ref=e278]:
+                    - paragraph [ref=e279]: Net Profit
+                    - paragraph [ref=e280]: R -1.5M
+                  - img [ref=e282]
+                - generic [ref=e285]:
+                  - generic [ref=e286]:
+                    - generic [ref=e287]: Revenue
+                    - generic [ref=e288]: R 18.8K
+                  - generic [ref=e291]:
+                    - generic [ref=e292]: Expenses
+                    - generic [ref=e293]: R 1.6M
+                - paragraph [ref=e296]:
+                  - text: "Margin:"
+                  - generic [ref=e297]: "-8189.5%"
+            - generic [ref=e300]:
+              - generic [ref=e302]:
+                - img [ref=e303]
+                - generic [ref=e306]: Recent Activity
+              - generic [ref=e308]:
+                - generic [ref=e309]:
+                  - img [ref=e311]
+                  - generic [ref=e314]:
+                    - paragraph [ref=e315]: Receipt from DFA (Dark Fibre Africa)
+                    - generic [ref=e316]:
+                      - generic [ref=e317]: 03 Jan
+                      - generic [ref=e318]: posted
+                  - generic [ref=e319]: R 155 224,47
+                - generic [ref=e320]:
+                  - img [ref=e322]
+                  - generic [ref=e325]:
+                    - paragraph [ref=e326]: Receipt from Frogfoot Networks
+                    - generic [ref=e327]:
+                      - generic [ref=e328]: 04 Jan
+                      - generic [ref=e329]: posted
+                  - generic [ref=e330]: R 124 940,12
+                - generic [ref=e331]:
+                  - img [ref=e333]
+                  - generic [ref=e336]:
+                    - paragraph [ref=e337]: Payment to Builders Warehouse
+                    - generic [ref=e338]:
+                      - generic [ref=e339]: 05 Jan
+                      - generic [ref=e340]: posted
+                  - generic [ref=e341]: R 12 562,42
+                - generic [ref=e342]:
+                  - img [ref=e344]
+                  - generic [ref=e347]:
+                    - paragraph [ref=e348]: Receipt from LinkAfrica Telecoms
+                    - generic [ref=e349]:
+                      - generic [ref=e350]: 06 Jan
+                      - generic [ref=e351]: posted
+                  - generic [ref=e352]: R 76 201,02
+                - generic [ref=e353]:
+                  - img [ref=e355]
+                  - generic [ref=e358]:
+                    - paragraph [ref=e359]: Receipt from VelocityFibre (Pty) Ltd
+                    - generic [ref=e360]:
+                      - generic [ref=e361]: 09 Jan
+                      - generic [ref=e362]: posted
+                  - generic [ref=e363]: R 91 355,79
+          - generic [ref=e364]:
+            - generic [ref=e365]:
+              - link "Bank Transactions View and categorize transactions" [ref=e366] [cursor=pointer]:
+                - /url: /accounting/bank-transactions
+                - img [ref=e368]
+                - generic [ref=e370]:
+                  - paragraph [ref=e371]: Bank Transactions
+                  - paragraph [ref=e372]: View and categorize transactions
+                - img [ref=e373]
+              - link "Customer Invoices View and manage tax invoices" [ref=e375] [cursor=pointer]:
+                - /url: /accounting/customer-invoices
+                - img [ref=e377]
+                - generic [ref=e380]:
+                  - paragraph [ref=e381]: Customer Invoices
+                  - paragraph [ref=e382]: View and manage tax invoices
+                - img [ref=e383]
+              - link "Company Settings Manage company configuration" [ref=e385] [cursor=pointer]:
+                - /url: /accounting/company-settings
+                - img [ref=e387]
+                - generic [ref=e389]:
+                  - paragraph [ref=e390]: Company Settings
+                  - paragraph [ref=e391]: Manage company configuration
+                - img [ref=e392]
+              - link "New Invoice Create a customer invoice" [ref=e394] [cursor=pointer]:
+                - /url: /accounting/customer-invoices/new
+                - img [ref=e396]
+                - generic [ref=e397]:
+                  - paragraph [ref=e398]: New Invoice
+                  - paragraph [ref=e399]: Create a customer invoice
+                - img [ref=e400]
+              - link "Trial Balance View trial balance report" [ref=e402] [cursor=pointer]:
+                - /url: /accounting/trial-balance
+                - img [ref=e404]
+                - generic [ref=e406]:
+                  - paragraph [ref=e407]: Trial Balance
+                  - paragraph [ref=e408]: View trial balance report
+                - img [ref=e409]
+              - link "Customers Manage customer accounts" [ref=e411] [cursor=pointer]:
+                - /url: /accounting/customers
+                - img [ref=e413]
+                - generic [ref=e418]:
+                  - paragraph [ref=e419]: Customers
+                  - paragraph [ref=e420]: Manage customer accounts
+                - img [ref=e421]
+            - generic [ref=e423]:
+              - generic [ref=e424]:
+                - generic [ref=e425]:
+                  - generic [ref=e426]: Revenue
+                  - img [ref=e427]
+                - paragraph [ref=e430]: R 16.5K
+                - paragraph [ref=e431]: "-12.2% vs prior period"
+              - generic [ref=e432]:
+                - generic [ref=e433]:
+                  - generic [ref=e434]: Gross Profit
+                  - img [ref=e435]
+                - paragraph [ref=e437]: R -1.3M
+                - paragraph [ref=e438]: "Margin: -8137.8%"
+              - generic [ref=e439]:
+                - generic [ref=e440]:
+                  - generic [ref=e441]: Cash Position
+                  - img [ref=e442]
+                - paragraph [ref=e444]: R 35.2M
+                - paragraph [ref=e445]: +R 24.2M change
+              - generic [ref=e446]:
+                - generic [ref=e447]:
+                  - generic [ref=e448]: Outstanding AR
+                  - img [ref=e449]
+                - paragraph [ref=e451]: R 12.9M
+                - paragraph [ref=e452]: R 2.3M overdue
+            - generic [ref=e453]:
+              - generic [ref=e454]:
+                - heading "Revenue vs Expenses" [level=3] [ref=e455]
+                - generic [ref=e457]:
+                  - application [ref=e458]:
+                    - generic [ref=e477]:
+                      - generic [ref=e478]:
+                        - generic [ref=e480]: Nov 25
+                        - generic [ref=e482]: Dec 25
+                        - generic [ref=e484]: Jan 26
+                        - generic [ref=e486]: Feb 26
+                        - generic [ref=e488]: Mar 26
+                        - generic [ref=e490]: Apr 26
+                      - generic [ref=e491]:
+                        - generic [ref=e493]: R 0,00
+                        - generic [ref=e495]: R 30.0K
+                        - generic [ref=e497]: R 60.0K
+                        - generic [ref=e499]: R 90.0K
+                        - generic [ref=e501]: R120.0K
+                  - list [ref=e503]:
+                    - listitem [ref=e504]:
+                      - img "Expenses legend icon" [ref=e505]
+                      - text: Expenses
+                    - listitem [ref=e507]:
+                      - img "Revenue legend icon" [ref=e508]
+                      - text: Revenue
+              - generic [ref=e510]:
+                - heading "Cash Flow" [level=3] [ref=e511]
+                - generic [ref=e513]:
+                  - application [ref=e514]:
+                    - generic [ref=e569]:
+                      - generic [ref=e570]:
+                        - generic [ref=e572]: Nov 25
+                        - generic [ref=e574]: Dec 25
+                        - generic [ref=e576]: Jan 26
+                        - generic [ref=e578]: Feb 26
+                        - generic [ref=e580]: Mar 26
+                        - generic [ref=e582]: Apr 26
+                      - generic [ref=e583]:
+                        - generic [ref=e585]: R 0,00
+                        - generic [ref=e587]: R350.0K
+                        - generic [ref=e589]: R700.0K
+                        - generic [ref=e591]: R 1.1M
+                        - generic [ref=e593]: R 1.4M
+                  - list [ref=e595]:
+                    - listitem [ref=e596]:
+                      - img "Inflows legend icon" [ref=e597]
+                      - text: Inflows
+                    - listitem [ref=e599]:
+                      - img "Outflows legend icon" [ref=e600]
+                      - text: Outflows
+            - generic [ref=e602]:
+              - generic [ref=e603]:
+                - heading "Top 5 Customers by Revenue" [level=3] [ref=e605]
+                - table [ref=e606]:
+                  - rowgroup [ref=e607]:
+                    - row "Customer Revenue Invoices" [ref=e608]:
+                      - columnheader "Customer" [ref=e609]
+                      - columnheader "Revenue" [ref=e610]
+                      - columnheader "Invoices" [ref=e611]
+                  - rowgroup [ref=e612]:
+                    - row "VelocityFibre (Pty) Ltd R 5 344 676,30 63" [ref=e613]:
+                      - cell "VelocityFibre (Pty) Ltd" [ref=e614]
+                      - cell "R 5 344 676,30" [ref=e615]
+                      - cell "63" [ref=e616]
+                    - row "Frogfoot Networks R 4 541 895,74 63" [ref=e617]:
+                      - cell "Frogfoot Networks" [ref=e618]
+                      - cell "R 4 541 895,74" [ref=e619]
+                      - cell "63" [ref=e620]
+                    - row "DFA (Dark Fibre Africa) R 4 420 980,65 66" [ref=e621]:
+                      - cell "DFA (Dark Fibre Africa)" [ref=e622]
+                      - cell "R 4 420 980,65" [ref=e623]
+                      - cell "66" [ref=e624]
+                    - row "Openserve (SOC) R 4 298 796,69 62" [ref=e625]:
+                      - cell "Openserve (SOC)" [ref=e626]
+                      - cell "R 4 298 796,69" [ref=e627]
+                      - cell "62" [ref=e628]
+                    - row "LinkAfrica Telecoms R 3 898 478,35 65" [ref=e629]:
+                      - cell "LinkAfrica Telecoms" [ref=e630]
+                      - cell "R 3 898 478,35" [ref=e631]
+                      - cell "65" [ref=e632]
+              - generic [ref=e633]:
+                - heading "Top 5 Expense Categories" [level=3] [ref=e635]
+                - table [ref=e636]:
+                  - rowgroup [ref=e637]:
+                    - row "Account Total %" [ref=e638]:
+                      - columnheader "Account" [ref=e639]
+                      - columnheader "Total" [ref=e640]
+                      - columnheader "%" [ref=e641]
+                  - rowgroup [ref=e642]:
+                    - row "Labour Costs R 3 888 623,28 89.0%" [ref=e643]:
+                      - cell "Labour Costs" [ref=e644]
+                      - cell "R 3 888 623,28" [ref=e645]
+                      - cell "89.0%" [ref=e646]
+                    - row "Insurance Expense R 229 495,65 5.3%" [ref=e647]:
+                      - cell "Insurance Expense" [ref=e648]
+                      - cell "R 229 495,65" [ref=e649]
+                      - cell "5.3%" [ref=e650]
+                    - row "Administrative Expenses R 178 297,23 4.1%" [ref=e651]:
+                      - cell "Administrative Expenses" [ref=e652]
+                      - cell "R 178 297,23" [ref=e653]
+                      - cell "4.1%" [ref=e654]
+                    - row "Transport & Fuel R 40 137,14 0.9%" [ref=e655]:
+                      - cell "Transport & Fuel" [ref=e656]
+                      - cell "R 40 137,14" [ref=e657]
+                      - cell "0.9%" [ref=e658]
+                    - row "Bank Charges R 34 035,06 0.8%" [ref=e659]:
+                      - cell "Bank Charges" [ref=e660]
+                      - cell "R 34 035,06" [ref=e661]
+                      - cell "0.8%" [ref=e662]
+            - generic [ref=e663]:
+              - generic [ref=e664]:
+                - heading "AR Aging" [level=3] [ref=e665]
+                - generic [ref=e666]:
+                  - application [ref=e669]
+                  - generic [ref=e670]:
+                    - generic [ref=e671]:
+                      - generic [ref=e674]: Current
+                      - generic [ref=e675]: R 10 555 966,34
+                    - generic [ref=e676]:
+                      - generic [ref=e679]: 30 Days
+                      - generic [ref=e680]: R 693 837,55
+                    - generic [ref=e681]:
+                      - generic [ref=e684]: 60 Days
+                      - generic [ref=e685]: R 189 505,57
+                    - generic [ref=e686]:
+                      - generic [ref=e689]: 90+ Days
+                      - generic [ref=e690]: R 1 457 243,08
+              - generic [ref=e691]:
+                - heading "AP Aging" [level=3] [ref=e692]
+                - generic [ref=e693]:
+                  - application [ref=e696]
+                  - generic [ref=e697]:
+                    - generic [ref=e698]:
+                      - generic [ref=e701]: Current
+                      - generic [ref=e702]: R 2 397 191,68
+                    - generic [ref=e703]:
+                      - generic [ref=e706]: 30 Days
+                      - generic [ref=e707]: R 215 072,62
+                    - generic [ref=e708]:
+                      - generic [ref=e711]: 60 Days
+                      - generic [ref=e712]: R 296 768,42
+                    - generic [ref=e713]:
+                      - generic [ref=e716]: 90+ Days
+                      - generic [ref=e717]: R 249 717,76
+  - alert [ref=e8]: /accounting
+  - generic [ref=e718]: R 350.0K

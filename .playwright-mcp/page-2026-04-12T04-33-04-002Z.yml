@@ -1,0 +1,114 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - generic [ref=e7]:
+        - img [ref=e8]
+        - generic [ref=e11]: Install IsaFlow for a faster, app-like experience
+      - generic [ref=e12]:
+        - button "Install" [ref=e13] [cursor=pointer]
+        - button "Dismiss" [ref=e14] [cursor=pointer]:
+          - img [ref=e15]
+    - banner [ref=e18]:
+      - img "ISAFlow" [ref=e19]
+      - button "ISAFlow Demo" [ref=e22] [cursor=pointer]:
+        - img [ref=e24]
+        - generic [ref=e28]: ISAFlow Demo
+        - img [ref=e29]
+      - generic [ref=e31]:
+        - button "Create new" [ref=e32] [cursor=pointer]:
+          - img [ref=e33]
+        - tooltip: Create new (N)
+      - button "Search Ctrl+K" [ref=e34] [cursor=pointer]:
+        - img [ref=e35]
+        - generic [ref=e38]: Search
+        - generic [ref=e39]: Ctrl+K
+      - button "Setup guide — 14 tasks remaining" [ref=e40] [cursor=pointer]:
+        - img [ref=e41]
+        - generic [ref=e44]: "14"
+      - button "Switch to sidebar navigation" [ref=e45] [cursor=pointer]:
+        - img [ref=e46]
+      - button "Switch to light mode" [ref=e48] [cursor=pointer]:
+        - img [ref=e49]
+      - generic [ref=e55]:
+        - img [ref=e56]
+        - generic [ref=e59]: Hein van Vuuren
+      - button "Log out" [ref=e60] [cursor=pointer]:
+        - img [ref=e61]
+    - navigation [ref=e65]:
+      - generic [ref=e66]:
+        - link "Dashboard" [ref=e68] [cursor=pointer]:
+          - /url: /accounting
+        - button "Customers" [ref=e70] [cursor=pointer]:
+          - text: Customers
+          - img [ref=e71]
+        - button "Suppliers" [ref=e74] [cursor=pointer]:
+          - text: Suppliers
+          - img [ref=e75]
+        - button "Items" [ref=e78] [cursor=pointer]:
+          - text: Items
+          - img [ref=e79]
+        - button "Banking" [ref=e82] [cursor=pointer]:
+          - text: Banking
+          - img [ref=e83]
+        - button "Accounts" [ref=e86] [cursor=pointer]:
+          - text: Accounts
+          - img [ref=e87]
+        - button "VAT" [ref=e90] [cursor=pointer]:
+          - text: VAT
+          - img [ref=e91]
+        - button "Accountant's Area" [ref=e94] [cursor=pointer]:
+          - text: Accountant's Area
+          - img [ref=e95]
+        - button "Reports" [ref=e98] [cursor=pointer]:
+          - text: Reports
+          - img [ref=e99]
+        - button "SARS" [ref=e102] [cursor=pointer]:
+          - text: SARS
+          - img [ref=e103]
+        - button "Tools" [ref=e106] [cursor=pointer]:
+          - text: Tools
+          - img [ref=e107]
+        - button "Group" [ref=e110] [cursor=pointer]:
+          - text: Group
+          - img [ref=e111]
+        - link "Data Import" [ref=e114] [cursor=pointer]:
+          - /url: /accounting/migration
+        - button "Payroll" [ref=e116] [cursor=pointer]:
+          - text: Payroll
+          - img [ref=e117]
+    - main [ref=e119]:
+      - generic [ref=e120]:
+        - generic [ref=e121]:
+          - generic [ref=e122]:
+            - img [ref=e123]
+            - heading "Time Tracking" [level=1] [ref=e126]
+          - button "New Entry" [ref=e127] [cursor=pointer]:
+            - img [ref=e128]
+            - text: New Entry
+        - generic [ref=e129]:
+          - button "My Time" [ref=e130] [cursor=pointer]
+          - button "All Entries" [ref=e131] [cursor=pointer]
+          - button "Summary" [ref=e132] [cursor=pointer]
+        - button "Filters" [ref=e134] [cursor=pointer]:
+          - img [ref=e135]
+          - text: Filters
+          - img [ref=e137]
+        - table [ref=e141]:
+          - rowgroup [ref=e142]:
+            - row "Date Project Task Customer Hours Rate Amount Billable Status" [ref=e143]:
+              - columnheader [ref=e144]:
+                - checkbox [ref=e145]
+              - columnheader "Date" [ref=e146]
+              - columnheader "Project" [ref=e147]
+              - columnheader "Task" [ref=e148]
+              - columnheader "Customer" [ref=e149]
+              - columnheader "Hours" [ref=e150]
+              - columnheader "Rate" [ref=e151]
+              - columnheader "Amount" [ref=e152]
+              - columnheader "Billable" [ref=e153]
+              - columnheader "Status" [ref=e154]
+              - columnheader [ref=e155]
+          - rowgroup [ref=e156]:
+            - row "No time entries found. Click \"New Entry\" to get started." [ref=e157]:
+              - cell "No time entries found. Click \"New Entry\" to get started." [ref=e158]
+  - alert [ref=e159]

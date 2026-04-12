@@ -1,0 +1,18 @@
+[      43ms] [ERROR] Loading the script 'https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516' violates the following Content Security Policy directive: "script-src 'self'". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked. @ https://admin.isaflow.co.za/login?returnTo=%2F:0
+[      78ms] [WARNING] <meta name="apple-mobile-web-app-capable" content="yes"> is deprecated. Please include <meta name="mobile-web-app-capable" content="yes"> @ https://admin.isaflow.co.za/login?returnTo=%2F:0
+[      94ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://admin.isaflow.co.za/api/auth/me:0
+[    3144ms] [WARNING] The resource https://admin.isaflow.co.za/_next/image?url=%2Flogo.png&w=256&q=75 was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally. @ https://admin.isaflow.co.za/login?returnTo=%2F:0
+[   51830ms] [ERROR] Access to fetch at 'https://app.isaflow.co.za/api/auth/me' from origin 'https://admin.isaflow.co.za' has been blocked by CORS policy: The value of the 'Access-Control-Allow-Credentials' header in the response is '' which must be 'true' when the request's credentials mode is 'include'. @ https://admin.isaflow.co.za/login?returnTo=%2F:0
+[   51830ms] [ERROR] Failed to load resource: net::ERR_FAILED @ https://app.isaflow.co.za/api/auth/me:0
+[   53250ms] [ERROR] Loading the script 'https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516' violates the following Content Security Policy directive: "script-src 'self'". Note that 'script-src-elem' was not explicitly set, so 'script-src' is used as a fallback. The action has been blocked. @ https://app.isaflow.co.za/accounting:0
+[   53270ms] [WARNING] <meta name="apple-mobile-web-app-capable" content="yes"> is deprecated. Please include <meta name="mobile-web-app-capable" content="yes"> @ https://app.isaflow.co.za/accounting:0
+[   53272ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ https://app.isaflow.co.za/accounting:0
+[   53438ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://app.isaflow.co.za/api/auth/me:0
+[   53488ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://app.isaflow.co.za/_next/data/P_BCn7vf1SMPVBwFUJIKo/accounting/contacts/new.json:0
+[   53752ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://app.isaflow.co.za/api/accounting/widget-layout:0
+[   53933ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://app.isaflow.co.za/api/accounting/kpi-dashboard:0
+[   53945ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://app.isaflow.co.za/api/auth/preferences:0
+[   53945ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://app.isaflow.co.za/api/auth/preferences:0
+[   53946ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://app.isaflow.co.za/api/accounting/page-visits?limit=6:0
+[   53948ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://app.isaflow.co.za/api/accounting/setup-guide:0
+[   53952ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://app.isaflow.co.za/api/accounting/bank-accounts:0

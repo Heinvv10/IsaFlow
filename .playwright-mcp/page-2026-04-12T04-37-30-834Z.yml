@@ -1,0 +1,147 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e9]:
+    - generic [ref=e10]:
+      - generic [ref=e11]:
+        - img [ref=e12]
+        - generic [ref=e15]: Install IsaFlow for a faster, app-like experience
+      - generic [ref=e16]:
+        - button "Install" [ref=e17] [cursor=pointer]
+        - button "Dismiss" [ref=e18] [cursor=pointer]:
+          - img [ref=e19]
+    - banner [ref=e22]:
+      - img "ISAFlow" [ref=e23]
+      - button "Search Ctrl+K" [ref=e24] [cursor=pointer]:
+        - img [ref=e25]
+        - generic [ref=e28]: Search
+        - generic [ref=e29]: Ctrl+K
+      - button "Switch to sidebar navigation" [ref=e30] [cursor=pointer]:
+        - img [ref=e31]
+      - button "Switch to light mode" [ref=e33] [cursor=pointer]:
+        - img [ref=e34]
+      - generic [ref=e40]:
+        - img [ref=e41]
+        - generic [ref=e44]: Admin User
+      - button "Log out" [ref=e45] [cursor=pointer]:
+        - img [ref=e46]
+    - main [ref=e49]:
+      - generic [ref=e50]:
+        - complementary [ref=e51]:
+          - paragraph [ref=e53]: Admin Console
+          - navigation [ref=e54]:
+            - link "Dashboard" [ref=e55] [cursor=pointer]:
+              - /url: /
+              - img [ref=e56]
+              - generic [ref=e61]: Dashboard
+            - link "Health" [ref=e62] [cursor=pointer]:
+              - /url: /health
+              - img [ref=e63]
+              - generic [ref=e65]: Health
+            - link "Companies" [ref=e66] [cursor=pointer]:
+              - /url: /companies
+              - img [ref=e67]
+              - generic [ref=e71]: Companies
+            - link "Users" [ref=e72] [cursor=pointer]:
+              - /url: /users
+              - img [ref=e73]
+              - generic [ref=e78]: Users
+            - link "Billing" [ref=e80] [cursor=pointer]:
+              - /url: /billing
+              - img [ref=e81]
+              - generic [ref=e83]: Billing
+              - img [ref=e84]
+            - link "Tools" [ref=e87] [cursor=pointer]:
+              - /url: /tools
+              - img [ref=e88]
+              - generic [ref=e90]: Tools
+              - img [ref=e91]
+            - link "Trials" [ref=e93] [cursor=pointer]:
+              - /url: /trials
+              - img [ref=e94]
+              - generic [ref=e97]: Trials
+            - link "Features" [ref=e98] [cursor=pointer]:
+              - /url: /features
+              - img [ref=e99]
+              - generic [ref=e102]: Features
+            - link "Job Queue" [ref=e103] [cursor=pointer]:
+              - /url: /job-queue
+              - img [ref=e104]
+              - generic [ref=e106]: Job Queue
+            - link "Audit Trail" [ref=e107] [cursor=pointer]:
+              - /url: /audit
+              - img [ref=e108]
+              - generic [ref=e111]: Audit Trail
+            - link "Analytics" [ref=e112] [cursor=pointer]:
+              - /url: /analytics
+              - img [ref=e113]
+              - generic [ref=e114]: Analytics
+            - link "Components" [ref=e115] [cursor=pointer]:
+              - /url: /components
+              - img [ref=e116]
+              - generic [ref=e122]: Components
+            - link "Settings" [ref=e123] [cursor=pointer]:
+              - /url: /settings
+              - img [ref=e124]
+              - generic [ref=e127]: Settings
+        - main [ref=e128]:
+          - heading "Companies" [level=1] [ref=e129]
+          - generic [ref=e130]:
+            - generic [ref=e131]:
+              - img [ref=e132]
+              - textbox "Search companies..." [ref=e135]
+            - combobox [ref=e136]:
+              - option "All statuses" [selected]
+              - option "Trial"
+              - option "Active"
+              - option "Suspended"
+              - option "Cancelled"
+            - generic [ref=e137]: 0 total
+            - button "Add Company" [ref=e138] [cursor=pointer]:
+              - img [ref=e139]
+              - text: Add Company
+          - generic [ref=e140]:
+            - table [ref=e142]:
+              - rowgroup [ref=e143]:
+                - row "Select all Name Plan Status Users MRR Created Last Active Actions" [ref=e144]:
+                  - columnheader "Select all" [ref=e145]:
+                    - checkbox "Select all" [ref=e146]
+                  - columnheader "Name" [ref=e147] [cursor=pointer]:
+                    - generic [ref=e148]:
+                      - text: Name
+                      - img [ref=e149]
+                  - columnheader "Plan" [ref=e152] [cursor=pointer]:
+                    - generic [ref=e153]:
+                      - text: Plan
+                      - img [ref=e154]
+                  - columnheader "Status" [ref=e157] [cursor=pointer]:
+                    - generic [ref=e158]:
+                      - text: Status
+                      - img [ref=e159]
+                  - columnheader "Users" [ref=e162] [cursor=pointer]:
+                    - generic [ref=e163]:
+                      - text: Users
+                      - img [ref=e164]
+                  - columnheader "MRR" [ref=e167] [cursor=pointer]:
+                    - generic [ref=e168]:
+                      - text: MRR
+                      - img [ref=e169]
+                  - columnheader "Created" [ref=e172] [cursor=pointer]:
+                    - generic [ref=e173]:
+                      - text: Created
+                      - img [ref=e174]
+                  - columnheader "Last Active" [ref=e177] [cursor=pointer]:
+                    - generic [ref=e178]:
+                      - text: Last Active
+                      - img [ref=e179]
+                  - columnheader "Actions" [ref=e182]
+              - rowgroup [ref=e183]:
+                - row [ref=e184]:
+                  - cell [ref=e185]:
+                    - img [ref=e186]
+            - generic [ref=e188]:
+              - generic [ref=e189]: Page 1 of 1
+              - generic [ref=e190]:
+                - button [disabled] [ref=e191]:
+                  - img [ref=e192]
+                - button [disabled] [ref=e194]:
+                  - img [ref=e195]
+  - alert [ref=e8]

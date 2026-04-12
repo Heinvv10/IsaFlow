@@ -1,0 +1,3 @@
+[      29ms] [WARNING] <meta name="apple-mobile-web-app-capable" content="yes"> is deprecated. Please include <meta name="mobile-web-app-capable" content="yes"> @ http://localhost:3101/accounting:0
+[      32ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ http://localhost:3101/accounting:0
+[    1314ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3101/_next/data/zc8hmZcqbxCUPBVDtPEX6/accounting/contacts/new.json:0
