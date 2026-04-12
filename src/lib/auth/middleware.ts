@@ -6,17 +6,19 @@
  * 1. Combined session + user query into single JOIN (2 queries → 1 query)
  * 2. Added composite index recommendation for user_sessions
  * 3. Removed redundant user.isActive check after DB validation
+ *
+ * Session/token helpers: ./sessionHelpers.ts
  */
 
 import type { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
-import { sql } from '@/lib/neon';
 import { verifyToken } from './jwt';
 import type { AuthUser, AuthRole } from './types';
 import { ROLE_HIERARCHY } from './types';
 import { log } from '@/lib/logger';
+import { extractToken, getUserAndValidateSession, AUTH_COOKIE_NAME } from './sessionHelpers';
 
-// Cookie name for JWT token
-export const AUTH_COOKIE_NAME = 'ff_auth_token';
+// Re-export for backward compatibility (callers that import AUTH_COOKIE_NAME from middleware)
+export { AUTH_COOKIE_NAME };
 
 // Extend NextApiRequest to include user
 export interface AuthenticatedNextApiRequest extends NextApiRequest {
@@ -24,94 +26,21 @@ export interface AuthenticatedNextApiRequest extends NextApiRequest {
   sessionId: string;
 }
 
-// Accept handlers that declare a more specific req type (e.g. AuthenticatedNextApiRequest,
-// CompanyApiRequest) — safe because withAuth enriches the request before calling the handler.
+// Accept handlers that declare a more specific req type
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AuthenticatedHandler = (req: any, res: NextApiResponse<any>) => any;
 
-/**
- * Extract token from request (cookie or Authorization header)
- */
-function extractToken(req: NextApiRequest): string | null {
-  // First try cookie
-  const cookieToken = req.cookies[AUTH_COOKIE_NAME];
-  if (cookieToken) return cookieToken;
-
-  // Then try Authorization header
-  const authHeader = req.headers.authorization;
-  if (authHeader?.startsWith('Bearer ')) {
-    return authHeader.substring(7);
-  }
-
-  return null;
-}
-
-/**
- * Get user and validate session in a SINGLE query (optimized)
- * // 🟢 WORKING: Combines session validation + user lookup
- * Performance: ~100ms vs previous ~600ms (2 sequential queries)
- */
-export async function getUserAndValidateSession(
-  userId: string,
-  sessionId: string,
-  tokenHash: string
-): Promise<AuthUser | null> {
-  // Single JOIN query instead of 2 sequential queries
-  // REQUIRES INDEX: CREATE INDEX idx_user_sessions_composite ON user_sessions(id, token_hash, expires_at);
-  const result = await sql`
-    SELECT
-      u.id,
-      u.email,
-      u.first_name,
-      u.last_name,
-      u.role,
-      u.permissions,
-      u.is_active,
-      u.profile_picture,
-      u.department,
-      u.must_change_password,
-      s.id as session_id
-    FROM users u
-    INNER JOIN user_sessions s ON s.user_id = u.id
-    WHERE u.id = ${userId}
-      AND s.id = ${sessionId}
-      AND s.token_hash = ${tokenHash}
-      AND s.expires_at > NOW()
-      AND u.is_active = true
-    LIMIT 1
-  `;
-
-  const row = result[0];
-  if (!row) return null;
-
-  const firstName = (row.first_name as string) || '';
-  const lastName = (row.last_name as string) || '';
-
-  return {
-    id: row.id as string,
-    userId: row.id as string, // Alias for backwards compatibility
-    email: row.email as string,
-    firstName,
-    lastName,
-    name: `${firstName} ${lastName}`.trim() || (row.email as string),
-    role: row.role as AuthRole,
-    permissions: (row.permissions as string[]) || [],
-    isActive: row.is_active as boolean,
-    profilePicture: row.profile_picture as string | undefined,
-    department: row.department as string | undefined,
-    mustChangePassword: (row.must_change_password as boolean) || false,
-  };
-}
+// Re-export helpers so existing callers of middleware.ts still find them
+export { extractToken, getUserAndValidateSession } from './sessionHelpers';
 
 /**
  * Main authentication middleware
  * Verifies JWT token and attaches user to request
- * // 🟢 WORKING: Optimized single-query auth
+ * // WORKING: Optimized single-query auth
  */
 export function withAuth(handler: AuthenticatedHandler): NextApiHandler {
   return async (req: NextApiRequest, res: NextApiResponse) => {
     try {
-      // Extract token
       const token = extractToken(req);
       if (!token) {
         return res.status(401).json({
@@ -120,7 +49,6 @@ export function withAuth(handler: AuthenticatedHandler): NextApiHandler {
         });
       }
 
-      // Verify JWT (in-memory operation, fast)
       const payload = await verifyToken(token);
       if (!payload) {
         return res.status(401).json({
@@ -129,11 +57,9 @@ export function withAuth(handler: AuthenticatedHandler): NextApiHandler {
         });
       }
 
-      // Hash token for session lookup
       const crypto = await import('crypto');
       const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
 
-      // Single optimized query: validate session + get user (replaces 2 queries)
       const user = await getUserAndValidateSession(
         payload.sub,
         payload.sessionId,
@@ -141,18 +67,16 @@ export function withAuth(handler: AuthenticatedHandler): NextApiHandler {
       );
 
       if (!user) {
-        // Could be: invalid session, expired session, inactive user, or user deleted
         return res.status(401).json({
           success: false,
           error: { code: 'SESSION_INVALID', message: 'Session expired or invalid' },
         });
       }
 
-      // Attach user and session to request
       (req as AuthenticatedNextApiRequest).user = user;
       (req as AuthenticatedNextApiRequest).sessionId = payload.sessionId;
 
-      // Enforce must_change_password: block all endpoints except the password-change allowlist
+      // Enforce must_change_password: block all endpoints except the allowlist
       if (user.mustChangePassword) {
         const allowedPaths = [
           '/api/auth/change-password',
@@ -169,7 +93,6 @@ export function withAuth(handler: AuthenticatedHandler): NextApiHandler {
         }
       }
 
-      // Call the actual handler
       return handler(req as AuthenticatedNextApiRequest, res);
     } catch (error) {
       log.error('Auth middleware error', error instanceof Error ? { message: error.message, stack: error.stack } : { error }, 'AuthMiddleware');
@@ -248,7 +171,7 @@ export function withRoleAndPermission(
 
 /**
  * Optional auth - attaches user if authenticated, but doesn't require it
- * // 🟢 WORKING: Same optimization applied to optional auth
+ * // WORKING: Same optimization applied to optional auth
  */
 export function withOptionalAuth(
   handler: (
@@ -281,7 +204,6 @@ export function withOptionalAuth(
 
       return handler(req as NextApiRequest & { user?: AuthUser; sessionId?: string }, res);
     } catch {
-      // On error, just proceed without user
       return handler(req as NextApiRequest & { user?: AuthUser; sessionId?: string }, res);
     }
   };
