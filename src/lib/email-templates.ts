@@ -4,6 +4,29 @@
  * Welcome and password reset templates: src/lib/email-templates-auth.ts
  */
 
+// ─── Signature Helper ─────────────────────────────────────────────────────────
+
+/**
+ * Appends a per-document-type HTML signature block below the email body.
+ * Injected just before </body> so it sits outside the card layout.
+ * The signature is stored as user-entered HTML in company settings.
+ * Returns html unchanged when signature is null/empty.
+ */
+export function appendSignatureToHtml(html: string, signature: string | null | undefined): string {
+  if (!signature || !signature.trim()) return html;
+  const signatureBlock = `
+<table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation"
+       style="max-width:600px; margin:16px auto 0; padding:0 16px;">
+  <tr>
+    <td style="font-family:Arial,Helvetica,sans-serif; font-size:13px; color:#64748b;
+               line-height:1.6; padding:12px 0; border-top:1px solid #e2e8f0;">
+      ${signature}
+    </td>
+  </tr>
+</table>`;
+  return html.replace('</body>', `${signatureBlock}\n</body>`);
+}
+
 // ─── HTML Escape Helper ───────────────────────────────────────────────────────
 
 function escapeHtml(str: string): string {

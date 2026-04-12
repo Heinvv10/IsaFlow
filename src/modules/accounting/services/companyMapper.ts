@@ -107,10 +107,22 @@ export interface Company {
   // Email templates
   invoiceEmailSubject: string;
   invoiceEmailBody: string | null;
+  invoiceEmailSignature: string | null;
   quoteEmailSubject: string;
   quoteEmailBody: string | null;
+  quoteEmailSignature: string | null;
   statementEmailSubject: string;
   statementEmailBody: string | null;
+  statementEmailSignature: string | null;
+  creditNoteEmailSubject: string;
+  creditNoteEmailBody: string | null;
+  creditNoteEmailSignature: string | null;
+  salesOrderEmailSubject: string;
+  salesOrderEmailBody: string | null;
+  salesOrderEmailSignature: string | null;
+  recurringInvoiceEmailSubject: string;
+  recurringInvoiceEmailBody: string | null;
+  recurringInvoiceEmailSignature: string | null;
   // Regional format extras
   decimalSeparator: string;
   thousandsSeparator: string;
@@ -230,10 +242,22 @@ export function mapCompany(r: Record<string, unknown>): Company {
     agingBucket3Days: num(r.aging_bucket3_days, 90),
     invoiceEmailSubject: r.invoice_email_subject != null ? String(r.invoice_email_subject) : 'Invoice {number} from {company}',
     invoiceEmailBody: strN(r.invoice_email_body),
+    invoiceEmailSignature: strN(r.invoice_email_signature),
     quoteEmailSubject: r.quote_email_subject != null ? String(r.quote_email_subject) : 'Quote {number} from {company}',
     quoteEmailBody: strN(r.quote_email_body),
+    quoteEmailSignature: strN(r.quote_email_signature),
     statementEmailSubject: r.statement_email_subject != null ? String(r.statement_email_subject) : 'Statement from {company}',
     statementEmailBody: strN(r.statement_email_body),
+    statementEmailSignature: strN(r.statement_email_signature),
+    creditNoteEmailSubject: r.credit_note_email_subject != null ? String(r.credit_note_email_subject) : 'Credit Note {number} from {company}',
+    creditNoteEmailBody: strN(r.credit_note_email_body),
+    creditNoteEmailSignature: strN(r.credit_note_email_signature),
+    salesOrderEmailSubject: r.sales_order_email_subject != null ? String(r.sales_order_email_subject) : 'Sales Order {number} from {company}',
+    salesOrderEmailBody: strN(r.sales_order_email_body),
+    salesOrderEmailSignature: strN(r.sales_order_email_signature),
+    recurringInvoiceEmailSubject: r.recurring_invoice_email_subject != null ? String(r.recurring_invoice_email_subject) : 'Invoice {number} from {company}',
+    recurringInvoiceEmailBody: strN(r.recurring_invoice_email_body),
+    recurringInvoiceEmailSignature: strN(r.recurring_invoice_email_signature),
     decimalSeparator: r.decimal_separator != null ? String(r.decimal_separator) : '.',
     thousandsSeparator: r.thousands_separator != null ? String(r.thousands_separator) : ',',
     decimalPlaces: num(r.decimal_places, 2),

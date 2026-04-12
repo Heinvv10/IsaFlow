@@ -18,16 +18,28 @@ import { sendStatementEmail } from '@/modules/accounting/services/statementEmail
 
 type Row = Record<string, unknown>;
 
-async function getCompanyName(companyId: string): Promise<string> {
+interface CompanyMeta {
+  name: string;
+  statementSignature: string | null;
+}
+
+async function getCompanyMeta(companyId: string): Promise<CompanyMeta> {
   try {
     const rows = await sql`
-      SELECT value FROM accounting_settings
-      WHERE company_id = ${companyId}::UUID AND key = 'company_name'
+      SELECT name, statement_email_signature
+      FROM companies
+      WHERE id = ${companyId}::UUID
       LIMIT 1
     ` as Row[];
-    return rows[0]?.value ? String(rows[0].value) : 'ISAFlow';
+    const row = rows[0];
+    return {
+      name: row?.name ? String(row.name) : 'ISAFlow',
+      statementSignature: row?.statement_email_signature != null
+        ? String(row.statement_email_signature)
+        : null,
+    };
   } catch {
-    return 'ISAFlow';
+    return { name: 'ISAFlow', statementSignature: null };
   }
 }
 
@@ -86,7 +98,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.forbidden(res, 'One or more customer IDs do not belong to this company');
   }
 
-  const companyName = await getCompanyName(companyId);
+  const { name: companyName, statementSignature } = await getCompanyMeta(companyId);
 
   let sent = 0;
   let failed = 0;
@@ -104,7 +116,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       customerId,
       asAtDate,
       companyName,
-      message
+      message,
+      statementSignature
     );
 
     if (result.success) {

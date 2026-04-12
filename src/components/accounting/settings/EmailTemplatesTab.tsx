@@ -1,5 +1,5 @@
 /**
- * EmailTemplatesTab — per-document-type email subject + body templates.
+ * EmailTemplatesTab — per-document-type email subject, body, and signature.
  * Templates are stored as columns on the companies table.
  * Supported placeholder variables: {customer}, {number}, {amount}, {due_date}, {company}
  */
@@ -30,6 +30,7 @@ interface TemplateSection {
   label: string;
   subjectField: keyof Company;
   bodyField: keyof Company;
+  signatureField: keyof Company;
   defaultSubject: string;
 }
 
@@ -38,19 +39,43 @@ const TEMPLATE_SECTIONS: TemplateSection[] = [
     label: 'Customer Invoice',
     subjectField: 'invoiceEmailSubject',
     bodyField: 'invoiceEmailBody',
+    signatureField: 'invoiceEmailSignature',
     defaultSubject: 'Invoice {number} from {company}',
   },
   {
     label: 'Quotation',
     subjectField: 'quoteEmailSubject',
     bodyField: 'quoteEmailBody',
+    signatureField: 'quoteEmailSignature',
     defaultSubject: 'Quote {number} from {company}',
   },
   {
     label: 'Statement',
     subjectField: 'statementEmailSubject',
     bodyField: 'statementEmailBody',
+    signatureField: 'statementEmailSignature',
     defaultSubject: 'Statement from {company}',
+  },
+  {
+    label: 'Credit Note',
+    subjectField: 'creditNoteEmailSubject',
+    bodyField: 'creditNoteEmailBody',
+    signatureField: 'creditNoteEmailSignature',
+    defaultSubject: 'Credit Note {number} from {company}',
+  },
+  {
+    label: 'Sales Order',
+    subjectField: 'salesOrderEmailSubject',
+    bodyField: 'salesOrderEmailBody',
+    signatureField: 'salesOrderEmailSignature',
+    defaultSubject: 'Sales Order {number} from {company}',
+  },
+  {
+    label: 'Recurring Invoice',
+    subjectField: 'recurringInvoiceEmailSubject',
+    bodyField: 'recurringInvoiceEmailBody',
+    signatureField: 'recurringInvoiceEmailSignature',
+    defaultSubject: 'Invoice {number} from {company}',
   },
 ];
 
@@ -66,6 +91,7 @@ function TemplateBlock({
   const [open, setOpen] = useState(false);
   const subject = String(company[section.subjectField] ?? section.defaultSubject);
   const body = (company[section.bodyField] as string | null) ?? '';
+  const signature = (company[section.signatureField] as string | null) ?? '';
 
   return (
     <div className="border border-[var(--ff-border-primary)] rounded-lg overflow-hidden">
@@ -104,6 +130,22 @@ function TemplateBlock({
               placeholder={`Dear {customer},\n\nPlease find attached ${section.label.toLowerCase()} {number}.\n\nKind regards,\n{company}`}
             />
           </div>
+          <div>
+            <label className={LABEL_CLS}>Email Signature (HTML allowed)</label>
+            <textarea
+              className={TEXTAREA_CLS}
+              rows={4}
+              value={signature}
+              onChange={e => onChange(section.signatureField, e.target.value)}
+              placeholder={'Kind regards,\n[Company Name]'}
+            />
+            <p className="mt-1 text-xs text-[var(--ff-text-tertiary)]">
+              Appended below the email body. Basic HTML tags are supported (e.g.{' '}
+              <code className="font-mono text-teal-400">&lt;b&gt;</code>,{' '}
+              <code className="font-mono text-teal-400">&lt;br&gt;</code>,{' '}
+              <code className="font-mono text-teal-400">&lt;a href=&quot;...&quot;&gt;</code>).
+            </p>
+          </div>
         </div>
       )}
     </div>
@@ -118,7 +160,7 @@ export function EmailTemplatesTab({ company, onChange }: Props) {
           <Mail className="h-5 w-5" /> Email Templates
         </h2>
         <p className="text-xs text-[var(--ff-text-tertiary)] mb-3">
-          Customise the subject line and body used when emailing documents to customers.
+          Customise the subject line, body, and signature used when emailing documents to customers.
           Leave the body blank to use the system default.
         </p>
 
