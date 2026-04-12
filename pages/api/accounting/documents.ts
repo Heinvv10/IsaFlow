@@ -1,70 +1,33 @@
 /**
  * Accounting Documents API
- * GET  /api/accounting/documents?entity_type=...&entity_id=...  — List documents (direct + cross-linked)
+ * GET  /api/accounting/documents?entity_type=...&entity_id=...  — List documents
  * POST /api/accounting/documents  (multipart form-data)          — Upload document
  * DELETE /api/accounting/documents?id=...                        — Soft-delete document
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import path from 'path';
 import { sql } from '@/lib/neon';
 import formidable from 'formidable';
 import fs from 'fs';
-import { vfStorage } from '@/services/vfStorageAdapter';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
+import { withCompany, type CompanyApiRequest, withWriteAccess } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import type {
-  ProcurementDocument,
-  LinkedDocument,
-  AccountingEntityType,
-  AccountingDocumentType,
-} from '@/types/procurement/document.types';
-import { extractFromPdf, extractFromImage } from '@/modules/accounting/services/ocrService';
-import { isVlmAvailable } from '@/modules/accounting/services/vlmService';
+import type { AccountingEntityType } from '@/types/procurement/document.types';
+import {
+  VALID_ENTITY_TYPES,
+  VALID_DOCUMENT_TYPES,
+  ALLOWED_MIME_TYPES,
+  MAX_FILE_SIZE,
+  validateMagicBytes,
+  mapRow,
+  verifyEntityOwnership,
+  uploadDocument,
+} from '@/modules/accounting/services/documentStorageService';
 
 export const config = {
   api: { bodyParser: false },
 };
-
-const VALID_ENTITY_TYPES: AccountingEntityType[] = [
-  'supplier_invoice',
-  'supplier_payment',
-  'customer_invoice',
-  'customer_payment',
-  'credit_note',
-];
-
-const VALID_DOCUMENT_TYPES: AccountingDocumentType[] = [
-  'proof_of_payment',
-  'bank_statement',
-  'remittance_advice',
-  'credit_note_doc',
-  'invoice',
-  'receipt',
-  'other',
-];
-
-const ALLOWED_MIME_TYPES = [
-  'application/pdf',
-  'image/jpeg',
-  'image/png',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-];
-
-const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
-
-function validateMagicBytes(buffer: Buffer): boolean {
-  if (buffer.length < 4) return false;
-  const hex = buffer.subarray(0, 8).toString('hex').toUpperCase();
-  if (hex.startsWith('FFD8FF')) return true;   // JPEG
-  if (hex.startsWith('89504E47')) return true;  // PNG
-  if (hex.startsWith('25504446')) return true;  // PDF
-  if (hex.startsWith('504B0304')) return true;  // ZIP (docx/xlsx)
-  return false;
-}
 
 function parseForm(req: NextApiRequest): Promise<{ fields: formidable.Fields; files: formidable.Files }> {
   return new Promise((resolve, reject) => {
@@ -74,40 +37,6 @@ function parseForm(req: NextApiRequest): Promise<{ fields: formidable.Fields; fi
       else resolve({ fields, files });
     });
   });
-}
-
-function mapRow(row: Record<string, unknown>, source: 'direct' | 'linked' = 'direct', linkReason?: string): LinkedDocument {
-  return {
-    id: row.id as string,
-    entityType: row.entity_type as string,
-    entityId: row.entity_id as string,
-    documentType: row.document_type as AccountingDocumentType,
-    documentName: row.document_name as string,
-    fileUrl: row.file_url as string,
-    filePath: (row.file_path as string) || undefined,
-    fileSize: (row.file_size as number) || undefined,
-    mimeType: (row.mime_type as string) || undefined,
-    uploadedBy: row.uploaded_by as string,
-    uploadedByName: (row.uploaded_by_name as string) || undefined,
-    uploadedAt: new Date(row.uploaded_at as string).toISOString(),
-    notes: (row.notes as string) || undefined,
-    isActive: row.is_active as boolean,
-    source,
-    linkReason,
-  };
-}
-
-/** Verify an entity belongs to the given company by checking all possible parent tables */
-async function verifyEntityOwnership(entityId: string, companyId: string): Promise<boolean> {
-  const [owner] = await sql`
-    SELECT 1 AS ok FROM sage_supplier_invoices WHERE id = ${entityId}::uuid AND company_id = ${companyId}
-    UNION ALL SELECT 1 FROM customer_invoices WHERE id = ${entityId}::uuid AND company_id = ${companyId}
-    UNION ALL SELECT 1 FROM supplier_payments WHERE id = ${entityId}::uuid AND company_id = ${companyId}
-    UNION ALL SELECT 1 FROM customer_payments WHERE id = ${entityId}::uuid AND company_id = ${companyId}
-    UNION ALL SELECT 1 FROM credit_notes WHERE id = ${entityId}::uuid AND company_id = ${companyId}
-    LIMIT 1
-  `;
-  return !!owner;
 }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -129,18 +58,13 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse, companyId: s
   if (!entityType || !entityId) {
     return apiResponse.badRequest(res, 'Missing required query params: entity_type, entity_id');
   }
-
   if (!VALID_ENTITY_TYPES.includes(entityType as AccountingEntityType)) {
     return apiResponse.badRequest(res, `Invalid entity_type. Allowed: ${VALID_ENTITY_TYPES.join(', ')}`);
   }
 
-  // Verify entity belongs to this company
   const owned = await verifyEntityOwnership(entityId, companyId);
-  if (!owned) {
-    return apiResponse.forbidden(res, 'Entity does not belong to your company');
-  }
+  if (!owned) return apiResponse.forbidden(res, 'Entity does not belong to your company');
 
-  // Direct documents
   const directRows = await sql`
     SELECT * FROM procurement_documents
     WHERE entity_type = ${entityType}
@@ -149,7 +73,6 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse, companyId: s
     ORDER BY uploaded_at DESC
   `;
 
-  // Cross-linked documents (via document_links)
   const linkedRows = await sql`
     SELECT pd.*, dl.link_reason
     FROM document_links dl
@@ -160,7 +83,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse, companyId: s
     ORDER BY pd.uploaded_at DESC
   `;
 
-  const results: LinkedDocument[] = [
+  const results = [
     ...directRows.map(r => mapRow(r as Record<string, unknown>, 'direct')),
     ...linkedRows.map(r => mapRow(r as Record<string, unknown>, 'linked', (r as Record<string, unknown>).link_reason as string)),
   ];
@@ -172,7 +95,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse, companyId: s
 async function handlePost(
   req: NextApiRequest,
   res: NextApiResponse,
-  user: { id: string; name: string; email: string }
+  user: { id: string; name: string; email: string },
 ) {
   let tempFilePath: string | null = null;
 
@@ -190,15 +113,13 @@ async function handlePost(
     if (!VALID_ENTITY_TYPES.includes(entityType as AccountingEntityType)) {
       return apiResponse.badRequest(res, `Invalid entity_type. Allowed: ${VALID_ENTITY_TYPES.join(', ')}`);
     }
-    if (!VALID_DOCUMENT_TYPES.includes(documentType as AccountingDocumentType)) {
+    if (!VALID_DOCUMENT_TYPES.includes(documentType as typeof VALID_DOCUMENT_TYPES[number])) {
       return apiResponse.badRequest(res, `Invalid document_type. Allowed: ${VALID_DOCUMENT_TYPES.join(', ')}`);
     }
 
     const fileField = files.file;
     const file = Array.isArray(fileField) ? fileField[0] : fileField;
-    if (!file) {
-      return apiResponse.badRequest(res, 'No file uploaded');
-    }
+    if (!file) return apiResponse.badRequest(res, 'No file uploaded');
 
     tempFilePath = file.filepath;
 
@@ -214,45 +135,21 @@ async function handlePost(
       return apiResponse.badRequest(res, 'File content does not match declared type');
     }
 
-    // Upload to VF Storage: accounting/{entity_type}/{entityId}_{filename}
-    const rawName = file.originalFilename || `document_${Date.now()}`;
-    const fileName = path.basename(rawName).replace(/[^a-zA-Z0-9._-]/g, '_');
-    const storageName = `${entityId}_${fileName}`;
-    const result = await vfStorage.uploadFile(buffer, 'accounting', entityType, storageName);
-
-    // Insert DB record
-    const [row] = await sql`
-      INSERT INTO procurement_documents (
-        entity_type, entity_id, document_type, document_name,
-        file_url, file_path, file_size, mime_type,
-        uploaded_by, uploaded_by_name, notes
-      ) VALUES (
-        ${entityType}, ${entityId}::uuid, ${documentType}, ${fileName},
-        ${result.url}, ${result.path}, ${file.size}, ${file.mimetype || ''},
-        ${user.email}, ${user.name}, ${notes || null}
-      )
-      RETURNING *
-    `;
-
-    const docId = (row as Record<string, unknown>).id as string;
-
-    // Auto-link: if supplier_invoice, create cross-links to PO/GRN
-    if (entityType === 'supplier_invoice') {
-      await autoLinkSupplierInvoice(docId, entityId);
-    }
-
-    // Fire-and-forget VLM extraction (non-blocking)
-    if (isVlmAvailable()) {
-      extractAndStoreDocMetadata(buffer, file.mimetype || '', docId).catch(err =>
-        log.warn('Background VLM extraction failed', { error: err instanceof Error ? err.message : String(err) }, 'accounting-docs')
-      );
-    }
+    const doc = await uploadDocument({
+      entityType, entityId, documentType, notes,
+      filePath: file.filepath,
+      mimeType: file.mimetype || '',
+      size: file.size,
+      originalFilename: file.originalFilename || `document_${Date.now()}`,
+      uploadedBy: user.email,
+      uploadedByName: user.name,
+    });
 
     log.info('Accounting document uploaded', {
-      data: { entityType, entityId, documentType, fileName },
+      data: { entityType, entityId, documentType },
     }, 'accounting-docs');
 
-    return apiResponse.created(res, mapRow(row as Record<string, unknown>, 'direct'));
+    return apiResponse.created(res, doc);
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error);
     log.error('Accounting document upload error', { error }, 'accounting-docs');
@@ -260,107 +157,17 @@ async function handlePost(
   } finally {
     if (tempFilePath) {
       await fs.promises.unlink(tempFilePath).catch((e) =>
-        log.debug('Temp file cleanup failed', { error: e instanceof Error ? e.message : 'unknown' }, 'accounting')
+        log.debug('Temp file cleanup failed', { error: e instanceof Error ? e.message : 'unknown' }, 'accounting'),
       );
     }
-  }
-}
-
-/**
- * Auto-link a newly uploaded supplier_invoice doc to related PO/GRN,
- * and create reverse links so existing PO/GRN docs appear on the invoice.
- */
-async function autoLinkSupplierInvoice(docId: string, invoiceId: string) {
-  try {
-    // Look up FK references on the invoice
-    const [invoice] = await sql`
-      SELECT purchase_order_id, grn_id
-      FROM sage_supplier_invoices
-      WHERE id = ${invoiceId}::uuid
-    `;
-
-    if (!invoice) return;
-
-    const poId = invoice.purchase_order_id as string | null;
-    const grnId = invoice.grn_id as string | null;
-
-    // Forward links: this doc -> PO/GRN
-    if (poId) {
-      await sql`
-        INSERT INTO document_links (document_id, linked_entity_type, linked_entity_id, link_reason)
-        VALUES (${docId}::uuid, 'purchase_order', ${poId}::uuid, 'po_invoice_link')
-        ON CONFLICT (document_id, linked_entity_type, linked_entity_id) DO NOTHING
-      `;
-    }
-    if (grnId) {
-      await sql`
-        INSERT INTO document_links (document_id, linked_entity_type, linked_entity_id, link_reason)
-        VALUES (${docId}::uuid, 'goods_receipt_note', ${grnId}::uuid, 'grn_invoice_link')
-        ON CONFLICT (document_id, linked_entity_type, linked_entity_id) DO NOTHING
-      `;
-    }
-
-    // Reverse links: existing PO/GRN docs -> this invoice
-    if (poId) {
-      const poDocs = await sql`
-        SELECT id FROM procurement_documents
-        WHERE entity_type = 'purchase_order' AND entity_id = ${poId}::uuid AND is_active = true
-      `;
-      for (const doc of poDocs) {
-        await sql`
-          INSERT INTO document_links (document_id, linked_entity_type, linked_entity_id, link_reason)
-          VALUES (${(doc as Record<string, unknown>).id as string}::uuid, 'supplier_invoice', ${invoiceId}::uuid, 'po_invoice_link')
-          ON CONFLICT (document_id, linked_entity_type, linked_entity_id) DO NOTHING
-        `;
-      }
-    }
-    if (grnId) {
-      const grnDocs = await sql`
-        SELECT id FROM procurement_documents
-        WHERE entity_type = 'goods_receipt_note' AND entity_id = ${grnId}::uuid AND is_active = true
-      `;
-      for (const doc of grnDocs) {
-        await sql`
-          INSERT INTO document_links (document_id, linked_entity_type, linked_entity_id, link_reason)
-          VALUES (${(doc as Record<string, unknown>).id as string}::uuid, 'supplier_invoice', ${invoiceId}::uuid, 'grn_invoice_link')
-          ON CONFLICT (document_id, linked_entity_type, linked_entity_id) DO NOTHING
-        `;
-      }
-    }
-  } catch (err) {
-    log.warn('Auto-link supplier invoice docs failed (non-fatal)', { error: err }, 'accounting-docs');
-  }
-}
-
-/** Background VLM extraction — stores result in extracted_data JSONB column */
-async function extractAndStoreDocMetadata(buffer: Buffer, mimeType: string, docId: string) {
-  const isPdf = mimeType === 'application/pdf';
-  const isImage = mimeType.startsWith('image/');
-
-  if (!isPdf && !isImage) return;
-
-  const extracted = isPdf
-    ? await extractFromPdf(buffer)
-    : await extractFromImage(buffer, mimeType);
-
-  if (extracted && extracted.confidence > 0) {
-    await sql`
-      UPDATE procurement_documents
-      SET extracted_data = ${JSON.stringify(extracted)}::jsonb
-      WHERE id = ${docId}::uuid
-    `;
-    log.info('VLM extraction stored for document', { docId, confidence: extracted.confidence }, 'accounting-docs');
   }
 }
 
 /** DELETE — Soft-delete a document */
 async function handleDelete(req: NextApiRequest, res: NextApiResponse, companyId: string) {
   const id = req.query.id as string;
-  if (!id) {
-    return apiResponse.badRequest(res, 'Missing required query param: id');
-  }
+  if (!id) return apiResponse.badRequest(res, 'Missing required query param: id');
 
-  // Verify the document's entity belongs to this company
   const [doc] = await sql`
     SELECT entity_id FROM procurement_documents WHERE id = ${id}::uuid AND is_active = true
   `;
@@ -376,9 +183,7 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse, companyId
     RETURNING id
   `;
 
-  if (!row) {
-    return apiResponse.notFound(res, 'Document', id);
-  }
+  if (!row) return apiResponse.notFound(res, 'Document', id);
 
   log.info('Accounting document soft-deleted', { data: { id } }, 'accounting-docs');
   return apiResponse.success(res, { id: row.id, deleted: true });
