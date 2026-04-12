@@ -34,16 +34,11 @@ export function LandingFeaturesGrid() {
 
 export function LandingDetailedFeatures() {
   return (
-    <section className="py-20 lg:py-28">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="space-y-24 lg:space-y-32">
-          {DETAILED_FEATURES.map((f, i) => (
-            <div
-              key={f.title}
-              className={`grid lg:grid-cols-2 gap-12 lg:gap-20 items-center ${
-                i % 2 === 1 ? 'lg:flex-row-reverse' : ''
-              }`}
-            >
+    <section>
+      {DETAILED_FEATURES.map((f, i) => (
+        <div key={f.title} className={`py-16 lg:py-24 ${i % 2 === 1 ? 'bg-gray-50' : 'bg-white'}`}>
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
               <div className={i % 2 === 1 ? 'lg:order-2' : ''}>
                 <span className="inline-block px-3 py-1 rounded-full bg-teal-50 text-teal-700 text-xs font-semibold mb-4 tracking-wide">
                   {f.badge}
@@ -63,11 +58,7 @@ export function LandingDetailedFeatures() {
               </div>
 
               <div className={i % 2 === 1 ? 'lg:order-1' : ''}>
-                <div
-                  className={`relative rounded-2xl overflow-hidden shadow-2xl border border-gray-100 ${
-                    i % 2 === 1 ? 'bg-gray-50' : 'bg-white'
-                  }`}
-                >
+                <div className="relative rounded-2xl overflow-hidden shadow-2xl border border-gray-100 bg-white">
                   <img
                     src={`/landing/${f.imgKey}.png`}
                     alt={f.title}
@@ -88,9 +79,9 @@ export function LandingDetailedFeatures() {
                 </div>
               </div>
             </div>
-          ))}
+          </div>
         </div>
-      </div>
+      ))}
     </section>
   );
 }
