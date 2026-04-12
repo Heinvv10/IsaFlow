@@ -107,6 +107,7 @@ export default function NewCreditNotePage() {
               <div>
                 <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Type *</label>
                 <select
+                  name="type"
                   value={form.type}
                   onChange={e => setForm(f => ({ ...f, type: e.target.value as 'customer' | 'supplier', clientId: '', supplierId: '' }))}
                   className="ff-select w-full"
@@ -120,6 +121,7 @@ export default function NewCreditNotePage() {
                 <div>
                   <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Client *</label>
                   <select
+                    name="clientId"
                     value={form.clientId}
                     onChange={e => setForm(f => ({ ...f, clientId: e.target.value }))}
                     className="ff-select w-full"
@@ -133,6 +135,7 @@ export default function NewCreditNotePage() {
                 <div>
                   <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Supplier *</label>
                   <select
+                    name="supplierId"
                     value={form.supplierId}
                     onChange={e => setForm(f => ({ ...f, supplierId: e.target.value }))}
                     className="ff-select w-full"
@@ -148,6 +151,7 @@ export default function NewCreditNotePage() {
                 <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Credit Date *</label>
                 <input
                   type="date"
+                  name="creditDate"
                   value={form.creditDate}
                   onChange={e => setForm(f => ({ ...f, creditDate: e.target.value }))}
                   className="ff-input w-full"
@@ -159,6 +163,7 @@ export default function NewCreditNotePage() {
                 <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Reason</label>
                 <input
                   type="text"
+                  name="reason"
                   value={form.reason}
                   onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}
                   className="ff-input w-full"
@@ -177,6 +182,7 @@ export default function NewCreditNotePage() {
                 <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Subtotal (excl. VAT) *</label>
                 <input
                   type="number"
+                  name="subtotal"
                   step="0.01"
                   min="0"
                   value={form.subtotal || ''}
@@ -190,6 +196,7 @@ export default function NewCreditNotePage() {
                 <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">VAT Rate (%)</label>
                 <input
                   type="number"
+                  name="taxRate"
                   step="0.01"
                   min="0"
                   value={form.taxRate}

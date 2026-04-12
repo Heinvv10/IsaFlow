@@ -170,7 +170,7 @@ export default function NewSupplierPaymentPage() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Supplier *</label>
-                <select required value={form.supplierId}
+                <select name="supplierId" required value={form.supplierId}
                   onChange={e => setForm(f => ({ ...f, supplierId: e.target.value }))}
                   className="ff-select w-full">
                   <option value="">Select supplier...</option>
@@ -179,13 +179,13 @@ export default function NewSupplierPaymentPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Payment Date *</label>
-                <input type="date" required value={form.paymentDate}
+                <input type="date" name="paymentDate" required value={form.paymentDate}
                   onChange={e => setForm(f => ({ ...f, paymentDate: e.target.value }))}
                   className="ff-input w-full" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Method</label>
-                <select value={form.paymentMethod}
+                <select name="paymentMethod" value={form.paymentMethod}
                   onChange={e => setForm(f => ({ ...f, paymentMethod: e.target.value }))}
                   className="ff-select w-full">
                   <option value="eft">EFT</option>
@@ -196,7 +196,7 @@ export default function NewSupplierPaymentPage() {
               </div>
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Reference</label>
-                <input type="text" value={form.reference}
+                <input type="text" name="reference" value={form.reference}
                   onChange={e => setForm(f => ({ ...f, reference: e.target.value }))}
                   className="ff-input w-full" placeholder="Bank reference" />
               </div>

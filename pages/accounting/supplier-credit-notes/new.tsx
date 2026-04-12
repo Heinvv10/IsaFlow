@@ -142,6 +142,7 @@ export default function NewSupplierCreditNotePage() {
               <div>
                 <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Supplier *</label>
                 <select
+                  name="supplierId"
                   value={form.supplierId}
                   onChange={e => setForm(f => ({ ...f, supplierId: e.target.value }))}
                   className="ff-select w-full"
@@ -160,6 +161,7 @@ export default function NewSupplierCreditNotePage() {
                 <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Credit Note Date *</label>
                 <input
                   type="date"
+                  name="creditDate"
                   value={form.creditDate}
                   onChange={e => setForm(f => ({ ...f, creditDate: e.target.value }))}
                   className="ff-input w-full"
@@ -171,6 +173,7 @@ export default function NewSupplierCreditNotePage() {
                 <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Reference Number</label>
                 <input
                   type="text"
+                  name="reference"
                   value={form.reference}
                   onChange={e => setForm(f => ({ ...f, reference: e.target.value }))}
                   className="ff-input w-full"
@@ -182,6 +185,7 @@ export default function NewSupplierCreditNotePage() {
                 <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Description</label>
                 <input
                   type="text"
+                  name="description"
                   value={form.description}
                   onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
                   className="ff-input w-full"
@@ -298,6 +302,7 @@ export default function NewSupplierCreditNotePage() {
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-6">
             <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-2">Notes</label>
             <textarea
+              name="notes"
               value={form.notes}
               onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
               className="ff-input w-full h-24 resize-none"

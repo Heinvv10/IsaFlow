@@ -65,19 +65,19 @@ export default function NewPurchaseOrderPage() {
             <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Order Details</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Supplier *</label>
-                <select required value={form.supplierId} onChange={e => setForm(p => ({ ...p, supplierId: e.target.value }))} className="ff-select w-full">
+                <select name="supplierId" required value={form.supplierId} onChange={e => setForm(p => ({ ...p, supplierId: e.target.value }))} className="ff-select w-full">
                   <option value="">Select supplier...</option>
                   {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
               </div>
               <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Reference</label>
-                <input type="text" value={form.reference} onChange={e => setForm(p => ({ ...p, reference: e.target.value }))} className="ff-input w-full" placeholder="Supplier quote ref" />
+                <input type="text" name="reference" value={form.reference} onChange={e => setForm(p => ({ ...p, reference: e.target.value }))} className="ff-input w-full" placeholder="Supplier quote ref" />
               </div>
               <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Order Date *</label>
-                <input type="date" required value={form.orderDate} onChange={e => setForm(p => ({ ...p, orderDate: e.target.value }))} className="ff-input w-full" />
+                <input type="date" name="orderDate" required value={form.orderDate} onChange={e => setForm(p => ({ ...p, orderDate: e.target.value }))} className="ff-input w-full" />
               </div>
               <div><label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Expected Delivery</label>
-                <input type="date" value={form.expectedDeliveryDate} onChange={e => setForm(p => ({ ...p, expectedDeliveryDate: e.target.value }))} className="ff-input w-full" />
+                <input type="date" name="expectedDeliveryDate" value={form.expectedDeliveryDate} onChange={e => setForm(p => ({ ...p, expectedDeliveryDate: e.target.value }))} className="ff-input w-full" />
               </div>
             </div>
           </div>

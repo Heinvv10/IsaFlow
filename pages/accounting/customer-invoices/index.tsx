@@ -106,6 +106,7 @@ export default function CustomerInvoicesPage() {
           {/* Filters */}
           <div className="flex items-center gap-3 mb-6">
             <select
+              name="statusFilter"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
               className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm"
@@ -116,6 +117,7 @@ export default function CustomerInvoicesPage() {
             </select>
             <input
               type="text"
+              name="search"
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Search invoice # or client..."

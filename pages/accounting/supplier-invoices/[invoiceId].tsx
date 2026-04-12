@@ -184,12 +184,12 @@ export default function SupplierInvoiceDetailPage() {
             </div>
             <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
               <p className="text-xs text-[var(--ff-text-tertiary)] uppercase">Due Date</p>
-              {editing ? <input type="date" value={editForm.dueDate} onChange={e => setEditForm(p => ({ ...p, dueDate: e.target.value }))} className="ff-input mt-1 text-sm w-full" />
+              {editing ? <input type="date" name="dueDate" value={editForm.dueDate} onChange={e => setEditForm(p => ({ ...p, dueDate: e.target.value }))} className="ff-input mt-1 text-sm w-full" />
                 : <p className="text-lg font-semibold mt-1 text-[var(--ff-text-primary)]">{invoice.dueDate || '-'}</p>}
             </div>
             <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
               <p className="text-xs text-[var(--ff-text-tertiary)] uppercase">Payment Terms</p>
-              {editing ? <input value={editForm.paymentTerms} onChange={e => setEditForm(p => ({ ...p, paymentTerms: e.target.value }))} className="ff-input mt-1 text-sm w-full" />
+              {editing ? <input name="paymentTerms" value={editForm.paymentTerms} onChange={e => setEditForm(p => ({ ...p, paymentTerms: e.target.value }))} className="ff-input mt-1 text-sm w-full" />
                 : <p className="text-lg font-semibold mt-1 text-[var(--ff-text-primary)]">{invoice.paymentTerms || '-'}</p>}
             </div>
             <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">

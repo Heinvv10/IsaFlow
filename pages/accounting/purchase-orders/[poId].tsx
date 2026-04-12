@@ -397,7 +397,7 @@ export default function PurchaseOrderDetailPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Supplier *</label>
-                    <select required value={form.supplier_id}
+                    <select name="supplierId" required value={form.supplier_id}
                       onChange={e => setForm(f => f ? { ...f, supplier_id: e.target.value } : f)}
                       className="ff-select w-full">
                       <option value="">Select supplier...</option>
@@ -406,25 +406,25 @@ export default function PurchaseOrderDetailPage() {
                   </div>
                   <div>
                     <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Reference</label>
-                    <input type="text" value={form.reference}
+                    <input type="text" name="reference" value={form.reference}
                       onChange={e => setForm(f => f ? { ...f, reference: e.target.value } : f)}
                       className="ff-input w-full" placeholder="Supplier quote ref" />
                   </div>
                   <div>
                     <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Order Date *</label>
-                    <input type="date" required value={form.order_date}
+                    <input type="date" name="orderDate" required value={form.order_date}
                       onChange={e => setForm(f => f ? { ...f, order_date: e.target.value } : f)}
                       className="ff-input w-full" />
                   </div>
                   <div>
                     <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Expected Delivery</label>
-                    <input type="date" value={form.expected_delivery_date}
+                    <input type="date" name="expectedDeliveryDate" value={form.expected_delivery_date}
                       onChange={e => setForm(f => f ? { ...f, expected_delivery_date: e.target.value } : f)}
                       className="ff-input w-full" />
                   </div>
                   <div>
                     <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Status</label>
-                    <select value={form.status}
+                    <select name="status" value={form.status}
                       onChange={e => setForm(f => f ? { ...f, status: e.target.value } : f)}
                       className="ff-select w-full">
                       <option value="draft">Draft</option>
@@ -435,7 +435,7 @@ export default function PurchaseOrderDetailPage() {
                   </div>
                   <div>
                     <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">Notes</label>
-                    <input type="text" value={form.notes}
+                    <input type="text" name="notes" value={form.notes}
                       onChange={e => setForm(f => f ? { ...f, notes: e.target.value } : f)}
                       className="ff-input w-full" placeholder="Internal notes" />
                   </div>

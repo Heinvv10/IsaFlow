@@ -97,6 +97,7 @@ export default function CustomerPaymentsPage() {
           <div className="flex items-center gap-3">
             <Filter className="h-4 w-4 text-[var(--ff-text-tertiary)]" />
             <select
+              name="statusFilter"
               value={statusFilter}
               onChange={e => setStatusFilter(e.target.value)}
               className="ff-select text-sm"
