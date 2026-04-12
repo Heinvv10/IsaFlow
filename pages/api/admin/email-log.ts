@@ -59,9 +59,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     };
 
     // ── Build dynamic WHERE conditions ───────────────────────────────────────
-    // We compose the query manually so TS stays strict (no raw string injection).
+    // Use sql.query() with positional parameters — fully typed, no unsafe cast.
     const conditions: string[] = ['1=1'];
-    const bindValues: (string | null)[] = [];
+    const bindValues: (string | number | null)[] = [];
     let bindIdx = 1;
 
     if (company_id) {
@@ -98,19 +98,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const where = conditions.join(' AND ');
 
     // ── Count ────────────────────────────────────────────────────────────────
-    const countSql = `SELECT COUNT(*) AS cnt FROM email_log el WHERE ${where}`;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const countRows = (await (sql as any).unsafe(countSql, bindValues)) as Row[];
+    const countQuery = `SELECT COUNT(*) AS cnt FROM email_log el WHERE ${where}`;
+    const countRows = (await sql.query(countQuery, bindValues)) as Row[];
     const totalCount = Number(countRows[0]?.cnt ?? 0);
 
     // ── Rows ─────────────────────────────────────────────────────────────────
-    bindValues.push(String(limit));
     const limitIdx = bindIdx;
-    bindIdx++;
-    bindValues.push(String(offset));
-    const offsetIdx = bindIdx;
-
-    const itemSql = `
+    const offsetIdx = bindIdx + 1;
+    const itemQuery = `
       SELECT
         el.id,
         el.company_id,
@@ -129,8 +124,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       LIMIT $${limitIdx} OFFSET $${offsetIdx}
     `;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const itemRows = (await (sql as any).unsafe(itemSql, bindValues)) as Row[];
+    const itemRows = (await sql.query(itemQuery, [...bindValues, limit, offset])) as Row[];
 
     const items: EmailLogItem[] = itemRows.map((r) => ({
       id:              String(r.id ?? ''),
