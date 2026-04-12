@@ -50,12 +50,12 @@ CREATE TABLE IF NOT EXISTS supplier_invoices (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_si_supplier ON supplier_invoices(supplier_id);
-CREATE INDEX idx_si_po ON supplier_invoices(purchase_order_id) WHERE purchase_order_id IS NOT NULL;
-CREATE INDEX idx_si_status ON supplier_invoices(status);
-CREATE INDEX idx_si_match ON supplier_invoices(match_status);
-CREATE INDEX idx_si_due_date ON supplier_invoices(due_date) WHERE due_date IS NOT NULL;
-CREATE INDEX idx_si_date ON supplier_invoices(invoice_date);
+CREATE INDEX IF NOT EXISTS idx_si_supplier ON supplier_invoices(supplier_id);
+CREATE INDEX IF NOT EXISTS idx_si_po ON supplier_invoices(purchase_order_id) WHERE purchase_order_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_si_status ON supplier_invoices(status);
+CREATE INDEX IF NOT EXISTS idx_si_match ON supplier_invoices(match_status);
+CREATE INDEX IF NOT EXISTS idx_si_due_date ON supplier_invoices(due_date) WHERE due_date IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_si_date ON supplier_invoices(invoice_date);
 
 -- ── Supplier Invoice Items ────────────────────────────────────────────────────
 
@@ -75,8 +75,8 @@ CREATE TABLE IF NOT EXISTS supplier_invoice_items (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_sii_invoice ON supplier_invoice_items(supplier_invoice_id);
-CREATE INDEX idx_sii_po_item ON supplier_invoice_items(po_item_id) WHERE po_item_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_sii_invoice ON supplier_invoice_items(supplier_invoice_id);
+CREATE INDEX IF NOT EXISTS idx_sii_po_item ON supplier_invoice_items(po_item_id) WHERE po_item_id IS NOT NULL;
 
 -- ── Supplier Payments ─────────────────────────────────────────────────────────
 
@@ -103,10 +103,10 @@ CREATE TABLE IF NOT EXISTS supplier_payments (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_sp_supplier ON supplier_payments(supplier_id);
-CREATE INDEX idx_sp_status ON supplier_payments(status);
-CREATE INDEX idx_sp_date ON supplier_payments(payment_date);
-CREATE INDEX idx_sp_batch ON supplier_payments(batch_id) WHERE batch_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_sp_supplier ON supplier_payments(supplier_id);
+CREATE INDEX IF NOT EXISTS idx_sp_status ON supplier_payments(status);
+CREATE INDEX IF NOT EXISTS idx_sp_date ON supplier_payments(payment_date);
+CREATE INDEX IF NOT EXISTS idx_sp_batch ON supplier_payments(batch_id) WHERE batch_id IS NOT NULL;
 
 -- ── Payment Allocations ───────────────────────────────────────────────────────
 
@@ -119,8 +119,8 @@ CREATE TABLE IF NOT EXISTS payment_allocations (
   UNIQUE(payment_id, invoice_id)
 );
 
-CREATE INDEX idx_pa_payment ON payment_allocations(payment_id);
-CREATE INDEX idx_pa_invoice ON payment_allocations(invoice_id);
+CREATE INDEX IF NOT EXISTS idx_pa_payment ON payment_allocations(payment_id);
+CREATE INDEX IF NOT EXISTS idx_pa_invoice ON payment_allocations(invoice_id);
 
 -- ── Triggers ──────────────────────────────────────────────────────────────────
 

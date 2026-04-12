@@ -22,9 +22,9 @@ CREATE TABLE IF NOT EXISTS bank_reconciliations (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_br_account ON bank_reconciliations(bank_account_id);
-CREATE INDEX idx_br_status ON bank_reconciliations(status);
-CREATE INDEX idx_br_date ON bank_reconciliations(statement_date);
+CREATE INDEX IF NOT EXISTS idx_br_account ON bank_reconciliations(bank_account_id);
+CREATE INDEX IF NOT EXISTS idx_br_status ON bank_reconciliations(status);
+CREATE INDEX IF NOT EXISTS idx_br_date ON bank_reconciliations(statement_date);
 
 -- ── Bank Transactions ────────────────────────────────────────────────────────
 
@@ -47,12 +47,12 @@ CREATE TABLE IF NOT EXISTS bank_transactions (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_bt_account ON bank_transactions(bank_account_id);
-CREATE INDEX idx_bt_date ON bank_transactions(transaction_date);
-CREATE INDEX idx_bt_status ON bank_transactions(status);
-CREATE INDEX idx_bt_reference ON bank_transactions(reference) WHERE reference IS NOT NULL;
-CREATE INDEX idx_bt_batch ON bank_transactions(import_batch_id) WHERE import_batch_id IS NOT NULL;
-CREATE INDEX idx_bt_recon ON bank_transactions(reconciliation_id) WHERE reconciliation_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_bt_account ON bank_transactions(bank_account_id);
+CREATE INDEX IF NOT EXISTS idx_bt_date ON bank_transactions(transaction_date);
+CREATE INDEX IF NOT EXISTS idx_bt_status ON bank_transactions(status);
+CREATE INDEX IF NOT EXISTS idx_bt_reference ON bank_transactions(reference) WHERE reference IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_bt_batch ON bank_transactions(import_batch_id) WHERE import_batch_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_bt_recon ON bank_transactions(reconciliation_id) WHERE reconciliation_id IS NOT NULL;
 
 -- ── Triggers ──────────────────────────────────────────────────────────────────
 

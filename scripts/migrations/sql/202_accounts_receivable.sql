@@ -30,10 +30,10 @@ CREATE TABLE IF NOT EXISTS customer_payments (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_cp_client ON customer_payments(client_id);
-CREATE INDEX idx_cp_status ON customer_payments(status);
-CREATE INDEX idx_cp_date ON customer_payments(payment_date);
-CREATE INDEX idx_cp_project ON customer_payments(project_id) WHERE project_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_cp_client ON customer_payments(client_id);
+CREATE INDEX IF NOT EXISTS idx_cp_status ON customer_payments(status);
+CREATE INDEX IF NOT EXISTS idx_cp_date ON customer_payments(payment_date);
+CREATE INDEX IF NOT EXISTS idx_cp_project ON customer_payments(project_id) WHERE project_id IS NOT NULL;
 
 -- ── Customer Payment Allocations ──────────────────────────────────────────────
 
@@ -46,8 +46,8 @@ CREATE TABLE IF NOT EXISTS customer_payment_allocations (
   UNIQUE(payment_id, invoice_id)
 );
 
-CREATE INDEX idx_cpa_payment ON customer_payment_allocations(payment_id);
-CREATE INDEX idx_cpa_invoice ON customer_payment_allocations(invoice_id);
+CREATE INDEX IF NOT EXISTS idx_cpa_payment ON customer_payment_allocations(payment_id);
+CREATE INDEX IF NOT EXISTS idx_cpa_invoice ON customer_payment_allocations(invoice_id);
 
 -- ── Credit Notes (Customer & Supplier) ────────────────────────────────────────
 
@@ -78,10 +78,10 @@ CREATE TABLE IF NOT EXISTS credit_notes (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_cn_type ON credit_notes(type);
-CREATE INDEX idx_cn_status ON credit_notes(status);
-CREATE INDEX idx_cn_client ON credit_notes(client_id) WHERE client_id IS NOT NULL;
-CREATE INDEX idx_cn_supplier ON credit_notes(supplier_id) WHERE supplier_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_cn_type ON credit_notes(type);
+CREATE INDEX IF NOT EXISTS idx_cn_status ON credit_notes(status);
+CREATE INDEX IF NOT EXISTS idx_cn_client ON credit_notes(client_id) WHERE client_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_cn_supplier ON credit_notes(supplier_id) WHERE supplier_id IS NOT NULL;
 
 -- ── Triggers ──────────────────────────────────────────────────────────────────
 

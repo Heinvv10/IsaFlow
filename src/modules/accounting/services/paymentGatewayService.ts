@@ -227,11 +227,12 @@ export async function handleITN(
 
   const tx = txRows[0];
 
-  // 4. Verify amount matches
-  const itnAmount = parseFloat(body.amount_gross || '0');
-  const expectedAmount = Number(tx.amount);
-  if (Math.abs(itnAmount - expectedAmount) > 0.01) {
-    log.error('ITN rejected: amount mismatch', { expected: expectedAmount, received: itnAmount }, 'PaymentGateway');
+  // 4. Verify amount matches (compare in integer cents to avoid float precision errors)
+  const itnCents = Math.round(parseFloat(body.amount_gross || '0') * 100);
+  const itnAmount = itnCents / 100;
+  const expectedCents = Math.round(Number(tx.amount) * 100);
+  if (itnCents !== expectedCents) {
+    log.error('ITN rejected: amount mismatch', { expectedCents, receivedCents: itnCents }, 'PaymentGateway');
     await sql`
       UPDATE payment_transactions SET status = 'failed', error_message = 'Amount mismatch', updated_at = NOW()
       WHERE id = ${transactionId}::UUID

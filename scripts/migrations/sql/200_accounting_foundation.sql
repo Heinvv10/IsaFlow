@@ -21,10 +21,10 @@ CREATE TABLE IF NOT EXISTS gl_accounts (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_gl_accounts_code ON gl_accounts(account_code);
-CREATE INDEX idx_gl_accounts_parent ON gl_accounts(parent_account_id);
-CREATE INDEX idx_gl_accounts_type ON gl_accounts(account_type);
-CREATE INDEX idx_gl_accounts_active ON gl_accounts(is_active);
+CREATE INDEX IF NOT EXISTS idx_gl_accounts_code ON gl_accounts(account_code);
+CREATE INDEX IF NOT EXISTS idx_gl_accounts_parent ON gl_accounts(parent_account_id);
+CREATE INDEX IF NOT EXISTS idx_gl_accounts_type ON gl_accounts(account_type);
+CREATE INDEX IF NOT EXISTS idx_gl_accounts_active ON gl_accounts(is_active);
 
 -- ── Fiscal Periods ──────────────────────────────────────────────────────────
 
@@ -43,9 +43,9 @@ CREATE TABLE IF NOT EXISTS fiscal_periods (
   UNIQUE(fiscal_year, period_number)
 );
 
-CREATE INDEX idx_fiscal_periods_year ON fiscal_periods(fiscal_year);
-CREATE INDEX idx_fiscal_periods_status ON fiscal_periods(status);
-CREATE INDEX idx_fiscal_periods_dates ON fiscal_periods(start_date, end_date);
+CREATE INDEX IF NOT EXISTS idx_fiscal_periods_year ON fiscal_periods(fiscal_year);
+CREATE INDEX IF NOT EXISTS idx_fiscal_periods_status ON fiscal_periods(status);
+CREATE INDEX IF NOT EXISTS idx_fiscal_periods_dates ON fiscal_periods(start_date, end_date);
 
 -- ── GL Journal Entries ──────────────────────────────────────────────────────
 
@@ -71,11 +71,11 @@ CREATE TABLE IF NOT EXISTS gl_journal_entries (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_gl_je_date ON gl_journal_entries(entry_date);
-CREATE INDEX idx_gl_je_period ON gl_journal_entries(fiscal_period_id);
-CREATE INDEX idx_gl_je_source ON gl_journal_entries(source);
-CREATE INDEX idx_gl_je_status ON gl_journal_entries(status);
-CREATE INDEX idx_gl_je_number ON gl_journal_entries(entry_number);
+CREATE INDEX IF NOT EXISTS idx_gl_je_date ON gl_journal_entries(entry_date);
+CREATE INDEX IF NOT EXISTS idx_gl_je_period ON gl_journal_entries(fiscal_period_id);
+CREATE INDEX IF NOT EXISTS idx_gl_je_source ON gl_journal_entries(source);
+CREATE INDEX IF NOT EXISTS idx_gl_je_status ON gl_journal_entries(status);
+CREATE INDEX IF NOT EXISTS idx_gl_je_number ON gl_journal_entries(entry_number);
 
 -- ── GL Journal Lines ────────────────────────────────────────────────────────
 
@@ -92,9 +92,9 @@ CREATE TABLE IF NOT EXISTS gl_journal_lines (
   CONSTRAINT chk_debit_or_credit CHECK (NOT (debit > 0 AND credit > 0))
 );
 
-CREATE INDEX idx_gl_jl_entry ON gl_journal_lines(journal_entry_id);
-CREATE INDEX idx_gl_jl_account ON gl_journal_lines(gl_account_id);
-CREATE INDEX idx_gl_jl_project ON gl_journal_lines(project_id) WHERE project_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_gl_jl_entry ON gl_journal_lines(journal_entry_id);
+CREATE INDEX IF NOT EXISTS idx_gl_jl_account ON gl_journal_lines(gl_account_id);
+CREATE INDEX IF NOT EXISTS idx_gl_jl_project ON gl_journal_lines(project_id) WHERE project_id IS NOT NULL;
 
 -- ── GL Account Balances (cache) ─────────────────────────────────────────────
 
@@ -109,8 +109,8 @@ CREATE TABLE IF NOT EXISTS gl_account_balances (
   UNIQUE(gl_account_id, fiscal_period_id)
 );
 
-CREATE INDEX idx_gl_ab_account ON gl_account_balances(gl_account_id);
-CREATE INDEX idx_gl_ab_period ON gl_account_balances(fiscal_period_id);
+CREATE INDEX IF NOT EXISTS idx_gl_ab_account ON gl_account_balances(gl_account_id);
+CREATE INDEX IF NOT EXISTS idx_gl_ab_period ON gl_account_balances(fiscal_period_id);
 
 -- ── Triggers ────────────────────────────────────────────────────────────────
 
