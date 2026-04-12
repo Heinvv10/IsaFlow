@@ -188,3 +188,41 @@ export async function seedChartOfAccountsFromTemplate(
   cache.invalidatePrefix(`${companyId}:gl-accounts`);
   log.info('COA seeded from template', { companyId, template, count: lines.length }, 'accounting');
 }
+
+// ── Account Balance ───────────────────────────────────────────────────────────
+
+export async function getAccountBalance(
+  accountId: string,
+  fiscalPeriodId?: string,
+): Promise<{ debitTotal: number; creditTotal: number; balance: number }> {
+  try {
+    let rows: { debit_total: string; credit_total: string; balance: string }[];
+    if (fiscalPeriodId) {
+      rows = await sql`
+        SELECT debit_total, credit_total, balance
+        FROM gl_account_balances
+        WHERE gl_account_id = ${accountId} AND fiscal_period_id = ${fiscalPeriodId}
+      ` as typeof rows;
+    } else {
+      rows = await sql`
+        SELECT
+          COALESCE(SUM(debit_total), 0) AS debit_total,
+          COALESCE(SUM(credit_total), 0) AS credit_total,
+          COALESCE(SUM(balance), 0) AS balance
+        FROM gl_account_balances
+        WHERE gl_account_id = ${accountId}
+      ` as typeof rows;
+    }
+
+    if (rows.length === 0) return { debitTotal: 0, creditTotal: 0, balance: 0 };
+
+    return {
+      debitTotal: Number(rows[0]!.debit_total),
+      creditTotal: Number(rows[0]!.credit_total),
+      balance: Number(rows[0]!.balance),
+    };
+  } catch (err) {
+    log.error('Failed to get account balance', { accountId, error: err }, 'accounting');
+    throw err;
+  }
+}
