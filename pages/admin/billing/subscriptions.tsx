@@ -128,6 +128,7 @@ export default function SubscriptionsPage() {
     try {
       const res  = await apiFetch('/api/admin/billing/subscriptions', {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({
           company_id:    form.company_id,
           plan_id:       form.plan_id,
@@ -151,7 +152,7 @@ export default function SubscriptionsPage() {
     setCancelling(true);
     setCancelError('');
     try {
-      const res  = await apiFetch(`/api/admin/billing/subscriptions/${id}/cancel`, { method: 'POST', body: JSON.stringify({ at_period_end: false }) });
+      const res  = await apiFetch(`/api/admin/billing/subscriptions/${id}/cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify({ at_period_end: false }) });
       const json = await res.json();
       if (!res.ok) throw new Error((json as { message?: string }).message || 'Failed to cancel');
       setConfirmCancelId(null);

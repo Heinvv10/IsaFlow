@@ -122,7 +122,7 @@ export default function EmailLogPage() {
   async function handleResend(logId: string) {
     setResendingId(logId);
     try {
-      const res  = await apiFetch('/api/admin/email-log/resend', { method: 'POST', body: JSON.stringify({ logId }), credentials: 'include' });
+      const res  = await apiFetch('/api/admin/email-log/resend', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify({ logId }), credentials: 'include' });
       const json = await res.json() as { message?: string };
       if (!res.ok) throw new Error(json.message ?? 'Resend failed');
       setResendStatus(prev => ({ ...prev, [logId]: 'ok' }));

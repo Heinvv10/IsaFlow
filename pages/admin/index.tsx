@@ -106,7 +106,7 @@ export default function AdminDashboard() {
     try {
       await apiFetch('/api/admin/trials', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ company_id: companyId, days: 7 }),
       });
       await load();

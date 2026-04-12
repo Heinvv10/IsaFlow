@@ -97,7 +97,7 @@ export default function AdminSettings() {
     setError('');
     setSuccess('');
     try {
-      const res  = await apiFetch('/api/admin/settings', { method: 'PATCH', body: JSON.stringify(settings) });
+      const res  = await apiFetch('/api/admin/settings', { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify(settings) });
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Failed to save settings');
       setSuccess('Settings saved successfully.');

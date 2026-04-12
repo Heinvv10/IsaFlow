@@ -105,7 +105,7 @@ export default function InvoicesPage() {
   async function handleAction(id: string, action: 'send' | 'mark_paid') {
     setActionId(id);
     try {
-      const res  = await apiFetch(`/api/admin/billing/invoices/${id}/${action}`, { method: 'POST' });
+      const res  = await apiFetch(`/api/admin/billing/invoices/${id}/${action}`, { method: 'POST', headers: { 'X-Admin-Request': 'true' } });
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Action failed');
       void load(search, status, dateFrom, dateTo, page);
@@ -125,6 +125,7 @@ export default function InvoicesPage() {
     try {
       const res  = await apiFetch('/api/admin/billing/invoices', {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({
           company_id:     form.company_id,
           subtotal_cents: Math.round(parseFloat(form.subtotal) * 100),

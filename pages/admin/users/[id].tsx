@@ -121,7 +121,7 @@ export default function AdminUserDetailPage() {
     if (!defaultCompany) { setActionError('User has no linked company to impersonate'); return; }
     setActionLoading(true); setActionError('');
     try {
-      const res  = await apiFetch(`/api/admin/companies/${defaultCompany.company_id}/impersonate`, { method: 'POST' });
+      const res  = await apiFetch(`/api/admin/companies/${defaultCompany.company_id}/impersonate`, { method: 'POST', headers: { 'X-Admin-Request': 'true' } });
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Failed to create impersonation token');
       const token = (json.data as { token: string }).token;

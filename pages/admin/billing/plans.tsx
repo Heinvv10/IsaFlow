@@ -111,8 +111,8 @@ export default function PlansPage() {
     setSaving(true);
     try {
       const res  = editId
-        ? await apiFetch(`/api/admin/billing/plans/${editId}`, { method: 'PUT',  body: JSON.stringify(body) })
-        : await apiFetch('/api/admin/billing/plans',            { method: 'POST', body: JSON.stringify(body) });
+        ? await apiFetch(`/api/admin/billing/plans/${editId}`, { method: 'PUT',  headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify(body) })
+        : await apiFetch('/api/admin/billing/plans',            { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify(body) });
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Save failed');
       setShowForm(false);
@@ -127,7 +127,7 @@ export default function PlansPage() {
   async function handleArchive(id: string) {
     if (!confirm('Archive this plan? Existing subscriptions will not be affected.')) return;
     try {
-      const res  = await apiFetch(`/api/admin/billing/plans/${id}`, { method: 'DELETE' });
+      const res  = await apiFetch(`/api/admin/billing/plans/${id}`, { method: 'DELETE', headers: { 'X-Admin-Request': 'true' } });
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Archive failed');
       void load();

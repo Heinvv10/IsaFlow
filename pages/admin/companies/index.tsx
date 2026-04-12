@@ -155,7 +155,7 @@ export default function AdminCompaniesPage() {
     try {
       const res  = await apiFetch('/api/admin/companies', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify(createForm),
       });
       const json = await res.json();
@@ -177,7 +177,7 @@ export default function AdminCompaniesPage() {
     try {
       await apiFetch(`/api/admin/companies/${companyId}/suspend`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ reason: 'Suspended by admin' }),
       });
       void load(search, status, page, sortBy, sortDir);
@@ -189,7 +189,7 @@ export default function AdminCompaniesPage() {
     e.stopPropagation();
     setActionLoading(companyId + ':activate');
     try {
-      await apiFetch(`/api/admin/companies/${companyId}/activate`, { method: 'POST' });
+      await apiFetch(`/api/admin/companies/${companyId}/activate`, { method: 'POST', headers: { 'X-Admin-Request': 'true' } });
       void load(search, status, page, sortBy, sortDir);
     } catch { /* surfaced via row reload */ }
     finally { setActionLoading(null); }
@@ -206,7 +206,7 @@ export default function AdminCompaniesPage() {
     try {
       const res  = await apiFetch('/api/admin/companies/bulk-action', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ action: 'suspend', company_ids: [...selectedIds], reason: 'Bulk suspended by admin' }),
       });
       const json = await res.json();
@@ -225,7 +225,7 @@ export default function AdminCompaniesPage() {
     try {
       const res  = await apiFetch('/api/admin/companies/bulk-action', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ action: 'extend_trial', company_ids: [...selectedIds], days: 7 }),
       });
       const json = await res.json();

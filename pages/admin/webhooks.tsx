@@ -81,6 +81,7 @@ export default function AdminWebhooksPage() {
       const res = await apiFetch(`/api/admin/webhooks/${id}`, {
         method: 'PATCH',
         credentials: 'include',
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ status: currentlyActive ? 'disabled' : 'active' }),
       });
       if (!res.ok) {
@@ -104,6 +105,7 @@ export default function AdminWebhooksPage() {
       const res = await apiFetch(`/api/admin/webhooks/${deleteTarget.id}`, {
         method: 'DELETE',
         credentials: 'include',
+        headers: { 'X-Admin-Request': 'true' },
       });
       if (!res.ok) {
         const j = await res.json() as { error?: { message?: string } };

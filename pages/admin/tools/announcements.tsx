@@ -84,11 +84,11 @@ export default function AdminAnnouncementsPage() {
 
       if (editItem) {
         await apiFetch(`/api/admin/announcements/${editItem.id}`, {
-          method: 'PATCH', body: JSON.stringify(body),
+          method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify(body),
         });
       } else {
         await apiFetch('/api/admin/announcements', {
-          method: 'POST', body: JSON.stringify(body),
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify(body),
         });
       }
 
@@ -105,7 +105,7 @@ export default function AdminAnnouncementsPage() {
   const handleDelete = async () => {
     if (!deleteId) return;
     try {
-      await apiFetch(`/api/admin/announcements/${deleteId}`, { method: 'DELETE' });
+      await apiFetch(`/api/admin/announcements/${deleteId}`, { method: 'DELETE', headers: { 'X-Admin-Request': 'true' } });
       setDeleteId(null);
       await load();
     } catch (err) {

@@ -14,6 +14,8 @@ import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 import { sql } from '@/lib/neon';
 
+const MAX_BULK_IDS = 100;
+
 type BulkActionPayload =
   | { action: 'suspend'; company_ids: string[]; reason?: string }
   | { action: 'extend_trial'; company_ids: string[]; days: number };
@@ -30,11 +32,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'company_ids must be a non-empty array');
   }
 
-  // Validate IDs are strings (basic UUID-ish guard)
-  for (const id of company_ids) {
-    if (typeof id !== 'string' || id.trim().length === 0) {
-      return apiResponse.badRequest(res, 'Invalid company_id in list');
-    }
+  // F-02: enforce maximum batch size to prevent DoS
+  if (company_ids.length > MAX_BULK_IDS) {
+    return apiResponse.badRequest(res, 'Maximum 100 company IDs per bulk action');
+  }
+
+  // F-07: validate every element is a well-formed UUID string
+  if (!company_ids.every(id => typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id))) {
+    return apiResponse.badRequest(res, 'All company_ids must be valid UUID strings');
   }
 
   const ip = getIp(req);
