@@ -5,8 +5,9 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Landmark, Loader2, AlertCircle, Plus, ArrowUpRight, ArrowDownRight, X, Pencil } from 'lucide-react';
+import { Landmark, Loader2, AlertCircle, Plus, ArrowUpRight, ArrowDownRight, X, Pencil, ExternalLink } from 'lucide-react';
 import { notify } from '@/utils/toast';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
@@ -262,6 +263,16 @@ export default function BankAccountsPage() {
                     {acct.firstDate && acct.lastDate && (
                       <span>{acct.firstDate} &rarr; {acct.lastDate}</span>
                     )}
+                  </div>
+
+                  <div className="mt-3 pt-3 border-t border-[var(--ff-border-light)]">
+                    <Link
+                      href={`/accounting/bank-transactions?account_id=${acct.id}`}
+                      className="flex items-center gap-1.5 text-xs font-medium text-cyan-400 hover:text-cyan-300 transition-colors"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      View Transactions
+                    </Link>
                   </div>
                 </div>
               ))}

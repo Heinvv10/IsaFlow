@@ -5,6 +5,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import {
@@ -29,6 +30,7 @@ function tabToStatus(tab: Tab): string {
 }
 
 export default function BankTransactionsPage() {
+  const router = useRouter();
   // Reference / lookup data
   const [glAccounts, setGlAccounts] = useState<SelectOption[]>([]);
   const [suppliers, setSuppliers] = useState<SelectOption[]>([]);
@@ -38,7 +40,20 @@ export default function BankTransactionsPage() {
   const [buOptions, setBuOptions] = useState<SelectOption[]>([]);
   const [bankAccounts, setBankAccounts] = useState<BankAcct[]>([]);
   const [selectedBank, setSelectedBank] = useState('');
+  const didApplyQueryParam = useRef(false);
   useBankTxRefData({ setBankAccounts, setGlAccounts, setSuppliers, setCustomers, setCc1Options, setCc2Options, setBuOptions, setSelectedBank });
+
+  // Pre-select bank account from query param (e.g. ?account_id=...)
+  useEffect(() => {
+    if (didApplyQueryParam.current) return;
+    const accountId = router.query.account_id as string | undefined;
+    if (!accountId || bankAccounts.length === 0) return;
+    const match = bankAccounts.find(b => b.id === accountId);
+    if (match) {
+      setSelectedBank(accountId);
+      didApplyQueryParam.current = true;
+    }
+  }, [router.query.account_id, bankAccounts]);
   // Transaction list
   const [transactions, setTransactions] = useState<BankTx[]>([]);
   const [isLoading, setIsLoading] = useState(true);
