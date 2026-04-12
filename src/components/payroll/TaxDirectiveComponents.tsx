@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import { X, Loader2, Calculator, Plus } from 'lucide-react';
-import { calculateLumpSumTax, type LumpSumCalculation } from '@/modules/accounting/services/taxDirectiveService';
+import { calculateLumpSumTax, type LumpSumCalculation } from '@/lib/taxCalculations';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
