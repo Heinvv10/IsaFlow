@@ -115,6 +115,24 @@ export interface Company {
   // Regional extended
   invoiceLogoPosition: string;
   roundingMethod: string;
+  // Document layouts
+  invoiceLayout: 'classic' | 'modern' | 'minimal';
+  quoteLayout: 'classic' | 'modern' | 'minimal';
+  statementLayout: 'classic' | 'modern' | 'minimal';
+  // Customer Zone (portal)
+  portalDisplayName: string | null;
+  portalTagline: string | null;
+  portalMode: 'full' | 'invoices_only' | 'statements_only';
+  portalShowAccountBalance: boolean;
+  portalShowTransactionHistory: boolean;
+  portalAllowPayments: boolean;
+  portalPaymentInstructions: string | null;
+  portalWelcomeMessage: string | null;
+  portalPrimaryColor: string | null;
+  // Netcash integration
+  netcashServiceKey: string | null;
+  netcashPayoutsKey: string | null;
+  netcashEnabled: boolean;
 }
 
 export interface DocumentNumber {

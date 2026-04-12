@@ -9,6 +9,51 @@ interface Props {
   onError: (msg: string) => void;
 }
 
+type LayoutOption = 'classic' | 'modern' | 'minimal';
+
+const LAYOUT_OPTIONS: { value: LayoutOption; label: string; description: string }[] = [
+  { value: 'classic', label: 'Classic', description: 'Traditional layout with header table' },
+  { value: 'modern', label: 'Modern', description: 'Bold header with brand color accent' },
+  { value: 'minimal', label: 'Minimal', description: 'Clean, compact, monochrome' },
+];
+
+interface LayoutPickerProps {
+  label: string;
+  value: LayoutOption;
+  onChange: (v: LayoutOption) => void;
+}
+
+function LayoutPicker({ label, value, onChange }: LayoutPickerProps) {
+  return (
+    <div>
+      <p className={LABEL_CLS}>{label}</p>
+      <div className="flex gap-3 flex-wrap">
+        {LAYOUT_OPTIONS.map((opt) => {
+          const active = value === opt.value;
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => onChange(opt.value)}
+              className={[
+                'flex flex-col gap-1 px-4 py-3 rounded-lg border text-left transition-colors min-w-[120px]',
+                active
+                  ? 'border-teal-500 bg-teal-500/10 text-teal-400'
+                  : 'border-[var(--ff-border-primary)] bg-[var(--ff-bg-primary)] text-[var(--ff-text-secondary)] hover:border-teal-600',
+              ].join(' ')}
+            >
+              <span className={`text-sm font-semibold ${active ? 'text-teal-400' : 'text-[var(--ff-text-primary)]'}`}>
+                {opt.label}
+              </span>
+              <span className="text-xs leading-tight text-[var(--ff-text-tertiary)]">{opt.description}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function BrandingTab({ company, onChange, onCompanyChange, onError }: Props) {
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -99,7 +144,30 @@ export function BrandingTab({ company, onChange, onCompanyChange, onError }: Pro
           <Toggle checked={company.logoOnPortal} onChange={v => onChange('logoOnPortal', v)} label="Show Logo on Customer Portal" />
         </div>
       </section>
+
+      <section className={SECTION_CLS}>
+        <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-1">Document Layouts</h2>
+        <p className="text-xs text-[var(--ff-text-tertiary)] mb-5">
+          Choose how printed and PDF documents look. Each document type can have its own layout.
+        </p>
+        <div className="flex flex-col gap-6">
+          <LayoutPicker
+            label="Invoice Layout"
+            value={company.invoiceLayout}
+            onChange={v => onChange('invoiceLayout', v)}
+          />
+          <LayoutPicker
+            label="Quote Layout"
+            value={company.quoteLayout}
+            onChange={v => onChange('quoteLayout', v)}
+          />
+          <LayoutPicker
+            label="Statement Layout"
+            value={company.statementLayout}
+            onChange={v => onChange('statementLayout', v)}
+          />
+        </div>
+      </section>
     </>
   );
 }
-

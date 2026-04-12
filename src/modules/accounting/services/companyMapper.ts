@@ -137,6 +137,20 @@ export interface Company {
   // Regional extended
   invoiceLogoPosition: string;
   roundingMethod: string;
+  // Document layouts
+  invoiceLayout: 'classic' | 'modern' | 'minimal';
+  quoteLayout: 'classic' | 'modern' | 'minimal';
+  statementLayout: 'classic' | 'modern' | 'minimal';
+  // Customer Zone (portal)
+  portalDisplayName: string | null;
+  portalTagline: string | null;
+  portalMode: 'full' | 'invoices_only' | 'statements_only';
+  portalShowAccountBalance: boolean;
+  portalShowTransactionHistory: boolean;
+  portalAllowPayments: boolean;
+  portalPaymentInstructions: string | null;
+  portalWelcomeMessage: string | null;
+  portalPrimaryColor: string | null;
 }
 
 export interface CompanyUser {
@@ -268,5 +282,18 @@ export function mapCompany(r: Record<string, unknown>): Company {
     socialX: strN(r.social_x),
     invoiceLogoPosition: r.invoice_logo_position != null ? String(r.invoice_logo_position) : 'top-right',
     roundingMethod: r.rounding_method != null ? String(r.rounding_method) : 'half-up',
+    invoiceLayout: (r.invoice_layout != null ? String(r.invoice_layout) : 'classic') as 'classic' | 'modern' | 'minimal',
+    quoteLayout: (r.quote_layout != null ? String(r.quote_layout) : 'classic') as 'classic' | 'modern' | 'minimal',
+    statementLayout: (r.statement_layout != null ? String(r.statement_layout) : 'classic') as 'classic' | 'modern' | 'minimal',
+    // Customer Zone
+    portalDisplayName: strN(r.portal_display_name),
+    portalTagline: strN(r.portal_tagline),
+    portalMode: (r.portal_mode != null ? String(r.portal_mode) : 'full') as 'full' | 'invoices_only' | 'statements_only',
+    portalShowAccountBalance: bool(r.portal_show_account_balance, true),
+    portalShowTransactionHistory: bool(r.portal_show_transaction_history, true),
+    portalAllowPayments: bool(r.portal_allow_payments, true),
+    portalPaymentInstructions: strN(r.portal_payment_instructions),
+    portalWelcomeMessage: strN(r.portal_welcome_message),
+    portalPrimaryColor: strN(r.portal_primary_color),
   };
 }

@@ -199,6 +199,18 @@ export async function updateCompany(id: string, input: Partial<Record<string, un
       social_x = COALESCE(${v('socialX') ?? null}, social_x),
       invoice_logo_position = COALESCE(${v('invoiceLogoPosition') ?? null}, invoice_logo_position),
       rounding_method = COALESCE(${v('roundingMethod') ?? null}, rounding_method),
+      invoice_layout = COALESCE(${v('invoiceLayout') ?? null}, invoice_layout),
+      quote_layout = COALESCE(${v('quoteLayout') ?? null}, quote_layout),
+      statement_layout = COALESCE(${v('statementLayout') ?? null}, statement_layout),
+      portal_display_name = COALESCE(${v('portalDisplayName') ?? null}, portal_display_name),
+      portal_tagline = COALESCE(${v('portalTagline') ?? null}, portal_tagline),
+      portal_mode = COALESCE(${v('portalMode') ?? null}, portal_mode),
+      portal_show_account_balance = COALESCE(${v('portalShowAccountBalance') ?? null}, portal_show_account_balance),
+      portal_show_transaction_history = COALESCE(${v('portalShowTransactionHistory') ?? null}, portal_show_transaction_history),
+      portal_allow_payments = COALESCE(${v('portalAllowPayments') ?? null}, portal_allow_payments),
+      portal_payment_instructions = COALESCE(${v('portalPaymentInstructions') ?? null}, portal_payment_instructions),
+      portal_welcome_message = COALESCE(${v('portalWelcomeMessage') ?? null}, portal_welcome_message),
+      portal_primary_color = COALESCE(${v('portalPrimaryColor') ?? null}, portal_primary_color),
       updated_at = NOW()
     WHERE id = ${id}::UUID RETURNING *
   `) as Record<string, unknown>[];

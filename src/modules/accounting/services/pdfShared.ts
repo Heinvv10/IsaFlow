@@ -31,6 +31,10 @@ export const fmtDate = (d: string | Date | null | undefined): string => {
 
 export const TEAL = { r: 20, g: 184, b: 166 }; // #14b8a6
 
+// ── Layout types ──────────────────────────────────────────────────────────────
+
+export type DocumentLayout = 'classic' | 'modern' | 'minimal';
+
 // ── Company Details ────────────────────────────────────────────────────────────
 
 export interface CompanyDetails {
@@ -44,6 +48,11 @@ export interface CompanyDetails {
   bankAccountNumber: string;
   bankBranchCode: string;
   bankReference: string;
+  logoData: string | null;
+  primaryColor: string;
+  invoiceLayout: DocumentLayout;
+  quoteLayout: DocumentLayout;
+  statementLayout: DocumentLayout;
 }
 
 const COMPANY_SETTINGS_KEYS = [
@@ -73,6 +82,11 @@ async function getCompanyDetailsFromSettings(): Promise<CompanyDetails> {
       bankAccountNumber: settings.bank_account_number || '',
       bankBranchCode: settings.bank_branch_code || '',
       bankReference: '',
+      logoData: null,
+      primaryColor: '#0d9488',
+      invoiceLayout: 'classic',
+      quoteLayout: 'classic',
+      statementLayout: 'classic',
     };
   } catch {
     log.warn('Failed to load company settings for PDF, using fallbacks', {}, 'pdfShared');
@@ -81,6 +95,11 @@ async function getCompanyDetailsFromSettings(): Promise<CompanyDetails> {
       address: '', phone: '', email: '', vatNumber: '',
       bankName: '', bankAccountName: '', bankAccountNumber: '',
       bankBranchCode: '', bankReference: '',
+      logoData: null,
+      primaryColor: '#0d9488',
+      invoiceLayout: 'classic',
+      quoteLayout: 'classic',
+      statementLayout: 'classic',
     };
   }
 }
@@ -93,7 +112,9 @@ export async function getCompanyDetailsFromCompany(companyId: string): Promise<C
     const rows = await sql`
       SELECT name, address_line1, address_line2, city, province, postal_code,
              phone, email, vat_number,
-             bank_name, bank_account_number, bank_branch_code
+             bank_name, bank_account_number, bank_branch_code,
+             logo_data, primary_color,
+             invoice_layout, quote_layout, statement_layout
       FROM companies WHERE id = ${companyId}::UUID
     `;
     if (rows.length > 0) {
@@ -110,12 +131,102 @@ export async function getCompanyDetailsFromCompany(companyId: string): Promise<C
         bankAccountNumber: c.bank_account_number ? String(c.bank_account_number) : '',
         bankBranchCode: c.bank_branch_code ? String(c.bank_branch_code) : '',
         bankReference: '',
+        logoData: c.logo_data ? String(c.logo_data) : null,
+        primaryColor: c.primary_color ? String(c.primary_color) : '#0d9488',
+        invoiceLayout: (c.invoice_layout ? String(c.invoice_layout) : 'classic') as DocumentLayout,
+        quoteLayout: (c.quote_layout ? String(c.quote_layout) : 'classic') as DocumentLayout,
+        statementLayout: (c.statement_layout ? String(c.statement_layout) : 'classic') as DocumentLayout,
       };
     }
   } catch {
     log.warn('Failed to load company from companies table, trying app_settings', {}, 'pdfShared');
   }
   return getCompanyDetailsFromSettings();
+}
+
+// ── Color helpers ─────────────────────────────────────────────────────────────
+
+/** Parse a hex color string into r/g/b numbers, fallback to TEAL. */
+export function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const clean = hex.replace('#', '');
+  if (clean.length !== 6) return TEAL;
+  const r = parseInt(clean.slice(0, 2), 16);
+  const g = parseInt(clean.slice(2, 4), 16);
+  const b = parseInt(clean.slice(4, 6), 16);
+  return { r, g, b };
+}
+
+// ── Invoice header renderer ───────────────────────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type JsPdfDoc = any;
+
+export interface InvoiceHeaderCtx {
+  doc: JsPdfDoc;
+  invoice: Record<string, unknown>;
+  layout: DocumentLayout;
+  pageW: number;
+  margin: number;
+  accent: { r: number; g: number; b: number };
+  company: CompanyDetails;
+}
+
+/** Render page header bar and return Y position after header. */
+export function renderInvoiceHeader(ctx: InvoiceHeaderCtx): number {
+  const { doc, invoice, layout, pageW, margin, accent, company } = ctx;
+
+  if (layout === 'minimal') {
+    doc.setFontSize(18);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(30, 30, 30);
+    doc.text('TAX INVOICE', margin, 14);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(80, 80, 80);
+    doc.text(String(invoice.invoice_number || ''), pageW - margin, 10, { align: 'right' });
+    doc.text(`Date: ${fmtDate(invoice.invoice_date as string | Date | null | undefined)}`, pageW - margin, 15, { align: 'right' });
+    doc.text(`Due: ${fmtDate(invoice.due_date as string | Date | null | undefined)}`, pageW - margin, 20, { align: 'right' });
+    doc.setDrawColor(180, 180, 180);
+    doc.setLineWidth(0.4);
+    doc.line(margin, 24, pageW - margin, 24);
+    return 30;
+  }
+
+  if (layout === 'modern') {
+    const bannerH = 36;
+    doc.setFillColor(accent.r, accent.g, accent.b);
+    doc.rect(0, 0, pageW, bannerH, 'F');
+    if (company.logoData) {
+      try { doc.addImage(company.logoData, 'AUTO', margin, 4, 28, 28); } catch { /* skip */ }
+    }
+    const textLeft = company.logoData ? margin + 32 : margin;
+    doc.setFontSize(20);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(255, 255, 255);
+    doc.text('TAX INVOICE', textLeft, 20);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.text(String(invoice.invoice_number || ''), pageW - margin, 12, { align: 'right' });
+    doc.setFontSize(8);
+    doc.text(`Date: ${fmtDate(invoice.invoice_date as string | Date | null | undefined)}`, pageW - margin, 19, { align: 'right' });
+    doc.text(`Due: ${fmtDate(invoice.due_date as string | Date | null | undefined)}`, pageW - margin, 25, { align: 'right' });
+    return bannerH + 8;
+  }
+
+  // Classic (default)
+  doc.setFillColor(TEAL.r, TEAL.g, TEAL.b);
+  doc.rect(0, 0, pageW, 28, 'F');
+  doc.setFontSize(22);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(255, 255, 255);
+  doc.text('TAX INVOICE', margin, 18);
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.text(String(invoice.invoice_number || ''), pageW - margin, 12, { align: 'right' });
+  doc.setFontSize(8);
+  doc.text(`Date: ${fmtDate(invoice.invoice_date as string | Date | null | undefined)}`, pageW - margin, 18, { align: 'right' });
+  doc.text(`Due: ${fmtDate(invoice.due_date as string | Date | null | undefined)}`, pageW - margin, 23, { align: 'right' });
+  return 36;
 }
 
 // ── Page footer renderer ──────────────────────────────────────────────────────
