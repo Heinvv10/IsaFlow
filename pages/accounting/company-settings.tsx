@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Building2, Save, Loader2, AlertCircle, CheckCircle2, Settings2, Receipt, FileDigit, Palette, Layers, BarChart2, MessageSquare, Mail } from 'lucide-react';
+import { Building2, Save, Loader2, AlertCircle, CheckCircle2, Settings2, Receipt, FileDigit, Palette, Layers, BarChart2, MessageSquare, Mail, Globe, LayoutList } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
 import { Company, DocumentNumber, CompanyDocument } from '@/components/accounting/settings/settingsTypes';
@@ -19,8 +19,10 @@ import { DimensionsTab } from '@/components/accounting/settings/DimensionsTab';
 import { AgingTab } from '@/components/accounting/settings/AgingTab';
 import { DocMessagesTab } from '@/components/accounting/settings/DocMessagesTab';
 import { EmailTemplatesTab } from '@/components/accounting/settings/EmailTemplatesTab';
+import { UdfTab } from '@/components/accounting/settings/UdfTab';
+import { RegionalTab } from '@/components/accounting/settings/RegionalTab';
 
-type TabId = 'details' | 'general' | 'vat' | 'documents' | 'branding' | 'dimensions' | 'aging' | 'doc-messages' | 'email-templates';
+type TabId = 'details' | 'general' | 'vat' | 'documents' | 'branding' | 'dimensions' | 'aging' | 'doc-messages' | 'email-templates' | 'udf' | 'regional';
 
 const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: 'details', label: 'Company Details', icon: <Building2 className="h-4 w-4" /> },
@@ -32,6 +34,8 @@ const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: 'email-templates', label: 'Email Templates', icon: <Mail className="h-4 w-4" /> },
   { id: 'branding', label: 'Branding', icon: <Palette className="h-4 w-4" /> },
   { id: 'dimensions', label: 'Dimensions', icon: <Layers className="h-4 w-4" /> },
+  { id: 'udf', label: 'User Fields', icon: <LayoutList className="h-4 w-4" /> },
+  { id: 'regional', label: 'Regional', icon: <Globe className="h-4 w-4" /> },
 ];
 
 export default function CompanySettingsPage() {
@@ -216,6 +220,8 @@ export default function CompanySettingsPage() {
               {activeTab === 'dimensions' && (
                 <DimensionsTab enableCC={enableCC} enableBU={enableBU} dimLoaded={dimLoaded} onCCChange={setEnableCC} onBUChange={setEnableBU} />
               )}
+              {activeTab === 'udf' && <UdfTab />}
+              {activeTab === 'regional' && <RegionalTab company={company} onChange={update} />}
             </div>
           </>
         ) : (
