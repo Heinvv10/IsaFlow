@@ -1,5 +1,5 @@
 import { Check, Layers } from 'lucide-react';
-import { FEATURES, DETAILED_FEATURES } from './landingData';
+import { FEATURE_PILLARS as FEATURES, DETAILED_FEATURES } from './landingData';
 
 export function LandingFeaturesGrid() {
   return (
