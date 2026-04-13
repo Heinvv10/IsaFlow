@@ -128,8 +128,9 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
         pass: config.pass,
       },
       tls: {
-        // Allow self-signed certs in dev; enforce TLS validation in production
-        rejectUnauthorized: process.env.NODE_ENV === 'production',
+        // mail.isaflow.co.za uses a wildcard cert for *.jnb1.host-h.net (shared hosting)
+        // so hostname validation must be disabled
+        rejectUnauthorized: false,
       },
     });
 
