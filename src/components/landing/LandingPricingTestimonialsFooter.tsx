@@ -12,7 +12,7 @@ export function LandingTrustBar() {
     <section className="bg-white py-12 border-b border-gray-100">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
         <p className="text-xs font-semibold tracking-widest uppercase text-gray-400 mb-8">
-          Trusted by businesses across South Africa
+          Trusted by businesses worldwide
         </p>
         <div className="flex flex-wrap items-center justify-center gap-8 lg:gap-12">
           {TRUST_COMPANIES.map((name) => (

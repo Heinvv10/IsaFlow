@@ -11,11 +11,6 @@ import {
 
 export { Check, Star };
 
-export interface Stat {
-  value: string;
-  label: string;
-}
-
 export interface FeaturePillar {
   icon: React.ComponentType<LucideProps>;
   title: string;
@@ -56,12 +51,6 @@ export interface FAQItem {
 }
 
 export const APP_URL = 'https://app.isaflow.co.za';
-
-export const STATS: Stat[] = [
-  { value: 'R 2.4B+', label: 'Transactions Processed' },
-  { value: '500+', label: 'Businesses' },
-  { value: '30+', label: 'Financial Reports' },
-];
 
 export const TRUST_COMPANIES = [
   'TechBridge Solutions',

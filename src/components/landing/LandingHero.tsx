@@ -1,9 +1,50 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ArrowRight, PlayCircle } from 'lucide-react';
-import { APP_URL, STATS } from './landingData';
+import { APP_URL } from './landingData';
+interface LandingStats {
+  transactionAmount: number;
+  businessCount: number;
+  invoiceCount: number;
+}
+
+function formatRand(amount: number): string {
+  if (amount >= 1_000_000_000) return `R ${(amount / 1_000_000_000).toFixed(1)}B+`;
+  if (amount >= 1_000_000)     return `R ${(amount / 1_000_000).toFixed(0)}M+`;
+  if (amount >= 1_000)         return `R ${(amount / 1_000).toFixed(0)}K+`;
+  return `R ${amount.toFixed(0)}`;
+}
+
+function formatCount(n: number): string {
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K+`;
+  return `${n}+`;
+}
+
+interface StatItem { value: string; label: string }
+
+function buildStats(data: LandingStats): StatItem[] {
+  return [
+    { value: formatRand(data.transactionAmount), label: 'Transactions Processed' },
+    { value: formatCount(data.businessCount),    label: 'Businesses' },
+    { value: formatCount(data.invoiceCount),     label: 'Invoices Processed' },
+  ];
+}
+
+const FALLBACK_STATS: StatItem[] = [
+  { value: 'R 144M+', label: 'Transactions Processed' },
+  { value: '1+',      label: 'Businesses' },
+  { value: '1.2K+',   label: 'Invoices Processed' },
+];
 
 export function LandingHero() {
   const [logoVisible, setLogoVisible] = useState(false);
+  const [stats, setStats] = useState<StatItem[]>(FALLBACK_STATS);
+
+  useEffect(() => {
+    fetch('/api/landing-stats')
+      .then((r) => r.json())
+      .then((data: LandingStats) => setStats(buildStats(data)))
+      .catch(() => { /* keep fallback */ });
+  }, []);
 
   return (
     <>
@@ -104,7 +145,7 @@ export function LandingHero() {
       <section className="bg-gray-900 py-14">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 text-center">
-            {STATS.map((s) => (
+            {stats.map((s) => (
               <div key={s.label}>
                 <p className="text-4xl lg:text-5xl font-extrabold text-white mb-1">{s.value}</p>
                 <p className="text-sm text-gray-400">{s.label}</p>
