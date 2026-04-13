@@ -9,7 +9,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
-import { importChartOfAccounts, type AccountImportRow, type SystemAccountMap } from '@/modules/accounting/services/migrationCoaService';
+import { importChartOfAccounts, type AccountImportRow, type SystemAccountMap } from '@/modules/accounting/services/core/migrationCoaService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {

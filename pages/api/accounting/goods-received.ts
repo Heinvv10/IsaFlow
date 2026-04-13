@@ -7,7 +7,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { validateGRN, generateGRNNumber } from '@/modules/accounting/services/procurementService';
+import { validateGRN, generateGRNNumber } from '@/modules/accounting/services/ap/procurementService';
 import type { CompanyApiRequest } from '@/lib/auth/withCompany';
 
 type Row = Record<string, unknown>;

@@ -4,7 +4,7 @@
  */
 
 import { Archive, CheckCircle2, XCircle, Eye, Loader2 } from 'lucide-react';
-import type { ArchivePreview, ArchiveValidation } from '@/modules/accounting/services/dataArchivingService';
+import type { ArchivePreview, ArchiveValidation } from '@/modules/accounting/services/core/dataArchivingService';
 
 interface Props {
   cutoffDate: string;

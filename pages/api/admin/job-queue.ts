@@ -9,7 +9,7 @@ import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
-import { listJobs, retryJob } from '@/modules/accounting/services/jobQueueService';
+import { listJobs, retryJob } from '@/modules/accounting/services/core/jobQueueService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 

@@ -9,7 +9,7 @@ import {
   buildCashFlowWaterfall,
   buildVarianceWaterfall,
   type WaterfallStep,
-} from '@/modules/accounting/services/waterfallDataService';
+} from '@/modules/accounting/services/reports/waterfallDataService';
 
 describe('Profit Waterfall', () => {
   it('builds correct steps from Revenue to Net Profit', () => {

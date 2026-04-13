@@ -16,7 +16,7 @@ import {
   saveTemplate,
   deleteTemplate,
   type TemplateInput,
-} from '@/modules/accounting/services/customReportService';
+} from '@/modules/accounting/services/reports/customReportService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId, user } = req as CompanyApiRequest;

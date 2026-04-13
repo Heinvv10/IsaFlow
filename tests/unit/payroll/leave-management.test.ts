@@ -14,7 +14,7 @@ import {
   type LeaveApplicationInput,
   type TerminationInput,
   type OvertimeInput,
-} from '@/modules/accounting/services/leaveService';
+} from '@/modules/accounting/services/core/leaveService';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // BCEA LEAVE ENTITLEMENTS

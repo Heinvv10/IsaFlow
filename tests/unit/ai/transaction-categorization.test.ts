@@ -14,7 +14,7 @@ import {
   type CategorizationResult,
   type ChartOfAccountEntry,
   type CategorizationStrategy,
-} from '@/modules/accounting/services/aiCategorizationService';
+} from '@/modules/accounting/services/core/aiCategorizationService';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // PROMPT BUILDING

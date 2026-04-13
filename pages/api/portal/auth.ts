@@ -6,7 +6,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { authenticatePortalUser } from '@/modules/accounting/services/portalService';
+import { authenticatePortalUser } from '@/modules/accounting/services/ar/portalService';
 import { SignJWT } from 'jose';
 import cookie from 'cookie';
 import { checkRateLimit } from '@/lib/rateLimit';

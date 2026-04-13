@@ -8,7 +8,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { seedChartOfAccountsFromTemplate, type CoaTemplate } from '@/modules/accounting/services/chartOfAccountsService';
+import { seedChartOfAccountsFromTemplate, type CoaTemplate } from '@/modules/accounting/services/gl/chartOfAccountsService';
 
 const VALID_TEMPLATES: CoaTemplate[] = ['isaflow_standard', 'xero_compatible', 'sage_compatible', 'blank'];
 

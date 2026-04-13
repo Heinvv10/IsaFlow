@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateAsset, validateDisposal, generateAssetNumber, SARS_WEAR_AND_TEAR, type AssetInput, type DisposalInput } from '@/modules/accounting/services/assetService';
+import { validateAsset, validateDisposal, generateAssetNumber, SARS_WEAR_AND_TEAR, type AssetInput, type DisposalInput } from '@/modules/accounting/services/items/assetService';
 
 describe('Asset Input Validation', () => {
   const validAsset: AssetInput = { name: 'Dell Laptop XPS 15', category: 'computers', purchaseDate: '2026-01-15', cost: 25000, salvageValue: 2500, usefulLifeYears: 3, depreciationMethod: 'straight_line', location: 'Head Office', status: 'available' };

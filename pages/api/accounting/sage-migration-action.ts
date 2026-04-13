@@ -18,7 +18,7 @@ import {
   importCustomerInvoices,
   generateComparison,
   resetMigration,
-} from '@/modules/accounting/services/sageMigrationService';
+} from '@/modules/accounting/services/core/sageMigrationService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {

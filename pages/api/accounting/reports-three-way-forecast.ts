@@ -13,7 +13,7 @@ import {
   generateThreeWayForecast,
   type HistoricalFinancials,
   type ForecastParams,
-} from '@/modules/accounting/services/threeWayForecastService';
+} from '@/modules/accounting/services/reports/threeWayForecastService';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;

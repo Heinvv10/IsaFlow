@@ -6,7 +6,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { sql } from '@/lib/neon';
-import { calculateFinancialRatios, type FinancialData } from '@/modules/accounting/services/reportingEngineService';
+import { calculateFinancialRatios, type FinancialData } from '@/modules/accounting/services/reports/reportingEngineService';
 import type { CompanyApiRequest } from '@/lib/auth/withCompany';
 
 type Row = Record<string, unknown>;

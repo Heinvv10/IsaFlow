@@ -9,7 +9,7 @@ import {
   buildExecutiveSummary,
   type ManagementPackData,
   type KeyDriver,
-} from '@/modules/accounting/services/aiCommentaryService';
+} from '@/modules/accounting/services/reports/aiCommentaryService';
 
 const data: ManagementPackData = {
   companyName: 'ISAFlow Demo', period: 'March 2026',

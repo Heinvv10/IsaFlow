@@ -12,7 +12,7 @@ import type { CompanyApiRequest } from '@/lib/auth/withCompany';
 import {
   benfordsLawAnalysis, detectStatisticalOutliers, detectDuplicatePayments,
   detectUnusualPostingPatterns, buildAlertMessage, type Transaction,
-} from '@/modules/accounting/services/anomalyDetectionService';
+} from '@/modules/accounting/services/core/anomalyDetectionService';
 
 type Row = Record<string, unknown>;
 

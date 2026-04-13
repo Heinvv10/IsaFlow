@@ -22,7 +22,7 @@ import {
   reverseReconciledTransaction,
   type AllocationType,
   type SplitLine,
-} from '@/modules/accounting/services/bankReconciliationService';
+} from '@/modules/accounting/services/bank/bankReconciliationService';
 
 async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {

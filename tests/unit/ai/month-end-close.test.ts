@@ -7,7 +7,7 @@ import {
   type CloseChecklistItem,
   type CompletenessResult,
   type CutoffIssue,
-} from '@/modules/accounting/services/monthEndCloseService';
+} from '@/modules/accounting/services/gl/monthEndCloseService';
 
 describe('Close Checklist Generation', () => {
   it('generates checklist for standard company', () => {

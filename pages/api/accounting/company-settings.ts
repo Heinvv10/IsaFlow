@@ -13,8 +13,8 @@ import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth'
 import {
   getDocumentNumbers, ensureDocumentNumbers, updateDocumentNumber,
   getCompanyMessages, upsertCompanyMessages,
-} from '@/modules/accounting/services/companyService';
-import type { CompanyMessage } from '@/modules/accounting/services/companyService';
+} from '@/modules/accounting/services/core/companyService';
+import type { CompanyMessage } from '@/modules/accounting/services/core/companyService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;

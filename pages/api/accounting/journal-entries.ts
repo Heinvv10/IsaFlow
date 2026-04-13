@@ -12,7 +12,7 @@ import { log } from '@/lib/logger';
 import {
   getJournalEntries,
   createJournalEntry,
-} from '@/modules/accounting/services/journalEntryService';
+} from '@/modules/accounting/services/gl/journalEntryService';
 import type { GLEntryStatus, GLEntrySource } from '@/modules/accounting/types/gl.types';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {

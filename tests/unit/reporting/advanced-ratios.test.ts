@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import {
   calculateExtendedRatios,
   type FinancialData,
-} from '@/modules/accounting/services/reportingEngineService';
+} from '@/modules/accounting/services/reports/reportingEngineService';
 
 const sampleData: FinancialData = {
   revenue: 1000000,

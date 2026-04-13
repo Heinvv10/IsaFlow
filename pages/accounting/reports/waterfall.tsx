@@ -8,7 +8,7 @@ import Link from 'next/link';
 import { ArrowLeft, BarChart3, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { WaterfallChart } from '@/components/shared/WaterfallChart';
-import type { WaterfallStep } from '@/modules/accounting/services/waterfallDataService';
+import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 
 type TabType = 'profit' | 'cashflow';
 

@@ -97,13 +97,20 @@ export function CompanySwitcher() {
             })}
           </div>
 
-          <div className="border-t border-gray-100 dark:border-gray-700 p-2">
+          <div className="border-t border-gray-100 dark:border-gray-700 p-2 flex flex-col gap-0.5">
+            <a
+              href="/onboarding?new=1"
+              className="flex items-center gap-2 px-3 py-2 text-sm text-teal-600 dark:text-teal-400 hover:text-teal-700 dark:hover:text-teal-300 hover:bg-teal-50 dark:hover:bg-teal-900/20 rounded-lg transition-colors font-medium"
+              onClick={() => setOpen(false)}
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add Company</span>
+            </a>
             <a
               href="/accounting/company-settings"
               className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-700/50 rounded-lg transition-colors"
               onClick={() => setOpen(false)}
             >
-              <Plus className="w-4 h-4" />
               <span>Manage Companies</span>
             </a>
           </div>

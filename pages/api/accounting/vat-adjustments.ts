@@ -12,7 +12,7 @@ import { log } from '@/lib/logger';
 import {
   getVATAdjustments,
   createVATAdjustment,
-} from '@/modules/accounting/services/vatAdjustmentService';
+} from '@/modules/accounting/services/reports/vatAdjustmentService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;

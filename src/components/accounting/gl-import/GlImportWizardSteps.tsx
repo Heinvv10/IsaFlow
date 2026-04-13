@@ -4,7 +4,7 @@
  */
 
 import { ArrowLeft, ArrowRight, CheckCircle2, XCircle, AlertTriangle, Upload, Loader2 } from 'lucide-react';
-import type { ValidationSummary, ImportRow } from '@/modules/accounting/services/glImportService';
+import type { ValidationSummary, ImportRow } from '@/modules/accounting/services/gl/glImportService';
 
 // ---- Step 3: Validation Results ---------------------------------------------
 

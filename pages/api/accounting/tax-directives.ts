@@ -15,7 +15,7 @@ import {
   createTaxDirective,
   updateTaxDirectiveStatus,
   type TaxDirectiveInput,
-} from '@/modules/accounting/services/taxDirectiveService';
+} from '@/modules/accounting/services/reports/taxDirectiveService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId, user } = req as CompanyApiRequest;

@@ -18,8 +18,8 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
-import { extractFromPdf, extractFromImage } from '@/modules/accounting/services/ocrService';
-import { isVlmAvailable } from '@/modules/accounting/services/vlmService';
+import { extractFromPdf, extractFromImage } from '@/modules/accounting/services/core/ocrService';
+import { isVlmAvailable } from '@/modules/accounting/services/bank/vlmService';
 
 // ── Local Types ───────────────────────────────────────────────────────────────
 

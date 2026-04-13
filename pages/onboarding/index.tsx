@@ -33,6 +33,11 @@ const COA_STEP_INDEX = 5;       // Chart of Accounts template step
 export default function OnboardingWizard() {
   const router = useRouter();
 
+  // ?new=1 means an existing user wants to add a second company.
+  // Skip all "already has company → redirect" guards in that case.
+  const isAddNew = typeof window !== 'undefined'
+    && new URLSearchParams(window.location.search).get('new') === '1';
+
   // step === -1 is the Smart Setup pre-step (choice screen)
   const [step, setStep]             = useState(-1);
   const [d, setD]                   = useState<WizardData>(INITIAL_WIZARD);
@@ -49,6 +54,10 @@ export default function OnboardingWizard() {
     apiFetch('/api/auth/me').then(async (r) => {
       if (!r.ok) { void router.replace('/login'); return; }
       const body = await r.json();
+
+      // When adding a new company, skip both guards and go straight to the wizard.
+      if (isAddNew) { setAuthChecked(true); return; }
+
       if (body.data?.onboardingCompleted) { void router.replace('/accounting'); return; }
 
       // Invited users (and users coming back after completing the wizard)

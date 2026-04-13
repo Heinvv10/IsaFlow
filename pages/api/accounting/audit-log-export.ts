@@ -12,7 +12,7 @@ import {
   getAuditLog,
   logAudit,
   type AuditLogItem,
-} from '@/modules/accounting/services/auditTrailService';
+} from '@/modules/accounting/services/core/auditTrailService';
 import { escapeCsv } from '@/lib/csv';
 
 function formatChanges(item: AuditLogItem): string {

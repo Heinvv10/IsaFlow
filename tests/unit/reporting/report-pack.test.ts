@@ -8,7 +8,7 @@ import {
   buildReportPack,
   getPackTemplate,
   type ReportPackInput,
-} from '@/modules/accounting/services/reportPackService';
+} from '@/modules/accounting/services/reports/reportPackService';
 
 const sampleData: ReportPackInput = {
   companyName: 'Test Co',

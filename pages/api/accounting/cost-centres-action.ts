@@ -10,7 +10,7 @@ import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth'
 import { log } from '@/lib/logger';
 import {
   updateCostCentre, toggleCostCentre, deleteCostCentre,
-} from '@/modules/accounting/services/costCentreService';
+} from '@/modules/accounting/services/core/costCentreService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);

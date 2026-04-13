@@ -9,7 +9,7 @@ import {
   calculateMovingAverage,
   detectAnomalies,
   type TrendAnalysis,
-} from '@/modules/accounting/services/trendAnalysisService';
+} from '@/modules/accounting/services/reports/trendAnalysisService';
 
 describe('Trend Analysis Engine', () => {
   const revenueData = [

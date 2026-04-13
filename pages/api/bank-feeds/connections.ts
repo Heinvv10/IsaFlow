@@ -11,7 +11,7 @@ import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import {
   listConnections, disconnectConnection,
   syncTransactions, getSyncHistory, isConfigured,
-} from '@/modules/accounting/services/bankFeedService';
+} from '@/modules/accounting/services/bank/bankFeedService';
 
 async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   const { companyId } = req;

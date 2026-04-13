@@ -14,7 +14,7 @@ import {
   type TimeEntryInput,
   type ProjectInput,
   type WIPResult,
-} from '@/modules/accounting/services/projectAccountingService';
+} from '@/modules/accounting/services/reports/projectAccountingService';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // PROJECT PROFITABILITY

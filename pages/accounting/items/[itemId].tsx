@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { BundleEditor } from '@/components/accounting/items/BundleEditor';
+import { RecordNavigation } from '@/components/accounting/RecordNavigation';
 
 interface Item {
   id: string;
@@ -136,12 +137,17 @@ export default function ItemDetailPage() {
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         {/* Header */}
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <Link
-            href="/accounting/items"
-            className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-blue-400 mb-3"
-          >
-            <ArrowLeft className="h-4 w-4" /> Back to Items
-          </Link>
+          <div className="flex items-center justify-between mb-3">
+            <Link
+              href="/accounting/items"
+              className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-blue-400"
+            >
+              <ArrowLeft className="h-4 w-4" /> Back to Items
+            </Link>
+            {typeof itemId === 'string' && (
+              <RecordNavigation entity="items" currentId={itemId} basePath="/accounting/items" />
+            )}
+          </div>
           <div className="flex items-center gap-3 flex-wrap">
             <div className="p-2 rounded-lg bg-blue-500/10">
               <Box className="h-6 w-6 text-blue-500" />

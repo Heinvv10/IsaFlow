@@ -25,8 +25,8 @@ import { sql } from '@/lib/neon';
 import {
   getActualCashFlow,
   getForecast,
-} from '@/modules/accounting/services/cashFlowForecastService';
-import type { CashFlowPeriod, CashFlowForecast } from '@/modules/accounting/services/cashFlowForecastService';
+} from '@/modules/accounting/services/reports/cashFlowForecastService';
+import type { CashFlowPeriod, CashFlowForecast } from '@/modules/accounting/services/reports/cashFlowForecastService';
 
 const COMPANY_ID = 'aaaaaaaa-0000-0000-0000-000000000001';
 

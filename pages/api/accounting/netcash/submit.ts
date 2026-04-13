@@ -10,7 +10,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { submitEftBatch, type NetcashPayment } from '@/modules/accounting/services/netcashService';
+import { submitEftBatch, type NetcashPayment } from '@/modules/accounting/services/ap/netcashService';
 
 type Row = Record<string, unknown>;
 

@@ -12,7 +12,7 @@ import { log } from '@/lib/logger';
 import {
   importARInvoices,
   type ARInvoiceRow,
-} from '@/modules/accounting/services/migrationImportService';
+} from '@/modules/accounting/services/core/migrationImportService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {

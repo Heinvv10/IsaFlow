@@ -11,7 +11,7 @@ import {
   type DocumentRole,
   type MultiDocMatchInput,
   type MultiDocMatchResult,
-} from '@/modules/accounting/services/multiDocMatchService';
+} from '@/modules/accounting/services/bank/multiDocMatchService';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 
 // ---------------------------------------------------------------------------

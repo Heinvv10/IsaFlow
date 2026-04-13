@@ -3,7 +3,7 @@
  */
 
 import { Loader2 } from 'lucide-react';
-import type { StorageStats } from '@/modules/accounting/services/dataArchivingService';
+import type { StorageStats } from '@/modules/accounting/services/core/dataArchivingService';
 
 const TABLE_LABELS: Record<string, string> = {
   gl_journal_entries: 'GL Journal Entries',

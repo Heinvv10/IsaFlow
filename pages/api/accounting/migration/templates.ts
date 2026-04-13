@@ -14,7 +14,7 @@ import {
   getTemplateFilename,
   type MigrationSourceSystem,
   type MigrationStep,
-} from '@/modules/accounting/services/migrationTemplateService';
+} from '@/modules/accounting/services/core/migrationTemplateService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {

@@ -37,9 +37,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     // Get invoices
     const invoices = (await sql`
-      SELECT id, invoice_number, invoice_date, reference, total_amount, status
+      SELECT id, invoice_number, invoice_date, notes, total_amount, status
       FROM customer_invoices
-      WHERE client_id = ${clientId}::UUID AND company_id = ${companyId} AND status != 'cancelled'
+      WHERE COALESCE(client_id, customer_id) = ${clientId}::UUID AND company_id = ${companyId} AND status != 'cancelled'
       ORDER BY invoice_date
     `) as Row[];
 
@@ -90,7 +90,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         date: toISODate(inv.invoice_date),
         type: 'invoice',
         reference: String(inv.invoice_number),
-        description: inv.reference ? String(inv.reference) : '',
+        description: inv.notes ? String(inv.notes) : '',
         debit: Number(inv.total_amount),
         credit: 0,
         balance: 0,

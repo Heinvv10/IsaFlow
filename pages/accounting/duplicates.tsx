@@ -11,7 +11,7 @@ import { log } from '@/lib/logger';
 import { Copy, Merge, Loader2, AlertCircle, CheckCircle, X } from 'lucide-react';
 import { MergeDialog } from '@/components/accounting/duplicates/MergeDialog';
 import type { MergeDialogState } from '@/components/accounting/duplicates/MergeDialog';
-import type { DuplicatePair, DuplicateEntity } from '@/modules/accounting/services/duplicateDetectionService';
+import type { DuplicatePair, DuplicateEntity } from '@/modules/accounting/services/core/duplicateDetectionService';
 
 type EntityType = 'customer' | 'supplier' | 'item';
 

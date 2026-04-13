@@ -12,7 +12,7 @@ import { log } from '@/lib/logger';
 import {
   saveManualNote,
   deleteManualNote,
-} from '@/modules/accounting/services/disclosureNoteService';
+} from '@/modules/accounting/services/reports/disclosureNoteService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;

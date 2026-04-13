@@ -11,7 +11,7 @@ import {
   parseReceiptType,
   type ReceiptAccountMapping,
   type ReceiptAutoPostConfig,
-} from '@/modules/accounting/services/receiptToJournalService';
+} from '@/modules/accounting/services/bank/receiptToJournalService';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 
 const makeReceipt = (overrides?: Partial<ExtractedDocument>): ExtractedDocument => ({

@@ -3,7 +3,7 @@
  */
 
 import { Loader2, RotateCcw, CheckSquare, Square } from 'lucide-react';
-import type { BackgroundJob } from '@/modules/accounting/services/jobQueueService';
+import type { BackgroundJob } from '@/modules/accounting/services/core/jobQueueService';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

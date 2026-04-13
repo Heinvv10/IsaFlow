@@ -47,8 +47,8 @@ import {
   getFieldDef,
   getBaseQuery,
   getCompanyAlias,
-} from '@/modules/accounting/services/customReportFieldDefs';
-import { suggestCaseWareCode } from '@/modules/accounting/services/casewareExportService';
+} from '@/modules/accounting/services/reports/customReportFieldDefs';
+import { suggestCaseWareCode } from '@/modules/accounting/services/reports/casewareExportService';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. CSV Utilities (src/lib/csv.ts)

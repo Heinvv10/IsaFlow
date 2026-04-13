@@ -18,7 +18,7 @@ import {
   previewArchive,
   validateArchive,
   executeArchive,
-} from '@/modules/accounting/services/dataArchivingService';
+} from '@/modules/accounting/services/core/dataArchivingService';
 
 const COMPONENT = 'data-archiving-api';
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;

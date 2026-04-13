@@ -9,13 +9,13 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, withWriteAccess } from '@/lib/auth';
-import { itemExists } from '@/modules/accounting/services/itemService';
+import { itemExists } from '@/modules/accounting/services/items/itemService';
 import {
   getBundleLines,
   upsertBundleLines,
   deleteBundleLines,
   type BundleLine,
-} from '@/modules/accounting/services/itemBundleService';
+} from '@/modules/accounting/services/items/itemBundleService';
 
 async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   const companyId = req.companyId;

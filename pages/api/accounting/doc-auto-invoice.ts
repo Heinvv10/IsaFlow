@@ -8,7 +8,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { fuzzyMatchSupplier, buildAutoInvoiceFromExtraction, calculateFieldConfidence } from '@/modules/accounting/services/docExtractionEnhancedService';
+import { fuzzyMatchSupplier, buildAutoInvoiceFromExtraction, calculateFieldConfidence } from '@/modules/accounting/services/core/docExtractionEnhancedService';
 import type { CompanyApiRequest } from '@/lib/auth/withCompany';
 
 type Row = Record<string, unknown>;

@@ -10,8 +10,8 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
-import { convertAmount as convertAmountPure } from '@/modules/accounting/services/multiCurrencyService';
-import { getLatestRate, getExchangeRates } from '@/modules/accounting/services/currencyService';
+import { convertAmount as convertAmountPure } from '@/modules/accounting/services/core/multiCurrencyService';
+import { getLatestRate, getExchangeRates } from '@/modules/accounting/services/core/currencyService';
 import { log } from '@/lib/logger';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {

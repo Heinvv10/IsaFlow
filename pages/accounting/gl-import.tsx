@@ -14,7 +14,7 @@ import {
   FileSpreadsheet, Download, Loader2, BookOpen,
 } from 'lucide-react';
 import { ValidationStep, ImportStep } from '@/components/accounting/gl-import/GlImportWizardSteps';
-import type { ImportRow, ValidationSummary } from '@/modules/accounting/services/glImportService';
+import type { ImportRow, ValidationSummary } from '@/modules/accounting/services/gl/glImportService';
 
 type Step = 1 | 2 | 3 | 4;
 

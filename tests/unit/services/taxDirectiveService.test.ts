@@ -25,8 +25,8 @@ import {
   listTaxDirectives,
   createTaxDirective,
   updateTaxDirectiveStatus,
-} from '@/modules/accounting/services/taxDirectiveService';
-import type { TaxDirective, TaxDirectiveInput } from '@/modules/accounting/services/taxDirectiveService';
+} from '@/modules/accounting/services/reports/taxDirectiveService';
+import type { TaxDirective, TaxDirectiveInput } from '@/modules/accounting/services/reports/taxDirectiveService';
 
 const COMPANY_ID = 'aaaaaaaa-0000-0000-0000-000000000001';
 const EMPLOYEE_ID = 'bbbbbbbb-0000-0000-0000-000000000002';

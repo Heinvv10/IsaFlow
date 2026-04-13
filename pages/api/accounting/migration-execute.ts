@@ -10,8 +10,8 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
-import { executeMigration } from '@/modules/accounting/services/migrationExecuteService';
-import type { MigrationSource } from '@/modules/accounting/services/migrationParserService';
+import { executeMigration } from '@/modules/accounting/services/core/migrationExecuteService';
+import type { MigrationSource } from '@/modules/accounting/services/core/migrationParserService';
 
 const VALID_SOURCES: MigrationSource[] = ['xero', 'quickbooks', 'pastel'];
 

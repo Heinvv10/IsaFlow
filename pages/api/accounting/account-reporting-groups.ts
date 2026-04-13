@@ -16,7 +16,7 @@ import {
   createAccountReportingGroup,
   updateAccountReportingGroup,
   softDeleteAccountReportingGroup,
-} from '@/modules/accounting/services/accountReportingGroupsService';
+} from '@/modules/accounting/services/reports/accountReportingGroupsService';
 
 const VALID_REPORT_TYPES = ['balance_sheet', 'income_statement', 'both'] as const;
 type ReportType = typeof VALID_REPORT_TYPES[number];

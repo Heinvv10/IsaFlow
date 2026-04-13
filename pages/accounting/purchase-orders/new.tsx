@@ -30,6 +30,7 @@ export default function NewPurchaseOrderPage() {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [saveAndNew, setSaveAndNew] = useState(false);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [form, setForm] = useState({
     supplierId: '', orderDate: new Date().toISOString().split('T')[0],
@@ -58,8 +59,8 @@ export default function NewPurchaseOrderPage() {
   const subtotal = items.reduce((s, i) => s + lineTotal(i), 0);
   const tax = items.reduce((s, i) => s + lineTotal(i) * Number(i.taxRate || 0) / 100, 0);
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault(); setError(''); setSaving(true);
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>, andNew = false) => {
+    e.preventDefault(); setError(''); setSaving(true); setSaveAndNew(andNew);
     try {
       const res = await apiFetch('/api/accounting/purchase-orders', {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
@@ -70,7 +71,13 @@ export default function NewPurchaseOrderPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error?.message || 'Failed');
-      await router.push('/accounting/purchase-orders');
+      if (andNew) {
+        setForm({ supplierId: '', orderDate: new Date().toISOString().split('T')[0], expectedDeliveryDate: '', notes: '', reference: '' });
+        setItems([{ key: '1', description: '', quantity: '1', unitPrice: '0', taxRate: '15' }]);
+        await router.push('/accounting/purchase-orders/new');
+      } else {
+        await router.push(`/accounting/purchase-orders/${json.data?.id ?? ''}`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed');
     } finally {
@@ -97,7 +104,7 @@ export default function NewPurchaseOrderPage() {
         </div>
 
         <div className="p-6 xl:p-8">
-          <form onSubmit={handleSubmit} className="max-w-6xl mx-auto flex gap-6 items-start">
+          <form onSubmit={(e) => handleSubmit(e, saveAndNew)} className="max-w-6xl mx-auto flex gap-6 items-start">
             {/* Left column */}
             <div className="flex-1 min-w-0 space-y-5">
               {error && <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm">{error}</div>}
@@ -201,8 +208,11 @@ export default function NewPurchaseOrderPage() {
                       <span className="font-mono font-bold text-lg text-amber-500">{fmt(subtotal + tax)}</span>
                     </div>
                   </div>
-                  <button type="submit" disabled={saving} className="w-full mt-6 py-3 bg-amber-500 hover:bg-amber-400 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
-                    {saving ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : 'Create Purchase Order'}
+                  <button type="submit" disabled={saving} onClick={() => setSaveAndNew(false)} className="w-full mt-6 py-3 bg-amber-500 hover:bg-amber-400 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                    {saving && !saveAndNew ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : 'Create Purchase Order'}
+                  </button>
+                  <button type="submit" disabled={saving} onClick={() => setSaveAndNew(true)} className="w-full mt-2 py-2.5 border border-amber-500 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 font-semibold rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                    {saving && saveAndNew ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : 'Save & New'}
                   </button>
                 </div>
               </div>

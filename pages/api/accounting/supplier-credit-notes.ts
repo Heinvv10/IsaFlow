@@ -17,7 +17,7 @@ import {
   createCreditNote,
   approveCreditNote,
   cancelCreditNote,
-} from '@/modules/accounting/services/creditNoteService';
+} from '@/modules/accounting/services/ar/creditNoteService';
 import type { CreditNoteStatus } from '@/modules/accounting/types/ar.types';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {

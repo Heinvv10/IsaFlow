@@ -11,7 +11,7 @@ import { withCompany, type CompanyApiRequest, type AuthenticatedNextApiRequest, 
 import { log } from '@/lib/logger';
 import {
   getDRCEligibleInvoices, getDRCHistory, applyDRCVat,
-} from '@/modules/accounting/services/drcVatService';
+} from '@/modules/accounting/services/reports/drcVatService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;

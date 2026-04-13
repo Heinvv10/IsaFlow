@@ -49,17 +49,17 @@ vi.mock('@/modules/accounting/services/auditTrailService', () => ({
   logAudit: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { calculateNextRunDate } from '@/modules/accounting/services/recurringTransactionService';
-import { mapGroup, mapMember } from '@/modules/accounting/services/groupCrudService';
-import { mapGroupAccount, mapCoaMapping } from '@/modules/accounting/services/groupCoaMappingService';
-import { mapIntercompanyTx } from '@/modules/accounting/services/intercompanyService';
-import { toISODate, toStr } from '@/modules/accounting/services/archiveQueryService';
+import { calculateNextRunDate } from '@/modules/accounting/services/core/recurringTransactionService';
+import { mapGroup, mapMember } from '@/modules/accounting/services/reports/groupCrudService';
+import { mapGroupAccount, mapCoaMapping } from '@/modules/accounting/services/reports/groupCoaMappingService';
+import { mapIntercompanyTx } from '@/modules/accounting/services/reports/intercompanyService';
+import { toISODate, toStr } from '@/modules/accounting/services/core/archiveQueryService';
 import {
   validateInvoiceDocument,
   validatePaymentReceipt,
   validateStatutoryCompliance,
-} from '@/modules/accounting/services/documentValidationService';
-import { getQuickActions } from '@/modules/accounting/services/globalSearchService';
+} from '@/modules/accounting/services/core/documentValidationService';
+import { getQuickActions } from '@/modules/accounting/services/core/globalSearchService';
 
 // ─── Shared test data ─────────────────────────────────────────────────────────
 

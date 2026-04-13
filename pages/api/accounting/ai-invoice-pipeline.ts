@@ -17,7 +17,7 @@ import {
   determineApprovalRoute,
   computePipelineConfidence,
   type PipelineThresholds,
-} from '@/modules/accounting/services/aiInvoicePipelineService';
+} from '@/modules/accounting/services/core/aiInvoicePipelineService';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

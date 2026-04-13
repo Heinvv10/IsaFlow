@@ -11,7 +11,7 @@ import { log } from '@/lib/logger';
 import {
   approveVATAdjustment,
   cancelVATAdjustment,
-} from '@/modules/accounting/services/vatAdjustmentService';
+} from '@/modules/accounting/services/reports/vatAdjustmentService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {

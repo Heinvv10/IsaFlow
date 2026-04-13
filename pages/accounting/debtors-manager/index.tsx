@@ -13,7 +13,7 @@ import type {
   CollectionStats,
   OverdueInvoice,
   DebtorInvoice,
-} from '@/modules/accounting/services/debtorsManagerService';
+} from '@/modules/accounting/services/ar/debtorsManagerService';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

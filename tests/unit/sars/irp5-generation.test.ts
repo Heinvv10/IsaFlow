@@ -14,7 +14,7 @@ import {
   type IRP5EmployeeData,
   type IRP5Certificate,
   type EMP501Summary,
-} from '@/modules/accounting/services/irp5Service';
+} from '@/modules/accounting/services/reports/irp5Service';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // SARS SOURCE CODES

@@ -17,7 +17,7 @@ import {
   type DuplicateCandidate,
   type RiskScore,
   type AlertSeverity,
-} from '@/modules/accounting/services/anomalyDetectionService';
+} from '@/modules/accounting/services/core/anomalyDetectionService';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // BENFORD'S LAW ANALYSIS

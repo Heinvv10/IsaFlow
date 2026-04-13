@@ -28,7 +28,7 @@ import {
   createJournalEntry,
   postJournalEntry,
   getJournalEntryById,
-} from '@/modules/accounting/services/journalEntryService';
+} from '@/modules/accounting/services/gl/journalEntryService';
 import {
   validateJournalEntry,
   validateJournalLine,

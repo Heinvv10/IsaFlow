@@ -21,8 +21,8 @@ import {
   type ItemFilters,
   type CreateItemInput,
   type UpdateItemInput,
-} from '@/modules/accounting/services/itemService';
-import { expandBundle } from '@/modules/accounting/services/itemBundleService';
+} from '@/modules/accounting/services/items/itemService';
+import { expandBundle } from '@/modules/accounting/services/items/itemBundleService';
 
 async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   const companyId = req.companyId;

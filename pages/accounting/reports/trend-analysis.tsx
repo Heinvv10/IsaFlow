@@ -8,7 +8,7 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { ArrowLeft, TrendingUp, Loader2, AlertTriangle } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
-import type { TrendAnalysis as TrendData } from '@/modules/accounting/services/trendAnalysisService';
+import type { TrendAnalysis as TrendData } from '@/modules/accounting/services/reports/trendAnalysisService';
 
 const LineChart = dynamic(() => import('recharts').then(m => m.LineChart), { ssr: false });
 const Line = dynamic(() => import('recharts').then(m => m.Line), { ssr: false });

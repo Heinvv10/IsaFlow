@@ -13,7 +13,7 @@ import { sql } from '@/lib/neon';
 import {
   getRecurringJournals,
   createRecurringJournal,
-} from '@/modules/accounting/services/recurringJournalService';
+} from '@/modules/accounting/services/gl/recurringJournalService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;

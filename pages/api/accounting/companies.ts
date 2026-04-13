@@ -12,7 +12,7 @@ import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import {
   getCompany, createCompany, updateCompany,
   getUserCompanies, setDefaultCompany,
-} from '@/modules/accounting/services/companyService';
+} from '@/modules/accounting/services/core/companyService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const userId = (req as AuthenticatedNextApiRequest).user.id;

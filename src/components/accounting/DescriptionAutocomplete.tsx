@@ -9,7 +9,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
-import type { DescriptionSuggestion } from '@/modules/accounting/services/descriptionTemplateService';
+import type { DescriptionSuggestion } from '@/modules/accounting/services/core/descriptionTemplateService';
 
 interface DescriptionAutocompleteProps {
   value: string;

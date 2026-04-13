@@ -5,7 +5,7 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
-import { calculateComplianceDeadlines } from '@/modules/accounting/services/sarsEfilingService';
+import { calculateComplianceDeadlines } from '@/modules/accounting/services/reports/sarsEfilingService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);

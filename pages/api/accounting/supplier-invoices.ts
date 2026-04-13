@@ -12,7 +12,7 @@ import { log } from '@/lib/logger';
 import {
   getSupplierInvoices,
   createSupplierInvoice,
-} from '@/modules/accounting/services/supplierInvoiceService';
+} from '@/modules/accounting/services/ap/supplierInvoiceService';
 import type { SupplierInvoiceStatus } from '@/modules/accounting/types/ap.types';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {

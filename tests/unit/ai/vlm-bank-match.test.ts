@@ -9,7 +9,7 @@ import {
   buildEnhancedMatchCandidates,
   type ParsedBankDescription,
   type VlmMatchResult,
-} from '@/modules/accounting/services/vlmBankMatchService';
+} from '@/modules/accounting/services/bank/vlmBankMatchService';
 
 describe('Bank Description Response Parsing', () => {
   it('parses vendor name from response', () => {

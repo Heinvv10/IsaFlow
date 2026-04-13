@@ -10,7 +10,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
-import { listRules, createRule, updateRule, deleteRule } from '@/modules/accounting/services/approvalService';
+import { listRules, createRule, updateRule, deleteRule } from '@/modules/accounting/services/gl/approvalService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;

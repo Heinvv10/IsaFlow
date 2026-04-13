@@ -8,7 +8,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
-import { updateBusinessUnit, toggleBusinessUnit, deleteBusinessUnit } from '@/modules/accounting/services/businessUnitService';
+import { updateBusinessUnit, toggleBusinessUnit, deleteBusinessUnit } from '@/modules/accounting/services/core/businessUnitService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);

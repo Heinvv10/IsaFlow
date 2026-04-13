@@ -12,7 +12,7 @@ import { log } from '@/lib/logger';
 import {
   buildExecutiveSummary,
   type ExecutiveSummaryInput,
-} from '@/modules/accounting/services/executiveSummaryService';
+} from '@/modules/accounting/services/reports/executiveSummaryService';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;

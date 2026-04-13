@@ -15,7 +15,7 @@ import {
   type SeasonalPattern,
   type ForecastScenario,
   type WeeklyForecast,
-} from '@/modules/accounting/services/cashFlowAIService';
+} from '@/modules/accounting/services/reports/cashFlowAIService';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // PAYMENT PROBABILITY SCORING

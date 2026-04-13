@@ -5,23 +5,22 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { FileText, Loader2, AlertCircle, Download, CheckSquare, Square, Mail } from 'lucide-react';
-// generateStatementPdf is loaded dynamically inside handleGenerate
-import type { StatementData } from '@/modules/accounting/utils/statementPdf';
+import {
+  FileText,
+  Loader2,
+  AlertCircle,
+  Download,
+  Mail,
+  SendHorizonal,
+} from 'lucide-react';
 import { log } from '@/lib/logger';
-import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
-
-interface CustomerBalance {
-  client_id: string;
-  client_name: string;
-  email?: string;
-  phone?: string;
-  total_invoiced: number;
-  total_paid: number;
-  balance: number;
-  invoice_count: number;
-}
+import {
+  CustomerStatementTable,
+  type CustomerBalance,
+} from '@/components/accounting/CustomerStatementTable';
+import { useStatementEmail } from '@/modules/accounting/hooks/useStatementEmail';
+import { generateStatementsBatch } from '@/modules/accounting/utils/generateStatementsBatch';
 
 export default function StatementRunPage() {
   const [customers, setCustomers] = useState<CustomerBalance[]>([]);
@@ -29,14 +28,24 @@ export default function StatementRunPage() {
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [isGenerating, setIsGenerating] = useState(false);
-  const [asAtDate, setAsAtDate] = useState(new Date().toISOString().split('T')[0] ?? '');
+  const [asAtDate, setAsAtDate] = useState(
+    new Date().toISOString().split('T')[0] ?? ''
+  );
   const [minBalance, setMinBalance] = useState(0);
+
+  const { emailProgress, toast, isSending, emailableCount, sendEmails } =
+    useStatementEmail({ customers, asAtDate });
+
+  const filtered = customers.filter(c => c.balance >= minBalance);
+  const emailCount = emailableCount(selected);
 
   const load = useCallback(async () => {
     setIsLoading(true);
     setError('');
     try {
-      const res = await apiFetch(`/api/accounting/customer-statements?as_at_date=${asAtDate}`);
+      const res = await apiFetch(
+        `/api/accounting/customer-statements?as_at_date=${asAtDate}`
+      );
       const json = await res.json();
       const data = json.data || json;
       setCustomers(data.customers || []);
@@ -47,104 +56,40 @@ export default function StatementRunPage() {
     }
   }, [asAtDate]);
 
-  useEffect(() => { load(); }, [load]);
-
-  const filtered = customers.filter(c => c.balance >= minBalance);
+  useEffect(() => {
+    load();
+  }, [load]);
 
   function toggleAll() {
-    if (selected.size === filtered.length) {
-      setSelected(new Set());
-    } else {
-      setSelected(new Set(filtered.map(c => c.client_id)));
-    }
+    setSelected(
+      selected.size === filtered.length
+        ? new Set()
+        : new Set(filtered.map(c => c.client_id))
+    );
   }
 
   function toggle(id: string) {
     const next = new Set(selected);
-    if (next.has(id)) next.delete(id); else next.add(id);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
     setSelected(next);
+  }
+
+  function selectAllWithEmail() {
+    setSelected(
+      new Set(
+        filtered
+          .filter(c => c.email && c.balance > 0)
+          .map(c => c.client_id)
+      )
+    );
   }
 
   async function handleGenerate() {
     if (selected.size === 0) return;
     setIsGenerating(true);
     try {
-      // Load jsPDF-dependent generator once, reuse for all statements in the batch
-      const { generateStatementPdf } = await import('@/modules/accounting/utils/statementPdf');
-      const pdfs: { name: string; blob: Blob }[] = [];
-
-      // Fetch company details once for all PDFs
-      let companyName = '';
-      let companyVatNumber = '';
-      let companyEmail = '';
-      let companyPhone = '';
-      let companyAddress = '';
-      let accentColor = '#0d9488';
-      try {
-        const companyRes = await apiFetch('/api/accounting/company-details');
-        const companyJson = await companyRes.json();
-        const c = companyJson.data || companyJson;
-        companyName = c.name || c.company_name || '';
-        companyVatNumber = c.vat_number || c.company_vat_number || '';
-        companyEmail = c.email || c.company_email || '';
-        companyPhone = c.phone || c.company_phone || '';
-        const parts = [c.address_line1, c.city, c.province, c.postal_code].filter(Boolean);
-        companyAddress = parts.join(', ');
-        accentColor = c.primary_color || '#0d9488';
-      } catch { /* use defaults */ }
-
-      for (const clientId of selected) {
-        const cust = customers.find(c => c.client_id === clientId);
-        if (!cust) continue;
-
-        const detailRes = await apiFetch(`/api/accounting/customer-statement-detail?client_id=${clientId}`);
-        const detailJson = await detailRes.json();
-        const detail = detailJson.data || detailJson;
-
-        const stmtData: StatementData = {
-          clientName: cust.client_name,
-          clientEmail: detail.client?.email || undefined,
-          clientPhone: detail.client?.phone || undefined,
-          asAtDate,
-          totalInvoiced: detail.summary?.totalInvoiced || 0,
-          totalPaid: detail.summary?.totalPaid || 0,
-          totalCredits: detail.summary?.totalCredits || 0,
-          balanceOutstanding: detail.summary?.balance || 0,
-          transactions: detail.transactions || [],
-          companyName,
-          companyVatNumber,
-          companyEmail,
-          companyPhone,
-          companyAddress,
-          accentColor,
-        };
-
-        const blob = await generateStatementPdf(stmtData);
-        const safeName = cust.client_name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-        pdfs.push({ name: `statement-${safeName}.pdf`, blob });
-      }
-
-      if (pdfs.length === 1 && pdfs[0]) {
-        const url = URL.createObjectURL(pdfs[0].blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = pdfs[0].name;
-        a.click();
-        URL.revokeObjectURL(url);
-      } else {
-        const { default: JSZip } = await import('jszip');
-        const zip = new JSZip();
-        for (const pdf of pdfs) {
-          zip.file(pdf.name, pdf.blob);
-        }
-        const zipBlob = await zip.generateAsync({ type: 'blob' });
-        const url = URL.createObjectURL(zipBlob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `statements-${asAtDate}.zip`;
-        a.click();
-        URL.revokeObjectURL(url);
-      }
+      await generateStatementsBatch(selected, customers, asAtDate);
     } catch (err) {
       log.error('Statement generation failed', { data: err }, 'StatementRun');
       setError('Failed to generate statements');
@@ -155,7 +100,26 @@ export default function StatementRunPage() {
 
   return (
     <AppLayout>
+      {/* Toast */}
+      {toast && (
+        <div
+          className={`fixed top-4 right-4 z-50 flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg text-sm font-medium ${
+            toast.type === 'success'
+              ? 'bg-teal-500/90 text-white'
+              : 'bg-red-500/90 text-white'
+          }`}
+        >
+          {toast.type === 'success' ? (
+            <Mail className="h-4 w-4 shrink-0" />
+          ) : (
+            <AlertCircle className="h-4 w-4 shrink-0" />
+          )}
+          {toast.message}
+        </div>
+      )}
+
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
+        {/* Header */}
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
           <div className="px-6 py-4">
             <div className="flex items-center justify-between">
@@ -164,7 +128,9 @@ export default function StatementRunPage() {
                   <FileText className="h-6 w-6 text-purple-500" />
                 </div>
                 <div>
-                  <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Statement Run</h1>
+                  <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">
+                    Statement Run
+                  </h1>
                   <p className="text-sm text-[var(--ff-text-secondary)]">
                     Batch generate customer statement PDFs
                   </p>
@@ -172,14 +138,36 @@ export default function StatementRunPage() {
               </div>
               <div className="flex items-center gap-2">
                 <button
+                  onClick={() => sendEmails(selected)}
+                  disabled={selected.size === 0 || isSending || isGenerating}
+                  title={
+                    emailCount < selected.size
+                      ? `${selected.size - emailCount} selected have no email`
+                      : undefined
+                  }
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium disabled:opacity-50 transition-colors"
+                >
+                  {isSending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Sending {emailProgress?.current}/{emailProgress?.total}...
+                    </>
+                  ) : (
+                    <>
+                      <SendHorizonal className="h-4 w-4" />
+                      Email{selected.size > 0 ? ` (${emailCount}/${selected.size})` : ''}
+                    </>
+                  )}
+                </button>
+                <button
                   onClick={handleGenerate}
-                  disabled={selected.size === 0 || isGenerating}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-medium disabled:opacity-50"
+                  disabled={selected.size === 0 || isGenerating || isSending}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-medium disabled:opacity-50 transition-colors"
                 >
                   {isGenerating ? (
                     <><Loader2 className="h-4 w-4 animate-spin" /> Generating...</>
                   ) : (
-                    <><Download className="h-4 w-4" /> Generate {selected.size > 0 ? `(${selected.size})` : ''}</>
+                    <><Download className="h-4 w-4" /> Generate{selected.size > 0 ? ` (${selected.size})` : ''}</>
                   )}
                 </button>
               </div>
@@ -211,10 +199,40 @@ export default function StatementRunPage() {
                 step={100}
               />
             </div>
+            <button
+              onClick={selectAllWithEmail}
+              className="text-sm text-teal-400 hover:text-teal-300 underline underline-offset-2"
+            >
+              Select all with email &amp; balance
+            </button>
             <span className="text-sm text-[var(--ff-text-tertiary)]">
-              {filtered.length} customer{filtered.length !== 1 ? 's' : ''} • {selected.size} selected
+              {filtered.length} customer{filtered.length !== 1 ? 's' : ''} &bull; {selected.size} selected
             </span>
           </div>
+
+          {/* Email progress bar */}
+          {emailProgress && (
+            <div className="p-3 rounded-lg bg-teal-500/10 border border-teal-500/20">
+              <div className="flex items-center justify-between text-sm text-teal-400 mb-2">
+                <span>
+                  Emailing statements {emailProgress.current}/{emailProgress.total}
+                  {emailProgress.sent > 0 && ` — ${emailProgress.sent} sent`}
+                  {emailProgress.failed > 0 && `, ${emailProgress.failed} failed`}
+                </span>
+                <Loader2 className="h-4 w-4 animate-spin" />
+              </div>
+              <div className="h-1.5 rounded-full bg-teal-900/40 overflow-hidden">
+                <div
+                  className="h-full bg-teal-500 rounded-full transition-all duration-300"
+                  style={{
+                    width: emailProgress.total > 0
+                      ? `${(emailProgress.current / emailProgress.total) * 100}%`
+                      : '0%',
+                  }}
+                />
+              </div>
+            </div>
+          )}
 
           {error && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
@@ -231,44 +249,12 @@ export default function StatementRunPage() {
               No customers with outstanding balance
             </div>
           ) : (
-            <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-[var(--ff-border-light)]">
-                    <th className="text-center px-4 py-3 w-10">
-                      <button onClick={toggleAll} className="text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)]">
-                        {selected.size === filtered.length ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
-                      </button>
-                    </th>
-                    <th className="text-left px-4 py-3 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Customer</th>
-                    <th className="text-right px-4 py-3 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Invoiced</th>
-                    <th className="text-right px-4 py-3 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Paid</th>
-                    <th className="text-right px-4 py-3 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Balance</th>
-                    <th className="text-center px-4 py-3 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase"># Inv</th>
-                    <th className="text-center px-4 py-3 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Email</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map(c => (
-                    <tr key={c.client_id} className="border-b border-[var(--ff-border-light)] hover:bg-teal-500/[0.04]">
-                      <td className="text-center px-4 py-3">
-                        <button onClick={() => toggle(c.client_id)} className="text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)]">
-                          {selected.has(c.client_id) ? <CheckSquare className="h-4 w-4 text-purple-400" /> : <Square className="h-4 w-4" />}
-                        </button>
-                      </td>
-                      <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">{c.client_name}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(c.total_invoiced)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-teal-400">{formatCurrency(c.total_paid)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums font-medium text-[var(--ff-text-primary)]">{formatCurrency(c.balance)}</td>
-                      <td className="px-4 py-3 text-center text-[var(--ff-text-secondary)]">{c.invoice_count}</td>
-                      <td className="px-4 py-3 text-center">
-                        {c.email ? <Mail className="h-4 w-4 text-teal-400 mx-auto" /> : <span className="text-[var(--ff-text-tertiary)]">—</span>}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <CustomerStatementTable
+              customers={filtered}
+              selected={selected}
+              onToggle={toggle}
+              onToggleAll={toggleAll}
+            />
           )}
         </div>
       </div>

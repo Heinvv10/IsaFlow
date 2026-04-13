@@ -16,7 +16,7 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 import { sql } from '@/lib/neon';
-import { generateVAT201 } from '@/modules/accounting/services/sarsService';
+import { generateVAT201 } from '@/modules/accounting/services/reports/sarsService';
 
 const COMPANY_ID = 'aaaaaaaa-0000-0000-0000-000000000001';
 const PERIOD_START = '2026-03-01';

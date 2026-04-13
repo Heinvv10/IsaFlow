@@ -13,7 +13,7 @@ import {
   approveSupplierInvoice,
   cancelSupplierInvoice,
   performThreeWayMatch,
-} from '@/modules/accounting/services/supplierInvoiceService';
+} from '@/modules/accounting/services/ap/supplierInvoiceService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;

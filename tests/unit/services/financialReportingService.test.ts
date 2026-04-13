@@ -20,7 +20,7 @@ vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
 
-vi.mock('@/modules/accounting/services/systemAccountResolver', () => ({
+vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   getSystemAccount: vi.fn().mockResolvedValue({
     id:          're-account-uuid',
     accountCode: '3500',
@@ -35,7 +35,7 @@ import {
   getIncomeStatement,
   getBalanceSheet,
   getVATReturn,
-} from '@/modules/accounting/services/financialReportingService';
+} from '@/modules/accounting/services/reports/financialReportingService';
 
 const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
 

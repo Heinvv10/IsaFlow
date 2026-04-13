@@ -16,7 +16,7 @@ import {
   validatePayslipExtraction,
   matchEmployeeFromExtraction,
   type PayrollRecord,
-} from '@/modules/accounting/services/payslipVerificationService';
+} from '@/modules/accounting/services/core/payslipVerificationService';
 
 export const config = {
   api: { bodyParser: false },

@@ -7,7 +7,7 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { handleITN } from '@/modules/accounting/services/paymentGatewayService';
+import { handleITN } from '@/modules/accounting/services/core/paymentGatewayService';
 import { log } from '@/lib/logger';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {

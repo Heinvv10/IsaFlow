@@ -13,7 +13,7 @@ import { ConsolidatedTBTable } from '@/components/accounting/consolidation/Conso
 import type {
   GroupCompany,
   ConsolidatedTrialBalance,
-} from '@/modules/accounting/services/consolidationTypes';
+} from '@/modules/accounting/services/reports/consolidationTypes';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

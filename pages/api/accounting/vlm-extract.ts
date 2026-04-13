@@ -14,7 +14,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
-import { extractFromPdf, extractFromImage } from '@/modules/accounting/services/ocrService';
+import { extractFromPdf, extractFromImage } from '@/modules/accounting/services/core/ocrService';
 
 export const config = {
   api: { bodyParser: false },

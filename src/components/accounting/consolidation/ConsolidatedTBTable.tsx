@@ -2,7 +2,7 @@
  * ConsolidatedTBTable — renders the consolidated trial balance result table.
  */
 
-import type { ConsolidatedTrialBalance } from '@/modules/accounting/services/consolidationTypes';
+import type { ConsolidatedTrialBalance } from '@/modules/accounting/services/reports/consolidationTypes';
 
 const ACCOUNT_TYPE_COLOUR: Record<string, string> = {
   asset: 'text-blue-400', liability: 'text-orange-400', equity: 'text-purple-400',

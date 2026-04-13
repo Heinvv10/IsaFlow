@@ -13,7 +13,7 @@ import {
   getReconciliations,
   getReconciliationById,
   startReconciliation,
-} from '@/modules/accounting/services/bankReconciliationService';
+} from '@/modules/accounting/services/bank/bankReconciliationService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;

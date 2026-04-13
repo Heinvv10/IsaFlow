@@ -6,7 +6,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type AuthenticatedNextApiRequest, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
 import { sql } from '@/lib/neon';
-import { buildEMP501Summary, type EMP501MonthlyData } from '@/modules/accounting/services/irp5Service';
+import { buildEMP501Summary, type EMP501MonthlyData } from '@/modules/accounting/services/reports/irp5Service';
 
 type Row = Record<string, unknown>;
 

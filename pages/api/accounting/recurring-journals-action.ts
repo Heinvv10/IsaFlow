@@ -11,7 +11,7 @@ import { log } from '@/lib/logger';
 import {
   updateRecurringJournalStatus,
   generateJournalFromRecurring,
-} from '@/modules/accounting/services/recurringJournalService';
+} from '@/modules/accounting/services/gl/recurringJournalService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {

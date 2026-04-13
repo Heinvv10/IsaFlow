@@ -9,7 +9,7 @@ import { ArrowLeft, FileText, Plus, Trash2, Loader2, Info, SlidersHorizontal, Re
 import { apiFetch } from '@/lib/apiFetch';
 import { ScanAndFillButton } from '@/components/accounting/ScanAndFillButton';
 import { fuzzyMatchClient } from '@/modules/accounting/utils/fuzzyMatch';
-import { formatCurrencyAmount } from '@/modules/accounting/services/multiCurrencyService';
+import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 
 interface Client { id: string; name: string }
@@ -25,6 +25,7 @@ export default function NewCustomerInvoicePage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [currencies, setCurrencies] = useState<Currency[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [saveAndNew, setSaveAndNew] = useState(false);
   const [error, setError] = useState('');
   const [scanBanner, setScanBanner] = useState<string | null>(null);
   const [showDiscount, setShowDiscount] = useState(false);
@@ -70,18 +71,26 @@ export default function NewCustomerInvoicePage() {
     setScanBanner(`Auto-filled (${Math.round(data.confidence * 100)}% confidence). Review all fields.`);
   }
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (andNew = false) => {
     if (!form.clientId) return setError('Select a client');
     const validLines = lines.filter(l => l.description && l.unitPrice > 0);
     if (validLines.length === 0) return setError('Add at least one line item');
     if (isFx && form.exchangeRate <= 0) return setError('Exchange rate must be greater than 0');
+    setSaveAndNew(andNew);
     setSubmitting(true); setError('');
     try {
       const res = await apiFetch('/api/accounting/customer-invoices-create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, items: validLines }) });
       const json = await res.json() as { data?: { id?: string }; id?: string; error?: { message?: string } };
       if (!res.ok) throw new Error(json.error?.message || 'Failed to create');
       const d = json.data || json;
-      await router.push(`/accounting/customer-invoices/${d.id}`);
+      if (andNew) {
+        const today = new Date().toISOString().split('T')[0];
+        setForm({ clientId: '', invoiceDate: today, dueDate: '', billingPeriodStart: today, billingPeriodEnd: today, taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1 });
+        setLines([{ key: '1', description: '', quantity: 1, unitPrice: 0, incomeType: 'other', discount: 0 }]);
+        await router.push('/accounting/customer-invoices/new');
+      } else {
+        await router.push(`/accounting/customer-invoices/${d.id}`);
+      }
     } catch (e) { setError(e instanceof Error ? e.message : 'Failed'); setSubmitting(false); }
   };
 
@@ -248,8 +257,11 @@ export default function NewCustomerInvoicePage() {
                     )}
                   </div>
 
-                  <button onClick={handleSubmit} disabled={submitting} className="w-full mt-6 py-3 bg-amber-500 hover:bg-amber-400 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
-                    {submitting ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : <><FileText className="h-4 w-4" />Create Invoice</>}
+                  <button onClick={() => handleSubmit(false)} disabled={submitting} className="w-full mt-6 py-3 bg-amber-500 hover:bg-amber-400 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                    {submitting && !saveAndNew ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : <><FileText className="h-4 w-4" />Create Invoice</>}
+                  </button>
+                  <button onClick={() => handleSubmit(true)} disabled={submitting} className="w-full mt-2 py-2.5 border border-amber-500 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 font-semibold rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                    {submitting && saveAndNew ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : <><FileText className="h-4 w-4" />Save &amp; New</>}
                   </button>
                 </div>
 

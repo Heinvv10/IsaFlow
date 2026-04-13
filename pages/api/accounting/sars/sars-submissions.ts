@@ -13,7 +13,7 @@ import {
   listSubmissions,
   markSubmitted,
   getSubmission,
-} from '@/modules/accounting/services/sarsService';
+} from '@/modules/accounting/services/reports/sarsService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;

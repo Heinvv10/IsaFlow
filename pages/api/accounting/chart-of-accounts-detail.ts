@@ -14,7 +14,7 @@ import {
   getAccountById,
   updateAccount,
   deleteAccount,
-} from '@/modules/accounting/services/chartOfAccountsService';
+} from '@/modules/accounting/services/gl/chartOfAccountsService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;

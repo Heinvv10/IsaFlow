@@ -5,7 +5,7 @@
 
 import { useState } from 'react';
 import { Merge, Loader2, AlertCircle, X } from 'lucide-react';
-import type { DuplicatePair, DuplicateEntity } from '@/modules/accounting/services/duplicateDetectionService';
+import type { DuplicatePair, DuplicateEntity } from '@/modules/accounting/services/core/duplicateDetectionService';
 
 export interface MergeDialogState {
   pair: DuplicatePair;

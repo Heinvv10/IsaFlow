@@ -8,7 +8,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
 import { sql } from '@/lib/neon';
-import { buildProfitWaterfall, buildCashFlowWaterfall } from '@/modules/accounting/services/waterfallDataService';
+import { buildProfitWaterfall, buildCashFlowWaterfall } from '@/modules/accounting/services/reports/waterfallDataService';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;

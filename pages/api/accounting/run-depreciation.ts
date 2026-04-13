@@ -9,7 +9,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, withRole, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { postAssetDepreciationToGL } from '@/modules/accounting/services/glCrossModuleHooks';
+import { postAssetDepreciationToGL } from '@/modules/accounting/services/gl/glCrossModuleHooks';
 type Row = Record<string, unknown>;
 
 

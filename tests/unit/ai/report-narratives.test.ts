@@ -15,7 +15,7 @@ import {
   type VarianceItem,
   type TrendPoint,
   type NarrativeTone,
-} from '@/modules/accounting/services/reportNarrativeService';
+} from '@/modules/accounting/services/reports/reportNarrativeService';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // NARRATIVE PROMPT

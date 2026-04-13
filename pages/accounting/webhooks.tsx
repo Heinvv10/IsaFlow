@@ -11,7 +11,7 @@ import { log } from '@/lib/logger';
 import { Webhook, Plus, Loader2, AlertCircle } from 'lucide-react';
 import { WebhookForm, type WebhookFormState } from '@/components/accounting/webhooks/WebhookForm';
 import { WebhookCard } from '@/components/accounting/webhooks/WebhookCard';
-import type { Webhook as WebhookType, Delivery } from '@/modules/accounting/services/webhookService';
+import type { Webhook as WebhookType, Delivery } from '@/modules/accounting/services/core/webhookService';
 
 const BTN_PRIMARY = 'inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium';
 const DEFAULT_FORM: WebhookFormState = { name: '', url: '', secret: '', events: [], isActive: true };

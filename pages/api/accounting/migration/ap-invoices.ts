@@ -12,7 +12,7 @@ import { log } from '@/lib/logger';
 import {
   importAPInvoices,
   type APInvoiceRow,
-} from '@/modules/accounting/services/migrationApService';
+} from '@/modules/accounting/services/ap/migrationApService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {

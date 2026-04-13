@@ -50,7 +50,7 @@ import {
 import {
   fmtDate,
   mapTxRow,
-} from '@/modules/accounting/services/bankTransactionQueryService';
+} from '@/modules/accounting/services/bank/bankTransactionQueryService';
 
 import {
   fuzzyMatch,

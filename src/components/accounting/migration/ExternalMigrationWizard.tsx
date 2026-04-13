@@ -14,7 +14,7 @@ import {
   StepIndicator, FileUploadZone, SummaryCard, VerifyTable, RollbackButton,
   type VerifyEntry,
 } from './WizardParts';
-import type { ParsedAccount, ParsedEntity, MigrationSource } from '@/modules/accounting/services/migrationParserService';
+import type { ParsedAccount, ParsedEntity, MigrationSource } from '@/modules/accounting/services/core/migrationParserService';
 
 interface Props {
   source: MigrationSource;

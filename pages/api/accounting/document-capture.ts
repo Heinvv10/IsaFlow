@@ -12,7 +12,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
-import { extractFromPdf, extractFromImage } from '@/modules/accounting/services/ocrService';
+import { extractFromPdf, extractFromImage } from '@/modules/accounting/services/core/ocrService';
 import type { CapturedDocument } from '@/modules/accounting/types/documentCapture.types';
 
 export const config = {

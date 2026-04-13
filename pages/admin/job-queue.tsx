@@ -10,7 +10,7 @@ import { JobBulkActionsBar } from '@/components/admin/job-queue/JobBulkActionsBa
 import { JobTable } from '@/components/admin/job-queue/JobTable';
 import { apiFetch } from '@/lib/apiFetch';
 import { Loader2, RefreshCw, Zap, Trash2 } from 'lucide-react';
-import type { BackgroundJob } from '@/modules/accounting/services/jobQueueService';
+import type { BackgroundJob } from '@/modules/accounting/services/core/jobQueueService';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 

@@ -14,7 +14,7 @@ import {
   createIntercompanyTransaction,
   matchIntercompanyTransactions,
   getIntercompanyReconciliation,
-} from '@/modules/accounting/services/groupCompanyService';
+} from '@/modules/accounting/services/reports/groupCompanyService';
 
 // Uses withAuth (not withCompany) because intercompany transactions cross company
 // boundaries. Security is provided by verifyGroupAccess() which ensures the user

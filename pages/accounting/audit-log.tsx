@@ -14,7 +14,7 @@ import {
   AuditLogTable,
   ACTION_LABELS,
 } from '@/components/accounting/audit-log/AuditLogTable';
-import type { AuditLogItem, AuditAction } from '@/modules/accounting/services/auditTrailService';
+import type { AuditLogItem, AuditAction } from '@/modules/accounting/services/core/auditTrailService';
 
 interface Filters {
   entityType: string;

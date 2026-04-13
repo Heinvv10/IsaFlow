@@ -18,7 +18,7 @@ import {
   getAgingBreakdown,
   getTopCustomers,
   getTopExpenseCategories,
-} from '@/modules/accounting/services/kpiService';
+} from '@/modules/accounting/services/reports/kpiService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {

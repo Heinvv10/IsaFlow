@@ -30,14 +30,14 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 import { sql, transaction } from '@/lib/neon';
-import { importBankStatement } from '@/modules/accounting/services/bankImportService';
+import { importBankStatement } from '@/modules/accounting/services/bank/bankImportService';
 import {
   getBankTransactions,
   matchTransaction,
   fmtDate,
   mapTxRow,
-} from '@/modules/accounting/services/bankTransactionQueryService';
-import { autoMatchTransactions } from '@/modules/accounting/services/bankReconciliationService';
+} from '@/modules/accounting/services/bank/bankTransactionQueryService';
+import { autoMatchTransactions } from '@/modules/accounting/services/bank/bankReconciliationService';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 

@@ -10,7 +10,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
-import { getSupplierInvoiceById } from '@/modules/accounting/services/supplierInvoiceService';
+import { getSupplierInvoiceById } from '@/modules/accounting/services/ap/supplierInvoiceService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;

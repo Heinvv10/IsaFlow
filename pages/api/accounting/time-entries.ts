@@ -17,7 +17,7 @@ import {
   createTimeEntry,
   updateTimeEntry,
   deleteTimeEntry,
-} from '@/modules/accounting/services/timeTrackingService';
+} from '@/modules/accounting/services/core/timeTrackingService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;

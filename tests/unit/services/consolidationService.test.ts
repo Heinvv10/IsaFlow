@@ -24,8 +24,8 @@ import {
   getGroupCompanies,
   createCompanyRelationship,
   getConsolidatedTrialBalance,
-} from '@/modules/accounting/services/consolidationService';
-import type { GroupCompany } from '@/modules/accounting/services/consolidationService';
+} from '@/modules/accounting/services/reports/consolidationService';
+import type { GroupCompany } from '@/modules/accounting/services/reports/consolidationService';
 
 const PARENT_ID = 'aaaaaaaa-0000-0000-0000-000000000001';
 const CHILD_ID  = 'bbbbbbbb-0000-0000-0000-000000000002';

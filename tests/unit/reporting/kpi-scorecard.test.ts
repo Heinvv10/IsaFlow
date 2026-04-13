@@ -4,8 +4,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { buildKPIScorecard, type KPITargetConfig } from '@/modules/accounting/services/kpiScorecardService';
-import type { ExtendedRatioResult } from '@/modules/accounting/services/reportingEngineService';
+import { buildKPIScorecard, type KPITargetConfig } from '@/modules/accounting/services/reports/kpiScorecardService';
+import type { ExtendedRatioResult } from '@/modules/accounting/services/reports/reportingEngineService';
 
 const sampleRatios: ExtendedRatioResult = {
   grossProfitMargin: 40, netProfitMargin: 20, operatingProfitMargin: 20,

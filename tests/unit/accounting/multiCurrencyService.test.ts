@@ -8,7 +8,7 @@ import {
   formatCurrencyAmount,
   type ExchangeRateInput,
   type ExchangeRate,
-} from '@/modules/accounting/services/multiCurrencyService';
+} from '@/modules/accounting/services/core/multiCurrencyService';
 
 // ---------------------------------------------------------------------------
 // convertAmount

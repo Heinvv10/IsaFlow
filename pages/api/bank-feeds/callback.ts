@@ -10,7 +10,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import {
   exchangeCode, fetchStitchAccounts, createConnection,
-} from '@/modules/accounting/services/bankFeedService';
+} from '@/modules/accounting/services/bank/bankFeedService';
 import cookie from 'cookie';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {

@@ -4,7 +4,7 @@ import {
   calculateSensitivity,
   type ThreeWayInput,
   type SensitivityInput,
-} from '@/modules/accounting/services/scenarioPlanningService';
+} from '@/modules/accounting/services/reports/scenarioPlanningService';
 
 describe('Three-Way Forecast', () => {
   it('builds integrated P&L, BS, Cash Flow', () => {

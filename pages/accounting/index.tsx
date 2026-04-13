@@ -107,7 +107,7 @@ export default function AccountingPage() {
         });
       })
       .catch(err => log.error('Failed to load hero stats', { error: err }, 'accounting-page'));
-  }, [isMounted]);
+  }, [isMounted, activeCompany?.id]);
 
   if (!isMounted) {
     return (
@@ -138,7 +138,9 @@ export default function AccountingPage() {
           />
         </div>
 
-        <div className="p-6 pt-5">
+        {/* key={activeCompany?.id} forces full remount when company switches,
+            so each tab's useEffect re-fires with the correct localStorage company */}
+        <div className="p-6 pt-5" key={activeCompany?.id ?? 'loading'}>
           {activeTab === 'overview'          && <OverviewTab />}
           {activeTab === 'chart-of-accounts' && <ChartOfAccountsTab />}
           {activeTab === 'journal-entries'   && <JournalEntriesTab />}

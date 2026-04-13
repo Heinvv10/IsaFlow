@@ -23,7 +23,7 @@ import {
   updateDeliveryNoteStatus,
   cancelDeliveryNote,
   type DeliveryNoteInput,
-} from '@/modules/accounting/services/deliveryNoteService';
+} from '@/modules/accounting/services/ar/deliveryNoteService';
 import { log } from '@/lib/logger';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {

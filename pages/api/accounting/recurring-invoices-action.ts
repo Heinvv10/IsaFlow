@@ -11,7 +11,7 @@ import { log } from '@/lib/logger';
 import {
   updateRecurringStatus,
   generateInvoiceFromRecurring,
-} from '@/modules/accounting/services/recurringInvoiceService';
+} from '@/modules/accounting/services/ar/recurringInvoiceService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;

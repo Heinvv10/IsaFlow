@@ -16,7 +16,7 @@ import {
 } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
-import { generateInvoiceFromRecurring } from '@/modules/accounting/services/recurringInvoiceService';
+import { generateInvoiceFromRecurring } from '@/modules/accounting/services/ar/recurringInvoiceService';
 import type { DbRow } from '@/lib/neon';
 
 interface RunResult {

@@ -14,7 +14,7 @@ import { sql } from '@/lib/neon';
 import {
   validateInvoiceDocument,
   validatePaymentReceipt,
-} from '@/modules/accounting/services/documentValidationService';
+} from '@/modules/accounting/services/core/documentValidationService';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -11,6 +11,7 @@ import { ActivityTab } from '@/components/accounting/suppliers/ActivityTab';
 import Link from 'next/link';
 import { ArrowLeft, Building2, Loader2, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { RecordNavigation } from '@/components/accounting/RecordNavigation';
 
 interface Supplier {
   id: string;
@@ -100,9 +101,14 @@ export default function SupplierDetailPage() {
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         {/* Header */}
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <Link href="/accounting/suppliers" className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-blue-400 mb-3">
-            <ArrowLeft className="h-4 w-4" /> Back to Suppliers
-          </Link>
+          <div className="flex items-center justify-between mb-3">
+            <Link href="/accounting/suppliers" className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-blue-400">
+              <ArrowLeft className="h-4 w-4" /> Back to Suppliers
+            </Link>
+            {typeof supplierId === 'string' && (
+              <RecordNavigation entity="suppliers" currentId={supplierId} basePath="/accounting/suppliers" />
+            )}
+          </div>
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-blue-500/10">
               <Building2 className="h-6 w-6 text-blue-500" />

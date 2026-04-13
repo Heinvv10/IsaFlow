@@ -11,7 +11,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
-import { postCustomerInvoiceToGL } from '@/modules/accounting/services/customerPaymentService';
+import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerPaymentService';
 type Row = Record<string, unknown>;
 
 
