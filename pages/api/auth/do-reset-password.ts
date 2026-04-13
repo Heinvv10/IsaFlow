@@ -82,7 +82,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Update password and mark token as used atomically
   await sql`
     UPDATE users
-    SET password_hash = ${passwordHash}, updated_at = NOW()
+    SET password_hash = ${passwordHash}, must_change_password = false, updated_at = NOW()
     WHERE id = ${record.user_id}
   `;
 
