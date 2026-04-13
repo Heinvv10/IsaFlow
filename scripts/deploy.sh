@@ -34,6 +34,10 @@ sudo rsync -a --delete \
 sudo rsync -a --delete \
   "$REPO_DIR/public/" "$DEPLOY_DIR/public/"
 
+# Inject BUILD_ID into sw.js so stale caches are evicted on every deploy
+BUILD_ID=$(cat "$REPO_DIR/.next/BUILD_ID")
+sudo sed -i "s/__BUILD_ID__/$BUILD_ID/g" "$DEPLOY_DIR/public/sw.js"
+
 # Fix ownership
 sudo chown -R velo:velo "$DEPLOY_DIR"
 
