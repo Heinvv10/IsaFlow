@@ -37,9 +37,9 @@ export async function importAPInvoices(
   let imported = 0;
   let skipped = 0;
 
-  const apAccountId      = await getSystemAccountId('payable');
-  const expenseAccountId = await getSystemAccountId('default_expense');
-  const vatInputId       = await getSystemAccountId('vat_input');
+  const apAccountId      = await getSystemAccountId('payable', companyId);
+  const expenseAccountId = await getSystemAccountId('default_expense', companyId);
+  const vatInputId       = await getSystemAccountId('vat_input', companyId);
 
   const supRows = (await sql`
     SELECT id, COALESCE(company_name, name) AS name FROM suppliers

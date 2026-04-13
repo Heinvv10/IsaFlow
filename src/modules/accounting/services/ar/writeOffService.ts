@@ -107,8 +107,8 @@ export async function approveWriteOff(companyId: string, id: string, userId: str
   const amount = Number(wo.amount);
 
   // GL: DR Bad Debts Expense, CR Accounts Receivable
-  const expenseAccount = await getSystemAccount('admin_expense');
-  const arAccount = await getSystemAccount('receivable');
+  const expenseAccount = await getSystemAccount('admin_expense', companyId);
+  const arAccount = await getSystemAccount('receivable', companyId);
 
   const lines: JournalLineInput[] = [
     { glAccountId: expenseAccount.id, debit: amount, credit: 0,

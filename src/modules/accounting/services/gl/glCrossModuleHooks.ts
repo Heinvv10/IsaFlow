@@ -33,8 +33,8 @@ export async function postAssetDepreciationToGL(
     const assetNumber = String(assetRow.asset_number ?? '');
     const assetName = String(assetRow.name ?? '');
 
-    const depExpenseId = await getSystemAccountId('depreciation_expense');
-    const accumDepId = await getSystemAccountId('accumulated_depreciation');
+    const depExpenseId = await getSystemAccountId('depreciation_expense', companyId);
+    const accumDepId = await getSystemAccountId('accumulated_depreciation', companyId);
 
     const entry = (await sql`
       INSERT INTO gl_journal_entries (

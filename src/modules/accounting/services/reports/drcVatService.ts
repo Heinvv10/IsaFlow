@@ -68,8 +68,8 @@ export async function applyDRCVat(companyId: string,
   const vatAmount = Math.round(totalExclVat * vatRate * 100) / 100;
 
   // Get VAT account IDs by subtype (code-independent)
-  const inputVatId = await getSystemAccountId('vat_input');
-  const outputVatId = await getSystemAccountId('vat_output');
+  const inputVatId = await getSystemAccountId('vat_input', companyId);
+  const outputVatId = await getSystemAccountId('vat_output', companyId);
 
   const description = `DRC VAT: ${inv.invoice_number} (R${vatAmount.toFixed(2)})`;
 

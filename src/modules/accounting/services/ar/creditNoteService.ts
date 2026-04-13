@@ -121,9 +121,9 @@ export async function approveCreditNote(companyId: string, id: string, userId: s
 
     if (String(cn.type) === 'customer') {
       // Customer CN: DR Revenue, CR Accounts Receivable
-      const revenueAccount = await getSystemAccount('default_revenue');
-      const arAccount = await getSystemAccount('receivable');
-      const vatAccount = await getSystemAccount('vat_output');
+      const revenueAccount = await getSystemAccount('default_revenue', companyId);
+      const arAccount = await getSystemAccount('receivable', companyId);
+      const vatAccount = await getSystemAccount('vat_output', companyId);
 
       lines = [
         { glAccountId: revenueAccount.id, debit: Number(cn.subtotal), credit: 0,
@@ -137,9 +137,9 @@ export async function approveCreditNote(companyId: string, id: string, userId: s
         description: `AR credit: ${cn.credit_note_number}` });
     } else {
       // Supplier CN: DR Accounts Payable, CR Expense
-      const apAccount = await getSystemAccount('payable');
-      const expenseAccount = await getSystemAccount('default_expense');
-      const vatAccount = await getSystemAccount('vat_input');
+      const apAccount = await getSystemAccount('payable', companyId);
+      const expenseAccount = await getSystemAccount('default_expense', companyId);
+      const vatAccount = await getSystemAccount('vat_input', companyId);
 
       lines = [
         { glAccountId: apAccount.id, debit: Number(cn.total_amount), credit: 0,

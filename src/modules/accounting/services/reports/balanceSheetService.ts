@@ -85,7 +85,7 @@ async function fetchBalanceSheetData(companyId: string, asAtDate: string, costCe
 
   const retainedEarnings = await calculateRetainedEarnings(companyId, asAtDate, costCentreId);
   if (Math.abs(retainedEarnings) > 0.01) {
-    const reAccount = await getSystemAccount('retained_earnings');
+    const reAccount = await getSystemAccount('retained_earnings', companyId);
     const existing = equity.find(e => e.accountCode === reAccount.accountCode);
     if (existing) existing.balance += retainedEarnings;
     else equity.push({ accountCode: reAccount.accountCode, accountName: 'Retained Earnings (Current)', balance: retainedEarnings });

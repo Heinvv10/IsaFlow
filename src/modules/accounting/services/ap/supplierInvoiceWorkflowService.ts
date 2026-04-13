@@ -29,9 +29,9 @@ export async function approveSupplierInvoice(
     }
 
     // Auto-post GL entry: DR Expense + DR VAT Input, CR Accounts Payable
-    const apAccount = await getSystemAccount('payable');
-    const vatAccount = await getSystemAccount('vat_input');
-    const defaultExpenseAccount = await getSystemAccount('default_expense');
+    const apAccount = await getSystemAccount('payable', companyId);
+    const vatAccount = await getSystemAccount('vat_input', companyId);
+    const defaultExpenseAccount = await getSystemAccount('default_expense', companyId);
     const lines: JournalLineInput[] = [];
 
     for (const item of invoice.items) {

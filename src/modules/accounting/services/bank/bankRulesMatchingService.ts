@@ -184,7 +184,7 @@ export async function applyRules(
             { glAccountId: String(rule.gl_account_id), debit: 0, credit: netAmount, description: entryDesc, vatType: mapVatType },
           ];
           if (hasVat) {
-            const vatAcctId = await getSystemAccountId(vatAccountKey);
+            const vatAcctId = await getSystemAccountId(vatAccountKey, companyId);
             lines.splice(1, 0, { glAccountId: vatAcctId, debit: 0, credit: vatAmount, description: `VAT @ 15%`, vatType: 'standard' });
           }
         } else {
@@ -193,7 +193,7 @@ export async function applyRules(
             { glAccountId: bankAccountId, debit: 0, credit: totalAmount, description: entryDesc },
           ];
           if (hasVat) {
-            const vatAcctId = await getSystemAccountId(vatAccountKey);
+            const vatAcctId = await getSystemAccountId(vatAccountKey, companyId);
             lines.splice(1, 0, { glAccountId: vatAcctId, debit: vatAmount, credit: 0, description: `VAT @ 15%`, vatType: 'standard' });
           }
         }

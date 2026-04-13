@@ -109,9 +109,9 @@ export async function importARInvoices(
   let imported = 0;
   let skipped = 0;
 
-  const arAccountId      = await getSystemAccountId('receivable');
-  const revenueAccountId = await getSystemAccountId('default_revenue');
-  const vatOutputId      = await getSystemAccountId('vat_output');
+  const arAccountId      = await getSystemAccountId('receivable', companyId);
+  const revenueAccountId = await getSystemAccountId('default_revenue', companyId);
+  const vatOutputId      = await getSystemAccountId('vat_output', companyId);
 
   const custRows = (await sql`
     SELECT id, name FROM customers WHERE company_id = ${companyId}::UUID
