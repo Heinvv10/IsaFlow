@@ -18,7 +18,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
   if (checkRateLimit(`ai-narrative:${ip}`, { maxRequests: 30, windowMs: 15 * 60 * 1000 })) {
-    return res.status(429).json({ success: false, error: 'Rate limit exceeded' });
+    return apiResponse.tooManyRequests(res);
   }
 
   const { reportData, tone = 'professional', variances, trends } = req.body as {
