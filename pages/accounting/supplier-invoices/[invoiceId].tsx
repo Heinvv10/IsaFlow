@@ -9,7 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import {
   ArrowLeft, Receipt, Loader2, AlertCircle, CheckCircle2,
-  XCircle, Link2, FileText, Pencil, Save,
+  XCircle, Link2, FileText, Pencil, Save, Download, CreditCard,
 } from 'lucide-react';
 import type { SupplierInvoice, SupplierInvoiceItem } from '@/modules/accounting/types/ap.types';
 import { AccountingDocumentPanel } from '@/modules/accounting/documents';
@@ -114,6 +114,7 @@ export default function SupplierInvoiceDetailPage() {
   const canApprove = canEdit;
   const canCancel = invoice.status !== 'paid' && invoice.status !== 'partially_paid' && invoice.status !== 'cancelled';
   const canMatch = !!invoice.purchaseOrderId;
+  const canRecordPayment = ['approved', 'partially_paid'].includes(invoice.status) && invoice.balance > 0;
 
   return (
     <AppLayout>
@@ -135,6 +136,25 @@ export default function SupplierInvoiceDetailPage() {
               <StatusBadge status={invoice.status} />
             </div>
             <div className="flex items-center gap-2">
+              {/* PDF Download */}
+              <a
+                href={`/api/accounting/supplier-invoice-pdf?invoiceId=${invoiceId as string}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 px-3 py-2 border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] rounded-lg hover:bg-[var(--ff-bg-tertiary)] text-sm font-medium"
+              >
+                <Download className="h-4 w-4" />PDF
+              </a>
+              {canRecordPayment && (
+                <button
+                  onClick={() => void router.push(
+                    `/accounting/supplier-payments/new?invoiceId=${invoiceId as string}&supplierId=${invoice.supplierId}&amount=${invoice.balance.toFixed(2)}`
+                  )}
+                  className="inline-flex items-center gap-2 px-3 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium"
+                >
+                  <CreditCard className="h-4 w-4" />Record Payment
+                </button>
+              )}
               {canEdit && !editing && (
                 <button onClick={() => { setEditing(true); setEditForm({ invoiceNumber: invoice.invoiceNumber, dueDate: invoice.dueDate || '', paymentTerms: invoice.paymentTerms || '', notes: invoice.notes || '' }); }}
                   className="inline-flex items-center gap-2 px-3 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 text-sm font-medium">

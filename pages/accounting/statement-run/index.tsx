@@ -76,12 +76,21 @@ export default function StatementRunPage() {
       // Fetch company details once for all PDFs
       let companyName = '';
       let companyVatNumber = '';
+      let companyEmail = '';
+      let companyPhone = '';
+      let companyAddress = '';
+      let accentColor = '#0d9488';
       try {
-        const settingsRes = await apiFetch('/api/accounting/accounting-settings');
-        const settingsJson = await settingsRes.json();
-        const settings = Array.isArray(settingsJson.data) ? settingsJson.data : [];
-        companyName = settings.find((s: { key: string }) => s.key === 'company_name')?.value || '';
-        companyVatNumber = settings.find((s: { key: string }) => s.key === 'company_vat_number')?.value || '';
+        const companyRes = await apiFetch('/api/accounting/company-details');
+        const companyJson = await companyRes.json();
+        const c = companyJson.data || companyJson;
+        companyName = c.name || c.company_name || '';
+        companyVatNumber = c.vat_number || c.company_vat_number || '';
+        companyEmail = c.email || c.company_email || '';
+        companyPhone = c.phone || c.company_phone || '';
+        const parts = [c.address_line1, c.city, c.province, c.postal_code].filter(Boolean);
+        companyAddress = parts.join(', ');
+        accentColor = c.primary_color || '#0d9488';
       } catch { /* use defaults */ }
 
       for (const clientId of selected) {
@@ -104,6 +113,10 @@ export default function StatementRunPage() {
           transactions: detail.transactions || [],
           companyName,
           companyVatNumber,
+          companyEmail,
+          companyPhone,
+          companyAddress,
+          accentColor,
         };
 
         const blob = await generateStatementPdf(stmtData);
