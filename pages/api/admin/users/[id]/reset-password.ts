@@ -32,7 +32,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       log.info('Password reset performed', { userId }, 'admin-api');
       return apiResponse.success(res, {
         success: true,
-        message: 'Temporary password has been set. Deliver it to the user securely.',
+        message: 'Password reset email sent to the user.',
       });
     } catch (err) {
       log.error('Failed to reset user password', { userId, error: err }, 'admin-api');
