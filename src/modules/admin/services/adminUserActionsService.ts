@@ -8,7 +8,9 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { generateRandomPassword, hashPassword } from '@/lib/auth';
+import { generateResetToken } from '@/lib/auth/password';
+import { sendEmail } from '@/modules/accounting/services/core/emailService';
+import { passwordResetEmailHtml } from '@/lib/email-templates-auth';
 
 type Row = DbRow;
 
@@ -38,23 +40,46 @@ export async function activateUser(userId: string): Promise<void> {
 }
 
 /**
- * Generate a temporary password, hash and store it, return plain text.
- * Caller is responsible for emailing the reset token/password.
+ * Send a password reset email to the user.
+ * Generates a secure token, stores it, and emails the reset link.
  */
-export async function resetPassword(userId: string): Promise<string> {
-  const temporaryPassword = generateRandomPassword();
-  const hashed = await hashPassword(temporaryPassword);
+export async function resetPassword(userId: string): Promise<void> {
+  const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://app.isaflow.co.za';
 
+  const rows = (await sql`
+    SELECT id, email, first_name FROM users WHERE id = ${userId} LIMIT 1
+  `) as Array<{ id: string; email: string; first_name: string }>;
+
+  if (rows.length === 0) throw new Error(`User ${userId} not found`);
+  const user = rows[0]!;
+
+  // Invalidate any existing unused tokens
   await sql`
-    UPDATE users
-    SET password_hash        = ${hashed},
-        must_change_password = true,
-        updated_at           = NOW()
-    WHERE id = ${userId}
+    UPDATE password_reset_tokens
+    SET used_at = NOW()
+    WHERE user_id = ${userId} AND used_at IS NULL
   `;
 
-  log.info('resetPassword — temporary password issued', { userId }, 'AdminUserActionsService');
-  return temporaryPassword;
+  const { token, hashedToken, expiresAt } = generateResetToken();
+
+  await sql`
+    INSERT INTO password_reset_tokens (user_id, hashed_token, expires_at)
+    VALUES (${userId}, ${hashedToken}, ${expiresAt.toISOString()}::TIMESTAMPTZ)
+  `;
+
+  const resetUrl = `${APP_URL}/reset-password?token=${token}`;
+
+  const result = await sendEmail({
+    to: user.email,
+    subject: 'Reset your ISAFlow password',
+    html: passwordResetEmailHtml({ name: user.first_name, resetUrl }),
+  });
+
+  if (!result.success) {
+    throw new Error(`Failed to send reset email: ${result.error}`);
+  }
+
+  log.info('resetPassword — reset email sent by admin', { userId }, 'AdminUserActionsService');
 }
 
 /** Force logout by deleting all active sessions for a user. */
