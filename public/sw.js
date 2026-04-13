@@ -3,16 +3,12 @@
  * Provides offline support, aggressive caching, and stale-while-revalidate for key APIs.
  */
 
-const CACHE_NAME = 'isaflow-v2';
+// IMPORTANT: CACHE_NAME must change on every deploy so stale pages and
+// JS chunks from previous builds get evicted. The deploy script injects
+// the current BUILD_ID automatically via sed (see scripts/deploy.sh).
+const CACHE_NAME = 'isaflow-__BUILD_ID__';
 
 const STATIC_ASSETS = [
-  '/accounting',
-  '/accounting/customer-invoices',
-  '/accounting/supplier-invoices',
-  '/accounting/bank-reconciliation',
-  '/accounting/journal-entries',
-  '/accounting/reports',
-  '/login',
   '/offline',
 ];
 
