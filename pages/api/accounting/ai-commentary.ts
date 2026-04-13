@@ -16,7 +16,7 @@ import {
   assessRiskAreas,
   buildExecutiveSummary,
   type ManagementPackData,
-} from '@/modules/accounting/services/aiCommentaryService';
+} from '@/modules/accounting/services/reports/aiCommentaryService';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;

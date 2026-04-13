@@ -13,7 +13,7 @@ import { log } from '@/lib/logger';
 import {
   getAccountReportingGroup,
   replaceGroupMembers,
-} from '@/modules/accounting/services/accountReportingGroupsService';
+} from '@/modules/accounting/services/reports/accountReportingGroupsService';
 
 async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   const { companyId } = req;

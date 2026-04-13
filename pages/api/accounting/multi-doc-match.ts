@@ -10,7 +10,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
-import { performMultiDocMatch } from '@/modules/accounting/services/multiDocMatchService';
+import { performMultiDocMatch } from '@/modules/accounting/services/bank/multiDocMatchService';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 
 export const config = {

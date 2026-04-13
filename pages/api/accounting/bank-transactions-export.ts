@@ -11,7 +11,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
-import { getBankTransactions } from '@/modules/accounting/services/transactionReportingService';
+import { getBankTransactions } from '@/modules/accounting/services/reports/transactionReportingService';
 import { csvCell } from '@/lib/csv';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {

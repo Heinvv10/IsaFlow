@@ -5,7 +5,7 @@
 
 import Link from 'next/link';
 import { ChevronDown, ChevronRight, Shield } from 'lucide-react';
-import type { AuditLogItem, AuditAction } from '@/modules/accounting/services/auditTrailService';
+import type { AuditLogItem, AuditAction } from '@/modules/accounting/services/core/auditTrailService';
 
 export const ACTION_LABELS: Record<AuditAction, string> = {
   create: 'Created',

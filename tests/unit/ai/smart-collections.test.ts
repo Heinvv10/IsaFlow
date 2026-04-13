@@ -8,7 +8,7 @@ import {
   type ReminderTone,
   type EscalationLevel,
   type CollectionStep,
-} from '@/modules/accounting/services/smartCollectionsService';
+} from '@/modules/accounting/services/ar/smartCollectionsService';
 
 describe('Reminder Tone Selection', () => {
   it('friendly for first reminder', () => { expect(selectReminderTone(1, 5)).toBe('friendly'); });

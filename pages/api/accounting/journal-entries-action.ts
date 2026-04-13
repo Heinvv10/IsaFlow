@@ -12,7 +12,7 @@ import { log } from '@/lib/logger';
 import {
   postJournalEntry,
   reverseJournalEntry,
-} from '@/modules/accounting/services/journalEntryService';
+} from '@/modules/accounting/services/gl/journalEntryService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {

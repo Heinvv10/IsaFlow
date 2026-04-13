@@ -13,7 +13,7 @@ import { isValidDate } from '@/lib/validation';
 import {
   generateVAT201,
   saveDraftSubmission,
-} from '@/modules/accounting/services/sarsService';
+} from '@/modules/accounting/services/reports/sarsService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;

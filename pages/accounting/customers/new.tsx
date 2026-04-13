@@ -18,6 +18,7 @@ export default function NewCustomerPage() {
   const [form, setForm] = useState<CustomerFormData>(INITIAL_CUSTOMER_FORM);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof CustomerFormData, string>>>({});
+  const [saveAndNew, setSaveAndNew] = useState(false);
 
   function validate(): boolean {
     const errors: Partial<Record<keyof CustomerFormData, string>> = {};
@@ -35,9 +36,10 @@ export default function NewCustomerPage() {
     return Object.keys(errors).length === 0;
   }
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(e: React.FormEvent, andNew = false) {
     e.preventDefault();
     if (!validate()) return;
+    setSaveAndNew(andNew);
 
     setIsSubmitting(true);
     try {
@@ -57,7 +59,13 @@ export default function NewCustomerPage() {
       if (!res.ok) throw new Error(json.error?.message ?? `HTTP ${res.status}`);
 
       notify.success('Customer created successfully');
-      await router.push('/accounting/customers');
+      if (andNew) {
+        setForm(INITIAL_CUSTOMER_FORM);
+        setFieldErrors({});
+        await router.push('/accounting/customers/new');
+      } else {
+        await router.push(`/accounting/customers/${json.data?.id ?? ''}`);
+      }
     } catch (err: unknown) {
       notify.error(err instanceof Error ? err.message : 'Failed to create customer');
     } finally {
@@ -88,7 +96,7 @@ export default function NewCustomerPage() {
         </div>
 
         <div className="p-6 max-w-3xl">
-          <form onSubmit={handleSubmit} noValidate>
+          <form onSubmit={(e) => handleSubmit(e, saveAndNew)} noValidate>
             <CustomerForm
               form={form}
               onChange={setForm}
@@ -106,10 +114,20 @@ export default function NewCustomerPage() {
               <button
                 type="submit"
                 disabled={isSubmitting}
+                onClick={() => setSaveAndNew(false)}
                 className="flex items-center gap-2 px-5 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors"
               >
-                {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                {isSubmitting ? 'Saving...' : 'Save Customer'}
+                {isSubmitting && !saveAndNew ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                {isSubmitting && !saveAndNew ? 'Saving...' : 'Save Customer'}
+              </button>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                onClick={() => setSaveAndNew(true)}
+                className="flex items-center gap-2 px-5 py-2 rounded-lg border border-teal-600 text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-900/20 disabled:opacity-60 disabled:cursor-not-allowed text-sm font-medium transition-colors"
+              >
+                {isSubmitting && saveAndNew ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                {isSubmitting && saveAndNew ? 'Saving...' : 'Save & New'}
               </button>
             </div>
           </form>

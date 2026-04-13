@@ -14,7 +14,7 @@ import {
   lockPeriod,
   reopenPeriod,
   closeYear,
-} from '@/modules/accounting/services/fiscalPeriodService';
+} from '@/modules/accounting/services/gl/fiscalPeriodService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {

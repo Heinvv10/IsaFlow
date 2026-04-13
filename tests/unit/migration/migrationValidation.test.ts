@@ -28,7 +28,7 @@ vi.mock('@/modules/accounting/services/migrationService', () => ({
   updateSession: vi.fn(),
 }));
 
-import { matchContact } from '@/modules/accounting/services/migrationImportService';
+import { matchContact } from '@/modules/accounting/services/core/migrationImportService';
 
 // ── matchContact ─────────────────────────────────────────────────────────────
 

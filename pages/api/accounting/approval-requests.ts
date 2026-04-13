@@ -11,7 +11,7 @@ import { withCompany, type CompanyApiRequest, type AuthenticatedNextApiRequest, 
 import {
   listRequests, requestApproval, decideRequest, checkApproval, getPendingCount,
   type ApprovalStatus,
-} from '@/modules/accounting/services/approvalService';
+} from '@/modules/accounting/services/gl/approvalService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;

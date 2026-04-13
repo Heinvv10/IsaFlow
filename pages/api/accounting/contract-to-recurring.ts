@@ -16,7 +16,7 @@ import {
   mapContractToRecurringInput,
   validateContractExtraction,
   calculateEscalationSchedule,
-} from '@/modules/accounting/services/contractExtractionService';
+} from '@/modules/accounting/services/core/contractExtractionService';
 
 export const config = {
   api: { bodyParser: false },

@@ -13,7 +13,7 @@ import {
   buildReportPack,
   type PackType,
   type ReportPackInput,
-} from '@/modules/accounting/services/reportPackService';
+} from '@/modules/accounting/services/reports/reportPackService';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;

@@ -13,8 +13,8 @@ import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
-import { sendEmail } from '@/modules/accounting/services/emailService';
-import type { EmailType } from '@/modules/accounting/services/emailService';
+import { sendEmail } from '@/modules/accounting/services/core/emailService';
+import type { EmailType } from '@/modules/accounting/services/core/emailService';
 
 type Row = Record<string, unknown>;
 

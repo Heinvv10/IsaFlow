@@ -10,7 +10,7 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
-import { getQuotes, getQuote, createQuote, updateQuote, deleteQuote } from '@/modules/accounting/services/quoteService';
+import { getQuotes, getQuote, createQuote, updateQuote, deleteQuote } from '@/modules/accounting/services/ar/quoteService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;

@@ -16,8 +16,8 @@ import {
   type PackType,
   type PackSection,
   type ReportPackInput,
-} from '@/modules/accounting/services/reportPackService';
-import type { KPIScorecardItem } from '@/modules/accounting/services/kpiScorecardService';
+} from '@/modules/accounting/services/reports/reportPackService';
+import type { KPIScorecardItem } from '@/modules/accounting/services/reports/kpiScorecardService';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;

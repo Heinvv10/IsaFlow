@@ -21,7 +21,7 @@ import {
   softDelete,
   undoDelete,
   isValidEntityType,
-} from '@/modules/accounting/services/softDeleteService';
+} from '@/modules/accounting/services/core/softDeleteService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;

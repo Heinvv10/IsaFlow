@@ -4,8 +4,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { calculateRatioTrends } from '@/modules/accounting/services/ratioTrendService';
-import type { FinancialData } from '@/modules/accounting/services/reportingEngineService';
+import { calculateRatioTrends } from '@/modules/accounting/services/reports/ratioTrendService';
+import type { FinancialData } from '@/modules/accounting/services/reports/reportingEngineService';
 
 const makeData = (revenue: number, netProfit: number, cash: number): FinancialData => ({
   revenue, costOfSales: revenue * 0.6, operatingExpenses: revenue * 0.15, netProfit,

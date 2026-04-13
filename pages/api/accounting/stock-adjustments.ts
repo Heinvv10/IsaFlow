@@ -7,7 +7,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type AuthenticatedNextApiRequest, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { validateStockAdjustment } from '@/modules/accounting/services/inventoryService';
+import { validateStockAdjustment } from '@/modules/accounting/services/items/inventoryService';
 type Row = Record<string, unknown>;
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {

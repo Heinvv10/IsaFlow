@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { FileText, Plus, Loader2 } from 'lucide-react';
-import type { TaxDirective } from '@/modules/accounting/services/taxDirectiveService';
+import type { TaxDirective } from '@/modules/accounting/services/reports/taxDirectiveService';
 import { CreateTaxDirectiveModal, LumpSumCalculator } from '@/components/payroll/TaxDirectiveComponents';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

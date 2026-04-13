@@ -43,7 +43,7 @@ vi.mock('@/lib/cache-keys', () => ({
 }));
 
 // softDeleteService — only pure export
-import { isValidEntityType } from '@/modules/accounting/services/softDeleteService';
+import { isValidEntityType } from '@/modules/accounting/services/core/softDeleteService';
 
 // Double-entry utilities
 import {

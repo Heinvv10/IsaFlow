@@ -14,7 +14,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, withWriteAccess, type CompanyApiRequest, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
-import { sendStatementEmail } from '@/modules/accounting/services/statementEmailService';
+import { sendStatementEmail } from '@/modules/accounting/services/ar/statementEmailService';
 
 type Row = Record<string, unknown>;
 

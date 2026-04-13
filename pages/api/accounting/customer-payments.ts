@@ -13,7 +13,7 @@ import {
   getCustomerPayments,
   getCustomerPaymentById,
   createCustomerPayment,
-} from '@/modules/accounting/services/customerPaymentService';
+} from '@/modules/accounting/services/ar/customerPaymentService';
 import type { CustomerPaymentStatus } from '@/modules/accounting/types/ar.types';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {

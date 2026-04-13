@@ -16,7 +16,7 @@ import { sql } from '@/lib/neon';
 import {
   allocateTransaction,
   type AllocationType,
-} from '@/modules/accounting/services/bankReconciliationService';
+} from '@/modules/accounting/services/bank/bankReconciliationService';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

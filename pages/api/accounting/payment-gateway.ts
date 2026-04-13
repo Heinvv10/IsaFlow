@@ -15,7 +15,7 @@ import {
   getPaymentStatus,
   getInvoicePayments,
   enableOnlinePayment,
-} from '@/modules/accounting/services/paymentGatewayService';
+} from '@/modules/accounting/services/core/paymentGatewayService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;

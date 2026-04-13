@@ -16,7 +16,7 @@ import {
   mapSessionRow,
   type MigrationSession,
   type MigrationStatus,
-} from '@/modules/accounting/services/migrationService';
+} from '@/modules/accounting/services/core/migrationService';
 
 // ── mapSessionRow ─────────────────────────────────────────────────────────────
 
@@ -185,44 +185,44 @@ describe('MigrationError structure', () => {
 describe('migrationTemplateService — getTemplate', () => {
   // No DB dependency — import directly
   it('exists and is importable', async () => {
-    const { getTemplate } = await import('@/modules/accounting/services/migrationTemplateService');
+    const { getTemplate } = await import('@/modules/accounting/services/core/migrationTemplateService');
     expect(typeof getTemplate).toBe('function');
   });
 
   it('returns Sage Cloud 3-digit COA template', async () => {
-    const { getTemplate } = await import('@/modules/accounting/services/migrationTemplateService');
+    const { getTemplate } = await import('@/modules/accounting/services/core/migrationTemplateService');
     const template = getTemplate('sage_cloud', 'chart-of-accounts');
     expect(template).toContain('account_code');
     expect(template).toContain('3-digit');
   });
 
   it('returns Sage 50 7-digit COA template', async () => {
-    const { getTemplate } = await import('@/modules/accounting/services/migrationTemplateService');
+    const { getTemplate } = await import('@/modules/accounting/services/core/migrationTemplateService');
     const template = getTemplate('sage_50', 'chart-of-accounts');
     expect(template).toContain('7-digit');
     expect(template).toContain('1000000');
   });
 
   it('Pastel returns same template as Sage 50', async () => {
-    const { getTemplate } = await import('@/modules/accounting/services/migrationTemplateService');
+    const { getTemplate } = await import('@/modules/accounting/services/core/migrationTemplateService');
     const sage50 = getTemplate('sage_50', 'chart-of-accounts');
     const pastel  = getTemplate('pastel', 'chart-of-accounts');
     expect(sage50).toBe(pastel);
   });
 
   it('returns generic template for unknown source system', async () => {
-    const { getTemplate } = await import('@/modules/accounting/services/migrationTemplateService');
+    const { getTemplate } = await import('@/modules/accounting/services/core/migrationTemplateService');
     const template = getTemplate('other', 'chart-of-accounts');
     expect(template).toContain('account_code');
   });
 
   it('throws for unknown migration step', async () => {
-    const { getTemplate } = await import('@/modules/accounting/services/migrationTemplateService');
+    const { getTemplate } = await import('@/modules/accounting/services/core/migrationTemplateService');
     expect(() => getTemplate('sage_cloud', 'invalid-step')).toThrow('Unknown migration step');
   });
 
   it('returns customers template (same for all source systems)', async () => {
-    const { getTemplate } = await import('@/modules/accounting/services/migrationTemplateService');
+    const { getTemplate } = await import('@/modules/accounting/services/core/migrationTemplateService');
     const template = getTemplate('sage_cloud', 'customers');
     expect(template).toContain('name');
     expect(template).toContain('email');
@@ -230,14 +230,14 @@ describe('migrationTemplateService — getTemplate', () => {
   });
 
   it('returns opening balances template with debit/credit columns', async () => {
-    const { getTemplate } = await import('@/modules/accounting/services/migrationTemplateService');
+    const { getTemplate } = await import('@/modules/accounting/services/core/migrationTemplateService');
     const template = getTemplate('sage_cloud', 'opening-balances');
     expect(template).toContain('debit_balance');
     expect(template).toContain('credit_balance');
   });
 
   it('returns AR invoices template', async () => {
-    const { getTemplate } = await import('@/modules/accounting/services/migrationTemplateService');
+    const { getTemplate } = await import('@/modules/accounting/services/core/migrationTemplateService');
     const template = getTemplate('sage_cloud', 'ar-invoices');
     expect(template).toContain('invoice_number');
     expect(template).toContain('customer_name');
@@ -245,7 +245,7 @@ describe('migrationTemplateService — getTemplate', () => {
   });
 
   it('returns AP invoices template with supplier_name', async () => {
-    const { getTemplate } = await import('@/modules/accounting/services/migrationTemplateService');
+    const { getTemplate } = await import('@/modules/accounting/services/core/migrationTemplateService');
     const template = getTemplate('sage_cloud', 'ap-invoices');
     expect(template).toContain('supplier_name');
   });
@@ -253,7 +253,7 @@ describe('migrationTemplateService — getTemplate', () => {
 
 describe('migrationTemplateService — getTemplateFilename', () => {
   it('returns a filename with the source system and step', async () => {
-    const { getTemplateFilename } = await import('@/modules/accounting/services/migrationTemplateService');
+    const { getTemplateFilename } = await import('@/modules/accounting/services/core/migrationTemplateService');
     const filename = getTemplateFilename('sage_cloud', 'chart-of-accounts');
     expect(filename).toContain('sage');
     expect(filename).toContain('chart-of-accounts');

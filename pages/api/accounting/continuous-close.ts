@@ -16,7 +16,7 @@ import {
   prioritizeExceptions,
   type CloseState,
   type CloseRunResults,
-} from '@/modules/accounting/services/continuousCloseService';
+} from '@/modules/accounting/services/gl/continuousCloseService';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;

@@ -3,7 +3,7 @@
  */
 
 import { Building2, Plus, Loader2, Layers, RefreshCw, CheckCircle2 } from 'lucide-react';
-import type { GroupCompany } from '@/modules/accounting/services/consolidationTypes';
+import type { GroupCompany } from '@/modules/accounting/services/reports/consolidationTypes';
 
 const RELATIONSHIP_LABELS: Record<string, string> = {
   parent: 'Parent', subsidiary: 'Subsidiary', branch: 'Branch', associate: 'Associate',

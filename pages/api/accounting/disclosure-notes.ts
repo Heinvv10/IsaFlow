@@ -14,7 +14,7 @@ import {
   generateDisclosureNotes,
   getManualNotes,
   type DisclosureNote,
-} from '@/modules/accounting/services/disclosureNoteService';
+} from '@/modules/accounting/services/reports/disclosureNoteService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {

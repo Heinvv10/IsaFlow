@@ -16,7 +16,7 @@ import {
   createWebhook,
   updateWebhook,
   deleteWebhook,
-} from '@/modules/accounting/services/webhookService';
+} from '@/modules/accounting/services/core/webhookService';
 
 /** SSRF guard — only allow HTTPS URLs pointing to public internet hosts */
 function isValidWebhookUrl(url: string): boolean {

@@ -14,7 +14,7 @@ import {
   type SchemaTable,
   type QueryResult,
   type QueryIntent,
-} from '@/modules/accounting/services/nlQueryService';
+} from '@/modules/accounting/services/core/nlQueryService';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // SCHEMA DESCRIPTION

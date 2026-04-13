@@ -36,12 +36,12 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, withWriteAccess } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
-import { importParsedTransactions } from '@/modules/accounting/services/bankReconciliationService';
-import { applyRules as applyBankRulesService } from '@/modules/accounting/services/bankRulesService';
+import { importParsedTransactions } from '@/modules/accounting/services/bank/bankReconciliationService';
+import { applyRules as applyBankRulesService } from '@/modules/accounting/services/bank/bankRulesService';
 import {
   parseStatement,
   type StatementFileType,
-} from '@/modules/accounting/services/bankStatementParseService';
+} from '@/modules/accounting/services/bank/bankStatementParseService';
 import { compareBankAccountNumbers } from '@/modules/accounting/utils/bankAccountNumberMatch';
 import {
   bankTransactionHash,

@@ -7,7 +7,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { getClientStatement } from '@/modules/accounting/services/portalService';
+import { getClientStatement } from '@/modules/accounting/services/ar/portalService';
 import { jwtVerify } from 'jose';
 import cookie from 'cookie';
 

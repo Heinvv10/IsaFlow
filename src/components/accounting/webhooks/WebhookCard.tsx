@@ -3,7 +3,7 @@
  */
 
 import { ChevronDown, ChevronUp, CheckCircle, XCircle, Loader2, Trash2, Play } from 'lucide-react';
-import type { Webhook, Delivery } from '@/modules/accounting/services/webhookService';
+import type { Webhook, Delivery } from '@/modules/accounting/services/core/webhookService';
 
 const BTN_GHOST = 'inline-flex items-center gap-2 px-3 py-1.5 text-sm text-[var(--ff-text-secondary)] border border-[var(--ff-border-light)] rounded-lg hover:bg-[var(--ff-bg-primary)] transition-colors';
 

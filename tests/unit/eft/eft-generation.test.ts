@@ -18,7 +18,7 @@ import {
   type EFTPayment,
   type EFTBatchHeader,
   type EFTValidationResult,
-} from '@/modules/accounting/services/eftService';
+} from '@/modules/accounting/services/ap/eftService';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // SHARED TEST DATA

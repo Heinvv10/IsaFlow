@@ -23,7 +23,7 @@ import {
   mapRow,
   verifyEntityOwnership,
   uploadDocument,
-} from '@/modules/accounting/services/documentStorageService';
+} from '@/modules/accounting/services/core/documentStorageService';
 
 export const config = {
   api: { bodyParser: false },

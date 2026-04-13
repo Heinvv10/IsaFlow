@@ -16,7 +16,7 @@ import {
   getTemplates,
   createTemplate,
   deleteTemplate,
-} from '@/modules/accounting/services/descriptionTemplateService';
+} from '@/modules/accounting/services/core/descriptionTemplateService';
 import type { CompanyApiRequest } from '@/lib/auth/withCompany';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {

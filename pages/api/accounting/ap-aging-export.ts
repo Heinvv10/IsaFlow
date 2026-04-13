@@ -9,7 +9,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
-import { getAPAging } from '@/modules/accounting/services/apAgingService';
+import { getAPAging } from '@/modules/accounting/services/ap/apAgingService';
 import { csvCell } from '@/lib/csv';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {

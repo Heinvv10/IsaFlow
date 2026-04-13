@@ -11,7 +11,7 @@ import { checkRateLimit } from '@/lib/rateLimit';
 import {
   buildForecastScenario, calculateWeeklyForecast,
   buildForecastNarrativePrompt, parseForecastNarrative,
-} from '@/modules/accounting/services/cashFlowAIService';
+} from '@/modules/accounting/services/reports/cashFlowAIService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);

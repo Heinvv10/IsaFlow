@@ -17,7 +17,7 @@ import {
   type EMP201Data,
   type IRP6Data,
   type ComplianceDeadline,
-} from '@/modules/accounting/services/sarsEfilingService';
+} from '@/modules/accounting/services/reports/sarsEfilingService';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // SARS TAX TYPES

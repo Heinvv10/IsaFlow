@@ -3,7 +3,7 @@
  */
 
 import { Loader2 } from 'lucide-react';
-import type { ArchiveRun } from '@/modules/accounting/services/dataArchivingService';
+import type { ArchiveRun } from '@/modules/accounting/services/core/dataArchivingService';
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {

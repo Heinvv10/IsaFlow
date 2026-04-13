@@ -19,7 +19,7 @@ import {
   type TransactionContext,
   type ChartOfAccountEntry,
   type CategorizationResult,
-} from '@/modules/accounting/services/aiCategorizationService';
+} from '@/modules/accounting/services/core/aiCategorizationService';
 
 type Row = Record<string, unknown>;
 

@@ -6,10 +6,10 @@
 import { sql, withTransaction, fmtDate } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { createJournalEntry, postJournalEntry } from './journalEntryService';
-import { getSystemAccount } from './systemAccountResolver';
-import type { SupplierPaymentBatch, BatchPaymentCreateInput } from '../types/ap.types';
-import type { JournalLineInput } from '../types/gl.types';
+import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
+import { getSystemAccount } from '../gl/systemAccountResolver';
+import type { SupplierPaymentBatch, BatchPaymentCreateInput } from '../../types/ap.types';
+import type { JournalLineInput } from '../../types/gl.types';
 
 type Row = DbRow;
 

@@ -8,7 +8,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
-import { getCurrencies, createCurrency, toggleCurrency } from '@/modules/accounting/services/currencyService';
+import { getCurrencies, createCurrency, toggleCurrency } from '@/modules/accounting/services/core/currencyService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;

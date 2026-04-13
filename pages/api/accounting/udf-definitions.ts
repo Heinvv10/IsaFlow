@@ -13,7 +13,7 @@ import {
   upsertUdfDefinition,
   type UdfEntityType,
   type UdfDefinitionInput,
-} from '@/modules/accounting/services/udfService';
+} from '@/modules/accounting/services/core/udfService';
 
 const VALID_ENTITY_TYPES: UdfEntityType[] = ['customer', 'supplier', 'invoice', 'item'];
 const VALID_FIELD_TYPES = ['text', 'number', 'date', 'boolean', 'select'];

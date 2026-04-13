@@ -11,7 +11,7 @@ import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth'
 import {
   getMigrationStatus,
   getAccountMappings,
-} from '@/modules/accounting/services/sageMigrationService';
+} from '@/modules/accounting/services/core/sageMigrationService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {

@@ -46,7 +46,7 @@ import { log } from '@/lib/logger';
 import {
   parseStatement,
   type StatementFileType,
-} from '@/modules/accounting/services/bankStatementParseService';
+} from '@/modules/accounting/services/bank/bankStatementParseService';
 import {
   bankTransactionHash,
   type HashableTransaction,

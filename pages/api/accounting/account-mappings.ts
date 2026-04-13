@@ -14,7 +14,7 @@ import {
   getAccountMappings,
   saveAccountMapping,
   autoSuggestAllMappings,
-} from '@/modules/accounting/services/casewareExportService';
+} from '@/modules/accounting/services/reports/casewareExportService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;

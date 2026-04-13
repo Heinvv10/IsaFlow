@@ -12,7 +12,7 @@ import {
   approveBatch,
   processBatch,
   cancelBatch,
-} from '@/modules/accounting/services/batchPaymentService';
+} from '@/modules/accounting/services/ap/batchPaymentService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {

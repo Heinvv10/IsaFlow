@@ -21,7 +21,7 @@ import { sql } from '@/lib/neon';
 import {
   allocateTransaction,
   matchTransaction,
-} from '@/modules/accounting/services/bankReconciliationService';
+} from '@/modules/accounting/services/bank/bankReconciliationService';
 import type { CandidateType } from '@/modules/accounting/types/bank-match.types';
 type Row = Record<string, unknown>;
 

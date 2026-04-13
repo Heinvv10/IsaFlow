@@ -21,7 +21,7 @@ import {
   mapSageSuppliers,
   mapSageARInvoices,
   mapSageAPInvoices,
-} from '@/modules/accounting/services/sageAutoImportService';
+} from '@/modules/accounting/services/core/sageAutoImportService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;

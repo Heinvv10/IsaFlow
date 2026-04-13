@@ -9,7 +9,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
-import { getWriteOffs, createWriteOff } from '@/modules/accounting/services/writeOffService';
+import { getWriteOffs, createWriteOff } from '@/modules/accounting/services/ar/writeOffService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;

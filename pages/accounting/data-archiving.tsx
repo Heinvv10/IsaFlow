@@ -12,7 +12,7 @@ import { log } from '@/lib/logger';
 import { Archive, Database, Clock, AlertTriangle, Eye } from 'lucide-react';
 import type {
   StorageStats, ArchivePreview, ArchiveValidation, ArchiveRun, ArchivedEntry,
-} from '@/modules/accounting/services/dataArchivingService';
+} from '@/modules/accounting/services/core/dataArchivingService';
 import { ArchiveStorageStats } from '@/components/accounting/ArchiveStorageStats';
 import { ArchiveWizardSection } from '@/components/accounting/ArchiveWizardSection';
 import { ArchiveHistoryTable } from '@/components/accounting/ArchiveHistoryTable';

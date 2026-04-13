@@ -12,7 +12,7 @@ import {
   generateStandardBankACB, generateFNBEFT, generateABSAEFT,
   generateNedbankEFT, generateCapitecEFT, validateEFTBatch,
   type EFTBatchHeader, type EFTPayment,
-} from '@/modules/accounting/services/eftService';
+} from '@/modules/accounting/services/ap/eftService';
 
 type Row = Record<string, unknown>;
 

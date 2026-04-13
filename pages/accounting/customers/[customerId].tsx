@@ -12,6 +12,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { DeliveryAddressesTab } from '@/components/accounting/customers/DeliveryAddressesTab';
 import { ContactsTab } from '@/components/accounting/customers/ContactsTab';
+import { RecordNavigation } from '@/components/accounting/RecordNavigation';
 
 interface Customer {
   id: string;
@@ -178,9 +179,14 @@ export default function CustomerDetailPage() {
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         {/* Header */}
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <Link href="/accounting/customers" className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-blue-400 mb-3">
-            <ArrowLeft className="h-4 w-4" /> Back to Customers
-          </Link>
+          <div className="flex items-center justify-between mb-3">
+            <Link href="/accounting/customers" className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-blue-400">
+              <ArrowLeft className="h-4 w-4" /> Back to Customers
+            </Link>
+            {typeof customerId === 'string' && (
+              <RecordNavigation entity="customers" currentId={customerId} basePath="/accounting/customers" />
+            )}
+          </div>
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-blue-500/10">
               <User className="h-6 w-6 text-blue-500" />

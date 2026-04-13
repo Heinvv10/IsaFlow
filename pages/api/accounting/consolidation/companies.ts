@@ -12,7 +12,7 @@ import { log } from '@/lib/logger';
 import {
   getGroupCompanies,
   createCompanyRelationship,
-} from '@/modules/accounting/services/consolidationService';
+} from '@/modules/accounting/services/reports/consolidationService';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 

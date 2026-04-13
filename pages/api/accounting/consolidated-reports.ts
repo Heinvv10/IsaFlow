@@ -19,7 +19,7 @@ import {
   postEliminationAdjustment,
   reverseEliminationAdjustment,
   autoGenerateEliminations,
-} from '@/modules/accounting/services/consolidatedReportingService';
+} from '@/modules/accounting/services/reports/consolidatedReportingService';
 
 // Uses withAuth (not withCompany) because consolidated reports aggregate data from
 // multiple companies in a group. Security is provided by verifyGroupAccess() which

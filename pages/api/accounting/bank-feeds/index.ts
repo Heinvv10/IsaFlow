@@ -14,7 +14,7 @@ import {
   createBankFeedConnection,
   type BankFeedConnectionInput,
   type Provider,
-} from '@/modules/accounting/services/openBankingService';
+} from '@/modules/accounting/services/bank/openBankingService';
 
 const VALID_PROVIDERS: Provider[] = ['manual_csv', 'basiq', 'tink', 'plaid'];
 

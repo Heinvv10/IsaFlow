@@ -9,7 +9,7 @@
 
 import { log } from '@/lib/logger';
 import type { BankCsvParseResult } from '../types/bank.types';
-import { isVlmAvailable, extractBankStatementWithVlm } from '../services/vlmService';
+import { isVlmAvailable, extractBankStatementWithVlm } from '../services/bank/vlmService';
 import { parseAbsaSlashDateLines, parseAbsaTextLines } from './bankPdfParserAbsa';
 
 // Re-export for callers that import parseAbsaPdfText directly from this module

@@ -17,8 +17,8 @@ import {
   cancelInvitation,
   markInvitationEmailSent,
   markInvitationEmailFailed,
-} from '@/modules/accounting/services/userAccessService';
-import { sendInviteEmail } from '@/modules/accounting/services/emailService';
+} from '@/modules/accounting/services/core/userAccessService';
+import { sendInviteEmail } from '@/modules/accounting/services/core/emailService';
 type Row = Record<string, unknown>;
 
 

@@ -19,7 +19,7 @@ import {
   createPurchaseOrder,
   updatePurchaseOrder,
   deletePurchaseOrder,
-} from '@/modules/accounting/services/purchaseOrderService';
+} from '@/modules/accounting/services/ap/purchaseOrderService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;

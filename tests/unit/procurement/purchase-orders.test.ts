@@ -16,7 +16,7 @@ import {
   type GRNInput,
   type GRNLineItem,
   type ThreeWayMatchResult,
-} from '@/modules/accounting/services/procurementService';
+} from '@/modules/accounting/services/ap/procurementService';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // PURCHASE ORDER VALIDATION

@@ -13,8 +13,8 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, withWriteAccess } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
-import { getIncomeStatement } from '@/modules/accounting/services/incomeStatementService';
-import { getBalanceSheet } from '@/modules/accounting/services/balanceSheetService';
+import { getIncomeStatement } from '@/modules/accounting/services/reports/incomeStatementService';
+import { getBalanceSheet } from '@/modules/accounting/services/reports/balanceSheetService';
 
 type Row = Record<string, unknown>;
 

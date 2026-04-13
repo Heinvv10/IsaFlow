@@ -18,7 +18,7 @@ import {
   parseSuppliersFile,
   autoMapAccounts,
   type MigrationSource,
-} from '@/modules/accounting/services/migrationParserService';
+} from '@/modules/accounting/services/core/migrationParserService';
 
 export const config = { api: { bodyParser: false } };
 

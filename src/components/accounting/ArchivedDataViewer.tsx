@@ -3,7 +3,7 @@
  */
 
 import { AlertTriangle, Loader2 } from 'lucide-react';
-import type { ArchivedEntry } from '@/modules/accounting/services/dataArchivingService';
+import type { ArchivedEntry } from '@/modules/accounting/services/core/dataArchivingService';
 
 const ARCHIVE_LIMIT = 50;
 

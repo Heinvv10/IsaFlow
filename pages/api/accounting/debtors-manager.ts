@@ -18,7 +18,7 @@ import {
   getDebtorDetail,
   getOverdueInvoices,
   getCollectionStats,
-} from '@/modules/accounting/services/debtorsManagerService';
+} from '@/modules/accounting/services/ar/debtorsManagerService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {

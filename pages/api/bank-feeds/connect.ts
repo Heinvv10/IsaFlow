@@ -7,7 +7,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth } from '@/lib/auth';
-import { getAuthorizationUrl, isConfigured } from '@/modules/accounting/services/bankFeedService';
+import { getAuthorizationUrl, isConfigured } from '@/modules/accounting/services/bank/bankFeedService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {

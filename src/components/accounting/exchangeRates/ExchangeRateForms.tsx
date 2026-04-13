@@ -7,7 +7,7 @@
 import { useState, useCallback } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import { notify } from '@/utils/toast';
-import { formatCurrencyAmount } from '@/modules/accounting/services/multiCurrencyService';
+import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
 import { Loader2, Plus, ArrowRight } from 'lucide-react';
 
 export interface Currency {

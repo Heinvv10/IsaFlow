@@ -8,7 +8,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { buildIRP5Certificate, validateIRP5Data, type IRP5EmployeeData } from '@/modules/accounting/services/irp5Service';
+import { buildIRP5Certificate, validateIRP5Data, type IRP5EmployeeData } from '@/modules/accounting/services/reports/irp5Service';
 
 type Row = Record<string, unknown>;
 

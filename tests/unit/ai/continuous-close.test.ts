@@ -13,7 +13,7 @@ import {
   type CloseState,
   type CloseRunResults,
   type CloseException,
-} from '@/modules/accounting/services/continuousCloseService';
+} from '@/modules/accounting/services/gl/continuousCloseService';
 
 const state: CloseState = {
   uncategorizedTxCount: 5,

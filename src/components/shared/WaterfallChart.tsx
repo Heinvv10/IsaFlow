@@ -4,7 +4,7 @@
  */
 
 import dynamic from 'next/dynamic';
-import type { WaterfallStep } from '@/modules/accounting/services/waterfallDataService';
+import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 
 const BarChart = dynamic(() => import('recharts').then(m => m.BarChart), { ssr: false });
 const Bar = dynamic(() => import('recharts').then(m => m.Bar), { ssr: false });

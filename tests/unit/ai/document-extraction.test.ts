@@ -14,7 +14,7 @@ import {
   type SupplierMatch,
   type AutoInvoiceData,
   type FieldConfidence,
-} from '@/modules/accounting/services/docExtractionEnhancedService';
+} from '@/modules/accounting/services/core/docExtractionEnhancedService';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // SUPPLIER FUZZY MATCHING

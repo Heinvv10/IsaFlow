@@ -16,7 +16,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, withWriteAccess } from '@/lib/auth';
 import { log } from '@/lib/logger';
-import { getMatchCandidates, fetchBankTransaction } from '@/modules/accounting/services/bankMatchCandidatesService';
+import { getMatchCandidates, fetchBankTransaction } from '@/modules/accounting/services/bank/bankMatchCandidatesService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {

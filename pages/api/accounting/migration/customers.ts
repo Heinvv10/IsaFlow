@@ -13,7 +13,7 @@ import {
   importCustomers,
   type CustomerImportRow,
   type DuplicateStrategy,
-} from '@/modules/accounting/services/migrationContactService';
+} from '@/modules/accounting/services/core/migrationContactService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {

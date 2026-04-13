@@ -44,7 +44,7 @@ import { sql, withTransaction } from '@/lib/neon';
 import {
   getSupplierInvoices,
   createSupplierInvoice,
-} from '@/modules/accounting/services/supplierInvoiceService';
+} from '@/modules/accounting/services/ap/supplierInvoiceService';
 import type { SupplierInvoiceCreateInput } from '@/modules/accounting/types/ap.types';
 
 const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;

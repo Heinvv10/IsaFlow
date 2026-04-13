@@ -11,7 +11,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
-import { detectDuplicates } from '@/modules/accounting/services/duplicateDetectionService';
+import { detectDuplicates } from '@/modules/accounting/services/core/duplicateDetectionService';
 
 const VALID_ENTITY_TYPES = ['customer', 'supplier', 'item'] as const;
 type EntityType = typeof VALID_ENTITY_TYPES[number];

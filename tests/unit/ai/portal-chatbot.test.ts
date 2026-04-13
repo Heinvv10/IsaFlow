@@ -13,7 +13,7 @@ import {
   type ClientContext,
   type ChatResponse,
   type ClientQueryType,
-} from '@/modules/accounting/services/portalChatbotService';
+} from '@/modules/accounting/services/ar/portalChatbotService';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // QUERY CLASSIFICATION

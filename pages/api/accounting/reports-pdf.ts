@@ -17,9 +17,9 @@ import {
   type PackType,
   type PackSection,
   type ReportPackInput,
-} from '@/modules/accounting/services/reportPackService';
-import { fmtZAR, TEAL, renderPageFooters } from '@/modules/accounting/services/pdfShared';
-import type { KPIScorecardItem } from '@/modules/accounting/services/kpiScorecardService';
+} from '@/modules/accounting/services/reports/reportPackService';
+import { fmtZAR, TEAL, renderPageFooters } from '@/modules/accounting/services/core/pdfShared';
+import type { KPIScorecardItem } from '@/modules/accounting/services/reports/kpiScorecardService';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;

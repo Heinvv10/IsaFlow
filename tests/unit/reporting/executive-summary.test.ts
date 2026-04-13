@@ -10,7 +10,7 @@ import {
   summarizeCashPosition,
   generateAlerts,
   type ExecutiveSummaryInput,
-} from '@/modules/accounting/services/executiveSummaryService';
+} from '@/modules/accounting/services/reports/executiveSummaryService';
 
 const sampleInput: ExecutiveSummaryInput = {
   period: '2026-01',

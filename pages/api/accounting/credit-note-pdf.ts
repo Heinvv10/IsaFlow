@@ -8,7 +8,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
-import { generateCreditNotePdf } from '@/modules/accounting/services/invoicePdfService';
+import { generateCreditNotePdf } from '@/modules/accounting/services/ar/invoicePdfService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;

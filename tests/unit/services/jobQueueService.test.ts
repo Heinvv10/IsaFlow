@@ -26,8 +26,8 @@ import {
   markJobComplete,
   markJobFailed,
   listJobs,
-} from '@/modules/accounting/services/jobQueueService';
-import type { BackgroundJob } from '@/modules/accounting/services/jobQueueService';
+} from '@/modules/accounting/services/core/jobQueueService';
+import type { BackgroundJob } from '@/modules/accounting/services/core/jobQueueService';
 
 const COMPANY_ID = 'aaaaaaaa-0000-0000-0000-000000000001';
 const JOB_ID = 'bbbbbbbb-0000-0000-0000-000000000002';

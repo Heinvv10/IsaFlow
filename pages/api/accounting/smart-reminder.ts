@@ -6,7 +6,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
 import { sql } from '@/lib/neon';
-import { generateReminderMessage, selectReminderTone, calculateEscalationLevel, buildCollectionPlan, type DebtorProfile } from '@/modules/accounting/services/smartCollectionsService';
+import { generateReminderMessage, selectReminderTone, calculateEscalationLevel, buildCollectionPlan, type DebtorProfile } from '@/modules/accounting/services/ar/smartCollectionsService';
 type Row = Record<string, unknown>;
 
 async function handler(req: CompanyApiRequest, res: NextApiResponse) {

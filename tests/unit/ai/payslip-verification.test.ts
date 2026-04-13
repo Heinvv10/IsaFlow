@@ -10,7 +10,7 @@ import {
   validatePayslipExtraction,
   type ExtractedPayslip,
   type PayrollRecord,
-} from '@/modules/accounting/services/payslipVerificationService';
+} from '@/modules/accounting/services/core/payslipVerificationService';
 
 const payslip: ExtractedPayslip = {
   employeeName: 'Sipho Nkosi', idNumber: '9001015800081',

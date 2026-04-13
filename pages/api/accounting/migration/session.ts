@@ -10,7 +10,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
-import { createSession, completeSession, mapSessionRow } from '@/modules/accounting/services/migrationService';
+import { createSession, completeSession, mapSessionRow } from '@/modules/accounting/services/core/migrationService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;

@@ -14,6 +14,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { PAGE_REGISTRY, DEFAULT_QUICK_ACTIONS, type PageMeta } from '@/modules/accounting/constants/pageRegistry';
 import { OverviewTables } from './OverviewTables';
+import { TodoWidget } from './TodoWidget';
 
 const LineChart = dynamic(() => import('recharts').then(m => m.LineChart), { ssr: false });
 const Line = dynamic(() => import('recharts').then(m => m.Line), { ssr: false });
@@ -129,6 +130,9 @@ export function OverviewTab() {
 
   return (
     <div className="space-y-6">
+      {/* Action Items */}
+      <TodoWidget />
+
       {/* Quick Actions */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {quickActions.map(action => {

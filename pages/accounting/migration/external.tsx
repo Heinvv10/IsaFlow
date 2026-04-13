@@ -9,7 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Database } from 'lucide-react';
 import { ExternalMigrationWizard } from '@/components/accounting/migration/ExternalMigrationWizard';
-import type { MigrationSource } from '@/modules/accounting/services/migrationParserService';
+import type { MigrationSource } from '@/modules/accounting/services/core/migrationParserService';
 
 interface SourceCard {
   id: MigrationSource;

@@ -8,8 +8,8 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
 import { sql } from '@/lib/neon';
-import { calculateExtendedRatios, type FinancialData } from '@/modules/accounting/services/reportingEngineService';
-import { buildKPIScorecard, type KPITargetConfig } from '@/modules/accounting/services/kpiScorecardService';
+import { calculateExtendedRatios, type FinancialData } from '@/modules/accounting/services/reports/reportingEngineService';
+import { buildKPIScorecard, type KPITargetConfig } from '@/modules/accounting/services/reports/kpiScorecardService';
 
 // Default SA business targets
 const DEFAULT_TARGETS: KPITargetConfig[] = [

@@ -12,7 +12,7 @@ import {
   validateForecast,
   type HistoricalFinancials,
   type ForecastParams,
-} from '@/modules/accounting/services/threeWayForecastService';
+} from '@/modules/accounting/services/reports/threeWayForecastService';
 
 const historical: HistoricalFinancials = {
   revenue: 1000000,

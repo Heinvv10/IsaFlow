@@ -16,7 +16,7 @@ import {
   createRecurringTemplate,
   updateRecurringTemplate,
   deleteRecurringTemplate,
-} from '@/modules/accounting/services/recurringTransactionService';
+} from '@/modules/accounting/services/core/recurringTransactionService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;

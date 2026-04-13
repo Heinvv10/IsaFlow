@@ -11,7 +11,7 @@ import { checkRateLimit } from '@/lib/rateLimit';
 import {
   buildNarrativePrompt, parseNarrativeResponse, buildVarianceCommentary, buildTrendAnalysis,
   type ReportData, type NarrativeTone, type VarianceItem, type TrendPoint,
-} from '@/modules/accounting/services/reportNarrativeService';
+} from '@/modules/accounting/services/reports/reportNarrativeService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);

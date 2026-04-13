@@ -6,7 +6,7 @@
 import { useState, useRef } from 'react';
 import { CheckCircle2, Upload, Loader2, RotateCcw } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
-import type { MigrationSource } from '@/modules/accounting/services/migrationParserService';
+import type { MigrationSource } from '@/modules/accounting/services/core/migrationParserService';
 
 type Step = 'upload' | 'mapping' | 'review' | 'verify';
 

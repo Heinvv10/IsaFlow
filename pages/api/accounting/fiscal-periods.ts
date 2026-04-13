@@ -15,7 +15,7 @@ import {
   getCurrentFiscalPeriod,
   createFiscalYear,
   getJournalCountsByYear,
-} from '@/modules/accounting/services/fiscalPeriodService';
+} from '@/modules/accounting/services/gl/fiscalPeriodService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;

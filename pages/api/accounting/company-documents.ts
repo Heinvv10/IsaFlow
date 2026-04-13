@@ -11,8 +11,8 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
-import { isVlmAvailable } from '@/modules/accounting/services/vlmService';
-import { extractStatutoryDocWithVlm } from '@/modules/accounting/services/vlmService';
+import { isVlmAvailable } from '@/modules/accounting/services/bank/vlmService';
+import { extractStatutoryDocWithVlm } from '@/modules/accounting/services/bank/vlmService';
 import { log } from '@/lib/logger';
 type Row = Record<string, unknown>;
 

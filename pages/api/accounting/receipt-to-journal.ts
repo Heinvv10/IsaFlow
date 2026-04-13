@@ -16,7 +16,7 @@ import {
   buildExpenseJournalFromReceipt,
   shouldAutoPostReceipt,
   parseReceiptType,
-} from '@/modules/accounting/services/receiptToJournalService';
+} from '@/modules/accounting/services/bank/receiptToJournalService';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

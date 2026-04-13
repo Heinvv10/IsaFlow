@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { TrendingUp, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import { ExchangeRatesPanel } from '@/components/accounting/currencies/ExchangeRatesPanel';
-import type { Currency, ExchangeRate } from '@/modules/accounting/services/currencyService';
+import type { Currency, ExchangeRate } from '@/modules/accounting/services/core/currencyService';
 import { apiFetch } from '@/lib/apiFetch';
 
 export default function ExchangeRatesPage() {

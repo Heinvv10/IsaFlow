@@ -17,7 +17,7 @@ import {
   createSalesOrder,
   updateSalesOrder,
   deleteSalesOrder,
-} from '@/modules/accounting/services/salesOrderService';
+} from '@/modules/accounting/services/ar/salesOrderService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;

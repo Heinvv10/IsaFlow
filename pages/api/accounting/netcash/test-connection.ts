@@ -7,7 +7,7 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
-import { testConnection } from '@/modules/accounting/services/netcashService';
+import { testConnection } from '@/modules/accounting/services/ap/netcashService';
 import { log } from '@/lib/logger';
 
 async function handler(req: CompanyApiRequest, res: NextApiResponse) {

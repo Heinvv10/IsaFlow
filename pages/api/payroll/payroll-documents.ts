@@ -10,7 +10,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
-import { buildPayrollPdf } from '@/modules/accounting/services/payrollPdfService';
+import { buildPayrollPdf } from '@/modules/accounting/services/core/payrollPdfService';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;

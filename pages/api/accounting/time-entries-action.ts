@@ -12,7 +12,7 @@ import {
   submitEntries,
   approveEntries,
   markAsInvoiced,
-} from '@/modules/accounting/services/timeTrackingService';
+} from '@/modules/accounting/services/core/timeTrackingService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {

@@ -9,7 +9,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import type { CompanyApiRequest } from '@/lib/auth/withCompany';
 import { log } from '@/lib/logger';
-import { getForecast } from '@/modules/accounting/services/cashFlowForecastService';
+import { getForecast } from '@/modules/accounting/services/reports/cashFlowForecastService';
 
 const VALID_HORIZONS = new Set([30, 60, 90]);
 

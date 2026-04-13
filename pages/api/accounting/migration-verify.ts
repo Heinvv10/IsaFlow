@@ -9,8 +9,8 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
-import { verifyBalances } from '@/modules/accounting/services/migrationExecuteService';
-import type { ParsedAccount } from '@/modules/accounting/services/migrationParserService';
+import { verifyBalances } from '@/modules/accounting/services/core/migrationExecuteService';
+import type { ParsedAccount } from '@/modules/accounting/services/core/migrationParserService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {

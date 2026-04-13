@@ -30,7 +30,7 @@ import {
   removeCoaMapping,
   autoMapAccounts,
   getUnmappedAccounts,
-} from '@/modules/accounting/services/groupCompanyService';
+} from '@/modules/accounting/services/reports/groupCompanyService';
 
 // Uses withAuth (not withCompany) because group operations span multiple companies.
 // Security is provided by verifyGroupAccess() before every operation — groupId is

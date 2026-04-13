@@ -7,7 +7,7 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
-import { getBankFeedSyncLogs } from '@/modules/accounting/services/openBankingService';
+import { getBankFeedSyncLogs } from '@/modules/accounting/services/bank/openBankingService';
 
 async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   const { companyId } = req;

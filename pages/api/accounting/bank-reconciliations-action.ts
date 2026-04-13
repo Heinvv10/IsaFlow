@@ -12,7 +12,7 @@ import { log } from '@/lib/logger';
 import {
   completeReconciliation,
   createAdjustmentEntry,
-} from '@/modules/accounting/services/bankReconciliationService';
+} from '@/modules/accounting/services/bank/bankReconciliationService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {

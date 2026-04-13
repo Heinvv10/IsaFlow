@@ -5,7 +5,7 @@
 import { useRef, useState } from 'react';
 import { Upload, X, Loader2, ScanLine, Check } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
-import type { CoaTemplate } from '@/modules/accounting/services/chartOfAccountsService';
+import type { CoaTemplate } from '@/modules/accounting/services/gl/chartOfAccountsService';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 

@@ -14,7 +14,7 @@ import {
   buildTextToSQLPrompt, parseSQLResponse, validateGeneratedSQL,
   formatQueryResult, buildSchemaDescription, classifyQueryIntent,
   type SchemaTable,
-} from '@/modules/accounting/services/nlQueryService';
+} from '@/modules/accounting/services/core/nlQueryService';
 
 type Row = Record<string, unknown>;
 

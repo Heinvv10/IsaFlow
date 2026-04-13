@@ -9,7 +9,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type AuthenticatedNextApiRequest, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
-import { approveCreditNote, cancelCreditNote } from '@/modules/accounting/services/creditNoteService';
+import { approveCreditNote, cancelCreditNote, applyCreditNoteToInvoice } from '@/modules/accounting/services/ar/creditNoteService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;
@@ -34,6 +34,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       case 'cancel': {
         const cancelled = await cancelCreditNote(companyId, creditNoteId, userId, reason);
         return apiResponse.success(res, cancelled);
+      }
+      case 'apply': {
+        const { invoiceId } = req.body;
+        if (!invoiceId) return apiResponse.badRequest(res, 'invoiceId is required for apply action');
+        const applied = await applyCreditNoteToInvoice(companyId, creditNoteId, invoiceId, userId);
+        return apiResponse.success(res, applied);
       }
       default:
         return apiResponse.badRequest(res, `Unknown action: ${action}`);

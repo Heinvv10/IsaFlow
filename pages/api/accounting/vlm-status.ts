@@ -7,7 +7,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, withWriteAccess} from '@/lib/auth';
-import { isVlmAvailable } from '@/modules/accounting/services/vlmService';
+import { isVlmAvailable } from '@/modules/accounting/services/bank/vlmService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {

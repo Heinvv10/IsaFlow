@@ -14,7 +14,7 @@ import {
   getLatestRate,
   convertAmount,
   deleteExchangeRate,
-} from '@/modules/accounting/services/currencyService';
+} from '@/modules/accounting/services/core/currencyService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;

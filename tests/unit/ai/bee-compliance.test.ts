@@ -6,7 +6,7 @@ import {
   checkSBCQualification,
   type BEEScorecardInput,
   type ETIEmployee,
-} from '@/modules/accounting/services/beeComplianceService';
+} from '@/modules/accounting/services/reports/beeComplianceService';
 
 describe('BEE Scorecard Calculation', () => {
   it('calculates total score', () => {

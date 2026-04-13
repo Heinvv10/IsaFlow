@@ -15,7 +15,7 @@ import {
   type ComparativeRow,
   type ManagementPack,
   type VarianceResult,
-} from '@/modules/accounting/services/reportingEngineService';
+} from '@/modules/accounting/services/reports/reportingEngineService';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // FINANCIAL RATIOS

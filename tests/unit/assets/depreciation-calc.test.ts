@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   calculateStraightLine, calculateReducingBalance, calculateSumOfYears,
   calculateDepreciation, type DepreciationInput,
-} from '@/modules/accounting/services/assetService';
+} from '@/modules/accounting/services/items/assetService';
 
 describe('Straight-Line Depreciation', () => {
   it('calculates monthly depreciation correctly', () => {

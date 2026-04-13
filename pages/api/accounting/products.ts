@@ -8,7 +8,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type AuthenticatedNextApiRequest, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { validateProduct, generateProductCode, type ProductInput } from '@/modules/accounting/services/inventoryService';
+import { validateProduct, generateProductCode, type ProductInput } from '@/modules/accounting/services/items/inventoryService';
 
 type Row = Record<string, unknown>;
 

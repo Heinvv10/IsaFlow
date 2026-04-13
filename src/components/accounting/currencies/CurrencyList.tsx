@@ -8,7 +8,7 @@ import { Plus, Loader2, Check, X, Star } from 'lucide-react';
 import { notify } from '@/utils/toast';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
-import type { Currency } from '@/modules/accounting/services/currencyService';
+import type { Currency } from '@/modules/accounting/services/core/currencyService';
 
 interface Props {
   currencies: Currency[];

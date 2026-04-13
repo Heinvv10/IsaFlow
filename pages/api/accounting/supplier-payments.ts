@@ -13,7 +13,7 @@ import {
   getSupplierPayments,
   getSupplierPaymentById,
   createSupplierPayment,
-} from '@/modules/accounting/services/supplierPaymentService';
+} from '@/modules/accounting/services/ap/supplierPaymentService';
 import type { PaymentStatus } from '@/modules/accounting/types/ap.types';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {

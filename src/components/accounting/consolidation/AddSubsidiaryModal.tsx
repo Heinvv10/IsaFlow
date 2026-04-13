@@ -5,7 +5,7 @@
 import { useState } from 'react';
 import { Plus, X, AlertCircle, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
-import type { GroupCompany } from '@/modules/accounting/services/consolidationTypes';
+import type { GroupCompany } from '@/modules/accounting/services/reports/consolidationTypes';
 
 interface Props {
   onClose: () => void;

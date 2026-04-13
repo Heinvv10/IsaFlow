@@ -12,7 +12,7 @@ import { log } from '@/lib/logger';
 import {
   approveSupplierPayment,
   processSupplierPayment,
-} from '@/modules/accounting/services/supplierPaymentService';
+} from '@/modules/accounting/services/ap/supplierPaymentService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {

@@ -9,7 +9,7 @@ import {
   validateContractExtraction,
   calculateEscalationSchedule,
   type ExtractedContract,
-} from '@/modules/accounting/services/contractExtractionService';
+} from '@/modules/accounting/services/core/contractExtractionService';
 
 describe('Contract Response Parsing', () => {
   it('parses party names', () => {

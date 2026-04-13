@@ -8,7 +8,7 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, type AuthenticatedNextApiRequest, withWriteAccess } from '@/lib/auth';
-import { confirmSalesOrder, convertSalesOrderToInvoice } from '@/modules/accounting/services/salesOrderService';
+import { confirmSalesOrder, convertSalesOrderToInvoice } from '@/modules/accounting/services/ar/salesOrderService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {

@@ -49,7 +49,7 @@ import {
   fmtZAR,
   fmtDate,
   TEAL,
-} from '@/modules/accounting/services/pdfShared';
+} from '@/modules/accounting/services/core/pdfShared';
 
 // ── 2. ocrExtractionService ───────────────────────────────────────────────────
 import {
@@ -62,20 +62,20 @@ import {
   extractLineItems,
   computeConfidence,
   emptyResult,
-} from '@/modules/accounting/services/ocrExtractionService';
+} from '@/modules/accounting/services/core/ocrExtractionService';
 
 // ── 3. smartCategorizationMatchingService (pure exports only) ─────────────────
 import {
   toConfidenceLevel,
   extractLearningPattern,
-} from '@/modules/accounting/services/smartCategorizationMatchingService';
+} from '@/modules/accounting/services/core/smartCategorizationMatchingService';
 
 // ── 4. documentValidationService ─────────────────────────────────────────────
 import {
   validateInvoiceDocument,
   validatePaymentReceipt,
   validateStatutoryCompliance,
-} from '@/modules/accounting/services/documentValidationService';
+} from '@/modules/accounting/services/core/documentValidationService';
 
 // ── 5. fuzzyMatch ─────────────────────────────────────────────────────────────
 import {
@@ -92,7 +92,7 @@ import {
   parseLineItems,
   parseBankDetails,
   buildImageContent,
-} from '@/modules/accounting/services/vlmCore';
+} from '@/modules/accounting/services/bank/vlmCore';
 
 // =============================================================================
 // 1. pdfShared — fmtZAR, fmtDate, TEAL

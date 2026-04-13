@@ -15,7 +15,7 @@ import {
   type StockAdjustmentInput,
   type StockMovement,
   type ValuationResult,
-} from '@/modules/accounting/services/inventoryService';
+} from '@/modules/accounting/services/items/inventoryService';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // WEIGHTED AVERAGE COST

@@ -17,7 +17,7 @@ import { resolvePayrollGLAccounts, buildPayrollJournalLines } from './payrollGLH
 import {
   createJournalEntry,
   postJournalEntry,
-} from '@/modules/accounting/services/journalEntryService';
+} from '@/modules/accounting/services/gl/journalEntryService';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -277,7 +277,7 @@ export async function reversePayrollRun(
     if (String(runRows[0]!.status) !== 'completed') throw new Error('Can only reverse completed payroll runs');
 
     if (runRows[0]!.journal_entry_id) {
-      const { reverseJournalEntry } = await import('@/modules/accounting/services/journalEntryService');
+      const { reverseJournalEntry } = await import('@/modules/accounting/services/gl/journalEntryService');
       await reverseJournalEntry(companyId, String(runRows[0]!.journal_entry_id), userId);
     }
 

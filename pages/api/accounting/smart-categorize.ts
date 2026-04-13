@@ -14,7 +14,7 @@ import {
   bulkCategorize,
   smartCategorizeForAccount,
   learnFromAllocation,
-} from '@/modules/accounting/services/smartCategorizationService';
+} from '@/modules/accounting/services/core/smartCategorizationService';
 import { sql } from '@/lib/neon';
 type Row = Record<string, unknown>;
 

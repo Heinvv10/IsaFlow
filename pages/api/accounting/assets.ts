@@ -10,7 +10,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type AuthenticatedNextApiRequest, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { validateAsset, generateAssetNumber, type AssetInput } from '@/modules/accounting/services/assetService';
+import { validateAsset, generateAssetNumber, type AssetInput } from '@/modules/accounting/services/items/assetService';
 
 type Row = Record<string, unknown>;
 

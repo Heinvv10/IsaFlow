@@ -3,7 +3,7 @@
  * Displays parsed accounts; lets the user override auto-mapped types.
  */
 
-import type { ParsedAccount } from '@/modules/accounting/services/migrationParserService';
+import type { ParsedAccount } from '@/modules/accounting/services/core/migrationParserService';
 
 const GL_TYPES = ['asset', 'liability', 'equity', 'revenue', 'expense'] as const;
 type GLType = typeof GL_TYPES[number];
