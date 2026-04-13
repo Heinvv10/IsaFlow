@@ -11,6 +11,9 @@ import { sql } from '@/lib/neon';
 type Row = Record<string, unknown>;
 
 
+// Uses withAuth (not withCompany) because users may manage logos for multiple companies
+// they own. Security is provided by the explicit company membership check below —
+// only owners/admins of the specified company can update its logo.
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method!, ['POST']);

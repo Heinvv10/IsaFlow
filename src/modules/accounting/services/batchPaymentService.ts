@@ -112,7 +112,8 @@ export async function createBatch(companyId: string,
 export async function approveBatch(companyId: string, id: string, _userId: string): Promise<void> {
   await withTransaction(async (tx) => {
     await tx`UPDATE supplier_payment_batches SET status = 'approved' WHERE id = ${id} AND company_id = ${companyId} AND status = 'draft'`;
-    await tx`UPDATE supplier_payments SET status = 'approved' WHERE batch_id = ${id}::UUID AND status = 'draft'`;
+    await tx`UPDATE supplier_payments SET status = 'approved' WHERE batch_id = ${id}::UUID AND status = 'draft'
+      AND batch_id IN (SELECT id FROM supplier_payment_batches WHERE company_id = ${companyId}::UUID)`;
   });
   log.info('Approved batch', { id }, 'accounting');
 }
@@ -167,7 +168,8 @@ export async function processBatch(companyId: string, id: string, userId: string
       `;
     }
 
-    await tx`UPDATE supplier_payments SET status = 'processed' WHERE batch_id = ${id}::UUID`;
+    await tx`UPDATE supplier_payments SET status = 'processed' WHERE batch_id = ${id}::UUID
+      AND batch_id IN (SELECT id FROM supplier_payment_batches WHERE company_id = ${companyId}::UUID)`;
     await tx`
       UPDATE supplier_payment_batches
       SET status = 'processed', processed_by = ${userId}::UUID, processed_at = NOW(),
@@ -182,7 +184,8 @@ export async function processBatch(companyId: string, id: string, userId: string
 export async function cancelBatch(companyId: string, id: string): Promise<void> {
   await withTransaction(async (tx) => {
     await tx`UPDATE supplier_payment_batches SET status = 'cancelled' WHERE id = ${id} AND company_id = ${companyId} AND status = 'draft'`;
-    await tx`UPDATE supplier_payments SET status = 'cancelled' WHERE batch_id = ${id}::UUID AND status = 'draft'`;
+    await tx`UPDATE supplier_payments SET status = 'cancelled' WHERE batch_id = ${id}::UUID AND status = 'draft'
+      AND batch_id IN (SELECT id FROM supplier_payment_batches WHERE company_id = ${companyId}::UUID)`;
   });
   log.info('Cancelled batch', { id }, 'accounting');
 }

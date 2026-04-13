@@ -32,6 +32,9 @@ import {
   getUnmappedAccounts,
 } from '@/modules/accounting/services/groupCompanyService';
 
+// Uses withAuth (not withCompany) because group operations span multiple companies.
+// Security is provided by verifyGroupAccess() before every operation — groupId is
+// always validated against company_group_members joined with company_users.
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const userId = (req as AuthenticatedNextApiRequest).user.id;
   const action = (req.query.action || req.body?.action) as string | undefined;
@@ -52,11 +55,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const groupId = req.query.group_id as string | undefined;
 
     if (action === 'members' && groupId) {
+      if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
       const members = await getGroupMembers(groupId);
       return apiResponse.success(res, { items: members });
     }
 
     if (action === 'accounts' && groupId) {
+      if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
       const accounts = await getGroupAccounts(groupId);
       return apiResponse.success(res, { items: accounts });
     }

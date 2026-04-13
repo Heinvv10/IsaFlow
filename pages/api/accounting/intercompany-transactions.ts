@@ -16,6 +16,9 @@ import {
   getIntercompanyReconciliation,
 } from '@/modules/accounting/services/groupCompanyService';
 
+// Uses withAuth (not withCompany) because intercompany transactions cross company
+// boundaries. Security is provided by verifyGroupAccess() which ensures the user
+// belongs to at least one company in the group before any read or write.
 async function verifyGroupAccess(groupId: string, userId: string): Promise<boolean> {
   const rows = (await sql`
     SELECT 1 FROM company_group_members cgm
