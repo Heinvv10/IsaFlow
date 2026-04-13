@@ -90,8 +90,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           -- Unreconciled = imported/suggested but not yet matched
           SUM(CASE WHEN bt.matched_journal_line_id IS NULL AND bt.status != 'excluded' THEN bt.amount ELSE 0 END) AS unreconciled_balance,
           COUNT(CASE WHEN bt.status IN ('imported', 'allocated') THEN 1 END)::INT AS unreconciled_count,
-          COUNT(CASE WHEN bt.status IN ('imported', 'allocated') THEN 1 END)::INT AS unallocated_count,
-          COUNT(CASE WHEN bt.status NOT IN ('imported', 'allocated', 'excluded') THEN 1 END)::INT AS allocated_count,
+          -- Allocated = has a GL account/supplier/customer assigned (across ALL transactions)
+          COUNT(CASE WHEN bt.allocation_type IS NOT NULL THEN 1 END)::INT AS allocated_count,
+          -- Unallocated = no category assigned yet (excludes excluded transactions)
+          COUNT(CASE WHEN bt.allocation_type IS NULL AND bt.status NOT IN ('excluded') THEN 1 END)::INT AS unallocated_count,
           MIN(bt.transaction_date)                                     AS first_date,
           MAX(bt.transaction_date)                                     AS last_date
         FROM bank_transactions bt
