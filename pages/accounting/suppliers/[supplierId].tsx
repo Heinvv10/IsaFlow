@@ -40,15 +40,12 @@ export default function SupplierDetailPage() {
     setLoading(true);
     try {
       const res  = await apiFetch(`/api/accounting/suppliers-list?id=${supplierId}`);
-      const json = await res.json();
-      const data = json.data || json;
-      if (Array.isArray(data)) {
-        const match = data.find((s: Supplier) => s.id === supplierId);
-        setSupplier(match || null);
-        if (!match) setError('Supplier not found');
-      } else {
-        setSupplier(data as Supplier);
+      const json = await res.json() as { data?: Supplier; success?: boolean };
+      if (!json.success || !json.data) {
+        setError('Supplier not found');
+        return;
       }
+      setSupplier(json.data);
     } catch {
       setError('Failed to load supplier');
     } finally {

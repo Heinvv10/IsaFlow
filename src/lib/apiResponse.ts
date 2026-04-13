@@ -216,6 +216,10 @@ export class ApiResponseHelper {
   /**
    * Send database error response
    */
+  static tooManyRequests(res: NextApiResponse, message = 'Rate limit exceeded'): void {
+    this.error(res, ErrorCode.RATE_LIMIT, message);
+  }
+
   static databaseError(
     res: NextApiResponse,
     error: Error | unknown,
@@ -281,6 +285,7 @@ export const apiResponse = {
   forbidden: ApiResponseHelper.forbidden.bind(ApiResponseHelper),
   methodNotAllowed: ApiResponseHelper.methodNotAllowed.bind(ApiResponseHelper),
   internalError: ApiResponseHelper.internalError.bind(ApiResponseHelper),
+  tooManyRequests: ApiResponseHelper.tooManyRequests.bind(ApiResponseHelper),
   databaseError: ApiResponseHelper.databaseError.bind(ApiResponseHelper),
   setCorsHeaders: ApiResponseHelper.setCorsHeaders.bind(ApiResponseHelper),
   handleOptions: ApiResponseHelper.handleOptions.bind(ApiResponseHelper),

@@ -23,7 +23,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // ─── GET: List suppliers ────────────────────────────────────────────────────
   if (req.method === 'GET') {
     try {
-      const { q, limit: limitParam = '25', page: pageParam = '1' } = req.query;
+      const { id: singleId, q, limit: limitParam = '25', page: pageParam = '1' } = req.query;
+
+      // Single-supplier lookup: ?id=<uuid>
+      if (typeof singleId === 'string') {
+        const rows = (await sql`
+          SELECT id, name, company_name, email, phone,
+                 contact_person, is_active, vat_number, payment_terms, created_at
+          FROM suppliers
+          WHERE id = ${singleId}::UUID AND company_id = ${companyId} AND deleted_at IS NULL
+        `) as Row[];
+        if (rows.length === 0) return apiResponse.notFound(res, 'Supplier');
+        return apiResponse.success(res, rows[0]);
+      }
+
       const limit = Math.min(Number(limitParam), 200);
       const page = Math.max(1, Number(pageParam));
       const offset = (page - 1) * limit;

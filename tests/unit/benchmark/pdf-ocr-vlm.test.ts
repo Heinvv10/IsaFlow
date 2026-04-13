@@ -101,28 +101,28 @@ import {
 describe('pdfShared', () => {
   describe('fmtZAR', () => {
     it('formats a simple integer amount', () => {
-      expect(fmtZAR(100)).toBe('R 100.00');
+      expect(fmtZAR(100)).toBe('R\u00a0100.00');
     });
 
     it('formats a decimal amount with two decimal places', () => {
-      expect(fmtZAR(1234.56)).toBe('R 1,234.56');
+      expect(fmtZAR(1234.56)).toBe('R\u00a01,234.56');
     });
 
     it('formats zero', () => {
-      expect(fmtZAR(0)).toBe('R 0.00');
+      expect(fmtZAR(0)).toBe('R\u00a00.00');
     });
 
     it('formats a large ZAR amount with comma thousands separators', () => {
-      expect(fmtZAR(1000000)).toBe('R 1,000,000.00');
+      expect(fmtZAR(1000000)).toBe('R\u00a01,000,000.00');
     });
 
     it('formats negative amounts (credit notes / refunds)', () => {
-      expect(fmtZAR(-500.99)).toBe('R -500.99');
+      expect(fmtZAR(-500.99)).toBe('R\u00a0-500.99');
     });
 
     it('rounds to two decimal places', () => {
       // JavaScript floating point: 1.005 may not round cleanly — service uses toFixed(2)
-      expect(fmtZAR(9.9)).toBe('R 9.90');
+      expect(fmtZAR(9.9)).toBe('R\u00a09.90');
     });
   });
 

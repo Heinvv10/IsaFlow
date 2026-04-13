@@ -21,6 +21,9 @@ import {
   autoGenerateEliminations,
 } from '@/modules/accounting/services/consolidatedReportingService';
 
+// Uses withAuth (not withCompany) because consolidated reports aggregate data from
+// multiple companies in a group. Security is provided by verifyGroupAccess() which
+// ensures the user belongs to at least one company in the group before any read.
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const userId = (req as AuthenticatedNextApiRequest).user.id;
   const action = (req.query.action || req.body?.action) as string | undefined;
