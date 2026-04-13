@@ -57,7 +57,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
       return apiResponse.success(res, entry);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to create journal entry';
+      const raw = err instanceof Error ? err.message : '';
+      // Postgres column-not-found errors sometimes surface as empty message; fall back to generic
+      const message = raw || 'Failed to create journal entry';
       log.error('Failed to create journal entry', { error: err }, 'accounting-api');
       return apiResponse.badRequest(res, message);
     }
