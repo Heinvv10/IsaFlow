@@ -74,6 +74,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         COALESCE(s.reconciled_balance, 0) AS reconciled_balance,
         COALESCE(s.unreconciled_balance, 0) AS unreconciled_balance,
         COALESCE(s.unreconciled_count, 0) AS unreconciled_count,
+        COALESCE(s.unallocated_count, 0)  AS unallocated_count,
+        COALESCE(s.allocated_count, 0)    AS allocated_count,
         s.first_date,
         s.last_date
       FROM gl_accounts ga
