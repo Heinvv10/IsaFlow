@@ -87,7 +87,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           SUM(CASE WHEN bt.matched_journal_line_id IS NOT NULL THEN bt.amount ELSE 0 END) AS reconciled_balance,
           -- Unreconciled = imported/suggested but not yet matched
           SUM(CASE WHEN bt.matched_journal_line_id IS NULL AND bt.status != 'excluded' THEN bt.amount ELSE 0 END) AS unreconciled_balance,
-          COUNT(CASE WHEN bt.status = 'imported' THEN 1 END)::INT     AS unreconciled_count,
+          COUNT(CASE WHEN bt.status IN ('imported', 'allocated') THEN 1 END)::INT AS unreconciled_count,
+          COUNT(CASE WHEN bt.status IN ('imported', 'allocated') THEN 1 END)::INT AS unallocated_count,
+          COUNT(CASE WHEN bt.status NOT IN ('imported', 'allocated', 'excluded') THEN 1 END)::INT AS allocated_count,
           MIN(bt.transaction_date)                                     AS first_date,
           MAX(bt.transaction_date)                                     AS last_date
         FROM bank_transactions bt
@@ -121,6 +123,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       reconciledBalance: Number(r.reconciled_balance),
       unreconciledBalance: Number(r.unreconciled_balance),
       unreconciledCount: Number(r.unreconciled_count),
+      allocatedCount:   Number(r.allocated_count ?? 0),
+      unallocatedCount: Number(r.unallocated_count ?? 0),
       firstDate: r.first_date instanceof Date
         ? r.first_date.toISOString().split('T')[0]
         : r.first_date ? String(r.first_date).split('T')[0] : null,
