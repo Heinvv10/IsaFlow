@@ -55,6 +55,7 @@ export function withCompany(handler: CompanyHandler): NextApiHandler {
         `;
 
         if (access.length === 0) {
+          log.warn('withCompany 403: no access', { userId, companyId, role: authReq.user.role, url: req.url }, 'CompanyMiddleware');
           return res.status(403).json({
             success: false,
             error: { code: 'FORBIDDEN', message: 'You do not have access to this company' },
@@ -76,6 +77,7 @@ export function withCompany(handler: CompanyHandler): NextApiHandler {
       `;
 
       if (companies.length === 0) {
+        log.warn('withCompany 400: no company assigned', { userId, role: authReq.user.role, url: req.url }, 'CompanyMiddleware');
         return res.status(400).json({
           success: false,
           error: { code: 'NO_COMPANY', message: 'No company assigned. Please contact an administrator.' },
