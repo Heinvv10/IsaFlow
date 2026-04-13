@@ -199,7 +199,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const authCookieString = serialize(AUTH_COOKIE_NAME, finalToken, {
       httpOnly: true,
       secure: true,
-      sameSite: 'strict',
+      sameSite: 'lax',
       path: '/',
       maxAge: 8 * 60 * 60, // 8 hours
       ...(isProd ? { domain: '.isaflow.co.za' } : {}),
@@ -259,8 +259,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Clear legacy ff_auth_token cookies (all domain variants) to prevent
     // duplicate-cookie 401s when the browser sends both old + new tokens
     const expireLegacy = [
-      'ff_auth_token=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Strict',
-      'ff_auth_token=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Strict; Domain=.isaflow.co.za',
+      'ff_auth_token=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax',
+      'ff_auth_token=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax; Domain=.isaflow.co.za',
     ];
     const cookies = [...expireLegacy, authCookieString];
     if (onboardingCompleted) {
