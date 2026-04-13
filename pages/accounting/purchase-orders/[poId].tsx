@@ -17,6 +17,7 @@ import {
   X,
   Trash2,
   Plus,
+  Download,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 
@@ -282,6 +283,14 @@ export default function PurchaseOrderDetailPage() {
               </span>
             </div>
             <div className="flex items-center gap-2">
+              <a
+                href={`/api/accounting/purchase-order-pdf?poId=${po.id}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 px-3 py-2 border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] rounded-lg hover:bg-[var(--ff-bg-tertiary)] text-sm font-medium"
+              >
+                <Download className="h-4 w-4" />PDF
+              </a>
               {canEdit && !editing && (
                 <>
                   <button onClick={startEdit}

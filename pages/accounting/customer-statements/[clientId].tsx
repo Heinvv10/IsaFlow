@@ -131,15 +131,14 @@ export default function CustomerStatementDetailPage() {
   async function handleDownloadPDF() {
     if (!client || !summary || transactions.length === 0) return;
     const { generateStatementPdf } = await import('@/modules/accounting/utils/statementPdf');
-    // Fetch company details for PDF header
-    let companyName = '';
-    let companyVatNumber = '';
+    let companyName = '', companyVatNumber = '', companyEmail = '', companyPhone = '', companyAddress = '', accentColor = '#0d9488';
     try {
-      const settingsRes = await apiFetch('/api/accounting/accounting-settings');
-      const settingsJson = await settingsRes.json();
-      const settings = Array.isArray(settingsJson.data) ? settingsJson.data : [];
-      companyName = settings.find((s: { key: string }) => s.key === 'company_name')?.value || '';
-      companyVatNumber = settings.find((s: { key: string }) => s.key === 'company_vat_number')?.value || '';
+      const cRes = await apiFetch('/api/accounting/company-details');
+      const cJson = await cRes.json() as { data?: Record<string, string> } & Record<string, string>;
+      const c = (cJson.data ?? cJson) as Record<string, string>;
+      companyName = c.name || ''; companyVatNumber = c.vat_number || '';
+      companyEmail = c.email || ''; companyPhone = c.phone || '';
+      companyAddress = c.address || ''; accentColor = c.primary_color || '#0d9488';
     } catch { /* use defaults */ }
 
     const blob = await generateStatementPdf({
@@ -152,8 +151,7 @@ export default function CustomerStatementDetailPage() {
       totalCredits: summary.totalCredits,
       balanceOutstanding: summary.balance,
       transactions,
-      companyName,
-      companyVatNumber,
+      companyName, companyVatNumber, companyEmail, companyPhone, companyAddress, accentColor,
     });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

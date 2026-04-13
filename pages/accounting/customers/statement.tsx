@@ -139,14 +139,14 @@ export default function CustomerStatementPage() {
     try {
       // Import the same statementPdf utility used on the detail page
       const { generateStatementPdf } = await import('@/modules/accounting/utils/statementPdf');
-      let companyName = '';
-      let companyVatNumber = '';
+      let companyName = '', companyVatNumber = '', companyEmail = '', companyPhone = '', companyAddress = '', accentColor = '#0d9488';
       try {
-        const settingsRes = await apiFetch('/api/accounting/accounting-settings', { credentials: 'include' });
-        const settingsJson = await settingsRes.json();
-        const settings = Array.isArray(settingsJson.data) ? settingsJson.data : [];
-        companyName = settings.find((s: { key: string }) => s.key === 'company_name')?.value || '';
-        companyVatNumber = settings.find((s: { key: string }) => s.key === 'company_vat_number')?.value || '';
+        const cRes = await apiFetch('/api/accounting/company-details', { credentials: 'include' });
+        const cJson = await cRes.json() as { data?: Record<string, string> } & Record<string, string>;
+        const c = (cJson.data ?? cJson) as Record<string, string>;
+        companyName = c.name || ''; companyVatNumber = c.vat_number || '';
+        companyEmail = c.email || ''; companyPhone = c.phone || '';
+        companyAddress = c.address || ''; accentColor = c.primary_color || '#0d9488';
       } catch { /* use empty defaults */ }
 
       const blob = await generateStatementPdf({
@@ -159,8 +159,7 @@ export default function CustomerStatementPage() {
         totalCredits: statement.summary.totalCredits,
         balanceOutstanding: statement.summary.balance,
         transactions: statement.transactions,
-        companyName,
-        companyVatNumber,
+        companyName, companyVatNumber, companyEmail, companyPhone, companyAddress, accentColor,
       });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
