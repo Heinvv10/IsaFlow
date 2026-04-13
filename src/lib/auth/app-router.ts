@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyToken } from './jwt';
 import { AUTH_COOKIE_NAME, getUserAndValidateSession } from './middleware';
+import { LEGACY_COOKIE_NAME } from './sessionHelpers';
 import type { AuthUser } from './types';
 import { createHash } from 'crypto';
 
@@ -21,7 +22,7 @@ import { createHash } from 'crypto';
  */
 function extractToken(req: NextRequest): string | null {
   // 1. Cookie (preferred)
-  const cookieToken = req.cookies.get(AUTH_COOKIE_NAME)?.value;
+  const cookieToken = req.cookies.get(AUTH_COOKIE_NAME)?.value || req.cookies.get(LEGACY_COOKIE_NAME)?.value;
   if (cookieToken) return cookieToken;
 
   // 2. Authorization: Bearer <token>

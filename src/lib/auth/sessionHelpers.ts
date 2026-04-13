@@ -11,13 +11,15 @@ import { sql } from '@/lib/neon';
 import type { AuthUser, AuthRole } from './types';
 
 /** Cookie name for JWT token — defined here to avoid circular imports with middleware.ts */
-export const AUTH_COOKIE_NAME = 'ff_auth_token';
+export const AUTH_COOKIE_NAME = 'isaflow_auth';
+/** Legacy cookie name — checked as fallback during migration */
+export const LEGACY_COOKIE_NAME = 'ff_auth_token';
 
 /**
  * Extract token from request (cookie or Authorization header)
  */
 export function extractToken(req: NextApiRequest): string | null {
-  const cookieToken = req.cookies[AUTH_COOKIE_NAME];
+  const cookieToken = req.cookies[AUTH_COOKIE_NAME] || req.cookies[LEGACY_COOKIE_NAME];
   if (cookieToken) return cookieToken;
 
   const authHeader = req.headers.authorization;
