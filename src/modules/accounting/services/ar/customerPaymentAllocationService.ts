@@ -27,10 +27,10 @@ export async function confirmCustomerPayment(
     if (payment.status !== 'draft') throw new Error(`Cannot confirm payment with status: ${payment.status}`);
 
     // Auto-post GL: DR Bank, CR Accounts Receivable
-    const arAccount = await getSystemAccount('receivable');
+    const arAccount = await getSystemAccount('receivable', companyId);
     const bankAccount = payment.bankAccountId
       ? ((await sql`SELECT id FROM gl_accounts WHERE id = ${payment.bankAccountId}`) as Row[])[0]
-      : await getSystemAccount('bank');
+      : await getSystemAccount('bank', companyId);
     if (!bankAccount) throw new Error('Bank account not found');
 
     const lines: JournalLineInput[] = [
@@ -151,9 +151,9 @@ export async function postCustomerInvoiceToGL(
 
     if (inv.gl_journal_entry_id) return String(inv.gl_journal_entry_id);
 
-    const arAccount = await getSystemAccount('receivable');
-    const revenueAccount = await getSystemAccount('default_revenue');
-    const vatAccount = await getSystemAccount('vat_output');
+    const arAccount = await getSystemAccount('receivable', companyId);
+    const revenueAccount = await getSystemAccount('default_revenue', companyId);
+    const vatAccount = await getSystemAccount('vat_output', companyId);
 
     const lines: JournalLineInput[] = [
       { glAccountId: arAccount.id, debit: Number(inv.total_amount), credit: 0,

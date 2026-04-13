@@ -186,7 +186,8 @@ export async function createJournalEntry(companyId: string,
     if (!fiscalPeriodId) {
       const periodRows = (await sql`
         SELECT id FROM fiscal_periods
-        WHERE start_date <= ${input.entryDate}::DATE AND end_date >= ${input.entryDate}::DATE
+        WHERE company_id = ${companyId}::UUID
+          AND start_date <= ${input.entryDate}::DATE AND end_date >= ${input.entryDate}::DATE
         LIMIT 1
       `) as Row[];
       if (periodRows.length > 0) fiscalPeriodId = String(periodRows[0]!.id);

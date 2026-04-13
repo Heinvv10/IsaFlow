@@ -36,7 +36,7 @@ export async function validateMigration(
     checkTrialBalance(companyId),
     checkARvsGL(companyId),
     checkAPvsGL(companyId),
-    checkSystemAccounts(),
+    checkSystemAccounts(companyId),
     checkOrphanARInvoices(companyId),
     checkOrphanAPInvoices(companyId),
   ]);
@@ -154,8 +154,8 @@ async function checkAPvsGL(companyId: string): Promise<ValidationResult> {
   };
 }
 
-async function checkSystemAccounts(): Promise<ValidationResult> {
-  const missing = await validateSystemAccounts();
+async function checkSystemAccounts(companyId: string): Promise<ValidationResult> {
+  const missing = await validateSystemAccounts(companyId);
   if (missing.length === 0) {
     return { check: 'System Accounts', status: 'pass', message: 'All system accounts are mapped and active' };
   }

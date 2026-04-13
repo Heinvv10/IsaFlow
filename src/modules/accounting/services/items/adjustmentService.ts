@@ -93,11 +93,11 @@ export async function approveAdjustment(companyId: string, id: string, userId: s
 
   // GL accounts
   const balanceAccount = isCustomer
-    ? await getSystemAccount('receivable')
-    : await getSystemAccount('payable');
+    ? await getSystemAccount('receivable', companyId)
+    : await getSystemAccount('payable', companyId);
   const offsetAccount = isDebit
-    ? await getSystemAccount('other_income')
-    : await getSystemAccount('admin_expense');
+    ? await getSystemAccount('other_income', companyId)
+    : await getSystemAccount('admin_expense', companyId);
 
   const lines: JournalLineInput[] = isDebit
     ? [

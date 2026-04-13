@@ -126,10 +126,10 @@ export async function processBatch(companyId: string, id: string, userId: string
   const totalAmount = batch.totalAmount;
 
   // GL: DR AP, CR Bank
-  const apAccount = await getSystemAccount('payable');
+  const apAccount = await getSystemAccount('payable', companyId);
   const bankAccount = batch.bankAccountId
     ? { id: batch.bankAccountId }
-    : await getSystemAccount('bank');
+    : await getSystemAccount('bank', companyId);
 
   const lines: JournalLineInput[] = [
     { glAccountId: apAccount.id, debit: totalAmount, credit: 0,

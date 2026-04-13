@@ -61,7 +61,7 @@ export async function allocateTransaction(
   let allocEntityName: string | null = null;
 
   if (allocType === 'supplier' && entityId) {
-    const apAccountId = await getSystemAccountId('payable');
+    const apAccountId = await getSystemAccountId('payable', companyId);
     const supRows = (await sql`SELECT name FROM suppliers WHERE id = ${entityId}::UUID`) as Row[];
     const supName = supRows.length > 0 ? String(supRows[0]!.name) : `Supplier #${entityId}`;
     allocEntityName = supName;
@@ -72,11 +72,12 @@ export async function allocateTransaction(
       { glAccountId: bankAccountId, debit: 0, credit: totalAmount, description: entryDesc },
     ];
     if (hasVat) {
-      const vatAcctId = await getSystemAccountId(vatAccountKey);
+      const vatAcctId = await getSystemAccountId(vatAccountKey, companyId);
       lines.splice(1, 0, { glAccountId: vatAcctId, debit: vatAmount, credit: 0, description: `VAT @ ${vatRate}%`, vatType: 'standard' });
     }
   } else if (allocType === 'customer' && entityId) {
-    const arAccountId = await getSystemAccountId('receivable');
+
+    const arAccountId = await getSystemAccountId('receivable', companyId);
     const custRows = (await sql`SELECT name FROM customers WHERE id = ${entityId}::UUID`) as Row[];
     const custName = custRows.length > 0 ? String(custRows[0]!.name) : `Customer #${entityId}`;
     allocEntityName = custName;
@@ -87,7 +88,7 @@ export async function allocateTransaction(
       { glAccountId: arAccountId, debit: 0, credit: netAmount, description: entryDesc, vatType: mapVatType },
     ];
     if (hasVat) {
-      const vatAcctId = await getSystemAccountId(vatAccountKey);
+      const vatAcctId = await getSystemAccountId(vatAccountKey, companyId);
       lines.push({ glAccountId: vatAcctId, debit: 0, credit: vatAmount, description: `VAT @ ${vatRate}%`, vatType: 'standard' });
     }
   } else {
@@ -102,13 +103,13 @@ export async function allocateTransaction(
         { glAccountId: contraAccountId, debit: 0, credit: netAmount, description: entryDesc, vatType: mapVatType },
       ];
       if (hasVat) {
-        const vatAcctId = await getSystemAccountId(vatAccountKey);
+        const vatAcctId = await getSystemAccountId(vatAccountKey, companyId);
         lines.push({ glAccountId: vatAcctId, debit: 0, credit: vatAmount, description: `VAT @ ${vatRate}%`, vatType: 'standard' });
       }
     } else {
       lines = [{ glAccountId: contraAccountId, debit: netAmount, credit: 0, description: entryDesc, vatType: mapVatType }];
       if (hasVat) {
-        const vatAcctId = await getSystemAccountId(vatAccountKey);
+        const vatAcctId = await getSystemAccountId(vatAccountKey, companyId);
         lines.push({ glAccountId: vatAcctId, debit: vatAmount, credit: 0, description: `VAT @ ${vatRate}%`, vatType: 'standard' });
       }
       lines.push({ glAccountId: bankAccountId, debit: 0, credit: totalAmount, description: entryDesc });
@@ -211,13 +212,13 @@ export async function splitAllocateTransaction(
     if (isSpent) {
       journalLines.push({ glAccountId: line.contraAccountId, debit: netAmount, credit: 0, description: lineDesc, vatType: mapVatType });
       if (hasVat) {
-        const vatAcctId = await getSystemAccountId(vatAccountKey);
+        const vatAcctId = await getSystemAccountId(vatAccountKey, companyId);
         journalLines.push({ glAccountId: vatAcctId, debit: vatAmount, credit: 0, description: 'VAT @ 15%', vatType: 'standard' });
       }
     } else {
       journalLines.push({ glAccountId: line.contraAccountId, debit: 0, credit: netAmount, description: lineDesc, vatType: mapVatType });
       if (hasVat) {
-        const vatAcctId = await getSystemAccountId(vatAccountKey);
+        const vatAcctId = await getSystemAccountId(vatAccountKey, companyId);
         journalLines.push({ glAccountId: vatAcctId, debit: 0, credit: vatAmount, description: 'VAT @ 15%', vatType: 'standard' });
       }
     }

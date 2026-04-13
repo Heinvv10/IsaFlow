@@ -76,9 +76,9 @@ export async function approveVATAdjustment(companyId: string,
   // GL: Input → DR VAT Input, CR Expense
   //     Output → DR Expense, CR VAT Output
   const vatAccount = isInput
-    ? await getSystemAccount('vat_input')
-    : await getSystemAccount('vat_output');
-  const expenseAccount = await getSystemAccount('admin_expense');
+    ? await getSystemAccount('vat_input', companyId)
+    : await getSystemAccount('vat_output', companyId);
+  const expenseAccount = await getSystemAccount('admin_expense', companyId);
 
   const lines: JournalLineInput[] = isInput
     ? [

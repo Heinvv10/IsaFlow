@@ -47,10 +47,10 @@ export async function processSupplierPayment(
     if (!payment) throw new Error(`Payment ${id} not found`);
     if (payment.status !== 'approved') throw new Error(`Payment must be approved before processing`);
 
-    const apAccount = await getSystemAccount('payable');
+    const apAccount = await getSystemAccount('payable', companyId);
     const bankAccount = payment.bankAccountId
       ? ((await sql`SELECT * FROM gl_accounts WHERE id = ${payment.bankAccountId}`) as Row[])[0]
-      : await getSystemAccount('bank');
+      : await getSystemAccount('bank', companyId);
 
     if (!bankAccount) throw new Error('Bank account not found');
 

@@ -49,7 +49,7 @@ export async function getBankTransactions(
   accountCode?: string
 ): Promise<BankTransactionsReport> {
   try {
-    const bankCode = accountCode || (await getSystemAccount('bank')).accountCode;
+    const bankCode = accountCode || (await getSystemAccount('bank', companyId)).accountCode;
 
     const obRows = (await sql`
       SELECT
