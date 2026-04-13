@@ -30,7 +30,7 @@ export function appendSignatureToHtml(html: string, signature: string | null | u
 // ─── Brand Constants ──────────────────────────────────────────────────────────
 
 export const BRAND = {
-  logoUrl: 'https://app.isaflow.co.za/logo.png',
+  logoUrl: 'cid:isaflow-logo@isaflow.co.za',
   appUrl: 'https://app.isaflow.co.za',
   primaryTeal: '#14b8a6',
   darkBg: '#0f172a',

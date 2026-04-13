@@ -4,8 +4,19 @@
  * Invoice/invite email helpers split to emailNotificationService.ts
  */
 
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
+
+// Resolve the logo once at module load — path works in both dev and production standalone
+const LOGO_PATH = (() => {
+  const candidates = [
+    path.join(process.cwd(), 'public', 'logo-email.png'),
+    path.join(__dirname, '..', '..', '..', '..', '..', 'public', 'logo-email.png'),
+  ];
+  return candidates.find(p => fs.existsSync(p)) ?? candidates[0]!;
+})();
 
 // ─── Email Log ────────────────────────────────────────────────────────────────
 
@@ -134,17 +145,25 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
       },
     });
 
+    // Build inline logo attachment (CID) — embedded so recipients see it without downloading
+    const logoAttachment = fs.existsSync(LOGO_PATH)
+      ? [{ filename: 'logo.png', path: LOGO_PATH, cid: 'isaflow-logo@isaflow.co.za' }]
+      : [];
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const mailOptions: any = {
       from: config.from,
       to: recipients,
       subject: options.subject,
       html: options.html,
-      attachments: options.attachments?.map((att) => ({
-        filename: att.filename,
-        content: att.content,
-        contentType: att.contentType,
-      })),
+      attachments: [
+        ...logoAttachment,
+        ...(options.attachments?.map((att) => ({
+          filename: att.filename,
+          content: att.content,
+          contentType: att.contentType,
+        })) ?? []),
+      ],
     };
 
     const info = await transporter.sendMail(mailOptions);
