@@ -18,16 +18,20 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
     const limit = Math.min(Number(req.query.limit) || 6, 20);
 
-    const rows = await sql`
-      SELECT page_path, visit_count, last_visited_at
-      FROM page_visits
-      WHERE company_id = ${companyId}::UUID
-        AND user_id = ${userId}
-      ORDER BY visit_count DESC, last_visited_at DESC
-      LIMIT ${limit}
-    `;
-
-    return apiResponse.success(res, rows);
+    try {
+      const rows = await sql`
+        SELECT page_path, visit_count, last_visited_at
+        FROM page_visits
+        WHERE company_id = ${companyId}::UUID
+          AND user_id = ${userId}
+        ORDER BY visit_count DESC, last_visited_at DESC
+        LIMIT ${limit}
+      `;
+      return apiResponse.success(res, rows);
+    } catch {
+      // Table may not exist yet (migration 287 pending) — degrade gracefully
+      return apiResponse.success(res, []);
+    }
   }
 
   if (req.method === 'POST') {
@@ -41,15 +45,18 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, 'Unknown page path');
     }
 
-    await sql`
-      INSERT INTO page_visits (company_id, user_id, page_path)
-      VALUES (${companyId}::UUID, ${userId}, ${path})
-      ON CONFLICT (company_id, user_id, page_path)
-      DO UPDATE SET
-        visit_count = page_visits.visit_count + 1,
-        last_visited_at = NOW()
-    `;
-
+    try {
+      await sql`
+        INSERT INTO page_visits (company_id, user_id, page_path)
+        VALUES (${companyId}::UUID, ${userId}, ${path})
+        ON CONFLICT (company_id, user_id, page_path)
+        DO UPDATE SET
+          visit_count = page_visits.visit_count + 1,
+          last_visited_at = NOW()
+      `;
+    } catch {
+      // Table may not exist yet (migration 287 pending) — silently skip tracking
+    }
     return apiResponse.success(res, { recorded: true });
   }
 

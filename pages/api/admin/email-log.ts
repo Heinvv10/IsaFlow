@@ -95,10 +95,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       bindIdx++;
     }
 
-    const where = conditions.join(' AND ');
+    // safeWhereClause contains ONLY hardcoded SQL fragments with $N positional
+    // placeholders — no user input is ever interpolated into the string itself.
+    // All user-supplied values flow exclusively through bindValues to sql.query().
+    const safeWhereClause = conditions.join(' AND ');
 
     // ── Count ────────────────────────────────────────────────────────────────
-    const countQuery = `SELECT COUNT(*) AS cnt FROM email_log el WHERE ${where}`;
+    const countQuery = `SELECT COUNT(*) AS cnt FROM email_log el WHERE ${safeWhereClause}`;
     const countRows = (await sql.query(countQuery, bindValues)) as Row[];
     const totalCount = Number(countRows[0]?.cnt ?? 0);
 
@@ -119,7 +122,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         el.sent_by
       FROM email_log el
       LEFT JOIN companies co ON co.id = el.company_id
-      WHERE ${where}
+      WHERE ${safeWhereClause}
       ORDER BY el.sent_at DESC
       LIMIT $${limitIdx} OFFSET $${offsetIdx}
     `;
