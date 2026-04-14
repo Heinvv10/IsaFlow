@@ -69,8 +69,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
       return apiResponse.success(res, rows);
     } catch (err) {
-      log.error('Failed to get supplier allocations', { error: err });
-      return apiResponse.badRequest(res, 'Failed to get allocations');
+      log.error('Failed to get supplier allocations', { err, companyId });
+      return apiResponse.internalError(res, err as Error);
     }
   }
 
@@ -171,9 +171,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         paymentStatus,
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Allocation failed';
-      log.error('Supplier allocation failed', { error: err });
-      return apiResponse.badRequest(res, message);
+      log.error('Supplier allocation failed', { err, companyId });
+      return apiResponse.internalError(res, err as Error);
     }
   }
 
