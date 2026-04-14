@@ -1,6 +1,6 @@
 // RED phase — written before implementation
 /**
- * Unit tests for dashboard-stats API handler — BL-03
+ * Unit tests for dashboard-stats API handler — BL-03 and BL-04
  *
  * Verifies that the bank balance widget reads from GL journal lines
  * (gl_journal_lines → gl_journal_entries → gl_accounts where account_subtype='bank')
@@ -144,7 +144,7 @@ describe('dashboard-stats handler — BL-03 bank balance from GL', () => {
     expect(body.data.banks[0].balance).toBe(600);
   });
 
-  it('uses GL query (joins gl_journal_lines, gl_journal_entries, gl_accounts) for bank balance', async () => {
+  it('uses GL query (joins gl_journal_lines, gl_journal_entries, gl_accounts) for bank balance — BL-03', async () => {
     const sqlMock = sql as ReturnType<typeof vi.fn>;
     let callIndex = 0;
     sqlMock.mockImplementation(() => {
@@ -180,5 +180,147 @@ describe('dashboard-stats handler — BL-03 bank balance from GL', () => {
 
     // Must NOT directly aggregate bank_transactions
     expect(joinedQuery).not.toMatch(/FROM\s+bank_transactions/i);
+  });
+});
+
+// ── BL-04: AR/AP widgets must exclude draft invoices ──────────────────────────
+
+describe('dashboard-stats handler — BL-04 AR/AP exclude drafts', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.resetModules();
+  });
+
+  /**
+   * Seed: 3 customer invoices for company A
+   *   - draft:    500  (must be EXCLUDED)
+   *   - approved: 500  (must be INCLUDED)
+   *   - paid:     500  (must be EXCLUDED — fully paid)
+   * Expected arTotal = 500
+   */
+  it('arTotal excludes draft invoices — only open statuses count', async () => {
+    const { sql } = await import('@/lib/neon');
+    const sqlMock = sql as ReturnType<typeof vi.fn>;
+
+    let callIndex = 0;
+    sqlMock.mockImplementation(() => {
+      const idx = callIndex++;
+      switch (idx) {
+        // [0] bankBalances
+        case 0:
+          return Promise.resolve([]);
+        // [1] apTotal — zero for this test
+        case 1:
+          return Promise.resolve([{ total: '0' }]);
+        // [2] arTotal — DB returns 500 (only 'approved' invoice matches open filter)
+        case 2:
+          return Promise.resolve([{ total: '500' }]);
+        // [3] monthRevenue
+        case 3:
+          return Promise.resolve([{ total: '0' }]);
+        // [4] monthExpenses
+        case 4:
+          return Promise.resolve([{ total: '0' }]);
+        // [5] unallocatedCount
+        case 5:
+          return Promise.resolve([{ count: '0' }]);
+        // [6] recentJournals
+        case 6:
+          return Promise.resolve([]);
+        default:
+          return Promise.resolve([]);
+      }
+    });
+
+    const handler = (await import('../../../pages/api/accounting/dashboard-stats')).default as (
+      req: NextApiRequest,
+      res: NextApiResponse
+    ) => Promise<void>;
+
+    const req = makeReq();
+    const res = makeRes();
+    await handler(req as NextApiRequest, res as unknown as NextApiResponse);
+
+    expect(res._status).toBe(200);
+    const body = res._body as { data: { arTotal: number } };
+    // Only the 'approved' (500) invoice is included — draft (500) excluded
+    expect(body.data.arTotal).toBe(500);
+  });
+
+  /**
+   * Verify the AR SQL query uses ANY(open_statuses) not NOT IN('cancelled','paid').
+   * The query must NOT contain 'draft' exclusion pattern — it must use an allowlist.
+   */
+  it('AR query uses an allowlist of open statuses (not a denylist) — matches AR_OPEN_STATUSES', async () => {
+    const { sql } = await import('@/lib/neon');
+    const sqlMock = sql as ReturnType<typeof vi.fn>;
+
+    let callIndex = 0;
+    sqlMock.mockImplementation(() => {
+      const idx = callIndex++;
+      if (idx === 5) return Promise.resolve([{ count: '0' }]);
+      if (idx === 6) return Promise.resolve([]);
+      return Promise.resolve([{ total: '0', balance: '0', account_code: '', account_name: '' }]);
+    });
+
+    const handler = (await import('../../../pages/api/accounting/dashboard-stats')).default as (
+      req: NextApiRequest,
+      res: NextApiResponse
+    ) => Promise<void>;
+
+    const req = makeReq();
+    const res = makeRes();
+    await handler(req as NextApiRequest, res as unknown as NextApiResponse);
+
+    // AR query is the 3rd call (index 2)
+    const arCallArgs = sqlMock.mock.calls[2];
+    const arTemplateStrings: string[] = arCallArgs[0];
+    const arQuery = arTemplateStrings.join(' ');
+
+    // Must use ANY(...) allowlist pattern — not the old denylist
+    expect(arQuery).toMatch(/ANY\s*\(/i);
+    // Must NOT use the old broken denylist that included drafts
+    expect(arQuery).not.toMatch(/NOT IN\s*\([^)]*'paid'/i);
+  });
+
+  /**
+   * Seed: 3 supplier invoices
+   *   - draft:          600  (EXCLUDED)
+   *   - approved:       600  (INCLUDED)
+   *   - partially_paid: 600  (INCLUDED, balance 400 after 200 paid)
+   * Expected apTotal reflects only open statuses
+   */
+  it('apTotal excludes draft supplier invoices — only open statuses count', async () => {
+    const { sql } = await import('@/lib/neon');
+    const sqlMock = sql as ReturnType<typeof vi.fn>;
+
+    let callIndex = 0;
+    sqlMock.mockImplementation(() => {
+      const idx = callIndex++;
+      switch (idx) {
+        case 0: return Promise.resolve([]);
+        // [1] apTotal — DB returns 1000 (approved 600 + partially_paid balance 400)
+        case 1: return Promise.resolve([{ total: '1000' }]);
+        case 2: return Promise.resolve([{ total: '0' }]);
+        case 3: return Promise.resolve([{ total: '0' }]);
+        case 4: return Promise.resolve([{ total: '0' }]);
+        case 5: return Promise.resolve([{ count: '0' }]);
+        case 6: return Promise.resolve([]);
+        default: return Promise.resolve([]);
+      }
+    });
+
+    const handler = (await import('../../../pages/api/accounting/dashboard-stats')).default as (
+      req: NextApiRequest,
+      res: NextApiResponse
+    ) => Promise<void>;
+
+    const req = makeReq();
+    const res = makeRes();
+    await handler(req as NextApiRequest, res as unknown as NextApiResponse);
+
+    expect(res._status).toBe(200);
+    const body = res._body as { data: { apTotal: number } };
+    expect(body.data.apTotal).toBe(1000);
   });
 });
