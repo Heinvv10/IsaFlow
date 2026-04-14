@@ -30,21 +30,32 @@ export async function getSupplierInvoices(companyId: string, filters?: InvoiceFi
   total: number;
 }> {
   try {
-    const limit = Math.min(filters?.limit || 50, 200);
+    const safeLimit = Math.min(filters?.limit ?? 50, 100);
     const offset = filters?.offset || 0;
     let rows: Row[];
     let countRows: Row[];
 
     // NOTE: purchase_orders table is not available in standalone accounting app.
     // po_number is returned as NULL; purchase_order_id column is kept for data integrity.
+    // Explicit column list avoids over-fetching unused wide columns (line_items_json, etc).
     if (filters?.status && filters?.supplierId) {
       rows = (await sql`
-        SELECT si.*, s.name AS supplier_name, NULL::text AS po_number
+        SELECT si.id, si.company_id, si.invoice_number, si.supplier_id,
+               si.purchase_order_id, si.grn_id,
+               si.invoice_date, si.due_date, si.received_date,
+               si.subtotal, si.tax_rate, si.tax_amount, si.total_amount,
+               si.amount_paid, si.balance, si.payment_terms,
+               si.currency, si.reference, si.status, si.match_status,
+               si.project_id, si.cost_center_id,
+               si.gl_journal_entry_id, si.sage_invoice_id,
+               si.notes, si.created_by, si.approved_by, si.approved_at,
+               si.created_at, si.updated_at,
+               s.name AS supplier_name, NULL::text AS po_number
         FROM supplier_invoices si
         LEFT JOIN suppliers s ON s.id = si.supplier_id
         WHERE si.company_id = ${companyId}::UUID AND si.deleted_at IS NULL
           AND si.status = ${filters.status} AND si.supplier_id = ${filters.supplierId}
-        ORDER BY si.invoice_date DESC LIMIT ${limit} OFFSET ${offset}
+        ORDER BY si.invoice_date DESC LIMIT ${safeLimit} OFFSET ${offset}
       `) as Row[];
       countRows = (await sql`
         SELECT COUNT(*) AS cnt FROM supplier_invoices
@@ -53,12 +64,22 @@ export async function getSupplierInvoices(companyId: string, filters?: InvoiceFi
       `) as Row[];
     } else if (filters?.status) {
       rows = (await sql`
-        SELECT si.*, s.name AS supplier_name, NULL::text AS po_number
+        SELECT si.id, si.company_id, si.invoice_number, si.supplier_id,
+               si.purchase_order_id, si.grn_id,
+               si.invoice_date, si.due_date, si.received_date,
+               si.subtotal, si.tax_rate, si.tax_amount, si.total_amount,
+               si.amount_paid, si.balance, si.payment_terms,
+               si.currency, si.reference, si.status, si.match_status,
+               si.project_id, si.cost_center_id,
+               si.gl_journal_entry_id, si.sage_invoice_id,
+               si.notes, si.created_by, si.approved_by, si.approved_at,
+               si.created_at, si.updated_at,
+               s.name AS supplier_name, NULL::text AS po_number
         FROM supplier_invoices si
         LEFT JOIN suppliers s ON s.id = si.supplier_id
         WHERE si.company_id = ${companyId}::UUID AND si.deleted_at IS NULL
           AND si.status = ${filters.status}
-        ORDER BY si.invoice_date DESC LIMIT ${limit} OFFSET ${offset}
+        ORDER BY si.invoice_date DESC LIMIT ${safeLimit} OFFSET ${offset}
       `) as Row[];
       countRows = (await sql`
         SELECT COUNT(*) AS cnt FROM supplier_invoices
@@ -66,12 +87,22 @@ export async function getSupplierInvoices(companyId: string, filters?: InvoiceFi
       `) as Row[];
     } else if (filters?.supplierId) {
       rows = (await sql`
-        SELECT si.*, s.name AS supplier_name, NULL::text AS po_number
+        SELECT si.id, si.company_id, si.invoice_number, si.supplier_id,
+               si.purchase_order_id, si.grn_id,
+               si.invoice_date, si.due_date, si.received_date,
+               si.subtotal, si.tax_rate, si.tax_amount, si.total_amount,
+               si.amount_paid, si.balance, si.payment_terms,
+               si.currency, si.reference, si.status, si.match_status,
+               si.project_id, si.cost_center_id,
+               si.gl_journal_entry_id, si.sage_invoice_id,
+               si.notes, si.created_by, si.approved_by, si.approved_at,
+               si.created_at, si.updated_at,
+               s.name AS supplier_name, NULL::text AS po_number
         FROM supplier_invoices si
         LEFT JOIN suppliers s ON s.id = si.supplier_id
         WHERE si.company_id = ${companyId}::UUID AND si.deleted_at IS NULL
           AND si.supplier_id = ${filters.supplierId}
-        ORDER BY si.invoice_date DESC LIMIT ${limit} OFFSET ${offset}
+        ORDER BY si.invoice_date DESC LIMIT ${safeLimit} OFFSET ${offset}
       `) as Row[];
       countRows = (await sql`
         SELECT COUNT(*) AS cnt FROM supplier_invoices
@@ -79,11 +110,21 @@ export async function getSupplierInvoices(companyId: string, filters?: InvoiceFi
       `) as Row[];
     } else {
       rows = (await sql`
-        SELECT si.*, s.name AS supplier_name, NULL::text AS po_number
+        SELECT si.id, si.company_id, si.invoice_number, si.supplier_id,
+               si.purchase_order_id, si.grn_id,
+               si.invoice_date, si.due_date, si.received_date,
+               si.subtotal, si.tax_rate, si.tax_amount, si.total_amount,
+               si.amount_paid, si.balance, si.payment_terms,
+               si.currency, si.reference, si.status, si.match_status,
+               si.project_id, si.cost_center_id,
+               si.gl_journal_entry_id, si.sage_invoice_id,
+               si.notes, si.created_by, si.approved_by, si.approved_at,
+               si.created_at, si.updated_at,
+               s.name AS supplier_name, NULL::text AS po_number
         FROM supplier_invoices si
         LEFT JOIN suppliers s ON s.id = si.supplier_id
         WHERE si.company_id = ${companyId}::UUID AND si.deleted_at IS NULL
-        ORDER BY si.invoice_date DESC LIMIT ${limit} OFFSET ${offset}
+        ORDER BY si.invoice_date DESC LIMIT ${safeLimit} OFFSET ${offset}
       `) as Row[];
       countRows = (await sql`
         SELECT COUNT(*) AS cnt FROM supplier_invoices WHERE company_id = ${companyId}::UUID AND deleted_at IS NULL
