@@ -172,12 +172,15 @@ export async function getBankTransactions(
       countRows = (await sql`SELECT COUNT(*) AS cnt FROM bank_transactions
         WHERE bank_account_id = ${filters.bankAccountId}::UUID`) as Row[];
     } else {
+      const statusFilter = filters?.status ?? null;
       rows = (await sql`${TX_SELECT}
         WHERE bt.company_id = ${companyId}
+          AND (${statusFilter}::text IS NULL OR bt.status = ${statusFilter}::text)
         ORDER BY bt.transaction_date DESC, bt.amount DESC
         LIMIT ${limit} OFFSET ${offset}`) as Row[];
       countRows = (await sql`SELECT COUNT(*) AS cnt FROM bank_transactions
-        WHERE company_id = ${companyId}`) as Row[];
+        WHERE company_id = ${companyId}
+          AND (${statusFilter}::text IS NULL OR status = ${statusFilter}::text)`) as Row[];
     }
 
     return { transactions: rows.map(mapTxRow), total: Number(countRows[0]!.cnt) };
