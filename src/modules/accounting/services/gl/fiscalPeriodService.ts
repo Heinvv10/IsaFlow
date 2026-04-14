@@ -6,6 +6,7 @@
 import { sql, withTransaction } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { toISODate } from '@/lib/dateUtils';
 import type { FiscalPeriod, FiscalPeriodStatus } from '../../types/gl.types';
 
 type Row = DbRow;
@@ -218,8 +219,8 @@ function mapRow(row: Row): FiscalPeriod {
     periodName: String(row.period_name),
     periodNumber: Number(row.period_number),
     fiscalYear: Number(row.fiscal_year),
-    startDate: String(row.start_date),
-    endDate: String(row.end_date),
+    startDate: toISODate(row.start_date as Date | string) ?? String(row.start_date),
+    endDate: toISODate(row.end_date as Date | string) ?? String(row.end_date),
     status: String(row.status) as FiscalPeriodStatus,
     closedBy: row.closed_by ? String(row.closed_by) : undefined,
     closedAt: row.closed_at ? String(row.closed_at) : undefined,
