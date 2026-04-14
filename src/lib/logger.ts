@@ -1,3 +1,5 @@
+// eslint-disable no-console -- This module is the logging fallback path; using
+// console is intentional when structured logging is unavailable.
 /**
  * Logger Service
  * Proper logging replacement for console.* statements

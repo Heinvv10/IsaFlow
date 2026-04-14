@@ -1,3 +1,5 @@
+// eslint-disable no-console -- This module is the logging fallback path; using
+// console is intentional when structured logging is unavailable.
 import type { NextApiHandler, NextApiRequest, NextApiResponse } from 'next';
 import { apiLogger } from '@/lib/logger';
 
