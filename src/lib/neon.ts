@@ -1,3 +1,5 @@
+// eslint-disable no-console -- This module is the logging fallback path; using
+// console is intentional when structured logging is unavailable.
 /**
  * Neon Database Client
  * Standalone serverless PostgreSQL connection for the Accounting app
