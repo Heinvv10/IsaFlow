@@ -34,14 +34,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       unallocatedCount,
       recentJournals,
     ] = await Promise.all([
-      // Bank account balances (from bank_transactions, matching bank-accounts API)
+      // Bank account balances from GL (posted journal lines against bank accounts)
+      // Reads from gl_journal_lines so the balance matches the Trial Balance,
+      // not the raw bank_transactions sum which inflates unreconciled imports.
       sql`
         SELECT ga.account_code, ga.account_name,
-          COALESCE(SUM(CASE WHEN bt.amount > 0 THEN bt.amount ELSE 0 END), 0)
-          - COALESCE(SUM(CASE WHEN bt.amount < 0 THEN ABS(bt.amount) ELSE 0 END), 0) AS balance
+          COALESCE(SUM(jl.debit - jl.credit), 0) AS balance
         FROM gl_accounts ga
-        LEFT JOIN bank_transactions bt ON bt.bank_account_id = ga.id
-        WHERE ga.account_subtype = 'bank' AND ga.is_active = true AND ga.company_id = ${companyId}
+        LEFT JOIN gl_journal_lines jl ON jl.gl_account_id = ga.id
+        LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+          AND je.company_id = ${companyId}::UUID
+          AND je.status = 'posted'
+        WHERE ga.account_subtype = 'bank'
+          AND ga.is_active = true
+          AND ga.company_id = ${companyId}::UUID
         GROUP BY ga.id, ga.account_code, ga.account_name
         ORDER BY ga.account_code
       `,
