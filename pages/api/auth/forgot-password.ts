@@ -9,7 +9,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { checkRateLimit } from '@/lib/rateLimit';
+import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { generateResetToken } from '@/lib/auth/password';
 import { sendEmail } from '@/modules/accounting/services/core/emailService';
 import { passwordResetEmailHtml } from '@/lib/email-templates-auth';
@@ -28,10 +28,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   // Rate limit: 5 requests per IP per 15 minutes
-  const rawIp = Array.isArray(req.headers['x-forwarded-for'])
-    ? req.headers['x-forwarded-for'][0]
-    : req.headers['x-forwarded-for'] ?? req.socket.remoteAddress;
-  const ip: string = rawIp ?? 'unknown';
+  // Use last-hop x-forwarded-for (proxy-appended) to prevent client IP spoofing.
+  const ip = getClientIp(req);
   if (checkRateLimit(ip, { windowMs: 15 * 60 * 1000, maxRequests: 5 })) {
     return res.status(429).json({
       success: false,

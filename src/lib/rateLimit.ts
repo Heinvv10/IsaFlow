@@ -47,7 +47,7 @@ export function checkRateLimit(key: string, opts?: RateLimitOptions): boolean {
   return false;
 }
 
-function getClientIp(req: NextApiRequest): string {
+export function getClientIp(req: NextApiRequest): string {
   // In production behind nginx/Cloudflare, use the last proxy-added IP.
   // x-forwarded-for format: client, proxy1, proxy2
   // The FIRST entry is client-supplied and therefore spoofable.

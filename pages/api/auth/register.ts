@@ -1,7 +1,7 @@
 /**
  * POST /api/auth/register
  * Creates a new user account with email + password.
- * Does NOT set an auth cookie — user must log in after registering.
+ * Sets an HttpOnly isaflow_auth cookie on success (auto-login after registration).
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -11,7 +11,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { hashPassword, checkPasswordStrength } from '@/lib/auth';
 import { sql, transaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { checkRateLimit } from '@/lib/rateLimit';
+import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { signToken } from '@/lib/auth/jwt';
 import { createSession } from '@/lib/auth/session';
 import { AUTH_COOKIE_NAME } from '@/lib/auth/middleware';
@@ -25,10 +25,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   // Rate limit: 3 registrations per IP per 15 minutes
-  const rawIp = Array.isArray(req.headers['x-forwarded-for'])
-    ? req.headers['x-forwarded-for'][0]
-    : req.headers['x-forwarded-for'] ?? req.socket.remoteAddress;
-  const ip: string = rawIp ?? 'unknown';
+  // Use last-hop x-forwarded-for (proxy-appended) to prevent client IP spoofing.
+  const ip = getClientIp(req);
   if (checkRateLimit(ip, { windowMs: 15 * 60 * 1000, maxRequests: 3 })) {
     return res.status(429).json({
       success: false,
@@ -168,9 +166,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       isActive: true,
     };
 
-    const ipAddress = Array.isArray(req.headers['x-forwarded-for'])
-      ? req.headers['x-forwarded-for'][0]
-      : req.headers['x-forwarded-for'] ?? req.socket.remoteAddress;
+    const ipAddress = ip;
     const userAgent = req.headers['user-agent'];
 
     const tempToken = await signToken(authUser, 'pending');
