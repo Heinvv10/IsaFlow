@@ -6,6 +6,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
+import { AR_OPEN_STATUSES, AP_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
 
 
 export interface DashboardKPIs {
@@ -93,14 +94,14 @@ export async function getDashboardKPIs(companyId: string,
       sql`
         SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
         FROM customer_invoices
-        WHERE status IN ('approved', 'sent', 'partially_paid', 'overdue')
+        WHERE status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
           AND company_id = ${companyId}::UUID
           AND (total_amount - COALESCE(amount_paid, 0)) > 0
       `,
       sql`
         SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
         FROM customer_invoices
-        WHERE status IN ('approved', 'sent', 'partially_paid', 'overdue')
+        WHERE status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
           AND company_id = ${companyId}::UUID
           AND (total_amount - COALESCE(amount_paid, 0)) > 0
           AND due_date < CURRENT_DATE
@@ -117,14 +118,14 @@ export async function getDashboardKPIs(companyId: string,
       sql`
         SELECT COALESCE(SUM(balance), 0) AS total
         FROM supplier_invoices
-        WHERE status IN ('approved', 'partially_paid')
+        WHERE status = ANY(${Array.from(AP_OPEN_STATUSES)}::text[])
           AND company_id = ${companyId}::UUID
           AND balance > 0
       `,
       sql`
         SELECT COALESCE(SUM(balance), 0) AS total
         FROM supplier_invoices
-        WHERE status IN ('approved', 'partially_paid')
+        WHERE status = ANY(${Array.from(AP_OPEN_STATUSES)}::text[])
           AND company_id = ${companyId}::UUID
           AND balance > 0
           AND due_date < CURRENT_DATE

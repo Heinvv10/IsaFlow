@@ -8,6 +8,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { calculateAgingBuckets } from '../../utils/aging';
 import type { AgingBucket, AgingInvoice } from '../../types/ap.types';
+import { AP_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
 type Row = DbRow;
 
 
@@ -21,7 +22,7 @@ export async function getAPAging(companyId: string, asAtDate?: string): Promise<
       FROM supplier_invoices si
       JOIN suppliers s ON s.id = si.supplier_id
       WHERE si.company_id = ${companyId}::UUID
-        AND si.status IN ('approved', 'partially_paid')
+        AND si.status = ANY(${Array.from(AP_OPEN_STATUSES)}::text[])
         AND si.balance > 0
         AND si.due_date IS NOT NULL
       ORDER BY si.due_date
@@ -61,7 +62,7 @@ export async function getAPAgingDetail(companyId: string,
       JOIN suppliers s ON s.id = si.supplier_id
       WHERE si.company_id = ${companyId}::UUID
         AND si.supplier_id = ${Number(supplierId)}
-        AND si.status IN ('approved', 'partially_paid')
+        AND si.status = ANY(${Array.from(AP_OPEN_STATUSES)}::text[])
         AND si.balance > 0
         AND si.due_date IS NOT NULL
       ORDER BY si.due_date

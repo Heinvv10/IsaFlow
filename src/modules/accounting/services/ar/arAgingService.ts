@@ -8,6 +8,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { calculateAgingBuckets } from '../../utils/aging';
 import type { AgingBucket, AgingInvoice } from '../../types/ap.types';
+import { AR_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
 type Row = DbRow;
 
 
@@ -22,7 +23,7 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
       FROM customer_invoices ci
       JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
       WHERE ci.company_id = ${companyId}
-        AND ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
+        AND ci.status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
         AND (ci.total_amount - ci.amount_paid) > 0
         AND ci.due_date IS NOT NULL
       ORDER BY ci.due_date
@@ -87,7 +88,7 @@ export async function getARAgingDetail(companyId: string,
       JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
       WHERE ci.company_id = ${companyId}
         AND COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID
-        AND ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
+        AND ci.status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
         AND (ci.total_amount - ci.amount_paid) > 0
         AND ci.due_date IS NOT NULL
       ORDER BY ci.due_date

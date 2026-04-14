@@ -10,6 +10,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { AR_OPEN_STATUSES, AP_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -52,16 +53,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         ORDER BY ga.account_code
       `,
       // Accounts Payable total (from supplier_invoices, matching AP aging)
+      // Uses AP_OPEN_STATUSES allowlist — same set as apAgingService so dashbord == aging report
       sql`
         SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
         FROM supplier_invoices
-        WHERE company_id = ${companyId} AND status NOT IN ('cancelled', 'paid')
+        WHERE company_id = ${companyId}
+          AND status = ANY(${Array.from(AP_OPEN_STATUSES)}::text[])
       `,
       // Accounts Receivable total (from customer_invoices, matching AR aging)
+      // Uses AR_OPEN_STATUSES allowlist — same set as arAgingService so dashboard == aging report
       sql`
         SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
         FROM customer_invoices
-        WHERE company_id = ${companyId} AND status NOT IN ('cancelled', 'paid')
+        WHERE company_id = ${companyId}
+          AND status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
       `,
       // Revenue this month (account_type = 'revenue')
       sql`
