@@ -1,4 +1,5 @@
 import { sql } from '@/lib/neon';
+import { toISODate } from '@/lib/dateUtils';
 /**
  * Budget vs Actual Report API
  * GET /api/accounting/reports-budget-vs-actual?period=current|ytd|full_year
@@ -40,9 +41,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         FROM fiscal_periods
         WHERE company_id = ${companyId} AND fiscal_year = (SELECT fiscal_year FROM fiscal_periods WHERE company_id = ${companyId} AND status = 'open' ORDER BY start_date DESC LIMIT 1)
       `;
-      startDate = fy?.start_date?.toString().split('T')[0] || `${now.getFullYear()}-03-01`;
+      startDate = toISODate(fy?.start_date) || `${now.getFullYear()}-03-01`;
       endDate = period === 'full_year'
-        ? (fy?.end_date?.toString().split('T')[0] || `${now.getFullYear() + 1}-02-28`)
+        ? (toISODate(fy?.end_date) || `${now.getFullYear() + 1}-02-28`)
         : (now.toISOString().split('T')[0] ?? '');
     }
 
