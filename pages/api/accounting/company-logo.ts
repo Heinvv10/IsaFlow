@@ -11,9 +11,13 @@ import { sql } from '@/lib/neon';
 type Row = Record<string, unknown>;
 
 
-// Uses withAuth (not withCompany) because users may manage logos for multiple companies
-// they own. Security is provided by the explicit company membership check below —
-// only owners/admins of the specified company can update its logo.
+/**
+ * AUTH: Uses withAuth (not withCompany) because a user may own/admin multiple companies
+ * and this endpoint accepts an explicit companyId in the request body. Tenant scoping is
+ * enforced by a membership check against company_users (owner/admin role required) before
+ * any write is performed — no cross-tenant write is possible.
+ * See docs/audits/2026-04-14/04-code-quality.md#Q-005 for rationale.
+ */
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method!, ['POST']);

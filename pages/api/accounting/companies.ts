@@ -14,6 +14,15 @@ import {
   getUserCompanies, setDefaultCompany,
 } from '@/modules/accounting/services/core/companyService';
 
+/**
+ * AUTH: Uses withAuth (not withCompany) because this endpoint manages the list of
+ * companies a user belongs to — it is intentionally cross-company. All reads are scoped
+ * to getUserCompanies(userId), which filters by the authenticated user's company_users
+ * rows. Any access to a specific company (GET ?id=, PUT, POST set-default) is guarded by
+ * a membership check verifying the user belongs to that company. Super-admin access to
+ * arbitrary company records is explicitly gated on role === 'super_admin'.
+ * See docs/audits/2026-04-14/04-code-quality.md#Q-005 for rationale.
+ */
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const userId = (req as AuthenticatedNextApiRequest).user.id;
 
