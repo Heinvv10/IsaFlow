@@ -1,6 +1,12 @@
 /**
  * Trial Balance Report API
  * GET /api/accounting/reports-trial-balance?fiscal_period_id=...
+ *
+ * Response shape:
+ *   { success: true, data: { fiscalPeriodId, comparePeriodId, rows: TrialBalanceRow[], totalDebit, totalCredit } }
+ *
+ * The canonical key for the account lines is **`rows`** (not `accounts`).
+ * Frontend reads `data.rows`; any external consumer must use `data.rows`.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';

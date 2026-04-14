@@ -19,9 +19,15 @@ export interface TrialBalanceRow {
   priorCreditBalance?: number;
 }
 
+/**
+ * Trial Balance report container.
+ * The account lines are exposed under the `rows` key (canonical; never `accounts`).
+ * See GET /api/accounting/reports-trial-balance.
+ */
 export interface TrialBalanceReport {
   asAtDate: string;
   fiscalPeriodId: string;
+  /** Canonical key for account lines — always `rows`, never `accounts`. */
   rows: TrialBalanceRow[];
   totalDebit: number;
   totalCredit: number;

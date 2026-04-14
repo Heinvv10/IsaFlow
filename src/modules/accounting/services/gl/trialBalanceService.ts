@@ -1,6 +1,10 @@
 /**
  * Trial Balance Service
  * GL trial balance queries — split from journalEntryCrudService.ts.
+ *
+ * Returns `TrialBalanceRow[]` — a flat array.
+ * The API handler wraps it as `{ rows: TrialBalanceRow[], totalDebit, totalCredit }`.
+ * The canonical container key is `rows` (not `accounts`).
  */
 
 import { sql } from '@/lib/neon';
