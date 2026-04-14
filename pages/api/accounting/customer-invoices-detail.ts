@@ -57,14 +57,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const { id, notes, internalNotes, dueDate } = req.body;
     if (!id) return apiResponse.badRequest(res, 'id is required');
 
-    await sql`
+    const putResult = await sql`
       UPDATE customer_invoices
       SET notes = COALESCE(${notes || null}, notes),
           internal_notes = COALESCE(${internalNotes || null}, internal_notes),
           due_date = COALESCE(${dueDate || null}, due_date),
           updated_at = NOW()
       WHERE id = ${id}::UUID AND company_id = ${companyId} AND status = 'draft'
+      RETURNING id
     `;
+    if (putResult.length === 0) {
+      return apiResponse.notFound(res, 'Invoice', id as string);
+    }
     log.info('Customer invoice updated', { id });
     return apiResponse.success(res, { updated: true });
   }
@@ -79,7 +83,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const newStatus = validActions[action];
     if (!newStatus) return apiResponse.badRequest(res, `Unknown action: ${action}`);
 
-    await sql`UPDATE customer_invoices SET status = ${newStatus}, updated_at = NOW() WHERE id = ${id}::UUID AND company_id = ${companyId}`;
+    const actionResult = await sql`
+      UPDATE customer_invoices
+      SET status = ${newStatus}, updated_at = NOW()
+      WHERE id = ${id}::UUID AND company_id = ${companyId}
+      RETURNING id
+    `;
+    if (actionResult.length === 0) {
+      return apiResponse.notFound(res, 'Invoice', id as string);
+    }
 
     // Post to GL on approve (accrual accounting: DR AR, CR Revenue, CR VAT Output)
     let glJournalEntryId: string | null = null;
