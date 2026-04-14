@@ -4,12 +4,18 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
+import { withCompany, type CompanyApiRequest, withWriteAccess } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 type Row = Record<string, unknown>;
-async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
+async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
-  const categories = await sql`SELECT * FROM product_categories WHERE is_active = true ORDER BY name` as Row[];
+  const companyId = req.companyId;
+  const categories = await sql`
+    SELECT * FROM product_categories
+    WHERE is_active = true
+      AND (company_id = ${companyId}::UUID OR company_id IS NULL)
+    ORDER BY name
+  ` as Row[];
   return apiResponse.success(res, categories);
 }
 export default withCompany(withErrorHandler(withWriteAccess(handler)));
