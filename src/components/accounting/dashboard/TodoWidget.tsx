@@ -178,7 +178,7 @@ export function TodoWidget() {
           {data.uncategorizedBankTxns > 0 && (
             <ActionRow
               label={`${data.uncategorizedBankTxns} bank transaction${data.uncategorizedBankTxns !== 1 ? 's' : ''} to categorize`}
-              href="/accounting/bank"
+              href="/accounting/bank-transactions"
               badge={data.uncategorizedBankTxns}
               badgeColor="blue"
             />
