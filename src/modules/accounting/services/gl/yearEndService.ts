@@ -7,6 +7,11 @@
 import { sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
+// IMPORTANT: gl_journal_lines has no company_id column. ALL tenant scoping MUST
+// go via gl_journal_entries.company_id. The filter belongs in WHERE (not JOIN ON)
+// so that subsequent refactoring cannot accidentally drop the cross-tenant guard.
+// See docs/audits/2026-04-14/02-security-findings.md#S-002.
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface FiscalYearSummary {
@@ -121,11 +126,14 @@ export async function closeFiscalYear(
     FROM gl_accounts ga
     LEFT JOIN gl_journal_lines jl ON jl.gl_account_id = ga.id
     LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-      AND je.status     = 'posted'
-      AND je.company_id = ${companyId}
-      AND je.entry_date >= ${yearRange.start_date}
-      AND je.entry_date <= ${yearRange.end_date}
-    WHERE ga.account_type = 'revenue' AND ga.company_id = ${companyId}
+    WHERE ga.account_type = 'revenue'
+      AND ga.company_id = ${companyId}
+      AND (je.id IS NULL OR (
+        je.company_id = ${companyId}
+        AND je.status     = 'posted'
+        AND je.entry_date >= ${yearRange.start_date}
+        AND je.entry_date <= ${yearRange.end_date}
+      ))
     GROUP BY ga.id, ga.account_code, ga.account_name
     HAVING COALESCE(SUM(jl.credit - jl.debit), 0) != 0
   `;
@@ -137,11 +145,14 @@ export async function closeFiscalYear(
     FROM gl_accounts ga
     LEFT JOIN gl_journal_lines jl ON jl.gl_account_id = ga.id
     LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-      AND je.status     = 'posted'
-      AND je.company_id = ${companyId}
-      AND je.entry_date >= ${yearRange.start_date}
-      AND je.entry_date <= ${yearRange.end_date}
-    WHERE ga.account_type = 'expense' AND ga.company_id = ${companyId}
+    WHERE ga.account_type = 'expense'
+      AND ga.company_id = ${companyId}
+      AND (je.id IS NULL OR (
+        je.company_id = ${companyId}
+        AND je.status     = 'posted'
+        AND je.entry_date >= ${yearRange.start_date}
+        AND je.entry_date <= ${yearRange.end_date}
+      ))
     GROUP BY ga.id, ga.account_code, ga.account_name
     HAVING COALESCE(SUM(jl.debit - jl.credit), 0) != 0
   `;
