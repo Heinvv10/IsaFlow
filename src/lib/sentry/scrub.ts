@@ -57,12 +57,10 @@ export function scrubEvent(event: Event | null): Event | null {
     req.headers = headers;
   }
 
-  // Redact body — hash standalone email fields; leave email in context when
-  // other fields are present (passwords etc. are already redacted there).
+  // Redact body — always hash the local-part of request.data.email per spec.
   if (req.data && typeof req.data === 'object') {
     const data = redactObject(req.data) as Record<string, unknown>;
-    const keys = Object.keys(data);
-    if (keys.length === 1 && keys[0] === 'email' && typeof data.email === 'string') {
+    if (typeof data.email === 'string') {
       data.email = hashEmailLocalPart(data.email);
     }
     req.data = data;
