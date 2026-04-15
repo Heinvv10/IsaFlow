@@ -180,19 +180,24 @@ export async function updateWebhook(
 ): Promise<Webhook> {
   // Build individual field updates to avoid array casting complexity
   if (updates.name !== undefined) {
-    await sql`UPDATE webhook_endpoints SET name = ${updates.name} WHERE id = ${id}::UUID AND company_id = ${companyId}`;
+    const r = (await sql`UPDATE webhook_endpoints SET name = ${updates.name} WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING id`) as Row[];
+    if (r.length === 0) throw new Error(`Webhook not found: ${id}`);
   }
   if (updates.url !== undefined) {
-    await sql`UPDATE webhook_endpoints SET url = ${updates.url} WHERE id = ${id}::UUID AND company_id = ${companyId}`;
+    const r = (await sql`UPDATE webhook_endpoints SET url = ${updates.url} WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING id`) as Row[];
+    if (r.length === 0) throw new Error(`Webhook not found: ${id}`);
   }
   if (updates.secret !== undefined) {
-    await sql`UPDATE webhook_endpoints SET secret = ${updates.secret ?? null} WHERE id = ${id}::UUID AND company_id = ${companyId}`;
+    const r = (await sql`UPDATE webhook_endpoints SET secret = ${updates.secret ?? null} WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING id`) as Row[];
+    if (r.length === 0) throw new Error(`Webhook not found: ${id}`);
   }
   if (updates.events !== undefined) {
-    await sql`UPDATE webhook_endpoints SET events = ${updates.events} WHERE id = ${id}::UUID AND company_id = ${companyId}`;
+    const r = (await sql`UPDATE webhook_endpoints SET events = ${updates.events} WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING id`) as Row[];
+    if (r.length === 0) throw new Error(`Webhook not found: ${id}`);
   }
   if (updates.isActive !== undefined) {
-    await sql`UPDATE webhook_endpoints SET is_active = ${updates.isActive} WHERE id = ${id}::UUID AND company_id = ${companyId}`;
+    const r = (await sql`UPDATE webhook_endpoints SET is_active = ${updates.isActive} WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING id`) as Row[];
+    if (r.length === 0) throw new Error(`Webhook not found: ${id}`);
   }
   const rows = (await sql`
     SELECT * FROM webhook_endpoints WHERE id = ${id}::UUID AND company_id = ${companyId}

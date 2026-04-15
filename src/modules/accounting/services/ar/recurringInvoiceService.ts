@@ -87,11 +87,12 @@ export async function createRecurringInvoice(companyId: string,
   return mapRow(rows[0]!);
 }
 
-export async function updateRecurringStatus(companyId: string, 
+export async function updateRecurringStatus(companyId: string,
   id: string,
   status: 'paused' | 'active' | 'cancelled'
 ): Promise<void> {
-  await sql`UPDATE recurring_invoices SET status = ${status} WHERE id = ${id} AND company_id = ${companyId}`;
+  const result = (await sql`UPDATE recurring_invoices SET status = ${status} WHERE id = ${id} AND company_id = ${companyId} RETURNING id`) as Row[];
+  if (result.length === 0) throw new Error(`Recurring invoice not found: ${id}`);
   log.info('Updated recurring invoice status', { id, status }, 'accounting');
 }
 

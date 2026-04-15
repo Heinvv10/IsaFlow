@@ -138,7 +138,8 @@ export async function approveAdjustment(companyId: string, id: string, userId: s
 }
 
 export async function cancelAdjustment(companyId: string, id: string): Promise<void> {
-  await sql`UPDATE accounting_adjustments SET status = 'cancelled' WHERE id = ${id} AND company_id = ${companyId} AND status = 'draft'`;
+  const result = (await sql`UPDATE accounting_adjustments SET status = 'cancelled' WHERE id = ${id} AND company_id = ${companyId} AND status = 'draft' RETURNING id`) as DbRow[];
+  if (result.length === 0) throw new Error(`Adjustment not found or not in draft status: ${id}`);
 }
 
 function mapRow(row: Row): AccountingAdjustment {

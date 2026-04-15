@@ -115,7 +115,8 @@ export async function approveVATAdjustment(companyId: string,
 }
 
 export async function cancelVATAdjustment(companyId: string, id: string): Promise<void> {
-  await sql`UPDATE vat_adjustments SET status = 'cancelled' WHERE id = ${id} AND company_id = ${companyId} AND status = 'draft'`;
+  const result = (await sql`UPDATE vat_adjustments SET status = 'cancelled' WHERE id = ${id} AND company_id = ${companyId} AND status = 'draft' RETURNING id`) as DbRow[];
+  if (result.length === 0) throw new Error(`VAT adjustment not found or not in draft status: ${id}`);
 }
 
 function mapRow(row: Row): VATAdjustment {

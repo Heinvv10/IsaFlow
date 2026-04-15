@@ -181,7 +181,8 @@ export async function executeRecurring(
     `) as DbRow[];
     entityId = String(ciRows[0]?.id);
     if (template.autoPost) {
-      await sql`UPDATE customer_invoices SET status = 'posted' WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID`;
+      const postResult = (await sql`UPDATE customer_invoices SET status = 'posted' WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID RETURNING id`) as DbRow[];
+      if (postResult.length === 0) throw new Error(`Customer invoice not found for auto-post: ${entityId}`);
       posted = true;
     }
   } else {
@@ -207,7 +208,8 @@ export async function executeRecurring(
     `) as DbRow[];
     entityId = String(siRows[0]?.id);
     if (template.autoPost) {
-      await sql`UPDATE supplier_invoices SET status = 'posted' WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID`;
+      const postResult = (await sql`UPDATE supplier_invoices SET status = 'posted' WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID RETURNING id`) as DbRow[];
+      if (postResult.length === 0) throw new Error(`Supplier invoice not found for auto-post: ${entityId}`);
       posted = true;
     }
   }

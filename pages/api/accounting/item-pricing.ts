@@ -44,7 +44,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
 
       for (const u of updates) {
-        await sql`UPDATE stock_items SET list_price = ${Number(u.sellingPrice)} WHERE id = ${u.itemId} AND company_id = ${companyId}`;
+        const priceUpdate = await sql`UPDATE stock_items SET list_price = ${Number(u.sellingPrice)} WHERE id = ${u.itemId} AND company_id = ${companyId} RETURNING id`;
+        if (priceUpdate.length === 0) return apiResponse.notFound(res, 'Stock item', u.itemId);
       }
 
       log.info('Selling prices updated', { count: updates.length });
