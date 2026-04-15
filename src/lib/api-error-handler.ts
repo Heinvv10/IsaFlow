@@ -1,9 +1,11 @@
 // eslint-disable no-console -- This module is the logging fallback path; using
 // console is intentional when structured logging is unavailable.
 import type { NextApiHandler, NextApiRequest, NextApiResponse } from 'next';
+import * as Sentry from '@sentry/nextjs';
 import { apiLogger } from '@/lib/logger';
 import { runWithRequestContext, generateRequestId } from '@/lib/observability/requestContext';
 import { logRequestCompleted } from '@/lib/observability/requestLogger';
+import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 
 const SENSITIVE_KEYS = new Set(['password', 'confirmPassword', 'password_hash', 'token', 'secret', 'apiKey', 'api_key']);
 
@@ -54,8 +56,16 @@ export function withErrorHandler(
   return async (req: NextApiRequest, res: NextApiResponse) => {
     const requestId = generateRequestId();
     const startTime = Date.now();
+    res.setHeader('X-Request-Id', requestId);
 
-    await runWithRequestContext(requestId, async () => {
+    // Defensive isolation: nest a fresh scope so setTenantTags never writes to
+    // the global hub even if withCompany is absent or the wrap order is reversed.
+    const runScoped = async () => {
+      if (process.env.SENTRY_ENABLED === 'true') {
+        setTenantTags({ requestId, route: sanitizeRoute(req.url) });
+      }
+
+      await runWithRequestContext(requestId, async () => {
       try {
         // Set CORS headers - restrict to known origins
         const allowedOrigins = [
@@ -114,6 +124,10 @@ export function withErrorHandler(
           duration: `${duration}ms`,
         });
 
+        if (process.env.SENTRY_ENABLED === 'true' && error instanceof Error) {
+          Sentry.captureException(error);
+        }
+
         // Check if headers were already sent
         if (res.headersSent) {
           apiLogger.warn({ method: req.method, url: req.url }, 'Headers already sent, cannot send error response');
@@ -154,6 +168,13 @@ export function withErrorHandler(
         });
       }
     });
+    }; // end runScoped
+
+    if (process.env.SENTRY_ENABLED === 'true') {
+      await Sentry.withIsolationScope(runScoped);
+    } else {
+      await runScoped();
+    }
   };
 }
 
