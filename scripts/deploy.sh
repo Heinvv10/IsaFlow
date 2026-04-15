@@ -9,9 +9,15 @@ BUN="/home/hein/.bun/bin/bun"
 
 echo "=== Deploying IsaFlow ==="
 
+# Capture git SHA for Sentry release tagging
+cd "$REPO_DIR"
+export GIT_SHA=$(git rev-parse --short HEAD)
+export SENTRY_RELEASE="$GIT_SHA"
+export NEXT_PUBLIC_GIT_SHA="$GIT_SHA"
+echo "Release SHA: $GIT_SHA"
+
 # 1. Build locally with bun
 echo "Installing dependencies..."
-cd "$REPO_DIR"
 $BUN install
 
 echo "Building production bundle..."
@@ -86,3 +92,13 @@ sudo systemctl status $SERVICE_NAME --no-pager | head -15
 echo ""
 echo "=== Deploy complete ==="
 echo "App: https://app.isaflow.co.za"
+
+# 8. Finalize Sentry release (fail-open — never block a deploy)
+if [ -n "$SENTRY_AUTH_TOKEN" ] && command -v sentry-cli >/dev/null 2>&1; then
+  echo "Finalizing Sentry release $GIT_SHA..."
+  sentry-cli releases finalize "$GIT_SHA" || echo "WARN: sentry-cli finalize failed (non-fatal)"
+  sentry-cli releases deploys "$GIT_SHA" new -e production \
+    || echo "WARN: sentry-cli deploys failed (non-fatal)"
+else
+  echo "Skipping Sentry release finalize (no SENTRY_AUTH_TOKEN or sentry-cli)"
+fi
