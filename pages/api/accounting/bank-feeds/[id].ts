@@ -25,4 +25,4 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method!, ['DELETE']);
 }
 
-export default withCompany(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler));

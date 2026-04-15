@@ -14,7 +14,7 @@ import { sql } from '@/lib/neon';
  * Opening-balance query moved into the parallel Promise.all batch.
  */
 
-import type { NextApiRequest, NextApiResponse } from 'next';
+import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, withWriteAccess } from '@/lib/auth';
@@ -24,12 +24,12 @@ import { log } from '@/lib/logger';
 // No runtime schema probe needed.
 const HAS_SUBTYPE = true as const;
 
-async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
   }
 
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req;
 
   try {
     const { start_date, end_date } = req.query;
@@ -157,4 +157,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withCompany(withErrorHandler(withWriteAccess(handler as unknown as Parameters<typeof withWriteAccess>[0])));
+export default withCompany(withErrorHandler(withWriteAccess(handler)));

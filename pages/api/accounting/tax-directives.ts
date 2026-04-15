@@ -8,7 +8,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type AuthenticatedNextApiRequest, type CompanyApiRequest } from '@/lib/auth';
+import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import {
   listTaxDirectives,
@@ -17,8 +17,8 @@ import {
   type TaxDirectiveInput,
 } from '@/modules/accounting/services/reports/taxDirectiveService';
 
-async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const { companyId, user } = req as CompanyApiRequest;
+async function handler(req: CompanyApiRequest, res: NextApiResponse) {
+  const { companyId, user } = req;
 
   // ── GET ──────────────────────────────────────────────────────────────────
   if (req.method === 'GET') {
@@ -79,4 +79,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST', 'PATCH']);
 }
 
-export default withCompany(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler));

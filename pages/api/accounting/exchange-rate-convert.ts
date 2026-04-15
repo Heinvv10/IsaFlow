@@ -6,7 +6,7 @@
  * Returns: { result, rate, effectiveDate }
  */
 
-import type { NextApiRequest, NextApiResponse } from 'next';
+import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
@@ -14,12 +14,12 @@ import { convertAmount as convertAmountPure } from '@/modules/accounting/service
 import { getLatestRate, getExchangeRates } from '@/modules/accounting/services/core/currencyService';
 import { log } from '@/lib/logger';
 
-async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
   }
 
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req;
 
   const { amount, fromCurrency, toCurrency, date } = req.body as {
     amount: unknown;
@@ -88,4 +88,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, { result, rate, effectiveDate });
 }
 
-export default withCompany(withErrorHandler(handler as any));
+export default withCompany(withErrorHandler(handler));
