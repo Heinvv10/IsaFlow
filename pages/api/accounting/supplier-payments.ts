@@ -4,18 +4,34 @@
  * POST /api/accounting/supplier-payments - Create payment with allocations
  */
 
+import { z } from 'zod';
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type AuthenticatedNextApiRequest, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { UUID, ISODate } from '@/lib/schemas/common';
 import {
   getSupplierPayments,
   getSupplierPaymentById,
   createSupplierPayment,
 } from '@/modules/accounting/services/ap/supplierPaymentService';
 import type { PaymentStatus } from '@/modules/accounting/types/ap.types';
+
+const CreateSupplierPaymentSchema = z.object({
+  supplierId: UUID,
+  paymentDate: ISODate,
+  totalAmount: z.coerce.number().nonnegative().multipleOf(0.01),
+  paymentMethod: z.string().max(50).optional(),
+  bankAccountId: UUID.optional(),
+  reference: z.string().max(200).optional(),
+  description: z.string().max(500).optional(),
+  allocations: z.array(z.object({
+    invoiceId: UUID,
+    amount: z.coerce.number().nonnegative().multipleOf(0.01),
+  })).min(1).max(200),
+});
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;
@@ -45,20 +61,19 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'POST') {
+    const postParsed = CreateSupplierPaymentSchema.safeParse(req.body);
+    if (!postParsed.success) {
+      return apiResponse.validationError(res, postParsed.error.flatten().fieldErrors as Record<string, string[]>);
+    }
     try {
       const { supplierId, paymentDate, totalAmount, paymentMethod,
-        bankAccountId, reference, description, allocations } = req.body;
-
-      if (!supplierId || !paymentDate || !totalAmount || !allocations || !Array.isArray(allocations)) {
-        return apiResponse.badRequest(res, 'supplierId, paymentDate, totalAmount, and allocations are required');
-      }
+        bankAccountId, reference, description, allocations } = postParsed.data;
 
       // User identity comes from JWT (req.user), never from client request body
       const userId = req.user.id;
 
       const payment = await createSupplierPayment(companyId, {
-        supplierId: String(supplierId),
-        paymentDate, totalAmount: Number(totalAmount),
+        supplierId, paymentDate, totalAmount,
         paymentMethod, bankAccountId, reference, description,
         allocations,
       }, userId);

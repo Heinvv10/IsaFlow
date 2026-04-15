@@ -4,6 +4,7 @@
  *   action: match | unmatch | exclude | auto_match | allocate | delete | update_notes
  */
 
+import { z } from 'zod';
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
@@ -11,6 +12,7 @@ import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth'
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
+import { UUID } from '@/lib/schemas/common';
 import {
   matchTransaction,
   unmatchTransaction,
@@ -25,103 +27,124 @@ import {
   type SplitLine,
 } from '@/modules/accounting/services/bank/bankReconciliationService';
 
+const BankTxActionSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('match'), bankTransactionId: UUID, journalLineId: UUID, reconciliationId: UUID.optional() }),
+  z.object({ action: z.literal('unmatch'), bankTransactionId: UUID }),
+  z.object({ action: z.literal('exclude'), bankTransactionId: UUID, excludeReason: z.string().max(200).optional() }),
+  z.object({ action: z.literal('auto_match'), bankAccountId: UUID, reconciliationId: UUID.optional() }),
+  z.object({
+    action: z.literal('allocate'),
+    bankTransactionId: UUID,
+    allocationType: z.enum(['account', 'supplier', 'customer']).optional(),
+    contraAccountId: UUID.optional(),
+    entityId: UUID.optional(),
+    description: z.string().max(500).optional(),
+    vatCode: z.string().max(20).optional(),
+    cc1Id: UUID.optional(),
+    cc2Id: UUID.optional(),
+    buId: UUID.optional(),
+  }),
+  z.object({
+    action: z.literal('split_allocate'),
+    bankTransactionId: UUID,
+    lines: z.array(z.object({ contraAccountId: UUID.optional(), amount: z.number(), description: z.string().max(500).optional() })).min(1),
+  }),
+  z.object({ action: z.literal('delete'), bankTransactionId: UUID.optional(), bankTransactionIds: z.array(UUID).optional() }),
+  z.object({ action: z.literal('bulk_accept'), bankTransactionIds: z.array(UUID).min(1) }),
+  z.object({ action: z.literal('update_notes'), bankTransactionId: UUID, notes: z.string().max(1000).optional() }),
+  z.object({
+    action: z.literal('save_selection'),
+    bankTransactionId: UUID,
+    selectionType: z.string().max(50).optional(),
+    selectionEntityId: UUID.optional(),
+    vatCode: z.string().max(20).optional(),
+  }),
+  z.object({
+    action: z.literal('save_dimensions'),
+    bankTransactionId: UUID,
+    cc1Id: UUID.optional(),
+    cc2Id: UUID.optional(),
+    buId: UUID.optional(),
+  }),
+  z.object({ action: z.literal('reverse'), bankTransactionId: UUID }),
+]);
+
 async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
   }
 
+  const parsed = BankTxActionSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return apiResponse.validationError(res, parsed.error.flatten().fieldErrors as Record<string, string[]>);
+  }
+
   const { companyId } = req;
 
+  const body = parsed.data;
   try {
-    const { action, bankTransactionId, journalLineId, bankAccountId, reconciliationId, contraAccountId, description, allocationType, entityId, vatCode, excludeReason, cc1Id, cc2Id, buId } = req.body;
     const userId: string = req.user?.id || req.user?.userId || 'system';
 
-    if (!action) return apiResponse.badRequest(res, 'action is required');
-
-    switch (action) {
+    switch (body.action) {
       case 'match': {
-        if (!bankTransactionId || !journalLineId) {
-          return apiResponse.badRequest(res, 'bankTransactionId and journalLineId are required');
-        }
-        const tx = await matchTransaction(companyId, bankTransactionId, journalLineId, reconciliationId);
+        const tx = await matchTransaction(companyId, body.bankTransactionId, body.journalLineId, body.reconciliationId);
         return apiResponse.success(res, tx);
       }
       case 'unmatch': {
-        if (!bankTransactionId) return apiResponse.badRequest(res, 'bankTransactionId is required');
-        const tx = await unmatchTransaction(companyId, bankTransactionId);
+        const tx = await unmatchTransaction(companyId, body.bankTransactionId);
         return apiResponse.success(res, tx);
       }
       case 'exclude': {
-        if (!bankTransactionId) return apiResponse.badRequest(res, 'bankTransactionId is required');
-        const tx = await excludeTransaction(
-          companyId, bankTransactionId,
-          typeof excludeReason === 'string' ? excludeReason : undefined,
-        );
+        const tx = await excludeTransaction(companyId, body.bankTransactionId, body.excludeReason);
         return apiResponse.success(res, tx);
       }
       case 'auto_match': {
-        if (!bankAccountId) return apiResponse.badRequest(res, 'bankAccountId is required');
-        const result = await autoMatchTransactions(companyId, bankAccountId, reconciliationId);
+        const result = await autoMatchTransactions(companyId, body.bankAccountId, body.reconciliationId);
         return apiResponse.success(res, result);
       }
       case 'allocate': {
-        const aType: AllocationType = allocationType || 'account';
-        if (aType === 'account' && !contraAccountId) {
+        const aType: AllocationType = body.allocationType || 'account';
+        if (aType === 'account' && !body.contraAccountId) {
           return apiResponse.badRequest(res, 'contraAccountId is required for account allocation');
         }
-        if ((aType === 'supplier' || aType === 'customer') && !entityId) {
+        if ((aType === 'supplier' || aType === 'customer') && !body.entityId) {
           return apiResponse.badRequest(res, 'entityId is required for supplier/customer allocation');
         }
-        if (!bankTransactionId) {
-          return apiResponse.badRequest(res, 'bankTransactionId is required');
-        }
         const result = await allocateTransaction(
-          companyId, bankTransactionId, contraAccountId || null, userId, description, aType, entityId, vatCode,
-          cc1Id, cc2Id, buId,
+          companyId, body.bankTransactionId, body.contraAccountId || null, userId,
+          body.description, aType, body.entityId, body.vatCode,
+          body.cc1Id, body.cc2Id, body.buId,
         );
         return apiResponse.success(res, result);
       }
       case 'split_allocate': {
-        const { bankTransactionId: splitTxId, lines: splitLines } = req.body as {
-          bankTransactionId?: string;
-          lines?: SplitLine[];
-        };
-        if (!splitTxId || !splitLines || !Array.isArray(splitLines) || splitLines.length === 0) {
-          return apiResponse.badRequest(res, 'bankTransactionId and lines[] (non-empty) are required');
-        }
-        const splitResult = await splitAllocateTransaction(companyId, splitTxId, splitLines, userId);
+        const splitLines = body.lines as SplitLine[];
+        const splitResult = await splitAllocateTransaction(companyId, body.bankTransactionId, splitLines, userId);
         return apiResponse.success(res, splitResult);
       }
       case 'delete': {
-        const { bankTransactionIds } = req.body;
-        const ids: string[] = bankTransactionIds || (bankTransactionId ? [bankTransactionId] : []);
+        const ids: string[] = body.bankTransactionIds || (body.bankTransactionId ? [body.bankTransactionId] : []);
         if (ids.length === 0) return apiResponse.badRequest(res, 'bankTransactionId or bankTransactionIds required');
         const deleted = await deleteTransactions(companyId, ids);
         return apiResponse.success(res, { deleted });
       }
       case 'bulk_accept': {
-        const { bankTransactionIds: bulkIds } = req.body;
-        const ids: string[] = Array.isArray(bulkIds) ? bulkIds : [];
-        if (ids.length === 0) return apiResponse.badRequest(res, 'bankTransactionIds (array) required');
-        const accepted = await bulkAcceptTransactions(companyId, ids);
+        const accepted = await bulkAcceptTransactions(companyId, body.bankTransactionIds);
         return apiResponse.success(res, { accepted });
       }
       case 'update_notes': {
-        if (!bankTransactionId) return apiResponse.badRequest(res, 'bankTransactionId required');
-        const { notes } = req.body as { notes?: string };
         await sql`
           UPDATE bank_transactions
-          SET notes = ${notes || null}, updated_at = NOW()
-          WHERE id = ${bankTransactionId}::UUID AND company_id = ${companyId}
+          SET notes = ${body.notes || null}, updated_at = NOW()
+          WHERE id = ${body.bankTransactionId}::UUID AND company_id = ${companyId}
         `;
-        log.info('Updated bank transaction notes', { bankTransactionId }, 'accounting-api');
+        log.info('Updated bank transaction notes', { bankTransactionId: body.bankTransactionId }, 'accounting-api');
         return apiResponse.success(res, { updated: true });
       }
       case 'save_selection': {
-        if (!bankTransactionId) return apiResponse.badRequest(res, 'bankTransactionId required');
-        const selType: string = req.body.selectionType || 'account';
-        const selEntityId: string | null = req.body.selectionEntityId || null;
-        const selVatCode: string | null = req.body.vatCode || null;
+        const selType: string = body.selectionType || 'account';
+        const selEntityId: string | null = body.selectionEntityId || null;
+        const selVatCode: string | null = body.vatCode || null;
         await sql`
           UPDATE bank_transactions
           SET suggested_gl_account_id = ${selType === 'account' && selEntityId ? selEntityId : null}::UUID,
@@ -129,29 +152,25 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
               suggested_client_id = ${selType === 'customer' && selEntityId ? selEntityId : null}::UUID,
               suggested_vat_code = ${selVatCode},
               updated_at = NOW()
-          WHERE id = ${bankTransactionId}::UUID AND status IN ('imported', 'allocated') AND company_id = ${companyId}
+          WHERE id = ${body.bankTransactionId}::UUID AND status IN ('imported', 'allocated') AND company_id = ${companyId}
         `;
         return apiResponse.success(res, { saved: true });
       }
       case 'save_dimensions': {
-        if (!bankTransactionId) return apiResponse.badRequest(res, 'bankTransactionId required');
         await sql`
           UPDATE bank_transactions
-          SET cc1_id = ${cc1Id || null}::UUID,
-              cc2_id = ${cc2Id || null}::UUID,
-              bu_id = ${buId || null}::UUID,
+          SET cc1_id = ${body.cc1Id || null}::UUID,
+              cc2_id = ${body.cc2Id || null}::UUID,
+              bu_id = ${body.buId || null}::UUID,
               updated_at = NOW()
-          WHERE id = ${bankTransactionId}::UUID AND company_id = ${companyId}
+          WHERE id = ${body.bankTransactionId}::UUID AND company_id = ${companyId}
         `;
         return apiResponse.success(res, { saved: true });
       }
       case 'reverse': {
-        if (!bankTransactionId) return apiResponse.badRequest(res, 'bankTransactionId required');
-        await reverseReconciledTransaction(companyId, bankTransactionId, userId);
+        await reverseReconciledTransaction(companyId, body.bankTransactionId, userId);
         return apiResponse.success(res, { reversed: true });
       }
-      default:
-        return apiResponse.badRequest(res, `Unknown action: ${action}`);
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Action failed';
