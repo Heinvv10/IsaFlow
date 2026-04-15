@@ -37,7 +37,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
 
   const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
-  if (checkRateLimit(`nl-query:${ip}`, { maxRequests: 30, windowMs: 15 * 60 * 1000 })) {
+  if (!(await checkRateLimit(`nl-query:${ip}`, { max: 30, windowSecs: 15 * 60 }))) {
     return apiResponse.tooManyRequests(res);
   }
 

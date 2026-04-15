@@ -38,8 +38,8 @@ export function withAdmin(
       }
       return req.socket.remoteAddress || 'unknown';
     })();
-    const limited = checkRateLimit(`admin:${ip}`, { windowMs: 60000, maxRequests: 120 });
-    if (limited) {
+    const allowed = await checkRateLimit(`admin:${ip}`, { max: 120, windowSecs: 60 });
+    if (!allowed) {
       res.status(429).json({
         success: false,
         error: { code: 'RATE_LIMITED', message: 'Too many requests. Please try again later.' },

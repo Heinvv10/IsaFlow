@@ -4,9 +4,10 @@
  * ineffective (S-004 / BL-20).
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import type { NextApiRequest } from 'next';
-import { getClientIp } from '@/lib/rateLimit';
+import { getClientIp, checkRateLimit, clearRateLimitCache } from '@/lib/rateLimit';
+import { sql } from '@/lib/neon';
 
 function makeReq(xff: string | string[] | undefined, remoteAddress = '10.0.0.1'): NextApiRequest {
   return {
@@ -56,5 +57,56 @@ describe('getClientIp', () => {
   it('trims whitespace from each IP segment', () => {
     const req = makeReq('  1.1.1.1 ,  2.2.2.2 ,  3.3.3.3 ');
     expect(getClientIp(req)).toBe('3.3.3.3');
+  });
+});
+
+describe('checkRateLimit — Neon-backed persistence (BL-21)', () => {
+  const KEY = 'test:rl:bl21';
+
+  beforeAll(async () => {
+    await sql`DELETE FROM rate_limit_counters WHERE key = ${KEY}`;
+  });
+
+  afterEach(async () => {
+    // Clear both DB and LRU so each test starts from a clean state.
+    await sql`DELETE FROM rate_limit_counters WHERE key = ${KEY}`;
+    clearRateLimitCache();
+  });
+
+  it('blocks the (N+1)-th request within the window', async () => {
+    // The LRU short-circuit may absorb 1 call per fresh-LRU window (when count
+    // is below 50% of max). Using max=5, the LRU masks exactly 1 call, so we
+    // make 6 calls to ensure the DB counter reaches 5 (all 5 allowed slots
+    // consumed) before the final blocked-check call.
+    for (let i = 0; i < 5; i++) {
+      await checkRateLimit(KEY, { max: 5, windowSecs: 60 });
+    }
+    clearRateLimitCache(); // fresh pod sees the DB state
+    await checkRateLimit(KEY, { max: 5, windowSecs: 60 }); // ensures count=5 in DB
+    clearRateLimitCache(); // another fresh pod
+    const blocked = await checkRateLimit(KEY, { max: 5, windowSecs: 60 });
+    expect(blocked).toBe(false);
+  });
+
+  it('resets the window after expiry (simulated via DB update)', async () => {
+    for (let i = 0; i < 5; i++) await checkRateLimit(KEY, { max: 5, windowSecs: 60 });
+    // simulate window expiry
+    await sql`UPDATE rate_limit_counters SET window_start = NOW() - INTERVAL '2 minutes' WHERE key = ${KEY}`;
+    const allowed = await checkRateLimit(KEY, { max: 5, windowSecs: 60 });
+    expect(allowed).toBe(true);
+  });
+
+  it('two independent callers share the same counter (cross-pod)', async () => {
+    // "Pod A" makes 4 calls. The LRU short-circuit may absorb at most 1
+    // (count < 50% of max=5 → only when count=1), so DB sees at least 3.
+    for (let i = 0; i < 4; i++) await checkRateLimit(KEY, { max: 5, windowSecs: 60 });
+    // Simulate "pod B" with an empty LRU (fresh process/pod).
+    clearRateLimitCache();
+    // Pod B makes 3 more calls. DB counter is shared, so it accumulates.
+    // Total DB increments >= 6 (> max=5), last call must be blocked.
+    for (let i = 0; i < 2; i++) await checkRateLimit(KEY, { max: 5, windowSecs: 60 });
+    clearRateLimitCache();
+    const blocked = await checkRateLimit(KEY, { max: 5, windowSecs: 60 });
+    expect(blocked).toBe(false);
   });
 });
