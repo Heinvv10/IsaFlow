@@ -23,7 +23,7 @@ const CreateSupplierPaymentSchema = z.object({
   supplierId: UUID,
   paymentDate: ISODate,
   totalAmount: z.coerce.number().nonnegative().multipleOf(0.01),
-  paymentMethod: z.string().max(50).optional(),
+  paymentMethod: z.enum(['eft', 'cheque', 'cash', 'card']).optional(),
   bankAccountId: UUID.optional(),
   reference: z.string().max(200).optional(),
   description: z.string().max(500).optional(),
