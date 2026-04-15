@@ -67,6 +67,7 @@ if (isNodeEnv) {
       } catch (error) {
         lastError = error;
         if (i < maxRetries - 1) {
+          log.warn('DB query retry attempt', { attempt: i + 1, error: error instanceof Error ? error.message : String(error) }, 'Neon');
           // Exponential backoff: 100ms, 200ms, 400ms
           await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 100));
           continue;
