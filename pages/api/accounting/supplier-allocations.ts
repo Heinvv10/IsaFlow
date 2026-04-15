@@ -8,6 +8,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
 
@@ -179,4 +180,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'POST']);
 }
 
-export default withCompany(withErrorHandler(withWriteAccess(handler)));
+export default withCompany(withErrorHandler(withCsrf(withWriteAccess(handler))));
