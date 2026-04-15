@@ -15,7 +15,7 @@ describe('scrubEvent', () => {
     expect(data.password).toBe('[REDACTED]');
     expect(data.csrf_token).toBe('[REDACTED]');
     expect(data.otp).toBe('[REDACTED]');
-    expect(data.email).toBe('foo@bar.com');
+    expect(data.email).toMatch(/^[a-f0-9]{8}@bar\.com$/);
   });
 
   it('redacts bank/iban/account_number keys', () => {
