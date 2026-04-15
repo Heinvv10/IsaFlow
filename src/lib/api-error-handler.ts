@@ -1,9 +1,11 @@
 // eslint-disable no-console -- This module is the logging fallback path; using
 // console is intentional when structured logging is unavailable.
 import type { NextApiHandler, NextApiRequest, NextApiResponse } from 'next';
+import * as Sentry from '@sentry/nextjs';
 import { apiLogger } from '@/lib/logger';
 import { runWithRequestContext, generateRequestId } from '@/lib/observability/requestContext';
 import { logRequestCompleted } from '@/lib/observability/requestLogger';
+import { setTenantTags } from '@/lib/sentry/tags';
 
 const SENSITIVE_KEYS = new Set(['password', 'confirmPassword', 'password_hash', 'token', 'secret', 'apiKey', 'api_key']);
 
@@ -54,6 +56,11 @@ export function withErrorHandler(
   return async (req: NextApiRequest, res: NextApiResponse) => {
     const requestId = generateRequestId();
     const startTime = Date.now();
+    res.setHeader('X-Request-Id', requestId);
+    // Scope isolated by withCompany when it wraps; otherwise this uses the default hub scope (acceptable for non-tenant routes).
+    if (process.env.SENTRY_ENABLED === 'true') {
+      setTenantTags({ requestId, route: req.url });
+    }
 
     await runWithRequestContext(requestId, async () => {
       try {
@@ -113,6 +120,10 @@ export function withErrorHandler(
           stack: error instanceof Error ? error.stack : undefined,
           duration: `${duration}ms`,
         });
+
+        if (process.env.SENTRY_ENABLED === 'true' && error instanceof Error) {
+          Sentry.captureException(error);
+        }
 
         // Check if headers were already sent
         if (res.headersSent) {
