@@ -4,12 +4,18 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { sql, transaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 type Row = Record<string, unknown>;
+
+const PutBody = z.object({
+  /** Map of preference key → string value. Keys and values are arbitrary strings. */
+  preferences: z.record(z.string(), z.string()),
+}).strict();
 
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -32,12 +38,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   // ── PUT ──────────────────────────────────────────────────────────────────
   if (req.method === 'PUT') {
-    const { preferences } = req.body as { preferences?: Record<string, string> };
-
-    if (!preferences || typeof preferences !== 'object') {
-      return apiResponse.badRequest(res, 'preferences object is required');
+    const parsed = PutBody.safeParse(req.body);
+    if (!parsed.success) {
+      return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
     }
 
+    const { preferences } = parsed.data;
     const entries = Object.entries(preferences);
     if (entries.length === 0) {
       return apiResponse.success(res, {}, 'No preferences to update');

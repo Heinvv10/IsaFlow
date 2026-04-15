@@ -4,6 +4,7 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 import { createHash } from 'crypto';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -11,6 +12,13 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth/middleware';
 import { serialize } from 'cookie';
 type Row = Record<string, unknown>;
+
+/**
+ * POST body for accepting an invite. The action is fully determined by the
+ * URL token and the authenticated user's session — no extra payload is needed.
+ * We still parse and reject unexpected keys to prevent prototype-pollution / confusion.
+ */
+const PostBody = z.object({}).strict();
 
 function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
@@ -71,6 +79,13 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
   if (!token || typeof token !== 'string') {
     return apiResponse.badRequest(res, 'Token is required');
+  }
+
+  // Validate body — no fields expected; reject unknown keys
+  const bodyToParse = req.body && typeof req.body === 'object' ? req.body : {};
+  const parsed = PostBody.safeParse(bodyToParse);
+  if (!parsed.success) {
+    return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'Unexpected fields in request body');
   }
 
   // Look up the invitation using the hashed token

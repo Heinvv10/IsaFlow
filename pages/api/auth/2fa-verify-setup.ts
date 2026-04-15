@@ -4,6 +4,7 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withAuth } from '@/lib/auth/middleware';
 import type { AuthenticatedNextApiRequest } from '@/lib/auth/middleware';
 import { apiResponse } from '@/lib/apiResponse';
@@ -11,6 +12,11 @@ import { verifyTOTPSetup } from '@/modules/auth/services/twoFactorService';
 import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { checkRateLimit } from '@/lib/rateLimit';
+
+const PostBody = z.object({
+  /** 6-digit TOTP code from the authenticator app to confirm setup. */
+  code: z.string().regex(/^\d{6}$/, 'code must be a 6-digit number'),
+}).strict();
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -29,12 +35,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     });
   }
 
-  const { user } = req as AuthenticatedNextApiRequest;
-  const { code } = req.body as { code?: string };
-
-  if (!code || typeof code !== 'string' || code.trim().length === 0) {
-    return apiResponse.badRequest(res, 'Verification code is required');
+  const parsed = PostBody.safeParse(req.body);
+  if (!parsed.success) {
+    return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
   }
+
+  const { user } = req as AuthenticatedNextApiRequest;
+  const { code } = parsed.data;
 
   try {
     const result = await verifyTOTPSetup(user.id, code.trim());

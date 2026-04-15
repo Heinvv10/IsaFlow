@@ -5,6 +5,7 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 import { serialize } from 'cookie';
 import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
@@ -19,6 +20,14 @@ import { checkRateLimit } from '@/lib/rateLimit';
 import { withErrorHandler } from '@/lib/api-error-handler';
 type Row = Record<string, unknown>;
 
+const PostBody = z.object({
+  tempToken: z.string().min(1, 'tempToken is required'),
+  /** 6-digit TOTP code or backup code (longer). */
+  code: z.string().regex(/^\d{6}$/, 'code must be a 6-digit number'),
+  trustDevice: z.boolean().optional(),
+  deviceFingerprint: z.string().optional(),
+  deviceName: z.string().optional(),
+}).strict();
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -37,23 +46,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     });
   }
 
-  const {
-    tempToken,
-    code,
-    trustDevice,
-    deviceFingerprint,
-    deviceName,
-  } = req.body as {
-    tempToken?: string;
-    code?: string;
-    trustDevice?: boolean;
-    deviceFingerprint?: string;
-    deviceName?: string;
-  };
-
-  if (!tempToken || !code) {
-    return apiResponse.badRequest(res, 'tempToken and code are required');
+  const parsed = PostBody.safeParse(req.body);
+  if (!parsed.success) {
+    return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
   }
+
+  const { tempToken, code, trustDevice, deviceFingerprint, deviceName } = parsed.data;
 
   try {
     // Verify the temp token
