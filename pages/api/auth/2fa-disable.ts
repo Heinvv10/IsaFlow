@@ -4,6 +4,7 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withAuth } from '@/lib/auth/middleware';
 import type { AuthenticatedNextApiRequest } from '@/lib/auth/middleware';
 import { apiResponse } from '@/lib/apiResponse';
@@ -11,6 +12,11 @@ import { disable2FA } from '@/modules/auth/services/twoFactorService';
 import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { checkRateLimit } from '@/lib/rateLimit';
+
+const PostBody = z.object({
+  /** TOTP code or backup code used to confirm disabling 2FA. */
+  code: z.string().min(1, 'Current 2FA code is required'),
+}).strict();
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -22,12 +28,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return res.status(429).json({ success: false, error: 'Too many attempts. Try again later.' });
   }
 
-  const { user } = req as AuthenticatedNextApiRequest;
-  const { code } = req.body as { code?: string };
-
-  if (!code || typeof code !== 'string' || code.trim().length === 0) {
-    return apiResponse.badRequest(res, 'Current 2FA code is required to disable 2FA');
+  const parsed = PostBody.safeParse(req.body);
+  if (!parsed.success) {
+    return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
   }
+
+  const { user } = req as AuthenticatedNextApiRequest;
+  const { code } = parsed.data;
 
   try {
     const success = await disable2FA(user.id, code.trim());

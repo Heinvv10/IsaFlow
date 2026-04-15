@@ -4,12 +4,20 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 type Row = Record<string, unknown>;
+
+const PutBody = z.object({
+  firstName: z.string().min(1, 'First name is required'),
+  lastName: z.string().min(1, 'Last name is required'),
+  phone: z.string().optional(),
+  mobile: z.string().optional(),
+}).strict();
 
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -44,16 +52,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   // ── PUT ──────────────────────────────────────────────────────────────────
   if (req.method === 'PUT') {
-    const { firstName, lastName, phone, mobile } = req.body as {
-      firstName?: string;
-      lastName?: string;
-      phone?: string;
-      mobile?: string;
-    };
-
-    if (!firstName?.trim() || !lastName?.trim()) {
-      return apiResponse.badRequest(res, 'First name and last name are required');
+    const parsed = PutBody.safeParse(req.body);
+    if (!parsed.success) {
+      return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
     }
+
+    const { firstName, lastName, phone, mobile } = parsed.data;
 
     const rows = (await sql`
       UPDATE users

@@ -4,6 +4,7 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
@@ -13,6 +14,14 @@ import { log } from '@/lib/logger';
 import { checkRateLimit } from '@/lib/rateLimit';
 type Row = Record<string, unknown>;
 
+const PostBody = z.object({
+  oldPassword: z.string().min(1, 'Current password is required'),
+  newPassword: z.string().min(8, 'New password must be at least 8 characters'),
+  confirmPassword: z.string().min(1, 'Password confirmation is required'),
+}).strict().refine((d) => d.newPassword === d.confirmPassword, {
+  message: 'New passwords do not match',
+  path: ['confirmPassword'],
+});
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -27,19 +36,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const authReq = req as AuthenticatedNextApiRequest;
   const userId = authReq.user.id;
 
-  const { oldPassword, newPassword, confirmPassword } = req.body as {
-    oldPassword?: string;
-    newPassword?: string;
-    confirmPassword?: string;
-  };
-
-  if (!oldPassword || !newPassword || !confirmPassword) {
-    return apiResponse.badRequest(res, 'All password fields are required');
+  const parsed = PostBody.safeParse(req.body);
+  if (!parsed.success) {
+    return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
   }
 
-  if (newPassword !== confirmPassword) {
-    return apiResponse.badRequest(res, 'New passwords do not match');
-  }
+  const { oldPassword, newPassword } = parsed.data;
 
   const strength = checkPasswordStrength(newPassword);
   if (!strength.isValid) {
