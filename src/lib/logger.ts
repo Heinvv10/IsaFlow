@@ -6,6 +6,8 @@
  * Zero Tolerance Enforcement: No console.* statements allowed
  */
 
+import { getRequestId } from '@/lib/observability/requestContext';
+
 // Global type declarations for log storage
 declare global {
   interface Window {
@@ -135,11 +137,13 @@ class Logger {
       }
     } else {
       // Node.js environment — always write to stdout/stderr for systemd/journald visibility
+      const requestId = getRequestId();
       const jsonLine = JSON.stringify({
         level,
         message,
         timestamp,
         component,
+        ...(requestId !== undefined ? { requestId } : {}),
         ...(data !== undefined ? { data } : {}),
       }) + '\n';
 
