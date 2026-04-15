@@ -4,6 +4,7 @@
  */
 
 import type { NextApiResponse } from 'next';
+import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
@@ -11,21 +12,24 @@ import { log } from '@/lib/logger';
 import { addUserToCompany } from '@/modules/admin/services/adminUserActionsService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
+import { UUID } from '@/lib/schemas/common';
 
+const PostBody = z.object({
+  company_id: UUID,
+  role:       z.string().min(1).max(50),
+}).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const userId = req.query.id as string;
 
   if (req.method === 'POST') {
-    try {
-      const { company_id, role } = req.body as {
-        company_id?: string;
-        role?: string;
-      };
+    const parsed = PostBody.safeParse(req.body);
+    if (!parsed.success) {
+      return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'Invalid input');
+    }
 
-      if (!company_id || !role) {
-        return apiResponse.badRequest(res, 'company_id and role are required');
-      }
+    try {
+      const { company_id, role } = parsed.data;
 
       await addUserToCompany(userId, company_id, role);
 

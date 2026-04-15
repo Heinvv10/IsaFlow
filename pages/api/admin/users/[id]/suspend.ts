@@ -4,6 +4,7 @@
  */
 
 import type { NextApiResponse } from 'next';
+import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
@@ -12,17 +13,21 @@ import { suspendUser } from '@/modules/admin/services/adminUserActionsService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 
+const PostBody = z.object({
+  reason: z.string().min(1).max(500),
+}).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const userId = req.query.id as string;
 
   if (req.method === 'POST') {
-    try {
-      const { reason } = req.body as { reason?: string };
+    const parsed = PostBody.safeParse(req.body);
+    if (!parsed.success) {
+      return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'A suspension reason is required');
+    }
 
-      if (!reason || reason.trim().length === 0) {
-        return apiResponse.badRequest(res, 'A suspension reason is required');
-      }
+    try {
+      const { reason } = parsed.data;
 
       await suspendUser(userId, reason.trim());
 

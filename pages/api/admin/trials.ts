@@ -5,6 +5,7 @@
  */
 
 import type { NextApiResponse } from 'next';
+import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
@@ -15,12 +16,20 @@ import {
   extendTrial,
   bulkExtendTrials,
 } from '@/modules/admin/services/trialService';
+import { UUID } from '@/lib/schemas/common';
 
-interface ExtendBody {
-  company_id?: string;
-  company_ids?: string[];
-  days: number;
-}
+const PostBody = z.union([
+  z.object({
+    company_id:  UUID,
+    company_ids: z.undefined().optional(),
+    days:        z.number().int().min(1).max(90),
+  }).strict(),
+  z.object({
+    company_id:  z.undefined().optional(),
+    company_ids: z.array(UUID).min(1).max(100),
+    days:        z.number().int().min(1).max(90),
+  }).strict(),
+]);
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   /* ------------------------------------------------------------------ GET */
@@ -40,22 +49,19 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   /* ----------------------------------------------------------------- POST */
   if (req.method === 'POST') {
-    try {
-      const body = req.body as ExtendBody;
-      const { company_id, company_ids, days } = body;
+    const parsed = PostBody.safeParse(req.body);
+    if (!parsed.success) {
+      return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'Invalid input');
+    }
 
-      if (typeof days !== 'number' || days < 1 || days > 90) {
-        return apiResponse.badRequest(res, 'days must be 1–90');
-      }
+    try {
+      const { company_id, company_ids, days } = parsed.data;
 
       const ip = (req.headers['x-forwarded-for'] as string | undefined) ?? null;
       const adminId = req.user.id;
 
       /* Single company extend */
       if (company_id) {
-        if (typeof company_id !== 'string' || !company_id.trim()) {
-          return apiResponse.badRequest(res, 'company_id must be a non-empty string');
-        }
         const newEndsAt = await extendTrial(company_id, days);
         await logAdminAction(
           adminId,
@@ -71,9 +77,6 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
       /* Bulk extend */
       if (Array.isArray(company_ids) && company_ids.length > 0) {
-        if (company_ids.length > 100) {
-          return apiResponse.badRequest(res, 'Maximum 100 companies per bulk operation');
-        }
         const count = await bulkExtendTrials(company_ids, days);
         await logAdminAction(
           adminId,

@@ -5,6 +5,7 @@
  */
 
 import type { NextApiResponse } from 'next';
+import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
@@ -13,34 +14,35 @@ import { suspendCompany } from '@/modules/admin/services/adminCompanyService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 import { sql } from '@/lib/neon';
+import { UUID } from '@/lib/schemas/common';
 
 const MAX_BULK_IDS = 100;
 
-type BulkActionPayload =
-  | { action: 'suspend'; company_ids: string[]; reason?: string }
-  | { action: 'extend_trial'; company_ids: string[]; days: number };
+const PostBody = z.discriminatedUnion('action', [
+  z.object({
+    action:      z.literal('suspend'),
+    company_ids: z.array(UUID).min(1).max(MAX_BULK_IDS),
+    reason:      z.string().max(500).optional(),
+  }).strict(),
+  z.object({
+    action:      z.literal('extend_trial'),
+    company_ids: z.array(UUID).min(1).max(MAX_BULK_IDS),
+    days:        z.number().int().min(1).max(90),
+  }).strict(),
+]);
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
   }
 
-  const body = req.body as BulkActionPayload;
+  const bodyParsed = PostBody.safeParse(req.body);
+  if (!bodyParsed.success) {
+    return apiResponse.badRequest(res, bodyParsed.error.flatten().formErrors[0] ?? 'Invalid input');
+  }
+
+  const body = bodyParsed.data;
   const { action, company_ids } = body;
-
-  if (!Array.isArray(company_ids) || company_ids.length === 0) {
-    return apiResponse.badRequest(res, 'company_ids must be a non-empty array');
-  }
-
-  // F-02: enforce maximum batch size to prevent DoS
-  if (company_ids.length > MAX_BULK_IDS) {
-    return apiResponse.badRequest(res, 'Maximum 100 company IDs per bulk action');
-  }
-
-  // F-07: validate every element is a well-formed UUID string
-  if (!company_ids.every(id => typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id))) {
-    return apiResponse.badRequest(res, 'All company_ids must be valid UUID strings');
-  }
 
   const ip = getIp(req);
   const errors: string[] = [];
@@ -66,10 +68,6 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   if (action === 'extend_trial') {
     const { days } = body;
-
-    if (typeof days !== 'number' || !Number.isInteger(days) || days < 1 || days > 90) {
-      return apiResponse.badRequest(res, 'days must be an integer between 1 and 90');
-    }
 
     for (const companyId of company_ids) {
       try {

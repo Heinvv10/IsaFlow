@@ -5,11 +5,18 @@
  */
 
 import type { NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { listJobs, retryJob } from '@/modules/accounting/services/core/jobQueueService';
+import { UUID } from '@/lib/schemas/common';
+
+const PostBody = z.object({
+  action: z.literal('retry'),
+  jobId:  UUID,
+}).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
@@ -32,18 +39,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   // ── POST ─────────────────────────────────────────────────────────────────
   if (req.method === 'POST') {
-    const { action, jobId } = req.body as { action?: string; jobId?: string };
-
-    if (!action) return apiResponse.badRequest(res, 'action is required');
-    if (!jobId) return apiResponse.badRequest(res, 'jobId is required');
-
-    if (action === 'retry') {
-      await retryJob(jobId);
-      log.info('Job retried via admin API', { jobId }, 'admin-job-queue-api');
-      return apiResponse.success(res, { jobId }, 'Job queued for retry');
+    const parsed = PostBody.safeParse(req.body);
+    if (!parsed.success) {
+      return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'Invalid input');
     }
 
-    return apiResponse.badRequest(res, `Unknown action: ${action}`);
+    const { jobId } = parsed.data;
+    await retryJob(jobId);
+    log.info('Job retried via admin API', { jobId }, 'admin-job-queue-api');
+    return apiResponse.success(res, { jobId }, 'Job queued for retry');
   }
 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST']);

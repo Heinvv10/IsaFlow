@@ -5,6 +5,7 @@
  */
 
 import type { NextApiResponse } from 'next';
+import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
@@ -23,6 +24,11 @@ const ALERT_KEYS: ReadonlyArray<keyof AlertSettings> = [
   'health_alert_email',
   'health_alert_webhook_url',
 ];
+
+const PatchBody = z.object({
+  health_alert_email:       z.string().email().optional(),
+  health_alert_webhook_url: z.string().url().optional(),
+}).strict();
 
 async function getAlertSettings(): Promise<AlertSettings> {
   const rows = await sql`
@@ -62,8 +68,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'PATCH') {
+    const patchParsed = PatchBody.safeParse(req.body);
+    if (!patchParsed.success) {
+      return apiResponse.badRequest(res, patchParsed.error.flatten().formErrors[0] ?? 'Invalid input');
+    }
+
     try {
-      const data = req.body as Partial<AlertSettings>;
+      const data = patchParsed.data;
 
       const entries = (Object.entries(data) as [string, unknown][]).filter(
         ([key]) => (ALERT_KEYS as readonly string[]).includes(key),

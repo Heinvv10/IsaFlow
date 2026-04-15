@@ -8,6 +8,7 @@
  */
 
 import type { NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { apiResponse } from '@/lib/apiResponse';
@@ -15,6 +16,11 @@ import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { sendEmail } from '@/modules/accounting/services/core/emailService';
 import type { EmailType } from '@/modules/accounting/services/core/emailService';
+import { UUID } from '@/lib/schemas/common';
+
+const PostBody = z.object({
+  logId: UUID,
+}).strict();
 
 type Row = Record<string, unknown>;
 
@@ -56,10 +62,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
 
-  const { logId } = req.body as { logId?: string };
-  if (!logId || typeof logId !== 'string') {
-    return apiResponse.badRequest(res, 'logId is required');
+  const parsed = PostBody.safeParse(req.body);
+  if (!parsed.success) {
+    return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'logId must be a valid UUID');
   }
+
+  const { logId } = parsed.data;
 
   try {
     // Fetch the log entry

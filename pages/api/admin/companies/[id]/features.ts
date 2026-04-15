@@ -6,6 +6,7 @@
  */
 
 import type { NextApiResponse } from 'next';
+import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
@@ -18,6 +19,15 @@ import {
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 
+const PostBody = z.object({
+  feature_id: z.string().min(1),
+  enabled:    z.boolean(),
+  reason:     z.string().min(1).max(500),
+}).strict();
+
+const DeleteBody = z.object({
+  feature_id: z.string().min(1),
+}).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const companyId = req.query.id as string;
@@ -33,18 +43,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'POST') {
-    try {
-      const { feature_id, enabled, reason } = req.body as {
-        feature_id?: string;
-        enabled?: boolean;
-        reason?: string;
-      };
+    const parsed = PostBody.safeParse(req.body);
+    if (!parsed.success) {
+      return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'Invalid input');
+    }
 
-      if (!feature_id) return apiResponse.badRequest(res, 'feature_id is required');
-      if (enabled === undefined || enabled === null) {
-        return apiResponse.badRequest(res, 'enabled is required');
-      }
-      if (!reason) return apiResponse.badRequest(res, 'reason is required');
+    try {
+      const { feature_id, enabled, reason } = parsed.data;
 
       await setCompanyFeatureOverride(
         companyId,
@@ -72,10 +77,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'DELETE') {
-    try {
-      const { feature_id } = req.body as { feature_id?: string };
+    const delParsed = DeleteBody.safeParse(req.body);
+    if (!delParsed.success) {
+      return apiResponse.badRequest(res, delParsed.error.flatten().formErrors[0] ?? 'Invalid input');
+    }
 
-      if (!feature_id) return apiResponse.badRequest(res, 'feature_id is required');
+    try {
+      const { feature_id } = delParsed.data;
 
       await removeCompanyFeatureOverride(companyId, feature_id);
 
