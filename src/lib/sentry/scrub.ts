@@ -1,6 +1,5 @@
 // src/lib/sentry/scrub.ts
 import type { Event } from '@sentry/nextjs';
-import { createHash } from 'crypto';
 
 const SENSITIVE_KEY_RE = /pass|token|secret|otp|bank|iban|account.*number/i;
 const DROP_HEADERS = new Set(['cookie', 'authorization', 'x-csrf-token']);
@@ -42,12 +41,23 @@ function redactQueryString(qs: string): string {
     .join('&');
 }
 
+// FNV-1a 32-bit — portable across Node + edge runtimes (no `crypto` import).
+// Not cryptographic; used only to obfuscate PII in Sentry payloads deterministically.
+function fnv1aHex(s: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+  }
+  return h.toString(16).padStart(8, '0');
+}
+
 function hashEmailLocalPart(email: string): string {
   const at = email.indexOf('@');
   if (at === -1) return email;
   const local = email.slice(0, at);
   const domain = email.slice(at);
-  const h = createHash('sha256').update(local).digest('hex').slice(0, 8);
+  const h = fnv1aHex(local);
   return `${h}${domain}`;
 }
 
