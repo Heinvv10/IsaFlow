@@ -31,7 +31,7 @@ export function mapTxRow(row: Row): BankTransaction {
     matchedJournalLineId: row.matched_journal_line_id ? String(row.matched_journal_line_id) : undefined,
     reconciliationId: row.reconciliation_id ? String(row.reconciliation_id) : undefined,
     importBatchId: row.import_batch_id ? String(row.import_batch_id) : undefined,
-    excludeReason: row.exclude_reason ? String(row.exclude_reason) : undefined,
+    excludeReason: row.excluded_reason ? String(row.excluded_reason) : undefined,
     notes: row.notes ? String(row.notes) : undefined,
     suggestedGlAccountId: row.suggested_gl_account_id ? String(row.suggested_gl_account_id) : undefined,
     suggestedCategory: row.suggested_category ? String(row.suggested_category) : undefined,
@@ -91,7 +91,7 @@ const TX_SELECT = sql`
     bt.transaction_date, bt.value_date,
     bt.amount, bt.description, bt.reference, bt.bank_reference,
     bt.status, bt.matched_journal_line_id, bt.reconciliation_id,
-    bt.import_batch_id, bt.exclude_reason, bt.notes,
+    bt.import_batch_id, bt.excluded_reason, bt.notes,
     bt.suggested_gl_account_id, bt.suggested_category,
     bt.suggested_supplier_id, bt.suggested_client_id,
     bt.suggested_vat_code, bt.suggested_confidence,
@@ -255,7 +255,7 @@ export async function excludeTransaction(
 ): Promise<BankTransaction> {
   try {
     const rows = (await sql`
-      UPDATE bank_transactions SET status = 'excluded', exclude_reason = ${reason || null}
+      UPDATE bank_transactions SET status = 'excluded', excluded_reason = ${reason || null}
       WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID RETURNING *`) as Row[];
     if (rows.length === 0) throw new Error(`Bank transaction ${bankTxId} not found`);
     log.info('Excluded bank transaction', { bankTxId, reason }, 'accounting');
