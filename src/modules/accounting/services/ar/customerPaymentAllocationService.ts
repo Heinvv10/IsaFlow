@@ -54,7 +54,7 @@ export async function confirmCustomerPayment(
       for (const alloc of payment.allocations) {
         await tx`
           UPDATE customer_invoices SET amount_paid = amount_paid + ${alloc.amountAllocated}
-          WHERE id = ${alloc.invoiceId}::UUID
+          WHERE id = ${alloc.invoiceId}::UUID AND company_id = ${companyId}::UUID
         `;
         await tx`
           UPDATE customer_invoices SET status = CASE
@@ -62,7 +62,7 @@ export async function confirmCustomerPayment(
             WHEN amount_paid > 0 THEN 'partially_paid'
             ELSE status
           END, paid_at = CASE WHEN (total_amount - amount_paid) <= 0.01 THEN NOW() ELSE paid_at END
-          WHERE id = ${alloc.invoiceId}::UUID
+          WHERE id = ${alloc.invoiceId}::UUID AND company_id = ${companyId}::UUID
         `;
       }
 
@@ -70,7 +70,7 @@ export async function confirmCustomerPayment(
         UPDATE customer_payments
         SET status = 'confirmed', confirmed_by = ${userId}::UUID, confirmed_at = NOW(),
             gl_journal_entry_id = ${je.id}::UUID
-        WHERE id = ${id} RETURNING *
+        WHERE id = ${id} AND company_id = ${companyId}::UUID RETURNING *
       `) as Row[];
 
       return rows[0] as Row;
