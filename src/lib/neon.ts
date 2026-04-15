@@ -6,8 +6,9 @@
  * Uses @neondatabase/serverless with retry logic and proper config
  */
 
-import { neon, neonConfig } from '@neondatabase/serverless';
+import { neon, neonConfig, type NeonQueryFunction } from '@neondatabase/serverless';
 import pg from 'pg';
+import { withSlowQueryTiming } from '@/lib/observability/slowQuery';
 
 /** Shared DB row type — import this instead of declaring local `type Row` */
 export type DbRow = Record<string, unknown>;
@@ -87,11 +88,14 @@ function getDatabaseUrl(): string {
   return url;
 }
 
+const SLOW_QUERY_MS_THRESHOLD = Number(process.env.SLOW_QUERY_MS_THRESHOLD ?? 500);
+
 /**
  * Serverless SQL client for use in API routes and edge functions.
- * Use tagged template literals: sql`SELECT * FROM table WHERE id = ${id}`
+ * Wrapped with a slow-query timing shim that emits structured warnings
+ * when a query exceeds SLOW_QUERY_MS_THRESHOLD (default 500ms).
  */
-export const sql = neon(getDatabaseUrl());
+export const sql = withSlowQueryTiming(neon(getDatabaseUrl()) as any, SLOW_QUERY_MS_THRESHOLD) as unknown as NeonQueryFunction<false, false>;
 
 /**
  * Execute multiple queries in a transaction using the Neon serverless driver.
