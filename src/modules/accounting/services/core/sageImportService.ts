@@ -22,7 +22,7 @@ import type { DbRow } from '@/types/db';
  * Groups by document_number + transaction_date into balanced entries
  */
 export async function importLedgerTransactions(companyId: string, userId: string): Promise<MigrationRun> {
-  const runId = await startRun('ledger_import', userId);
+  const runId = await startRun('ledger_import', userId, companyId);
 
   try {
     // BL-40: Added AND slt.company_id + AND sa.company_id to prevent cross-tenant SELECT
@@ -152,7 +152,7 @@ export async function importLedgerTransactions(companyId: string, userId: string
  * no separate GL journal entries are created per invoice.
  */
 export async function importSupplierInvoices(companyId: string, userId: string): Promise<MigrationRun> {
-  const runId = await startRun('invoice_import', userId);
+  const runId = await startRun('invoice_import', userId, companyId);
 
   try {
     // BL-40: Added AND company_id to prevent cross-tenant SELECT
