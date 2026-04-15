@@ -311,20 +311,20 @@ describe('createJournalEntry', () => {
   it('inserts entry header then lines and returns mapped entry', async () => {
     // resolveUserUuid — UUID-format user, passes straight through
     // fiscal period lookup — skipped (fiscalPeriodId provided in input)
-    // INSERT header
-    vi.mocked(sql).mockResolvedValueOnce([makeEntryRow()] as never);
-    // INSERT line 1
-    vi.mocked(sql).mockResolvedValueOnce([] as never);
-    // INSERT line 2
-    vi.mocked(sql).mockResolvedValueOnce([] as never);
+    // sql.transaction() batches the header INSERT + 2 line INSERTs.
+    // Result is an array: [headerRows, line1Rows, line2Rows].
+    vi.mocked(sql.transaction).mockResolvedValueOnce([
+      [makeEntryRow()],
+      [],
+      [],
+    ] as never);
 
     const result = await createJournalEntry(COMPANY_ID, sampleInput, USER_ID);
 
     expect(result.id).toBe(ENTRY_ID);
     expect(result.entryNumber).toBe('JE-2026-00001');
     expect(result.status).toBe('draft');
-    // sql called at least 3 times: header + 2 lines
-    expect(vi.mocked(sql).mock.calls.length).toBeGreaterThanOrEqual(3);
+    expect(vi.mocked(sql.transaction).mock.calls.length).toBe(1);
   });
 
   it('throws when lines do not balance', async () => {
@@ -350,27 +350,28 @@ describe('createJournalEntry', () => {
   });
 
   it('resolves non-UUID user IDs by querying users table', async () => {
-    // resolveUserUuid — non-UUID, triggers lookup query
+    // resolveUserUuid — non-UUID, triggers lookup query (direct sql call)
     vi.mocked(sql).mockResolvedValueOnce([{ id: USER_ID }] as never);
-    // INSERT header
-    vi.mocked(sql).mockResolvedValueOnce([makeEntryRow()] as never);
-    // INSERT line 1
-    vi.mocked(sql).mockResolvedValueOnce([] as never);
-    // INSERT line 2
-    vi.mocked(sql).mockResolvedValueOnce([] as never);
+    // sql.transaction — header + 2 lines
+    vi.mocked(sql.transaction).mockResolvedValueOnce([
+      [makeEntryRow()],
+      [],
+      [],
+    ] as never);
 
     const result = await createJournalEntry(COMPANY_ID, sampleInput, 'admin-001');
     expect(result.id).toBe(ENTRY_ID);
   });
 
   it('falls back to zero UUID when no user row found', async () => {
-    // resolveUserUuid — non-UUID, lookup returns empty
+    // resolveUserUuid — non-UUID, lookup returns empty (direct sql call)
     vi.mocked(sql).mockResolvedValueOnce([] as never);
-    // INSERT header
-    vi.mocked(sql).mockResolvedValueOnce([makeEntryRow()] as never);
-    // INSERT lines
-    vi.mocked(sql).mockResolvedValueOnce([] as never);
-    vi.mocked(sql).mockResolvedValueOnce([] as never);
+    // sql.transaction — header + 2 lines
+    vi.mocked(sql.transaction).mockResolvedValueOnce([
+      [makeEntryRow()],
+      [],
+      [],
+    ] as never);
 
     const result = await createJournalEntry(COMPANY_ID, sampleInput, 'legacy-id');
     expect(result.id).toBe(ENTRY_ID);
@@ -382,13 +383,14 @@ describe('createJournalEntry', () => {
       fiscalPeriodId: undefined,
     };
 
-    // fiscal period lookup
+    // fiscal period lookup (direct sql call)
     vi.mocked(sql).mockResolvedValueOnce([{ id: FISCAL_ID }] as never);
-    // INSERT header
-    vi.mocked(sql).mockResolvedValueOnce([makeEntryRow()] as never);
-    // INSERT lines
-    vi.mocked(sql).mockResolvedValueOnce([] as never);
-    vi.mocked(sql).mockResolvedValueOnce([] as never);
+    // sql.transaction — header + 2 lines
+    vi.mocked(sql.transaction).mockResolvedValueOnce([
+      [makeEntryRow()],
+      [],
+      [],
+    ] as never);
 
     const result = await createJournalEntry(COMPANY_ID, inputNoPeriod, USER_ID);
     expect(result.fiscalPeriodId).toBe(FISCAL_ID);
