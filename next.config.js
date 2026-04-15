@@ -66,6 +66,7 @@ const nextConfig = {
         net: false,
         tls: false,
         crypto: false,
+        async_hooks: false,
       };
     }
     return config;
