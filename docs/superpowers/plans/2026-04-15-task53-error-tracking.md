@@ -47,6 +47,15 @@
 
 > These tasks run as SSH commands on the Velocity box (`100.96.203.105`). They do NOT touch the ISAFlow repo. Verify each step before moving on.
 
+### Phase A — Implementation deviations (2026-04-15 closeout)
+
+The plan as written assumed a direct public-facing nginx vhost with Let's Encrypt (Task A3). Actual deployment took these shortcuts:
+
+- **Exposure via Cloudflare Tunnel**, not direct nginx + Let's Encrypt. `errors.isaflow.co.za` resolves through the existing Cloudflare Tunnel already serving `*.isaflow.co.za`. TLS is terminated at Cloudflare; nginx on the box listens on plain HTTP via the tunnel's origin. This skipped the certbot/renewal dance in A3 entirely — worth keeping in mind if the tunnel is ever retired.
+- **Project creation via `bugsink-manage shell`**, not UI (A4). Bugsink's web UI for project create was flaky during setup, so projects (isaflow=1, fibreflow=2, apexgeo=3) were created directly through a Django shell one-liner. DSNs harvested from the resulting `Project` rows.
+- **Event model field name**: events use `timestamp` (not `server_side_timestamp`) and `calculated_value` (not `calculated_title`) when querying in admin tasks — useful for future debugging queries.
+- **Webhook integration is Slack-shaped**: Bugsink only ships Slack/Discord/Mattermost connectors. The Telegram relay (BL-53 Phase F5) is a Cloudflare Worker that accepts a Slack payload and reformats for the Telegram Bot API. Source: `~/Workspace/bugsink-telegram-relay`. Secrets rotation requires redeploying the worker via wrangler.
+
 ### Task A1: Create Bugsink working directory and env file
 
 **Files:**
