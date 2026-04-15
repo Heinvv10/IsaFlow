@@ -11,6 +11,7 @@ import formidable from 'formidable';
 import fs from 'fs';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, withWriteAccess } from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import type { AccountingEntityType } from '@/types/procurement/document.types';
@@ -193,4 +194,4 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse, companyId
   return apiResponse.success(res, { id: row.id, deleted: true });
 }
 
-export default withCompany(withErrorHandler(withWriteAccess(handler)));
+export default withCompany(withErrorHandler(withCsrf(withWriteAccess(handler))));

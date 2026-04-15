@@ -8,6 +8,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import {
   getChartOfAccounts,
@@ -87,4 +88,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 // and audit trails) — only owners and admins can create or edit GL
 // accounts. Managers still have full read access and can do operational
 // work (post journal entries, reconcile, etc.) through other endpoints.
-export default withCompany(withErrorHandler(withWriteAccess(handler, { allowedRoles: ['owner', 'admin'] })));
+export default withCompany(withErrorHandler(withCsrf(withWriteAccess(handler, { allowedRoles: ['owner', 'admin'] }))));

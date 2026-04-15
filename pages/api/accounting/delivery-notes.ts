@@ -16,6 +16,7 @@ import {
   type CompanyApiRequest,
   type AuthenticatedNextApiRequest,
 } from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import {
   getDeliveryNotes,
   getDeliveryNote,
@@ -93,4 +94,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST', 'PATCH', 'DELETE']);
 }
 
-export default withCompany(withErrorHandler(withWriteAccess(handler as never)));
+export default withCompany(withErrorHandler(withCsrf(withWriteAccess(handler as never))));

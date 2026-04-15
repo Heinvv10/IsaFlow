@@ -11,6 +11,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withCompany } from '@/lib/auth/withCompany';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { apiResponse } from '@/lib/apiResponse';
 import {
   getTemplates,
@@ -58,4 +59,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method ?? 'unknown', ['GET', 'POST', 'DELETE']);
 }
 
-export default withCompany(withErrorHandler(withWriteAccess(handler)));
+export default withCompany(withErrorHandler(withCsrf(withWriteAccess(handler))));
