@@ -89,10 +89,12 @@ export async function createCreditNote(companyId: string,
 
     const rows = (await sql`
       INSERT INTO credit_notes (
+        company_id,
         type, client_id, customer_invoice_id, supplier_id, supplier_invoice_id,
         credit_date, reason, subtotal, tax_rate, tax_amount, total_amount,
         project_id, created_by
       ) VALUES (
+        ${companyId}::UUID,
         ${input.type}, ${input.clientId || null}, ${input.customerInvoiceId || null},
         ${input.supplierId ? Number(input.supplierId) : null},
         ${input.supplierInvoiceId || null},
