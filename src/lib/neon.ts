@@ -95,6 +95,9 @@ const SLOW_QUERY_MS_THRESHOLD = Number(process.env.SLOW_QUERY_MS_THRESHOLD ?? 50
  * Wrapped with a slow-query timing shim that emits structured warnings
  * when a query exceeds SLOW_QUERY_MS_THRESHOLD (default 500ms).
  */
+// `as any` here bridges NeonQueryFunction (which does not satisfy the
+// shim's `Record<string, unknown>` index signature) into the shim; the
+// outer cast restores the full public type for consumers.
 export const sql = withSlowQueryTiming(neon(getDatabaseUrl()) as any, SLOW_QUERY_MS_THRESHOLD) as unknown as NeonQueryFunction<false, false>;
 
 /**

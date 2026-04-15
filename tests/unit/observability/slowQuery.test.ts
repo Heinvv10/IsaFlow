@@ -20,7 +20,6 @@ describe('previewSqlTemplate', () => {
 });
 
 describe('withSlowQueryTiming', () => {
-  let warnSpy: ReturnType<typeof vi.fn>;
   let originalStderr: typeof process.stderr.write;
   let captured: string[];
 
