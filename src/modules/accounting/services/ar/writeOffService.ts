@@ -149,7 +149,8 @@ export async function approveWriteOff(companyId: string, id: string, userId: str
 }
 
 export async function cancelWriteOff(companyId: string, id: string): Promise<void> {
-  await sql`UPDATE customer_write_offs SET status = 'cancelled' WHERE id = ${id} AND company_id = ${companyId} AND status = 'draft'`;
+  const result = (await sql`UPDATE customer_write_offs SET status = 'cancelled' WHERE id = ${id} AND company_id = ${companyId} AND status = 'draft' RETURNING id`) as Row[];
+  if (result.length === 0) throw new Error(`Write-off not found or not in draft status: ${id}`);
 }
 
 function mapRow(row: Row): CustomerWriteOff {

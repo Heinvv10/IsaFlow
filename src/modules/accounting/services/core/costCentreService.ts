@@ -73,7 +73,8 @@ export async function updateCostCentre(companyId: string, id: string, input: Par
 }
 
 export async function toggleCostCentre(companyId: string, id: string, isActive: boolean): Promise<void> {
-  await sql`UPDATE cost_centres SET is_active = ${isActive} WHERE id = ${id}::UUID AND company_id = ${companyId}`;
+  const result = (await sql`UPDATE cost_centres SET is_active = ${isActive} WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING id`) as Record<string, unknown>[];
+  if (result.length === 0) throw new Error(`Cost centre not found: ${id}`);
 }
 
 export async function deleteCostCentre(companyId: string, id: string): Promise<void> {

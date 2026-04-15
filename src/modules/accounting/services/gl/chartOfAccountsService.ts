@@ -256,7 +256,8 @@ export async function deleteAccount(companyId: string, id: string): Promise<void
       }
     }
 
-    await sql`UPDATE gl_accounts SET is_active = false WHERE id = ${id} AND company_id = ${companyId}`;
+    const deactivateResult = await sql`UPDATE gl_accounts SET is_active = false WHERE id = ${id} AND company_id = ${companyId} RETURNING id` as unknown[];
+    if (deactivateResult.length === 0) throw new Error(`GL account not found: ${id}`);
     cache.invalidatePrefix(`${companyId}:gl-accounts`);
   } catch (err) {
     log.error('Failed to delete account', { id, error: err }, 'accounting');

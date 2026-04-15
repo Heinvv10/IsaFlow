@@ -121,10 +121,12 @@ export async function createConnection(input: {
 
 export async function disconnectConnection(id: string, companyId?: string): Promise<void> {
   if (companyId) {
-    await sql`
+    const result = (await sql`
       UPDATE bank_feed_connections SET is_active = false, updated_at = NOW()
       WHERE id = ${id}::UUID AND bank_account_id IN (SELECT id FROM bank_accounts WHERE company_id = ${companyId}::UUID)
-    `;
+      RETURNING id
+    `) as DbRow[];
+    if (result.length === 0) throw new Error(`Bank feed connection not found: ${id}`);
   } else {
     await sql`UPDATE bank_feed_connections SET is_active = false, updated_at = NOW() WHERE id = ${id}::UUID`;
   }

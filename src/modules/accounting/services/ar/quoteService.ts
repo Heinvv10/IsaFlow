@@ -209,7 +209,8 @@ export async function deleteQuote(companyId: string, id: string): Promise<boolea
 }
 
 export async function updateQuoteStatus(companyId: string, id: string, status: string): Promise<Quote | null> {
-  await sql`UPDATE customer_quotes SET status = ${status}, updated_at = NOW() WHERE id = ${id}::UUID AND company_id = ${companyId}`;
+  const result = (await sql`UPDATE customer_quotes SET status = ${status}, updated_at = NOW() WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING id`) as Row[];
+  if (result.length === 0) throw new Error(`Quote not found: ${id}`);
   log.info('Quote status changed', { id, status });
   return getQuote(companyId, id);
 }

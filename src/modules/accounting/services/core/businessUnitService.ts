@@ -55,7 +55,8 @@ export async function updateBusinessUnit(companyId: string, id: string, input: P
 }
 
 export async function toggleBusinessUnit(companyId: string, id: string, isActive: boolean): Promise<void> {
-  await sql`UPDATE business_units SET is_active = ${isActive}, updated_at = NOW() WHERE id = ${id}::UUID AND company_id = ${companyId}`;
+  const result = (await sql`UPDATE business_units SET is_active = ${isActive}, updated_at = NOW() WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING id`) as Record<string, unknown>[];
+  if (result.length === 0) throw new Error(`Business unit not found: ${id}`);
 }
 
 export async function deleteBusinessUnit(companyId: string, id: string): Promise<void> {

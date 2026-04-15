@@ -237,11 +237,13 @@ export async function autoMapAccounts(companyId: string, userId: string): Promis
 
 export async function mapAccount(companyId: string, sageAccountId: string, glAccountId: string | null, notes?: string): Promise<void> {
   if (glAccountId) {
-    await sql`UPDATE sage_accounts SET gl_account_id = ${glAccountId}::UUID, mapping_status = 'manual',
-      mapping_notes = ${notes || 'Manually mapped'} WHERE sage_account_id = ${sageAccountId} AND company_id = ${companyId}::UUID`;
+    const result = (await sql`UPDATE sage_accounts SET gl_account_id = ${glAccountId}::UUID, mapping_status = 'manual',
+      mapping_notes = ${notes || 'Manually mapped'} WHERE sage_account_id = ${sageAccountId} AND company_id = ${companyId}::UUID RETURNING sage_account_id`) as Row[];
+    if (result.length === 0) throw new Error(`Sage account not found: ${sageAccountId}`);
   } else {
-    await sql`UPDATE sage_accounts SET gl_account_id = NULL, mapping_status = 'unmapped',
-      mapping_notes = ${notes || null} WHERE sage_account_id = ${sageAccountId} AND company_id = ${companyId}::UUID`;
+    const result = (await sql`UPDATE sage_accounts SET gl_account_id = NULL, mapping_status = 'unmapped',
+      mapping_notes = ${notes || null} WHERE sage_account_id = ${sageAccountId} AND company_id = ${companyId}::UUID RETURNING sage_account_id`) as Row[];
+    if (result.length === 0) throw new Error(`Sage account not found: ${sageAccountId}`);
   }
 }
 

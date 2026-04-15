@@ -57,7 +57,8 @@ export async function createCurrency(companyId: string, input: {
 }
 
 export async function toggleCurrency(companyId: string, code: string, isActive: boolean): Promise<void> {
-  await sql`UPDATE currencies SET is_active = ${isActive} WHERE code = ${code} AND company_id = ${companyId}`;
+  const result = (await sql`UPDATE currencies SET is_active = ${isActive} WHERE code = ${code} AND company_id = ${companyId} RETURNING code`) as Row[];
+  if (result.length === 0) throw new Error(`Currency not found: ${code}`);
 }
 
 // ── Exchange Rates ──────────────────────────────────────────────────────────

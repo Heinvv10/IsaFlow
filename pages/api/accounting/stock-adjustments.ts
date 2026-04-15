@@ -38,7 +38,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     // Update product stock (scoped to company via product ownership)
     const sign = ['increase', 'count'].includes(body.adjustmentType) ? 1 : -1;
-    await sql`UPDATE products SET current_stock = GREATEST(0, current_stock + ${sign * body.quantity}), updated_at = NOW() WHERE id = ${body.productId} AND company_id = ${companyId}::UUID`;
+    const stockUpdate = await sql`UPDATE products SET current_stock = GREATEST(0, current_stock + ${sign * body.quantity}), updated_at = NOW() WHERE id = ${body.productId} AND company_id = ${companyId}::UUID RETURNING id` as Row[];
+    if (stockUpdate.length === 0) return apiResponse.notFound(res, 'Product', String(body.productId));
 
     // Record movement
     const movementType = body.adjustmentType === 'increase' ? 'adjustment_in' : body.adjustmentType === 'write_off' ? 'write_off' : 'adjustment_out';

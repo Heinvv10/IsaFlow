@@ -57,7 +57,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         return apiResponse.badRequest(res, `Cannot decrease by ${qty} — current qty is ${currentQty}`);
       }
 
-      await sql`UPDATE stock_items SET qty_available = ${newQty} WHERE id = ${itemId} AND company_id = ${companyId}`;
+      const updateResult = await sql`UPDATE stock_items SET qty_available = ${newQty} WHERE id = ${itemId} AND company_id = ${companyId} RETURNING id`;
+      if (updateResult.length === 0) return apiResponse.notFound(res, 'Stock item', itemId);
 
       log.info('Stock item adjusted', { itemId, adjustmentType, quantity: qty, newQty });
 
