@@ -10,6 +10,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { log } from '@/lib/logger';
 import {
   getCompany, createCompany, updateCompany,
   getUserCompanies, setDefaultCompany,
@@ -39,6 +40,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         const userCompanies = await getUserCompanies(userId);
         const hasAccess = userCompanies.some(c => c.companyId === req.query.id);
         if (!hasAccess) return apiResponse.forbidden(res, 'You do not have access to this company');
+      } else {
+        log.warn('super_admin company access bypass', {
+          action: 'super_admin_company_access',
+          userId,
+          targetCompanyId: req.query.id as string,
+          timestamp: new Date().toISOString(),
+        }, 'audit');
       }
       const company = await getCompany(req.query.id as string);
       if (!company) return apiResponse.notFound(res, 'Company');
