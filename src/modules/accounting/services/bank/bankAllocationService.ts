@@ -104,7 +104,7 @@ export async function allocateTransaction(
 
   if (allocType === 'supplier' && entityId) {
     const apAccountId = await getSystemAccountId('payable', companyId);
-    const supRows = (await sql`SELECT name FROM suppliers WHERE id = ${entityId}::UUID`) as Row[];
+    const supRows = (await sql`SELECT name FROM suppliers WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
     const supName = supRows.length > 0 ? String(supRows[0]!.name) : `Supplier #${entityId}`;
     allocEntityName = supName;
     entryDesc = description || `Payment to ${supName}`;
@@ -120,7 +120,7 @@ export async function allocateTransaction(
   } else if (allocType === 'customer' && entityId) {
 
     const arAccountId = await getSystemAccountId('receivable', companyId);
-    const custRows = (await sql`SELECT name FROM customers WHERE id = ${entityId}::UUID`) as Row[];
+    const custRows = (await sql`SELECT name FROM customers WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
     const custName = custRows.length > 0 ? String(custRows[0]!.name) : `Customer #${entityId}`;
     allocEntityName = custName;
     entryDesc = description || `Receipt from ${custName}`;
@@ -135,7 +135,7 @@ export async function allocateTransaction(
     }
   } else {
     if (!contraAccountId) throw new Error('contraAccountId is required for account allocation');
-    const acctRows = (await sql`SELECT account_code, account_name FROM gl_accounts WHERE id = ${contraAccountId}::UUID`) as Row[];
+    const acctRows = (await sql`SELECT account_code, account_name FROM gl_accounts WHERE id = ${contraAccountId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
     allocEntityName = acctRows.length > 0 ? `${String(acctRows[0]!.account_code)} ${String(acctRows[0]!.account_name)}` : null;
     entryDesc = description || String(tx.description || 'Bank allocation');
     source = 'auto_bank_recon';
