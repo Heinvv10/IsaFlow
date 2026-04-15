@@ -5,9 +5,11 @@
  */
 
 import type { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
+import * as Sentry from '@sentry/nextjs';
 import { sql } from '@/lib/neon';
 import { withAuth, type AuthenticatedNextApiRequest } from './middleware';
 import { log } from '@/lib/logger';
+import { setTenantTags } from '@/lib/sentry/tags';
 
 export interface CompanyApiRequest extends AuthenticatedNextApiRequest {
   companyId: string;
@@ -44,6 +46,12 @@ export function withCompany(handler: CompanyHandler): NextApiHandler {
         if (authReq.user.role === 'super_admin') {
           (req as CompanyApiRequest).companyId = companyId;
           (req as CompanyApiRequest).companyRole = 'owner';
+          if (process.env.SENTRY_ENABLED === 'true') {
+            return Sentry.withIsolationScope(() => {
+              setTenantTags({ companyId, userId, route: req.url });
+              return handler(req, res);
+            });
+          }
           return handler(req, res);
         }
 
@@ -64,6 +72,12 @@ export function withCompany(handler: CompanyHandler): NextApiHandler {
 
         (req as CompanyApiRequest).companyId = companyId;
         (req as CompanyApiRequest).companyRole = access[0]!.role as string;
+        if (process.env.SENTRY_ENABLED === 'true') {
+          return Sentry.withIsolationScope(() => {
+            setTenantTags({ companyId, userId, route: req.url });
+            return handler(req, res);
+          });
+        }
         return handler(req, res);
       }
 
@@ -84,8 +98,15 @@ export function withCompany(handler: CompanyHandler): NextApiHandler {
         });
       }
 
-      (req as CompanyApiRequest).companyId = companies[0]!.company_id as string;
+      const resolvedCompanyId = companies[0]!.company_id as string;
+      (req as CompanyApiRequest).companyId = resolvedCompanyId;
       (req as CompanyApiRequest).companyRole = companies[0]!.role as string;
+      if (process.env.SENTRY_ENABLED === 'true') {
+        return Sentry.withIsolationScope(() => {
+          setTenantTags({ companyId: resolvedCompanyId, userId, route: req.url });
+          return handler(req, res);
+        });
+      }
       return handler(req, res);
     } catch (error) {
       log.error('Company middleware error', error instanceof Error ? { message: error.message } : { error }, 'CompanyMiddleware');
