@@ -51,7 +51,7 @@ function hashEmailLocalPart(email: string): string {
   return `${h}${domain}`;
 }
 
-export function scrubEvent(event: Event | null): Event | null {
+export function scrubEvent<T extends Event>(event: T | null): T | null {
   if (!event) return null;
   const req = event.request;
   if (!req) return event;

@@ -1,5 +1,4 @@
 import * as Sentry from '@sentry/nextjs';
-import type { ErrorEvent, EventHint } from '@sentry/nextjs';
 import { scrubEvent } from './src/lib/sentry/scrub';
 
 if (
@@ -13,8 +12,7 @@ if (
     release: process.env.NEXT_PUBLIC_GIT_SHA || undefined,
     tracesSampleRate: 0,
     integrations: [],
-    beforeSend: (event: ErrorEvent, _hint: EventHint) =>
-      scrubEvent(event) as ErrorEvent | null,
+    beforeSend: (event, _hint) => scrubEvent(event),
   });
   Sentry.setTag('runtime', 'browser');
 }
