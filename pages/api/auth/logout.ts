@@ -50,9 +50,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }),
     // Clear auth cookie without domain (host-scoped, backward compat)
     serialize(AUTH_COOKIE_NAME, '', clearOpts),
-    // Clear legacy ff_auth_token cookies
-    'ff_auth_token=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Strict',
-    'ff_auth_token=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Strict; Domain=.isaflow.co.za',
     // Clear onboarding cookie with domain
     `ff_onboarding_done=; Path=/; Max-Age=0; SameSite=Lax${secureSuffix}${isProd ? '; Domain=.isaflow.co.za' : ''}`,
     // Clear onboarding cookie without domain (host-scoped)
