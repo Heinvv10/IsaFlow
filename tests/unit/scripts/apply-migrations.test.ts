@@ -48,6 +48,7 @@ describe('planApply', () => {
     expect(plan.toApply.map((f) => f.version)).toEqual(['292', '325', '326']);
     expect(plan.skipped).toEqual([]);
     expect(plan.conflicts).toEqual([]);
+    expect(plan.checksumBackfills).toEqual([]);
   });
 
   it('skips already-applied files with matching checksums', () => {
@@ -59,6 +60,18 @@ describe('planApply', () => {
     expect(plan.toApply.map((f) => f.version)).toEqual(['326']);
     expect(plan.skipped.map((f) => f.version)).toEqual(['292', '325']);
     expect(plan.conflicts).toEqual([]);
+  });
+
+  it('classifies null-checksum tracked rows as checksumBackfills (not conflicts)', () => {
+    const applied: TrackingRow[] = [
+      { version: '292', name: '292_a.sql', checksum: null },
+      { version: '325', name: '325_b.sql', checksum: null },
+    ];
+    const plan = planApply(files, applied);
+    expect(plan.checksumBackfills.map((f) => f.version)).toEqual(['292', '325']);
+    expect(plan.conflicts).toEqual([]);
+    expect(plan.skipped).toEqual([]);
+    expect(plan.toApply.map((f) => f.version)).toEqual(['326']);
   });
 
   it('flags checksum mismatches as conflicts and excludes from toApply', () => {
@@ -83,5 +96,22 @@ describe('planApply', () => {
     ];
     const plan = planApply(mixed, []);
     expect(plan.toApply.map((f) => f.version)).toEqual(['244', '244b']);
+  });
+
+  it('tracks by filename not version: two files sharing a version are independent', () => {
+    // Historical repo has 9 cases where two different files share a numeric
+    // prefix (e.g. 245_inventory.sql + 245_company_settings.sql).
+    const duplicateVersionFiles: MigrationFile[] = [
+      { version: '245', name: '245_inventory.sql', content: 'I', checksum: computeChecksum('I') },
+      { version: '245', name: '245_company_settings.sql', content: 'C', checksum: computeChecksum('C') },
+    ];
+    const applied: TrackingRow[] = [
+      { version: '245', name: '245_inventory.sql', checksum: computeChecksum('I') },
+    ];
+    const plan = planApply(duplicateVersionFiles, applied);
+    // Only the one with a matching filename entry should be skipped.
+    expect(plan.skipped.map((f) => f.name)).toEqual(['245_inventory.sql']);
+    expect(plan.toApply.map((f) => f.name)).toEqual(['245_company_settings.sql']);
+    expect(plan.conflicts).toEqual([]);
   });
 });
