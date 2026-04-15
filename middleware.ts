@@ -10,6 +10,20 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { jwtVerify } from 'jose';
+import { CSRF_COOKIE, generateCsrfToken } from './src/lib/auth/csrf';
+
+/** Issue the CSRF cookie on a response if it is not already present. */
+function issueCsrfCookie(request: NextRequest, response: NextResponse): NextResponse {
+  if (!request.cookies.get(CSRF_COOKIE)) {
+    response.cookies.set(CSRF_COOKIE, generateCsrfToken(), {
+      httpOnly: false,  // JS must read to mirror into X-CSRF-Token header
+      secure: true,
+      sameSite: 'lax',
+      path: '/',
+    });
+  }
+  return response;
+}
 
 const AUTH_COOKIE_NAME = 'isaflow_auth';
 
@@ -104,10 +118,10 @@ export async function middleware(request: NextRequest) {
     if (!pathname.startsWith('/admin')) {
       const rewrittenUrl = request.nextUrl.clone();
       rewrittenUrl.pathname = pathname === '/' ? '/admin' : `/admin${pathname}`;
-      return NextResponse.rewrite(rewrittenUrl);
+      return issueCsrfCookie(request, NextResponse.rewrite(rewrittenUrl));
     }
 
-    return NextResponse.next();
+    return issueCsrfCookie(request, NextResponse.next());
   }
 
   // ── Non-admin hosts: redirect /admin/* to admin subdomain ───────────────────
@@ -149,6 +163,11 @@ export async function middleware(request: NextRequest) {
     if (pathname.startsWith('/accounting') || pathname.startsWith('/payroll')) {
       return NextResponse.redirect(new URL('/onboarding', request.url));
     }
+  }
+
+  // Issue CSRF cookie on any authenticated pass-through
+  if (token) {
+    return issueCsrfCookie(request, NextResponse.next());
   }
 
   return NextResponse.next();
