@@ -27,6 +27,7 @@ export async function importCustomerInvoices(companyId: string, userId: string):
         status, raw_data
       FROM sage_customer_invoices
       WHERE migration_status = 'pending'
+        AND company_id = ${companyId}::UUID
       ORDER BY invoice_date
     `) as Row[];
 
@@ -43,7 +44,7 @@ export async function importCustomerInvoices(companyId: string, userId: string):
         if (!clientId) {
           await sql`
             UPDATE sage_customer_invoices SET migration_status = 'failed'
-            WHERE id = ${inv.id}
+            WHERE id = ${inv.id} AND company_id = ${companyId}::UUID
           `;
           failed++;
           continue;
@@ -63,12 +64,15 @@ export async function importCustomerInvoices(companyId: string, userId: string):
 
         const newInv = (await sql`
           INSERT INTO customer_invoices (
-            invoice_number, client_id, invoice_date, due_date,
+            company_id,
+            invoice_number, customer_id, client_id, invoice_date, due_date,
             billing_period_start, billing_period_end,
             subtotal, tax_rate, tax_amount, total_amount,
             amount_paid, status, sage_invoice_id, reference, created_by
           ) VALUES (
+            ${companyId}::UUID,
             ${inv.invoice_number || `SAGE-${inv.sage_invoice_id}`},
+            ${clientId}::UUID,
             ${clientId}::UUID,
             ${inv.invoice_date}, ${inv.due_date || inv.invoice_date},
             ${inv.invoice_date}, ${inv.due_date || inv.invoice_date},
@@ -110,7 +114,7 @@ export async function importCustomerInvoices(companyId: string, userId: string):
           UPDATE sage_customer_invoices
           SET migration_status = 'imported',
               gl_customer_invoice_id = ${newInvoiceId}::UUID
-          WHERE id = ${inv.id}
+          WHERE id = ${inv.id} AND company_id = ${companyId}::UUID
         `;
 
         succeeded++;
@@ -119,7 +123,7 @@ export async function importCustomerInvoices(companyId: string, userId: string):
           { invoiceId: inv.id, error: err }, 'accounting');
         await sql`
           UPDATE sage_customer_invoices SET migration_status = 'failed'
-          WHERE id = ${inv.id}
+          WHERE id = ${inv.id} AND company_id = ${companyId}::UUID
         `;
         failed++;
       }
