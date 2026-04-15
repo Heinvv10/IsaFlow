@@ -198,3 +198,144 @@ describe('getBankTransactions — bankAccountId + status branch (backwards compa
     expect(result.total).toBe(2);
   });
 });
+
+// ── BL-11: Limit cap + explicit column projection ─────────────────────────────
+
+describe('getBankTransactions — BL-11: limit cap at 100', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('caps limit=500 to 100 — service returns at most 100 rows', async () => {
+    // Simulate DB returning 100 rows (the capped amount)
+    const rows = Array.from({ length: 100 }, (_, i) =>
+      makeTxRow({ id: `tx-cap-${String(i).padStart(3, '0')}`, status: 'imported' })
+    );
+    vi.mocked(sql)
+      .mockResolvedValueOnce(rows as never)
+      .mockResolvedValueOnce([{ cnt: '150' }] as never);
+
+    const result = await getBankTransactions(COMPANY_ID, { limit: 500 });
+
+    // Regardless of what the caller requested, the response must be ≤ 100
+    expect(result.transactions.length).toBeLessThanOrEqual(100);
+    expect(result.total).toBe(150);
+
+    // The limit value passed to sql must be capped to 100 (not 500)
+    const allValues = flatSqlValues(vi.mocked(sql));
+    expect(allValues).toContain(100);
+    expect(allValues).not.toContain(500);
+  });
+
+  it('caps limit=200 to 100', async () => {
+    const rows = Array.from({ length: 100 }, (_, i) =>
+      makeTxRow({ id: `tx-cap200-${String(i).padStart(3, '0')}` })
+    );
+    vi.mocked(sql)
+      .mockResolvedValueOnce(rows as never)
+      .mockResolvedValueOnce([{ cnt: '200' }] as never);
+
+    await getBankTransactions(COMPANY_ID, { limit: 200 });
+
+    const allValues = flatSqlValues(vi.mocked(sql));
+    expect(allValues).toContain(100);
+    expect(allValues).not.toContain(200);
+  });
+
+  it('allows limit=50 unchanged (under cap)', async () => {
+    const rows = Array.from({ length: 50 }, (_, i) =>
+      makeTxRow({ id: `tx-50-${String(i).padStart(3, '0')}` })
+    );
+    vi.mocked(sql)
+      .mockResolvedValueOnce(rows as never)
+      .mockResolvedValueOnce([{ cnt: '50' }] as never);
+
+    await getBankTransactions(COMPANY_ID, { limit: 50 });
+
+    const allValues = flatSqlValues(vi.mocked(sql));
+    expect(allValues).toContain(50);
+  });
+});
+
+describe('getBankTransactions — BL-11: mapTxRow column projection regression guard', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  /**
+   * Regression guard: every key that mapTxRow reads from a DB row must be
+   * present in makeTxRow (our canonical fixture). If a column is accidentally
+   * dropped from TX_SELECT, mapTxRow will receive undefined and the mapped
+   * field will silently become undefined. This test verifies the full
+   * mapper output shape matches expected keys.
+   */
+  it('maps all expected BankTransaction fields from a complete row', async () => {
+    const row = makeTxRow({
+      value_date: '2026-01-16',
+      bank_reference: 'BR-001',
+      matched_journal_line_id: 'jl-uuid-001',
+      reconciliation_id: 'rec-uuid-001',
+      import_batch_id: 'batch-uuid-001',
+      exclude_reason: 'duplicate',
+      notes: 'test note',
+      suggested_gl_account_id: 'ga-uuid-001',
+      suggested_gl_account_name: 'Bank Charges',
+      suggested_gl_account_code: '7200',
+      suggested_category: 'expenses',
+      suggested_supplier_id: 'sup-uuid-001',
+      suggested_supplier_name: 'ACME Ltd',
+      suggested_client_id: 'cli-uuid-001',
+      suggested_client_name: 'Client Corp',
+      suggested_vat_code: 'S',
+      suggested_confidence: 0.95,
+      cc1_id: 'cc1-uuid',
+      cc2_id: 'cc2-uuid',
+      bu_id: 'bu-uuid',
+      allocation_type: 'supplier',
+      allocated_entity_name: 'ACME Ltd',
+    });
+    vi.mocked(sql)
+      .mockResolvedValueOnce([row] as never)
+      .mockResolvedValueOnce([{ cnt: '1' }] as never);
+
+    const result = await getBankTransactions(COMPANY_ID);
+    expect(result.transactions).toHaveLength(1);
+
+    const tx = result.transactions[0]!;
+
+    // Core identity and amounts
+    expect(tx.id).toBe('tx-uuid-001');
+    expect(tx.bankAccountId).toBe(ACCOUNT_ID);
+    expect(tx.amount).toBe(-500);
+    expect(tx.status).toBe('imported');
+
+    // Dates
+    expect(tx.transactionDate).toBe('2026-01-15');
+    expect(tx.valueDate).toBe('2026-01-16');
+
+    // Optional text fields
+    expect(tx.bankReference).toBe('BR-001');
+    expect(tx.excludeReason).toBe('duplicate');
+    expect(tx.notes).toBe('test note');
+
+    // Suggestion fields
+    expect(tx.suggestedGlAccountId).toBe('ga-uuid-001');
+    expect(tx.suggestedGlAccountName).toBe('Bank Charges');
+    expect(tx.suggestedGlAccountCode).toBe('7200');
+    expect(tx.suggestedCategory).toBe('expenses');
+    expect(tx.suggestedSupplierId).toBe('sup-uuid-001');
+    expect(tx.suggestedSupplierName).toBe('ACME Ltd');
+    expect(tx.suggestedClientId).toBe('cli-uuid-001');
+    expect(tx.suggestedClientName).toBe('Client Corp');
+    expect(tx.suggestedVatCode).toBe('S');
+    expect(tx.suggestedConfidence).toBeCloseTo(0.95);
+
+    // Cost centre / BU
+    expect(tx.cc1Id).toBe('cc1-uuid');
+    expect(tx.cc2Id).toBe('cc2-uuid');
+    expect(tx.buId).toBe('bu-uuid');
+
+    // Allocation
+    expect(tx.allocationType).toBe('supplier');
+    expect(tx.allocatedEntityName).toBe('ACME Ltd');
+
+    // Join-provided fields
+    expect(tx.bankAccountName).toBe('Test Bank');
+  });
+});
