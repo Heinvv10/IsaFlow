@@ -32,7 +32,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, report);
   } catch (err) {
     log.error('Failed to get balance sheet', { error: err }, 'accounting-api');
-    return apiResponse.badRequest(res, 'Failed to generate balance sheet');
+    return apiResponse.internalError(res, err);
   }
 }
 
