@@ -9,6 +9,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { listCompanyUsers, updateCompanyUserRole, removeCompanyUser } from '@/modules/accounting/services/core/userAccessService';
 
 const ADMIN_ROLES = ['owner', 'admin'];
@@ -72,4 +73,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
  
-export default withCompany(withErrorHandler(withWriteAccess(handler)));
+export default withCompany(withErrorHandler(withCsrf(withWriteAccess(handler))));

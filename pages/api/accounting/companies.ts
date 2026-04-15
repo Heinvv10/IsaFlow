@@ -9,6 +9,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import {
   getCompany, createCompany, updateCompany,
   getUserCompanies, setDefaultCompany,
@@ -95,7 +96,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
  
-export default withAuth(withErrorHandler(handler));
+export default withAuth(withErrorHandler(withCsrf(handler)));
 
 export const config = {
   api: { bodyParser: { sizeLimit: '10mb' } },

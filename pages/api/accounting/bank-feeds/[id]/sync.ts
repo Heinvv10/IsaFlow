@@ -7,6 +7,7 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { syncBankFeed } from '@/modules/accounting/services/bank/openBankingService';
 
 async function handler(req: CompanyApiRequest, res: NextApiResponse) {
@@ -26,4 +27,4 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
 }
 
-export default withCompany(withErrorHandler(handler));
+export default withCompany(withErrorHandler(withCsrf(handler)));

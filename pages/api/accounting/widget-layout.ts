@@ -8,6 +8,7 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { WidgetConfig } from '@/components/dashboard/widgetTypes';
@@ -106,4 +107,4 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 // Per-user dashboard layout — viewers must be able to save their own UI state,
 // so the write-access gate is explicitly disabled for this endpoint.
-export default withCompany(withErrorHandler(withWriteAccess(handler, { allowedRoles: null })));
+export default withCompany(withErrorHandler(withCsrf(withWriteAccess(handler, { allowedRoles: null }))));

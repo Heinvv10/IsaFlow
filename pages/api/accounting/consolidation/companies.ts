@@ -8,6 +8,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import {
   getGroupCompanies,
@@ -70,4 +71,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST']);
 }
 
-export default withCompany(withErrorHandler(handler as Parameters<typeof withCompany>[0]));
+export default withCompany(withErrorHandler(withCsrf(handler as Parameters<typeof withCompany>[0])));
