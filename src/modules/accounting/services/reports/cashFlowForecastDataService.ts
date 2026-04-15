@@ -48,6 +48,7 @@ export async function getCurrentCashBalance(companyId: string): Promise<number> 
            FROM gl_journal_lines jl
            JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
            WHERE jl.gl_account_id = ga.id
+             AND jl.company_id = ${companyId}::UUID
              AND je.status = 'posted'
              AND je.company_id = ${companyId}),
           0)
@@ -79,6 +80,7 @@ export async function getHistoricalCashFlows(companyId: string, months: number):
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id
       WHERE je.company_id = ${companyId}
+        AND jl.company_id = ${companyId}::UUID
         AND je.status = 'posted'
         AND ga.account_type = 'asset'
         AND ga.account_subtype IN ('bank', 'cash')

@@ -169,8 +169,9 @@ export async function allocateTransaction(
 
   // Resolve journal line id and optional customer payment user BEFORE opening tx (read-only lookups)
   const jeLines = (await sql`
-    SELECT id FROM gl_journal_lines
-    WHERE journal_entry_id = ${je.id}::UUID AND gl_account_id = ${bankAccountId}::UUID LIMIT 1`) as Row[];
+    SELECT jl.id FROM gl_journal_lines jl
+    WHERE jl.journal_entry_id = ${je.id}::UUID AND jl.gl_account_id = ${bankAccountId}::UUID
+      AND jl.company_id = ${companyId}::UUID LIMIT 1`) as Row[];
   const journalLineId = jeLines.length > 0 ? String(jeLines[0]!.id) : null;
 
   let paymentUserId: string | null = null;
@@ -278,8 +279,9 @@ export async function splitAllocateTransaction(
   await postJournalEntry(companyId, je.id, userId);
 
   const jeLines = (await sql`
-    SELECT id FROM gl_journal_lines
-    WHERE journal_entry_id = ${je.id}::UUID AND gl_account_id = ${bankAccountId}::UUID LIMIT 1`) as Row[];
+    SELECT jl.id FROM gl_journal_lines jl
+    WHERE jl.journal_entry_id = ${je.id}::UUID AND jl.gl_account_id = ${bankAccountId}::UUID
+      AND jl.company_id = ${companyId}::UUID LIMIT 1`) as Row[];
   const journalLineId = jeLines.length > 0 ? String(jeLines[0]!.id) : null;
 
   // Wrap the final bank_transactions write atomically
@@ -312,7 +314,8 @@ export async function reverseReconciledTransaction(
   let journalEntryId: string | null = null;
   if (tx.matched_journal_line_id) {
     const jlRows = (await sql`
-      SELECT journal_entry_id FROM gl_journal_lines WHERE id = ${tx.matched_journal_line_id}::UUID`) as Row[];
+      SELECT jl.journal_entry_id FROM gl_journal_lines jl
+      WHERE jl.id = ${tx.matched_journal_line_id}::UUID AND jl.company_id = ${companyId}::UUID`) as Row[];
     if (jlRows.length > 0 && jlRows[0]!.journal_entry_id) {
       journalEntryId = String(jlRows[0]!.journal_entry_id);
       const { reverseJournalEntry } = await import('../gl/journalEntryService');

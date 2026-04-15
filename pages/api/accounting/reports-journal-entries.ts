@@ -59,7 +59,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         COALESCE(SUM(jl.debit), 0)  AS total_debits,
         COALESCE(SUM(jl.credit), 0) AS total_credits
       FROM gl_journal_entries je
-      LEFT JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id
+      LEFT JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id AND jl.company_id = ${companyId}::UUID
       WHERE je.company_id = ${companyId}
         AND (${statusVal}::TEXT IS NULL OR je.status = ${statusVal})
         AND (${sourceVal}::TEXT IS NULL OR je.source = ${sourceVal})

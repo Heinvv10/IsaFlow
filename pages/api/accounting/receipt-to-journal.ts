@@ -97,8 +97,8 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
 
     for (const line of journalInput.lines) {
       await tx`
-        INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description)
-        VALUES (${entry.id}::uuid, ${line.accountId}::uuid, ${line.debit}, ${line.credit}, ${line.description})
+        INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description, company_id)
+        VALUES (${entry.id}::uuid, ${line.accountId}::uuid, ${line.debit}, ${line.credit}, ${line.description}, ${companyId}::uuid)
       `;
     }
 

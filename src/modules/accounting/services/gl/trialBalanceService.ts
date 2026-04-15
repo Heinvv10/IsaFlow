@@ -29,6 +29,7 @@ export async function getTrialBalance(
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
         WHERE je.status = 'posted'
           AND je.company_id = ${companyId}::UUID
+          AND jl.company_id = ${companyId}::UUID
           AND je.fiscal_period_id = ${fiscalPeriodId}::UUID
         GROUP BY ga.id, ga.account_code, ga.account_name, ga.account_type, ga.normal_balance
         HAVING COALESCE(SUM(jl.debit), 0) != 0 OR COALESCE(SUM(jl.credit), 0) != 0
@@ -53,6 +54,7 @@ export async function getTrialBalance(
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id
       WHERE je.status = 'posted'
         AND je.company_id = ${companyId}::UUID
+        AND jl.company_id = ${companyId}::UUID
         AND je.fiscal_period_id = ${fiscalPeriodId}::UUID
         AND jl.cost_center_id = ${costCentreId}::UUID
       GROUP BY ga.id, ga.account_code, ga.account_name, ga.account_type, ga.normal_balance

@@ -104,9 +104,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           END
         ), 0)::numeric AS actual_amount
       FROM gl_accounts ga
-      LEFT JOIN gl_journal_lines jl ON jl.gl_account_id = ga.id
+      LEFT JOIN gl_journal_lines jl ON jl.gl_account_id = ga.id AND jl.company_id = ${companyId}::UUID
       LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-        AND je.status = 'posted'
+        AND je.status = 'posted' AND je.company_id = ${companyId}::UUID
         AND je.entry_date >= ${startDate}
         AND je.entry_date <= ${endDate}
       WHERE ga.level = 3

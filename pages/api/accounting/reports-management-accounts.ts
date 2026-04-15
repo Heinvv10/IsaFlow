@@ -41,7 +41,7 @@ async function getCashFlowSummary(
         FROM gl_journal_lines jl
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-        WHERE je.company_id = ${companyId}::UUID AND je.status = 'posted'
+        WHERE jl.company_id = ${companyId}::UUID AND je.company_id = ${companyId}::UUID AND je.status = 'posted'
           AND je.entry_date >= ${startDate} AND je.entry_date <= ${endDate}
       ` as Promise<Row[]>,
       sql`
@@ -49,7 +49,7 @@ async function getCashFlowSummary(
         FROM gl_journal_lines jl
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-        WHERE ga.account_type = 'asset'
+        WHERE jl.company_id = ${companyId}::UUID AND ga.account_type = 'asset'
           AND ga.account_name ILIKE '%receivable%'
           AND je.company_id = ${companyId}::UUID AND je.status = 'posted'
           AND je.entry_date >= ${startDate} AND je.entry_date <= ${endDate}
@@ -59,7 +59,7 @@ async function getCashFlowSummary(
         FROM gl_journal_lines jl
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-        WHERE ga.account_type = 'liability'
+        WHERE jl.company_id = ${companyId}::UUID AND ga.account_type = 'liability'
           AND ga.account_name ILIKE '%payable%'
           AND je.company_id = ${companyId}::UUID AND je.status = 'posted'
           AND je.entry_date >= ${startDate} AND je.entry_date <= ${endDate}
@@ -69,7 +69,7 @@ async function getCashFlowSummary(
         FROM gl_journal_lines jl
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-        WHERE ga.account_type = 'asset'
+        WHERE jl.company_id = ${companyId}::UUID AND ga.account_type = 'asset'
           AND ga.account_name NOT ILIKE '%receivable%'
           AND ga.account_name NOT ILIKE '%cash%'
           AND ga.account_name NOT ILIKE '%bank%'
@@ -81,7 +81,7 @@ async function getCashFlowSummary(
         FROM gl_journal_lines jl
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-        WHERE ga.account_type = 'equity'
+        WHERE jl.company_id = ${companyId}::UUID AND ga.account_type = 'equity'
           AND ga.account_name NOT ILIKE '%retained%'
           AND je.company_id = ${companyId}::UUID AND je.status = 'posted'
           AND je.entry_date >= ${startDate} AND je.entry_date <= ${endDate}
@@ -94,7 +94,7 @@ async function getCashFlowSummary(
         FROM gl_journal_lines jl
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-        WHERE ga.account_type = 'asset'
+        WHERE jl.company_id = ${companyId}::UUID AND ga.account_type = 'asset'
           AND je.company_id = ${companyId}::UUID AND je.status = 'posted'
           AND je.entry_date < ${startDate}
       ` as Promise<Row[]>,

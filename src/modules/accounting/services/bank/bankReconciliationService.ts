@@ -71,7 +71,9 @@ export async function startReconciliation(
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       WHERE jl.gl_account_id = ${bankAccountId}::UUID
-        AND je.status = 'posted' AND je.entry_date <= ${statementDate}`) as DbRow[];
+        AND jl.company_id = ${companyId}::UUID
+        AND je.status = 'posted' AND je.company_id = ${companyId}::UUID
+        AND je.entry_date <= ${statementDate}`) as DbRow[];
     const glBalance = Number(balRows[0]!.gl_balance);
 
     // INSERT and the subsequent bank_transactions UPDATE must be atomic.
@@ -177,7 +179,9 @@ export async function autoMatchTransactions(
         je.entry_date, je.entry_number, je.source_document_id
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-      WHERE jl.gl_account_id = ${bankAccountId}::UUID AND je.status = 'posted'
+      WHERE jl.gl_account_id = ${bankAccountId}::UUID
+        AND jl.company_id = ${companyId}::UUID
+        AND je.status = 'posted' AND je.company_id = ${companyId}::UUID
         AND jl.id NOT IN (
           SELECT matched_journal_line_id FROM bank_transactions
           WHERE matched_journal_line_id IS NOT NULL)

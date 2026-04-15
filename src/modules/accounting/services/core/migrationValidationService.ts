@@ -63,6 +63,7 @@ async function checkTrialBalance(companyId: string): Promise<ValidationResult> {
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     WHERE je.company_id = ${companyId}::UUID
+      AND jl.company_id = ${companyId}::UUID
       AND je.status = 'posted'
   `) as DbRow[];
 
@@ -98,6 +99,7 @@ async function checkARvsGL(companyId: string): Promise<ValidationResult> {
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id
     WHERE je.company_id = ${companyId}::UUID
+      AND jl.company_id = ${companyId}::UUID
       AND je.status = 'posted'
       AND ga.account_subtype = 'receivable'
       AND ga.company_id = ${companyId}::UUID
@@ -133,6 +135,7 @@ async function checkAPvsGL(companyId: string): Promise<ValidationResult> {
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id
     WHERE je.company_id = ${companyId}::UUID
+      AND jl.company_id = ${companyId}::UUID
       AND je.status = 'posted'
       AND ga.account_subtype = 'payable'
       AND ga.company_id = ${companyId}::UUID

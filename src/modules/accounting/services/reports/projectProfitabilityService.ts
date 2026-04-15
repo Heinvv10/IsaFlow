@@ -27,6 +27,7 @@ export async function getProjectProfitability(companyId: string,
       LEFT JOIN projects p ON p.id = jl.project_id
       WHERE je.status = 'posted'
         AND je.company_id = ${companyId}::UUID
+        AND jl.company_id = ${companyId}::UUID
         AND je.entry_date >= ${periodStart}
         AND je.entry_date <= ${periodEnd}
         AND jl.project_id IS NOT NULL
@@ -48,6 +49,7 @@ export async function getProjectProfitability(companyId: string,
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
         WHERE je.status = 'posted'
           AND je.company_id = ${companyId}::UUID
+          AND jl.company_id = ${companyId}::UUID
           AND je.entry_date >= ${periodStart}
           AND je.entry_date <= ${periodEnd}
           AND jl.project_id = ${projectId}::UUID

@@ -209,8 +209,9 @@ export async function applyRules(
         await postJournalEntry(companyId, je.id, userId);
 
         const bankLineRows = (await sql`
-          SELECT id FROM gl_journal_lines
-          WHERE journal_entry_id = ${je.id}::UUID AND gl_account_id = ${bankAccountId}::UUID
+          SELECT jl.id FROM gl_journal_lines jl
+          WHERE jl.journal_entry_id = ${je.id}::UUID AND jl.gl_account_id = ${bankAccountId}::UUID
+            AND jl.company_id = ${companyId}::UUID
           LIMIT 1
         `) as Record<string, unknown>[];
 

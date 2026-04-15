@@ -88,7 +88,7 @@ async function getPnLTotals(companyId: string, from: string, to: string): Promis
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-    WHERE je.company_id = ${companyId} AND je.status = 'posted'
+    WHERE je.company_id = ${companyId} AND jl.company_id = ${companyId}::UUID AND je.status = 'posted'
       AND je.entry_date >= ${from}::date AND je.entry_date <= ${to}::date
   `) as Row[];
   return rows[0];
@@ -109,7 +109,7 @@ async function getBalanceSheet(companyId: string, to: string): Promise<Row | und
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-    WHERE je.company_id = ${companyId} AND je.status = 'posted'
+    WHERE je.company_id = ${companyId} AND jl.company_id = ${companyId}::UUID AND je.status = 'posted'
       AND je.entry_date <= ${to}::date
   `) as Row[];
   return rows[0];

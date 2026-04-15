@@ -104,7 +104,7 @@ export async function importJournalEntries(
         await sql`
           INSERT INTO gl_journal_lines (
             journal_entry_id, gl_account_id, debit, credit,
-            description, vat_type, cost_center_id
+            description, vat_type, cost_center_id, company_id
           ) VALUES (
             ${entryId}::UUID,
             ${accountId}::UUID,
@@ -112,7 +112,8 @@ export async function importJournalEntries(
             ${Number(row.credit) || 0},
             ${row.description},
             ${vatType},
-            ${ccId}::UUID
+            ${ccId}::UUID,
+            ${companyId}::UUID
           )
         `;
 

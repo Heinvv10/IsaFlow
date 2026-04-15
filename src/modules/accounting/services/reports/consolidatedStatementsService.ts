@@ -78,6 +78,7 @@ export async function getConsolidatedIncomeStatement(
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
         WHERE je.status = 'posted'
           AND je.company_id = ${member.companyId}::UUID
+          AND jl.company_id = ${member.companyId}::UUID
           AND ga.company_id = ${member.companyId}::UUID
           AND je.entry_date >= ${periodStart} AND je.entry_date <= ${periodEnd}
           AND ga.account_type IN ('revenue', 'expense')
@@ -169,6 +170,7 @@ export async function getConsolidatedBalanceSheet(
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
         WHERE je.status = 'posted'
           AND je.company_id = ${member.companyId}::UUID
+          AND jl.company_id = ${member.companyId}::UUID
           AND ga.company_id = ${member.companyId}::UUID
           AND je.entry_date <= ${asAtDate}
           AND ga.account_type IN ('asset', 'liability', 'equity')
@@ -198,6 +200,7 @@ export async function getConsolidatedBalanceSheet(
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
         WHERE je.status = 'posted'
           AND je.company_id = ${member.companyId}::UUID
+          AND jl.company_id = ${member.companyId}::UUID
           AND ga.company_id = ${member.companyId}::UUID
           AND je.entry_date <= ${asAtDate}
           AND ga.account_type IN ('revenue', 'expense')

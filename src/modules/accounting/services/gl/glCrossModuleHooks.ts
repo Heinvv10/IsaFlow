@@ -49,14 +49,14 @@ export async function postAssetDepreciationToGL(
     const entryId = String(entry[0]!.id);
 
     await sql`
-      INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description)
+      INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description, company_id)
       VALUES (${entryId}::UUID, ${depExpenseId}::UUID, ${depreciationAmount}, 0,
-        ${`Depreciation: ${assetNumber}`})
+        ${`Depreciation: ${assetNumber}`}, ${companyId}::UUID)
     `;
     await sql`
-      INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description)
+      INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description, company_id)
       VALUES (${entryId}::UUID, ${accumDepId}::UUID, 0, ${depreciationAmount},
-        ${`Depreciation: ${assetNumber}`})
+        ${`Depreciation: ${assetNumber}`}, ${companyId}::UUID)
     `;
 
     await sql`

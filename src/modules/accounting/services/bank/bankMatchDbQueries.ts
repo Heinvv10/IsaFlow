@@ -199,6 +199,7 @@ export async function fetchJournalLineCandidates(
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     WHERE je.status = 'posted'
       AND je.company_id = ${companyId}
+      AND jl.company_id = ${companyId}::UUID
       AND jl.id NOT IN (
         SELECT matched_journal_line_id FROM bank_transactions
         WHERE matched_journal_line_id IS NOT NULL AND company_id = ${companyId}

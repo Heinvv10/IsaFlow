@@ -102,8 +102,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         for (const b of balances as { accountId: string; debit: number; credit: number }[]) {
           if (Number(b.debit) > 0 || Number(b.credit) > 0) {
             await tx`
-              INSERT INTO gl_journal_lines (id, journal_entry_id, gl_account_id, debit, credit, description, created_at)
-              VALUES (gen_random_uuid(), ${newEntry.id}, ${b.accountId}, ${Number(b.debit) || 0}, ${Number(b.credit) || 0}, 'Opening Balance', NOW())
+              INSERT INTO gl_journal_lines (id, journal_entry_id, gl_account_id, debit, credit, description, created_at, company_id)
+              VALUES (gen_random_uuid(), ${newEntry.id}, ${b.accountId}, ${Number(b.debit) || 0}, ${Number(b.credit) || 0}, 'Opening Balance', NOW(), ${companyId}::UUID)
             `;
           }
         }
