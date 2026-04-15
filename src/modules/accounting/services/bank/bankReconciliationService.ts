@@ -88,9 +88,11 @@ export async function startReconciliation(
           ${companyId}, ${bankAccountId}::UUID, ${statementDate}, ${statementBalance},
           ${glBalance}, ${glBalance}, ${userId}::UUID
         ) RETURNING *`) as DbRow[];
+      // BL-82: guard by company_id to prevent cross-tenant UPDATE
       await tx`
         UPDATE bank_transactions SET reconciliation_id = ${rows[0]!.id}::UUID
         WHERE bank_account_id = ${bankAccountId}::UUID
+          AND company_id = ${companyId}::UUID
           AND status = 'imported' AND reconciliation_id IS NULL`;
       return rows[0]!;
     });
@@ -118,9 +120,11 @@ export async function completeReconciliation(
     // after transactions are marked 'reconciled', they become stuck in a
     // terminal state with no completed reconciliation to reference them.
     const completedRow = await withTransaction(async (tx) => {
+      // BL-83: defense-in-depth company_id guard on bank_transactions UPDATE
       await tx`
         UPDATE bank_transactions SET status = 'reconciled'
-        WHERE reconciliation_id = ${id}::UUID AND status = 'matched'`;
+        WHERE reconciliation_id = ${id}::UUID AND status = 'matched'
+          AND company_id = ${companyId}::UUID`;
       const rows = (await tx`
         UPDATE bank_reconciliations
         SET status = 'completed', completed_by = ${userId}::UUID, completed_at = NOW()
