@@ -35,6 +35,8 @@ export interface TrackingRow {
 export interface ApplyPlan {
   toApply: MigrationFile[];
   skipped: MigrationFile[];
+  /** Rows already applied but with null checksum (legacy tracking) — safe to record checksum. */
+  checksumBackfills: MigrationFile[];
   conflicts: Array<{ version: string; name: string; fileChecksum: string; dbChecksum: string | null }>;
 }
 
@@ -52,23 +54,34 @@ export function computeChecksum(content: string): string {
 }
 
 export function planApply(files: MigrationFile[], applied: TrackingRow[]): ApplyPlan {
-  const appliedByVersion = new Map(applied.map((a) => [a.version, a]));
+  // Track by filename (name), not version: historical repo contains 9 cases
+  // where two different files share the same numeric prefix (e.g. both
+  // "245_inventory.sql" and "245_company_settings.sql" exist), so version
+  // is not unique. Filename is the only reliable identity.
+  const appliedByName = new Map(applied.map((a) => [a.name, a]));
   const toApply: MigrationFile[] = [];
   const skipped: MigrationFile[] = [];
+  const checksumBackfills: MigrationFile[] = [];
   const conflicts: ApplyPlan['conflicts'] = [];
 
-  // String comparison is correct here: all filenames are 3-digit padded
-  // (e.g. "000", "244", "244b", "332"), so lexicographic order matches
-  // numeric order. Preserves letter-suffix ordering (244 < 244b).
-  const sorted = [...files].sort((a, b) => (a.version < b.version ? -1 : a.version > b.version ? 1 : 0));
+  // Sort by version (then name as tiebreaker for duplicate-version files).
+  // All filenames are 3-digit padded so lexicographic = numeric order;
+  // letter-suffix ordering (244 < 244b) is preserved.
+  const sorted = [...files].sort((a, b) => {
+    if (a.version !== b.version) return a.version < b.version ? -1 : 1;
+    return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+  });
 
   for (const file of sorted) {
-    const prior = appliedByVersion.get(file.version);
+    const prior = appliedByName.get(file.name);
     if (!prior) {
       toApply.push(file);
       continue;
     }
-    if (prior.checksum !== file.checksum) {
+    if (prior.checksum === null) {
+      // Legacy tracking row without checksum — trust file and record checksum.
+      checksumBackfills.push(file);
+    } else if (prior.checksum !== file.checksum) {
       conflicts.push({
         version: file.version,
         name: file.name,
@@ -80,7 +93,7 @@ export function planApply(files: MigrationFile[], applied: TrackingRow[]): Apply
     }
   }
 
-  return { toApply, skipped, conflicts };
+  return { toApply, skipped, checksumBackfills, conflicts };
 }
 
 function loadMigrationFiles(): MigrationFile[] {
@@ -111,7 +124,7 @@ async function applyOne(client: pg.PoolClient, file: MigrationFile): Promise<voi
     await client.query(file.content);
     await client.query(
       `INSERT INTO schema_migrations (version, name, checksum) VALUES ($1, $2, $3)
-         ON CONFLICT (version) DO UPDATE SET name = EXCLUDED.name, checksum = EXCLUDED.checksum, applied_at = now()`,
+         ON CONFLICT (name) DO UPDATE SET version = EXCLUDED.version, checksum = EXCLUDED.checksum, applied_at = now()`,
       [file.version, file.name, file.checksum]
     );
     await client.query('COMMIT');
@@ -124,7 +137,7 @@ async function applyOne(client: pg.PoolClient, file: MigrationFile): Promise<voi
 async function backfillOne(client: pg.PoolClient, file: MigrationFile): Promise<void> {
   await client.query(
     `INSERT INTO schema_migrations (version, name, checksum) VALUES ($1, $2, $3)
-       ON CONFLICT (version) DO NOTHING`,
+       ON CONFLICT (name) DO NOTHING`,
     [file.version, file.name, file.checksum]
   );
 }
@@ -152,15 +165,50 @@ async function main(): Promise<void> {
 
   const client = await pool.connect();
   try {
-    // Bootstrap: ensure tracking table exists even if migration 332 hasn't run yet.
+    // Bootstrap: ensure tracking table exists with canonical schema even if
+    // migration 332 hasn't run yet. Also upgrades pre-existing tables that
+    // only had (filename, applied_at) columns from prior ad-hoc tooling.
     await client.query(
       `CREATE TABLE IF NOT EXISTS schema_migrations (
-         version text PRIMARY KEY,
-         name text NOT NULL,
+         name text PRIMARY KEY,
+         version text NOT NULL,
          applied_at timestamptz NOT NULL DEFAULT now(),
          checksum text
        )`
     );
+    await client.query(`
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'schema_migrations' AND column_name = 'filename'
+        ) THEN
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='schema_migrations' AND column_name='name') THEN
+            ALTER TABLE schema_migrations ADD COLUMN name text;
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='schema_migrations' AND column_name='version') THEN
+            ALTER TABLE schema_migrations ADD COLUMN version text;
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='schema_migrations' AND column_name='checksum') THEN
+            ALTER TABLE schema_migrations ADD COLUMN checksum text;
+          END IF;
+          UPDATE schema_migrations
+             SET name = COALESCE(name, filename),
+                 version = COALESCE(version, substring(filename FROM '^(\\d+[a-z]?)_'));
+          ALTER TABLE schema_migrations ALTER COLUMN name SET NOT NULL;
+          ALTER TABLE schema_migrations ALTER COLUMN version SET NOT NULL;
+          -- Migrate identity from legacy filename column to name:
+          -- 1. add UNIQUE on name, 2. drop legacy filename PK/column.
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_indexes
+            WHERE tablename = 'schema_migrations' AND indexname = 'schema_migrations_name_key'
+          ) THEN
+            ALTER TABLE schema_migrations ADD CONSTRAINT schema_migrations_name_key UNIQUE (name);
+          END IF;
+          ALTER TABLE schema_migrations DROP COLUMN filename CASCADE;
+        END IF;
+      END $$;
+    `);
 
     await client.query(`SELECT pg_advisory_lock($1)`, [ADVISORY_LOCK_KEY]);
     try {
@@ -169,9 +217,10 @@ async function main(): Promise<void> {
       const plan = planApply(files, applied);
 
       console.log(`Found ${files.length} migration files, ${applied.length} already tracked`);
-      console.log(`  toApply:   ${plan.toApply.map((f) => f.version).join(', ') || '(none)'}`);
-      console.log(`  skipped:   ${plan.skipped.map((f) => f.version).join(', ') || '(none)'}`);
-      console.log(`  conflicts: ${plan.conflicts.map((c) => c.version).join(', ') || '(none)'}`);
+      console.log(`  toApply:           ${plan.toApply.map((f) => f.version).join(', ') || '(none)'}`);
+      console.log(`  skipped:           ${plan.skipped.length} file(s)`);
+      console.log(`  checksumBackfills: ${plan.checksumBackfills.length} file(s)`);
+      console.log(`  conflicts:         ${plan.conflicts.map((c) => c.version).join(', ') || '(none)'}`);
 
       if (plan.conflicts.length > 0) {
         console.error('Checksum conflicts — migration files edited after apply:');
@@ -184,6 +233,17 @@ async function main(): Promise<void> {
       if (dryRun) {
         console.log('--dry-run: no changes made');
         return;
+      }
+
+      // Always record checksums for legacy rows that are missing them.
+      for (const file of plan.checksumBackfills) {
+        await client.query(
+          `UPDATE schema_migrations SET checksum = $1, version = $2 WHERE name = $3`,
+          [file.checksum, file.version, file.name]
+        );
+      }
+      if (plan.checksumBackfills.length > 0) {
+        console.log(`Recorded checksums for ${plan.checksumBackfills.length} legacy rows`);
       }
 
       if (backfill) {
