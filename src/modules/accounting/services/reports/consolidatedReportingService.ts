@@ -167,30 +167,30 @@ export async function createEliminationAdjustment(
   }
 }
 
-export async function postEliminationAdjustment(adjustmentId: string): Promise<void> {
+export async function postEliminationAdjustment(adjustmentId: string, groupId: string): Promise<void> {
   try {
     const result = (await sql`
       UPDATE consolidation_adjustments SET status='posted', posted_at=NOW(), updated_at=NOW()
-      WHERE id=${adjustmentId}::UUID AND status='draft' RETURNING id
+      WHERE id=${adjustmentId}::UUID AND group_id=${groupId}::UUID AND status='draft' RETURNING id
     `) as DbRow[];
     if (result.length === 0) throw new Error(`Adjustment ${adjustmentId} not found or not in draft status`);
-    log.info('Posted elimination adjustment', { adjustmentId }, 'accounting');
+    log.info('Posted elimination adjustment', { adjustmentId, groupId }, 'accounting');
   } catch (err) {
-    log.error('Failed to post elimination adjustment', { adjustmentId, error: err }, 'accounting');
+    log.error('Failed to post elimination adjustment', { adjustmentId, groupId, error: err }, 'accounting');
     throw err;
   }
 }
 
-export async function reverseEliminationAdjustment(adjustmentId: string): Promise<void> {
+export async function reverseEliminationAdjustment(adjustmentId: string, groupId: string): Promise<void> {
   try {
     const result = (await sql`
       UPDATE consolidation_adjustments SET status='reversed', updated_at=NOW()
-      WHERE id=${adjustmentId}::UUID AND status='posted' RETURNING id
+      WHERE id=${adjustmentId}::UUID AND group_id=${groupId}::UUID AND status='posted' RETURNING id
     `) as DbRow[];
     if (result.length === 0) throw new Error(`Adjustment ${adjustmentId} not found or not in posted status`);
-    log.info('Reversed elimination adjustment', { adjustmentId }, 'accounting');
+    log.info('Reversed elimination adjustment', { adjustmentId, groupId }, 'accounting');
   } catch (err) {
-    log.error('Failed to reverse elimination adjustment', { adjustmentId, error: err }, 'accounting');
+    log.error('Failed to reverse elimination adjustment', { adjustmentId, groupId, error: err }, 'accounting');
     throw err;
   }
 }

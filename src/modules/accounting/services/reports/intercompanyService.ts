@@ -142,9 +142,10 @@ export async function createIntercompanyTransaction(input: {
 export async function matchIntercompanyTransactions(
   sourceId: string,
   targetId: string,
+  groupId: string,
 ): Promise<void> {
-  const sources = (await sql`SELECT * FROM intercompany_transactions WHERE id = ${sourceId}::UUID`) as Row[];
-  const targets = (await sql`SELECT * FROM intercompany_transactions WHERE id = ${targetId}::UUID`) as Row[];
+  const sources = (await sql`SELECT * FROM intercompany_transactions WHERE id = ${sourceId}::UUID AND group_id = ${groupId}::UUID`) as Row[];
+  const targets = (await sql`SELECT * FROM intercompany_transactions WHERE id = ${targetId}::UUID AND group_id = ${groupId}::UUID`) as Row[];
 
   if (!sources[0] || !targets[0]) {
     throw new Error('One or both intercompany transactions not found');
@@ -161,9 +162,10 @@ export async function matchIntercompanyTransactions(
       variance_amount = ${variance},
       matched_at = NOW()
     WHERE id IN (${sourceId}::UUID, ${targetId}::UUID)
+      AND group_id = ${groupId}::UUID
   `;
 
-  log.info('Intercompany transactions matched', { sourceId, targetId, status, variance }, 'accounting');
+  log.info('Intercompany transactions matched', { sourceId, targetId, groupId, status, variance }, 'accounting');
 }
 
 export async function getIntercompanyReconciliation(

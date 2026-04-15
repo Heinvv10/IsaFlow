@@ -62,7 +62,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (!sourceId || !targetId) return apiResponse.badRequest(res, 'sourceId and targetId required');
       if (!matchGroupId) return apiResponse.badRequest(res, 'groupId required');
       if (!(await verifyGroupAccess(matchGroupId as string, userId))) return apiResponse.forbidden(res, 'Access denied to this group');
-      await matchIntercompanyTransactions(sourceId, targetId);
+      await matchIntercompanyTransactions(sourceId, targetId, matchGroupId as string);
       return apiResponse.success(res, { matched: true });
     }
 

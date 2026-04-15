@@ -44,7 +44,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const user = (req as NextApiRequest & { user: { id: string; name: string; email: string } }).user;
 
   if (req.method === 'GET') return handleGet(req, res, companyId);
-  if (req.method === 'POST') return handlePost(req, res, user);
+  if (req.method === 'POST') return handlePost(req, res, user, companyId);
   if (req.method === 'DELETE') return handleDelete(req, res, companyId);
 
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'POST', 'DELETE']);
@@ -96,6 +96,7 @@ async function handlePost(
   req: NextApiRequest,
   res: NextApiResponse,
   user: { id: string; name: string; email: string },
+  companyId: string,
 ) {
   let tempFilePath: string | null = null;
 
@@ -116,6 +117,9 @@ async function handlePost(
     if (!VALID_DOCUMENT_TYPES.includes(documentType as typeof VALID_DOCUMENT_TYPES[number])) {
       return apiResponse.badRequest(res, `Invalid document_type. Allowed: ${VALID_DOCUMENT_TYPES.join(', ')}`);
     }
+
+    const owned = await verifyEntityOwnership(entityId, companyId);
+    if (!owned) return apiResponse.forbidden(res, 'Entity does not belong to your company');
 
     const fileField = files.file;
     const file = Array.isArray(fileField) ? fileField[0] : fileField;
