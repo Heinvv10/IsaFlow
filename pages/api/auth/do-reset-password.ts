@@ -4,12 +4,19 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { hashResetToken, isResetTokenExpired, hashPassword, checkPasswordStrength } from '@/lib/auth/password';
+
+const DoResetPasswordSchema = z.object({
+  token: z.string().min(1),
+  password: z.string().min(8),
+  confirmPassword: z.string().min(8),
+});
 
 interface TokenRow {
   id: string;
@@ -35,15 +42,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     });
   }
 
-  const { token, password, confirmPassword } = req.body as {
-    token?: string;
-    password?: string;
-    confirmPassword?: string;
-  };
-
-  if (!token || !password || !confirmPassword) {
-    return apiResponse.badRequest(res, 'Token, password, and confirm password are required');
+  const parsed = DoResetPasswordSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
   }
+  const body = parsed.data;
+  const { token, password, confirmPassword } = body;
 
   if (password !== confirmPassword) {
     return apiResponse.badRequest(res, 'Passwords do not match');
