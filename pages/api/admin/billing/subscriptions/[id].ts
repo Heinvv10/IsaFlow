@@ -5,6 +5,7 @@
  */
 
 import type { NextApiResponse } from 'next';
+import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
@@ -12,7 +13,15 @@ import { log } from '@/lib/logger';
 import { getSubscription, updateSubscription } from '@/modules/admin/services/billingService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
+import { UUID } from '@/lib/schemas/common';
 
+const PatchBody = z.object({
+  plan_id:          UUID.optional(),
+  billing_cycle:    z.enum(['monthly', 'annual']).optional(),
+  discount_percent: z.number().min(0).max(50).optional(),
+  status:           z.enum(['active', 'trial', 'past_due', 'cancelled', 'suspended']).optional(),
+  notes:            z.string().max(2000).optional(),
+}).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const id = req.query.id as string;
@@ -29,28 +38,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'PATCH') {
+    const parsed = PatchBody.safeParse(req.body);
+    if (!parsed.success) {
+      return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'Invalid input');
+    }
+
     try {
-      const { plan_id, billing_cycle, discount_percent, status, notes } = req.body as {
-        plan_id?: string;
-        billing_cycle?: string;
-        discount_percent?: number;
-        status?: string;
-        notes?: string;
-      };
-
-      const VALID_STATUSES = ['active', 'trial', 'past_due', 'cancelled', 'suspended'];
-      if (status && !VALID_STATUSES.includes(status)) {
-        return apiResponse.badRequest(res, `Invalid status. Allowed: ${VALID_STATUSES.join(', ')}`);
-      }
-      if (discount_percent != null && (discount_percent < 0 || discount_percent > 50)) {
-        return apiResponse.badRequest(res, 'discount_percent must be between 0 and 50');
-      }
-      const VALID_CYCLES = ['monthly', 'annual'];
-      if (billing_cycle && !VALID_CYCLES.includes(billing_cycle)) {
-        return apiResponse.badRequest(res, `Invalid billing_cycle. Allowed: ${VALID_CYCLES.join(', ')}`);
-      }
-
-      const body = { plan_id, billing_cycle, discount_percent, status, notes };
+      const body = parsed.data;
       await updateSubscription(id, body);
 
       await logAdminAction(
@@ -59,7 +53,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         'subscription',
         id,
         body as Record<string, unknown>,
-        getIp(req)
+        getIp(req),
       );
 
       return apiResponse.success(res, { updated: true });

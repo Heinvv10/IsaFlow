@@ -5,12 +5,18 @@
  */
 
 import type { NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { redeliverWebhook } from '@/modules/admin/services/adminWebhookService';
+import { UUID } from '@/lib/schemas/common';
+
+const PostBody = z.object({
+  deliveryId: UUID.optional(),
+}).strict();
 
 function getIp(req: AuthenticatedNextApiRequest): string {
   const fwd = req.headers['x-forwarded-for'];
@@ -30,7 +36,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const webhookId = req.query.id as string;
   if (!webhookId) return apiResponse.badRequest(res, 'id is required');
 
-  const { deliveryId } = (req.body ?? {}) as { deliveryId?: string };
+  const bodyParsed = PostBody.safeParse(req.body ?? {});
+  if (!bodyParsed.success) {
+    return apiResponse.badRequest(res, bodyParsed.error.flatten().formErrors[0] ?? 'Invalid input');
+  }
+
+  const { deliveryId } = bodyParsed.data;
 
   try {
     const result = await redeliverWebhook(webhookId, deliveryId);

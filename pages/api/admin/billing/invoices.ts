@@ -5,6 +5,7 @@
  */
 
 import type { NextApiResponse } from 'next';
+import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
@@ -12,7 +13,18 @@ import { log } from '@/lib/logger';
 import { listInvoices, createInvoice } from '@/modules/admin/services/invoiceService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
+import { UUID } from '@/lib/schemas/common';
 
+const PostBody = z.object({
+  company_id:      UUID,
+  subscription_id: UUID.optional(),
+  subtotal_cents:  z.number().int().nonnegative(),
+  tax_cents:       z.number().int().nonnegative().optional(),
+  total_cents:     z.number().int().nonnegative(),
+  due_date:        z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  line_items:      z.array(z.record(z.string(), z.unknown())).optional(),
+  notes:           z.string().max(2000).optional(),
+}).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
@@ -37,30 +49,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'POST') {
-    try {
-      const {
-        company_id,
-        subscription_id,
-        subtotal_cents,
-        tax_cents,
-        total_cents,
-        due_date,
-        line_items,
-        notes,
-      } = req.body as {
-        company_id: string;
-        subscription_id?: string;
-        subtotal_cents: number;
-        tax_cents: number;
-        total_cents: number;
-        due_date?: string;
-        line_items?: Record<string, unknown>[];
-        notes?: string;
-      };
+    const parsed = PostBody.safeParse(req.body);
+    if (!parsed.success) {
+      return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'Invalid input');
+    }
 
-      if (!company_id || subtotal_cents == null || total_cents == null) {
-        return apiResponse.badRequest(res, 'company_id, subtotal_cents, and total_cents are required');
-      }
+    try {
+      const { company_id, subscription_id, subtotal_cents, tax_cents, total_cents, due_date, line_items, notes } = parsed.data;
 
       const invoiceId = await createInvoice({
         company_id,
@@ -78,7 +73,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         'invoice.create',
         'invoice',
         invoiceId,
-        { company_id, subscription_id, total_cents },
+        { company_id: parsed.data.company_id, subscription_id: parsed.data.subscription_id, total_cents: parsed.data.total_cents },
         getIp(req)
       );
 

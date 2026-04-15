@@ -6,6 +6,7 @@
  */
 
 import type { NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { apiResponse } from '@/lib/apiResponse';
@@ -17,6 +18,12 @@ import {
   deleteAdminWebhook,
   type UpdateWebhookParams,
 } from '@/modules/admin/services/adminWebhookService';
+
+const PatchBody = z.object({
+  status: z.enum(['active', 'disabled']).optional(),
+  url:    z.string().url().optional(),
+  events: z.array(z.string().min(1)).optional(),
+}).strict();
 
 function getIp(req: AuthenticatedNextApiRequest): string {
   const fwd = req.headers['x-forwarded-for'];
@@ -46,12 +53,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   // ── PATCH ─────────────────────────────────────────────────────────────────
   if (req.method === 'PATCH') {
-    const { status, url, events } = req.body as UpdateWebhookParams;
-
-    const validStatuses = ['active', 'disabled'] as const;
-    if (status !== undefined && !validStatuses.includes(status)) {
-      return apiResponse.badRequest(res, 'status must be "active" or "disabled"');
+    const parsed = PatchBody.safeParse(req.body);
+    if (!parsed.success) {
+      return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'Invalid input');
     }
+
+    const { status, url, events } = parsed.data as UpdateWebhookParams;
 
     try {
       const updated = await updateAdminWebhook(id, { status, url, events });

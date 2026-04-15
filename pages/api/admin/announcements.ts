@@ -5,6 +5,7 @@
  */
 
 import type { NextApiResponse } from 'next';
+import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
@@ -16,6 +17,16 @@ import {
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 
+const PostBody = z.object({
+  title:          z.string().min(1),
+  message:        z.string().min(1),
+  type:           z.string().optional(),
+  target:         z.string().optional(),
+  target_ids:     z.array(z.string()).optional(),
+  starts_at:      z.string().min(1),
+  ends_at:        z.string().optional(),
+  is_dismissible: z.boolean().optional(),
+}).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
@@ -34,24 +45,24 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'POST') {
-    try {
-      const { title, message, type, target, target_ids, starts_at, ends_at, is_dismissible } =
-        req.body as Record<string, unknown>;
+    const parsed = PostBody.safeParse(req.body);
+    if (!parsed.success) {
+      return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'Invalid input');
+    }
 
-      if (!title || !message || !starts_at) {
-        return apiResponse.badRequest(res, 'title, message, and starts_at are required');
-      }
+    try {
+      const { title, message, type, target, target_ids, starts_at, ends_at, is_dismissible } = parsed.data;
 
       const id = await createAnnouncement({
-        title:          String(title),
-        message:        String(message),
-        type:           type          ? String(type)    : undefined,
-        target:         target        ? String(target)  : undefined,
-        target_ids:     Array.isArray(target_ids) ? (target_ids as string[]) : undefined,
-        starts_at:      String(starts_at),
-        ends_at:        ends_at       ? String(ends_at) : undefined,
-        is_dismissible: typeof is_dismissible === 'boolean' ? is_dismissible : undefined,
-        created_by:     req.user.id,
+        title,
+        message,
+        type,
+        target,
+        target_ids,
+        starts_at,
+        ends_at,
+        is_dismissible,
+        created_by: req.user.id,
       });
 
       await logAdminAction(

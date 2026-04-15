@@ -6,6 +6,7 @@
  */
 
 import type { NextApiResponse } from 'next';
+import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
@@ -18,6 +19,16 @@ import {
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 
+const PatchBody = z.object({
+  title:          z.string().min(1).optional(),
+  message:        z.string().min(1).optional(),
+  type:           z.string().optional(),
+  target:         z.string().optional(),
+  target_ids:     z.array(z.string()).optional(),
+  starts_at:      z.string().optional(),
+  ends_at:        z.string().optional(),
+  is_dismissible: z.boolean().optional(),
+}).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const id = req.query.id as string;
@@ -34,25 +45,20 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'PATCH') {
+    const parsed = PatchBody.safeParse(req.body);
+    if (!parsed.success) {
+      return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'Invalid input');
+    }
+
     try {
-      const body = req.body as Record<string, unknown>;
-      await updateAnnouncement(id, {
-        title:          body.title          ? String(body.title)          : undefined,
-        message:        body.message        ? String(body.message)        : undefined,
-        type:           body.type           ? String(body.type)           : undefined,
-        target:         body.target         ? String(body.target)         : undefined,
-        target_ids:     Array.isArray(body.target_ids) ? (body.target_ids as string[]) : undefined,
-        starts_at:      body.starts_at      ? String(body.starts_at)      : undefined,
-        ends_at:        body.ends_at        ? String(body.ends_at)        : undefined,
-        is_dismissible: typeof body.is_dismissible === 'boolean' ? body.is_dismissible : undefined,
-      });
+      await updateAnnouncement(id, parsed.data);
 
       await logAdminAction(
         req.user.id,
         'announcement.update',
         'announcement',
         id,
-        body as Record<string, unknown>,
+        parsed.data as Record<string, unknown>,
         getIp(req)
       );
 

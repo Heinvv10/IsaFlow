@@ -4,6 +4,7 @@
  */
 
 import type { NextApiResponse } from 'next';
+import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
@@ -11,18 +12,23 @@ import { log } from '@/lib/logger';
 import { removeUserFromCompany } from '@/modules/admin/services/adminUserActionsService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
+import { UUID } from '@/lib/schemas/common';
 
+const DeleteBody = z.object({
+  company_id: UUID,
+}).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const userId = req.query.id as string;
 
   if (req.method === 'DELETE') {
-    try {
-      const { company_id } = req.body as { company_id?: string };
+    const parsed = DeleteBody.safeParse(req.body);
+    if (!parsed.success) {
+      return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'company_id must be a valid UUID');
+    }
 
-      if (!company_id) {
-        return apiResponse.badRequest(res, 'company_id is required');
-      }
+    try {
+      const { company_id } = parsed.data;
 
       await removeUserFromCompany(userId, company_id);
 

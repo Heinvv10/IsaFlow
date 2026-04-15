@@ -5,6 +5,7 @@
  */
 
 import type { NextApiResponse } from 'next';
+import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
@@ -13,6 +14,17 @@ import { listPlans, createPlan } from '@/modules/admin/services/planService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 
+const PostBody = z.object({
+  code:                 z.string().min(1).max(50),
+  name:                 z.string().min(1).max(100),
+  description:          z.string().max(500).optional(),
+  monthly_price_cents:  z.number().int().nonnegative(),
+  annual_price_cents:   z.number().int().nonnegative().optional(),
+  currency:             z.string().length(3).optional(),
+  features:             z.record(z.string(), z.unknown()).optional(),
+  limits:               z.record(z.string(), z.unknown()).optional(),
+  display_order:        z.number().int().min(0).optional(),
+}).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
@@ -27,32 +39,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'POST') {
-    try {
-      const {
-        code,
-        name,
-        description,
-        monthly_price_cents,
-        annual_price_cents,
-        currency,
-        features,
-        limits,
-        display_order,
-      } = req.body as {
-        code: string;
-        name: string;
-        description?: string;
-        monthly_price_cents: number;
-        annual_price_cents: number | undefined;
-        currency?: string;
-        features?: Record<string, unknown>;
-        limits?: Record<string, unknown>;
-        display_order?: number;
-      };
+    const parsed = PostBody.safeParse(req.body);
+    if (!parsed.success) {
+      return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'Invalid input');
+    }
 
-      if (!code || !name || monthly_price_cents == null) {
-        return apiResponse.badRequest(res, 'code, name, and monthly_price_cents are required');
-      }
+    try {
+      const { code, name, description, monthly_price_cents, annual_price_cents, currency, features, limits, display_order } = parsed.data;
 
       const plan = await createPlan({
         code,
@@ -71,7 +64,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         'plan.create',
         'plan',
         plan.id,
-        { code, name, monthly_price_cents },
+        { code: parsed.data.code, name: parsed.data.name, monthly_price_cents: parsed.data.monthly_price_cents },
         getIp(req)
       );
 

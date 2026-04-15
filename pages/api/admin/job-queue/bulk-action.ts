@@ -9,21 +9,30 @@
  */
 
 import type { NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
+import { UUID } from '@/lib/schemas/common';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type BulkAction = 'retry' | 'cancel' | 'delete_old';
-
-interface BulkActionBody {
-  action: BulkAction;
-  ids?: string[];
-  olderThanDays?: number;
-}
+const PostBody = z.discriminatedUnion('action', [
+  z.object({
+    action: z.literal('retry'),
+    ids:    z.array(UUID).min(1).max(200),
+  }).strict(),
+  z.object({
+    action: z.literal('cancel'),
+    ids:    z.array(UUID).min(1).max(200),
+  }).strict(),
+  z.object({
+    action:        z.literal('delete_old'),
+    olderThanDays: z.number().int().min(1).max(365).optional(),
+  }).strict(),
+]);
 
 interface BulkResult {
   processed: number;
@@ -110,34 +119,28 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
 
-  const { action, ids, olderThanDays } = req.body as BulkActionBody;
+  const parsed = PostBody.safeParse(req.body);
+  if (!parsed.success) {
+    return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'Invalid input');
+  }
 
-  if (!action) return apiResponse.badRequest(res, 'action is required');
+  const data = parsed.data;
+  const { action } = data;
 
   if (action === 'retry') {
-    if (!ids || ids.length === 0) return apiResponse.badRequest(res, 'ids are required for retry');
-    if (ids.length > 200) return apiResponse.badRequest(res, 'Maximum 200 IDs per bulk action');
-
-    const result = await retryBulk(ids);
+    const result = await retryBulk(data.ids);
     log.info('Bulk retry', { processed: result.processed, errors: result.errors.length }, 'admin-job-bulk');
     return apiResponse.success(res, result, `Retried ${result.processed} job(s)`);
   }
 
   if (action === 'cancel') {
-    if (!ids || ids.length === 0) return apiResponse.badRequest(res, 'ids are required for cancel');
-    if (ids.length > 200) return apiResponse.badRequest(res, 'Maximum 200 IDs per bulk action');
-
-    const result = await cancelBulk(ids);
+    const result = await cancelBulk(data.ids);
     log.info('Bulk cancel', { processed: result.processed, errors: result.errors.length }, 'admin-job-bulk');
     return apiResponse.success(res, result, `Cancelled ${result.processed} job(s)`);
   }
 
   if (action === 'delete_old') {
-    const days = olderThanDays ?? 30;
-    if (typeof days !== 'number' || days < 1) {
-      return apiResponse.badRequest(res, 'olderThanDays must be a positive number');
-    }
-
+    const days = data.olderThanDays ?? 30;
     const result = await deleteOldJobs(days);
     log.info('Bulk delete old jobs', { days, processed: result.processed }, 'admin-job-bulk');
     return apiResponse.success(res, result, `Deleted ${result.processed} old job(s)`);

@@ -5,6 +5,7 @@
  */
 
 import type { NextApiResponse } from 'next';
+import { z } from 'zod';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
@@ -12,25 +13,24 @@ import { log } from '@/lib/logger';
 import { markAsConverted } from '@/modules/admin/services/trialService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
+import { UUID } from '@/lib/schemas/common';
 
-interface ConvertBody {
-  companyId: string;
-  planId: string;
-}
+const PostBody = z.object({
+  companyId: UUID,
+  planId:    UUID,
+}).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
 
-  const { companyId, planId } = req.body as ConvertBody;
+  const parsed = PostBody.safeParse(req.body);
+  if (!parsed.success) {
+    return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'Invalid input');
+  }
 
-  if (!companyId || typeof companyId !== 'string' || !companyId.trim()) {
-    return apiResponse.badRequest(res, 'companyId is required');
-  }
-  if (!planId || typeof planId !== 'string' || !planId.trim()) {
-    return apiResponse.badRequest(res, 'planId is required');
-  }
+  const { companyId, planId } = parsed.data;
 
   try {
     await markAsConverted(companyId, planId);
