@@ -6,6 +6,7 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { serialize } from 'cookie';
+import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { hashPassword, checkPasswordStrength } from '@/lib/auth';
@@ -16,7 +17,17 @@ import { signToken } from '@/lib/auth/jwt';
 import { createSession } from '@/lib/auth/session';
 import { AUTH_COOKIE_NAME } from '@/lib/auth/middleware';
 import type { AuthRole } from '@/lib/auth/types';
+import { Email, NonEmptyString } from '@/lib/schemas/common';
 type Row = Record<string, unknown>;
+
+const RegisterSchema = z.object({
+  firstName: NonEmptyString,
+  lastName: NonEmptyString,
+  email: Email,
+  password: z.string().min(8),
+  confirmPassword: z.string().min(8),
+  inviteToken: z.string().optional(),
+});
 
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -34,25 +45,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     });
   }
 
-  const { firstName, lastName, email, password, confirmPassword, inviteToken } = req.body as {
-    firstName?: string;
-    lastName?: string;
-    email?: string;
-    password?: string;
-    confirmPassword?: string;
-    inviteToken?: string;
-  };
-
-  // Validate all fields present
-  if (!firstName || !lastName || !email || !password || !confirmPassword) {
-    return apiResponse.badRequest(res, 'All fields are required');
+  const parsed = RegisterSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
   }
-
-  // Validate email format
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!emailRegex.test(email)) {
-    return apiResponse.badRequest(res, 'Please enter a valid email address');
-  }
+  const body = parsed.data;
+  const { firstName, lastName, email, password, confirmPassword, inviteToken } = body;
 
   // Validate passwords match
   if (password !== confirmPassword) {

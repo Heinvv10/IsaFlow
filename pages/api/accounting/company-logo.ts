@@ -4,11 +4,18 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
+import { UUID } from '@/lib/schemas/common';
 type Row = Record<string, unknown>;
+
+const CompanyLogoSchema = z.object({
+  companyId: UUID,
+  logoData: z.string().min(1).startsWith('data:image/').max(6_800_000, 'Logo must be smaller than 5MB'),
+});
 
 
 /**
@@ -24,13 +31,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const userId = (req as AuthenticatedNextApiRequest).user.id;
-  const { companyId, logoData } = req.body as {
-    companyId?: string;
-    logoData?: string;
-  };
 
-  if (!companyId) return apiResponse.badRequest(res, 'companyId is required');
-  if (!logoData) return apiResponse.badRequest(res, 'logoData is required');
+  const parsed = CompanyLogoSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
+  }
+  const { companyId, logoData } = parsed.data;
 
   // Validate ownership (owner or admin)
   const membership = (await sql`
@@ -43,16 +49,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
   if (!['owner', 'admin'].includes(String(membership[0]!.role))) {
     return apiResponse.forbidden(res, 'Only owners and admins can update the company logo');
-  }
-
-  // Validate data URL format
-  if (!logoData.startsWith('data:image/')) {
-    return apiResponse.badRequest(res, 'logoData must be a valid data:image/ URL');
-  }
-
-  // Validate size < 5MB (base64 is ~1.33x raw, so 5MB raw ~ 6.8M chars)
-  if (logoData.length > 6_800_000) {
-    return apiResponse.badRequest(res, 'Logo must be smaller than 5MB');
   }
 
   await sql`

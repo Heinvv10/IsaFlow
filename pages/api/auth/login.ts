@@ -6,6 +6,7 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { serialize } from 'cookie';
+import { z } from 'zod';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { apiResponse } from '@/lib/apiResponse';
@@ -17,7 +18,14 @@ import type { AuthRole } from '@/lib/auth/types';
 import { get2FAStatus, isTrustedDevice } from '@/modules/auth/services/twoFactorService';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { Email } from '@/lib/schemas/common';
 type Row = Record<string, unknown>;
+
+const LoginSchema = z.object({
+  email: Email,
+  password: z.string().min(8),
+  deviceFingerprint: z.string().optional(),
+});
 
 // Real bcrypt hash of 'timing-safe-dummy' at cost 12, used for constant-time rejection.
 const TIMING_SAFE_HASH = '$2a$12$K4GByFHHbpZQKxVKzPEfXOdQuGfe0gPISQEFMEfcrrKjAXBgmC.Xq';
@@ -45,15 +53,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     });
   }
 
-  const { email, password, deviceFingerprint } = req.body as {
-    email?: string;
-    password?: string;
-    deviceFingerprint?: string;
-  };
-
-  if (!email || !password) {
-    return apiResponse.badRequest(res, 'Email and password are required');
+  const parsed = LoginSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
   }
+  const body = parsed.data;
+  const { email, password, deviceFingerprint } = body;
 
   try {
     // Look up user by email

@@ -6,6 +6,7 @@
  */
 
 import type { NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, withRole, type AuthenticatedNextApiRequest } from '@/lib/auth';
@@ -20,6 +21,25 @@ import {
   resetMigration,
 } from '@/modules/accounting/services/core/sageMigrationService';
 
+const SageMigrationActionSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('auto_map') }),
+  z.object({
+    action: z.literal('manual_map'),
+    sageAccountId: z.string().min(1),
+    glAccountId: z.string().optional(),
+    notes: z.string().optional(),
+  }),
+  z.object({ action: z.literal('import_ledger') }),
+  z.object({ action: z.literal('import_invoices') }),
+  z.object({ action: z.literal('import_customer_invoices') }),
+  z.object({ action: z.literal('compare') }),
+  z.object({
+    action: z.literal('reset'),
+    resetType: z.enum(['accounts', 'ledger', 'invoices', 'customer_invoices']),
+    confirm: z.literal(true),
+  }),
+]);
+
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method || '', ['POST']);
@@ -27,24 +47,24 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const { companyId } = req as CompanyApiRequest;
   const userId = req.user.id;
-  const { action } = req.body;
 
-  if (!action) {
-    return apiResponse.badRequest(res, 'action is required');
+  const parsed = SageMigrationActionSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
   }
+  const body = parsed.data;
 
-  log.info(`Sage migration action: ${action}`, { userId }, 'accounting');
+  log.info(`Sage migration action: ${body.action}`, { userId }, 'accounting');
 
-  switch (action) {
+  switch (body.action) {
     case 'auto_map': {
       const run = await autoMapAccounts(companyId, userId);
       return apiResponse.success(res, run);
     }
 
     case 'manual_map': {
-      const { sageAccountId, glAccountId, notes } = req.body;
-      if (!sageAccountId) return apiResponse.badRequest(res, 'sageAccountId is required');
-      await mapAccount(companyId, sageAccountId, glAccountId || null, notes);
+      const { sageAccountId, glAccountId, notes } = body;
+      await mapAccount(companyId, sageAccountId, glAccountId ?? null, notes);
       return apiResponse.success(res, { mapped: true });
     }
 
@@ -69,13 +89,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
 
     case 'reset': {
-      const { resetType, confirm } = req.body;
-      if (!resetType || !['accounts', 'ledger', 'invoices', 'customer_invoices'].includes(resetType)) {
-        return apiResponse.badRequest(res, 'resetType must be accounts, ledger, invoices, or customer_invoices');
-      }
-      if (confirm !== true) {
-        return apiResponse.badRequest(res, 'Reset requires { confirm: true } to prevent accidental data loss');
-      }
+      const { resetType } = body;
       log.warn('Sage migration reset initiated', {
         resetType,
         userId,
@@ -84,9 +98,6 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       await resetMigration(companyId, resetType);
       return apiResponse.success(res, { reset: resetType });
     }
-
-    default:
-      return apiResponse.badRequest(res, `Unknown action: ${action}`);
   }
 }
 

@@ -5,6 +5,7 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
@@ -13,6 +14,11 @@ import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { generateResetToken } from '@/lib/auth/password';
 import { sendEmail } from '@/modules/accounting/services/core/emailService';
 import { passwordResetEmailHtml } from '@/lib/email-templates-auth';
+import { Email } from '@/lib/schemas/common';
+
+const ForgotPasswordSchema = z.object({
+  email: Email,
+});
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://app.isaflow.co.za';
 
@@ -37,10 +43,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     });
   }
 
-  const { email } = req.body as { email?: string };
-  if (!email || typeof email !== 'string') {
-    return apiResponse.badRequest(res, 'Email is required');
+  const parsed = ForgotPasswordSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
   }
+  const { email } = parsed.data;
 
   const normalised = email.trim().toLowerCase();
 
