@@ -68,3 +68,62 @@ describe('GET /api/health (shallow)', () => {
     vi.resetModules();
   });
 });
+
+describe('GET /api/health/deep', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.doMock('@/lib/neon', () => ({
+      sql: Object.assign(
+        async () => [{ ok: 1 }],
+        { transaction: async () => [] }
+      ),
+    }));
+  });
+
+  it('returns 200 ok when all deps are healthy', async () => {
+    vi.doMock('@/lib/observability/deepChecks', () => ({
+      checkDb: async () => ({ name: 'db', status: 'ok' as const, durationMs: 3 }),
+      checkSmtp: async () => ({ name: 'smtp', status: 'ok' as const, durationMs: 12 }),
+      checkStitch: async () => ({ name: 'stitch', status: 'ok' as const, durationMs: 40 }),
+    }));
+    const handler = (await import('../../../pages/api/health/deep')).default;
+    const { res, status, body } = makeRes();
+    await handler(makeReq('GET'), res);
+    expect(status()).toBe(200);
+    const b = body() as any;
+    expect(b.status).toBe('ok');
+    expect(b.checks.db.status).toBe('ok');
+    expect(b.checks.smtp.status).toBe('ok');
+    expect(b.checks.stitch.status).toBe('ok');
+  });
+
+  it('returns 200 degraded when a non-DB dep fails', async () => {
+    vi.doMock('@/lib/observability/deepChecks', () => ({
+      checkDb: async () => ({ name: 'db', status: 'ok' as const, durationMs: 3 }),
+      checkSmtp: async () => ({ name: 'smtp', status: 'down' as const, durationMs: 2000, error: 'timeout' }),
+      checkStitch: async () => ({ name: 'stitch', status: 'ok' as const, durationMs: 40 }),
+    }));
+    const handler = (await import('../../../pages/api/health/deep')).default;
+    const { res, status, body } = makeRes();
+    await handler(makeReq('GET'), res);
+    expect(status()).toBe(200);
+    const b = body() as any;
+    expect(b.status).toBe('degraded');
+    expect(b.checks.smtp.status).toBe('down');
+  });
+
+  it('returns 503 when DB itself is down', async () => {
+    vi.doMock('@/lib/observability/deepChecks', () => ({
+      checkDb: async () => ({ name: 'db', status: 'down' as const, durationMs: 2000, error: 'timeout' }),
+      checkSmtp: async () => ({ name: 'smtp', status: 'ok' as const, durationMs: 12 }),
+      checkStitch: async () => ({ name: 'stitch', status: 'ok' as const, durationMs: 40 }),
+    }));
+    const handler = (await import('../../../pages/api/health/deep')).default;
+    const { res, status, body } = makeRes();
+    await handler(makeReq('GET'), res);
+    expect(status()).toBe(503);
+    const b = body() as any;
+    expect(b.status).toBe('down');
+    expect(b.checks.db.status).toBe('down');
+  });
+});
