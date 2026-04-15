@@ -49,10 +49,10 @@ export interface ComparisonReport {
 
 // ── Run Tracking (exported for sageImportService) ───────────────────────────
 
-export async function startRun(runType: string, userId: string): Promise<string> {
+export async function startRun(runType: string, userId: string, companyId: string): Promise<string> {
   const rows = (await sql`
-    INSERT INTO gl_migration_runs (run_type, status, started_by)
-    VALUES (${runType}, 'running', ${userId})
+    INSERT INTO gl_migration_runs (run_type, status, started_by, company_id)
+    VALUES (${runType}, 'running', ${userId}, ${companyId}::UUID)
     RETURNING id
   `) as Row[];
   return String(rows[0]!.id);
@@ -199,7 +199,7 @@ function nameSimilarity(a: string, b: string): number {
 }
 
 export async function autoMapAccounts(companyId: string, userId: string): Promise<MigrationRun> {
-  const runId = await startRun('account_mapping', userId);
+  const runId = await startRun('account_mapping', userId, companyId);
   try {
     const sageAccounts = (await sql`
       SELECT id, sage_account_id, name, account_type, balance FROM sage_accounts WHERE company_id = ${companyId}::UUID AND gl_account_id IS NULL ORDER BY name

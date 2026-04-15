@@ -17,7 +17,7 @@ type Row = DbRow;
  * Import sage_customer_invoices into customer_invoices with line items
  */
 export async function importCustomerInvoices(companyId: string, userId: string): Promise<MigrationRun> {
-  const runId = await startRun('customer_invoice_import', userId);
+  const runId = await startRun('customer_invoice_import', userId, companyId);
 
   try {
     const sageInvoices = (await sql`
