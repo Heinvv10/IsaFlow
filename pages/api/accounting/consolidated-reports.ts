@@ -101,14 +101,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (action === 'post-elimination') {
       const { adjustmentId } = req.body;
       if (!adjustmentId) return apiResponse.badRequest(res, 'adjustmentId required');
-      await postEliminationAdjustment(adjustmentId);
+      await postEliminationAdjustment(adjustmentId, gId);
       return apiResponse.success(res, { posted: true });
     }
 
     if (action === 'reverse-elimination') {
       const { adjustmentId } = req.body;
       if (!adjustmentId) return apiResponse.badRequest(res, 'adjustmentId required');
-      await reverseEliminationAdjustment(adjustmentId);
+      await reverseEliminationAdjustment(adjustmentId, gId);
       return apiResponse.success(res, { reversed: true });
     }
 
