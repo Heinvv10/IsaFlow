@@ -1,19 +1,26 @@
 /**
  * Journal Entry Actions API
  * POST /api/accounting/journal-entries-action - Post or reverse an entry
- * Body: { id, action: 'post' | 'reverse', userId }
+ * Body: { id, action: 'post' | 'reverse' }
  */
 
+import { z } from 'zod';
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { UUID } from '@/lib/schemas/common';
 import {
   postJournalEntry,
   reverseJournalEntry,
 } from '@/modules/accounting/services/gl/journalEntryService';
+
+const JournalEntryActionSchema = z.object({
+  id: UUID,
+  action: z.enum(['post', 'reverse']),
+});
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -22,12 +29,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const { companyId } = req as CompanyApiRequest;
 
+  const parsed = JournalEntryActionSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return apiResponse.validationError(res, parsed.error.flatten().fieldErrors as Record<string, string[]>);
+  }
+
   try {
-    const { id, action } = req.body;
+    const { id, action } = parsed.data;
     const userId = req.user.id;
-    if (!id || !action) {
-      return apiResponse.badRequest(res, 'id and action are required');
-    }
 
     let result;
     switch (action) {

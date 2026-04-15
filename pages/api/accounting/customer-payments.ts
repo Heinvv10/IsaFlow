@@ -4,18 +4,35 @@
  * POST /api/accounting/customer-payments - Create payment with allocations
  */
 
+import { z } from 'zod';
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type AuthenticatedNextApiRequest, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { UUID, ISODate } from '@/lib/schemas/common';
 import {
   getCustomerPayments,
   getCustomerPaymentById,
   createCustomerPayment,
 } from '@/modules/accounting/services/ar/customerPaymentService';
 import type { CustomerPaymentStatus } from '@/modules/accounting/types/ar.types';
+
+const CreateCustomerPaymentSchema = z.object({
+  clientId: UUID,
+  paymentDate: ISODate,
+  totalAmount: z.coerce.number().nonnegative().multipleOf(0.01),
+  paymentMethod: z.string().max(50).optional(),
+  bankReference: z.string().max(200).optional(),
+  bankAccountId: UUID.optional(),
+  description: z.string().max(500).optional(),
+  projectId: UUID.optional(),
+  allocations: z.array(z.object({
+    invoiceId: UUID,
+    amount: z.coerce.number().nonnegative().multipleOf(0.01),
+  })).min(1).max(200),
+});
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;
@@ -45,29 +62,29 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'POST') {
+    const postParsed = CreateCustomerPaymentSchema.safeParse(req.body);
+    if (!postParsed.success) {
+      return apiResponse.validationError(res, postParsed.error.flatten().fieldErrors as Record<string, string[]>);
+    }
     try {
       const { clientId, paymentDate, totalAmount, paymentMethod, bankReference,
-        bankAccountId, description, projectId, allocations } = req.body;
-
-      if (!clientId || !paymentDate || !totalAmount || !allocations || !Array.isArray(allocations)) {
-        return apiResponse.badRequest(res, 'clientId, paymentDate, totalAmount, and allocations are required');
-      }
+        bankAccountId, description, projectId, allocations } = postParsed.data;
 
       // User identity comes from JWT (req.user), never from client request body
       const userId = req.user.id;
 
       const payment = await createCustomerPayment(companyId, {
-        clientId: String(clientId),
+        clientId,
         paymentDate,
-        totalAmount: Number(totalAmount),
+        totalAmount,
         paymentMethod: paymentMethod || 'eft',
         bankReference: bankReference || undefined,
         bankAccountId: bankAccountId || undefined,
         description: description || undefined,
         projectId: projectId || undefined,
         allocations: allocations.map((a: { invoiceId: string; amount: number }) => ({
-          invoiceId: String(a.invoiceId),
-          amount: Number(a.amount),
+          invoiceId: a.invoiceId,
+          amount: a.amount,
         })),
       }, userId);
 
