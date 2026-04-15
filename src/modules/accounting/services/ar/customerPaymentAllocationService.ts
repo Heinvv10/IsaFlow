@@ -144,7 +144,7 @@ export async function postCustomerInvoiceToGL(
     const invRows = (await sql`
       SELECT ci.*, c.name AS client_name
       FROM customer_invoices ci LEFT JOIN customers c ON c.id = ci.client_id
-      WHERE ci.id = ${invoiceId}::UUID
+      WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID
     `) as Row[];
     if (invRows.length === 0) throw new Error(`Invoice ${invoiceId} not found`);
     const inv = invRows[0]!;
