@@ -6,15 +6,17 @@ const SENSITIVE_KEY_RE = /pass|token|secret|otp|bank|iban|account.*number/i;
 const DROP_HEADERS = new Set(['cookie', 'authorization', 'x-csrf-token']);
 const REDACTED = '[REDACTED]';
 
-function redactObject(input: unknown): unknown {
+function redactObject(input: unknown, visited: WeakSet<object> = new WeakSet()): unknown {
   if (!input || typeof input !== 'object') return input;
-  if (Array.isArray(input)) return input.map(redactObject);
+  if (visited.has(input as object)) return '[CIRCULAR]';
+  visited.add(input as object);
+  if (Array.isArray(input)) return input.map((item) => redactObject(item, visited));
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
     if (SENSITIVE_KEY_RE.test(k)) {
       out[k] = REDACTED;
     } else if (v && typeof v === 'object') {
-      out[k] = redactObject(v);
+      out[k] = redactObject(v, visited);
     } else {
       out[k] = v;
     }
@@ -28,8 +30,14 @@ function redactQueryString(qs: string): string {
     .map((pair) => {
       const eq = pair.indexOf('=');
       if (eq === -1) return pair;
-      const k = pair.slice(0, eq);
-      return SENSITIVE_KEY_RE.test(k) ? `${k}=${encodeURIComponent(REDACTED)}` : pair;
+      const rawKey = pair.slice(0, eq);
+      let decodedKey: string;
+      try {
+        decodedKey = decodeURIComponent(rawKey);
+      } catch {
+        decodedKey = rawKey;
+      }
+      return SENSITIVE_KEY_RE.test(decodedKey) ? `${rawKey}=${REDACTED}` : pair;
     })
     .join('&');
 }
