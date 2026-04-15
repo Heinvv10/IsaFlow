@@ -9,7 +9,7 @@ import * as Sentry from '@sentry/nextjs';
 import { sql } from '@/lib/neon';
 import { withAuth, type AuthenticatedNextApiRequest } from './middleware';
 import { log } from '@/lib/logger';
-import { setTenantTags } from '@/lib/sentry/tags';
+import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 
 export interface CompanyApiRequest extends AuthenticatedNextApiRequest {
   companyId: string;
@@ -48,7 +48,7 @@ export function withCompany(handler: CompanyHandler): NextApiHandler {
           (req as CompanyApiRequest).companyRole = 'owner';
           if (process.env.SENTRY_ENABLED === 'true') {
             return Sentry.withIsolationScope(() => {
-              setTenantTags({ companyId, userId, route: req.url });
+              setTenantTags({ companyId, userId, route: sanitizeRoute(req.url) });
               return handler(req, res);
             });
           }
@@ -74,7 +74,7 @@ export function withCompany(handler: CompanyHandler): NextApiHandler {
         (req as CompanyApiRequest).companyRole = access[0]!.role as string;
         if (process.env.SENTRY_ENABLED === 'true') {
           return Sentry.withIsolationScope(() => {
-            setTenantTags({ companyId, userId, route: req.url });
+            setTenantTags({ companyId, userId, route: sanitizeRoute(req.url) });
             return handler(req, res);
           });
         }
@@ -103,7 +103,7 @@ export function withCompany(handler: CompanyHandler): NextApiHandler {
       (req as CompanyApiRequest).companyRole = companies[0]!.role as string;
       if (process.env.SENTRY_ENABLED === 'true') {
         return Sentry.withIsolationScope(() => {
-          setTenantTags({ companyId: resolvedCompanyId, userId, route: req.url });
+          setTenantTags({ companyId: resolvedCompanyId, userId, route: sanitizeRoute(req.url) });
           return handler(req, res);
         });
       }

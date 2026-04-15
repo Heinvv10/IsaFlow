@@ -5,7 +5,7 @@ import * as Sentry from '@sentry/nextjs';
 import { apiLogger } from '@/lib/logger';
 import { runWithRequestContext, generateRequestId } from '@/lib/observability/requestContext';
 import { logRequestCompleted } from '@/lib/observability/requestLogger';
-import { setTenantTags } from '@/lib/sentry/tags';
+import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 
 const SENSITIVE_KEYS = new Set(['password', 'confirmPassword', 'password_hash', 'token', 'secret', 'apiKey', 'api_key']);
 
@@ -57,12 +57,15 @@ export function withErrorHandler(
     const requestId = generateRequestId();
     const startTime = Date.now();
     res.setHeader('X-Request-Id', requestId);
-    // Scope isolated by withCompany when it wraps; otherwise this uses the default hub scope (acceptable for non-tenant routes).
-    if (process.env.SENTRY_ENABLED === 'true') {
-      setTenantTags({ requestId, route: req.url });
-    }
 
-    await runWithRequestContext(requestId, async () => {
+    // Defensive isolation: nest a fresh scope so setTenantTags never writes to
+    // the global hub even if withCompany is absent or the wrap order is reversed.
+    const runScoped = async () => {
+      if (process.env.SENTRY_ENABLED === 'true') {
+        setTenantTags({ requestId, route: sanitizeRoute(req.url) });
+      }
+
+      await runWithRequestContext(requestId, async () => {
       try {
         // Set CORS headers - restrict to known origins
         const allowedOrigins = [
@@ -165,6 +168,13 @@ export function withErrorHandler(
         });
       }
     });
+    }; // end runScoped
+
+    if (process.env.SENTRY_ENABLED === 'true') {
+      await Sentry.withIsolationScope(runScoped);
+    } else {
+      await runScoped();
+    }
   };
 }
 

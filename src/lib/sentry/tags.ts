@@ -14,3 +14,10 @@ export function setTenantTags(ctx: TenantTagContext): void {
   if (ctx.route) Sentry.setTag('route', ctx.route);
   if (ctx.userId) Sentry.setUser({ id: ctx.userId });
 }
+
+/** Strip query string from a request URL so Sentry tags have bounded cardinality. */
+export function sanitizeRoute(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  const q = url.indexOf('?');
+  return q === -1 ? url : url.slice(0, q);
+}
