@@ -2,6 +2,10 @@
  * PRD-060 Phase 6: Sage Data Importers
  * Ledger transaction → GL journal entries
  * Supplier invoices → AP supplier_invoices
+ *
+ * BL-40: Every SELECT/JOIN/INSERT/UPDATE is now scoped by company_id to
+ * prevent cross-tenant data leaks and silent INSERT failures caused by
+ * missing NOT NULL company_id columns.
  */
 
 import { sql, transaction } from '@/lib/neon';
@@ -21,14 +25,17 @@ export async function importLedgerTransactions(companyId: string, userId: string
   const runId = await startRun('ledger_import', userId);
 
   try {
-    // Fetch all pending lines in a single SELECT — eliminates N+1 per-group queries
+    // BL-40: Added AND slt.company_id + AND sa.company_id to prevent cross-tenant SELECT
     const allLines = (await sql`
       SELECT slt.id, slt.document_number, slt.transaction_date, slt.description,
         slt.debit, slt.credit, slt.reference, slt.ff_project_id,
         sa.gl_account_id
       FROM sage_ledger_transactions slt
-      JOIN sage_accounts sa ON sa.sage_account_id = slt.sage_account_id
+      JOIN sage_accounts sa
+        ON sa.sage_account_id = slt.sage_account_id
+        AND sa.company_id = ${companyId}::UUID
       WHERE slt.migration_status = 'pending'
+        AND slt.company_id = ${companyId}::UUID
         AND sa.gl_account_id IS NOT NULL
       ORDER BY slt.transaction_date, slt.document_number
     `) as DbRow[];
@@ -62,9 +69,13 @@ export async function importLedgerTransactions(companyId: string, userId: string
         const totalCredit = lines.reduce((s: number, l: DbRow) => s + Number(l.credit || 0), 0);
 
         if (Math.abs(totalDebit - totalCredit) > 0.02) {
+          // BL-40: UPDATE scoped by company_id to prevent touching other-tenant rows
           await transaction((txSql) =>
             lines.map(line => txSql`
-              UPDATE sage_ledger_transactions SET migration_status = 'failed' WHERE id = ${line.id}
+              UPDATE sage_ledger_transactions
+              SET migration_status = 'failed'
+              WHERE id = ${line.id}
+                AND company_id = ${companyId}::UUID
             `)
           );
           failed++;
@@ -75,13 +86,14 @@ export async function importLedgerTransactions(companyId: string, userId: string
           ? `SAGE-${group.document_number}`
           : `SAGE-${group.transaction_date}`;
 
+        // BL-40: Added company_id to INSERT — was missing, causing NOT NULL violation
         const entry = (await sql`
           INSERT INTO gl_journal_entries (
-            entry_number, entry_date, description, source, status, created_by
+            entry_number, entry_date, description, source, status, created_by, company_id
           ) VALUES (
             ${entryRef}, ${group.transaction_date},
             ${group.description || `Sage import: ${entryRef}`},
-            'manual', 'posted', ${userId}
+            'manual', 'posted', ${userId}, ${companyId}::UUID
           ) RETURNING id
         `) as DbRow[];
 
@@ -106,10 +118,12 @@ export async function importLedgerTransactions(companyId: string, userId: string
                     VALUES (${entryId}::UUID, ${line.gl_account_id}::UUID, ${debit}, ${credit},
                       ${line.description || group.description || ''}, ${companyId}::UUID)
                   `;
+              // BL-40: UPDATE scoped by company_id
               const statusUpdate = txSql`
                 UPDATE sage_ledger_transactions
                 SET migration_status = 'imported', gl_journal_entry_id = ${entryId}::UUID
                 WHERE id = ${line.id}
+                  AND company_id = ${companyId}::UUID
               `;
               return [lineInsert, statusUpdate];
             })
@@ -141,6 +155,7 @@ export async function importSupplierInvoices(companyId: string, userId: string):
   const runId = await startRun('invoice_import', userId);
 
   try {
+    // BL-40: Added AND company_id to prevent cross-tenant SELECT
     const sageInvoices = (await sql`
       SELECT id, sage_invoice_id, sage_supplier_id, invoice_number,
         invoice_date, due_date, subtotal, tax_amount, total_amount,
@@ -148,6 +163,7 @@ export async function importSupplierInvoices(companyId: string, userId: string):
         raw_data, line_items
       FROM sage_supplier_invoices
       WHERE migration_status = 'pending'
+        AND company_id = ${companyId}::UUID
       ORDER BY invoice_date
     `) as DbRow[];
 
@@ -165,7 +181,13 @@ export async function importSupplierInvoices(companyId: string, userId: string):
         const supplierId = inv.supplier_id;
 
         if (!supplierId) {
-          await sql`UPDATE sage_supplier_invoices SET migration_status = 'failed' WHERE id = ${inv.id}`;
+          // BL-40: UPDATE scoped by company_id
+          await sql`
+            UPDATE sage_supplier_invoices
+            SET migration_status = 'failed'
+            WHERE id = ${inv.id}
+              AND company_id = ${companyId}::UUID
+          `;
           failed++;
           continue;
         }
@@ -185,12 +207,14 @@ export async function importSupplierInvoices(companyId: string, userId: string):
         const rawObj = parseJson(inv.raw_data);
         const reference = rawObj?.Reference || null;
 
+        // BL-40: Added company_id to INSERT — was missing, causing NOT NULL violation
         const newInv = (await sql`
           INSERT INTO supplier_invoices (
-            invoice_number, supplier_id, purchase_order_id, project_id,
+            company_id, invoice_number, supplier_id, purchase_order_id, project_id,
             invoice_date, due_date, subtotal, tax_rate, tax_amount, total_amount,
             amount_paid, status, sage_invoice_id, reference, created_by
           ) VALUES (
+            ${companyId}::UUID,
             ${inv.invoice_number || `SAGE-${inv.sage_invoice_id}`},
             ${supplierId}, ${inv.ff_purchase_order_id || null}, ${projectId},
             ${inv.invoice_date}, ${inv.due_date || inv.invoice_date},
@@ -203,6 +227,7 @@ export async function importSupplierInvoices(companyId: string, userId: string):
         const newInvoiceId = String(newInv[0]!.id);
 
         // Insert line items from raw_data
+        // supplier_invoice_items has no company_id column; tenant-scoped via supplier_invoice_id FK
         const lines = parseRawData(inv.raw_data, inv.line_items);
         if (lines && Array.isArray(lines) && lines.length > 0) {
           for (const line of lines) {
@@ -237,16 +262,24 @@ export async function importSupplierInvoices(companyId: string, userId: string):
           }
         }
 
+        // BL-40: UPDATE scoped by company_id
         await sql`
           UPDATE sage_supplier_invoices
           SET migration_status = 'imported', gl_supplier_invoice_id = ${newInvoiceId}::UUID
           WHERE id = ${inv.id}
+            AND company_id = ${companyId}::UUID
         `;
 
         succeeded++;
       } catch (err) {
         log.error('Failed to import sage invoice', { invoiceId: inv.id, error: err }, 'accounting');
-        await sql`UPDATE sage_supplier_invoices SET migration_status = 'failed' WHERE id = ${inv.id}`;
+        // BL-40: UPDATE scoped by company_id
+        await sql`
+          UPDATE sage_supplier_invoices
+          SET migration_status = 'failed'
+          WHERE id = ${inv.id}
+            AND company_id = ${companyId}::UUID
+        `;
         failed++;
       }
     }
