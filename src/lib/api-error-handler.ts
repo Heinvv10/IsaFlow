@@ -2,6 +2,8 @@
 // console is intentional when structured logging is unavailable.
 import type { NextApiHandler, NextApiRequest, NextApiResponse } from 'next';
 import { apiLogger } from '@/lib/logger';
+import { runWithRequestContext, generateRequestId } from '@/lib/observability/requestContext';
+import { logRequestCompleted } from '@/lib/observability/requestLogger';
 
 const SENSITIVE_KEYS = new Set(['password', 'confirmPassword', 'password_hash', 'token', 'secret', 'apiKey', 'api_key']);
 
@@ -50,91 +52,108 @@ export function withErrorHandler(
   handler: (req: any, res: NextApiResponse<any>) => unknown
 ): NextApiHandler {
   return async (req: NextApiRequest, res: NextApiResponse) => {
+    const requestId = generateRequestId();
     const startTime = Date.now();
 
-    try {
-      // Set CORS headers - restrict to known origins
-      const allowedOrigins = [
-        'https://app.isaflow.co.za',
-        'https://admin.isaflow.co.za',
-        'https://isaflow.co.za',
-        ...(process.env.NODE_ENV === 'development'
-          ? ['http://localhost:3101', 'http://localhost:3004']
-          : []),
-      ];
-      const origin = req.headers.origin;
-      if (origin && allowedOrigins.includes(origin)) {
-        res.setHeader('Access-Control-Allow-Origin', origin);
-        res.setHeader('Vary', 'Origin');
-        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    await runWithRequestContext(requestId, async () => {
+      try {
+        // Set CORS headers - restrict to known origins
+        const allowedOrigins = [
+          'https://app.isaflow.co.za',
+          'https://admin.isaflow.co.za',
+          'https://isaflow.co.za',
+          ...(process.env.NODE_ENV === 'development'
+            ? ['http://localhost:3101', 'http://localhost:3004']
+            : []),
+        ];
+        const origin = req.headers.origin;
+        if (origin && allowedOrigins.includes(origin)) {
+          res.setHeader('Access-Control-Allow-Origin', origin);
+          res.setHeader('Vary', 'Origin');
+          res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+          res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+        }
+
+        // Handle OPTIONS request for CORS
+        if (req.method === 'OPTIONS') {
+          return res.status(200).end();
+        }
+
+        // Log incoming request
+        apiLogger.info({
+          type: 'request',
+          method: req.method,
+          url: req.url,
+          query: req.query,
+          body: req.method !== 'GET' ? sanitizeBody(req.body) : undefined,
+        }, `API Request: ${req.method} ${req.url}`);
+
+        // Execute the actual handler
+        await handler(req, res);
+
+        // Log successful response
+        const duration = Date.now() - startTime;
+        apiLogger.info({
+          type: 'response',
+          method: req.method,
+          url: req.url,
+          statusCode: res.statusCode,
+          duration: `${duration}ms`,
+        }, `API Response: ${req.method} ${req.url} - ${res.statusCode} (${duration}ms)`);
+
+      } catch (error) {
+        const duration = Date.now() - startTime;
+
+        // Log error with context
+        apiLogger.error({
+          type: 'error',
+          method: req.method,
+          url: req.url,
+          error: error instanceof Error ? error.message : 'Unknown error',
+          stack: error instanceof Error ? error.stack : undefined,
+          duration: `${duration}ms`,
+        });
+
+        // Check if headers were already sent
+        if (res.headersSent) {
+          apiLogger.warn({ method: req.method, url: req.url }, 'Headers already sent, cannot send error response');
+          return;
+        }
+
+        // Send error response — mask internal details in production
+        const errorMessage =
+          process.env.NODE_ENV === 'production'
+            ? 'An unexpected error occurred'
+            : error instanceof Error ? error.message : 'An unexpected error occurred';
+
+        res.status(500).json({
+          success: false,
+          data: null,
+          message: errorMessage,
+          code: 'INTERNAL_SERVER_ERROR',
+          ...(process.env.NODE_ENV === 'development' && {
+            details: error instanceof Error ? {
+              message: error.message,
+              stack: error.stack,
+            } as Record<string, unknown> : { error: String(error) },
+          }),
+        });
+      } finally {
+        // Standard-shape request-completion log line. Reads userId/companyId
+        // off req if withCompany populated them; otherwise null.
+        const anyReq = req as unknown as {
+          user?: { id?: string };
+          companyId?: string;
+        };
+        logRequestCompleted({
+          req,
+          res,
+          startMs: startTime,
+          userId: anyReq.user?.id ?? null,
+          companyId: anyReq.companyId ?? null,
+        });
       }
-
-      // Handle OPTIONS request for CORS
-      if (req.method === 'OPTIONS') {
-        return res.status(200).end();
-      }
-
-      // Log incoming request
-      apiLogger.info({
-        type: 'request',
-        method: req.method,
-        url: req.url,
-        query: req.query,
-        body: req.method !== 'GET' ? sanitizeBody(req.body) : undefined,
-      }, `API Request: ${req.method} ${req.url}`);
-
-      // Execute the actual handler
-      await handler(req, res);
-
-      // Log successful response
-      const duration = Date.now() - startTime;
-      apiLogger.info({
-        type: 'response',
-        method: req.method,
-        url: req.url,
-        statusCode: res.statusCode,
-        duration: `${duration}ms`,
-      }, `API Response: ${req.method} ${req.url} - ${res.statusCode} (${duration}ms)`);
-
-    } catch (error) {
-      const duration = Date.now() - startTime;
-
-      // Log error with context
-      apiLogger.error({
-        type: 'error',
-        method: req.method,
-        url: req.url,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined,
-        duration: `${duration}ms`,
-      });
-
-      // Check if headers were already sent
-      if (res.headersSent) {
-        apiLogger.warn({ method: req.method, url: req.url }, 'Headers already sent, cannot send error response');
-        return;
-      }
-
-      // Send error response — mask internal details in production
-      const errorMessage =
-        process.env.NODE_ENV === 'production'
-          ? 'An unexpected error occurred'
-          : error instanceof Error ? error.message : 'An unexpected error occurred';
-
-      res.status(500).json({
-        success: false,
-        data: null,
-        message: errorMessage,
-        code: 'INTERNAL_SERVER_ERROR',
-        ...(process.env.NODE_ENV === 'development' && {
-          details: error instanceof Error ? {
-            message: error.message,
-            stack: error.stack,
-          } as Record<string, unknown> : { error: String(error) },
-        }),
-      });
-    }
+    });
   };
 }
 
