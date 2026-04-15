@@ -256,13 +256,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       `;
     }
 
-    // Clear legacy ff_auth_token cookies (all domain variants) to prevent
-    // duplicate-cookie 401s when the browser sends both old + new tokens
-    const expireLegacy = [
-      'ff_auth_token=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax',
-      'ff_auth_token=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax; Domain=.isaflow.co.za',
-    ];
-    const cookies = [...expireLegacy, authCookieString];
+    const cookies = [authCookieString];
     if (onboardingCompleted) {
       const domainSuffix = isProd ? '; Domain=.isaflow.co.za' : '';
       cookies.push(`ff_onboarding_done=1; Path=/; Max-Age=${30 * 24 * 60 * 60}; SameSite=Lax${isProd ? '; Secure' : ''}${domainSuffix}`);

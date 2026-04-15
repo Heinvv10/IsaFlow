@@ -12,7 +12,6 @@ import type { NextRequest } from 'next/server';
 import { jwtVerify } from 'jose';
 
 const AUTH_COOKIE_NAME = 'isaflow_auth';
-const LEGACY_COOKIE_NAME = 'ff_auth_token';
 
 // Sentinel used when JWT_SECRET is absent — any token verified against this will
 // always fail the role check, giving defense-in-depth without crashing the edge runtime.
@@ -89,7 +88,7 @@ export async function middleware(request: NextRequest) {
     }
 
     // Verify super_admin auth for all other paths (page navigations)
-    const adminToken = request.cookies.get(AUTH_COOKIE_NAME)?.value || request.cookies.get(LEGACY_COOKIE_NAME)?.value;
+    const adminToken = request.cookies.get(AUTH_COOKIE_NAME)?.value;
     if (!adminToken) {
       const loginUrl = new URL('/login', request.url);
       loginUrl.searchParams.set('returnTo', pathname);
@@ -137,7 +136,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // Check for auth cookie on protected routes
-  const token = request.cookies.get(AUTH_COOKIE_NAME)?.value || request.cookies.get(LEGACY_COOKIE_NAME)?.value;
+  const token = request.cookies.get(AUTH_COOKIE_NAME)?.value;
 
   if (!token && (pathname.startsWith('/accounting') || pathname.startsWith('/payroll'))) {
     const loginUrl = new URL('/login', request.url);
