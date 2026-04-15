@@ -8,7 +8,7 @@ const nextConfig = {
   poweredByHeader: false,
   compress: true,
   output: 'standalone',
-  productionBrowserSourceMaps: false,
+  productionBrowserSourceMaps: true,
 
   eslint: {
     ignoreDuringBuilds: true,
@@ -72,4 +72,17 @@ const nextConfig = {
   },
 };
 
-module.exports = nextConfig;
+const { withSentryConfig } = require('@sentry/nextjs');
+
+module.exports = withSentryConfig(nextConfig, {
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  url: process.env.SENTRY_URL,
+  silent: !process.env.CI,
+  sourcemaps: {
+    disable: !process.env.SENTRY_AUTH_TOKEN,
+  },
+  hideSourceMaps: true,
+  disableLogger: true,
+});
