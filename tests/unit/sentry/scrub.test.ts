@@ -57,7 +57,7 @@ describe('scrubEvent', () => {
       },
     };
     const out = scrubEvent(event);
-    expect(out!.request!.query_string).toBe('email=a@b.com&token=%5BREDACTED%5D&company_id=uuid');
+    expect(out!.request!.query_string).toBe('email=a@b.com&token=[REDACTED]&company_id=uuid');
   });
 
   it('hashes local-part of request.data.email', () => {
@@ -78,5 +78,28 @@ describe('scrubEvent', () => {
     const once = scrubEvent(event);
     const twice = scrubEvent(once!);
     expect((twice!.request!.data as Record<string, string>).password).toBe('[REDACTED]');
+  });
+
+  it('handles circular references in request.data without throwing', () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const a: any = { safe: 'ok' };
+    a.self = a;
+    const event: Event = { request: { data: a } };
+    let out: Event | null;
+    expect(() => { out = scrubEvent(event); }).not.toThrow();
+    const data = out!.request!.data as Record<string, unknown>;
+    expect(data.safe).toBe('ok');
+    expect(data.self).toBe('[CIRCULAR]');
+  });
+
+  it('redacts URL-encoded sensitive keys in query strings', () => {
+    const event: Event = {
+      request: {
+        query_string: 'bank%5Faccount%5Fnumber=12345&safe=ok',
+      },
+    };
+    const out = scrubEvent(event);
+    expect(out!.request!.query_string as string).toContain('[REDACTED]');
+    expect(out!.request!.query_string as string).toContain('safe=ok');
   });
 });
