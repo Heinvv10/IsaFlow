@@ -13,6 +13,8 @@ import { log } from '@/lib/logger';
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
+    // PayFast ITN webhook: response shape pinned by PayFast spec (must be the raw
+    // literal; do NOT use apiResponse helpers). See https://developers.payfast.co.za/
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
