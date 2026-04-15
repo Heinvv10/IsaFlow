@@ -79,7 +79,10 @@ async function fetchBalanceSheetData(companyId: string, asAtDate: string, costCe
     const balance = normalBal === 'debit' ? debit - credit : credit - debit;
     if (Math.abs(balance) < 0.01) continue;
 
-    const item: BSLineItem = { accountCode: String(r.account_code), accountName: String(r.account_name), balance };
+    // Contra-assets (asset type, credit normal balance e.g. Accumulated Depreciation) must
+    // reduce total assets. Negate the balance so they subtract from totalAssets correctly.
+    const reportBalance = (type === 'asset' && normalBal === 'credit') ? -balance : balance;
+    const item: BSLineItem = { accountCode: String(r.account_code), accountName: String(r.account_name), balance: reportBalance };
     if (type === 'asset') assets.push(item);
     else if (type === 'liability') liabilities.push(item);
     else if (type === 'equity') equity.push(item);
