@@ -14,6 +14,48 @@ import type { JournalLineInput } from '../../types/gl.types';
 
 type Row = DbRow;
 
+// ── VAT account fallback resolver ──────────────────────────────────────────
+//
+// Migration 327 normalises account_subtype to 'vat_input' / 'vat_output'.
+// If a company's COA pre-dates that migration, we fall back to the standard
+// SA account codes (1140 / 2120).  If still not found, we throw a clear error.
+
+const VAT_FALLBACK_CODES: Record<'vat_input' | 'vat_output', string> = {
+  vat_input: '1140',
+  vat_output: '2120',
+};
+
+async function resolveVatAccountId(
+  key: 'vat_input' | 'vat_output',
+  companyId: string,
+): Promise<string> {
+  try {
+    return await getSystemAccountId(key, companyId);
+  } catch {
+    // Subtype lookup failed — try the well-known SA account code as fallback.
+    const code = VAT_FALLBACK_CODES[key];
+    const rows = (await sql`
+      SELECT id FROM gl_accounts
+      WHERE company_id = ${companyId}::UUID
+        AND is_system_account = true
+        AND account_code = ${code}
+      LIMIT 1
+    `) as Row[];
+    if (rows.length > 0 && rows[0]!.id) {
+      log.warn(
+        `VAT account '${key}' found via account_code fallback (code=${code}); run migration 327 to normalise subtypes.`,
+        { companyId },
+        'accounting',
+      );
+      return String(rows[0]!.id);
+    }
+    throw new Error(
+      `VAT Input system account not found for company ${companyId}. ` +
+      `Create a system account with account_subtype='${key}' or account_code='${code}' (migration 327).`,
+    );
+  }
+}
+
 export type AllocationType = 'account' | 'supplier' | 'customer';
 
 export interface SplitLine {
@@ -72,7 +114,7 @@ export async function allocateTransaction(
       { glAccountId: bankAccountId, debit: 0, credit: totalAmount, description: entryDesc },
     ];
     if (hasVat) {
-      const vatAcctId = await getSystemAccountId(vatAccountKey, companyId);
+      const vatAcctId = await resolveVatAccountId(vatAccountKey, companyId);
       lines.splice(1, 0, { glAccountId: vatAcctId, debit: vatAmount, credit: 0, description: `VAT @ ${vatRate}%`, vatType: 'standard' });
     }
   } else if (allocType === 'customer' && entityId) {
@@ -88,7 +130,7 @@ export async function allocateTransaction(
       { glAccountId: arAccountId, debit: 0, credit: netAmount, description: entryDesc, vatType: mapVatType },
     ];
     if (hasVat) {
-      const vatAcctId = await getSystemAccountId(vatAccountKey, companyId);
+      const vatAcctId = await resolveVatAccountId(vatAccountKey, companyId);
       lines.push({ glAccountId: vatAcctId, debit: 0, credit: vatAmount, description: `VAT @ ${vatRate}%`, vatType: 'standard' });
     }
   } else {
@@ -103,13 +145,13 @@ export async function allocateTransaction(
         { glAccountId: contraAccountId, debit: 0, credit: netAmount, description: entryDesc, vatType: mapVatType },
       ];
       if (hasVat) {
-        const vatAcctId = await getSystemAccountId(vatAccountKey, companyId);
+        const vatAcctId = await resolveVatAccountId(vatAccountKey, companyId);
         lines.push({ glAccountId: vatAcctId, debit: 0, credit: vatAmount, description: `VAT @ ${vatRate}%`, vatType: 'standard' });
       }
     } else {
       lines = [{ glAccountId: contraAccountId, debit: netAmount, credit: 0, description: entryDesc, vatType: mapVatType }];
       if (hasVat) {
-        const vatAcctId = await getSystemAccountId(vatAccountKey, companyId);
+        const vatAcctId = await resolveVatAccountId(vatAccountKey, companyId);
         lines.push({ glAccountId: vatAcctId, debit: vatAmount, credit: 0, description: `VAT @ ${vatRate}%`, vatType: 'standard' });
       }
       lines.push({ glAccountId: bankAccountId, debit: 0, credit: totalAmount, description: entryDesc });
@@ -212,13 +254,13 @@ export async function splitAllocateTransaction(
     if (isSpent) {
       journalLines.push({ glAccountId: line.contraAccountId, debit: netAmount, credit: 0, description: lineDesc, vatType: mapVatType });
       if (hasVat) {
-        const vatAcctId = await getSystemAccountId(vatAccountKey, companyId);
+        const vatAcctId = await resolveVatAccountId(vatAccountKey, companyId);
         journalLines.push({ glAccountId: vatAcctId, debit: vatAmount, credit: 0, description: 'VAT @ 15%', vatType: 'standard' });
       }
     } else {
       journalLines.push({ glAccountId: line.contraAccountId, debit: 0, credit: netAmount, description: lineDesc, vatType: mapVatType });
       if (hasVat) {
-        const vatAcctId = await getSystemAccountId(vatAccountKey, companyId);
+        const vatAcctId = await resolveVatAccountId(vatAccountKey, companyId);
         journalLines.push({ glAccountId: vatAcctId, debit: 0, credit: vatAmount, description: 'VAT @ 15%', vatType: 'standard' });
       }
     }
