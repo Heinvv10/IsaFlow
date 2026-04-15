@@ -124,12 +124,15 @@ export async function getBankTransactions(
     let countRows: Row[];
 
     if (filters?.reconciliationId) {
+      // BL-81: must scope by company_id to prevent cross-tenant data reads
       rows = (await sql`${TX_SELECT}
         WHERE bt.reconciliation_id = ${filters.reconciliationId}::UUID
+          AND bt.company_id = ${companyId}::UUID
         ORDER BY bt.transaction_date DESC, bt.amount DESC
         LIMIT ${limit} OFFSET ${offset}`) as Row[];
       countRows = (await sql`SELECT COUNT(*) AS cnt FROM bank_transactions
-        WHERE reconciliation_id = ${filters.reconciliationId}::UUID`) as Row[];
+        WHERE reconciliation_id = ${filters.reconciliationId}::UUID
+          AND company_id = ${companyId}::UUID`) as Row[];
     } else if (filters?.bankAccountId && filters?.status) {
       const searchPattern = filters.search ? `%${filters.search}%` : '%';
       const fromDate = filters.fromDate || '1900-01-01';
