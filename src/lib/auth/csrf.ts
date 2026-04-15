@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes } from 'crypto';
 import type { NextApiRequest } from 'next';
 
 export const CSRF_COOKIE = 'isaflow_csrf';

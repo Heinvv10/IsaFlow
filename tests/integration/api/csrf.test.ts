@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 
-const BASE = 'http://localhost:3200';
+const BASE = process.env.TEST_BASE_URL ?? 'http://localhost:3200';
 const PROTECTED_ENDPOINT = '/api/accounting/bank-transactions-action';
 
 describe('CSRF on money-moving endpoints (BL-22)', () => {
