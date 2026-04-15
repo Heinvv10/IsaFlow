@@ -76,7 +76,7 @@ export async function allocateTransaction(
   description?: string, allocType: AllocationType = 'account', entityId?: string,
   vatCode?: string, cc1Id?: string, cc2Id?: string, buId?: string,
 ): Promise<{ journalEntryId: string; bankTransaction: BankTransaction }> {
-  const txRows = (await sql`SELECT * FROM bank_transactions WHERE id = ${bankTxId}::UUID`) as Row[];
+  const txRows = (await sql`SELECT * FROM bank_transactions WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
   if (txRows.length === 0) throw new Error(`Bank transaction ${bankTxId} not found`);
   const tx = txRows[0]!;
   if (tx.status !== 'imported') throw new Error(`Transaction already ${tx.status} — cannot allocate`);
@@ -195,7 +195,7 @@ export async function allocateTransaction(
             allocation_type = ${allocType}, allocated_entity_name = ${allocEntityName},
             cc1_id = ${cc1Id || null}::UUID, cc2_id = ${cc2Id || null}::UUID,
             bu_id = ${buId || null}::UUID, updated_at = NOW()
-        WHERE id = ${bankTxId}::UUID`;
+        WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`;
     }
     if (allocType === 'customer' && entityId && paymentUserId) {
       await wTx`
@@ -222,7 +222,7 @@ export async function allocateTransaction(
 export async function splitAllocateTransaction(
   companyId: string, bankTxId: string, lines: SplitLine[], userId: string,
 ): Promise<{ journalEntryId: string; bankTransaction: BankTransaction }> {
-  const txRows = (await sql`SELECT * FROM bank_transactions WHERE id = ${bankTxId}::UUID`) as Row[];
+  const txRows = (await sql`SELECT * FROM bank_transactions WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
   if (txRows.length === 0) throw new Error(`Bank transaction ${bankTxId} not found`);
   const tx = txRows[0]!;
   if (tx.status !== 'imported') throw new Error(`Transaction already ${tx.status} — cannot split allocate`);
@@ -291,7 +291,7 @@ export async function splitAllocateTransaction(
         UPDATE bank_transactions
         SET status = 'allocated', matched_journal_line_id = ${journalLineId}::UUID,
             allocation_type = 'account', allocated_entity_name = 'Split allocation', updated_at = NOW()
-        WHERE id = ${bankTxId}::UUID`;
+        WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`;
     });
   }
 
@@ -305,7 +305,7 @@ export async function splitAllocateTransaction(
 export async function reverseReconciledTransaction(
   companyId: string, bankTxId: string, userId: string
 ): Promise<void> {
-  const txRows = (await sql`SELECT * FROM bank_transactions WHERE id = ${bankTxId}::UUID`) as Row[];
+  const txRows = (await sql`SELECT * FROM bank_transactions WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
   const tx = txRows[0];
   if (!tx) throw new Error('Transaction not found');
   if (tx.status !== 'allocated' && tx.status !== 'matched' && tx.status !== 'reconciled') {
@@ -336,7 +336,7 @@ export async function reverseReconciledTransaction(
           linked_po_id = NULL, linked_asset_id = NULL, linked_fleet_fuel_id = NULL,
           linked_fleet_service_id = NULL, allocation_type = NULL, allocated_entity_name = NULL,
           updated_at = NOW()
-      WHERE id = ${bankTxId}::UUID`;
+      WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`;
   } catch (resetErr) {
     log.error('Bank transaction reset failed after GL reversal — manual correction required',
       { bankTxId, journalEntryId, error: resetErr }, 'accounting');
