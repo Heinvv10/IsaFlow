@@ -9,7 +9,7 @@ vi.mock('@sentry/nextjs', () => ({
   setUser: (...args: unknown[]) => setUser(...args),
 }));
 
-import { setTenantTags } from '@/lib/sentry/tags';
+import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 
 describe('setTenantTags', () => {
   beforeEach(() => {
@@ -37,5 +37,13 @@ describe('setTenantTags', () => {
     process.env.SENTRY_ENABLED = 'false';
     setTenantTags({ companyId: 'c-1' });
     expect(setTag).not.toHaveBeenCalled();
+  });
+});
+
+describe('sanitizeRoute', () => {
+  it('sanitizeRoute strips query string', () => {
+    expect(sanitizeRoute('/api/x')).toBe('/api/x');
+    expect(sanitizeRoute('/api/x?foo=bar&baz=1')).toBe('/api/x');
+    expect(sanitizeRoute(undefined)).toBeUndefined();
   });
 });
