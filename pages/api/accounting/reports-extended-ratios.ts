@@ -38,7 +38,7 @@ async function buildFinancialData(companyId: string, from: string, to: string): 
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-      WHERE je.company_id = ${companyId} AND je.status = 'posted'
+      WHERE je.company_id = ${companyId} AND jl.company_id = ${companyId}::UUID AND je.status = 'posted'
         AND je.entry_date >= ${from}::date AND je.entry_date <= ${to}::date
     ` as Promise<Row[]>,
     sql`
@@ -55,7 +55,7 @@ async function buildFinancialData(companyId: string, from: string, to: string): 
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-      WHERE je.company_id = ${companyId} AND je.status = 'posted'
+      WHERE je.company_id = ${companyId} AND jl.company_id = ${companyId}::UUID AND je.status = 'posted'
         AND je.entry_date <= ${to}::date
     ` as Promise<Row[]>,
     sql`SELECT COUNT(*)::int as count FROM employees WHERE company_id = ${companyId} AND status = 'active'` as Promise<Row[]>,

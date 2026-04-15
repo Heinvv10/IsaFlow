@@ -41,7 +41,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             FROM gl_journal_lines jl
             JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
             JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-            WHERE je.company_id = ${companyId} AND je.status = 'posted'
+            WHERE je.company_id = ${companyId} AND jl.company_id = ${companyId}::UUID AND je.status = 'posted'
               AND ga.account_code = '1110' AND je.entry_date <= ${to}::date
           `
         : sql`
@@ -51,7 +51,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             FROM gl_journal_lines jl
             JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
             JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-            WHERE je.company_id = ${companyId} AND je.status = 'posted'
+            WHERE je.company_id = ${companyId} AND jl.company_id = ${companyId}::UUID AND je.status = 'posted'
               AND je.entry_date >= ${from}::date AND je.entry_date <= ${to}::date
           `
     )

@@ -40,7 +40,10 @@ export async function runReport(companyId: string, config: ReportConfig): Promis
   // Parameterized WHERE clause — values bound as $N, never interpolated
   const params: (string | number | null)[] = [companyId];
   let paramIdx = 2;
-  const whereParts: string[] = [`${alias}.company_id = $1`];
+  // Defense-in-depth: scope gl_journal_lines by company_id in addition to the entry alias
+  const whereParts: string[] = dataSource === 'gl_transactions'
+    ? [`${alias}.company_id = $1`, `jl.company_id = $1`]
+    : [`${alias}.company_id = $1`];
 
   for (const filter of filters) {
     const fd = getFieldDef(dataSource, filter.field);

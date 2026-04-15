@@ -59,6 +59,7 @@ export async function getBankTransactions(
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id
       WHERE je.status = 'posted'
         AND je.company_id = ${companyId}::UUID
+        AND jl.company_id = ${companyId}::UUID
         AND ga.company_id = ${companyId}::UUID
         AND je.entry_date < ${periodStart}
         AND ga.account_code = ${bankCode}
@@ -74,6 +75,7 @@ export async function getBankTransactions(
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id
       WHERE je.status = 'posted'
         AND je.company_id = ${companyId}::UUID
+        AND jl.company_id = ${companyId}::UUID
         AND ga.company_id = ${companyId}::UUID
         AND je.entry_date >= ${periodStart}
         AND je.entry_date <= ${periodEnd}
@@ -152,6 +154,7 @@ export async function getAccountTransactions(
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id
       WHERE je.status = 'posted'
         AND je.company_id = ${companyId}::UUID
+        AND jl.company_id = ${companyId}::UUID
         AND je.entry_date < ${periodStart}
         AND ga.account_code = ${accountCode}
     `) as Row[];
@@ -169,6 +172,7 @@ export async function getAccountTransactions(
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id
       WHERE je.status = 'posted'
         AND je.company_id = ${companyId}::UUID
+        AND jl.company_id = ${companyId}::UUID
         AND je.entry_date >= ${periodStart}
         AND je.entry_date <= ${periodEnd}
         AND ga.account_code = ${accountCode}
@@ -239,7 +243,7 @@ export async function getAuditTrail(
         COALESCE(CONCAT_WS(' ', u.first_name, u.last_name), je.created_by::TEXT) AS created_by_name,
         je.created_at, je.posted_at
       FROM gl_journal_entries je
-      LEFT JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id
+      LEFT JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id AND jl.company_id = ${companyId}::UUID
       LEFT JOIN users u ON u.id::TEXT = je.created_by::TEXT
       WHERE je.company_id = ${companyId}::UUID
         AND je.entry_date >= ${periodStart}

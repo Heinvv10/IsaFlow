@@ -150,6 +150,7 @@ export async function getConsolidatedTrialBalance(
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
         WHERE je.status = 'posted'
           AND je.company_id = ${member.companyId}::UUID
+          AND jl.company_id = ${member.companyId}::UUID
           AND ga.company_id = ${member.companyId}::UUID
           AND je.entry_date >= ${periodStart} AND je.entry_date <= ${periodEnd}
         GROUP BY ga.id

@@ -163,7 +163,7 @@ export async function getJournalEntryById(companyId: string,
       SELECT jl.*, a.account_code, a.account_name
       FROM gl_journal_lines jl
       JOIN gl_accounts a ON a.id = jl.gl_account_id
-      WHERE jl.journal_entry_id = ${id}
+      WHERE jl.journal_entry_id = ${id} AND jl.company_id = ${companyId}::UUID
       ORDER BY jl.created_at
     `) as Row[];
 
@@ -216,14 +216,15 @@ export async function createJournalEntry(companyId: string,
       ...input.lines.map((line) => sql`
         INSERT INTO gl_journal_lines (
           journal_entry_id, gl_account_id, debit, credit,
-          description, project_id, cost_center_id, vat_type
+          description, project_id, cost_center_id, vat_type, company_id
         ) VALUES (
           ${entryId}::UUID, ${line.glAccountId}::UUID,
           ${line.debit}, ${line.credit},
           ${line.description || null},
           ${line.projectId || null},
           ${line.costCenterId || null},
-          ${line.vatType || null}
+          ${line.vatType || null},
+          ${companyId}::UUID
         )
       `),
     ]);

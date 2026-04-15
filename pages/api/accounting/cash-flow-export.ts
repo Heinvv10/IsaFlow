@@ -50,7 +50,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           FROM gl_journal_lines jl
           JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
           JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-          WHERE ga.account_subtype = 'bank'
+          WHERE jl.company_id = ${companyId}::UUID
+          AND ga.account_subtype = 'bank'
             AND je.company_id = ${companyId}
             AND je.status = 'posted'
             AND je.entry_date < ${periodStart}
@@ -64,7 +65,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           FROM gl_journal_lines jl
           JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
           JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-          WHERE (ga.account_name ILIKE '%bank%' OR ga.account_code LIKE '11%')
+          WHERE jl.company_id = ${companyId}::UUID
+          AND (ga.account_name ILIKE '%bank%' OR ga.account_code LIKE '11%')
             AND ga.account_type = 'asset'
             AND je.company_id = ${companyId}
             AND je.status = 'posted'
@@ -85,7 +87,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-      WHERE je.status = 'posted'
+      WHERE jl.company_id = ${companyId}::UUID AND je.status = 'posted'
         AND je.company_id = ${companyId}
         AND je.entry_date >= ${periodStart}
         AND je.entry_date <= ${periodEnd}
@@ -102,7 +104,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           FROM gl_journal_lines jl
           JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
           JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-          WHERE ga.account_subtype = 'receivable'
+          WHERE jl.company_id = ${companyId}::UUID
+          AND ga.account_subtype = 'receivable'
             AND je.company_id = ${companyId}
             AND je.status = 'posted'
             AND je.entry_date >= ${periodStart}
@@ -115,7 +118,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           FROM gl_journal_lines jl
           JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
           JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-          WHERE ga.account_name ILIKE '%receivable%'
+          WHERE jl.company_id = ${companyId}::UUID
+          AND ga.account_name ILIKE '%receivable%'
             AND je.company_id = ${companyId}
             AND je.status = 'posted'
             AND je.entry_date >= ${periodStart}
@@ -134,7 +138,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           FROM gl_journal_lines jl
           JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
           JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-          WHERE ga.account_subtype = 'payable'
+          WHERE jl.company_id = ${companyId}::UUID
+          AND ga.account_subtype = 'payable'
             AND je.company_id = ${companyId}
             AND je.status = 'posted'
             AND je.entry_date >= ${periodStart}
@@ -147,7 +152,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           FROM gl_journal_lines jl
           JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
           JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-          WHERE ga.account_name ILIKE '%payable%'
+          WHERE jl.company_id = ${companyId}::UUID
+          AND ga.account_name ILIKE '%payable%'
             AND je.company_id = ${companyId}
             AND je.status = 'posted'
             AND je.entry_date >= ${periodStart}
@@ -166,7 +172,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           FROM gl_journal_lines jl
           JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
           JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-          WHERE ga.account_subtype IN ('fixed_asset', 'other_asset')
+          WHERE jl.company_id = ${companyId}::UUID
+          AND ga.account_subtype IN ('fixed_asset', 'other_asset')
             AND je.company_id = ${companyId}
             AND je.status = 'posted'
             AND je.entry_date >= ${periodStart}
@@ -179,7 +186,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           FROM gl_journal_lines jl
           JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
           JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-          WHERE ga.account_type = 'asset'
+          WHERE jl.company_id = ${companyId}::UUID
+          AND ga.account_type = 'asset'
             AND ga.account_name NOT ILIKE '%bank%'
             AND ga.account_name NOT ILIKE '%receivable%'
             AND ga.account_name NOT ILIKE '%cash%'
@@ -201,7 +209,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           FROM gl_journal_lines jl
           JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
           JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-          WHERE ga.account_type = 'equity'
+          WHERE jl.company_id = ${companyId}::UUID
+          AND ga.account_type = 'equity'
             AND (ga.account_subtype IS NULL OR ga.account_subtype != 'retained_earnings')
             AND je.company_id = ${companyId}
             AND je.status = 'posted'
@@ -215,7 +224,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           FROM gl_journal_lines jl
           JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
           JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-          WHERE ga.account_type = 'equity'
+          WHERE jl.company_id = ${companyId}::UUID
+          AND ga.account_type = 'equity'
             AND ga.account_name NOT ILIKE '%retained%'
             AND je.company_id = ${companyId}
             AND je.status = 'posted'

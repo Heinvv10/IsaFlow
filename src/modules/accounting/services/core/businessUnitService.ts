@@ -60,7 +60,7 @@ export async function toggleBusinessUnit(companyId: string, id: string, isActive
 
 export async function deleteBusinessUnit(companyId: string, id: string): Promise<void> {
   const usage = (await sql`
-    SELECT COUNT(*) as cnt FROM gl_journal_lines WHERE bu_id = ${id}::UUID
+    SELECT COUNT(*) as cnt FROM gl_journal_lines jl WHERE jl.bu_id = ${id}::UUID AND jl.company_id = ${companyId}::UUID
   `) as Record<string, unknown>[];
   if (Number(usage[0]?.cnt) > 0) {
     throw new Error('Cannot delete business unit used in journal entries. Deactivate instead.');

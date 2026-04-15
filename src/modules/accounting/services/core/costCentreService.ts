@@ -79,7 +79,7 @@ export async function toggleCostCentre(companyId: string, id: string, isActive: 
 export async function deleteCostCentre(companyId: string, id: string): Promise<void> {
   // Check for usage in journal lines
   const usage = (await sql`
-    SELECT COUNT(*) as cnt FROM gl_journal_lines WHERE cost_center_id = ${id}::UUID OR cc1_id = ${id}::UUID OR cc2_id = ${id}::UUID
+    SELECT COUNT(*) as cnt FROM gl_journal_lines jl WHERE (jl.cost_center_id = ${id}::UUID OR jl.cc1_id = ${id}::UUID OR jl.cc2_id = ${id}::UUID) AND jl.company_id = ${companyId}::UUID
   `) as Record<string, unknown>[];
   if (Number(usage[0]?.cnt) > 0) {
     throw new Error('Cannot delete cost centre that is used in journal entries. Deactivate instead.');

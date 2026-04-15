@@ -43,7 +43,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const jeRows = await sql`
     SELECT je.id, je.entry_date as date, jl.debit + jl.credit as amount, je.created_by as user_id, je.description
     FROM gl_journal_entries je JOIN gl_journal_lines jl ON je.id = jl.journal_entry_id
-    WHERE je.company_id = ${companyId}::UUID AND je.entry_date >= ${fromDate} AND je.source = 'manual'
+    WHERE je.company_id = ${companyId}::UUID AND jl.company_id = ${companyId}::UUID AND je.entry_date >= ${fromDate} AND je.source = 'manual'
     LIMIT 500
   ` as Row[];
   const entries = jeRows.map((r: any) => ({ id: String(r.id), date: String(r.date), amount: Number(r.amount), userId: String(r.user_id), description: String(r.description || '') }));

@@ -124,8 +124,8 @@ export async function executeMigration(
           const jeId = String(jeRows[0]!.id);
           for (const line of lines) {
             await tx`
-              INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description)
-              VALUES (${jeId}::UUID, ${line.glId}::UUID, ${line.debit}, ${line.credit}, ${'Opening balance — ' + source})
+              INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description, company_id)
+              VALUES (${jeId}::UUID, ${line.glId}::UUID, ${line.debit}, ${line.credit}, ${'Opening balance — ' + source}, ${companyId}::UUID)
             `;
           }
         });
@@ -208,8 +208,8 @@ export async function verifyBalances(
           COALESCE(SUM(jl.debit), 0) - COALESCE(SUM(jl.credit), 0) AS net_debit,
           ga.normal_balance
         FROM gl_accounts ga
-        LEFT JOIN gl_journal_lines jl ON jl.gl_account_id = ga.id
-        LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.status = 'posted'
+        LEFT JOIN gl_journal_lines jl ON jl.gl_account_id = ga.id AND jl.company_id = ${companyId}::UUID
+        LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.status = 'posted' AND je.company_id = ${companyId}::UUID
         WHERE ga.company_id = ${companyId}::UUID AND ga.account_code = ${acct.sourceCode}
         GROUP BY ga.id, ga.account_name, ga.normal_balance
         LIMIT 1

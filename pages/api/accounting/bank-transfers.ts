@@ -89,10 +89,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
       // Create journal lines within same transaction: DR destination, CR source
       await tx`
-        INSERT INTO gl_journal_lines (id, journal_entry_id, gl_account_id, debit, credit, description, created_at)
+        INSERT INTO gl_journal_lines (id, journal_entry_id, gl_account_id, debit, credit, description, created_at, company_id)
         VALUES
-          (gen_random_uuid(), ${newEntry.id}, ${toAccountId}, ${Number(amount)}, 0, ${`Transfer from ${fromAcct?.account_name}`}, NOW()),
-          (gen_random_uuid(), ${newEntry.id}, ${fromAccountId}, 0, ${Number(amount)}, ${`Transfer to ${toAcct?.account_name}`}, NOW())
+          (gen_random_uuid(), ${newEntry.id}, ${toAccountId}, ${Number(amount)}, 0, ${`Transfer from ${fromAcct?.account_name}`}, NOW(), ${companyId}::UUID),
+          (gen_random_uuid(), ${newEntry.id}, ${fromAccountId}, 0, ${Number(amount)}, ${`Transfer to ${toAcct?.account_name}`}, NOW(), ${companyId}::UUID)
       `;
       return newEntry;
     });

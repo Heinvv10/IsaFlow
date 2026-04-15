@@ -71,6 +71,7 @@ export async function generateVAT201(companyId: string,
             SELECT jl.vat_type
             FROM gl_journal_lines jl
             WHERE jl.journal_entry_id = ci.gl_journal_entry_id
+              AND jl.company_id = ${companyId}::UUID
               AND jl.vat_type IS NOT NULL
             LIMIT 1
           ),

@@ -57,7 +57,7 @@ export async function getRevenueChart(companyId: string, months: number): Promis
         AND je.company_id = ${companyId}::UUID
         AND je.entry_date >= m.month_start
         AND je.entry_date < m.month_start + '1 month'::INTERVAL
-      LEFT JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id
+      LEFT JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id AND jl.company_id = ${companyId}::UUID
       LEFT JOIN gl_accounts ga ON ga.id = jl.gl_account_id
         AND ga.account_type IN ('revenue', 'expense')
       GROUP BY m.month_start
@@ -196,7 +196,7 @@ export async function getTopExpenseCategories(companyId: string, limit: number):
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id
       WHERE ga.account_type = 'expense' AND je.status = 'posted'
-        AND je.company_id = ${companyId}::UUID
+        AND je.company_id = ${companyId}::UUID AND jl.company_id = ${companyId}::UUID
       GROUP BY ga.id, ga.account_name
       HAVING SUM(jl.debit - jl.credit) > 0
       ORDER BY total DESC

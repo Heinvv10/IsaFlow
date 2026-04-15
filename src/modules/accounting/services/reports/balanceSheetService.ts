@@ -28,6 +28,7 @@ async function calculateRetainedEarnings(companyId: string, asAtDate: string, co
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id
     WHERE je.status = 'posted'
       AND je.company_id = ${companyId}::UUID
+      AND jl.company_id = ${companyId}::UUID
       AND je.entry_date <= ${asAtDate}
       AND ga.account_type IN ('revenue', 'expense')
       AND (${ccId}::TEXT IS NULL OR jl.cost_center_id = ${ccId}::UUID)
@@ -50,6 +51,7 @@ async function fetchBalanceSheetData(companyId: string, asAtDate: string, costCe
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id
     WHERE je.status = 'posted'
       AND je.company_id = ${companyId}::UUID
+      AND jl.company_id = ${companyId}::UUID
       AND je.entry_date <= ${asAtDate}
       AND ga.account_type IN ('asset', 'liability', 'equity')
       AND (

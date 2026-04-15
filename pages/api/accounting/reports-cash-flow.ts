@@ -51,6 +51,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             JOIN gl_accounts ga ON ga.id = jl.gl_account_id
             WHERE ga.account_subtype = 'bank'
               AND je.company_id = ${companyId}
+              AND jl.company_id = ${companyId}::UUID
               AND je.status = 'posted'
               AND je.entry_date < ${startDate}
           `
@@ -64,6 +65,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             WHERE (ga.account_name ILIKE '%bank%' OR ga.account_code LIKE '11%')
               AND ga.account_type = 'asset'
               AND je.company_id = ${companyId}
+              AND jl.company_id = ${companyId}::UUID
               AND je.status = 'posted'
               AND je.entry_date < ${startDate}
           `,
@@ -95,6 +97,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
         WHERE je.status = 'posted'
           AND je.company_id = ${companyId}::UUID
+          AND jl.company_id = ${companyId}::UUID
           AND ga.company_id = ${companyId}::UUID
           AND je.entry_date BETWEEN ${startDate} AND ${endDate}
       `,

@@ -97,14 +97,14 @@ export async function importLedgerTransactions(companyId: string, userId: string
               const projectId = line.ff_project_id || null;
               const lineInsert = projectId
                 ? txSql`
-                    INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description, project_id)
+                    INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description, project_id, company_id)
                     VALUES (${entryId}::UUID, ${line.gl_account_id}::UUID, ${debit}, ${credit},
-                      ${line.description || group.description || ''}, ${projectId}::UUID)
+                      ${line.description || group.description || ''}, ${projectId}::UUID, ${companyId}::UUID)
                   `
                 : txSql`
-                    INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description)
+                    INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description, company_id)
                     VALUES (${entryId}::UUID, ${line.gl_account_id}::UUID, ${debit}, ${credit},
-                      ${line.description || group.description || ''})
+                      ${line.description || group.description || ''}, ${companyId}::UUID)
                   `;
               const statusUpdate = txSql`
                 UPDATE sage_ledger_transactions

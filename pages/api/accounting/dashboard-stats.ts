@@ -42,7 +42,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         SELECT ga.account_code, ga.account_name,
           COALESCE(SUM(jl.debit - jl.credit), 0) AS balance
         FROM gl_accounts ga
-        LEFT JOIN gl_journal_lines jl ON jl.gl_account_id = ga.id
+        LEFT JOIN gl_journal_lines jl ON jl.gl_account_id = ga.id AND jl.company_id = ${companyId}::UUID
         LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
           AND je.company_id = ${companyId}::UUID
           AND je.status = 'posted'
@@ -75,7 +75,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
         WHERE ga.account_type = 'revenue' AND je.status = 'posted'
-          AND je.company_id = ${companyId} AND je.entry_date >= ${monthStart}
+          AND je.company_id = ${companyId} AND jl.company_id = ${companyId}::UUID AND je.entry_date >= ${monthStart}
       `,
       // Expenses this month (account_type = 'expense')
       sql`
@@ -93,7 +93,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // Recent journal entries (last 5)
       sql`
         SELECT id, entry_date, description, source, status,
-          (SELECT SUM(debit) FROM gl_journal_lines WHERE journal_entry_id = je.id) AS total_debit
+          (SELECT SUM(debit) FROM gl_journal_lines WHERE journal_entry_id = je.id AND company_id = ${companyId}::UUID) AS total_debit
         FROM gl_journal_entries je
         WHERE je.company_id = ${companyId}
         ORDER BY created_at DESC LIMIT 5

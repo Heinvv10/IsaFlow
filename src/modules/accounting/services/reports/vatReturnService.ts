@@ -78,6 +78,7 @@ export async function getVATReturn(companyId: string,
       JOIN gl_accounts ga        ON ga.id  = jl.gl_account_id
       WHERE je.status = 'posted'
         AND je.company_id = ${companyId}::UUID
+        AND jl.company_id = ${companyId}::UUID
         AND je.entry_date >= ${periodStart}
         AND je.entry_date <= ${periodEnd}
         AND (

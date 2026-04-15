@@ -72,8 +72,8 @@ async function fetchMatchedTransactions(companyId: string, bankAccountId: string
       bt.amount,
       je.entry_number AS journal_entry_number
     FROM bank_transactions bt
-    LEFT JOIN gl_journal_lines jl ON jl.id = bt.matched_journal_line_id
-    LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+    LEFT JOIN gl_journal_lines jl ON jl.id = bt.matched_journal_line_id AND jl.company_id = ${companyId}::UUID
+    LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.company_id = ${companyId}::UUID
     WHERE bt.bank_account_id = ${bankAccountId}::UUID
       AND bt.status = 'matched'
       AND bt.company_id = ${companyId}

@@ -46,7 +46,7 @@ export async function getDashboardKPIs(companyId: string,
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
         WHERE ga.account_type = 'revenue' AND je.status = 'posted'
-          AND je.company_id = ${companyId}::UUID
+          AND je.company_id = ${companyId}::UUID AND jl.company_id = ${companyId}::UUID
           AND je.entry_date >= ${fromDate} AND je.entry_date <= ${toDate}
       `,
       sql`
@@ -55,7 +55,7 @@ export async function getDashboardKPIs(companyId: string,
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
         WHERE ga.account_type = 'revenue' AND je.status = 'posted'
-          AND je.company_id = ${companyId}::UUID
+          AND je.company_id = ${companyId}::UUID AND jl.company_id = ${companyId}::UUID
           AND je.entry_date >= ${priorFromStr} AND je.entry_date <= ${priorToStr}
       `,
       sql`
@@ -64,7 +64,7 @@ export async function getDashboardKPIs(companyId: string,
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
         WHERE ga.account_type = 'expense' AND je.status = 'posted'
-          AND je.company_id = ${companyId}::UUID
+          AND je.company_id = ${companyId}::UUID AND jl.company_id = ${companyId}::UUID
           AND je.entry_date >= ${fromDate} AND je.entry_date <= ${toDate}
       `,
       sql`
@@ -73,7 +73,7 @@ export async function getDashboardKPIs(companyId: string,
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
         WHERE ga.account_type = 'expense' AND je.status = 'posted'
-          AND je.company_id = ${companyId}::UUID
+          AND je.company_id = ${companyId}::UUID AND jl.company_id = ${companyId}::UUID
           AND je.entry_date >= ${priorFromStr} AND je.entry_date <= ${priorToStr}
       `,
       sql`

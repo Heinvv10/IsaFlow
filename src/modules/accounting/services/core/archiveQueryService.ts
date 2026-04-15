@@ -96,7 +96,7 @@ export async function getStorageStats(companyId: string): Promise<StorageStats[]
       SELECT COUNT(*) AS row_count
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-      WHERE je.company_id = ${companyId}
+      WHERE je.company_id = ${companyId} AND jl.company_id = ${companyId}::UUID
     `) as DbRow[];
 
     const stats: StorageStats[] = [
@@ -179,6 +179,7 @@ export async function previewArchive(companyId: string, cutoffDate: string): Pro
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       WHERE je.company_id = ${companyId}
+        AND jl.company_id = ${companyId}::UUID
         AND je.entry_date < ${cutoffDate}::date
         AND je.status = 'posted'
     `) as DbRow[];

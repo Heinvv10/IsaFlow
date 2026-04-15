@@ -66,6 +66,7 @@ export async function executeArchive(
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       WHERE je.company_id = ${companyId}
+        AND jl.company_id = ${companyId}::UUID
         AND je.entry_date < ${cutoffDate}::date
         AND je.status = 'posted'
       ON CONFLICT (id) DO NOTHING
@@ -138,14 +139,16 @@ export async function executeArchive(
     const supplierInvoicesArchived = siRows.length;
 
     // Step 6: Delete from active tables (reverse dependency order)
+    // jl.company_id guard provides defense-in-depth alongside the subquery scope (BL-13)
     await sql`
-      DELETE FROM gl_journal_lines
-      WHERE journal_entry_id IN (
-        SELECT id FROM gl_journal_entries
-        WHERE company_id = ${companyId}
-          AND entry_date < ${cutoffDate}::date
-          AND status = 'posted'
-      )
+      DELETE FROM gl_journal_lines jl
+      WHERE jl.company_id = ${companyId}::UUID
+        AND jl.journal_entry_id IN (
+          SELECT je.id FROM gl_journal_entries je
+          WHERE je.company_id = ${companyId}
+            AND je.entry_date < ${cutoffDate}::date
+            AND je.status = 'posted'
+        )
     `;
 
     await sql`

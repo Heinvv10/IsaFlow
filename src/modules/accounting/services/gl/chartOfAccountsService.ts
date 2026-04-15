@@ -218,8 +218,8 @@ export async function deleteAccount(companyId: string, id: string): Promise<void
       SELECT
         COALESCE(SUM(debit), 0) AS debit_total,
         COALESCE(SUM(credit), 0) AS credit_total
-      FROM gl_journal_lines
-      WHERE gl_account_id = ${id}
+      FROM gl_journal_lines jl
+      WHERE jl.gl_account_id = ${id} AND jl.company_id = ${companyId}::UUID
     ` as { debit_total: string; credit_total: string }[];
 
     const debitTotal = Number(glBalanceRows[0]?.debit_total ?? '0');
