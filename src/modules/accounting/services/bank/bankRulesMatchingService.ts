@@ -141,6 +141,7 @@ export async function applyRules(
           SELECT id, amount, transaction_date, description
           FROM bank_transactions
           WHERE bank_account_id = ${bankAccountId}::UUID
+            AND company_id = ${companyId}::UUID
             AND status IN ('imported', 'allocated')
             AND matched_journal_line_id IS NULL
             AND description ILIKE ${pattern}
@@ -151,6 +152,7 @@ export async function applyRules(
           SELECT id, amount, transaction_date, description, reference
           FROM bank_transactions
           WHERE bank_account_id = ${bankAccountId}::UUID
+            AND company_id = ${companyId}::UUID
             AND status IN ('imported', 'allocated')
             AND matched_journal_line_id IS NULL
             AND reference ILIKE ${pattern}
@@ -161,6 +163,7 @@ export async function applyRules(
           SELECT id, amount, transaction_date, description, reference
           FROM bank_transactions
           WHERE bank_account_id = ${bankAccountId}::UUID
+            AND company_id = ${companyId}::UUID
             AND status IN ('imported', 'allocated')
             AND matched_journal_line_id IS NULL
             AND (description ILIKE ${pattern} OR reference ILIKE ${pattern})
@@ -232,7 +235,7 @@ export async function applyRules(
                 allocation_type = 'account',
                 allocated_entity_name = ${ruleName},
                 updated_at = NOW()
-            WHERE id = ${tx.id}::UUID
+            WHERE id = ${tx.id}::UUID AND company_id = ${companyId}::UUID
           `;
         }
 

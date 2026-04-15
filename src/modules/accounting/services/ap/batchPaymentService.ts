@@ -164,7 +164,7 @@ export async function processBatch(companyId: string, id: string, userId: string
               WHEN (total_amount - amount_paid - ${Number(p.amount_allocated)}) <= 0.01 THEN 'paid'
               WHEN amount_paid + ${Number(p.amount_allocated)} > 0 THEN 'partially_paid'
               ELSE status END
-        WHERE id = ${p.invoice_id}::UUID
+        WHERE id = ${p.invoice_id}::UUID AND company_id = ${companyId}::UUID
       `;
     }
 

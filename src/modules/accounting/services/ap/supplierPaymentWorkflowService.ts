@@ -84,7 +84,7 @@ export async function processSupplierPayment(
         await tx`
           UPDATE supplier_invoices
           SET amount_paid = amount_paid + ${alloc.amountAllocated}
-          WHERE id = ${alloc.invoiceId}
+          WHERE id = ${alloc.invoiceId} AND company_id = ${companyId}::UUID
         `;
         await tx`
           UPDATE supplier_invoices SET status = CASE
@@ -92,7 +92,7 @@ export async function processSupplierPayment(
             WHEN amount_paid > 0 THEN 'partially_paid'
             ELSE status
           END
-          WHERE id = ${alloc.invoiceId}
+          WHERE id = ${alloc.invoiceId} AND company_id = ${companyId}::UUID
         `;
       }
 
