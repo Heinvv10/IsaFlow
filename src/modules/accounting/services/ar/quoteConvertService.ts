@@ -79,11 +79,30 @@ export async function convertToInvoice(
   if (!quote || quote.status !== 'accepted') return null;
 
   const invoiceId = await withTransaction(async (tx) => {
+    // BL-55: generate invoice_number via company_document_numbers (atomic, unique)
+    const numRows = (await tx`
+      INSERT INTO company_document_numbers (company_id, document_type, prefix, next_number)
+      VALUES (${companyId}::UUID, 'invoice', 'INV-', 1)
+      ON CONFLICT (company_id, document_type)
+      DO UPDATE SET next_number = company_document_numbers.next_number + 1
+      RETURNING next_number - 1 AS current_number, prefix
+    `) as Row[];
+    const invNum = Number(numRows[0]!.current_number);
+    const invPrefix = String(numRows[0]!.prefix || 'INV-');
+    const invoiceNumber = `${invPrefix}${String(invNum).padStart(5, '0')}`;
+
+    // BL-55: use total_amount (correct column name); populate invoice_number and customer_id
     const invRows = (await tx`
-      INSERT INTO customer_invoices (company_id, client_id, invoice_date, due_date, subtotal, tax_amount, total, notes, status, created_by)
-      VALUES (${companyId}, ${quote.clientId}, ${quote.quoteDate}, ${quote.expiryDate || quote.quoteDate}, ${quote.subtotal},
-        ${quote.taxAmount}, ${quote.total}, ${'Converted from ' + quote.quoteNumber}, 'draft', ${userId || null})
-      RETURNING id
+      INSERT INTO customer_invoices (
+        company_id, invoice_number, client_id, customer_id,
+        invoice_date, due_date, subtotal, tax_amount, total_amount,
+        notes, status, created_by
+      ) VALUES (
+        ${companyId}::UUID, ${invoiceNumber}, ${quote.clientId || null}, ${quote.clientId || null},
+        ${quote.quoteDate}, ${quote.expiryDate || quote.quoteDate},
+        ${quote.subtotal}, ${quote.taxAmount}, ${quote.total},
+        ${'Converted from ' + quote.quoteNumber}, 'draft', ${userId || null}
+      ) RETURNING id
     `) as Row[];
     const newInvoiceId = String(invRows[0]!.id);
 

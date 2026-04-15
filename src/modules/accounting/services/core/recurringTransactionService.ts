@@ -159,24 +159,30 @@ export async function executeRecurring(
       posted = true;
     }
   } else if (template.entityType === 'customer_invoice') {
-    // Customer invoice: insert with template_data fields
+    // BL-56: populate invoice_number, customer_id, created_by (all NOT-NULL)
     const data = template.templateData as Record<string, unknown>;
+    // Generate a deterministic recurring invoice number: RINV-<template-slug>-<YYYY-MM>
+    const slugCI = template.name.replace(/[^A-Za-z0-9]/g, '-').toUpperCase().slice(0, 20);
+    const periodCI = new Date().toISOString().slice(0, 7).replace('-', '');
+    const invoiceNumberCI = `RINV-${slugCI}-${periodCI}`;
+    const clientIdCI = data.clientId ? String(data.clientId) : null;
     const ciRows = (await sql`
-      INSERT INTO customer_invoices (company_id, client_id, invoice_date, due_date,
-        reference, notes, currency, lines, subtotal, vat_amount, total_amount, status)
-      VALUES (
-        ${companyId},
-        ${String(data.clientId || '')},
+      INSERT INTO customer_invoices (
+        company_id, invoice_number, client_id, customer_id, invoice_date, due_date,
+        notes, subtotal, tax_amount, total_amount, status, created_by
+      ) VALUES (
+        ${companyId}::UUID,
+        ${invoiceNumberCI},
+        ${clientIdCI},
+        ${clientIdCI},
         CURRENT_DATE,
         CURRENT_DATE::DATE + INTERVAL '30 days',
-        ${String(data.reference || 'AUTO-REC')},
         ${String(data.notes || template.name)},
-        ${String(data.currency || 'ZAR')},
-        ${JSON.stringify(data.lines || [])}::JSONB,
         ${Number(data.subtotal || 0)},
         ${Number(data.vatAmount || 0)},
         ${Number(data.totalAmount || 0)},
-        'draft'
+        'draft',
+        ${userId}::UUID
       ) RETURNING id
     `) as DbRow[];
     entityId = String(ciRows[0]?.id);
@@ -186,24 +192,29 @@ export async function executeRecurring(
       posted = true;
     }
   } else {
-    // Supplier invoice
+    // BL-57: populate invoice_number, created_by (NOT-NULL)
     const data = template.templateData as Record<string, unknown>;
+    // Generate a deterministic recurring supplier invoice number: RSINV-<template-slug>-<YYYY-MM>
+    const slugSI = template.name.replace(/[^A-Za-z0-9]/g, '-').toUpperCase().slice(0, 20);
+    const periodSI = new Date().toISOString().slice(0, 7).replace('-', '');
+    const invoiceNumberSI = `RSINV-${slugSI}-${periodSI}`;
     const siRows = (await sql`
-      INSERT INTO supplier_invoices (company_id, supplier_id, invoice_date, due_date,
-        reference, description, currency, lines, subtotal, vat_amount, total_amount, status)
-      VALUES (
-        ${companyId},
+      INSERT INTO supplier_invoices (
+        company_id, invoice_number, supplier_id, invoice_date, due_date,
+        reference, notes, subtotal, tax_amount, total_amount, status, created_by
+      ) VALUES (
+        ${companyId}::UUID,
+        ${invoiceNumberSI},
         ${String(data.supplierId || '')},
         CURRENT_DATE,
         CURRENT_DATE::DATE + INTERVAL '30 days',
         ${String(data.reference || 'AUTO-REC')},
-        ${String(data.description || template.name)},
-        ${String(data.currency || 'ZAR')},
-        ${JSON.stringify(data.lines || [])}::JSONB,
+        ${String(data.notes || data.description || template.name)},
         ${Number(data.subtotal || 0)},
         ${Number(data.vatAmount || 0)},
         ${Number(data.totalAmount || 0)},
-        'draft'
+        'draft',
+        ${userId}::UUID
       ) RETURNING id
     `) as DbRow[];
     entityId = String(siRows[0]?.id);

@@ -116,6 +116,13 @@ export async function syncTransactions(connectionId: string, companyId?: string)
     WHERE id = ${connectionId}::UUID
   `;
 
+  // BL-53: resolve company_id from bank_accounts so the INSERT is fully scoped
+  const baRows = (await sql`
+    SELECT company_id FROM bank_accounts WHERE id = ${connection.bank_account_id}::UUID LIMIT 1
+  `) as DbRow[];
+  if (!baRows[0]) throw new Error('Bank account not found for connection');
+  const bankCompanyId = String(baRows[0]!.company_id);
+
   let totalFetched = 0;
   let totalImported = 0;
   let totalSkipped = 0;
@@ -147,10 +154,10 @@ export async function syncTransactions(connectionId: string, companyId?: string)
 
         await sql`
           INSERT INTO bank_transactions (
-            bank_account_id, transaction_date, amount, description,
+            company_id, bank_account_id, transaction_date, amount, description,
             reference, bank_reference, status, import_batch_id
           ) VALUES (
-            ${connection.bank_account_id}::UUID, ${tx.date}::DATE, ${tx.amount},
+            ${bankCompanyId}::UUID, ${connection.bank_account_id}::UUID, ${tx.date}::DATE, ${tx.amount},
             ${tx.description}, ${tx.reference || null}, ${tx.id},
             'imported', NULL
           )
