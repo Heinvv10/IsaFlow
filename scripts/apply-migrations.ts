@@ -20,14 +20,14 @@ const ADVISORY_LOCK_KEY = 73014132;
 const MIGRATIONS_DIR = join(process.cwd(), 'scripts', 'migrations', 'sql');
 
 export interface MigrationFile {
-  version: number;
+  version: string;
   name: string;
   content: string;
   checksum: string;
 }
 
 export interface TrackingRow {
-  version: number;
+  version: string;
   name: string;
   checksum: string | null;
 }
@@ -35,15 +35,16 @@ export interface TrackingRow {
 export interface ApplyPlan {
   toApply: MigrationFile[];
   skipped: MigrationFile[];
-  conflicts: Array<{ version: number; name: string; fileChecksum: string; dbChecksum: string | null }>;
+  conflicts: Array<{ version: string; name: string; fileChecksum: string; dbChecksum: string | null }>;
 }
 
-export function parseVersionFromFilename(filename: string): number {
-  const match = /^(\d+)_/.exec(filename);
+export function parseVersionFromFilename(filename: string): string {
+  // Accept digits optionally followed by a single lowercase letter (e.g. "244b_...").
+  const match = /^(\d+[a-z]?)_/.exec(filename);
   if (!match) {
     throw new Error(`Migration filename missing numeric prefix: ${filename}`);
   }
-  return Number(match[1]);
+  return match[1]!;
 }
 
 export function computeChecksum(content: string): string {
@@ -56,7 +57,10 @@ export function planApply(files: MigrationFile[], applied: TrackingRow[]): Apply
   const skipped: MigrationFile[] = [];
   const conflicts: ApplyPlan['conflicts'] = [];
 
-  const sorted = [...files].sort((a, b) => a.version - b.version);
+  // String comparison is correct here: all filenames are 3-digit padded
+  // (e.g. "000", "244", "244b", "332"), so lexicographic order matches
+  // numeric order. Preserves letter-suffix ordering (244 < 244b).
+  const sorted = [...files].sort((a, b) => (a.version < b.version ? -1 : a.version > b.version ? 1 : 0));
 
   for (const file of sorted) {
     const prior = appliedByVersion.get(file.version);
@@ -151,7 +155,7 @@ async function main(): Promise<void> {
     // Bootstrap: ensure tracking table exists even if migration 332 hasn't run yet.
     await client.query(
       `CREATE TABLE IF NOT EXISTS schema_migrations (
-         version int PRIMARY KEY,
+         version text PRIMARY KEY,
          name text NOT NULL,
          applied_at timestamptz NOT NULL DEFAULT now(),
          checksum text
