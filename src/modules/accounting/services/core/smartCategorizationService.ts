@@ -84,11 +84,12 @@ export async function bulkCategorize(companyId: string,
     return { categorized: 0, skipped: 0, results: [] };
   }
 
-  // 1. Fetch all target transactions in one query
+  // 1. Fetch all target transactions in one query (company-scoped to prevent cross-tenant read)
   const txRows = (await sql`
     SELECT id, description, amount, reference
     FROM bank_transactions
     WHERE id = ANY(${transactionIds}::UUID[])
+      AND company_id = ${companyId}::UUID
       AND status IN ('imported', 'allocated')
   `) as Row[];
 
@@ -178,6 +179,7 @@ export async function bulkCategorize(companyId: string,
           suggested_vat_code       = COALESCE(${result.vatCode ?? null},            suggested_vat_code),
           suggested_confidence     = ${result.confidence}
         WHERE id = ${txId}::UUID
+          AND company_id = ${companyId}::UUID
           AND suggested_gl_account_id IS NULL
       `));
     }
