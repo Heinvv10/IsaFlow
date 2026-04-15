@@ -42,7 +42,9 @@ function buildSampleTransactions(provider: Provider): StubTransaction[] {
 
 // ── Deduplication + insert ────────────────────────────────────────────────────
 
+// BL-54: companyId is required so bank_transactions.company_id (NOT NULL) is populated
 async function insertTransaction(
+  companyId: string,
   bankAccountId: string,
   tx: StubTransaction,
 ): Promise<'imported' | 'duplicate'> {
@@ -68,9 +70,10 @@ async function insertTransaction(
 
   await sql`
     INSERT INTO bank_transactions (
-      bank_account_id, transaction_date, amount,
+      company_id, bank_account_id, transaction_date, amount,
       description, reference, bank_reference, status
     ) VALUES (
+      ${companyId}::UUID,
       ${bankAccountId}::UUID,
       ${tx.date}::DATE,
       ${tx.amount},
@@ -176,7 +179,7 @@ export async function syncBankFeed(
     let duplicate = 0;
 
     for (const tx of transactions) {
-      const result = await insertTransaction(bankAccountId, tx);
+      const result = await insertTransaction(companyId, bankAccountId, tx);
       if (result === 'imported') imported++;
       else duplicate++;
     }
