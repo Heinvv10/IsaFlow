@@ -10,6 +10,7 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type AuthenticatedNextApiRequest, type CompanyApiRequest, withWriteAccess } from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import {
   getCreditNotes,
@@ -133,4 +134,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST', 'PATCH']);
 }
 
-export default withCompany(withErrorHandler(withWriteAccess(handler as never)));
+export default withCompany(withErrorHandler(withCsrf(withWriteAccess(handler as never))));
