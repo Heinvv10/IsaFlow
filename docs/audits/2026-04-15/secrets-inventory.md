@@ -75,7 +75,7 @@
 ---
 
 ## Coverage check
-Grep returned **41** unique env vars. Inventory classifies **41**. Delta: **0**.
+Grep returned **40** unique env vars. Inventory classifies **40**. Delta: **0**.
 
 ### Uncertain classifications (resolved)
 | Var | Chosen bucket | Rationale |
