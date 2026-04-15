@@ -23,7 +23,7 @@ const CreateCustomerPaymentSchema = z.object({
   clientId: UUID,
   paymentDate: ISODate,
   totalAmount: z.coerce.number().nonnegative().multipleOf(0.01),
-  paymentMethod: z.string().max(50).optional(),
+  paymentMethod: z.enum(['eft', 'cheque', 'cash', 'card']).optional(),
   bankReference: z.string().max(200).optional(),
   bankAccountId: UUID.optional(),
   description: z.string().max(500).optional(),
