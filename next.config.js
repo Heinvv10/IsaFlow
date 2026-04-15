@@ -8,7 +8,7 @@ const nextConfig = {
   poweredByHeader: false,
   compress: true,
   output: 'standalone',
-  productionBrowserSourceMaps: true,
+  productionBrowserSourceMaps: process.env.SENTRY_ENABLED === 'true',
 
   eslint: {
     ignoreDuringBuilds: true,
