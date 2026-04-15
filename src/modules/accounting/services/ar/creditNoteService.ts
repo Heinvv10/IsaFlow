@@ -169,19 +169,19 @@ export async function approveCreditNote(companyId: string, id: string, userId: s
       if (String(cn.type) === 'customer' && cn.customer_invoice_id) {
         await tx`
           UPDATE customer_invoices SET amount_paid = amount_paid + ${Number(cn.total_amount)}
-          WHERE id = ${cn.customer_invoice_id}::UUID
+          WHERE id = ${cn.customer_invoice_id}::UUID AND company_id = ${companyId}::UUID
         `;
       } else if (String(cn.type) === 'supplier' && cn.supplier_invoice_id) {
         await tx`
           UPDATE supplier_invoices SET amount_paid = amount_paid + ${Number(cn.total_amount)}
-          WHERE id = ${cn.supplier_invoice_id}::UUID
+          WHERE id = ${cn.supplier_invoice_id}::UUID AND company_id = ${companyId}::UUID
         `;
       }
 
       const rows = (await tx`
         UPDATE credit_notes SET status = 'approved', approved_by = ${userId}::UUID,
           approved_at = NOW(), gl_journal_entry_id = ${je.id}::UUID
-        WHERE id = ${id} RETURNING *
+        WHERE id = ${id} AND company_id = ${companyId}::UUID RETURNING *
       `) as Record<string, unknown>[];
 
       return rows[0] as Record<string, unknown>;
@@ -219,7 +219,7 @@ export async function cancelCreditNote(companyId: string,
         await tx`
           UPDATE customer_invoices
           SET amount_paid = GREATEST(0, amount_paid - ${Number(cn.total_amount)})
-          WHERE id = ${cn.customer_invoice_id}::UUID
+          WHERE id = ${cn.customer_invoice_id}::UUID AND company_id = ${companyId}::UUID
         `;
         await tx`
           UPDATE customer_invoices SET status = CASE
@@ -227,13 +227,13 @@ export async function cancelCreditNote(companyId: string,
             WHEN amount_paid < total_amount THEN 'partially_paid'
             ELSE status
           END
-          WHERE id = ${cn.customer_invoice_id}::UUID
+          WHERE id = ${cn.customer_invoice_id}::UUID AND company_id = ${companyId}::UUID
         `;
       } else if (String(cn.type) === 'supplier' && cn.supplier_invoice_id) {
         await tx`
           UPDATE supplier_invoices
           SET amount_paid = GREATEST(0, amount_paid - ${Number(cn.total_amount)})
-          WHERE id = ${cn.supplier_invoice_id}::UUID
+          WHERE id = ${cn.supplier_invoice_id}::UUID AND company_id = ${companyId}::UUID
         `;
       }
 
@@ -241,7 +241,7 @@ export async function cancelCreditNote(companyId: string,
         UPDATE credit_notes
         SET status = 'cancelled', cancelled_by = ${userId}::UUID,
             cancelled_at = NOW(), cancel_reason = ${reason || null}
-        WHERE id = ${id} RETURNING *
+        WHERE id = ${id} AND company_id = ${companyId}::UUID RETURNING *
       `) as Record<string, unknown>[];
 
       return rows[0] as Record<string, unknown>;
