@@ -36,6 +36,13 @@ export async function applyRules(
 
     if (rules.length === 0) return { applied: 0, skipped: 0, entries: [] };
 
+    // Look up the bank account's linked GL account for journal entries
+    const bankAccRows = (await sql`
+      SELECT gl_account_id FROM bank_accounts
+      WHERE id = ${bankAccountId}::UUID AND company_id = ${companyId}::UUID
+    `) as Record<string, unknown>[];
+    const bankGlAccountId = bankAccRows[0]?.gl_account_id ? String(bankAccRows[0].gl_account_id) : null;
+
     let totalApplied = 0;
     const entries: RuleApplyResult['entries'] = [];
 
@@ -120,7 +127,10 @@ export async function applyRules(
     }
 
     // Auto-create JE mode — sequential (each transaction needs its own JE)
-    for (const rule of autoCreateRules) {
+    if (autoCreateRules.length > 0 && !bankGlAccountId) {
+      log.warn('Bank account has no linked GL account — skipping auto-create rules', { bankAccountId }, 'accounting');
+    }
+    for (const rule of (bankGlAccountId ? autoCreateRules : [])) {
       const pattern = toSqlPattern(String(rule.match_type), String(rule.match_pattern));
       const field = String(rule.match_field);
       const ruleName = String(rule.rule_name);
@@ -180,7 +190,7 @@ export async function applyRules(
         let lines: JournalLineInput[];
         if (isDeposit) {
           lines = [
-            { glAccountId: bankAccountId, debit: totalAmount, credit: 0, description: entryDesc },
+            { glAccountId: bankGlAccountId!, debit: totalAmount, credit: 0, description: entryDesc },
             { glAccountId: String(rule.gl_account_id), debit: 0, credit: netAmount, description: entryDesc, vatType: mapVatType },
           ];
           if (hasVat) {
@@ -190,7 +200,7 @@ export async function applyRules(
         } else {
           lines = [
             { glAccountId: String(rule.gl_account_id), debit: netAmount, credit: 0, description: entryDesc, vatType: mapVatType },
-            { glAccountId: bankAccountId, debit: 0, credit: totalAmount, description: entryDesc },
+            { glAccountId: bankGlAccountId!, debit: 0, credit: totalAmount, description: entryDesc },
           ];
           if (hasVat) {
             const vatAcctId = await getSystemAccountId(vatAccountKey, companyId);
@@ -210,7 +220,7 @@ export async function applyRules(
 
         const bankLineRows = (await sql`
           SELECT jl.id FROM gl_journal_lines jl
-          WHERE jl.journal_entry_id = ${je.id}::UUID AND jl.gl_account_id = ${bankAccountId}::UUID
+          WHERE jl.journal_entry_id = ${je.id}::UUID AND jl.gl_account_id = ${bankGlAccountId}::UUID
             AND jl.company_id = ${companyId}::UUID
           LIMIT 1
         `) as Record<string, unknown>[];
