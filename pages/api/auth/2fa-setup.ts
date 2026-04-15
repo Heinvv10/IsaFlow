@@ -18,7 +18,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
-  if (checkRateLimit(`2fa-setup:${ip}`, { maxRequests: 5, windowMs: 15 * 60 * 1000 })) {
+  if (!(await checkRateLimit(`2fa-setup:${ip}`, { max: 5, windowSecs: 15 * 60 }))) {
     return res.status(429).json({ success: false, error: 'Too many attempts. Try again later.' });
   }
 

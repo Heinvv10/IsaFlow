@@ -27,7 +27,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Rate limit: 3 registrations per IP per 15 minutes
   // Use last-hop x-forwarded-for (proxy-appended) to prevent client IP spoofing.
   const ip = getClientIp(req);
-  if (checkRateLimit(ip, { windowMs: 15 * 60 * 1000, maxRequests: 3 })) {
+  if (!(await checkRateLimit(ip, { max: 3, windowSecs: 15 * 60 }))) {
     return res.status(429).json({
       success: false,
       error: { code: 'RATE_LIMITED', message: 'Too many attempts. Please try again later.' },

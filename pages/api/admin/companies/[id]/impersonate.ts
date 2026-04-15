@@ -23,7 +23,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const companyId = req.query.id as string;
 
   // Per-user impersonation limit: 5 per minute to prevent abuse
-  if (checkRateLimit(`impersonate:${req.user.id}`, { windowMs: 60000, maxRequests: 5 })) {
+  if (!(await checkRateLimit(`impersonate:${req.user.id}`, { max: 5, windowSecs: 60 }))) {
     return res.status(429).json({
       success: false,
       error: { code: 'RATE_LIMITED', message: 'Too many impersonation attempts. Please wait a minute.' },

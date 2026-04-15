@@ -36,7 +36,7 @@ async function handler(
   }
 
   // Per-admin impersonation rate limit: 5 per minute
-  if (checkRateLimit(`user-impersonate:${req.user.id}`, { windowMs: 60_000, maxRequests: 5 })) {
+  if (!(await checkRateLimit(`user-impersonate:${req.user.id}`, { max: 5, windowSecs: 60 }))) {
     res.status(429).json({
       success: false,
       error: {

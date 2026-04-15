@@ -38,7 +38,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
     return req.socket.remoteAddress || 'unknown';
   })();
-  if (checkRateLimit(ip, { windowMs: 15 * 60 * 1000, maxRequests: 5 })) {
+  if (!(await checkRateLimit(ip, { max: 5, windowSecs: 15 * 60 }))) {
     return res.status(429).json({
       success: false,
       error: { code: 'RATE_LIMITED', message: 'Too many attempts. Please try again later.' },

@@ -37,7 +37,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const rawIp = Array.isArray(req.headers['x-forwarded-for'])
     ? req.headers['x-forwarded-for'][0]
     : req.headers['x-forwarded-for'] ?? req.socket.remoteAddress;
-  if (checkRateLimit(`portal-chat:${rawIp ?? 'unknown'}`, { windowMs: 15 * 60 * 1000, maxRequests: 20 })) {
+  if (!(await checkRateLimit(`portal-chat:${rawIp ?? 'unknown'}`, { max: 20, windowSecs: 15 * 60 }))) {
     return res.status(429).json({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many requests. Please try again later.' } });
   }
 
