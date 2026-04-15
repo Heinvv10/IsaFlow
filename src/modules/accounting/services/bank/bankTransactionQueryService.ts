@@ -82,12 +82,27 @@ export interface BankTxFilters {
 }
 
 // ── Shared SELECT fragment ────────────────────────────────────────────────────
+// BL-11: Explicit column list replaces bt.* to reduce row width (~1,534→~640 bytes).
+// Every field read by mapTxRow must appear here. Keep in sync with mapTxRow.
 
 const TX_SELECT = sql`
-  SELECT bt.*, ga.account_name AS bank_account_name,
-         sga.account_name AS suggested_gl_account_name, sga.account_code AS suggested_gl_account_code,
-         COALESCE(ss.company_name, ss.name) AS suggested_supplier_name,
-         sc.name AS suggested_client_name
+  SELECT
+    bt.id, bt.company_id, bt.bank_account_id,
+    bt.transaction_date, bt.value_date,
+    bt.amount, bt.description, bt.reference, bt.bank_reference,
+    bt.status, bt.matched_journal_line_id, bt.reconciliation_id,
+    bt.import_batch_id, bt.exclude_reason, bt.notes,
+    bt.suggested_gl_account_id, bt.suggested_category,
+    bt.suggested_supplier_id, bt.suggested_client_id,
+    bt.suggested_vat_code, bt.suggested_confidence,
+    bt.cc1_id, bt.cc2_id, bt.bu_id,
+    bt.allocation_type, bt.allocated_entity_name,
+    bt.created_at, bt.updated_at,
+    ga.account_name AS bank_account_name,
+    sga.account_name AS suggested_gl_account_name,
+    sga.account_code AS suggested_gl_account_code,
+    COALESCE(ss.company_name, ss.name) AS suggested_supplier_name,
+    sc.name AS suggested_client_name
   FROM bank_transactions bt
   LEFT JOIN gl_accounts ga ON ga.id = bt.bank_account_id
   LEFT JOIN gl_accounts sga ON sga.id = bt.suggested_gl_account_id
@@ -102,7 +117,8 @@ export async function getBankTransactions(
   filters?: BankTxFilters
 ): Promise<{ transactions: BankTransaction[]; total: number }> {
   try {
-    const limit = Math.min(filters?.limit || 100, 200);
+    // BL-11: Cap list limit at 100. Export paths have their own dedicated endpoints.
+    const limit = Math.min(filters?.limit || 50, 100);
     const offset = filters?.offset || 0;
     let rows: Row[];
     let countRows: Row[];
