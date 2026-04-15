@@ -58,6 +58,8 @@ export async function getBankTransactions(
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id
       WHERE je.status = 'posted'
+        AND je.company_id = ${companyId}::UUID
+        AND ga.company_id = ${companyId}::UUID
         AND je.entry_date < ${periodStart}
         AND ga.account_code = ${bankCode}
     `) as Row[];
@@ -71,6 +73,8 @@ export async function getBankTransactions(
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id
       WHERE je.status = 'posted'
+        AND je.company_id = ${companyId}::UUID
+        AND ga.company_id = ${companyId}::UUID
         AND je.entry_date >= ${periodStart}
         AND je.entry_date <= ${periodEnd}
         AND ga.account_code = ${bankCode}
@@ -237,7 +241,8 @@ export async function getAuditTrail(
       FROM gl_journal_entries je
       LEFT JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id
       LEFT JOIN users u ON u.id::TEXT = je.created_by::TEXT
-      WHERE je.entry_date >= ${periodStart}
+      WHERE je.company_id = ${companyId}::UUID
+        AND je.entry_date >= ${periodStart}
         AND je.entry_date <= ${periodEnd}
       GROUP BY je.id, je.entry_date, je.entry_number, je.description,
         je.source, je.status, u.first_name, u.last_name, je.created_by, je.created_at, je.posted_at
