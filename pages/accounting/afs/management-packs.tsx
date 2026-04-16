@@ -113,8 +113,8 @@ export default function ManagementPacksPage() {
       <div className="max-w-5xl mx-auto px-4 py-8">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-2xl font-bold text-zinc-900 tracking-tight">Management Packs</h1>
-            <p className="text-sm text-zinc-500 mt-1">Automated monthly management accounts</p>
+            <h1 className="text-2xl font-bold text-zinc-900 dark:text-white tracking-tight">Management Packs</h1>
+            <p className="text-sm text-zinc-500 dark:text-slate-400 mt-1">Automated monthly management accounts</p>
           </div>
           <div className="flex items-center gap-2">
             <input value={genPeriod} onChange={e => setGenPeriod(e.target.value)}
@@ -139,7 +139,7 @@ export default function ManagementPacksPage() {
             { key: 'history', label: 'Pack History', icon: <History className="w-4 h-4" /> },
           ].map(t => (
             <button key={t.key} onClick={() => setTab(t.key as 'config' | 'history')}
-              className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${tab === t.key ? 'border-blue-600 text-blue-600' : 'border-transparent text-zinc-500 hover:text-zinc-900'}`}>
+              className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${tab === t.key ? 'border-blue-600 text-blue-600' : 'border-transparent text-zinc-500 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white'}`}>
               {t.icon}{t.label}
             </button>
           ))}
@@ -161,10 +161,10 @@ export default function ManagementPacksPage() {
                 <p className="text-sm">No management packs generated yet.</p>
               </div>
             ) : packs.map(pack => (
-              <div key={pack.id} className="bg-white border border-zinc-200 rounded-xl p-5 flex items-center gap-4">
+              <div key={pack.id} className="bg-white dark:bg-slate-800 border border-zinc-200 dark:border-slate-700 rounded-xl p-5 flex items-center gap-4">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-3 mb-1">
-                    <span className="text-base font-semibold text-zinc-900">{pack.period}</span>
+                    <span className="text-base font-semibold text-zinc-900 dark:text-white">{pack.period}</span>
                     <StatusBadge status={pack.status} />
                   </div>
                   <p className="text-xs text-zinc-500">

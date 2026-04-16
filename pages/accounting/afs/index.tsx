@@ -74,8 +74,8 @@ export default function AfsIndexPage() {
           <div className="flex items-center gap-3">
             <FileText className="w-7 h-7 text-zinc-700" />
             <div>
-              <h1 className="text-2xl font-semibold text-zinc-900">Annual Financial Statements</h1>
-              <p className="text-sm text-zinc-500 mt-0.5">IFRS-compliant AFS bundle generation and review</p>
+              <h1 className="text-2xl font-semibold text-zinc-900 dark:text-white">Annual Financial Statements</h1>
+              <p className="text-sm text-zinc-500 dark:text-slate-400 mt-0.5">IFRS-compliant AFS bundle generation and review</p>
             </div>
           </div>
           <button
@@ -109,22 +109,22 @@ export default function AfsIndexPage() {
         )}
 
         {!isLoading && documents.length > 0 && (
-          <div className="rounded-xl border border-zinc-200 divide-y divide-zinc-100 overflow-hidden">
+          <div className="rounded-xl border border-zinc-200 dark:border-slate-700 divide-y divide-zinc-100 dark:divide-slate-800 overflow-hidden">
             {documents.map(doc => (
               <Link
                 key={doc.id}
                 href={`/accounting/afs/${doc.id}`}
-                className="flex items-center justify-between px-5 py-4 hover:bg-zinc-50 transition-colors group"
+                className="flex items-center justify-between px-5 py-4 hover:bg-zinc-50 dark:hover:bg-slate-800/50 transition-colors group"
               >
                 <div className="flex items-center gap-4">
                   <FileText className="w-5 h-5 text-zinc-400 group-hover:text-zinc-600 transition-colors" />
                   <div>
-                    <p className="text-sm font-medium text-zinc-900">
+                    <p className="text-sm font-medium text-zinc-900 dark:text-white">
                       {doc.documentType === 'afs'
                         ? `AFS — ${doc.fiscalYear ?? '—'}`
                         : `Management Pack — ${doc.period ?? '—'}`}
                     </p>
-                    <p className="text-xs text-zinc-500 mt-0.5">
+                    <p className="text-xs text-zinc-500 dark:text-slate-400 mt-0.5">
                       {doc.reportingFramework === 'ifrs_smes' ? 'IFRS for SMEs' : 'Full IFRS'}
                       {' · '}v{doc.version}
                     </p>
@@ -132,7 +132,7 @@ export default function AfsIndexPage() {
                 </div>
                 <div className="flex items-center gap-3">
                   <StatusBadge status={doc.status} />
-                  <span className="text-xs text-zinc-400">
+                  <span className="text-xs text-zinc-400 dark:text-slate-500">
                     {new Date(doc.updatedAt).toLocaleDateString('en-ZA')}
                   </span>
                 </div>

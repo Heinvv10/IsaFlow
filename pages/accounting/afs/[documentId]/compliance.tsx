@@ -6,6 +6,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { AlertTriangle, XCircle, FileCheck, ShieldCheck, ChevronRight } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { useRouter } from 'next/router';
 import type { PisScore, ComplianceResult, CipcFilingGuide, AfsComplianceAlert } from '@/modules/accounting/services/afs/afsTypes';
 import { ScoreRing, IssueList, CipcGuideSection, AlertsSection } from '@/components/accounting/afs/compliance-sections';
@@ -85,7 +86,7 @@ export default function CompliancePage() {
       });
       if (!res.ok) throw new Error(`Dismiss failed: ${res.status}`);
     } catch (err) {
-      console.warn('Dismiss failed, rolling back UI', err);
+      log.warn('Dismiss failed, rolling back UI', { error: err }, 'compliance-page');
       setAlerts(prevAlerts);
     }
   }
@@ -93,14 +94,14 @@ export default function CompliancePage() {
   return (
     <AppLayout>
       <div className="max-w-5xl mx-auto px-4 py-8">
-        <div className="flex items-center gap-2 mb-1 text-sm text-gray-500">
-          <Link href="/accounting/afs" className="hover:text-gray-800">AFS</Link>
+        <div className="flex items-center gap-2 mb-1 text-sm text-gray-500 dark:text-slate-500">
+          <Link href="/accounting/afs" className="hover:text-gray-800 dark:hover:text-slate-300">AFS</Link>
           <ChevronRight className="w-3 h-3" />
-          <Link href={`/accounting/afs/${documentId}`} className="hover:text-gray-800">Document</Link>
+          <Link href={`/accounting/afs/${documentId}`} className="hover:text-gray-800 dark:hover:text-slate-300">Document</Link>
           <ChevronRight className="w-3 h-3" />
-          <span className="text-gray-800 font-medium">Compliance</span>
+          <span className="text-gray-800 dark:text-slate-200 font-medium">Compliance</span>
         </div>
-        <h1 className="text-2xl font-black text-gray-900 mb-6">IFRS Compliance</h1>
+        <h1 className="text-2xl font-black text-gray-900 dark:text-white mb-6">IFRS Compliance</h1>
 
         {error && (
           <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4 flex gap-3 items-start">
@@ -111,7 +112,7 @@ export default function CompliancePage() {
 
         {loading && (
           <div className="animate-pulse space-y-6">
-            {[1, 2, 3].map(i => <div key={i} className="h-32 bg-gray-100 rounded-xl" />)}
+            {[1, 2, 3].map(i => <div key={i} className="h-32 bg-gray-100 dark:bg-slate-800 rounded-xl" />)}
           </div>
         )}
 
@@ -119,10 +120,10 @@ export default function CompliancePage() {
           <div className="space-y-8">
             {/* PIS Score Card */}
             {pisScore && (
-              <section className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+              <section className="bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl p-6 shadow-sm">
                 <div className="flex items-center gap-2 mb-4">
                   <ShieldCheck className="w-5 h-5 text-indigo-600" />
-                  <h2 className="text-lg font-bold text-gray-900">Public Interest Score</h2>
+                  <h2 className="text-lg font-bold text-gray-900 dark:text-white">Public Interest Score</h2>
                 </div>
                 <div className="flex items-start gap-8">
                   <div>
@@ -131,25 +132,25 @@ export default function CompliancePage() {
                   </div>
                   <div className="flex-1 grid grid-cols-2 gap-3 text-sm">
                     <div>
-                      <p className="text-gray-500">Framework</p>
-                      <p className="font-semibold text-gray-900">
+                      <p className="text-gray-500 dark:text-slate-400">Framework</p>
+                      <p className="font-semibold text-gray-900 dark:text-white">
                         {pisScore.requiredFramework === 'full_ifrs' ? 'Full IFRS' : 'IFRS for SMEs'}
                       </p>
                     </div>
                     <div>
-                      <p className="text-gray-500">Audit Level</p>
-                      <p className="font-semibold text-gray-900">
+                      <p className="text-gray-500 dark:text-slate-400">Audit Level</p>
+                      <p className="font-semibold text-gray-900 dark:text-white">
                         {pisScore.requiredAudit === 'mandatory_audit' ? 'Mandatory Audit' :
                          pisScore.requiredAudit === 'independent_review' ? 'Independent Review' : 'Voluntary'}
                       </p>
                     </div>
                     <div>
-                      <p className="text-gray-500">Turnover points</p>
-                      <p className="font-mono text-gray-900">{pisScore.turnoverPoints.toFixed(2)}</p>
+                      <p className="text-gray-500 dark:text-slate-400">Turnover points</p>
+                      <p className="font-mono text-gray-900 dark:text-white">{pisScore.turnoverPoints.toFixed(2)}</p>
                     </div>
                     <div>
-                      <p className="text-gray-500">Liability points</p>
-                      <p className="font-mono text-gray-900">{pisScore.liabilityPoints.toFixed(2)}</p>
+                      <p className="text-gray-500 dark:text-slate-400">Liability points</p>
+                      <p className="font-mono text-gray-900 dark:text-white">{pisScore.liabilityPoints.toFixed(2)}</p>
                     </div>
                   </div>
                 </div>
@@ -163,11 +164,11 @@ export default function CompliancePage() {
             )}
 
             {/* Compliance Check */}
-            <section className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+            <section className="bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl p-6 shadow-sm">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
                   <FileCheck className="w-5 h-5 text-indigo-600" />
-                  <h2 className="text-lg font-bold text-gray-900">Compliance Check</h2>
+                  <h2 className="text-lg font-bold text-gray-900 dark:text-white">Compliance Check</h2>
                 </div>
                 <button
                   onClick={() => { void handleRunCheck(); }}
@@ -187,15 +188,15 @@ export default function CompliancePage() {
                     <div className="flex gap-4 text-sm">
                       <div className="text-center">
                         <p className="text-2xl font-black text-red-600">{complianceResult.blockerCount}</p>
-                        <p className="text-gray-500">Blockers</p>
+                        <p className="text-gray-500 dark:text-slate-400">Blockers</p>
                       </div>
                       <div className="text-center">
                         <p className="text-2xl font-black text-amber-500">{complianceResult.warningCount}</p>
-                        <p className="text-gray-500">Warnings</p>
+                        <p className="text-gray-500 dark:text-slate-400">Warnings</p>
                       </div>
                       <div className="text-center">
                         <p className="text-2xl font-black text-green-600">{complianceResult.passedCount}</p>
-                        <p className="text-gray-500">Passed</p>
+                        <p className="text-gray-500 dark:text-slate-400">Passed</p>
                       </div>
                     </div>
                   </div>
