@@ -4,7 +4,7 @@
 CREATE TABLE IF NOT EXISTS afs_generation_log (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   document_id   UUID NOT NULL REFERENCES afs_documents(id) ON DELETE CASCADE,
-  company_id    UUID NOT NULL,
+  company_id    UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
   requested_by  TEXT REFERENCES users(id),
   status        TEXT NOT NULL DEFAULT 'queued'
                   CHECK (status IN ('queued', 'running', 'completed', 'failed')),

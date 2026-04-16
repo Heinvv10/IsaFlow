@@ -29,6 +29,7 @@ async function fetchIndirectClosingCash(companyId: string, periodStart: string, 
          JOIN gl_journal_entries je_o ON je_o.id = jl_o.journal_entry_id
          JOIN gl_accounts ga_o         ON ga_o.id = jl_o.gl_account_id
          WHERE ga_o.account_subtype = 'bank'
+           AND ga_o.company_id = ${companyId}::UUID
            AND je_o.company_id = ${companyId}::UUID
            AND jl_o.company_id = ${companyId}::UUID
            AND je_o.status     = 'posted'

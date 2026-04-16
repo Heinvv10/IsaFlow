@@ -15,7 +15,7 @@ export async function executeDataQueries(
   companyId: string,
   fiscalYear: number,
   dataQueries: Record<string, string>,
-): Promise<Record<string, unknown[]>> {
+): Promise<Record<string, unknown>> {
   const entries = Object.entries(dataQueries);
   if (entries.length === 0) return {};
 
@@ -38,7 +38,9 @@ export async function executeDataQueries(
  * Returns true when every query result in the snapshot is empty.
  * Used by the note engine to detect zero-balance notes for suppression.
  */
-export function isZeroBalance(snapshot: Record<string, unknown[]>): boolean {
+export function isZeroBalance(snapshot: Record<string, unknown>): boolean {
   if (Object.keys(snapshot).length === 0) return true;
-  return Object.values(snapshot).every(rows => rows.length === 0);
+  return Object.values(snapshot).every(val =>
+    Array.isArray(val) ? val.length === 0 : val === 0 || val === null || val === undefined
+  );
 }

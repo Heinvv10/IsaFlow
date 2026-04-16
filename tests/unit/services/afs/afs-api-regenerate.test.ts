@@ -74,8 +74,8 @@ describe('POST /afs/[documentId]/sections/[sectionId]/regenerate', () => {
     expect(apiResponse.badRequest).toHaveBeenCalledWith(res, expect.stringContaining('fiscalYear'));
   });
 
-  it('rejects invalid framework value (ifrs_smes)', async () => {
-    const req = makeReq({ body: { fiscalYear: 2025, framework: 'ifrs_smes' } });
+  it('rejects invalid framework value', async () => {
+    const req = makeReq({ body: { fiscalYear: 2025, framework: 'gaap' } });
     const res = makeRes();
     await (handler as unknown as Handler)(req, res);
     expect(apiResponse.badRequest).toHaveBeenCalledWith(res, expect.stringContaining('framework'));
@@ -92,13 +92,13 @@ describe('POST /afs/[documentId]/sections/[sectionId]/regenerate', () => {
     expect(apiResponse.success).toHaveBeenCalledWith(res, { sectionId: SECTION_ID });
   });
 
-  it('accepts ifrs_for_smes as a valid framework', async () => {
+  it('accepts ifrs_smes as a valid framework', async () => {
     vi.mocked(generateSection).mockResolvedValueOnce(undefined);
-    const req = makeReq({ body: { fiscalYear: 2024, framework: 'ifrs_for_smes' } });
+    const req = makeReq({ body: { fiscalYear: 2024, framework: 'ifrs_smes' } });
     const res = makeRes();
     await (handler as unknown as Handler)(req, res);
     expect(generateSection).toHaveBeenCalledWith(
-      COMPANY_ID, DOCUMENT_ID, SECTION_ID, 2024, 'ifrs_for_smes',
+      COMPANY_ID, DOCUMENT_ID, SECTION_ID, 2024, 'ifrs_smes',
     );
   });
 });
