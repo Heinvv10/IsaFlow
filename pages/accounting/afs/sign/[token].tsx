@@ -8,25 +8,25 @@ import type { GetServerSidePropsContext } from 'next';
 
 interface PageProps {
   token: string;
-  callbackBaseUrl: string;
+  signumBaseUrl: string;
 }
 
 export function getServerSideProps(context: GetServerSidePropsContext) {
   const token = (context.params as Record<string, string>).token ?? '';
-  const callbackBaseUrl = process.env.SIGNUM_CALLBACK_BASE_URL ?? '';
-  return { props: { token, callbackBaseUrl } };
+  // Derive Signum's public origin from the API URL (strip /api/v1 suffix)
+  const signumBaseUrl = (process.env.SIGNUM_API_URL ?? '').replace(/\/api\/v1\/?$/, '');
+  return { props: { token, signumBaseUrl } };
 }
 
-export default function SigningPage({ token, callbackBaseUrl }: PageProps) {
+export default function SigningPage({ token, signumBaseUrl }: PageProps) {
   const [signingComplete, setSigningComplete] = useState(false);
   const [signingDeclined, setSigningDeclined] = useState(false);
 
   useEffect(() => {
     function handleMessage(event: MessageEvent) {
-      // Only accept messages from the Signum iframe origin
       let signumOrigin: string;
       try {
-        signumOrigin = new URL(callbackBaseUrl).origin;
+        signumOrigin = new URL(signumBaseUrl).origin;
       } catch {
         return;
       }
@@ -40,9 +40,9 @@ export default function SigningPage({ token, callbackBaseUrl }: PageProps) {
     }
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [callbackBaseUrl]);
+  }, [signumBaseUrl]);
 
-  const iframeSrc = callbackBaseUrl ? `${callbackBaseUrl}/${token}?embed=true` : null;
+  const iframeSrc = signumBaseUrl ? `${signumBaseUrl}/sign/${token}?embed=true` : null;
 
   return (
     <>
