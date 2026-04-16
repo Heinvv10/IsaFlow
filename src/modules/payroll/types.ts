@@ -29,6 +29,12 @@ export interface Employee {
   employment_type: EmploymentType;
   pay_frequency: PayFrequency;
   status: EmployeeStatus;
+  medical_aid_main_member: boolean;
+  medical_aid_dependants: number;
+  travel_logbook_kept: boolean;
+  travel_taxable_pct: number;
+  eti_employment_start_date: string | null;
+  eti_is_connected_person: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -41,9 +47,18 @@ export interface PayStructure {
   housing_allowance: number;
   cell_allowance: number;
   other_allowances: number;
+  annual_bonus: number;
+  commission: number;
   medical_aid_contribution: number;
   retirement_fund_contribution_pct: number;
   custom_deductions: CustomDeduction[];
+  basic_salary_code: string;
+  travel_allowance_code: string;
+  housing_allowance_code: string;
+  cell_allowance_code: string;
+  other_allowances_code: string;
+  annual_bonus_code: string;
+  commission_code: string;
   effective_from: string;
   effective_to: string | null;
   created_at: string;
@@ -64,11 +79,19 @@ export interface PayrollRun {
   total_uif_employee: number;
   total_uif_employer: number;
   total_sdl: number;
+  total_eti: number;
   total_net: number;
   total_company_cost: number;
   journal_entry_id: string | null;
   created_by: string | null;
   created_at: string;
+}
+
+export interface SarsBreakdownLine {
+  code: string;
+  description: string;
+  amount: number;
+  type: 'income' | 'deduction' | 'employer';
 }
 
 export interface Payslip {
@@ -80,12 +103,15 @@ export interface Payslip {
   housing_allowance: number;
   cell_allowance: number;
   other_allowances: number;
+  annual_bonus: number;
+  commission: number;
   gross_pay: number;
   paye: number;
   uif_employee: number;
   uif_employer: number;
   sdl: number;
   medical_aid: number;
+  medical_aid_credit: number;
   retirement_fund: number;
   other_deductions: number;
   total_deductions: number;
@@ -93,6 +119,9 @@ export interface Payslip {
   ytd_gross: number;
   ytd_paye: number;
   ytd_uif: number;
+  eti_amount: number;
+  eti_months: number;
+  sars_breakdown: SarsBreakdownLine[];
   created_at: string;
   // Joined fields
   employee_number?: string;
@@ -124,12 +153,20 @@ export interface CreateEmployeeInput {
   employment_type?: EmploymentType;
   pay_frequency?: PayFrequency;
   status?: EmployeeStatus;
+  medical_aid_main_member?: boolean;
+  medical_aid_dependants?: number;
+  travel_logbook_kept?: boolean;
+  travel_taxable_pct?: number;
+  eti_employment_start_date?: string;
+  eti_is_connected_person?: boolean;
   // Initial pay structure
   basic_salary: number;
   travel_allowance?: number;
   housing_allowance?: number;
   cell_allowance?: number;
   other_allowances?: number;
+  annual_bonus?: number;
+  commission?: number;
   medical_aid_contribution?: number;
   retirement_fund_contribution_pct?: number;
   custom_deductions?: CustomDeduction[];
@@ -149,12 +186,20 @@ export interface UpdateEmployeeInput {
   employment_type?: EmploymentType;
   pay_frequency?: PayFrequency;
   status?: EmployeeStatus;
+  medical_aid_main_member?: boolean;
+  medical_aid_dependants?: number;
+  travel_logbook_kept?: boolean;
+  travel_taxable_pct?: number;
+  eti_employment_start_date?: string;
+  eti_is_connected_person?: boolean;
   // Pay structure update (creates new record)
   basic_salary?: number;
   travel_allowance?: number;
   housing_allowance?: number;
   cell_allowance?: number;
   other_allowances?: number;
+  annual_bonus?: number;
+  commission?: number;
   medical_aid_contribution?: number;
   retirement_fund_contribution_pct?: number;
   custom_deductions?: CustomDeduction[];

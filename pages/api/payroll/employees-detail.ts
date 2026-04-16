@@ -47,7 +47,23 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'PUT') {
     try {
-      const employee = await updateEmployee(companyId, id, req.body);
+      const body = req.body ?? {};
+      const { validateSaIdNumber, validateSaTaxNumber, isDuplicateIdNumber } =
+        await import('@/modules/payroll/payrollValidationService');
+
+      if (body.id_number) {
+        const r = validateSaIdNumber(String(body.id_number).trim());
+        if (!r.valid) return apiResponse.badRequest(res, `ID number: ${r.reason}`);
+        const dup = await isDuplicateIdNumber(companyId, String(body.id_number).trim(), id);
+        if (dup) return apiResponse.badRequest(res, 'An employee with this ID number already exists');
+      }
+      if (body.tax_number) {
+        const r = validateSaTaxNumber(String(body.tax_number).trim());
+        if (!r.valid) return apiResponse.badRequest(res, `Tax number: ${r.reason}`);
+      }
+
+      const userId = (req as CompanyApiRequest).user?.id ?? null;
+      const employee = await updateEmployee(companyId, id, body, userId);
       return apiResponse.success(res, employee);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to update employee';
