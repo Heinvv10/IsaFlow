@@ -18,22 +18,8 @@ import { writeAuditEntry, diffValues } from './payrollAuditService';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
 
-const EMPLOYEE_PAY_SELECT = sql`
-  SELECT e.*,
-    ps.id AS ps_id, ps.basic_salary, ps.travel_allowance,
-    ps.housing_allowance, ps.cell_allowance, ps.other_allowances,
-    ps.medical_aid_contribution, ps.retirement_fund_contribution_pct,
-    ps.custom_deductions, ps.effective_from, ps.effective_to
-  FROM employees e
-  LEFT JOIN LATERAL (
-    SELECT * FROM pay_structures p
-    WHERE p.employee_id = e.id
-      AND p.effective_from <= CURRENT_DATE
-      AND (p.effective_to IS NULL OR p.effective_to >= CURRENT_DATE)
-    ORDER BY p.effective_from DESC
-    LIMIT 1
-  ) ps ON TRUE
-`;
+// NOTE: Neon's sql tag executes on call, so we can't pre-build fragments
+// as `sql\`\``. We inline the SELECT+FROM in each branch below.
 
 export async function listEmployees(
   companyId: string,
@@ -46,7 +32,18 @@ export async function listEmployees(
 
     if (searchTerm && statusFilter) {
       rows = (await sql`
-        ${EMPLOYEE_PAY_SELECT}
+        SELECT e.*, ps.id AS ps_id, ps.basic_salary, ps.travel_allowance,
+          ps.housing_allowance, ps.cell_allowance, ps.other_allowances,
+          ps.medical_aid_contribution, ps.retirement_fund_contribution_pct,
+          ps.custom_deductions, ps.effective_from, ps.effective_to
+        FROM employees e
+        LEFT JOIN LATERAL (
+          SELECT * FROM pay_structures p
+          WHERE p.employee_id = e.id
+            AND p.effective_from <= CURRENT_DATE
+            AND (p.effective_to IS NULL OR p.effective_to >= CURRENT_DATE)
+          ORDER BY p.effective_from DESC LIMIT 1
+        ) ps ON TRUE
         WHERE e.company_id = ${companyId}::UUID
           AND e.status = ${statusFilter}
           AND (
@@ -57,7 +54,18 @@ export async function listEmployees(
       `) as Row[];
     } else if (searchTerm) {
       rows = (await sql`
-        ${EMPLOYEE_PAY_SELECT}
+        SELECT e.*, ps.id AS ps_id, ps.basic_salary, ps.travel_allowance,
+          ps.housing_allowance, ps.cell_allowance, ps.other_allowances,
+          ps.medical_aid_contribution, ps.retirement_fund_contribution_pct,
+          ps.custom_deductions, ps.effective_from, ps.effective_to
+        FROM employees e
+        LEFT JOIN LATERAL (
+          SELECT * FROM pay_structures p
+          WHERE p.employee_id = e.id
+            AND p.effective_from <= CURRENT_DATE
+            AND (p.effective_to IS NULL OR p.effective_to >= CURRENT_DATE)
+          ORDER BY p.effective_from DESC LIMIT 1
+        ) ps ON TRUE
         WHERE e.company_id = ${companyId}::UUID
           AND (
             e.first_name ILIKE ${searchTerm} OR e.last_name ILIKE ${searchTerm}
@@ -67,13 +75,35 @@ export async function listEmployees(
       `) as Row[];
     } else if (statusFilter) {
       rows = (await sql`
-        ${EMPLOYEE_PAY_SELECT}
+        SELECT e.*, ps.id AS ps_id, ps.basic_salary, ps.travel_allowance,
+          ps.housing_allowance, ps.cell_allowance, ps.other_allowances,
+          ps.medical_aid_contribution, ps.retirement_fund_contribution_pct,
+          ps.custom_deductions, ps.effective_from, ps.effective_to
+        FROM employees e
+        LEFT JOIN LATERAL (
+          SELECT * FROM pay_structures p
+          WHERE p.employee_id = e.id
+            AND p.effective_from <= CURRENT_DATE
+            AND (p.effective_to IS NULL OR p.effective_to >= CURRENT_DATE)
+          ORDER BY p.effective_from DESC LIMIT 1
+        ) ps ON TRUE
         WHERE e.company_id = ${companyId}::UUID AND e.status = ${statusFilter}
         ORDER BY e.employee_number ASC LIMIT 200
       `) as Row[];
     } else {
       rows = (await sql`
-        ${EMPLOYEE_PAY_SELECT}
+        SELECT e.*, ps.id AS ps_id, ps.basic_salary, ps.travel_allowance,
+          ps.housing_allowance, ps.cell_allowance, ps.other_allowances,
+          ps.medical_aid_contribution, ps.retirement_fund_contribution_pct,
+          ps.custom_deductions, ps.effective_from, ps.effective_to
+        FROM employees e
+        LEFT JOIN LATERAL (
+          SELECT * FROM pay_structures p
+          WHERE p.employee_id = e.id
+            AND p.effective_from <= CURRENT_DATE
+            AND (p.effective_to IS NULL OR p.effective_to >= CURRENT_DATE)
+          ORDER BY p.effective_from DESC LIMIT 1
+        ) ps ON TRUE
         WHERE e.company_id = ${companyId}::UUID
         ORDER BY e.employee_number ASC LIMIT 200
       `) as Row[];
@@ -91,7 +121,18 @@ export async function listEmployees(
 export async function getEmployee(companyId: string, id: string): Promise<EmployeeWithPay | null> {
   try {
     const rows = (await sql`
-      ${EMPLOYEE_PAY_SELECT}
+      SELECT e.*, ps.id AS ps_id, ps.basic_salary, ps.travel_allowance,
+        ps.housing_allowance, ps.cell_allowance, ps.other_allowances,
+        ps.medical_aid_contribution, ps.retirement_fund_contribution_pct,
+        ps.custom_deductions, ps.effective_from, ps.effective_to
+      FROM employees e
+      LEFT JOIN LATERAL (
+        SELECT * FROM pay_structures p
+        WHERE p.employee_id = e.id
+          AND p.effective_from <= CURRENT_DATE
+          AND (p.effective_to IS NULL OR p.effective_to >= CURRENT_DATE)
+        ORDER BY p.effective_from DESC LIMIT 1
+      ) ps ON TRUE
       WHERE e.id = ${id} AND e.company_id = ${companyId}::UUID
     `) as Row[];
     if (rows.length === 0) return null;
