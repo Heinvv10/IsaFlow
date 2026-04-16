@@ -9,7 +9,15 @@ export type NoteGeneratorFn = (
   framework: ReportingFramework,
 ) => Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }>;
 
-// ── Notes 1–10 ───────────────────────────────────────────────────────────────
+// ── Notes 1–5 ────────────────────────────────────────────────────────────────
+
+import {
+  generateNote1AccountingPolicies,
+  generateNote2SignificantEstimates,
+  generateNote3PropertyPlantEquipment,
+  generateNote4RightOfUseAssets,
+  generateNote5IntangibleAssets,
+} from './notes1to5';
 
 export {
   generateNote1AccountingPolicies,
@@ -17,14 +25,35 @@ export {
   generateNote3PropertyPlantEquipment,
   generateNote4RightOfUseAssets,
   generateNote5IntangibleAssets,
+};
+
+// ── Notes 6–10 ───────────────────────────────────────────────────────────────
+
+import {
   generateNote6InvestmentProperty,
   generateNote7InvestmentsInAssociates,
   generateNote8FinancialAssets,
   generateNote9Inventories,
   generateNote10TradeReceivables,
-} from './notes1to10';
+} from './notes6to10';
 
-// ── Notes 11–20 ──────────────────────────────────────────────────────────────
+export {
+  generateNote6InvestmentProperty,
+  generateNote7InvestmentsInAssociates,
+  generateNote8FinancialAssets,
+  generateNote9Inventories,
+  generateNote10TradeReceivables,
+};
+
+// ── Notes 11–15 ──────────────────────────────────────────────────────────────
+
+import {
+  generateNote11CashAndCashEquivalents,
+  generateNote12ShareCapital,
+  generateNote13Borrowings,
+  generateNote14LeaseLiabilities,
+  generateNote15Provisions,
+} from './notes11to15';
 
 export {
   generateNote11CashAndCashEquivalents,
@@ -32,14 +61,35 @@ export {
   generateNote13Borrowings,
   generateNote14LeaseLiabilities,
   generateNote15Provisions,
+};
+
+// ── Notes 16–20 ──────────────────────────────────────────────────────────────
+
+import {
   generateNote16TradePayables,
   generateNote17IncomeTax,
   generateNote18RevenueDisaggregation,
   generateNote19OtherIncome,
   generateNote20OperatingExpenses,
-} from './notes11to20';
+} from './notes16to20';
 
-// ── Notes 21–30 ──────────────────────────────────────────────────────────────
+export {
+  generateNote16TradePayables,
+  generateNote17IncomeTax,
+  generateNote18RevenueDisaggregation,
+  generateNote19OtherIncome,
+  generateNote20OperatingExpenses,
+};
+
+// ── Notes 21–25 ──────────────────────────────────────────────────────────────
+
+import {
+  generateNote21FinanceCosts,
+  generateNote22EmployeeBenefits,
+  generateNote23RelatedParties,
+  generateNote24AuditorRemuneration,
+  generateNote25ContingenciesAndCommitments,
+} from './notes21to25';
 
 export {
   generateNote21FinanceCosts,
@@ -47,53 +97,27 @@ export {
   generateNote23RelatedParties,
   generateNote24AuditorRemuneration,
   generateNote25ContingenciesAndCommitments,
+};
+
+// ── Notes 26–30 ──────────────────────────────────────────────────────────────
+
+import {
   generateNote26EventsAfterReportingDate,
   generateNote27GoingConcern,
   generateNote28SegmentInformation,
   generateNote29FinancialInstrumentsRisk,
   generateNote30StandardsNotYetEffective,
-} from './notes21to30';
+} from './notes26to30';
+
+export {
+  generateNote26EventsAfterReportingDate,
+  generateNote27GoingConcern,
+  generateNote28SegmentInformation,
+  generateNote29FinancialInstrumentsRisk,
+  generateNote30StandardsNotYetEffective,
+};
 
 // ── Adapters: wrap 2-arg generators to match 3-arg NoteGeneratorFn ───────────
-
-import {
-  generateNote1AccountingPolicies,
-  generateNote2SignificantEstimates,
-  generateNote3PropertyPlantEquipment,
-  generateNote4RightOfUseAssets,
-  generateNote5IntangibleAssets,
-  generateNote6InvestmentProperty,
-  generateNote7InvestmentsInAssociates,
-  generateNote8FinancialAssets,
-  generateNote9Inventories,
-  generateNote10TradeReceivables,
-} from './notes1to10';
-
-import {
-  generateNote11CashAndCashEquivalents,
-  generateNote12ShareCapital,
-  generateNote13Borrowings,
-  generateNote14LeaseLiabilities,
-  generateNote15Provisions,
-  generateNote16TradePayables,
-  generateNote17IncomeTax,
-  generateNote18RevenueDisaggregation,
-  generateNote19OtherIncome,
-  generateNote20OperatingExpenses,
-} from './notes11to20';
-
-import {
-  generateNote21FinanceCosts,
-  generateNote22EmployeeBenefits,
-  generateNote23RelatedParties,
-  generateNote24AuditorRemuneration,
-  generateNote25ContingenciesAndCommitments,
-  generateNote26EventsAfterReportingDate,
-  generateNote27GoingConcern,
-  generateNote28SegmentInformation,
-  generateNote29FinancialInstrumentsRisk,
-  generateNote30StandardsNotYetEffective,
-} from './notes21to30';
 
 // Wrap 2-arg generators to match the uniform 3-arg NoteGeneratorFn signature.
 function wrap(
