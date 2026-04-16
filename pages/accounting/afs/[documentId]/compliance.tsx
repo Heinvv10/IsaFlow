@@ -75,14 +75,19 @@ export default function CompliancePage() {
   }
 
   async function handleDismissAlert(alertId: string) {
+    const prevAlerts = alerts;
+    setAlerts(current => current.filter(a => a.id !== alertId));
     try {
-      await apiFetch('/api/accounting/compliance-alerts', {
+      const res = await apiFetch('/api/accounting/compliance-alerts', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ alertId }),
       });
-      setAlerts(prev => prev.filter(a => a.id !== alertId));
-    } catch { /* non-critical */ }
+      if (!res.ok) throw new Error(`Dismiss failed: ${res.status}`);
+    } catch (err) {
+      console.warn('Dismiss failed, rolling back UI', err);
+      setAlerts(prevAlerts);
+    }
   }
 
   return (
