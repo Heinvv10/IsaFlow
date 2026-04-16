@@ -29,6 +29,7 @@ import { accountantsTab } from './navSections/accountants';
 import { reportsTab, sarsTab } from './navSections/reports';
 import { toolsTab, groupTab } from './navSections/tools';
 import { payrollTab } from './navSections/payroll';
+import { afsTab } from './navSections/afs';
 
 export const TABS: Tab[] = [
   { id: 'dashboard', label: 'Dashboard', href: '/accounting' },
@@ -39,6 +40,7 @@ export const TABS: Tab[] = [
   accountsTab,
   vatTab,
   accountantsTab,
+  afsTab,
   reportsTab,
   sarsTab,
   toolsTab,
