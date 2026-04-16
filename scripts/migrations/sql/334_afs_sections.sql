@@ -4,6 +4,7 @@
 CREATE TABLE IF NOT EXISTS afs_sections (
   id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   document_id             UUID NOT NULL REFERENCES afs_documents(id) ON DELETE CASCADE,
+  company_id              UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
   section_type            TEXT NOT NULL,
   sort_order              INTEGER NOT NULL DEFAULT 0,
   status                  TEXT NOT NULL DEFAULT 'pending'
@@ -34,3 +35,6 @@ CREATE INDEX IF NOT EXISTS idx_afs_sections_status
 -- One section of each type per document
 CREATE UNIQUE INDEX IF NOT EXISTS uq_afs_sections_document_type
   ON afs_sections(document_id, section_type);
+
+CREATE INDEX IF NOT EXISTS idx_afs_sections_company_id
+  ON afs_sections(company_id);

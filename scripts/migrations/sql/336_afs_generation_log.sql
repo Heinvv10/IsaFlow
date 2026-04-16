@@ -22,3 +22,6 @@ CREATE INDEX IF NOT EXISTS idx_afs_generation_log_status
 
 CREATE INDEX IF NOT EXISTS idx_afs_generation_log_company_id
   ON afs_generation_log(company_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_afs_generation_log_company_document
+  ON afs_generation_log(company_id, document_id);
