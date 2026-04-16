@@ -48,6 +48,7 @@ const PUBLIC_PATHS = [
   '/api/onboarding',
   '/invite',
   '/api/invite',
+  '/accounting/afs/sign/',
 ];
 
 /** Hostnames that should skip the landing page and go straight to the app */
