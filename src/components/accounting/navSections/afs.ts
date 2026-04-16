@@ -18,5 +18,11 @@ export const afsTab: Tab = {
         { label: 'Pack Documents', href: '/accounting/afs?type=management_pack' },
       ],
     },
+    {
+      section: 'Client Portal',
+      items: [
+        { label: 'Portal Contacts', href: '/accounting/afs/portal-contacts' },
+      ],
+    },
   ],
 };
