@@ -10,14 +10,18 @@ import {
   calculateUIF,
   calculateSDL,
   calculateAgeFromIdNumber,
+  calculateMedicalCredits,
 } from './taxTables';
-import type { PayrollRun, PayrollRunWithPayslips, Payslip, CustomDeduction } from './types';
+import type {
+  PayrollRun,
+  PayrollRunWithPayslips,
+  Payslip,
+  CustomDeduction,
+} from './types';
 import { mapPayrollRun, mapPayslip } from './payrollMappers';
-import { resolvePayrollGLAccounts, buildPayrollJournalLines } from './payrollGLHelper';
-import {
-  createJournalEntry,
-  postJournalEntry,
-} from '@/modules/accounting/services/gl/journalEntryService';
+import { buildSarsBreakdown, computeEti } from './payrollRunHelpers';
+
+export { completePayrollRun, reversePayrollRun } from './payrollRunActions';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -87,8 +91,12 @@ export async function createPayrollRun(
     const empRows = (await sql`
       SELECT e.*,
         ps.basic_salary, ps.travel_allowance, ps.housing_allowance,
-        ps.cell_allowance, ps.other_allowances, ps.medical_aid_contribution,
-        ps.retirement_fund_contribution_pct, ps.custom_deductions
+        ps.cell_allowance, ps.other_allowances, ps.annual_bonus, ps.commission,
+        ps.medical_aid_contribution, ps.retirement_fund_contribution_pct,
+        ps.custom_deductions,
+        ps.basic_salary_code, ps.travel_allowance_code, ps.housing_allowance_code,
+        ps.cell_allowance_code, ps.other_allowances_code,
+        ps.annual_bonus_code, ps.commission_code
       FROM employees e
       JOIN LATERAL (
         SELECT * FROM pay_structures p
@@ -137,49 +145,77 @@ export async function createPayrollRun(
 
     const runId = String(runRows[0]!.id);
     let totalGross = 0, totalPaye = 0, totalUifEmployee = 0, totalUifEmployer = 0, totalNet = 0;
+    let totalEti = 0;
     const payslips: Payslip[] = [];
 
     for (const emp of empRows) {
-      const basic = Number(emp.basic_salary) || 0;
-      const travel = Number(emp.travel_allowance) || 0;
-      const housing = Number(emp.housing_allowance) || 0;
-      const cell = Number(emp.cell_allowance) || 0;
-      const other = Number(emp.other_allowances) || 0;
-      const medical = Number(emp.medical_aid_contribution) || 0;
-      const retirePct = Number(emp.retirement_fund_contribution_pct) || 0;
+      const n = (k: string) => Number(emp[k]) || 0;
+      const basic = n('basic_salary'), travel = n('travel_allowance'), housing = n('housing_allowance');
+      const cell = n('cell_allowance'), other = n('other_allowances');
+      const annualBonus = n('annual_bonus'), commission = n('commission');
+      const medical = n('medical_aid_contribution'), retirePct = n('retirement_fund_contribution_pct');
       const customDeds: CustomDeduction[] = Array.isArray(emp.custom_deductions)
         ? emp.custom_deductions
         : (typeof emp.custom_deductions === 'string' ? JSON.parse(emp.custom_deductions) : []);
 
-      const grossPay = basic + travel + housing + cell + other;
+      const taxableTravel = Math.round(travel * ((n('travel_taxable_pct') || 80) / 100) * 100) / 100;
+      const grossPay = basic + travel + housing + cell + other + annualBonus + commission;
+      const taxableGross = basic + taxableTravel + housing + cell + other + annualBonus + commission;
       const retireFund = Math.round(basic * (retirePct / 100) * 100) / 100;
       const age = calculateAgeFromIdNumber(String(emp.id_number || ''), new Date(periodEnd));
-      const paye = calculateMonthlyPAYE(grossPay - retireFund, age);
+      const grossPaye = calculateMonthlyPAYE(taxableGross - retireFund, age);
+      const medicalCredit = calculateMedicalCredits(Boolean(emp.medical_aid_main_member), n('medical_aid_dependants'));
+      const paye = Math.max(0, Math.round((grossPaye - medicalCredit) * 100) / 100);
       const uif = calculateUIF(grossPay);
+
+      // ETI — employer-side, does NOT reduce payslip net pay
+      const { etiAmount, etiMonths } = computeEti(emp, grossPay, periodEnd);
+
       const customTotal = customDeds.reduce((s, d) => s + (Number(d.amount) || 0), 0);
       const totalDeds = paye + uif.employee + medical + retireFund + customTotal;
       const netPay = Math.round((grossPay - totalDeds) * 100) / 100;
 
       const ytd = ytdMap.get(String(emp.id)) ?? { gross: 0, paye: 0, uif: 0 };
 
+      const sarsBreakdown = buildSarsBreakdown({
+        basic, basicCode: String(emp.basic_salary_code || '3601'),
+        travel, travelCode: String(emp.travel_allowance_code || '3713'),
+        housing, housingCode: String(emp.housing_allowance_code || '3802'),
+        cell, cellCode: String(emp.cell_allowance_code || '3713'),
+        other, otherCode: String(emp.other_allowances_code || '3601'),
+        annualBonus, bonusCode: String(emp.annual_bonus_code || '3605'),
+        commission, commissionCode: String(emp.commission_code || '3606'),
+        paye, uifEmployee: uif.employee, retireFund, medical, etiAmount,
+      });
+
       const slipRows = (await sql`
         INSERT INTO payslips (
           payroll_run_id, employee_id, basic_salary, travel_allowance, housing_allowance,
-          cell_allowance, other_allowances, gross_pay, paye, uif_employee, uif_employer,
-          sdl, medical_aid, retirement_fund, other_deductions, total_deductions, net_pay,
-          ytd_gross, ytd_paye, ytd_uif
+          cell_allowance, other_allowances, annual_bonus, commission,
+          gross_pay, paye, uif_employee, uif_employer, sdl,
+          medical_aid, medical_aid_credit, retirement_fund, other_deductions,
+          total_deductions, net_pay,
+          ytd_gross, ytd_paye, ytd_uif,
+          eti_amount, eti_months, sars_breakdown
         ) VALUES (
           ${runId}::UUID, ${emp.id}::UUID, ${basic}, ${travel}, ${housing}, ${cell}, ${other},
-          ${grossPay}, ${paye}, ${uif.employee}, ${uif.employer}, ${0}, ${medical},
-          ${retireFund}, ${customTotal}, ${totalDeds}, ${netPay},
+          ${annualBonus}, ${commission},
+          ${grossPay}, ${paye}, ${uif.employee}, ${uif.employer}, ${0},
+          ${medical}, ${medicalCredit}, ${retireFund}, ${customTotal},
+          ${totalDeds}, ${netPay},
           ${ytd.gross + grossPay},
           ${ytd.paye + paye},
-          ${ytd.uif + uif.employee}
+          ${ytd.uif + uif.employee},
+          ${etiAmount}, ${etiMonths}, ${JSON.stringify(sarsBreakdown)}::JSONB
         ) RETURNING *
       `) as Row[];
 
-      totalGross += grossPay; totalPaye += paye;
-      totalUifEmployee += uif.employee; totalUifEmployer += uif.employer; totalNet += netPay;
+      totalGross += grossPay;
+      totalPaye += paye;
+      totalUifEmployee += uif.employee;
+      totalUifEmployer += uif.employer;
+      totalNet += netPay;
+      totalEti += etiAmount;
 
       payslips.push({
         ...mapPayslip(slipRows[0]!),
@@ -203,15 +239,20 @@ export async function createPayrollRun(
     await sql`
       UPDATE payroll_runs SET total_gross=${totalGross}, total_paye=${totalPaye},
         total_uif_employee=${totalUifEmployee}, total_uif_employer=${totalUifEmployer},
-        total_sdl=${totalSdl}, total_net=${totalNet}, total_company_cost=${totalCompanyCost}
+        total_sdl=${totalSdl}, total_eti=${totalEti}, total_net=${totalNet},
+        total_company_cost=${totalCompanyCost}
       WHERE id = ${runId}::UUID
     `;
 
     log.info('Payroll run created', { runId, employees: empRows.length, totalGross, totalNet }, 'payroll');
     return {
-      ...mapPayrollRun({ ...runRows[0]!, total_gross: totalGross, total_paye: totalPaye,
+      ...mapPayrollRun({
+        ...runRows[0]!,
+        total_gross: totalGross, total_paye: totalPaye,
         total_uif_employee: totalUifEmployee, total_uif_employer: totalUifEmployer,
-        total_sdl: totalSdl, total_net: totalNet, total_company_cost: totalCompanyCost }),
+        total_sdl: totalSdl, total_eti: totalEti, total_net: totalNet,
+        total_company_cost: totalCompanyCost
+      }),
       payslips,
     };
   } catch (err) {
@@ -220,75 +261,3 @@ export async function createPayrollRun(
   }
 }
 
-export async function completePayrollRun(
-  companyId: string,
-  runId: string,
-  userId: string
-): Promise<PayrollRun> {
-  try {
-    const runRows = (await sql`
-      SELECT * FROM payroll_runs WHERE id = ${runId} AND company_id = ${companyId}::UUID
-    `) as Row[];
-    if (runRows.length === 0) throw new Error('Payroll run not found');
-    if (String(runRows[0]!.status) !== 'draft') throw new Error('Can only complete draft payroll runs');
-
-    const run = runRows[0]!;
-    const accounts = await resolvePayrollGLAccounts();
-    const lines = buildPayrollJournalLines(accounts, {
-      totalGross: Number(run.total_gross),
-      totalPaye: Number(run.total_paye),
-      totalUifEmployee: Number(run.total_uif_employee),
-      totalUifEmployer: Number(run.total_uif_employer),
-      totalSdl: Number(run.total_sdl),
-    });
-
-    const journalEntry = await createJournalEntry(companyId, {
-      entryDate: String(run.period_end),
-      description: `Payroll for period ${run.period_start} to ${run.period_end}`,
-      source: 'manual',
-      lines,
-    }, userId);
-
-    await postJournalEntry(companyId, journalEntry.id, userId);
-
-    const updatedRows = (await sql`
-      UPDATE payroll_runs SET status='completed', journal_entry_id=${journalEntry.id}::UUID
-      WHERE id = ${runId} AND company_id = ${companyId}::UUID RETURNING *
-    `) as Row[];
-
-    log.info('Payroll run completed', { runId, journalEntryId: journalEntry.id }, 'payroll');
-    return mapPayrollRun(updatedRows[0]!);
-  } catch (err) {
-    log.error('completePayrollRun failed', { runId, error: err }, 'payroll');
-    throw err;
-  }
-}
-
-export async function reversePayrollRun(
-  companyId: string,
-  runId: string,
-  userId: string
-): Promise<PayrollRun> {
-  try {
-    const runRows = (await sql`
-      SELECT * FROM payroll_runs WHERE id = ${runId} AND company_id = ${companyId}::UUID
-    `) as Row[];
-    if (runRows.length === 0) throw new Error('Payroll run not found');
-    if (String(runRows[0]!.status) !== 'completed') throw new Error('Can only reverse completed payroll runs');
-
-    if (runRows[0]!.journal_entry_id) {
-      const { reverseJournalEntry } = await import('@/modules/accounting/services/gl/journalEntryService');
-      await reverseJournalEntry(companyId, String(runRows[0]!.journal_entry_id), userId);
-    }
-
-    const updatedRows = (await sql`
-      UPDATE payroll_runs SET status='reversed' WHERE id = ${runId} AND company_id = ${companyId}::UUID RETURNING *
-    `) as Row[];
-
-    log.info('Payroll run reversed', { runId }, 'payroll');
-    return mapPayrollRun(updatedRows[0]!);
-  } catch (err) {
-    log.error('reversePayrollRun failed', { runId, error: err }, 'payroll');
-    throw err;
-  }
-}
