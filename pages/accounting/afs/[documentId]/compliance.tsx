@@ -8,7 +8,7 @@ import { AlertTriangle, XCircle, FileCheck, ShieldCheck, ChevronRight } from 'lu
 import { apiFetch } from '@/lib/apiFetch';
 import { useRouter } from 'next/router';
 import type { PisScore, ComplianceResult, CipcFilingGuide, AfsComplianceAlert } from '@/modules/accounting/services/afs/afsTypes';
-import { ScoreRing, IssueList, CipcGuideSection, AlertsSection } from './compliance-sections';
+import { ScoreRing, IssueList, CipcGuideSection, AlertsSection } from '@/components/accounting/afs/compliance-sections';
 
 export default function CompliancePage() {
   const router = useRouter();
@@ -205,7 +205,7 @@ export default function CompliancePage() {
             </section>
 
             {cipcGuide && <CipcGuideSection guide={cipcGuide} />}
-            <AlertsSection alerts={alerts} onDismiss={(id) => { void handleDismissAlert(id); }} />
+            <AlertsSection alerts={alerts} onDismiss={(id: string) => { void handleDismissAlert(id); }} />
           </div>
         )}
       </div>
