@@ -92,7 +92,7 @@ export async function dismissAfsAlert(
   log.info('complianceAlertService: dismissing alert', { companyId, alertId });
   await (sql`
     UPDATE compliance_alerts
-    SET dismissed_at = now(), dismissed_by = ${userId}::UUID
+    SET dismissed_at = now(), dismissed_by = ${userId}
     WHERE id = ${alertId}::UUID
       AND company_id = ${companyId}::UUID
   ` as Promise<unknown>);
