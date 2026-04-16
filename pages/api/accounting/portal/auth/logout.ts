@@ -13,6 +13,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
 
+  // CSRF defence-in-depth — reject requests from unexpected origins
+  const origin = req.headers.origin;
+  const expectedOrigin = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.isaflow.co.za';
+  if (origin && origin !== expectedOrigin) {
+    return apiResponse.forbidden(res, 'Invalid origin');
+  }
+
   const isProduction = process.env.NODE_ENV !== 'development';
   const securePart = isProduction ? ' Secure;' : '';
 

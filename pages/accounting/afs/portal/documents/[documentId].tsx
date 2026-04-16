@@ -9,12 +9,24 @@ import type { GetServerSidePropsContext, InferGetServerSidePropsType } from 'nex
 import { verifyPortalToken } from '@/lib/auth/portalJwt';
 import { PORTAL_ACCESS_RULES } from '@/modules/accounting/services/afs/afsTypes';
 
+interface NoteContentBlock {
+  type: string;
+  text?: string;
+  items?: string[];
+  headers?: string[];
+  rows?: string[][];
+}
+
+interface NoteContent {
+  blocks: NoteContentBlock[];
+}
+
 interface AfsSection {
   id: string;
   section_type: string;
   sort_order: number;
   status: string;
-  content: string | null;
+  content: NoteContent | null;
   ai_narrative: string | null;
 }
 
@@ -118,9 +130,25 @@ export default function PortalDocumentPage({
             {sections.map((s) => (
               <section key={s.id} id={`s-${s.id}`} style={{ background:'#fff', border:'1px solid #e2e8f0', borderRadius:'0.75rem', padding:'1.75rem', marginBottom:'1.5rem' }}>
                 <h2 style={{ fontSize:'1rem', fontWeight:700, color:'#0f172a', textTransform:'capitalize', marginBottom:'1rem' }}>{s.section_type.replace(/_/g,' ')}</h2>
-                {s.content ? (
-                  // eslint-disable-next-line react/no-danger
-                  <div style={{ color:'#334155', lineHeight:1.7 }} dangerouslySetInnerHTML={{ __html: s.content }} />
+                {s.content && Array.isArray(s.content.blocks) ? (
+                  <div style={{ color: '#334155', lineHeight: 1.7 }}>
+                    {s.content.blocks.map((block, idx) => {
+                      if ((block.type === 'paragraph' || block.type === 'heading') && block.text) {
+                        return block.type === 'heading'
+                          ? <h3 key={idx} style={{ fontSize: '0.9375rem', fontWeight: 700, margin: '0.75rem 0 0.25rem' }}>{block.text}</h3>
+                          : <p key={idx} style={{ margin: '0 0 0.5rem' }}>{block.text}</p>;
+                      }
+                      if (block.type === 'list' && Array.isArray(block.items)) {
+                        return (
+                          <ul key={idx} style={{ paddingLeft: '1.5rem', margin: '0 0 0.5rem' }}>
+                            {block.items.map((item, i) => <li key={i}>{item}</li>)}
+                          </ul>
+                        );
+                      }
+                      // TODO: render 'table' blocks (headers + rows) in a future enhancement
+                      return null;
+                    })}
+                  </div>
                 ) : s.ai_narrative ? (
                   <p style={{ color:'#334155', lineHeight:1.7, margin:0 }}>{s.ai_narrative}</p>
                 ) : null}

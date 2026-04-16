@@ -5,6 +5,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import fs from 'fs/promises';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { afsHtmlPath } from '@/lib/storage/afsStorage';
 import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
@@ -73,7 +74,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   // 3. Load rendered AFS HTML (stored by render service)
-  const htmlPath = `/storage/afs-html/${companyId}/${documentId}.html`;
+  const htmlPath = afsHtmlPath(companyId, documentId);
   let html: string;
   try {
     html = await fs.readFile(htmlPath, 'utf-8');

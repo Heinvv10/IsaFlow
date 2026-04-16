@@ -8,6 +8,7 @@ import path from 'path';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
+import { afsSignedPdfPath } from '@/lib/storage/afsStorage';
 import {
   verifySignumWebhookSignature,
   downloadSignedPdf,
@@ -69,12 +70,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return res.status(200).json({ received: true });
   }
 
-  // 3. Look up afs_document by signum_document_id
+  // 3. Look up afs_document by signum_document_id (includes status for idempotency guard)
   const rows = (await sql`
-    SELECT id, company_id FROM afs_documents
+    SELECT id, company_id, status FROM afs_documents
     WHERE signum_document_id = ${payload.documentId}
     LIMIT 1
-  `) as Array<{ id: string; company_id: string }>;
+  `) as Array<{ id: string; company_id: string; status: string }>;
 
   if (rows.length === 0) {
     log.warn(
@@ -86,6 +87,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const doc = rows[0]!;
+
+  // 3a. Idempotency guard — reject replays for document.signed when already signed_off
+  if (payload.event === 'document.signed' && doc.status === 'signed_off') {
+    log.info(
+      'Signed webhook replay ignored — already signed_off',
+      { documentId: doc.id, signumDocumentId: payload.documentId },
+      'signum-webhook',
+    );
+    return res.status(200).json({ received: true });
+  };
 
   // 4. Handle non-signed terminal events — reset signing state so staff can resend
   if (payload.event !== 'document.signed') {
@@ -107,8 +118,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // 5. Download signed PDF from Signum
   const pdfBuffer = await downloadSignedPdf(payload.documentId);
 
-  // 6. Store PDF to /storage/afs-signed/{companyId}/{documentId}.pdf
-  const storagePath = `/storage/afs-signed/${doc.company_id}/${doc.id}.pdf`;
+  // 6. Store PDF using STORAGE_ROOT-relative helper
+  const storagePath = afsSignedPdfPath(doc.company_id, doc.id);
   await fs.mkdir(path.dirname(storagePath), { recursive: true });
   await fs.writeFile(storagePath, pdfBuffer);
 
