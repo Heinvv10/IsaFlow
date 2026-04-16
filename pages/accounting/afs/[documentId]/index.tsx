@@ -1,281 +1,235 @@
-import React, { useState, useEffect } from 'react';
+// pages/accounting/afs/[documentId]/index.tsx
+// AFS document editor — wrapped in AppLayout with dark-mode theme and section tabs.
+
+import React, { useState, useEffect, useCallback } from 'react';
 import type { NextPage, GetServerSideProps } from 'next';
 import Head from 'next/head';
 import Link from 'next/link';
+import { useRouter } from 'next/router';
+import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
-import type { ChangesInEquityReport } from '@/modules/accounting/services/afs/changesInEquityService';
-import type { CashFlowDirectReport } from '@/modules/accounting/services/afs/cashFlowDirectService';
-import type { CashFlowReconciliation } from '@/modules/accounting/services/afs/cashFlowReconciliationService';
+import { log } from '@/lib/logger';
+import {
+  Clock, CheckCircle, Lock, ChevronRight, FileText,
+  BarChart2, BookOpen, ShieldCheck, Download, Send,
+} from 'lucide-react';
+import type { AfsDocument, DocumentStatus } from '@/modules/accounting/services/afs/afsTypes';
+import { AfsOverviewTab } from '@/components/accounting/afs/AfsOverviewTab';
 
-interface PageProps {
-  documentId: string;
-  periodStart: string;
-  periodEnd: string;
-}
+type TabId = 'overview' | 'notes' | 'statements' | 'review' | 'compliance' | 'export';
 
-function fmt(amount: number): string {
-  if (amount < 0)
-    return `(${Math.abs(amount).toLocaleString('en-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 0 })})`;
-  return amount.toLocaleString('en-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-}
+interface PageProps { documentId: string; periodStart: string; periodEnd: string; }
 
-function SectionLoader({ label }: { label: string }) {
+const STATUS_CONFIG: Record<DocumentStatus, { label: string; colour: string; icon: React.ReactNode }> = {
+  draft:          { label: 'Draft',          colour: 'bg-zinc-700 text-zinc-200',     icon: <Clock className="w-3 h-3" /> },
+  in_review:      { label: 'In Review',      colour: 'bg-blue-800 text-blue-200',     icon: <Clock className="w-3 h-3" /> },
+  partner_review: { label: 'Partner Review', colour: 'bg-yellow-800 text-yellow-200', icon: <Clock className="w-3 h-3" /> },
+  signed_off:     { label: 'Signed Off',     colour: 'bg-green-800 text-green-200',   icon: <CheckCircle className="w-3 h-3" /> },
+  filed:          { label: 'Filed',          colour: 'bg-purple-800 text-purple-200', icon: <Lock className="w-3 h-3" /> },
+};
+
+function StatusBadge({ status }: { status: DocumentStatus }) {
+  const cfg = STATUS_CONFIG[status];
   return (
-    <div className="animate-pulse bg-gray-50 border border-gray-200 rounded-lg p-6 mb-10">
-      <div className="h-5 bg-gray-200 rounded w-1/3 mb-4" />
-      <div className="space-y-2">
-        {[1, 2, 3].map(i => <div key={i} className="h-4 bg-gray-100 rounded w-full" />)}
-      </div>
-      <p className="text-xs text-gray-400 mt-4">Loading {label}…</p>
-    </div>
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cfg.colour}`}>
+      {cfg.icon}{cfg.label}
+    </span>
   );
 }
 
-function SectionError({ label, message }: { label: string; message: string }) {
-  return (
-    <div className="border border-red-200 bg-red-50 rounded-lg p-6 mb-10">
-      <p className="text-sm font-semibold text-red-700">{label} — failed to load</p>
-      <p className="text-xs text-red-500 mt-1">{message}</p>
-    </div>
-  );
-}
-
-function SectionHeading({ children }: { children: React.ReactNode }) {
-  return (
-    <h2 className="text-base font-bold text-gray-900 uppercase tracking-wide mb-4 border-b border-gray-300 pb-2">
-      {children}
-    </h2>
-  );
-}
-
-function ChangesInEquitySection({ report }: { report: ChangesInEquityReport }) {
-  type ColKey = keyof typeof report.columns[0];
-  const rows: Array<{ label: string; key: ColKey }> = [
-    { label: 'Opening balance', key: 'opening' },
-    { label: 'Profit for year', key: 'profitForYear' },
-    { label: 'Dividends paid',  key: 'dividends' },
-    { label: 'Share issue',     key: 'shareIssue' },
-    { label: 'Revaluation',     key: 'revaluation' },
-    { label: 'Closing balance', key: 'closing' },
-  ];
-  const totalByRow: Record<string, number> = {
-    opening:       report.totalOpening,
-    profitForYear: report.totalProfitForYear,
-    dividends:     report.totalDividends,
-    shareIssue:    report.totalShareIssue,
-    revaluation:   report.totalRevaluation,
-    closing:       report.totalClosing,
-  };
-  return (
-    <section className="mb-10">
-      <SectionHeading>Statement of Changes in Equity</SectionHeading>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm border-collapse">
-          <thead>
-            <tr className="bg-gray-900 text-white">
-              <th className="text-left p-3 font-semibold w-48">Movement</th>
-              {report.columns.map(c => (
-                <th key={c.subtype} className="text-right p-3 font-semibold">{c.label}</th>
-              ))}
-              <th className="text-right p-3 font-semibold">Total Equity</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, i) => {
-              const isTotal = row.key === 'closing' || row.key === 'opening';
-              return (
-                <tr
-                  key={row.key}
-                  className={isTotal
-                    ? 'bg-gray-100 font-semibold border-t border-b border-gray-400'
-                    : i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}
-                >
-                  <td className="p-3 text-gray-800">{row.label}</td>
-                  {report.columns.map(c => (
-                    <td key={c.subtype} className="text-right p-3 font-mono text-gray-900">
-                      {fmt(c[row.key] as number)}
-                    </td>
-                  ))}
-                  <td className="text-right p-3 font-mono font-semibold text-gray-900">
-                    {fmt(totalByRow[row.key] ?? 0)}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
-}
-
-function DirectCashFlowSection({ report }: { report: CashFlowDirectReport }) {
-  return (
-    <section className="mb-10">
-      <SectionHeading>Statement of Cash Flows — Direct Method</SectionHeading>
-      <table className="w-full text-sm border-collapse">
-        <thead>
-          <tr className="bg-gray-900 text-white">
-            <th className="text-left p-3 font-semibold">Description</th>
-            <th className="text-right p-3 font-semibold">R</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr className="bg-gray-100">
-            <td className="p-3 font-semibold text-gray-800" colSpan={2}>Operating Activities</td>
-          </tr>
-          {report.operatingItems.map((item, i) => (
-            <tr key={item.cashGroup} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-              <td className="p-3 pl-6 text-gray-700">{item.label}</td>
-              <td className="text-right p-3 font-mono text-gray-900">{fmt(item.amount)}</td>
-            </tr>
-          ))}
-          <tr className="bg-gray-200 font-semibold border-t border-gray-400">
-            <td className="p-3 text-gray-900">Net cash from operating activities</td>
-            <td className="text-right p-3 font-mono text-gray-900">{fmt(report.operatingTotal)}</td>
-          </tr>
-          <tr className="bg-gray-100">
-            <td className="p-3 font-semibold text-gray-800" colSpan={2}>Investing Activities</td>
-          </tr>
-          {report.investingItems.map((item, i) => (
-            <tr key={item.cashGroup} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-              <td className="p-3 pl-6 text-gray-700">{item.label}</td>
-              <td className="text-right p-3 font-mono text-gray-900">{fmt(item.amount)}</td>
-            </tr>
-          ))}
-          <tr className="bg-gray-200 font-semibold border-t border-gray-400">
-            <td className="p-3 text-gray-900">Net cash from investing activities</td>
-            <td className="text-right p-3 font-mono text-gray-900">{fmt(report.investingTotal)}</td>
-          </tr>
-          <tr className="bg-gray-100">
-            <td className="p-3 font-semibold text-gray-800" colSpan={2}>Financing Activities</td>
-          </tr>
-          {report.financingItems.map((item, i) => (
-            <tr key={item.cashGroup} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-              <td className="p-3 pl-6 text-gray-700">{item.label}</td>
-              <td className="text-right p-3 font-mono text-gray-900">{fmt(item.amount)}</td>
-            </tr>
-          ))}
-          <tr className="bg-gray-200 font-semibold border-t border-gray-400">
-            <td className="p-3 text-gray-900">Net cash from financing activities</td>
-            <td className="text-right p-3 font-mono text-gray-900">{fmt(report.financingTotal)}</td>
-          </tr>
-          <tr className="bg-white border-t border-gray-300">
-            <td className="p-3 text-gray-700">Opening cash balance</td>
-            <td className="text-right p-3 font-mono text-gray-900">{fmt(report.openingCash)}</td>
-          </tr>
-          <tr className="bg-gray-900 text-white font-bold">
-            <td className="p-3">Closing cash balance</td>
-            <td className="text-right p-3 font-mono">{fmt(report.closingCash)}</td>
-          </tr>
-        </tbody>
-      </table>
-    </section>
-  );
-}
-
-function ReconciliationSection({ rec }: { rec: CashFlowReconciliation }) {
-  const statusColour = rec.isReconciled ? 'bg-green-50 border-green-300' : 'bg-red-50 border-red-300';
-  return (
-    <section className="mb-10">
-      <SectionHeading>Cash Flow Reconciliation</SectionHeading>
-      <div className={`border rounded-lg p-6 ${statusColour}`}>
-        <table className="w-full text-sm">
-          <tbody>
-            <tr>
-              <td className="py-1 text-gray-700">Direct method closing cash</td>
-              <td className="text-right font-mono text-gray-900">R {fmt(rec.directClosing)}</td>
-            </tr>
-            <tr>
-              <td className="py-1 text-gray-700">Indirect method closing cash</td>
-              <td className="text-right font-mono text-gray-900">R {fmt(rec.indirectClosing)}</td>
-            </tr>
-            <tr>
-              <td className="py-1 text-gray-700">Bank balance per GL</td>
-              <td className="text-right font-mono text-gray-900">R {fmt(rec.bankBalance)}</td>
-            </tr>
-            <tr className="border-t border-gray-300 font-semibold">
-              <td className="py-2 text-gray-800">Variance</td>
-              <td className="text-right font-mono text-gray-900">R {fmt(rec.variance)}</td>
-            </tr>
-          </tbody>
-        </table>
-        <p className={`mt-4 text-sm font-semibold ${rec.isReconciled ? 'text-green-700' : 'text-red-700'}`}>
-          {rec.isReconciled
-            ? '✓ Reconciled — cash figures agree within R0.01'
-            : '✗ Variance detected — review required before export'}
-        </p>
-      </div>
-    </section>
-  );
-}
-
-interface RemoteState<T> {
-  data: T | null;
-  error: string | null;
-  loading: boolean;
-}
-
-function useRemote<T>(url: string): RemoteState<T> {
-  const [state, setState] = useState<RemoteState<T>>({ data: null, error: null, loading: true });
-
-  useEffect(() => {
-    let cancelled = false;
-    setState({ data: null, error: null, loading: true });
-    apiFetch(url, { credentials: 'include' })
-      .then(r => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json() as Promise<{ data: T }>;
-      })
-      .then(json => { if (!cancelled) setState({ data: json.data, error: null, loading: false }); })
-      .catch((err: unknown) => {
-        if (!cancelled) setState({ data: null, error: err instanceof Error ? err.message : String(err), loading: false });
-      });
-    return () => { cancelled = true; };
-  }, [url]);
-
-  return state;
-}
+const TABS: Array<{ id: TabId; label: string; icon: React.ReactNode }> = [
+  { id: 'overview',    label: 'Overview',    icon: <FileText className="w-4 h-4" /> },
+  { id: 'notes',       label: 'Notes',       icon: <BookOpen className="w-4 h-4" /> },
+  { id: 'statements',  label: 'Statements',  icon: <BarChart2 className="w-4 h-4" /> },
+  { id: 'review',      label: 'Review',      icon: <CheckCircle className="w-4 h-4" /> },
+  { id: 'compliance',  label: 'Compliance',  icon: <ShieldCheck className="w-4 h-4" /> },
+  { id: 'export',      label: 'Export',      icon: <Download className="w-4 h-4" /> },
+];
 
 const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodEnd }) => {
-  const params = `period_start=${periodStart}&period_end=${periodEnd}`;
-  const base = `/api/accounting/afs/${documentId}/statements`;
+  const router = useRouter();
+  const [doc, setDoc] = useState<AfsDocument | null>(null);
+  const [activeTab, setActiveTab] = useState<TabId>('overview');
+  const [submitting, setSubmitting] = useState(false);
+  const [actionError, setActionError] = useState('');
 
-  const equity  = useRemote<{ report: ChangesInEquityReport }>(`${base}/changes-in-equity?${params}`);
-  const direct  = useRemote<{ report: CashFlowDirectReport }>(`${base}/cash-flow-direct?${params}`);
-  const reconc  = useRemote<{ reconciliation: CashFlowReconciliation }>(`${base}/cash-flow-reconciliation?${params}`);
+  const loadDoc = useCallback(async () => {
+    try {
+      const res = await apiFetch(`/api/accounting/afs/${documentId}`, { credentials: 'include' });
+      const json = await res.json() as { data?: { document?: AfsDocument }; error?: { message?: string } };
+      if (!res.ok) throw new Error(json.error?.message ?? `HTTP ${res.status}`);
+      if (json.data?.document) setDoc(json.data.document);
+    } catch (err) {
+      log.error('Failed to load AFS document', { error: err, documentId }, 'afs-document-page');
+    }
+  }, [documentId]);
+
+  useEffect(() => { void loadDoc(); }, [loadDoc]);
+
+  async function handleSubmitForReview() {
+    setSubmitting(true); setActionError('');
+    try {
+      const res = await apiFetch(`/api/accounting/afs/${documentId}/workflow`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'submit_for_review' }),
+      });
+      const json = await res.json() as { data?: { document?: AfsDocument }; error?: { message?: string } };
+      if (!res.ok) throw new Error(json.error?.message ?? 'Failed to submit');
+      if (json.data?.document) setDoc(json.data.document);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Action failed');
+      log.error('Workflow action failed', { error: err }, 'afs-document-page');
+    } finally { setSubmitting(false); }
+  }
+
+  async function handleSignOff() {
+    setSubmitting(true); setActionError('');
+    try {
+      const res = await apiFetch(`/api/accounting/afs/${documentId}/workflow`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'sign_off' }),
+      });
+      const json = await res.json() as { data?: { document?: AfsDocument }; error?: { message?: string } };
+      if (!res.ok) throw new Error(json.error?.message ?? 'Failed to sign off');
+      if (json.data?.document) setDoc(json.data.document);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Action failed');
+      log.error('Sign off failed', { error: err }, 'afs-document-page');
+    } finally { setSubmitting(false); }
+  }
+
+  const title = doc
+    ? `AFS ${doc.fiscalYear ?? periodStart.slice(0, 4)} | ISAFlow`
+    : `AFS | ISAFlow`;
 
   return (
-    <>
-      <Head><title>AFS — {periodStart} to {periodEnd} | ISaFlow</title></Head>
-      <div className="min-h-screen bg-gray-50">
-        <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link href="/accounting/afs" className="text-sm text-gray-500 hover:text-gray-700">← AFS Documents</Link>
-            <span className="text-gray-300">/</span>
-            <h1 className="text-sm font-semibold text-gray-900">Annual Financial Statements</h1>
+    <AppLayout>
+      <Head><title>{title}</title></Head>
+      <div className="min-h-screen bg-slate-900">
+
+        {/* Breadcrumb */}
+        <div className="bg-slate-900 border-b border-slate-800 px-6 py-3">
+          <div className="flex items-center gap-2 text-sm text-slate-500">
+            <Link href="/accounting/afs" className="hover:text-slate-300 transition-colors">AFS</Link>
+            <ChevronRight className="w-3.5 h-3.5" />
+            <span className="text-slate-200 font-medium">
+              {doc ? (doc.documentType === 'afs' ? `AFS ${doc.fiscalYear ?? ''}` : `Pack ${doc.period ?? ''}`) : documentId}
+            </span>
           </div>
-          <span className="text-xs text-gray-500">{periodStart} — {periodEnd}</span>
         </div>
+
+        {/* Page header */}
+        <div className="bg-slate-800 border-b border-slate-700 px-6 py-5">
+          <div className="max-w-6xl mx-auto flex items-start justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-3">
+                <h1 className="text-xl font-bold text-white">Annual Financial Statements</h1>
+                {doc && <StatusBadge status={doc.status} />}
+              </div>
+              <p className="text-sm text-slate-400">
+                Period: {periodStart} — {periodEnd}
+                {doc && ` · v${doc.version}`}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {doc?.status === 'draft' && (
+                <button
+                  onClick={() => { void handleSubmitForReview(); }}
+                  disabled={submitting}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                >
+                  <Send className="w-4 h-4" />
+                  Submit for Review
+                </button>
+              )}
+              {(doc?.status === 'in_review' || doc?.status === 'partner_review') && (
+                <button
+                  onClick={() => { void handleSignOff(); }}
+                  disabled={submitting}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-semibold hover:bg-green-700 disabled:opacity-50 transition-colors"
+                >
+                  <CheckCircle className="w-4 h-4" />
+                  Sign Off
+                </button>
+              )}
+            </div>
+          </div>
+          {actionError && (
+            <div className="max-w-6xl mx-auto mt-3 text-sm text-red-400 bg-red-900/30 border border-red-800 rounded-lg px-4 py-2">
+              {actionError}
+            </div>
+          )}
+        </div>
+
+        {/* Tab bar */}
+        <div className="bg-slate-800 border-b border-slate-700 px-6">
+          <div className="max-w-6xl mx-auto flex gap-0">
+            {TABS.map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  if (tab.id === 'compliance') {
+                    void router.push(`/accounting/afs/${documentId}/compliance`);
+                  } else {
+                    setActiveTab(tab.id);
+                  }
+                }}
+                className={`inline-flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                  activeTab === tab.id
+                    ? 'border-blue-500 text-blue-400'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {tab.icon}{tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Tab content */}
         <div className="max-w-6xl mx-auto px-6 py-8">
-          {equity.error
-            ? <SectionError label="Statement of Changes in Equity" message={equity.error} />
-            : equity.loading || !equity.data
-              ? <SectionLoader label="Statement of Changes in Equity" />
-              : <ChangesInEquitySection report={equity.data.report} />}
-          {direct.error
-            ? <SectionError label="Statement of Cash Flows (Direct)" message={direct.error} />
-            : direct.loading || !direct.data
-              ? <SectionLoader label="Direct Method Cash Flow" />
-              : <DirectCashFlowSection report={direct.data.report} />}
-          {reconc.error
-            ? <SectionError label="Cash Flow Reconciliation" message={reconc.error} />
-            : reconc.loading || !reconc.data
-              ? <SectionLoader label="Cash Flow Reconciliation" />
-              : <ReconciliationSection rec={reconc.data.reconciliation} />}
+          {activeTab === 'overview' && (
+            <AfsOverviewTab documentId={documentId} periodStart={periodStart} periodEnd={periodEnd} />
+          )}
+          {activeTab === 'notes' && (
+            <div className="text-slate-400 text-sm py-12 text-center">
+              <BookOpen className="w-10 h-10 mx-auto mb-3 opacity-40" />
+              <p>Notes to the Financial Statements — coming soon.</p>
+              <Link href={`/accounting/afs/${documentId}/notes`} className="text-blue-400 hover:underline mt-2 inline-block">
+                Open Notes editor →
+              </Link>
+            </div>
+          )}
+          {activeTab === 'statements' && (
+            <div className="text-slate-400 text-sm py-12 text-center">
+              <BarChart2 className="w-10 h-10 mx-auto mb-3 opacity-40" />
+              <p>Full financial statements — Balance Sheet, Income Statement, and more.</p>
+              <div className="flex gap-3 justify-center mt-4">
+                <Link href={`/accounting/afs/${documentId}/balance-sheet`} className="text-blue-400 hover:underline">Balance Sheet →</Link>
+                <Link href={`/accounting/afs/${documentId}/income-statement`} className="text-blue-400 hover:underline">Income Statement →</Link>
+              </div>
+            </div>
+          )}
+          {activeTab === 'review' && (
+            <div className="text-slate-400 text-sm py-12 text-center">
+              <CheckCircle className="w-10 h-10 mx-auto mb-3 opacity-40" />
+              <p>Review workflow — sign-off trail and comments.</p>
+            </div>
+          )}
+          {activeTab === 'export' && (
+            <div className="text-slate-400 text-sm py-12 text-center">
+              <Download className="w-10 h-10 mx-auto mb-3 opacity-40" />
+              <p>Export AFS as PDF or XBRL package.</p>
+              <Link href={`/accounting/afs/${documentId}/export`} className="text-blue-400 hover:underline mt-2 inline-block">
+                Open Export →
+              </Link>
+            </div>
+          )}
         </div>
       </div>
-    </>
+    </AppLayout>
   );
 };
 
