@@ -23,7 +23,8 @@ async function handleGenerate(
   const rows = await sql`
     SELECT s.section_type, s.content,
            c.name AS company_name,
-           nt.ai_prompt_template, nt.framework
+           d.framework, d.fiscal_year,
+           nt.ai_prompt_template
     FROM afs_sections s
     JOIN afs_documents d ON d.id = s.document_id AND d.company_id = ${companyId}::UUID
     JOIN companies c ON c.id = d.company_id
@@ -41,14 +42,14 @@ async function handleGenerate(
 
   const aiPromptTemplate = row.ai_prompt_template as string | null;
   if (!aiPromptTemplate) {
-    apiResponse.badRequest(res, 'No AI prompt template for this note');
+    apiResponse.badRequest(res, 'No AI prompt template configured for this section type');
     return;
   }
 
   const companyContext: CompanyContext = {
     name: row.company_name as string,
     framework: row.framework as ReportingFramework,
-    fiscalYear: new Date().getFullYear(),
+    fiscalYear: row.fiscal_year as number,
   };
 
   const narrative = await generateNoteNarrative(
@@ -61,8 +62,8 @@ async function handleGenerate(
   await sql`
     UPDATE afs_sections
     SET ai_narrative = ${narrative},
-        status = 'ai_enhanced',
-        updated_at = NOW()
+        ai_enhanced  = false,
+        updated_at   = NOW()
     WHERE id = ${sectionId}::UUID
       AND document_id IN (
         SELECT id FROM afs_documents WHERE id = ${documentId}::UUID AND company_id = ${companyId}::UUID
@@ -70,7 +71,7 @@ async function handleGenerate(
   `;
 
   log.info('AI narrative generated and saved', { companyId, documentId, sectionId }, 'afs-ai-narrative-api');
-  apiResponse.success(res, { aiNarrative: narrative });
+  apiResponse.success(res, { narrative });
 }
 
 // ── PUT — accept AI narrative ────────────────────────────────────────────────
