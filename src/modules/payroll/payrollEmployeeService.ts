@@ -152,7 +152,10 @@ export async function createEmployee(
       INSERT INTO employees (
         company_id, employee_number, first_name, last_name, id_number, tax_number,
         start_date, termination_date, bank_name, bank_account_number,
-        bank_branch_code, department, position, employment_type, pay_frequency, status
+        bank_branch_code, department, position, employment_type, pay_frequency, status,
+        medical_aid_main_member, medical_aid_dependants,
+        travel_logbook_kept, travel_taxable_pct,
+        eti_employment_start_date, eti_is_connected_person
       ) VALUES (
         ${companyId}::UUID, ${input.employee_number}, ${input.first_name}, ${input.last_name},
         ${input.id_number || null}, ${input.tax_number || null}, ${input.start_date},
@@ -160,7 +163,13 @@ export async function createEmployee(
         ${input.bank_account_number || null}, ${input.bank_branch_code || null},
         ${input.department || null}, ${input.position || null},
         ${input.employment_type || 'permanent'}, ${input.pay_frequency || 'monthly'},
-        ${input.status || 'active'}
+        ${input.status || 'active'},
+        ${input.medical_aid_main_member ?? false},
+        ${input.medical_aid_dependants ?? 0},
+        ${input.travel_logbook_kept ?? false},
+        ${input.travel_taxable_pct ?? 80},
+        ${input.eti_employment_start_date || null},
+        ${input.eti_is_connected_person ?? false}
       )
       RETURNING *
     `) as Row[];
@@ -170,12 +179,14 @@ export async function createEmployee(
     await sql`
       INSERT INTO pay_structures (
         employee_id, basic_salary, travel_allowance, housing_allowance,
-        cell_allowance, other_allowances, medical_aid_contribution,
-        retirement_fund_contribution_pct, custom_deductions, effective_from
+        cell_allowance, other_allowances, annual_bonus, commission,
+        medical_aid_contribution, retirement_fund_contribution_pct,
+        custom_deductions, effective_from
       ) VALUES (
         ${employeeId}::UUID, ${input.basic_salary}, ${input.travel_allowance || 0},
         ${input.housing_allowance || 0}, ${input.cell_allowance || 0},
-        ${input.other_allowances || 0}, ${input.medical_aid_contribution || 0},
+        ${input.other_allowances || 0}, ${input.annual_bonus || 0}, ${input.commission || 0},
+        ${input.medical_aid_contribution || 0},
         ${input.retirement_fund_contribution_pct || 0},
         ${JSON.stringify(input.custom_deductions || [])}::JSONB,
         ${input.start_date}
@@ -240,12 +251,14 @@ export async function updateEmployee(
       await sql`
         INSERT INTO pay_structures (
           employee_id, basic_salary, travel_allowance, housing_allowance,
-          cell_allowance, other_allowances, medical_aid_contribution,
-          retirement_fund_contribution_pct, custom_deductions, effective_from
+          cell_allowance, other_allowances, annual_bonus, commission,
+          medical_aid_contribution, retirement_fund_contribution_pct,
+          custom_deductions, effective_from
         ) VALUES (
           ${id}::UUID, ${input.basic_salary}, ${input.travel_allowance || 0},
           ${input.housing_allowance || 0}, ${input.cell_allowance || 0},
-          ${input.other_allowances || 0}, ${input.medical_aid_contribution || 0},
+          ${input.other_allowances || 0}, ${input.annual_bonus || 0}, ${input.commission || 0},
+          ${input.medical_aid_contribution || 0},
           ${input.retirement_fund_contribution_pct || 0},
           ${JSON.stringify(input.custom_deductions || [])}::JSONB,
           CURRENT_DATE
