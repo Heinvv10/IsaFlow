@@ -71,7 +71,7 @@ export async function generateSection(
   const { dataSnapshot, content } = await generator(companyId, fiscalYear, framework);
 
   // ── Stage 3: Auto-suppress zero-balance non-mandatory sections ────────────
-  if (isZeroBalance(dataSnapshot as Record<string, unknown[]>) && !isMandatory) {
+  if (isZeroBalance(dataSnapshot) && !isMandatory) {
     await sql`
       UPDATE afs_sections
       SET

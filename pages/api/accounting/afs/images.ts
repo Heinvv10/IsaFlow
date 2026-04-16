@@ -59,7 +59,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     };
 
     const image = await createImage(companyId, input);
-    return res.status(201).json({ success: true, data: image });
+    return res.status(201).json({ success: true, data: image, message: 'Image uploaded' });
   }
 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST']);

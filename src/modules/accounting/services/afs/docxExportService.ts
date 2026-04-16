@@ -7,7 +7,6 @@ import {
   HeadingLevel,
   AlignmentType,
   SectionType,
-  WidthType,
 } from 'docx';
 import { log } from '@/lib/logger';
 import type { AfsDocument, AfsSection, NoteContentBlock, NoteContent } from './afsTypes';

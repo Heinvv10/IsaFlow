@@ -5,7 +5,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import type { DbRow } from '@/types/db';
+import type { DbRow } from '@/lib/neon';
 import {
   exportCaseWareTB,
   getAccountMappings,
