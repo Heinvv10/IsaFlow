@@ -34,7 +34,7 @@ export async function generateNoteNarrative(
     return response.content[0]?.type === 'text' ? response.content[0].text : '';
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error('AI narrative generation failed', { sectionType, companyName: companyContext.name, error: message }, 'noteAiService');
+    log.error('AI narrative generation failed', { sectionType, companyId: companyContext.name, error: message }, 'noteAiService');
     throw new Error(`AI narrative generation failed: ${message}`);
   }
 }
