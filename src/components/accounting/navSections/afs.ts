@@ -14,6 +14,7 @@ export const afsTab: Tab = {
     {
       section: 'Management Packs',
       items: [
+        { label: 'Management Packs', href: '/accounting/afs/management-packs' },
         { label: 'Pack Documents', href: '/accounting/afs?type=management_pack' },
       ],
     },
