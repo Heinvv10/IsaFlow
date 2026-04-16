@@ -166,6 +166,47 @@ export interface ManagementPackConfig {
   currencyDisplay: 'full' | 'thousands' | 'millions';
 }
 
+// ── BrandProfile ────────────────────────────────────────────────────────────
+
+export interface BrandProfile {
+  id: string;
+  companyId: string;
+  logoUrl: string | null;
+  primaryColour: string;
+  secondaryColour: string;
+  fontFamily: 'professional' | 'modern' | 'executive' | 'bold';
+  coverStyle: 'classic' | 'modern' | 'bold' | 'minimal';
+  reportFooterText: string | null;
+  createdAt: Date | string;
+  updatedAt: Date | string;
+}
+
+export type UpsertBrandProfileInput = Omit<BrandProfile, 'id' | 'companyId' | 'createdAt' | 'updatedAt'>;
+
+// ── AfsUploadedImage ────────────────────────────────────────────────────────
+
+export interface AfsUploadedImage {
+  id: string;
+  companyId: string;
+  filename: string;
+  url: string;
+  tag: 'cover' | 'section_divider' | 'inline';
+  widthPx: number | null;
+  heightPx: number | null;
+  dpi: number | null;
+  lowResWarning: boolean;
+  uploadedAt: Date | string;
+}
+
+export interface CreateImageInput {
+  filename: string;
+  url: string;
+  tag: 'cover' | 'section_divider' | 'inline';
+  widthPx?: number;
+  heightPx?: number;
+  dpi?: number;
+}
+
 // ── API response shapes ───────────────────────────────────────────────────────
 
 export interface AfsDocumentWithSections extends AfsDocument {
