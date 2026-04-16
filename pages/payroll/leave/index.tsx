@@ -11,6 +11,13 @@ import { apiFetch } from '@/lib/apiFetch';
 interface LeaveApp { id: string; first_name: string; last_name: string; leave_type_name: string; leave_type_code: string; start_date: string; end_date: string; days: number; status: string; reason: string; }
 const statusColors: Record<string, string> = { pending: 'bg-amber-500/10 text-amber-400', approved: 'bg-teal-500/10 text-teal-400', rejected: 'bg-red-500/10 text-red-400', cancelled: 'bg-gray-500/10 text-gray-400' };
 
+function fmtDate(d: string): string {
+  if (!d) return '';
+  try {
+    return new Date(d).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' });
+  } catch { return d; }
+}
+
 export default function LeavePage() {
   const [applications, setApplications] = useState<LeaveApp[]>([]);
   const [loading, setLoading] = useState(true);
@@ -62,8 +69,8 @@ export default function LeavePage() {
                   <tr key={a.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50">
                     <td className="px-4 py-3 text-[var(--ff-text-primary)]">{a.first_name} {a.last_name}</td>
                     <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{a.leave_type_name}</td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{a.start_date}</td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{a.end_date}</td>
+                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{fmtDate(a.start_date)}</td>
+                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{fmtDate(a.end_date)}</td>
                     <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{a.days}</td>
                     <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${statusColors[a.status] || ''}`}>{a.status}</span></td>
                   </tr>
