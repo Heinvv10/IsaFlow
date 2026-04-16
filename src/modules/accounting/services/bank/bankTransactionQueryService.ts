@@ -85,7 +85,7 @@ export interface BankTxFilters {
 // BL-11: Explicit column list replaces bt.* to reduce row width (~1,534→~640 bytes).
 // Every field read by mapTxRow must appear here. Keep in sync with mapTxRow.
 
-const TX_SELECT = sql`
+const TX_SELECT = `
   SELECT
     bt.id, bt.company_id, bt.bank_account_id,
     bt.transaction_date, bt.value_date,
@@ -125,7 +125,7 @@ export async function getBankTransactions(
 
     if (filters?.reconciliationId) {
       // BL-81: must scope by company_id to prevent cross-tenant data reads
-      rows = (await sql`${TX_SELECT}
+      rows = (await sql`${sql.unsafe(TX_SELECT)}
         WHERE bt.reconciliation_id = ${filters.reconciliationId}::UUID
           AND bt.company_id = ${companyId}::UUID
         ORDER BY bt.transaction_date DESC, bt.amount DESC
@@ -167,7 +167,7 @@ export async function getBankTransactions(
       const sortDir = filters.sortOrder === 'asc' ? 'ASC' : 'DESC';
       if (sortDir !== 'ASC' && sortDir !== 'DESC') throw new Error('Invalid sort direction');
       const extra = [txTypeCond, allocTypeCond, hasSuggCond, allocationCond].filter(Boolean).join(' ');
-      rows = (await sql`${TX_SELECT}
+      rows = (await sql`${sql.unsafe(TX_SELECT)}
         WHERE bt.bank_account_id = ${filters.bankAccountId}::UUID
           AND bt.status = ANY(${statusArr}::TEXT[])
           AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
@@ -184,7 +184,7 @@ export async function getBankTransactions(
           AND (bt.description ILIKE ${searchPattern} OR bt.reference ILIKE ${searchPattern})
           ${sql.unsafe(extra)}`) as Row[];
     } else if (filters?.bankAccountId) {
-      rows = (await sql`${TX_SELECT}
+      rows = (await sql`${sql.unsafe(TX_SELECT)}
         WHERE bt.bank_account_id = ${filters.bankAccountId}::UUID
         ORDER BY bt.transaction_date DESC, bt.amount DESC
         LIMIT ${limit} OFFSET ${offset}`) as Row[];
@@ -192,7 +192,7 @@ export async function getBankTransactions(
         WHERE bank_account_id = ${filters.bankAccountId}::UUID`) as Row[];
     } else {
       const statusFilter = filters?.status ?? null;
-      rows = (await sql`${TX_SELECT}
+      rows = (await sql`${sql.unsafe(TX_SELECT)}
         WHERE bt.company_id = ${companyId}
           AND (${statusFilter}::text IS NULL OR bt.status = ${statusFilter}::text)
         ORDER BY bt.transaction_date DESC, bt.amount DESC

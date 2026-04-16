@@ -270,10 +270,10 @@ async function seedJournalEntries(companyId: string, coa: Map<string, string>, c
       VALUES (${jeId}::uuid, ${date}::date, ${desc}, 'manual', 'posted', ${SYS_USER}::uuid, ${companyId}::uuid, ${ref})
     `;
     await sql`
-      INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description)
+      INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description, company_id)
       VALUES
-        (${jeId}::uuid, ${arId}::uuid,      ${amount}, 0,        ${desc}),
-        (${jeId}::uuid, ${revenueId}::uuid, 0,        ${amount}, ${desc})
+        (${jeId}::uuid, ${arId}::uuid,      ${amount}, 0,        ${desc}, ${companyId}::uuid),
+        (${jeId}::uuid, ${revenueId}::uuid, 0,        ${amount}, ${desc}, ${companyId}::uuid)
     `;
 
     // Post a cost JE: DR CoS / CR AP
@@ -284,10 +284,10 @@ async function seedJournalEntries(companyId: string, coa: Map<string, string>, c
       VALUES (${jeId2}::uuid, ${date}::date, ${'COGS '+desc}, 'manual', 'posted', ${SYS_USER}::uuid, ${companyId}::uuid, ${ref+'-B'})
     `;
     await sql`
-      INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description)
+      INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description, company_id)
       VALUES
-        (${jeId2}::uuid, ${cosId}::uuid, ${cost}, 0,      ${'COGS '+desc}),
-        (${jeId2}::uuid, ${apId}::uuid,  0,      ${cost}, ${'COGS '+desc})
+        (${jeId2}::uuid, ${cosId}::uuid, ${cost}, 0,      ${'COGS '+desc}, ${companyId}::uuid),
+        (${jeId2}::uuid, ${apId}::uuid,  0,      ${cost}, ${'COGS '+desc}, ${companyId}::uuid)
     `;
   }
 }
@@ -340,7 +340,7 @@ async function getAuthCookie(): Promise<string> {
     body: JSON.stringify({ email: 'admin@isaflow.co.za', password: 'admin123' }),
   });
   const setCookie = r.headers.get('set-cookie') || '';
-  const match = setCookie.match(/ff_auth_token=([^;]+)/);
+  const match = setCookie.match(/isaflow_auth=([^;]+)/);
   if (!match) {
     // Try demo user fallback
     const r2 = await fetch(`${BASE}/api/auth/login`, { // fallback not needed
@@ -349,11 +349,11 @@ async function getAuthCookie(): Promise<string> {
       body: JSON.stringify({ email: 'demo@isaflow.co.za', password: 'demo123' }),
     });
     const sc2 = r2.headers.get('set-cookie') || '';
-    const m2 = sc2.match(/ff_auth_token=([^;]+)/);
+    const m2 = sc2.match(/isaflow_auth=([^;]+)/);
     if (!m2) throw new Error('Auth failed — no token in set-cookie');
-    return `ff_auth_token=${m2[1]}; ff_onboarding_done=1`;
+    return `isaflow_auth=${m2[1]}; ff_onboarding_done=1`;
   }
-  return `ff_auth_token=${match[1]}; ff_onboarding_done=1`;
+  return `isaflow_auth=${match[1]}; ff_onboarding_done=1`;
 }
 
 interface HitResult { label: string; ms: number; ok: boolean; status: number }
