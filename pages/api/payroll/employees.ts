@@ -38,8 +38,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         bank_branch_code, department, position, employment_type,
         pay_frequency, status: empStatus, basic_salary, travel_allowance,
         housing_allowance, cell_allowance, other_allowances,
-        medical_aid_contribution, retirement_fund_contribution_pct,
-        custom_deductions,
+        annual_bonus, commission,
+        medical_aid_contribution, medical_aid_main_member, medical_aid_dependants,
+        travel_logbook_kept, travel_taxable_pct,
+        eti_employment_start_date, eti_is_connected_person,
+        retirement_fund_contribution_pct, custom_deductions,
       } = req.body;
 
       if (!employee_number?.trim()) {
@@ -58,6 +61,22 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         return apiResponse.badRequest(res, 'Basic salary is required');
       }
 
+      const { validateSaIdNumber, validateSaTaxNumber, isDuplicateIdNumber } =
+        await import('@/modules/payroll/payrollValidationService');
+
+      if (id_number) {
+        const r = validateSaIdNumber(String(id_number).trim());
+        if (!r.valid) return apiResponse.badRequest(res, `ID number: ${r.reason}`);
+        const dup = await isDuplicateIdNumber(companyId, String(id_number).trim());
+        if (dup) return apiResponse.badRequest(res, 'An employee with this ID number already exists');
+      }
+      if (tax_number) {
+        const r = validateSaTaxNumber(String(tax_number).trim());
+        if (!r.valid) return apiResponse.badRequest(res, `Tax number: ${r.reason}`);
+      }
+
+      const userId = (req as CompanyApiRequest).user?.id ?? null;
+
       const employee = await createEmployee(companyId, {
         employee_number: employee_number.trim(),
         first_name: first_name.trim(),
@@ -74,15 +93,23 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         employment_type: employment_type || 'permanent',
         pay_frequency: pay_frequency || 'monthly',
         status: empStatus || 'active',
+        medical_aid_main_member: Boolean(medical_aid_main_member),
+        medical_aid_dependants: Number(medical_aid_dependants || 0),
+        travel_logbook_kept: Boolean(travel_logbook_kept),
+        travel_taxable_pct: Number(travel_taxable_pct || 80),
+        eti_employment_start_date: eti_employment_start_date || undefined,
+        eti_is_connected_person: Boolean(eti_is_connected_person),
         basic_salary: Number(basic_salary),
         travel_allowance: Number(travel_allowance || 0),
         housing_allowance: Number(housing_allowance || 0),
         cell_allowance: Number(cell_allowance || 0),
         other_allowances: Number(other_allowances || 0),
+        annual_bonus: Number(annual_bonus || 0),
+        commission: Number(commission || 0),
         medical_aid_contribution: Number(medical_aid_contribution || 0),
         retirement_fund_contribution_pct: Number(retirement_fund_contribution_pct || 0),
         custom_deductions: custom_deductions || [],
-      });
+      }, userId);
 
       return apiResponse.created(res, employee);
     } catch (err) {

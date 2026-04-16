@@ -15,6 +15,13 @@ import { log } from '@/lib/logger';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
 
+export interface Irp5SarsBreakdownTotal {
+  code: string;
+  description: string;
+  type: string;
+  amount: number;
+}
+
 export interface Irp5CertRow {
   employee_id: string;
   employee_number: string;
@@ -28,6 +35,7 @@ export interface Irp5CertRow {
   total_uif_employer: number;
   total_net_pay: number;
   certificate_number: string;
+  sars_breakdown: Irp5SarsBreakdownTotal[];
 }
 
 function round2(n: number): number {
@@ -46,6 +54,44 @@ function buildCertNumber(companyId: string, employeeNumber: string, yr: number):
   const prefix = companyId.replace(/-/g, '').slice(0, 6).toUpperCase();
   const empRef = employeeNumber.replace(/\D/g, '').slice(-4).padStart(4, '0');
   return `IRP5-${yr}-${prefix}-${empRef}`;
+}
+
+async function fetchBreakdownMap(
+  companyId: string,
+  start: string,
+  end: string
+): Promise<Map<string, Irp5SarsBreakdownTotal[]>> {
+  const breakdownRows = (await sql`
+    SELECT
+      ps.employee_id,
+      br.code,
+      br.description,
+      br.type,
+      COALESCE(SUM((br.amount)::NUMERIC), 0)::NUMERIC AS total_amount
+    FROM payslips ps
+    JOIN payroll_runs pr ON pr.id = ps.payroll_run_id
+    CROSS JOIN LATERAL jsonb_to_recordset(ps.sars_breakdown)
+      AS br(code TEXT, description TEXT, amount NUMERIC, type TEXT)
+    WHERE pr.company_id = ${companyId}::UUID
+      AND pr.status = 'completed'
+      AND pr.period_end >= ${start}::DATE
+      AND pr.period_end <= ${end}::DATE
+    GROUP BY ps.employee_id, br.code, br.description, br.type
+  `) as Row[];
+
+  const map = new Map<string, Irp5SarsBreakdownTotal[]>();
+  for (const b of breakdownRows) {
+    const key = String(b.employee_id);
+    const arr = map.get(key) || [];
+    arr.push({
+      code:        String(b.code),
+      description: String(b.description),
+      type:        String(b.type),
+      amount:      round2(Number(b.total_amount) || 0),
+    });
+    map.set(key, arr);
+  }
+  return map;
 }
 
 async function handler(req: CompanyApiRequest, res: NextApiResponse) {
@@ -83,6 +129,8 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
         LIMIT 500
       `) as Row[];
 
+      const breakdownByEmployee = await fetchBreakdownMap(companyId, start, end);
+
       const certs: Irp5CertRow[] = rows.map((r: Row) => ({
         employee_id:        String(r.employee_id),
         employee_number:    String(r.employee_number),
@@ -96,6 +144,7 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
         total_uif_employer: round2(Number(r.total_uif_employer)),
         total_net_pay:      round2(Number(r.total_net_pay)),
         certificate_number: buildCertNumber(companyId, String(r.employee_number), taxYear),
+        sars_breakdown:     breakdownByEmployee.get(String(r.employee_id)) || [],
       }));
 
       log.info('IRP5 list fetched', { companyId, taxYear, count: certs.length }, 'irp5-api');
@@ -145,6 +194,8 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
         LIMIT 500
       `) as Row[];
 
+      const breakdownByEmployee = await fetchBreakdownMap(companyId, start, end);
+
       const certs: Irp5CertRow[] = rows.map((r: Row) => ({
         employee_id:        String(r.employee_id),
         employee_number:    String(r.employee_number),
@@ -158,6 +209,7 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
         total_uif_employer: round2(Number(r.total_uif_employer)),
         total_net_pay:      round2(Number(r.total_net_pay)),
         certificate_number: buildCertNumber(companyId, String(r.employee_number), taxYear),
+        sars_breakdown:     breakdownByEmployee.get(String(r.employee_id)) || [],
       }));
 
       log.info('IRP5 generated', { companyId, taxYear, count: certs.length }, 'irp5-api');
