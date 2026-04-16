@@ -1,6 +1,6 @@
 # Plan 6 — Client Portal + Signum Integration (REVISED)
 **Date:** 2026-04-16  
-**Revised:** 2026-04-16 (fixes JWT blocker, migration numbering, status flow, FK, author_type, import paths)  
+**Revised:** 2026-04-16 (fixes JWT blocker, migration numbering, status flow, FK, author_type, import paths; updated 2026-04-16 with real Signum API shape)  
 **Status:** Ready for implementation  
 **Depends on:** Plans 1–5 complete — types at `@/modules/accounting/services/afs/afsTypes.ts`  
 **Scope:** Portal contacts, magic-link auth, client portal pages, Signum e-signature integration, webhook handler
@@ -26,14 +26,26 @@ Plan 6 adds the client-facing layer on top of the AFS document engine built in P
 
 ## Prerequisites
 
-### Signum Changes Required
+### Signum Setup Prerequisites (One-Time Manual Steps)
 
-Before this plan can go live, Signum must be updated (tracked separately). Four changes are needed:
+Before this plan can go live, two manual Signum admin steps must be completed. These are done once by the Signum administrator — ISaFlow code never calls these at runtime.
 
-1. **Replace Puppeteer with WeasyPrint** in `lib/html-to-pdf.ts` — same function signature, better output.
-2. **Add embed mode** (`?embed=true`) to `/sign/[token]` — removes Signum's own nav, fires `postMessage({ type: 'signum:signed' })` on completion.
-3. **Configurable `callbackBaseUrl`** per document — ISaFlow passes `https://app.isaflow.co.za/accounting/afs/sign` so signing email links stay on ISaFlow's domain.
-4. **Configurable `expiresInDays`** per document — ISaFlow passes 30 days (default 7 is too short for AFS).
+**Step 1 — Create an API key:**
+Log in to the Signum admin console and create an API key (`sk_live_...`). Copy it into `.env.local` and the production systemd drop-in as `SIGNUM_API_KEY`.
+
+**Step 2 — Register the ISaFlow webhook:**
+In the Signum admin console, register:
+- URL: `https://app.isaflow.co.za/api/accounting/afs/webhook/signum`
+- Events: `document.signed`, `document.declined`, `document.cancelled`, `document.expired`
+- Signing secret: generate a 64-char hex secret, copy it as `SIGNUM_WEBHOOK_SECRET`
+
+ISaFlow does **not** register the webhook from code — there is no `registerSignumWebhook` call at runtime. The previous `registerSignumWebhook` function described in the original plan is removed.
+
+### Signum Embed Mode
+
+Signum's `/sign/[token]` route must support `?embed=true` to:
+- Remove Signum's own nav chrome when rendered in an ISaFlow iframe
+- Fire `postMessage({ type: 'signum:signed' })` on completion so the parent page can show a success screen
 
 ### Plan 5 Migration Requirement
 
@@ -53,14 +65,17 @@ If Plan 5's migration has already shipped without `author_type`, add this as a s
 ## Environment Variables Required
 
 ```
-SIGNUM_URL=http://signum:3001
-SIGNUM_API_KEY=<key>
-SIGNUM_WEBHOOK_SECRET=<hmac-secret>       # used to verify X-Signum-Signature header
-PORTAL_JWT_SECRET=<32-byte-hex>           # signs portal_session cookies (SEPARATE from JWT_SECRET)
-NEXT_PUBLIC_SIGNUM_URL=http://signum:3001 # client-side for iframe src (safe to expose — just the URL, not the API key)
+SIGNUM_API_URL=https://signum.velocityfibre.co.za/api/v1   # Signum base API URL (server-side only)
+SIGNUM_API_KEY=sk_live_...                                   # API key from Signum admin console
+SIGNUM_WEBHOOK_SECRET=<64-char-hex>                          # HMAC secret — used to verify X-Signum-Signature header
+SIGNUM_CALLBACK_BASE_URL=https://app.isaflow.co.za/sign      # Passed to Signum per-document; also used server-side for iframe src via getServerSideProps
+SIGNUM_EXPIRES_IN_DAYS=14                                    # How many days before signing links expire
+PORTAL_JWT_SECRET=<32-byte-hex>                              # Signs portal_session cookies — SEPARATE from JWT_SECRET
 ```
 
-Add all five to `.env.local` (dev) and the production systemd environment drop-in.
+Add all six to `.env.local` (dev) and the production systemd environment drop-in.
+
+**Note on client-side iframe src:** `SIGNUM_CALLBACK_BASE_URL` is server-side only (no `NEXT_PUBLIC_` prefix). The signing page (`pages/accounting/afs/sign/[token].tsx`) receives this URL via `getServerSideProps` as a prop and builds the iframe `src` server-side. This avoids leaking the URL to non-signing pages while keeping it out of the browser bundle.
 
 ---
 
@@ -577,22 +592,24 @@ Calls the Signum API to upload PDFs, track signing status, and download signed c
 export async function sendForSigning(
   documentId: string,
   companyId: string,
-  pdfBuffer: Buffer,
-  signers: Array<{ email: string; name: string; order: number }>,
-  callbackBaseUrl: string,
-): Promise<{ signumDocumentId: string }>
+  html: string,
+  title: string,
+  signers: Array<{ email: string; name: string }>,
+): Promise<{ signumDocumentId: string; signingTokens: Array<{ email: string; signingToken: string }> }>
 
 export async function downloadSignedPdf(signumDocumentId: string): Promise<Buffer>
 
-export async function registerSignumWebhook(callbackUrl: string): Promise<void>
-
 export function verifySignumWebhookSignature(
-  payload: string,
-  receivedSignature: string,
+  rawBody: string,
+  signatureHeader: string | null,
 ): boolean
 ```
 
+**Note:** `registerSignumWebhook` has been removed. Webhook registration is a one-time manual step in the Signum admin console (see Prerequisites). It is NOT called at runtime.
+
 **`sendForSigning` implementation:**
+
+The real Signum endpoint is `POST ${SIGNUM_API_URL}/documents/from-html` and accepts **JSON**, not multipart form data. It takes rendered HTML directly — no PDF generation required before calling Signum.
 
 ```typescript
 import crypto from 'crypto';
@@ -602,50 +619,56 @@ import { log } from '@/lib/logger';
 export async function sendForSigning(
   documentId: string,
   companyId: string,
-  pdfBuffer: Buffer,
-  signers: Array<{ email: string; name: string; order: number }>,
-  callbackBaseUrl: string,
-): Promise<{ signumDocumentId: string }> {
-  const signumUrl = process.env.SIGNUM_URL;
+  html: string,
+  title: string,
+  signers: Array<{ email: string; name: string }>,
+): Promise<{ signumDocumentId: string; signingTokens: Array<{ email: string; signingToken: string }> }> {
+  const apiUrl = process.env.SIGNUM_API_URL;
   const apiKey = process.env.SIGNUM_API_KEY;
-  if (!signumUrl || !apiKey) throw new Error('SIGNUM_URL or SIGNUM_API_KEY not configured');
-
-  // 1. Build multipart form — PDF + signer list + metadata
-  const form = new FormData();
-  form.append('file', new Blob([pdfBuffer], { type: 'application/pdf' }), `${documentId}.pdf`);
-  form.append('signers', JSON.stringify(signers));
-  form.append('callbackBaseUrl', callbackBaseUrl);
-  form.append('expiresInDays', '30');
-  form.append('metadata', JSON.stringify({ isaflowDocumentId: documentId, companyId }));
-
-  // 2. POST to Signum
-  const res = await fetch(`${signumUrl}/api/v1/documents`, {
-    method: 'POST',
-    headers: { 'X-Api-Key': apiKey },
-    body: form,
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Signum upload failed: ${res.status} ${text}`);
+  const callbackBaseUrl = process.env.SIGNUM_CALLBACK_BASE_URL;
+  const expiresInDays = Number(process.env.SIGNUM_EXPIRES_IN_DAYS ?? 14);
+  if (!apiUrl || !apiKey || !callbackBaseUrl) {
+    throw new Error('SIGNUM_API_URL, SIGNUM_API_KEY, and SIGNUM_CALLBACK_BASE_URL must all be set');
   }
-  const json = (await res.json()) as { id: string; signingUrl: string };
 
-  // 3. Store signumDocumentId + signing_requested_at on the afs_document record
-  //    Status stays 'partner_review' — webhook will move it to 'signed_off'
+  const res = await fetch(`${apiUrl}/documents/from-html`, {
+    method: 'POST',
+    headers: {
+      'x-api-key': apiKey,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      html,
+      title,
+      senderEmail: 'accounts@isaflow.co.za',
+      signers,
+      callbackBaseUrl,
+      expiresInDays,
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Signum create failed: ${res.status} ${text}`);
+  }
+
+  const json = (await res.json()) as {
+    documentId: string;
+    signers: Array<{ email: string; signingToken: string }>;
+  };
+
+  // Store signumDocumentId + signing_requested_at on the afs_document record.
+  // Status stays 'partner_review' — webhook will move it to 'signed_off'.
   await sql`
     UPDATE afs_documents
-    SET signum_document_id = ${json.id},
+    SET signum_document_id = ${json.documentId},
         signing_requested_at = now(),
         updated_at = now()
     WHERE id = ${documentId}::UUID AND company_id = ${companyId}::UUID
   `;
 
-  // 4. Register webhook (idempotent — Signum deduplicates by URL)
-  const webhookUrl = 'https://app.isaflow.co.za/api/accounting/afs/webhook/signum';
-  await registerSignumWebhook(webhookUrl);
-
-  log.info('Signum document created', { documentId, signumDocumentId: json.id }, 'signumIntegrationService');
-  return { signumDocumentId: json.id };
+  log.info('Signum document created', { documentId, signumDocumentId: json.documentId }, 'signumIntegrationService');
+  return { signumDocumentId: json.documentId, signingTokens: json.signers };
 }
 ```
 
@@ -653,12 +676,12 @@ export async function sendForSigning(
 
 ```typescript
 export async function downloadSignedPdf(signumDocumentId: string): Promise<Buffer> {
-  const signumUrl = process.env.SIGNUM_URL;
+  const apiUrl = process.env.SIGNUM_API_URL;
   const apiKey = process.env.SIGNUM_API_KEY;
-  if (!signumUrl || !apiKey) throw new Error('SIGNUM_URL or SIGNUM_API_KEY not configured');
+  if (!apiUrl || !apiKey) throw new Error('SIGNUM_API_URL and SIGNUM_API_KEY must be set');
 
-  const res = await fetch(`${signumUrl}/api/v1/documents/${signumDocumentId}/download`, {
-    headers: { 'X-Api-Key': apiKey },
+  const res = await fetch(`${apiUrl}/documents/${signumDocumentId}/download`, {
+    headers: { 'x-api-key': apiKey },
   });
   if (!res.ok) throw new Error(`Signum download failed: ${res.status}`);
   const arrayBuffer = await res.arrayBuffer();
@@ -666,43 +689,25 @@ export async function downloadSignedPdf(signumDocumentId: string): Promise<Buffe
 }
 ```
 
-**`registerSignumWebhook` implementation:**
-
-```typescript
-export async function registerSignumWebhook(callbackUrl: string): Promise<void> {
-  const signumUrl = process.env.SIGNUM_URL;
-  const apiKey = process.env.SIGNUM_API_KEY;
-  if (!signumUrl || !apiKey) throw new Error('SIGNUM_URL or SIGNUM_API_KEY not configured');
-
-  const res = await fetch(`${signumUrl}/api/v1/webhooks`, {
-    method: 'POST',
-    headers: {
-      'X-Api-Key': apiKey,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ url: callbackUrl, events: ['document.signed'] }),
-  });
-  // 409 = already registered (idempotent)
-  if (!res.ok && res.status !== 409) {
-    log.warn('Signum webhook registration failed', { status: res.status }, 'signumIntegrationService');
-  }
-}
-```
-
 **`verifySignumWebhookSignature` implementation:**
+
+The `X-Signum-Signature` header format is `sha256=<hex>` — the function must strip the prefix before comparing.
 
 ```typescript
 export function verifySignumWebhookSignature(
-  payload: string,
-  receivedSignature: string,
+  rawBody: string,
+  signatureHeader: string | null,
 ): boolean {
   const secret = process.env.SIGNUM_WEBHOOK_SECRET;
   if (!secret) throw new Error('SIGNUM_WEBHOOK_SECRET not configured');
-  const expected = crypto
-    .createHmac('sha256', secret)
-    .update(payload)
-    .digest('hex');
-  return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(receivedSignature));
+  if (!signatureHeader?.startsWith('sha256=')) return false;
+  const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
+  const provided = signatureHeader.slice(7); // strip 'sha256='
+  try {
+    return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(provided));
+  } catch {
+    return false; // length mismatch throws in timingSafeEqual
+  }
 }
 ```
 
@@ -710,6 +715,15 @@ export function verifySignumWebhookSignature(
 - When `sendForSigning` is called, `status` stays `'partner_review'`. The `signing_requested_at` timestamp is set to track that signing is in progress.
 - The `'awaiting_signatures'` status does NOT exist in `DocumentStatus` — do not use it.
 - Webhook sets `status = 'signed_off'` when all signatures are collected.
+
+**Known unknown — signed PDF delivery:**
+The mechanism by which Signum delivers the signed PDF is not yet confirmed. Two possibilities:
+1. The webhook payload includes a download URL for the signed PDF.
+2. A follow-up `GET ${SIGNUM_API_URL}/documents/${documentId}` returns a document object with a download link.
+
+The webhook handler currently calls `downloadSignedPdf` which uses a `/download` path. This **must be verified against the real Signum API** before implementation. If the signed PDF URL is in the webhook body instead, `downloadSignedPdf` can be replaced with a direct fetch to that URL.
+
+**TODO:** Confirm with Signum whether `GET /documents/{id}/download` exists, or whether the signed PDF URL is embedded in the `document.signed` webhook payload.
 
 ---
 
@@ -1096,30 +1110,41 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
   }
 
-  // 3. Load the PDF
-  const pdfPath = `/storage/afs-drafts/${companyId}/${documentId}.pdf`;
-  let pdfBuffer: Buffer;
+  // 3. Load the rendered AFS HTML
+  //    The HTML is stored at /storage/afs-html/{companyId}/{documentId}.html by the render service.
+  const htmlPath = `/storage/afs-html/${companyId}/${documentId}.html`;
+  let html: string;
   try {
-    pdfBuffer = await fs.readFile(pdfPath);
+    html = await fs.readFile(htmlPath, 'utf-8');
   } catch {
-    return apiResponse.badRequest(res, 'PDF not yet generated for this document');
+    return apiResponse.badRequest(res, 'Rendered HTML not yet generated for this document');
   }
 
-  // 4. Send to Signum
-  const signers = contacts.map((c, i) => ({
+  // 4. Load company name for the document title
+  const companies = await sql`
+    SELECT name FROM companies WHERE id = ${companyId}::UUID LIMIT 1
+  `;
+  const companyName = companies.length > 0 ? String(companies[0]!.name) : 'Company';
+  const title = `Annual Financial Statements — ${companyName}`;
+
+  // 5. Send to Signum (JSON body, not multipart — real API uses /documents/from-html)
+  const signers = contacts.map((c) => ({
     email: String(c.email),
     name: String(c.name),
-    order: i + 1,
   }));
-  const callbackBaseUrl = 'https://app.isaflow.co.za/accounting/afs/sign';
-  const { signumDocumentId } = await sendForSigning(documentId, companyId, pdfBuffer, signers, callbackBaseUrl);
+  const { signumDocumentId, signingTokens } = await sendForSigning(documentId, companyId, html, title, signers);
 
-  // 5. Notify each signer
+  // 6. Notify each signer with their individual signing URL
+  const callbackBaseUrl = process.env.SIGNUM_CALLBACK_BASE_URL ?? 'https://app.isaflow.co.za/sign';
   for (const c of contacts) {
+    const signerToken = signingTokens.find((t) => t.email === String(c.email));
+    const signingUrl = signerToken
+      ? `${callbackBaseUrl}/${signerToken.signingToken}`
+      : callbackBaseUrl;
     await notifySigningRequested(
       { id: String(c.id), companyId, name: String(c.name), email: String(c.email), role: c.role as PortalRole, active: true, createdAt: new Date(), updatedAt: new Date() },
       documentId,
-      `${callbackBaseUrl}/${signumDocumentId}`,
+      signingUrl,
     );
   }
 
@@ -1167,22 +1192,25 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   // 1. Read raw body for HMAC verification
   const rawBody = await readRawBody(req);
-  const signature = req.headers['x-signum-signature'];
-  if (typeof signature !== 'string') {
+  const signatureHeader = req.headers['x-signum-signature'];
+  if (typeof signatureHeader !== 'string') {
     log.warn('Signum webhook: missing X-Signum-Signature header', {}, 'signum-webhook');
     return res.status(401).json({ error: 'Missing signature' });
   }
 
-  const sigValue = signature.startsWith('sha256=') ? signature.slice(7) : signature;
-  if (!verifySignumWebhookSignature(rawBody, sigValue)) {
+  // verifySignumWebhookSignature expects the full header value including the 'sha256=' prefix
+  if (!verifySignumWebhookSignature(rawBody, signatureHeader)) {
     log.warn('Signum webhook HMAC verification failed', {}, 'signum-webhook');
     return res.status(401).json({ error: 'Invalid signature' });
   }
 
   // 2. Parse body
-  const body = JSON.parse(rawBody) as { documentId: string; event: string; signedAt: string };
-  if (body.event !== 'document.signed') {
-    return res.status(200).json({ received: true }); // acknowledge unknown events
+  // Signum sends: document.signed | document.declined | document.cancelled | document.expired
+  const body = JSON.parse(rawBody) as { documentId: string; event: string; signedAt?: string };
+
+  if (!['document.signed', 'document.declined', 'document.cancelled', 'document.expired'].includes(body.event)) {
+    log.info('Signum webhook: unrecognised event, acknowledging', { event: body.event }, 'signum-webhook');
+    return res.status(200).json({ received: true }); // acknowledge unknown events gracefully
   }
 
   // 3. Look up afs_document by signum_document_id
@@ -1192,10 +1220,24 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     LIMIT 1
   `;
   if (rows.length === 0) {
-    log.warn('Signum webhook: no afs_document for signum_document_id', { signumDocumentId: body.documentId }, 'signum-webhook');
+    log.warn('Signum webhook: no afs_document for signum_document_id', { signumDocumentId: body.documentId, event: body.event }, 'signum-webhook');
     return res.status(200).json({ received: true }); // don't retry
   }
   const doc = rows[0] as { id: string; company_id: string };
+
+  // Handle non-signed terminal events (declined, cancelled, expired)
+  if (body.event !== 'document.signed') {
+    // Reset signing state so staff can resend for signing if needed
+    await sql`
+      UPDATE afs_documents
+      SET signum_document_id = NULL,
+          signing_requested_at = NULL,
+          updated_at = now()
+      WHERE id = ${doc.id}::UUID AND company_id = ${doc.company_id}::UUID
+    `;
+    log.info('Signum signing terminal event — signing state reset', { documentId: doc.id, event: body.event }, 'signum-webhook');
+    return res.status(200).json({ received: true });
+  }
 
   // 4. Download signed PDF from Signum
   const pdfBuffer = await downloadSignedPdf(body.documentId);
@@ -1229,6 +1271,15 @@ export default withErrorHandler(handler as never);
 - `bodyParser: false` is mandatory. HMAC must be computed over the raw bytes before any JSON parsing.
 - `withErrorHandler` wraps the handler but `withCompany` is NOT used — webhooks have no company context in the request headers.
 - `readRawBody` is inlined (simple utility, not worth a separate file).
+- `X-Signum-Signature` format is `sha256=<hex>`. The `verifySignumWebhookSignature` function handles the prefix stripping internally — pass the full header value.
+- Signum sends four event types: `document.signed`, `document.declined`, `document.cancelled`, `document.expired`. Only `document.signed` triggers the sign-off flow; the other three reset signing state so staff can resend.
+
+**Known unknown — signed PDF download:**
+`downloadSignedPdf` calls `GET ${SIGNUM_API_URL}/documents/{id}/download`. This path has not been confirmed against the real Signum API. It is possible the signed PDF URL is included in the `document.signed` webhook payload instead. Before implementing, verify:
+1. Does `GET /documents/{id}/download` exist and return the signed PDF binary?
+2. Or does the `document.signed` payload include a `signedPdfUrl` field?
+
+If option 2, replace the `downloadSignedPdf` call with a direct `fetch(body.signedPdfUrl)` and remove the `downloadSignedPdf` function.
 
 ---
 
@@ -1631,7 +1682,16 @@ export async function getServerSideProps(context: GetServerSidePropsContext) {
 
 **Layout:**
 - ISaFlow header with logo (no nav links — signing context only).
-- Full-height iframe: `src={`${process.env.NEXT_PUBLIC_SIGNUM_URL}/sign/${token}?embed=true`}`.
+- Full-height iframe. The `src` is built server-side from `SIGNUM_CALLBACK_BASE_URL` passed via `getServerSideProps` — no `NEXT_PUBLIC_` env var needed:
+  ```tsx
+  // Props passed from getServerSideProps:
+  // { callbackBaseUrl: string }
+  
+  <iframe
+    src={`${callbackBaseUrl}/${token}?embed=true`}
+    style={{ width: '100%', height: 'calc(100vh - 64px)', border: 'none' }}
+  />
+  ```
 - `postMessage` listener:
   ```typescript
   useEffect(() => {
@@ -1649,8 +1709,15 @@ export async function getServerSideProps(context: GetServerSidePropsContext) {
   - "You will receive a copy of the signed document by email."
   - Link to portal dashboard (if the contact has an active session) or close-window instruction.
 
-**Environment variable:**
-- `NEXT_PUBLIC_SIGNUM_URL` — needed client-side for iframe `src`. This is safe to expose publicly (it's just the URL, not the API key).
+**`getServerSideProps`:**
+```typescript
+export async function getServerSideProps() {
+  const callbackBaseUrl = process.env.SIGNUM_CALLBACK_BASE_URL ?? '';
+  return { props: { callbackBaseUrl } };
+}
+```
+
+**Why not `NEXT_PUBLIC_SIGNUM_CALLBACK_BASE_URL`?** The `NEXT_PUBLIC_` approach would bake the URL into the browser bundle for every page. Using `getServerSideProps` limits exposure to the signing page only and avoids a second env var to maintain.
 
 ---
 
@@ -1879,9 +1946,11 @@ import {
 describe('signumIntegrationService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.SIGNUM_URL = 'http://signum:3001';
+    process.env.SIGNUM_API_URL = 'https://signum.velocityfibre.co.za/api/v1';
     process.env.SIGNUM_API_KEY = 'test-api-key';
     process.env.SIGNUM_WEBHOOK_SECRET = 'test-webhook-secret';
+    process.env.SIGNUM_CALLBACK_BASE_URL = 'https://app.isaflow.co.za/sign';
+    process.env.SIGNUM_EXPIRES_IN_DAYS = '14';
   });
 
   describe('downloadSignedPdf', () => {
@@ -1903,34 +1972,49 @@ describe('signumIntegrationService', () => {
   });
 
   describe('verifySignumWebhookSignature', () => {
-    it('returns true for valid HMAC', () => {
+    it('returns true for valid HMAC with sha256= prefix', () => {
       const crypto = require('crypto');
       const payload = '{"event":"document.signed"}';
       const secret = 'test-webhook-secret';
-      const sig = crypto.createHmac('sha256', secret).update(payload).digest('hex');
-      expect(verifySignumWebhookSignature(payload, sig)).toBe(true);
+      const hex = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+      const header = `sha256=${hex}`; // Signum sends this format
+      expect(verifySignumWebhookSignature(payload, header)).toBe(true);
+    });
+
+    it('returns false when sha256= prefix is missing', () => {
+      const crypto = require('crypto');
+      const payload = '{"event":"document.signed"}';
+      const secret = 'test-webhook-secret';
+      const hex = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+      // Pass raw hex without prefix — should be rejected
+      expect(verifySignumWebhookSignature(payload, hex)).toBe(false);
     });
 
     it('returns false for tampered payload', () => {
       const payload = '{"event":"document.signed"}';
-      const fakeSig = 'a'.repeat(64);
+      const fakeSig = `sha256=${'a'.repeat(64)}`;
       expect(verifySignumWebhookSignature(payload, fakeSig)).toBe(false);
+    });
+
+    it('returns false for null header', () => {
+      expect(verifySignumWebhookSignature('payload', null)).toBe(false);
     });
 
     it('throws when SIGNUM_WEBHOOK_SECRET is not set', () => {
       delete process.env.SIGNUM_WEBHOOK_SECRET;
-      expect(() => verifySignumWebhookSignature('payload', 'sig')).toThrow('SIGNUM_WEBHOOK_SECRET not configured');
+      expect(() => verifySignumWebhookSignature('payload', 'sha256=abc')).toThrow('SIGNUM_WEBHOOK_SECRET not configured');
     });
   });
 
   describe('sendForSigning', () => {
-    it('calls Signum API, stores signumDocumentId, and returns it', async () => {
-      mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => ({ id: 'signum-123', signingUrl: 'https://signum/sign/abc' }),
-        })
-        .mockResolvedValueOnce({ ok: true, json: async () => ({}) }); // webhook registration
+    it('calls /documents/from-html with JSON body, stores signumDocumentId, and returns tokens', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          documentId: 'signum-123',
+          signers: [{ email: 'alice@example.com', signingToken: 'tok-abc' }],
+        }),
+      });
 
       const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
       mockSql.mockResolvedValue([]);
@@ -1939,24 +2023,47 @@ describe('signumIntegrationService', () => {
       const result = await sendForSigning(
         'doc-id-1',
         'd27bac33-cdc0-4e58-bf6b-709c1597d41c',
-        Buffer.from('%PDF-test'),
-        [{ email: 'alice@example.com', name: 'Alice', order: 1 }],
-        'https://app.isaflow.co.za/accounting/afs/sign',
+        '<html>AFS content</html>',
+        'Annual Financial Statements — Test Co',
+        [{ email: 'alice@example.com', name: 'Alice' }],
       );
 
       expect(result.signumDocumentId).toBe('signum-123');
+      expect(result.signingTokens).toHaveLength(1);
+      expect(result.signingTokens[0]!.signingToken).toBe('tok-abc');
+
+      // Must call /documents/from-html (JSON), not /documents (multipart)
       expect(mockFetch).toHaveBeenCalledWith(
-        'http://signum:3001/api/v1/documents',
-        expect.objectContaining({ method: 'POST' }),
+        'https://signum.velocityfibre.co.za/api/v1/documents/from-html',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
+        }),
       );
+
+      // Verify the request body shape
+      const callArgs = mockFetch.mock.calls[0]![1] as { body: string };
+      const body = JSON.parse(callArgs.body) as Record<string, unknown>;
+      expect(body.html).toBe('<html>AFS content</html>');
+      expect(body.senderEmail).toBe('accounts@isaflow.co.za');
+      expect(body.callbackBaseUrl).toBe('https://app.isaflow.co.za/sign');
+      expect(body.expiresInDays).toBe(14);
     });
 
-    it('throws when Signum upload returns non-2xx', async () => {
+    it('throws when Signum create returns non-2xx', async () => {
       mockFetch.mockResolvedValueOnce({ ok: false, status: 500, text: async () => 'Internal Error' });
       const { sendForSigning } = await import('@/modules/accounting/services/afs/signumIntegrationService');
       await expect(
-        sendForSigning('doc-id-1', 'comp-id', Buffer.from('pdf'), [], 'https://base')
-      ).rejects.toThrow('Signum upload failed: 500');
+        sendForSigning('doc-id-1', 'comp-id', '<html/>', 'Title', [])
+      ).rejects.toThrow('Signum create failed: 500');
+    });
+
+    it('throws when SIGNUM_API_URL is not configured', async () => {
+      delete process.env.SIGNUM_API_URL;
+      const { sendForSigning } = await import('@/modules/accounting/services/afs/signumIntegrationService');
+      await expect(
+        sendForSigning('doc-id-1', 'comp-id', '<html/>', 'Title', [])
+      ).rejects.toThrow('SIGNUM_API_URL');
     });
   });
 });
@@ -2084,7 +2191,7 @@ Step 11 — Verification
 | Forged portal session cookie | JWT signed with `PORTAL_JWT_SECRET` (separate from staff `JWT_SECRET`); `HttpOnly; Secure; SameSite=Strict` |
 | Staff JWT used on portal routes | `withPortalAuth` uses `verifyPortalToken` with `PORTAL_JWT_SECRET` — a staff token signed with `JWT_SECRET` will fail verification |
 | Portal JWT used on staff routes | `withCompany` uses `verifyToken` with `JWT_SECRET` — a portal token signed with `PORTAL_JWT_SECRET` will fail verification |
-| Signum webhook spoofing | HMAC-SHA256 verification with `SIGNUM_WEBHOOK_SECRET` before any processing |
+| Signum webhook spoofing | HMAC-SHA256 verification with `SIGNUM_WEBHOOK_SECRET`; header format `sha256=<hex>` validated before any processing |
 | PDF download IDOR | Webhook handler looks up `afs_document` by `signum_document_id` only — no user-controlled document ID |
 | Annotation on signed documents | Handler checks `status !== 'signed_off'` and `status !== 'filed'` before inserting comment |
 | External auditor annotating | `PORTAL_ACCESS_RULES.external_auditor.canAnnotate = false` enforced in annotate handler |
@@ -2129,6 +2236,8 @@ Step 11 — Verification
 
 ## 12. Changes from Original Plan (Audit Trail)
 
+### Revision 1 — 2026-04-16 (JWT blocker, migration numbering, status flow, FK, author_type, import paths)
+
 | Issue | Original | Fix |
 |-------|----------|-----|
 | Migration numbering | 342, 343 | 341, 342, 343 (last existing = 339, Plan 5 takes 340) |
@@ -2147,6 +2256,29 @@ Step 11 — Verification
 | Portal auth POST email lookup | Scoped by company (impossible — user provides only email) | Cross-tenant lookup, safe because token binds to specific contact+company |
 | `portalJwt.ts` test | Missing | Added `portalJwt.test.ts` |
 
+### Revision 2 — 2026-04-16 (Real Signum API shape)
+
+| Issue | Assumed | Actual / Fix |
+|-------|---------|--------------|
+| Signum API URL env var | `SIGNUM_URL=http://signum:3001` | `SIGNUM_API_URL=https://signum.velocityfibre.co.za/api/v1` |
+| API key header name | `X-Api-Key` | `x-api-key` |
+| Create document endpoint | `POST /api/v1/documents` (multipart, PDF file) | `POST /documents/from-html` (JSON, rendered HTML) |
+| Request body format | `FormData` with PDF `Blob` | `JSON` with `html`, `title`, `senderEmail`, `signers`, `callbackBaseUrl`, `expiresInDays` |
+| Signum response shape | `{ id, signingUrl }` | `{ documentId, signers: Array<{ email, signingToken }> }` |
+| `sendForSigning` signature | Accepts `pdfBuffer: Buffer` + `order` per signer | Accepts `html: string` + `title: string`; signers have no `order` field |
+| No separate PDF generation before Signum | Plan loaded PDF from disk | Signum generates the PDF from HTML — load HTML instead |
+| Signing token per signer | Single `signumDocumentId` returned | `signingTokens` array — each signer gets their own `signingToken` |
+| Signing URL in notification | Built as `${callbackBaseUrl}/${signumDocumentId}` | Built as `${callbackBaseUrl}/${signerToken.signingToken}` per signer |
+| Webhook secret header format | Raw hex in `X-Signum-Signature` | `sha256=<hex>` prefixed — `verifySignumWebhookSignature` now requires and validates the prefix |
+| Webhook events handled | Only `document.signed` | All four: `document.signed`, `document.declined`, `document.cancelled`, `document.expired` |
+| Non-signed terminal events | Not handled | Reset `signum_document_id` + `signing_requested_at` so staff can resend |
+| Webhook registration | Called at runtime inside `sendForSigning` | One-time manual step in Signum admin console — removed from runtime code |
+| `registerSignumWebhook` function | Exported from service | Removed entirely — not called at runtime |
+| Client-side iframe URL env var | `NEXT_PUBLIC_SIGNUM_URL` | Removed; `SIGNUM_CALLBACK_BASE_URL` passed via `getServerSideProps` to signing page |
+| New env vars | — | `SIGNUM_CALLBACK_BASE_URL`, `SIGNUM_EXPIRES_IN_DAYS` |
+| Removed env vars | `SIGNUM_URL`, `NEXT_PUBLIC_SIGNUM_URL` | Replaced by `SIGNUM_API_URL` + `SIGNUM_CALLBACK_BASE_URL` |
+| Signed PDF delivery mechanism | Assumed `GET /documents/{id}/download` exists | **Known unknown** — must confirm with Signum before implementation |
+
 ---
 
-*Plan written: 2026-04-16 | Revised: 2026-04-16 | Scope: Plan 6 of 8 | Depends on: Plans 1–5*
+*Plan written: 2026-04-16 | Revised: 2026-04-16 (×2) | Scope: Plan 6 of 8 | Depends on: Plans 1–5*
