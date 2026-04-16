@@ -74,6 +74,22 @@ async function countUnresolvedComments(
   return first !== undefined ? (first.cnt as number) ?? 0 : 0;
 }
 
+async function countUnresolvedCommentsForDocument(
+  companyId: string,
+  documentId: string
+): Promise<number> {
+  const rows = (await sql`
+    SELECT COUNT(*)::INT AS n
+    FROM afs_section_comments c
+    JOIN afs_sections s ON s.id = c.section_id
+    WHERE c.company_id = ${companyId}::UUID
+      AND s.company_id = ${companyId}::UUID
+      AND s.document_id = ${documentId}::UUID
+      AND c.resolved = FALSE
+  `) as Record<string, unknown>[];
+  return Number(rows[0]?.n ?? 0);
+}
+
 // Counts mandatory sections below a given status threshold.
 // Primary statement sections with no template row are always mandatory.
 async function countMandatorySectionsBelow(
@@ -234,6 +250,14 @@ export async function signOffDocument(
     );
   }
 
+  const unresolved = await countUnresolvedCommentsForDocument(companyId, documentId);
+  if (unresolved > 0) {
+    throw new ReviewError(
+      `Cannot sign off: ${unresolved} unresolved comment(s)`,
+      'UNRESOLVED_COMMENTS'
+    );
+  }
+
   const belowCount = await countMandatorySectionsBelow(companyId, documentId, 'signed_off');
   if (belowCount > 0) {
     throw new ReviewError(
@@ -268,6 +292,23 @@ export async function promoteToPartnerReview(
     throw new ReviewError(
       `Cannot promote: document status is '${doc.status}', expected 'in_review'`,
       'INVALID_TRANSITION'
+    );
+  }
+
+  // Require all mandatory sections to be at least 'reviewed'
+  const belowCount = await countMandatorySectionsBelow(companyId, documentId, 'reviewed');
+  if (belowCount > 0) {
+    throw new ReviewError(
+      `Cannot promote: ${belowCount} mandatory section(s) not yet reviewed`,
+      'SECTIONS_NOT_READY'
+    );
+  }
+  // Require zero unresolved comments across the document
+  const unresolved = await countUnresolvedCommentsForDocument(companyId, documentId);
+  if (unresolved > 0) {
+    throw new ReviewError(
+      `Cannot promote: ${unresolved} unresolved comment(s)`,
+      'UNRESOLVED_COMMENTS'
     );
   }
 

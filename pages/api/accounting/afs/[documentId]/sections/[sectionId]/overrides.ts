@@ -9,7 +9,10 @@ import {
   assertDocumentEditable,
   ReviewError,
 } from '@/modules/accounting/services/afs/afsReviewService';
-import { saveVersion } from '@/modules/accounting/services/afs/afsVersionHistoryService';
+import {
+  saveVersion,
+  VersionHistoryError,
+} from '@/modules/accounting/services/afs/afsVersionHistoryService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'PUT') {
@@ -40,7 +43,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   // Save version snapshot BEFORE applying overrides
-  const versionEntry = await saveVersion(companyId, sectionId, userId);
+  let versionEntry;
+  try {
+    versionEntry = await saveVersion(companyId, sectionId, userId);
+  } catch (err) {
+    if (err instanceof VersionHistoryError && err.code === 'NOT_FOUND') {
+      return apiResponse.notFound(res, 'Section', sectionId);
+    }
+    throw err;
+  }
 
   // Apply new overrides
   await sql`
