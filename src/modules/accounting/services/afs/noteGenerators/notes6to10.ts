@@ -2,6 +2,7 @@
 // AFS Note Engine — generators for Notes 6–10
 
 import { sql } from '@/lib/neon';
+import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import type { NoteContent } from '@/modules/accounting/services/afs/afsTypes';
 
@@ -71,6 +72,8 @@ export async function generateNote8FinancialAssets(
   fiscalYear: number,
 ): Promise<NoteResult> {
   const { end } = fiscalRange(fiscalYear);
+
+  log.info('Generating note 8 — tax expense', { companyId, fiscalYear }, 'noteGenerators');
 
   const rows = (await sql`
     SELECT ga.account_name, ga.account_subtype,
@@ -148,6 +151,8 @@ export async function generateNote10TradeReceivables(
   fiscalYear: number,
 ): Promise<NoteResult> {
   const { end } = fiscalRange(fiscalYear);
+
+  log.info('Generating note 10 — trade receivables', { companyId, fiscalYear }, 'noteGenerators');
 
   const rows = (await sql`
     SELECT

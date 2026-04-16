@@ -1,0 +1,81 @@
+// src/modules/accounting/services/afs/afsHtmlTableRenderer.ts
+
+import type { AfsSection, NoteContent, NoteContentBlock } from './afsTypes';
+
+// ── Block renderers ───────────────────────────────────────────────────────────
+
+function renderBlock(block: NoteContentBlock): string {
+  switch (block.type) {
+    case 'paragraph':
+      return `<p>${escapeHtml(block.text)}</p>`;
+
+    case 'heading':
+      if (block.level === 2) {
+        return `<h2 class="note-heading">${escapeHtml(block.text)}</h2>`;
+      }
+      return `<h3 class="note-heading">${escapeHtml(block.text)}</h3>`;
+
+    case 'list':
+      return `<ul>${block.items.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`;
+
+    case 'table':
+      return renderTable(block.headers, block.rows);
+
+    default:
+      return '';
+  }
+}
+
+function renderTable(headers: string[], rows: string[][]): string {
+  const theadCells = headers
+    .map((h) => `<th>${escapeHtml(h)}</th>`)
+    .join('');
+  const thead = `<thead><tr>${theadCells}</tr></thead>`;
+
+  const tbodyRows = rows
+    .map((row) => {
+      const cells = row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join('');
+      return `<tr>${cells}</tr>`;
+    })
+    .join('');
+  const tbody = `<tbody>${tbodyRows}</tbody>`;
+
+  return `<table class="financial-table">${thead}${tbody}</table>`;
+}
+
+// ── NoteContent → blocks ──────────────────────────────────────────────────────
+
+function resolveContent(section: AfsSection): NoteContent | null {
+  if (section.overrides?.blocks && section.overrides.blocks.length > 0) {
+    return {
+      title: section.overrides.title ?? section.content?.title ?? '',
+      blocks: section.overrides.blocks,
+    };
+  }
+  return section.content;
+}
+
+// ── Public export ─────────────────────────────────────────────────────────────
+
+export function renderSectionContent(section: AfsSection): string {
+  const noteContent = resolveContent(section);
+  if (!noteContent) return '';
+
+  const blocks = noteContent.blocks.map(renderBlock).join('\n');
+
+  return `<section class="section-start" id="section-${escapeHtml(section.id)}">
+<h2>${escapeHtml(noteContent.title)}</h2>
+${blocks}
+</section>`;
+}
+
+// ── Utility ───────────────────────────────────────────────────────────────────
+
+export function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}

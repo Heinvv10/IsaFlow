@@ -33,7 +33,7 @@ export async function generateNote21FinanceCosts(
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
   const { start, end } = fiscalRange(fiscalYear);
 
-  log.info('note21: querying finance costs', { companyId, fiscalYear });
+  log.info('note21: querying finance costs', { companyId, fiscalYear }, 'noteGenerators');
 
   const rows = (await sql`
     SELECT ga.account_name, ga.account_subtype,
@@ -88,7 +88,7 @@ export async function generateNote22EmployeeBenefits(
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
   const { start, end } = fiscalRange(fiscalYear);
 
-  log.info('note22: querying employee benefits', { companyId, fiscalYear });
+  log.info('note22: querying employee benefits', { companyId, fiscalYear }, 'noteGenerators');
 
   const rows = (await sql`
     SELECT ga.account_subtype,
@@ -165,7 +165,7 @@ export async function generateNote24AuditorRemuneration(
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
   const { start, end } = fiscalRange(fiscalYear);
 
-  log.info('note24: querying audit fees', { companyId, fiscalYear });
+  log.info('note24: querying audit fees', { companyId, fiscalYear }, 'noteGenerators');
 
   const rows = (await sql`
     SELECT ga.account_name,

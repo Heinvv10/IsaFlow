@@ -92,6 +92,8 @@ async function fetchGroupedAllocations(
       AND bt.company_id = ${companyId}::UUID
       AND je.company_id = ${companyId}::UUID
       AND jl.company_id = ${companyId}::UUID
+      AND jl_bank.company_id = ${companyId}::UUID
+      AND ga_bank.company_id = ${companyId}::UUID
       AND je.entry_date >= ${periodStart}
       AND je.entry_date <= ${periodEnd}
     GROUP BY cash_group

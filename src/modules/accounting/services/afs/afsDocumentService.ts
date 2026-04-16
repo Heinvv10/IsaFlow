@@ -91,7 +91,7 @@ export async function lockAfsDocument(
       updated_at = now()
     WHERE id         = ${documentId}::UUID
       AND company_id = ${companyId}::UUID
-      AND status    != 'signed_off'
+      AND status NOT IN ('signed_off', 'filed')
     RETURNING *
   `;
 

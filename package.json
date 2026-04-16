@@ -25,6 +25,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cookie": "^1.1.1",
+    "docx": "^9.6.1",
     "exceljs": "^4.4.0",
     "formidable": "^3.5.4",
     "jose": "^6.1.3",
