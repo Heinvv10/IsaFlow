@@ -95,20 +95,34 @@ import {
   generateNote30StandardsNotYetEffective,
 } from './notes21to30';
 
-// Wrap all generators so the map has a uniform 3-arg signature.
-// Framework-specific notes (4, 14, 28, 29) are included for all frameworks —
-// their implementations already return placeholder content when not applicable.
+// Wrap 2-arg generators to match the uniform 3-arg NoteGeneratorFn signature.
 function wrap(
   fn: (companyId: string, fiscalYear: number) => Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }>,
 ): NoteGeneratorFn {
   return (companyId, fiscalYear, _framework) => fn(companyId, fiscalYear);
 }
 
+// Wrap full-IFRS-only generators: return a not-applicable result for IFRS for SMEs documents.
+function wrapFullIfrs(
+  fn: (companyId: string, fiscalYear: number) => Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }>,
+  title: string,
+): NoteGeneratorFn {
+  return async (companyId, fiscalYear, framework) => {
+    if (framework !== 'full_ifrs') {
+      return {
+        dataSnapshot: { suppressReason: 'not_applicable' },
+        content: { title, blocks: [] },
+      };
+    }
+    return fn(companyId, fiscalYear);
+  };
+}
+
 export const NOTE_GENERATOR_MAP: Partial<Record<SectionType, NoteGeneratorFn>> = {
   note_1:  wrap(generateNote1AccountingPolicies),
   note_2:  wrap(generateNote2SignificantEstimates),
   note_3:  wrap(generateNote3PropertyPlantEquipment),
-  note_4:  wrap(generateNote4RightOfUseAssets),
+  note_4:  wrapFullIfrs(generateNote4RightOfUseAssets,           'Right-of-Use Assets'),
   note_5:  wrap(generateNote5IntangibleAssets),
   note_6:  wrap(generateNote6InvestmentProperty),
   note_7:  wrap(generateNote7InvestmentsInAssociates),
@@ -118,7 +132,7 @@ export const NOTE_GENERATOR_MAP: Partial<Record<SectionType, NoteGeneratorFn>> =
   note_11: wrap(generateNote11CashAndCashEquivalents),
   note_12: wrap(generateNote12ShareCapital),
   note_13: wrap(generateNote13Borrowings),
-  note_14: wrap(generateNote14LeaseLiabilities),
+  note_14: wrapFullIfrs(generateNote14LeaseLiabilities,          'Lease Liabilities (IFRS 16)'),
   note_15: wrap(generateNote15Provisions),
   note_16: wrap(generateNote16TradePayables),
   note_17: wrap(generateNote17IncomeTax),
@@ -132,7 +146,7 @@ export const NOTE_GENERATOR_MAP: Partial<Record<SectionType, NoteGeneratorFn>> =
   note_25: wrap(generateNote25ContingenciesAndCommitments),
   note_26: wrap(generateNote26EventsAfterReportingDate),
   note_27: wrap(generateNote27GoingConcern),
-  note_28: wrap(generateNote28SegmentInformation),
-  note_29: wrap(generateNote29FinancialInstrumentsRisk),
+  note_28: wrapFullIfrs(generateNote28SegmentInformation,        'Segment Information'),
+  note_29: wrapFullIfrs(generateNote29FinancialInstrumentsRisk,  'Financial Instruments Risk'),
   note_30: wrap(generateNote30StandardsNotYetEffective),
 };
