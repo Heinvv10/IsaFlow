@@ -187,11 +187,12 @@ async function fetchIncomeSnapshot(companyId: string, periodStart: string, perio
   return { revenue, cogs, grossProfit, ebitda, ebit, netProfit };
 }
 
-async function fetchBalanceSnapshot(companyId: string, periodEnd: string): Promise<Pick<FinancialSnapshot, 'currentAssets' | 'currentLiabilities' | 'tradeReceivables' | 'tradePayables' | 'totalDebt' | 'totalEquity'>> {
+async function fetchBalanceSnapshot(companyId: string, periodEnd: string): Promise<Pick<FinancialSnapshot, 'currentAssets' | 'currentLiabilities' | 'inventory' | 'tradeReceivables' | 'tradePayables' | 'totalDebt' | 'totalEquity'>> {
   const rows = (await sql`
     SELECT
       COALESCE(SUM(CASE WHEN ga.account_type = 'asset' AND ga.account_subtype NOT IN ('fixed_asset','accumulated_depreciation') THEN jl.debit - jl.credit ELSE 0 END), 0) AS current_assets,
-      COALESCE(SUM(CASE WHEN ga.account_type = 'liability' AND ga.account_subtype NOT IN ('vat_output') THEN jl.credit - jl.debit ELSE 0 END), 0) AS current_liabilities,
+      COALESCE(SUM(CASE WHEN ga.account_type = 'liability' THEN jl.credit - jl.debit ELSE 0 END), 0) AS current_liabilities,
+      COALESCE(SUM(CASE WHEN ga.account_type = 'asset' AND ga.account_subtype = 'inventory' THEN jl.debit - jl.credit ELSE 0 END), 0) AS inventory,
       COALESCE(SUM(CASE WHEN ga.account_subtype = 'receivable' THEN jl.debit - jl.credit ELSE 0 END), 0) AS trade_receivables,
       COALESCE(SUM(CASE WHEN ga.account_subtype = 'payable' THEN jl.credit - jl.debit ELSE 0 END), 0) AS trade_payables,
       COALESCE(SUM(CASE WHEN ga.account_type = 'liability' THEN jl.credit - jl.debit ELSE 0 END), 0) AS total_debt,
@@ -210,6 +211,7 @@ async function fetchBalanceSnapshot(companyId: string, periodEnd: string): Promi
   return {
     currentAssets:      Number(row.current_assets ?? 0),
     currentLiabilities: Number(row.current_liabilities ?? 0),
+    inventory:          Number(row.inventory ?? 0),
     tradeReceivables:   Number(row.trade_receivables ?? 0),
     tradePayables:      Number(row.trade_payables ?? 0),
     totalDebt:          Number(row.total_debt ?? 0),
@@ -263,7 +265,7 @@ async function buildSnapshot(companyId: string, period: string): Promise<Financi
     fetchCash(companyId, start),
     fetchClosingCash(companyId, end),
   ]);
-  return { ...income, ...balance, inventory: 0, openingCash, closingCash, daysInPeriod: days };
+  return { ...income, ...balance, openingCash, closingCash, daysInPeriod: days };
 }
 
 export async function getKpiScorecard(
