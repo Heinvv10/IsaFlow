@@ -212,3 +212,47 @@ export interface CreateImageInput {
 export interface AfsDocumentWithSections extends AfsDocument {
   sections: AfsSection[];
 }
+
+// ── Review workflow additions ────────────────────────────────────────────────
+
+export const SECTION_STATUS_ORDER: Record<SectionStatus, number> = {
+  pending: 0,
+  auto_generated: 1,
+  ai_enhanced: 2,
+  reviewed: 3,
+  signed_off: 4,
+};
+
+export const DOCUMENT_STATUS_ORDER: Record<DocumentStatus, number> = {
+  draft: 0,
+  in_review: 1,
+  partner_review: 2,
+  signed_off: 3,
+  filed: 4,
+};
+
+export interface AfsSectionComment {
+  id: string;
+  sectionId: string;
+  companyId: string;
+  authorId: string;
+  body: string;
+  resolved: boolean;
+  resolvedBy: string | null;
+  resolvedAt: Date | string | null;
+  parentId: string | null;
+  createdAt: Date | string;
+}
+
+export interface ProofCopyChecklistItem {
+  key: string;
+  label: string;
+  checked: boolean;
+}
+
+export interface ProofCopyChecklist {
+  documentId: string;
+  generatedAt: string;
+  items: ProofCopyChecklistItem[];
+  allPassed: boolean;
+}
