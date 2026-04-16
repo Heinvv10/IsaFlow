@@ -81,7 +81,7 @@ async function fetchGroupedAllocations(
           ELSE jl_bank.credit - jl_bank.debit END
       ), 0)::numeric AS amount
     FROM bank_transactions bt
-    JOIN gl_journal_lines jl_bank ON jl_bank.bank_transaction_id = bt.id
+    JOIN gl_journal_lines jl_bank ON jl_bank.id = bt.matched_journal_line_id
     JOIN gl_accounts ga_bank      ON ga_bank.id = jl_bank.gl_account_id
       AND ga_bank.account_subtype = 'bank'
     JOIN gl_journal_lines jl ON jl.journal_entry_id = jl_bank.journal_entry_id
