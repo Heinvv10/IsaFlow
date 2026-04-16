@@ -232,18 +232,24 @@ export function getNoteTemplatesForFramework(framework: ReportingFramework): Not
   return ALL_NOTE_TEMPLATES.filter(t => t.framework === 'both' || t.framework === framework);
 }
 
+// note_templates is a global reference table — no company_id (templates are shared across all tenants).
 export async function seedNoteTemplates(): Promise<void> {
   log.info('Seeding note templates', { count: ALL_NOTE_TEMPLATES.length }, 'noteTemplateRegistry');
 
   for (const t of ALL_NOTE_TEMPLATES) {
-    await sql`
-      INSERT INTO note_templates (section_type, framework, title, data_queries, content_schema, ai_prompt_template, is_mandatory, standard_reference, effective_from)
-      VALUES (${t.sectionType}, ${t.framework}, ${t.title}, ${JSON.stringify(t.dataQueries)}::JSONB, ${JSON.stringify(t.contentSchema)}::JSONB, ${t.aiPromptTemplate ?? null}, ${t.isMandatory}, ${t.standardReference ?? null}, CURRENT_DATE)
-      ON CONFLICT (section_type, framework) DO UPDATE SET
-        title = EXCLUDED.title, data_queries = EXCLUDED.data_queries, content_schema = EXCLUDED.content_schema,
-        ai_prompt_template = EXCLUDED.ai_prompt_template, is_mandatory = EXCLUDED.is_mandatory,
-        standard_reference = EXCLUDED.standard_reference, updated_at = now()
-    `;
+    try {
+      await sql`
+        INSERT INTO note_templates (section_type, framework, title, data_queries, content_schema, ai_prompt_template, is_mandatory, standard_reference, effective_from)
+        VALUES (${t.sectionType}, ${t.framework}, ${t.title}, ${JSON.stringify(t.dataQueries)}::JSONB, ${JSON.stringify(t.contentSchema)}::JSONB, ${t.aiPromptTemplate ?? null}, ${t.isMandatory}, ${t.standardReference ?? null}, CURRENT_DATE)
+        ON CONFLICT (section_type, framework) DO UPDATE SET
+          title = EXCLUDED.title, data_queries = EXCLUDED.data_queries, content_schema = EXCLUDED.content_schema,
+          ai_prompt_template = EXCLUDED.ai_prompt_template, is_mandatory = EXCLUDED.is_mandatory,
+          standard_reference = EXCLUDED.standard_reference, updated_at = now()
+      `;
+    } catch (err) {
+      log.error('Failed to seed note template', { sectionType: t.sectionType, error: err }, 'noteTemplateRegistry');
+      throw err;
+    }
   }
 }
 

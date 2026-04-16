@@ -85,7 +85,7 @@ export async function updateAfsSection(
       reviewed_at           = CASE WHEN ${input.reviewedBy ?? null} IS NOT NULL THEN now() ELSE reviewed_at END,
       signed_off_by         = COALESCE(${input.signedOffBy ?? null}, signed_off_by),
       signed_off_at         = CASE WHEN ${input.signedOffBy ?? null} IS NOT NULL THEN now() ELSE signed_off_at END,
-      version_history       = version_history || CASE
+      version_history       = COALESCE(version_history, '[]'::JSONB) || CASE
         WHEN ${input.content ? JSON.stringify(input.content) : null}::JSONB IS NOT NULL
         THEN jsonb_build_array(jsonb_build_object(
           'version', (SELECT COUNT(*) FROM jsonb_array_elements(version_history)) + 1,

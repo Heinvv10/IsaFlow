@@ -122,6 +122,16 @@ describe('afsSectionService', () => {
       expect(result.versionHistory).toHaveLength(1);
     });
 
+    it('updates status without appending to version_history when content not provided', async () => {
+      const updatedRow = { ...SECTION_ROW, status: 'reviewed', version_history: [] };
+      mockSql.mockResolvedValueOnce([updatedRow]);
+
+      const result = await updateAfsSection(SECTION_ID, DOC_ID, COMPANY_ID, { status: 'reviewed' });
+
+      expect(result.status).toBe('reviewed');
+      expect(result.versionHistory).toHaveLength(0);
+    });
+
     it('throws when section not found', async () => {
       mockSql.mockResolvedValueOnce([]);
 
