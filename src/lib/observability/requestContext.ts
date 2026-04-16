@@ -16,17 +16,25 @@ interface RequestContextStore {
   requestId: string;
 }
 
-const storage = new AsyncLocalStorage<RequestContextStore>();
+// `async_hooks` is a Node-only core module. Next.js polyfills it to an empty
+// object in the browser bundle, which would make `new AsyncLocalStorage()`
+// throw `AsyncLocalStorage is not a constructor` at module load and crash the
+// app before hydration. Guard so the browser gets a no-op.
+const storage: AsyncLocalStorage<RequestContextStore> | null =
+  typeof AsyncLocalStorage === 'function'
+    ? new AsyncLocalStorage<RequestContextStore>()
+    : null;
 
 export function runWithRequestContext<T>(
   requestId: string,
   fn: () => Promise<T> | T
 ): Promise<T> | T {
+  if (!storage) return fn();
   return storage.run({ requestId }, fn);
 }
 
 export function getRequestId(): string | undefined {
-  return storage.getStore()?.requestId;
+  return storage?.getStore()?.requestId;
 }
 
 export function generateRequestId(): string {
