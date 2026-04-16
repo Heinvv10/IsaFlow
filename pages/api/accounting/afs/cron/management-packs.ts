@@ -13,8 +13,13 @@ import { runDailyScheduler } from '@/modules/accounting/services/afs/packSchedul
  * that processes multiple companies internally.
  */
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== 'GET' && req.method !== 'POST') {
-    return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST']);
+  if (req.method !== 'POST') {
+    return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
+  }
+
+  if (!process.env.CRON_SECRET) {
+    log.error('CRON_SECRET env var not set', {}, 'cron-management-packs');
+    return apiResponse.internalError(res, new Error('Cron secret not configured'));
   }
 
   const cronSecret = req.headers['x-cron-secret'];

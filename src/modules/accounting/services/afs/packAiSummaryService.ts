@@ -90,12 +90,18 @@ ${params.priorData ? `Prior period data:\n${JSON.stringify(params.priorData, nul
 
 Be specific with numbers. Identify key movements and risks. Do not reference budgets.`;
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 20_000);
+
   try {
-    const response = await client.messages.create({
-      model: 'claude-haiku-4-5',
-      max_tokens: 512,
-      messages: [{ role: 'user', content: prompt }],
-    });
+    const response = await client.messages.create(
+      {
+        model: 'claude-haiku-4-5',
+        max_tokens: 512,
+        messages: [{ role: 'user', content: prompt }],
+      },
+      { signal: controller.signal },
+    );
 
     return response.content[0]?.type === 'text' ? response.content[0].text : '';
   } catch (err) {
@@ -106,5 +112,7 @@ Be specific with numbers. Identify key movements and risks. Do not reference bud
       'packAiSummaryService',
     );
     return 'AI commentary unavailable for this section.';
+  } finally {
+    clearTimeout(timeoutId);
   }
 }

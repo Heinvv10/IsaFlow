@@ -11,6 +11,13 @@ import type { ManagementPackConfig, NoteContent, KpiResult } from './afsTypes';
 
 type Row = DbRow;
 
+export class DuplicatePackError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DuplicatePackError';
+  }
+}
+
 export interface GeneratePackOptions {
   companyId: string;
   period: string;       // 'YYYY-MM'
@@ -100,7 +107,7 @@ async function fetchBalanceAgg(companyId: string, end: string): Promise<Record<s
   const rows = (await sql`
     SELECT
       COALESCE(SUM(CASE WHEN ga.account_type = 'asset' AND ga.account_subtype NOT IN ('fixed_asset','accumulated_depreciation') THEN jl.debit - jl.credit ELSE 0 END), 0) AS current_assets,
-      COALESCE(SUM(CASE WHEN ga.account_type = 'liability' AND ga.account_subtype NOT IN ('vat_output') THEN jl.credit - jl.debit ELSE 0 END), 0) AS current_liabilities,
+      COALESCE(SUM(CASE WHEN ga.account_type = 'liability' THEN jl.credit - jl.debit ELSE 0 END), 0) AS current_liabilities,
       COALESCE(SUM(CASE WHEN ga.account_type = 'equity' THEN jl.credit - jl.debit ELSE 0 END), 0) AS total_equity
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
@@ -156,7 +163,7 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
   log.info('Starting management pack generation', { companyId, period, triggeredBy }, 'managementPackGeneratorService');
 
   if (await checkExisting(companyId, period)) {
-    throw new Error(`Management pack already generated for period ${period}`);
+    throw new DuplicatePackError(`Management pack already generated for period ${period}`);
   }
 
   const doc = await createAfsDocument({
@@ -220,15 +227,30 @@ export async function generateManagementPack(options: GeneratePackOptions): Prom
     kpis: kpiScorecard.kpis,
   });
 
-  for (const section of sectionRows) {
-    const commentary = await generateSectionCommentary({
-      sectionType: section.sectionType, sectionData: income,
-      companyName, period, priorData: priorIncome,
-    });
-    await updateAfsSection(section.id, doc.id, companyId, {
-      aiNarrative: commentary, status: 'ai_enhanced',
-    });
-  }
+  const commentaryResults = await Promise.allSettled(
+    sectionRows.map(section =>
+      generateSectionCommentary({
+        sectionType: section.sectionType, sectionData: income,
+        companyName, period, priorData: priorIncome,
+      }).then(commentary => ({ sectionId: section.id, docId: doc.id, commentary })),
+    ),
+  );
+
+  await Promise.all(
+    commentaryResults.map(result => {
+      if (result.status === 'fulfilled') {
+        return updateAfsSection(result.value.sectionId, result.value.docId, companyId, {
+          aiNarrative: result.value.commentary, status: 'ai_enhanced',
+        });
+      }
+      log.warn(
+        'Section commentary failed, skipping',
+        { error: String(result.reason) },
+        'managementPackGeneratorService',
+      );
+      return Promise.resolve();
+    }),
+  );
 
   const execSection = sectionRows.find(s => String(s.sectionType) === 'ai_executive_summary');
   if (execSection) {

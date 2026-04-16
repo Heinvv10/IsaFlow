@@ -28,7 +28,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   `) as Row[];
 
   if (docRows.length === 0) {
-    return apiResponse.notFound(res, 'Management pack not found');
+    return apiResponse.notFound(res, 'Management pack', packId);
   }
 
   const sectionRows = (await sql`

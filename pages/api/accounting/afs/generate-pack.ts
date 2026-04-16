@@ -5,7 +5,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withCompany, type CompanyApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { getManagementPackConfig } from '@/modules/accounting/services/afs/managementPackConfigService';
-import { generateManagementPack } from '@/modules/accounting/services/afs/managementPackGeneratorService';
+import { generateManagementPack, DuplicatePackError } from '@/modules/accounting/services/afs/managementPackGeneratorService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyApiRequest;
@@ -16,21 +16,28 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const { period } = req.body as { period?: string };
 
-  if (!period || !/^\d{4}-\d{2}$/.test(period)) {
-    return apiResponse.badRequest(res, 'period must be in YYYY-MM format');
+  if (typeof period !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) {
+    return apiResponse.badRequest(res, 'period must be YYYY-MM (e.g., 2026-04)');
   }
 
   log.info('Manual pack generation triggered', { companyId, period }, 'generate-pack-api');
 
   const config = await getManagementPackConfig(companyId);
-  const result = await generateManagementPack({
-    companyId,
-    period,
-    config,
-    triggeredBy: 'manual',
-  });
 
-  return apiResponse.success(res, { result });
+  try {
+    const result = await generateManagementPack({
+      companyId,
+      period,
+      config,
+      triggeredBy: 'manual',
+    });
+    return apiResponse.success(res, { result });
+  } catch (err) {
+    if (err instanceof DuplicatePackError) {
+      return apiResponse.badRequest(res, err.message);
+    }
+    throw err;
+  }
 }
 
 export default withCompany(withErrorHandler(handler as never));

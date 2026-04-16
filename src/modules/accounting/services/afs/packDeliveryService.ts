@@ -1,17 +1,26 @@
 // src/modules/accounting/services/afs/packDeliveryService.ts
-// PARTIAL: PDF generation awaiting Plan 4 (WeasyPrint sidecar)
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { sendEmail } from '@/modules/accounting/services/core/emailService';
 import { emailLayout } from '@/lib/email-templates';
 import type { PackRecipient, KpiResult } from './afsTypes';
+import { getKpiScorecard } from './kpiScorecardService';
 
 type Row = DbRow;
 
-// ── PDF stub ─────────────────────────────────────────────────────────────────
+// ── HTML escaping ─────────────────────────────────────────────────────────────
 
-// PARTIAL: PDF generation awaiting Plan 4 (WeasyPrint sidecar)
+function escapeHtml(str: string): string {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// ── PDF stub ─────────────────────────────────────────────────────────────────
 async function generatePackPdf(documentId: string, companyId: string): Promise<Buffer | null> {
   try {
     const { exportToPdf } = await import('./pdfExportService');
@@ -47,15 +56,6 @@ async function fetchConfig(companyId: string): Promise<Row | null> {
   return rows[0] ?? null;
 }
 
-async function fetchSections(documentId: string, companyId: string): Promise<Row[]> {
-  return (await sql`
-    SELECT * FROM afs_sections
-    WHERE document_id = ${documentId}::UUID
-      AND company_id = ${companyId}::UUID
-    ORDER BY sort_order ASC
-  `) as Row[];
-}
-
 async function fetchCompanyName(companyId: string): Promise<string> {
   const rows = (await sql`
     SELECT name FROM companies WHERE id = ${companyId}::UUID LIMIT 1
@@ -88,16 +88,16 @@ function buildPackEmailHtml(params: {
     .map(
       k => `
       <div style="display:inline-block;margin:6px;padding:12px 20px;background:#f8fafc;border-left:4px solid ${ragColour(k.rag)};border-radius:4px;min-width:140px;">
-        <div style="font-size:12px;color:#64748b;">${k.label}</div>
-        <div style="font-size:20px;font-weight:700;color:#0f172a;">${k.formatted}</div>
-        <div style="font-size:11px;color:${ragColour(k.rag)};text-transform:uppercase;">${k.rag}</div>
+        <div style="font-size:12px;color:#64748b;">${escapeHtml(k.label)}</div>
+        <div style="font-size:20px;font-weight:700;color:#0f172a;">${escapeHtml(k.formatted)}</div>
+        <div style="font-size:11px;color:${ragColour(k.rag)};text-transform:uppercase;">${escapeHtml(k.rag)}</div>
       </div>`,
     )
     .join('');
 
   const body = `
-    <h2 style="color:#0f172a;margin:0 0 4px;">${params.companyName}</h2>
-    <p style="color:#64748b;margin:0 0 24px;">Management Accounts — ${params.period}</p>
+    <h2 style="color:#0f172a;margin:0 0 4px;">${escapeHtml(params.companyName)}</h2>
+    <p style="color:#64748b;margin:0 0 24px;">Management Accounts — ${escapeHtml(params.period)}</p>
     <h3 style="color:#0f172a;margin:0 0 12px;font-size:14px;text-transform:uppercase;letter-spacing:0.05em;">KPI Dashboard</h3>
     <div style="margin-bottom:24px;">${kpiBlocks}</div>
     <div style="text-align:center;margin-top:32px;">
@@ -171,11 +171,11 @@ export async function deliverPack(documentId: string, companyId: string): Promis
     ? (config.recipients as PackRecipient[])
     : [];
 
-  const sections = await fetchSections(documentId, companyId);
-  // KPI data is embedded in section content; we pass an empty array as the email
-  // renders a summary — full KPIs are available in the portal link.
-  void sections;
-  const kpis: KpiResult[] = [];
+  const scorecard = await getKpiScorecard(companyId, period).catch((err) => {
+    log.warn('Failed to load KPIs for email', { documentId, error: String(err) }, 'packDeliveryService');
+    return null;
+  });
+  const kpis: KpiResult[] = scorecard?.kpis ?? [];
 
   const portalUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.isaflow.co.za'}/accounting/afs/management-packs/${documentId}`;
   const subject = `${companyName} — Management Accounts ${period}`;
