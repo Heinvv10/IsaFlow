@@ -13,6 +13,7 @@ import type {
   UpdateEmployeeInput,
 } from './types';
 import { mapEmployeeWithPay, mapPayStructure, mapPayslip } from './payrollMappers';
+import { writeAuditEntry, diffValues } from './payrollAuditService';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -143,7 +144,8 @@ export async function getEmployeePayslips(
 
 export async function createEmployee(
   companyId: string,
-  input: CreateEmployeeInput
+  input: CreateEmployeeInput,
+  userId: string | null = null
 ): Promise<EmployeeWithPay> {
   try {
     const empRows = (await sql`
@@ -180,6 +182,15 @@ export async function createEmployee(
       )
     `;
 
+    await writeAuditEntry({
+      companyId,
+      entityType: 'employee',
+      entityId: employeeId,
+      action: 'create',
+      changedBy: userId,
+      newValues: { ...input },
+    });
+
     log.info('Employee created', { id: employeeId, number: input.employee_number }, 'payroll');
 
     const employee = await getEmployee(companyId, employeeId);
@@ -194,9 +205,13 @@ export async function createEmployee(
 export async function updateEmployee(
   companyId: string,
   id: string,
-  input: UpdateEmployeeInput
+  input: UpdateEmployeeInput,
+  userId: string | null = null
 ): Promise<EmployeeWithPay> {
   try {
+    const before = await getEmployee(companyId, id);
+    if (!before) throw new Error('Employee not found');
+
     await sql`
       UPDATE employees SET
         first_name = COALESCE(${input.first_name ?? null}, first_name),
@@ -239,9 +254,23 @@ export async function updateEmployee(
     }
 
     log.info('Employee updated', { id }, 'payroll');
-
     const employee = await getEmployee(companyId, id);
     if (!employee) throw new Error('Employee not found');
+
+    const diff = diffValues(
+      before as unknown as Record<string, unknown>,
+      employee as unknown as Record<string, unknown>
+    );
+    await writeAuditEntry({
+      companyId,
+      entityType: 'employee',
+      entityId: id,
+      action: 'update',
+      changedBy: userId,
+      oldValues: diff.old,
+      newValues: diff.new,
+    });
+
     return employee;
   } catch (err) {
     log.error('updateEmployee failed', { id, error: err }, 'payroll');
