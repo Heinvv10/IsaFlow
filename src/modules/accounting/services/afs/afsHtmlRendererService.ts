@@ -2,7 +2,7 @@
 
 import type { AfsDocument, AfsSection, BrandProfile } from './afsTypes';
 import { renderCoverHtml } from './afsHtmlCoverTemplates';
-import { renderSectionContent } from './afsHtmlTableRenderer';
+import { renderSectionContent, escapeHtml } from './afsHtmlTableRenderer';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -200,7 +200,7 @@ export function renderAfsToHtml(
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Annual Financial Statements — ${companyName}</title>
+  <title>Annual Financial Statements — ${escapeHtml(companyName)}</title>
   <style>
 ${css}
   </style>

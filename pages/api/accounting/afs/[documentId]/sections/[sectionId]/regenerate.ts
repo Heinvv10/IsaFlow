@@ -20,8 +20,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!Number.isInteger(fy) || fy < 2000 || fy > currentYear + 1) {
     return apiResponse.badRequest(res, 'fiscalYear must be a number between 2000 and ' + (currentYear + 1));
   }
-  if (framework !== 'ifrs_for_smes' && framework !== 'full_ifrs') {
-    return apiResponse.badRequest(res, "framework must be 'full_ifrs' or 'ifrs_for_smes'");
+  if (framework !== 'ifrs_smes' && framework !== 'full_ifrs') {
+    return apiResponse.badRequest(res, "framework must be 'full_ifrs' or 'ifrs_smes'");
   }
 
   log.info('Regenerating AFS section', { companyId, documentId, sectionId }, 'afs/regenerate');
