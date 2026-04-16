@@ -11,44 +11,41 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const { companyId } = req as CompanyApiRequest;
   const { documentId } = req.query as { documentId: string };
-  const { reorder } = req.body as { reorder?: unknown };
+  const { sections } = req.body as { sections?: unknown };
 
-  if (!Array.isArray(reorder) || reorder.length === 0) {
-    return apiResponse.badRequest(res, 'reorder must be a non-empty array');
+  if (!Array.isArray(sections) || sections.length === 0) {
+    return apiResponse.badRequest(res, 'sections must be a non-empty array');
   }
 
-  if (reorder.length > 50) {
+  if (sections.length > 50) {
     return apiResponse.badRequest(res, 'Cannot reorder more than 50 sections at once');
   }
 
-  const items = reorder as Array<{ sectionId?: unknown; newSortOrder?: unknown }>;
+  const items = sections as Array<{ id?: unknown; newSortOrder?: unknown }>;
   const valid = items.every(
     item =>
-      typeof item.sectionId === 'string' &&
+      typeof item.id === 'string' &&
       typeof item.newSortOrder === 'number' &&
       Number.isInteger(item.newSortOrder) &&
       item.newSortOrder > 0,
   );
-  if (!valid) return apiResponse.badRequest(res, 'Each item must have a string sectionId and positive integer newSortOrder');
+  if (!valid) return apiResponse.badRequest(res, 'Each item must have a string id and positive integer newSortOrder');
 
-  const orders = (reorder as Array<{ newSortOrder: number }>).map(r => r.newSortOrder);
+  const orders = (sections as Array<{ newSortOrder: number }>).map(r => r.newSortOrder);
   if (new Set(orders).size !== orders.length) {
     return apiResponse.badRequest(res, 'Duplicate newSortOrder values are not allowed');
   }
 
-  const typedItems = reorder as Array<{ sectionId: string; newSortOrder: number }>;
+  const typedItems = sections as Array<{ id: string; newSortOrder: number }>;
   await Promise.all(
-    typedItems.map(({ sectionId, newSortOrder }) =>
+    typedItems.map(({ id, newSortOrder }) =>
       sql`
         UPDATE afs_sections
         SET sort_order  = ${newSortOrder},
             updated_at  = NOW()
-        WHERE id          = ${sectionId}::UUID
+        WHERE id          = ${id}::UUID
           AND document_id = ${documentId}::UUID
-          AND document_id IN (
-            SELECT id FROM afs_documents
-            WHERE id = ${documentId}::UUID AND company_id = ${companyId}::UUID
-          )
+          AND company_id  = ${companyId}::UUID
       `,
     ),
   );
