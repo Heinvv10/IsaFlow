@@ -15,6 +15,13 @@ async function handler(req: PortalApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
 
+  // CSRF defence-in-depth — reject requests from unexpected origins
+  const origin = req.headers.origin;
+  const expectedOrigin = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.isaflow.co.za';
+  if (origin && origin !== expectedOrigin) {
+    return apiResponse.forbidden(res, 'Invalid origin');
+  }
+
   const { companyId, role, contactId } = req.portalSession;
   const documentId = req.query.documentId as string;
   if (!documentId) return apiResponse.badRequest(res, 'documentId is required');
@@ -34,6 +41,9 @@ async function handler(req: PortalApiRequest, res: NextApiResponse) {
   }
   if (!commentBody || typeof commentBody !== 'string' || !commentBody.trim()) {
     return apiResponse.badRequest(res, 'Comment body is required');
+  }
+  if (commentBody.length > 4000) {
+    return apiResponse.badRequest(res, 'Comment body must be 4000 characters or less');
   }
 
   // Verify document belongs to company and is not locked

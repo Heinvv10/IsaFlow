@@ -2,14 +2,6 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
-// Mock email sending so tests don't depend on SMTP
-vi.mock('@/modules/accounting/services/core/emailService', () => ({
-  sendEmail: vi.fn().mockResolvedValue({ messageId: 'mock-id' }),
-}));
-vi.mock('@/lib/email-templates-shared', () => ({
-  emailLayout: (content: string) => `<html>${content}</html>`,
-  ctaButton: (label: string, url: string) => `<a href="${url}">${label}</a>`,
-}));
 
 import { sql } from '@/lib/neon';
 import { createMagicLink, verifyMagicLink } from '@/modules/accounting/services/afs/magicLinkService';
@@ -42,14 +34,13 @@ const LINK_ROW = {
 };
 
 describe('magicLinkService', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => vi.resetAllMocks());
 
   describe('createMagicLink', () => {
     it('returns a token string and expiresAt Date', async () => {
       mockSql
         .mockResolvedValueOnce([]) // invalidate old tokens
-        .mockResolvedValueOnce([]) // insert new token
-        .mockResolvedValueOnce([CONTACT_ROW]); // load contact for email
+        .mockResolvedValueOnce([]); // insert new token
       const { token, expiresAt } = await createMagicLink(COMPANY_ID, CONTACT_ID);
       expect(typeof token).toBe('string');
       expect(token.length).toBe(64); // 32 bytes = 64 hex chars
@@ -59,8 +50,7 @@ describe('magicLinkService', () => {
     it('sets expiry approximately 30 minutes from now', async () => {
       mockSql
         .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([CONTACT_ROW]);
+        .mockResolvedValueOnce([]);
       const before = Date.now();
       const { expiresAt } = await createMagicLink(COMPANY_ID, CONTACT_ID);
       const after = Date.now();

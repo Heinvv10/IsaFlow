@@ -4,7 +4,7 @@
  * and download signed PDFs.
  *
  * Prerequisite (one-time manual): Register the webhook in the Signum admin console:
- *   URL: https://app.isaflow.co.za/api/accounting/afs/webhook/signum
+ *   URL: https://app.isaflow.co.za/api/webhooks/signum
  *   Events: document.signed, document.declined, document.cancelled, document.expired
  */
 

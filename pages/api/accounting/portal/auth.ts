@@ -8,25 +8,10 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
+import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { createMagicLink } from '@/modules/accounting/services/afs/magicLinkService';
 import { notifyMagicLinkRequested } from '@/modules/accounting/services/afs/portalNotificationService';
 import type { PortalRole } from '@/modules/accounting/services/afs/afsTypes';
-
-// ── In-memory rate limiter (5 req/min per IP) ────────────────────────────────
-const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT_MAX = 5;
-const RATE_LIMIT_WINDOW_MS = 60_000;
-
-function isRateLimited(ip: string): boolean {
-  const now = Date.now();
-  const entry = rateLimitMap.get(ip);
-  if (!entry || now > entry.resetAt) {
-    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
-    return false;
-  }
-  entry.count += 1;
-  return entry.count > RATE_LIMIT_MAX;
-}
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.isaflow.co.za';
 
@@ -35,12 +20,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
 
-  // Rate limit by IP
-  const ip =
-    (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
-    req.socket.remoteAddress ||
-    'unknown';
-  if (isRateLimited(ip)) {
+  // Rate limit by IP — 5 requests per 60 seconds (Neon-backed, multi-pod safe)
+  const ip = getClientIp(req);
+  const allowed = await checkRateLimit(`portal-auth:${ip}`, { max: 5, windowSecs: 60 });
+  if (!allowed) {
+    log.warn('Portal auth rate limit exceeded', { ip }, 'portal-auth-api');
     return apiResponse.tooManyRequests(res, 'Too many login attempts. Please try again in a minute.');
   }
 

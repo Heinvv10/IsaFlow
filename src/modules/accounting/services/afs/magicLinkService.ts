@@ -7,8 +7,6 @@
 import crypto from 'crypto';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { sendEmail } from '@/modules/accounting/services/core/emailService';
-import { emailLayout, ctaButton } from '@/lib/email-templates-shared';
 import type { PortalContact, PortalRole } from './afsTypes';
 
 const MAGIC_LINK_EXPIRY_MS = 30 * 60 * 1000; // 30 minutes
@@ -34,21 +32,6 @@ export async function createMagicLink(
     INSERT INTO portal_magic_links (company_id, contact_id, token, expires_at)
     VALUES (${companyId}::UUID, ${contactId}::UUID, ${token}, ${expiresAt.toISOString()}::TIMESTAMPTZ)
   `;
-
-  // Load contact for email delivery
-  const contacts = (await sql`
-    SELECT id, company_id, name, email, role, active, created_at, updated_at
-    FROM portal_contacts
-    WHERE id = ${contactId}::UUID AND company_id = ${companyId}::UUID AND active = true
-    LIMIT 1
-  `) as Record<string, unknown>[];
-
-  if (contacts.length > 0) {
-    const contact = mapContactRow(contacts[0]!);
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.isaflow.co.za';
-    const magicLinkUrl = `${appUrl}/portal/auth/verify?token=${token}`;
-    await sendMagicLinkEmail(contact, magicLinkUrl);
-  }
 
   log.info('Magic link created', { companyId, contactId }, 'magicLinkService');
   return { token, expiresAt };
@@ -131,28 +114,3 @@ function mapContactRow(row: Record<string, unknown>): PortalContact {
   };
 }
 
-async function sendMagicLinkEmail(contact: PortalContact, magicLinkUrl: string): Promise<void> {
-  try {
-    const html = emailLayout(`
-      <h2>ISaFlow Portal — Sign-in Link</h2>
-      <p>Hi ${contact.name},</p>
-      <p>Click the button below to access your financial documents. This link expires in 30 minutes.</p>
-      ${ctaButton('Sign In to Portal', magicLinkUrl)}
-      <p style="font-size:12px;color:#94a3b8;">If you did not request this link, you can safely ignore this email.</p>
-    `);
-    await sendEmail({
-      to: contact.email,
-      subject: 'ISaFlow Portal — Your sign-in link',
-      html,
-      _log: { companyId: contact.companyId, emailType: 'other', sentBy: null },
-    });
-    log.info('Magic link email sent', { contactId: contact.id, email: contact.email }, 'magicLinkService');
-  } catch (err) {
-    // Never throw — email failure must not break magic link creation
-    log.error(
-      'Failed to send magic link email',
-      { contactId: contact.id, error: err instanceof Error ? err.message : String(err) },
-      'magicLinkService',
-    );
-  }
-}

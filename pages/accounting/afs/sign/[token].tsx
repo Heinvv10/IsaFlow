@@ -23,6 +23,15 @@ export default function SigningPage({ token, callbackBaseUrl }: PageProps) {
 
   useEffect(() => {
     function handleMessage(event: MessageEvent) {
+      // Only accept messages from the Signum iframe origin
+      let signumOrigin: string;
+      try {
+        signumOrigin = new URL(callbackBaseUrl).origin;
+      } catch {
+        return;
+      }
+      if (event.origin !== signumOrigin) return;
+
       if (event.data?.type === 'signum:signed') {
         setSigningComplete(true);
       } else if (event.data?.type === 'signum:declined') {
@@ -31,7 +40,7 @@ export default function SigningPage({ token, callbackBaseUrl }: PageProps) {
     }
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, []);
+  }, [callbackBaseUrl]);
 
   const iframeSrc = callbackBaseUrl ? `${callbackBaseUrl}/${token}?embed=true` : null;
 
