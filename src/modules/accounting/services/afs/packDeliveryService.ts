@@ -12,13 +12,18 @@ type Row = DbRow;
 // ── PDF stub ─────────────────────────────────────────────────────────────────
 
 // PARTIAL: PDF generation awaiting Plan 4 (WeasyPrint sidecar)
-async function generatePackPdf(_documentId: string): Promise<Buffer | null> {
-  log.warn(
-    'PDF generation is a stub — WeasyPrint sidecar not yet implemented (Plan 4)',
-    { documentId: _documentId },
-    'packDeliveryService',
-  );
-  return null;
+async function generatePackPdf(documentId: string, companyId: string): Promise<Buffer | null> {
+  try {
+    const { exportToPdf } = await import('./pdfExportService');
+    return await exportToPdf(documentId, companyId, { skipChecks: true });
+  } catch (err) {
+    log.warn(
+      'PDF generation failed — delivering email without attachment',
+      { documentId, companyId, error: err instanceof Error ? err.message : String(err) },
+      'packDeliveryService',
+    );
+    return null;
+  }
 }
 
 // ── Data fetchers ────────────────────────────────────────────────────────────
@@ -176,8 +181,7 @@ export async function deliverPack(documentId: string, companyId: string): Promis
   const subject = `${companyName} — Management Accounts ${period}`;
   const html = buildPackEmailHtml({ companyName, period, kpis, portalUrl });
 
-  // PARTIAL: PDF generation awaiting Plan 4 (WeasyPrint sidecar)
-  const pdfBuffer = await generatePackPdf(documentId);
+  const pdfBuffer = await generatePackPdf(documentId, companyId);
 
   for (const recipient of recipients) {
     await sendToRecipient(recipient, documentStatus, subject, html, pdfBuffer, companyId);
