@@ -95,9 +95,7 @@ export function renderCoverHtml(
       return renderBoldCover(context);
     case 'minimal':
       return renderMinimalCover(context);
-    default: {
-      const _exhaustive: never = coverStyle;
+    default:
       return renderClassicCover(context);
-    }
   }
 }
