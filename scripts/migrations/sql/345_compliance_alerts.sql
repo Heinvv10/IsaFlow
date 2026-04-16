@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS compliance_alerts (
   detail        TEXT,
   fired_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   dismissed_at  TIMESTAMPTZ,
-  dismissed_by  UUID REFERENCES users(id)
+  dismissed_by  TEXT REFERENCES users(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_compliance_alerts_company_id
