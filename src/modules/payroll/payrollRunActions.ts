@@ -9,6 +9,7 @@ import { log } from '@/lib/logger';
 import type { PayrollRun } from './types';
 import { mapPayrollRun } from './payrollMappers';
 import { resolvePayrollGLAccounts, buildPayrollJournalLines } from './payrollGLHelper';
+import { writeAuditEntry } from './payrollAuditService';
 import {
   createJournalEntry,
   postJournalEntry,
@@ -53,6 +54,15 @@ export async function completePayrollRun(
       WHERE id = ${runId} AND company_id = ${companyId}::UUID RETURNING *
     `) as Row[];
 
+    await writeAuditEntry({
+      companyId,
+      entityType: 'payroll_run',
+      entityId: runId,
+      action: 'complete',
+      changedBy: userId,
+      newValues: { journal_entry_id: journalEntry.id },
+    });
+
     log.info('Payroll run completed', { runId, journalEntryId: journalEntry.id }, 'payroll');
     return mapPayrollRun(updatedRows[0]!);
   } catch (err) {
@@ -81,6 +91,15 @@ export async function reversePayrollRun(
     const updatedRows = (await sql`
       UPDATE payroll_runs SET status='reversed' WHERE id = ${runId} AND company_id = ${companyId}::UUID RETURNING *
     `) as Row[];
+
+    await writeAuditEntry({
+      companyId,
+      entityType: 'payroll_run',
+      entityId: runId,
+      action: 'reverse',
+      changedBy: userId,
+      notes: 'Payroll run reversed — journal entry reversed',
+    });
 
     log.info('Payroll run reversed', { runId }, 'payroll');
     return mapPayrollRun(updatedRows[0]!);
