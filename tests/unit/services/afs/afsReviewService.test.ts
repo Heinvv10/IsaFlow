@@ -13,6 +13,7 @@ import {
   signOffSection,
   submitDocumentForReview,
   signOffDocument,
+  promoteToPartnerReview,
   assertDocumentEditable,
 } from '@/modules/accounting/services/afs/afsReviewService';
 
@@ -250,20 +251,36 @@ describe('markSectionReviewed', () => {
 });
 
 // ── signOffDocument ─────────────────────────────────────────────────────────
+// Order: getDocument → countUnresolvedCommentsForDocument → countMandatorySectionsBelow → UPDATE
 
 describe('signOffDocument', () => {
-  it('succeeds when all mandatory sections are signed off', async () => {
-    mockSql.mockResolvedValueOnce([{ id: DOC, status: 'in_review' }]);
-    mockSql.mockResolvedValueOnce([{ cnt: 0 }]);
-    mockSql.mockResolvedValueOnce([]);
+  it('succeeds when no unresolved comments and all mandatory sections are signed off', async () => {
+    mockSql.mockResolvedValueOnce([{ id: DOC, status: 'in_review' }]); // getDocument
+    mockSql.mockResolvedValueOnce([{ n: 0 }]);                          // countUnresolvedCommentsForDocument
+    mockSql.mockResolvedValueOnce([{ cnt: 0 }]);                        // countMandatorySectionsBelow
+    mockSql.mockResolvedValueOnce([]);                                   // UPDATE
 
     const result = await signOffDocument(CID, DOC, USER);
     expect(result).toEqual({ documentId: DOC, newStatus: 'signed_off' });
   });
 
+  it('blocks on UNRESOLVED_COMMENTS before checking mandatory sections', async () => {
+    mockSql.mockResolvedValueOnce([{ id: DOC, status: 'partner_review' }]); // getDocument
+    mockSql.mockResolvedValueOnce([{ n: 3 }]);                               // countUnresolvedCommentsForDocument
+
+    try {
+      await signOffDocument(CID, DOC, USER);
+      expect.unreachable('Should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(ReviewError);
+      expect((err as ReviewError).code).toBe('UNRESOLVED_COMMENTS');
+    }
+  });
+
   it('blocks when mandatory sections are not signed off', async () => {
-    mockSql.mockResolvedValueOnce([{ id: DOC, status: 'partner_review' }]);
-    mockSql.mockResolvedValueOnce([{ cnt: 2 }]);
+    mockSql.mockResolvedValueOnce([{ id: DOC, status: 'partner_review' }]); // getDocument
+    mockSql.mockResolvedValueOnce([{ n: 0 }]);                               // countUnresolvedCommentsForDocument
+    mockSql.mockResolvedValueOnce([{ cnt: 2 }]);                             // countMandatorySectionsBelow
 
     try {
       await signOffDocument(CID, DOC, USER);

@@ -22,3 +22,6 @@ CREATE INDEX IF NOT EXISTS idx_afs_section_comments_company
 
 CREATE INDEX IF NOT EXISTS idx_afs_section_comments_parent
   ON afs_section_comments(parent_id);
+
+CREATE INDEX IF NOT EXISTS idx_afs_section_comments_section_resolved
+  ON afs_section_comments(section_id, resolved);

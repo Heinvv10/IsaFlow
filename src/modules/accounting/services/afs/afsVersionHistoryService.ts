@@ -3,11 +3,22 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { AfsSectionVersionEntry, NoteContent } from './afsTypes';
 
+// ── Error ───────────────────────────────────────────────────────────────────
+
+export type VersionHistoryErrorCode = 'NOT_FOUND' | 'VERSION_NOT_FOUND';
+export class VersionHistoryError extends Error {
+  constructor(message: string, public readonly code: VersionHistoryErrorCode) {
+    super(message);
+    this.name = 'VersionHistoryError';
+  }
+}
+
 // ── Internal helpers ────────────────────────────────────────────────────────
 
 interface SectionContentRow {
   id: string;
   content: NoteContent | null;
+  overrides: Partial<NoteContent> | null;
   version_history: AfsSectionVersionEntry[];
   status: string;
 }
@@ -17,7 +28,7 @@ async function getSectionContent(
   sectionId: string
 ): Promise<SectionContentRow | null> {
   const rows = (await sql`
-    SELECT id, content, version_history, status
+    SELECT id, content, overrides, version_history, status
     FROM afs_sections
     WHERE id = ${sectionId}
       AND company_id = ${companyId}
@@ -42,7 +53,7 @@ export async function saveVersion(
 ): Promise<AfsSectionVersionEntry> {
   const section = await getSectionContent(companyId, sectionId);
   if (!section) {
-    throw new Error(`Section ${sectionId} not found for company ${companyId}`);
+    throw new VersionHistoryError(`Section ${sectionId} not found for company ${companyId}`, 'NOT_FOUND');
   }
 
   const currentHistory = Array.isArray(section.version_history) ? section.version_history : [];
@@ -52,6 +63,7 @@ export async function saveVersion(
     savedAt: new Date().toISOString(),
     savedBy: userId,
     content: section.content ?? { title: '', blocks: [] },
+    overrides: section.overrides ?? null,
   };
 
   await sql`
@@ -77,7 +89,7 @@ export async function listVersions(
 ): Promise<AfsSectionVersionEntry[]> {
   const section = await getSectionContent(companyId, sectionId);
   if (!section) {
-    throw new Error(`Section ${sectionId} not found for company ${companyId}`);
+    throw new VersionHistoryError(`Section ${sectionId} not found for company ${companyId}`, 'NOT_FOUND');
   }
   return Array.isArray(section.version_history) ? section.version_history : [];
 }
@@ -97,23 +109,23 @@ export async function restoreVersion(
 ): Promise<AfsSectionVersionEntry> {
   const section = await getSectionContent(companyId, sectionId);
   if (!section) {
-    throw new Error(`Section ${sectionId} not found for company ${companyId}`);
+    throw new VersionHistoryError(`Section ${sectionId} not found for company ${companyId}`, 'NOT_FOUND');
   }
 
   const history = Array.isArray(section.version_history) ? section.version_history : [];
   const target = history.find((v) => v.version === version);
   if (!target) {
-    throw new Error(`Version ${version} not found for section ${sectionId}`);
+    throw new VersionHistoryError(`Version ${version} not found for section ${sectionId}`, 'VERSION_NOT_FOUND');
   }
 
   // Save current state as a new version first (so restore is reversible)
   const saveEntry = await saveVersion(companyId, sectionId, userId);
 
-  // Now apply the target version's content
+  // Now apply the target version's content and overrides
   await sql`
     UPDATE afs_sections
     SET content = ${JSON.stringify(target.content)}::jsonb,
-        overrides = NULL,
+        overrides = ${target.overrides != null ? JSON.stringify(target.overrides) : null}::jsonb,
         status = 'reviewed',
         updated_at = now()
     WHERE id = ${sectionId}

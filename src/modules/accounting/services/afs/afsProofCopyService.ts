@@ -4,6 +4,16 @@ import { log } from '@/lib/logger';
 import type { ProofCopyChecklist, ProofCopyChecklistItem } from './afsTypes';
 import { SECTION_STATUS_ORDER } from './afsTypes';
 
+// ── Error ───────────────────────────────────────────────────────────────────
+
+export type ProofChecklistErrorCode = 'NOT_FOUND';
+export class ProofChecklistError extends Error {
+  constructor(message: string, public readonly code: ProofChecklistErrorCode) {
+    super(message);
+    this.name = 'ProofChecklistError';
+  }
+}
+
 // ── Internal helpers ────────────────────────────────────────────────────────
 
 async function countMandatorySectionsBelowReviewed(
@@ -110,7 +120,7 @@ export async function getProofCopyChecklist(
     WHERE id = ${documentId} AND company_id = ${companyId}
   `) as Record<string, unknown>[];
   if (docRows.length === 0) {
-    throw new Error(`AFS document ${documentId} not found`);
+    throw new ProofChecklistError(`AFS document ${documentId} not found`, 'NOT_FOUND');
   }
 
   // Run automated checks in parallel

@@ -72,6 +72,7 @@ export interface AfsSectionVersionEntry {
   savedAt: string;
   savedBy: string;
   content: NoteContent;
+  overrides?: Partial<NoteContent> | null;
 }
 
 export interface AfsSection {

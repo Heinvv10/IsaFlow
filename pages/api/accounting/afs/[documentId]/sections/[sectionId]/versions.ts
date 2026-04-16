@@ -11,6 +11,7 @@ import {
 import {
   listVersions,
   restoreVersion,
+  VersionHistoryError,
 } from '@/modules/accounting/services/afs/afsVersionHistoryService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -20,8 +21,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const sectionId = req.query.sectionId as string;
 
   if (req.method === 'GET') {
-    const items = await listVersions(companyId, sectionId);
-    return apiResponse.success(res, { items });
+    try {
+      const items = await listVersions(companyId, sectionId);
+      return apiResponse.success(res, { items });
+    } catch (err) {
+      if (err instanceof VersionHistoryError && err.code === 'NOT_FOUND') {
+        return apiResponse.notFound(res, 'Section', sectionId);
+      }
+      throw err;
+    }
   }
 
   if (req.method === 'POST') {
@@ -44,12 +52,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       throw err;
     }
 
-    const newVersionEntry = await restoreVersion(companyId, sectionId, version, userId);
-    return apiResponse.success(res, {
-      sectionId,
-      restoredVersion: version,
-      newVersionEntry,
-    }, 'Version restored');
+    try {
+      const newVersionEntry = await restoreVersion(companyId, sectionId, version, userId);
+      return apiResponse.success(res, {
+        sectionId,
+        restoredVersion: version,
+        newVersionEntry,
+      }, 'Version restored');
+    } catch (err) {
+      if (err instanceof VersionHistoryError) {
+        if (err.code === 'NOT_FOUND') return apiResponse.notFound(res, 'Section', sectionId);
+        if (err.code === 'VERSION_NOT_FOUND') return apiResponse.notFound(res, 'Version', String(version));
+      }
+      throw err;
+    }
   }
 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST']);
