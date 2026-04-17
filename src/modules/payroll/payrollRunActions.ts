@@ -31,6 +31,23 @@ export async function completePayrollRun(
     if (String(runRows[0]!.status) !== 'draft') throw new Error('Can only complete draft payroll runs');
 
     const run = runRows[0]!;
+
+    // Guard against duplicate completions for the same period. Two runs covering
+    // the same pay period can only both exist in 'draft' state; the moment one is
+    // completed, further completions for that period are rejected.
+    const dupes = (await sql`
+      SELECT id, status FROM payroll_runs
+      WHERE company_id = ${companyId}::UUID
+        AND id != ${runId}::UUID
+        AND period_start = ${run.period_start}::DATE
+        AND period_end = ${run.period_end}::DATE
+        AND status = 'completed'
+    `) as Row[];
+    if (dupes.length > 0) {
+      throw new Error(
+        `A payroll run for period ${run.period_start} to ${run.period_end} is already completed (run ${dupes[0]!.id}). Reverse it before completing another.`
+      );
+    }
     const accounts = await resolvePayrollGLAccounts();
     const lines = buildPayrollJournalLines(accounts, {
       totalGross: Number(run.total_gross),
@@ -43,7 +60,8 @@ export async function completePayrollRun(
     const journalEntry = await createJournalEntry(companyId, {
       entryDate: String(run.period_end),
       description: `Payroll for period ${run.period_start} to ${run.period_end}`,
-      source: 'manual',
+      source: 'auto_payroll',
+      sourceDocumentId: runId,
       lines,
     }, userId);
 

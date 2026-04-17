@@ -38,6 +38,7 @@ export const accountantsTab: Tab = {
           items: [
             { label: 'Opening Balances', href: '/accounting/opening-balances' },
             { label: 'Audit Trail', href: '/accounting/audit-log' },
+            { label: 'Auto-Postings', href: '/accounting/auto-postings' },
           ],
         },
         {

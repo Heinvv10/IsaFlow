@@ -100,15 +100,23 @@ export default function Emp201Page() {
   const [error, setError]         = useState('');
   const [sdlError, setSdlError]   = useState('');
 
-  // Build month options for the current and previous year
+  // Build month options covering the full historical range where payroll
+  // runs may exist (5 years back) plus the next 3 months of forward-dated
+  // periods. Anything earlier can still be reached by typing into a
+  // future filter control.
   const monthOptions: string[] = [];
   const now = new Date();
-  for (let i = 11; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+  const earliest = new Date(now.getFullYear() - 5, 0, 1);
+  const latest = new Date(now.getFullYear(), now.getMonth() + 3, 1);
+  const cursor = new Date(earliest);
+  while (cursor <= latest) {
     monthOptions.push(
-      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}`
     );
+    cursor.setMonth(cursor.getMonth() + 1);
   }
+  // Show most-recent-first so the default selection still lands on the current month
+  monthOptions.reverse();
 
   const loadEmp201 = useCallback(async (month: string) => {
     setLoading(true);

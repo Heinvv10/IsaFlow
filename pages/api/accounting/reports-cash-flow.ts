@@ -32,10 +32,12 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   const { companyId } = req;
 
   try {
-    const { start_date, end_date } = req.query;
+    // Accept both start_date/end_date (legacy) and period_start/period_end (aligned
+     // with income-statement/balance-sheet endpoints)
+    const { start_date, end_date, period_start, period_end } = req.query;
 
-    const startDate = (start_date as string) || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
-    const endDate = (end_date as string) || new Date().toISOString().split('T')[0];
+    const startDate = (period_start as string) || (start_date as string) || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
+    const endDate = (period_end as string) || (end_date as string) || new Date().toISOString().split('T')[0];
 
     // Run opening-balance and the collapsed period aggregate in parallel.
     // P-009: no schema probe. P-002: 6 queries → 1 conditional-aggregation query.
