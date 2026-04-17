@@ -45,10 +45,10 @@ export function ConsolidatedTBTable({ report }: Props) {
           <tbody className="divide-y divide-white/5">
             {accounts.map((acc) => (
               <tr key={`${acc.accountCode}|${acc.accountType}`} className="hover:bg-white/[0.02] transition-colors">
-                <td className="sticky left-0 bg-[#1a1f2e] px-6 py-2.5 font-mono text-xs text-gray-400">
+                <td className="sticky left-0 bg-[#1a1f2e] px-6 py-2.5 font-mono text-xs text-gray-600 dark:text-gray-400">
                   {acc.accountCode}
                 </td>
-                <td className="px-3 py-2.5 font-medium text-gray-200">{acc.accountName}</td>
+                <td className="px-3 py-2.5 font-medium text-gray-800 dark:text-gray-200">{acc.accountName}</td>
                 <td className="px-3 py-2.5">
                   <span className={`capitalize text-xs ${ACCOUNT_TYPE_COLOUR[acc.accountType.toLowerCase()] ?? 'text-gray-400'}`}>
                     {acc.accountType}
@@ -58,17 +58,17 @@ export function ConsolidatedTBTable({ report }: Props) {
                   const bal = acc.byEntity[e.companyId] ?? { debit: 0, credit: 0 };
                   return (
                     <td key={e.companyId} className="px-3 py-2.5 text-right" colSpan={2}>
-                      <span className="flex justify-end gap-4 font-mono text-xs text-gray-300">
+                      <span className="flex justify-end gap-4 font-mono text-xs text-gray-700 dark:text-gray-300">
                         <span>{bal.debit  ? fmt(bal.debit)  : '—'}</span>
                         <span>{bal.credit ? fmt(bal.credit) : '—'}</span>
                       </span>
                     </td>
                   );
                 })}
-                <td className="px-3 py-2.5 text-right font-mono text-xs font-semibold text-gray-200">
+                <td className="px-3 py-2.5 text-right font-mono text-xs font-semibold text-gray-800 dark:text-gray-200">
                   {fmt(acc.totalDebit)}
                 </td>
-                <td className="px-3 py-2.5 text-right font-mono text-xs font-semibold text-gray-200">
+                <td className="px-3 py-2.5 text-right font-mono text-xs font-semibold text-gray-800 dark:text-gray-200">
                   {fmt(acc.totalCredit)}
                 </td>
                 <td className="px-3 py-2.5 text-center">
@@ -84,14 +84,14 @@ export function ConsolidatedTBTable({ report }: Props) {
           <tfoot>
             <tr className="border-t-2 border-white/20 bg-white/[0.03] font-semibold">
               <td
-                className="sticky left-0 bg-[#1a1f2e] px-6 py-3 text-xs text-gray-400 uppercase tracking-wider"
+                className="sticky left-0 bg-[#1a1f2e] px-6 py-3 text-xs text-gray-600 dark:text-gray-400 uppercase tracking-wider"
                 colSpan={3}
               >
                 Totals
               </td>
               {entities.map((e) => <td key={e.companyId} colSpan={2} />)}
-              <td className="px-3 py-3 text-right font-mono text-sm text-white">{fmt(totalDebits)}</td>
-              <td className="px-3 py-3 text-right font-mono text-sm text-white">{fmt(totalCredits)}</td>
+              <td className="px-3 py-3 text-right font-mono text-sm text-slate-900 dark:text-white">{fmt(totalDebits)}</td>
+              <td className="px-3 py-3 text-right font-mono text-sm text-slate-900 dark:text-white">{fmt(totalCredits)}</td>
               <td />
             </tr>
           </tfoot>

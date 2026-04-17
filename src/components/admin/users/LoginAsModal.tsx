@@ -37,7 +37,7 @@ export function LoginAsModal({
       <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-full max-w-md p-6 relative">
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+          className="absolute top-4 right-4 text-gray-600 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
           aria-label="Close"
         >
           <X className="w-5 h-5" />
@@ -79,7 +79,7 @@ export function LoginAsModal({
               <button
                 onClick={onConfirm}
                 disabled={loading}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-amber-500 hover:bg-amber-600 text-white transition-colors disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-teal-600 hover:bg-teal-700 text-white transition-colors disabled:opacity-50"
               >
                 {loading
                   ? <><Loader2 className="w-4 h-4 animate-spin" /> Creating session&hellip;</>

@@ -37,7 +37,7 @@ export function AccountMappingTable({ accounts, onChange, onAutoMap, autoMapping
         <button
           onClick={onAutoMap}
           disabled={autoMapping}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium disabled:opacity-50"
+          className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-xs font-medium disabled:opacity-50"
         >
           {autoMapping ? 'Mapping...' : 'Auto-Map'}
         </button>

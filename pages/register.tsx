@@ -187,13 +187,13 @@ export default function RegisterPage() {
   const canSubmit = firstName && lastName && email && password && confirmPassword && !submitting;
 
   return (
-    <div className="min-h-screen bg-gray-950 flex items-center justify-center px-4">
+    <div className="min-h-screen bg-slate-50 dark:bg-gray-950 flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
 
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <Image src="/logo.png" alt="ISAFlow" width={160} height={64} className="h-16 w-auto brightness-0 invert mb-4" priority />
-          <p className="text-sm text-gray-500 mt-1">Create your account</p>
+          <Image src="/logo.png" alt="ISAFlow" width={160} height={64} className="h-16 w-auto dark:brightness-0 dark:invert mb-4" priority />
+          <p className="text-sm text-slate-600 dark:text-slate-300 mt-1">Create your account</p>
         </div>
 
         {/* Invite banner */}
@@ -202,20 +202,20 @@ export default function RegisterPage() {
             <Building2 className="h-4 w-4 text-teal-400 mt-0.5 flex-shrink-0" />
             <p className="text-sm text-teal-300">
               Create an account to join{' '}
-              <span className="font-medium text-white">{inviteData.companyName}</span>
+              <span className="font-medium text-slate-900 dark:text-white">{inviteData.companyName}</span>
               {' '}as <span className="font-medium">{inviteData.role}</span>.
             </p>
           </div>
         )}
 
         {/* Card */}
-        <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 shadow-xl">
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl p-6 shadow-xl">
           <form onSubmit={(e) => void handleSubmit(e)} noValidate>
 
             {/* First Name + Last Name */}
             <div className="flex gap-3 mb-4">
               <div className="flex-1">
-                <label htmlFor="firstName" className="block text-xs font-medium text-gray-400 mb-1.5">
+                <label htmlFor="firstName" className="block text-xs font-medium text-slate-500 dark:text-gray-400 mb-1.5">
                   First Name
                 </label>
                 <input
@@ -226,12 +226,12 @@ export default function RegisterPage() {
                   value={firstName}
                   onChange={e => { setError(''); setFirstName(e.target.value); }}
                   disabled={submitting}
-                  className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition"
+                  className="w-full bg-slate-50 dark:bg-gray-800 border border-slate-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition"
                   placeholder="John"
                 />
               </div>
               <div className="flex-1">
-                <label htmlFor="lastName" className="block text-xs font-medium text-gray-400 mb-1.5">
+                <label htmlFor="lastName" className="block text-xs font-medium text-slate-500 dark:text-gray-400 mb-1.5">
                   Last Name
                 </label>
                 <input
@@ -242,7 +242,7 @@ export default function RegisterPage() {
                   value={lastName}
                   onChange={e => { setError(''); setLastName(e.target.value); }}
                   disabled={submitting}
-                  className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition"
+                  className="w-full bg-slate-50 dark:bg-gray-800 border border-slate-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition"
                   placeholder="Doe"
                 />
               </div>
@@ -250,7 +250,7 @@ export default function RegisterPage() {
 
             {/* Email */}
             <div className="mb-4">
-              <label htmlFor="email" className="block text-xs font-medium text-gray-400 mb-1.5">
+              <label htmlFor="email" className="block text-xs font-medium text-slate-500 dark:text-gray-400 mb-1.5">
                 Email address
               </label>
               <input
@@ -261,11 +261,11 @@ export default function RegisterPage() {
                 value={email}
                 onChange={e => { setError(''); setEmail(e.target.value); }}
                 disabled={submitting}
-                className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition"
+                className="w-full bg-slate-50 dark:bg-gray-800 border border-slate-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition"
                 placeholder="you@example.com"
               />
               {inviteData && (
-                <p className="mt-1 text-xs text-gray-500">
+                <p className="mt-1 text-xs text-slate-500 dark:text-gray-500">
                   Enter the email address this invitation was sent to
                   ({inviteData.email}).
                 </p>
@@ -274,7 +274,7 @@ export default function RegisterPage() {
 
             {/* Password */}
             <div className="mb-4">
-              <label htmlFor="password" className="block text-xs font-medium text-gray-400 mb-1.5">
+              <label htmlFor="password" className="block text-xs font-medium text-slate-500 dark:text-gray-400 mb-1.5">
                 Password
               </label>
               <div className="relative">
@@ -286,14 +286,14 @@ export default function RegisterPage() {
                   value={password}
                   onChange={e => { setError(''); setPassword(e.target.value); }}
                   disabled={submitting}
-                  className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2.5 pr-10 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition"
+                  className="w-full bg-slate-50 dark:bg-gray-800 border border-slate-300 dark:border-gray-600 rounded-lg px-3 py-2.5 pr-10 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition"
                   placeholder="Choose a password"
                 />
                 <button
                   type="button"
                   tabIndex={-1}
                   onClick={() => setShowPassword(v => !v)}
-                  className="absolute inset-y-0 right-0 flex items-center px-3 text-gray-500 hover:text-gray-300 transition-colors"
+                  className="absolute inset-y-0 right-0 flex items-center px-3 text-slate-500 dark:text-slate-400 dark:text-gray-500 hover:text-slate-600 dark:hover:text-gray-300 transition-colors"
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -307,14 +307,12 @@ export default function RegisterPage() {
                     {[0, 1, 2, 3].map(i => (
                       <div
                         key={i}
-                        className={`h-1 flex-1 rounded-full transition-colors ${
-                          i < strength.score ? STRENGTH_COLORS[strength.score] : 'bg-gray-700'
-                        }`}
+                        className={`h-1 flex-1 rounded-full transition-colors ${ i < strength.score ? STRENGTH_COLORS[strength.score] : 'bg-slate-200 dark:bg-gray-700' }`}
                       />
                     ))}
                   </div>
                   {strength.hint && (
-                    <p className="text-xs text-gray-500">{strength.hint}</p>
+                    <p className="text-xs text-slate-500 dark:text-gray-500">{strength.hint}</p>
                   )}
                 </div>
               )}
@@ -322,7 +320,7 @@ export default function RegisterPage() {
 
             {/* Confirm Password */}
             <div className="mb-6">
-              <label htmlFor="confirmPassword" className="block text-xs font-medium text-gray-400 mb-1.5">
+              <label htmlFor="confirmPassword" className="block text-xs font-medium text-slate-500 dark:text-gray-400 mb-1.5">
                 Confirm password
               </label>
               <div className="relative">
@@ -334,14 +332,14 @@ export default function RegisterPage() {
                   value={confirmPassword}
                   onChange={e => { setError(''); setConfirmPassword(e.target.value); }}
                   disabled={submitting}
-                  className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2.5 pr-10 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition"
+                  className="w-full bg-slate-50 dark:bg-gray-800 border border-slate-300 dark:border-gray-600 rounded-lg px-3 py-2.5 pr-10 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition"
                   placeholder="Confirm your password"
                 />
                 <button
                   type="button"
                   tabIndex={-1}
                   onClick={() => setShowConfirm(v => !v)}
-                  className="absolute inset-y-0 right-0 flex items-center px-3 text-gray-500 hover:text-gray-300 transition-colors"
+                  className="absolute inset-y-0 right-0 flex items-center px-3 text-slate-500 dark:text-slate-400 dark:text-gray-500 hover:text-slate-600 dark:hover:text-gray-300 transition-colors"
                   aria-label={showConfirm ? 'Hide password' : 'Show password'}
                 >
                   {showConfirm ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -375,7 +373,7 @@ export default function RegisterPage() {
         </div>
 
         {/* Footer link */}
-        <p className="text-center text-sm text-gray-500 mt-6">
+        <p className="text-center text-sm text-slate-500 dark:text-gray-500 mt-6">
           Already have an account?{' '}
           <Link
             href={inviteToken ? `/login?invite=${inviteToken}` : '/login'}

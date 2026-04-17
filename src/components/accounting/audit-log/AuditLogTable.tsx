@@ -120,7 +120,7 @@ export function AuditLogTable({ items, expandedRows, onToggleRow }: Props) {
                     {item.userEmail ?? item.userId}
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded border text-xs font-medium ${ACTION_COLORS[item.action] ?? 'bg-gray-500/10 text-gray-400 border-gray-500/20'}`}>
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded border text-xs font-medium ${ACTION_COLORS[item.action] ?? 'bg-gray-500/10 text-gray-600 dark:text-gray-400 border-gray-500/20'}`}>
                       {ACTION_LABELS[item.action] ?? item.action}
                     </span>
                   </td>

@@ -131,11 +131,7 @@ export default function SupplierDetailPage() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
-                activeTab === tab.id
-                  ? 'border-blue-500 text-blue-400'
-                  : 'border-transparent text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'
-              }`}
+              className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${ activeTab === tab.id ? 'border-blue-500 text-blue-400' : 'border-transparent text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]' }`}
             >
               {tab.label}
             </button>
@@ -161,7 +157,7 @@ export default function SupplierDetailPage() {
                 <div className="flex items-center gap-2">
                   {supplier.is_active
                     ? <><CheckCircle2 className="h-5 w-5 text-teal-400" /><span className="text-sm text-teal-400 font-medium">Active Supplier</span></>
-                    : <><XCircle className="h-5 w-5 text-gray-400" /><span className="text-sm text-gray-400 font-medium">Inactive Supplier</span></>
+                    : <><XCircle className="h-5 w-5 text-gray-600 dark:text-gray-400" /><span className="text-sm text-gray-600 dark:text-gray-400 font-medium">Inactive Supplier</span></>
                   }
                 </div>
                 {supplier.created_at && (

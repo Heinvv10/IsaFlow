@@ -71,7 +71,7 @@ export function AccountRow({
           ) : (
             <div style={{ paddingLeft: indent }}>
               <span>{account.accountName}</span>
-              {!account.isActive && <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-500/20 text-gray-400">Inactive</span>}
+              {!account.isActive && <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-500/20 text-gray-600 dark:text-gray-400">Inactive</span>}
               {account.description && <p className="text-xs text-[var(--ff-text-tertiary)] mt-0.5">{account.description}</p>}
             </div>
           )}

@@ -132,18 +132,18 @@ export default function AdminWebhooksPage() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
               <Webhook className="w-6 h-6 text-teal-400" />
               Webhook Management
             </h1>
-            <p className="mt-1 text-sm text-gray-400">
+            <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
               All registered webhook endpoints across every company.
             </p>
           </div>
           <button
             onClick={() => void load()}
             disabled={loading}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-700 text-gray-300 hover:bg-gray-600 text-sm transition-colors"
+            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-600 text-sm transition-colors"
           >
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
             Refresh
@@ -152,7 +152,7 @@ export default function AdminWebhooksPage() {
 
         {/* Toast */}
         {toast && (
-          <div className="px-4 py-3 rounded-xl bg-gray-800 border border-gray-700 text-sm text-gray-200">
+          <div className="px-4 py-3 rounded-xl bg-slate-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 text-sm text-gray-800 dark:text-gray-200">
             {toast}
           </div>
         )}
@@ -166,10 +166,10 @@ export default function AdminWebhooksPage() {
               placeholder="Search URL or company..."
               value={search}
               onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-              className="w-full pl-9 pr-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-teal-500"
+              className="w-full pl-9 pr-3 py-2 bg-slate-100 dark:bg-gray-800 border border-slate-300 dark:border-gray-600 rounded-lg text-sm text-gray-800 dark:text-gray-200 placeholder-slate-400 dark:placeholder-gray-500 focus:outline-none focus:border-teal-500"
             />
           </div>
-          <div className="flex gap-1 bg-gray-800 border border-gray-700 rounded-lg p-1">
+          <div className="flex gap-1 bg-slate-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-1">
             {STATUS_TABS.map((tab) => (
               <button
                 key={tab.id}
@@ -188,12 +188,12 @@ export default function AdminWebhooksPage() {
         </div>
 
         {/* Table */}
-        <div className="bg-gray-800 border border-gray-700 rounded-xl overflow-hidden">
+        <div className="bg-slate-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl overflow-hidden">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-gray-700 bg-gray-800/80">
+              <tr className="border-b border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800/80">
                 {['Company', 'Endpoint URL', 'Events', 'Status', 'Last Delivery', 'Created', 'Actions'].map((h) => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
                     {h}
                   </th>
                 ))}
@@ -230,13 +230,13 @@ export default function AdminWebhooksPage() {
 
           {/* Pagination */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-700 text-xs text-gray-400">
+            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-300 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-400">
               <span>{total} total</span>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={page === 1}
-                  className="px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-40 transition-colors"
+                  className="px-3 py-1.5 rounded bg-gray-200 dark:bg-gray-700 hover:bg-gray-600 disabled:opacity-40 transition-colors"
                 >
                   Prev
                 </button>
@@ -244,7 +244,7 @@ export default function AdminWebhooksPage() {
                 <button
                   onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                   disabled={page === totalPages}
-                  className="px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-40 transition-colors"
+                  className="px-3 py-1.5 rounded bg-gray-200 dark:bg-gray-700 hover:bg-gray-600 disabled:opacity-40 transition-colors"
                 >
                   Next
                 </button>

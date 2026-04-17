@@ -85,7 +85,7 @@ export function EmptyState({
     >
       {/* Icon container */}
       <div className="mb-4 flex items-center justify-center w-16 h-16 rounded-full bg-gray-100 dark:bg-gray-800">
-        <Icon className="w-8 h-8 text-gray-400 dark:text-gray-500" strokeWidth={1.5} />
+        <Icon className="w-8 h-8 text-gray-600 dark:text-gray-400 dark:text-gray-500" strokeWidth={1.5} />
       </div>
 
       {/* Text */}

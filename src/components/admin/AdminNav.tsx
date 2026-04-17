@@ -95,9 +95,9 @@ export function AdminNav() {
   };
 
   return (
-    <aside className="w-56 flex-shrink-0 bg-gray-900 border-r border-gray-700 flex flex-col min-h-full">
-      <div className="px-4 py-4 border-b border-gray-700">
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Admin Console</p>
+    <aside className="w-56 flex-shrink-0 bg-white dark:bg-gray-900 border-r border-gray-300 dark:border-gray-700 flex flex-col min-h-full">
+      <div className="px-4 py-4 border-b border-gray-300 dark:border-gray-700">
+        <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">Admin Console</p>
       </div>
       <nav className="flex-1 py-3 px-2 space-y-0.5">
         {NAV_DEFS.map(item => {
@@ -137,7 +137,7 @@ export function AdminNav() {
                 </Link>
 
                 {isSectionOpen(item.path) && (
-                  <div className="ml-3 mt-0.5 space-y-0.5 border-l border-gray-700 pl-3">
+                  <div className="ml-3 mt-0.5 space-y-0.5 border-l border-gray-300 dark:border-gray-700 pl-3">
                     {item.children.map(child => {
                       const ChildIcon = child.icon;
                       const childHref = buildHref(`/admin${child.path}`);

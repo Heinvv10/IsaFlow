@@ -94,10 +94,10 @@ export default function APAgingPage() {
           <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
             {[
               { label: 'Current', value: totals.current, color: 'text-teal-500' },
-              { label: '30 Days', value: totals.days30, color: 'text-amber-500' },
-              { label: '60 Days', value: totals.days60, color: 'text-orange-500' },
-              { label: '90 Days', value: totals.days90, color: 'text-red-400' },
-              { label: '120+ Days', value: totals.days120Plus, color: 'text-red-600' },
+              { label: '30 Days', value: totals.days30, color: 'text-amber-700 dark:text-amber-400' },
+              { label: '60 Days', value: totals.days60, color: 'text-orange-700 dark:text-orange-400' },
+              { label: '90 Days', value: totals.days90, color: 'text-red-700 dark:text-red-400' },
+              { label: '120+ Days', value: totals.days120Plus, color: 'text-rose-700 dark:text-rose-400' },
               { label: 'Total', value: totals.total, color: 'text-[var(--ff-text-primary)]' },
             ].map(card => (
               <div key={card.label} className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
@@ -130,10 +130,10 @@ export default function APAgingPage() {
                   <tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
                     <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Supplier</th>
                     <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-teal-500 uppercase">Current</th>
-                    <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-amber-500 uppercase">30 Days</th>
-                    <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-orange-500 uppercase">60 Days</th>
-                    <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-red-400 uppercase">90 Days</th>
-                    <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-red-600 uppercase">120+ Days</th>
+                    <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-amber-700 dark:text-amber-400 uppercase">30 Days</th>
+                    <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-orange-700 dark:text-orange-400 uppercase">60 Days</th>
+                    <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-red-700 dark:text-red-400 uppercase">90 Days</th>
+                    <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-rose-700 dark:text-rose-400 uppercase">120+ Days</th>
                     <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Total</th>
                   </tr>
                 </thead>
@@ -146,10 +146,10 @@ export default function APAgingPage() {
                         </Link>
                       </td>
                       <td className="px-4 py-3 text-sm text-right font-mono text-teal-500">{b.current > 0 ? formatCurrency(b.current) : '-'}</td>
-                      <td className="px-4 py-3 text-sm text-right font-mono text-amber-500">{b.days30 > 0 ? formatCurrency(b.days30) : '-'}</td>
-                      <td className="px-4 py-3 text-sm text-right font-mono text-orange-500">{b.days60 > 0 ? formatCurrency(b.days60) : '-'}</td>
-                      <td className="px-4 py-3 text-sm text-right font-mono text-red-400">{b.days90 > 0 ? formatCurrency(b.days90) : '-'}</td>
-                      <td className="px-4 py-3 text-sm text-right font-mono text-red-600">{b.days120Plus > 0 ? formatCurrency(b.days120Plus) : '-'}</td>
+                      <td className="px-4 py-3 text-sm text-right font-mono text-amber-700 dark:text-amber-400">{b.days30 > 0 ? formatCurrency(b.days30) : '-'}</td>
+                      <td className="px-4 py-3 text-sm text-right font-mono text-orange-700 dark:text-orange-400">{b.days60 > 0 ? formatCurrency(b.days60) : '-'}</td>
+                      <td className="px-4 py-3 text-sm text-right font-mono text-red-700 dark:text-red-400">{b.days90 > 0 ? formatCurrency(b.days90) : '-'}</td>
+                      <td className="px-4 py-3 text-sm text-right font-mono text-rose-700 dark:text-rose-400">{b.days120Plus > 0 ? formatCurrency(b.days120Plus) : '-'}</td>
                       <td className="px-4 py-3 text-sm text-right font-mono font-bold text-[var(--ff-text-primary)]">{formatCurrency(b.total)}</td>
                     </tr>
                   ))}
@@ -158,10 +158,10 @@ export default function APAgingPage() {
                   <tr className="border-t-2 border-[var(--ff-border-medium)] bg-[var(--ff-bg-tertiary)]">
                     <td className="px-4 py-3 text-sm font-bold text-[var(--ff-text-primary)]">TOTAL</td>
                     <td className="px-4 py-3 text-sm text-right font-mono font-bold text-teal-500">{formatCurrency(totals.current)}</td>
-                    <td className="px-4 py-3 text-sm text-right font-mono font-bold text-amber-500">{formatCurrency(totals.days30)}</td>
-                    <td className="px-4 py-3 text-sm text-right font-mono font-bold text-orange-500">{formatCurrency(totals.days60)}</td>
-                    <td className="px-4 py-3 text-sm text-right font-mono font-bold text-red-400">{formatCurrency(totals.days90)}</td>
-                    <td className="px-4 py-3 text-sm text-right font-mono font-bold text-red-600">{formatCurrency(totals.days120Plus)}</td>
+                    <td className="px-4 py-3 text-sm text-right font-mono font-bold text-amber-700 dark:text-amber-400">{formatCurrency(totals.days30)}</td>
+                    <td className="px-4 py-3 text-sm text-right font-mono font-bold text-orange-700 dark:text-orange-400">{formatCurrency(totals.days60)}</td>
+                    <td className="px-4 py-3 text-sm text-right font-mono font-bold text-red-700 dark:text-red-400">{formatCurrency(totals.days90)}</td>
+                    <td className="px-4 py-3 text-sm text-right font-mono font-bold text-rose-700 dark:text-rose-400">{formatCurrency(totals.days120Plus)}</td>
                     <td className="px-4 py-3 text-sm text-right font-mono font-bold text-[var(--ff-text-primary)]">{formatCurrency(totals.total)}</td>
                   </tr>
                 </tfoot>

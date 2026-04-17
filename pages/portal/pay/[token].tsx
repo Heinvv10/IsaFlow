@@ -189,7 +189,7 @@ export default function PortalPayPage() {
             <button
               onClick={handlePayNow}
               disabled={submitting}
-              className="w-full py-4 bg-[#00457C] text-white rounded-xl font-semibold text-lg hover:bg-[#003460] transition-colors disabled:opacity-50 flex items-center justify-center gap-3"
+              className="w-full py-4 bg-[#00457C] text-slate-900 dark:text-white rounded-xl font-semibold text-lg hover:bg-[#003460] transition-colors disabled:opacity-50 flex items-center justify-center gap-3"
             >
               {submitting ? (
                 <>
@@ -206,7 +206,7 @@ export default function PortalPayPage() {
               )}
             </button>
 
-            <div className="mt-4 flex items-center justify-center gap-2 text-xs text-gray-400">
+            <div className="mt-4 flex items-center justify-center gap-2 text-xs text-gray-600 dark:text-gray-400">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
               </svg>
@@ -239,11 +239,11 @@ function PageShell({ children }: { children: React.ReactNode }) {
           <div className="max-w-2xl mx-auto px-6 py-4 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
-                <span className="text-white font-bold text-sm">IS</span>
+                <span className="text-slate-900 dark:text-white font-bold text-sm">IS</span>
               </div>
               <span className="font-semibold text-gray-900">ISAFlow</span>
             </div>
-            <span className="text-xs text-gray-400">Secure Payment</span>
+            <span className="text-xs text-gray-600 dark:text-gray-400">Secure Payment</span>
           </div>
         </header>
 
@@ -254,7 +254,7 @@ function PageShell({ children }: { children: React.ReactNode }) {
 
         {/* Footer */}
         <footer className="border-t border-gray-100 mt-auto">
-          <div className="max-w-2xl mx-auto px-6 py-6 text-center text-xs text-gray-400">
+          <div className="max-w-2xl mx-auto px-6 py-6 text-center text-xs text-gray-600 dark:text-gray-400">
             Powered by ISAFlow Accounting
           </div>
         </footer>

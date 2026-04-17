@@ -1,8 +1,10 @@
 // pages/accounting/afs/index.tsx
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { FileText, Plus, Loader2, AlertCircle, Clock, CheckCircle, Lock } from 'lucide-react';
+import { PageHeader } from '@/components/ui';
 import { apiFetch } from '@/lib/apiFetch';
 import type { AfsDocument, DocumentStatus } from '@/modules/accounting/services/afs/afsTypes';
 
@@ -25,10 +27,19 @@ function StatusBadge({ status }: { status: DocumentStatus }) {
 }
 
 export default function AfsIndexPage() {
+  const router = useRouter();
   const [documents, setDocuments] = useState<AfsDocument[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+
+  // Filter by ?type=<documentType> from menu deep links (e.g. ?type=management_pack
+  // when user clicks AFS → Management Packs → Pack Documents).
+  const typeFilter = typeof router.query.type === 'string' ? router.query.type : '';
+  const visibleDocuments = useMemo(
+    () => typeFilter ? documents.filter(d => (d as { documentType?: string }).documentType === typeFilter) : documents,
+    [documents, typeFilter]
+  );
 
   const loadDocuments = useCallback(async () => {
     setIsLoading(true);
@@ -70,23 +81,21 @@ export default function AfsIndexPage() {
   return (
     <AppLayout>
       <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <FileText className="w-7 h-7 text-zinc-700" />
-            <div>
-              <h1 className="text-2xl font-semibold text-zinc-900 dark:text-white">Annual Financial Statements</h1>
-              <p className="text-sm text-zinc-500 dark:text-slate-400 mt-0.5">IFRS-compliant AFS bundle generation and review</p>
-            </div>
-          </div>
-          <button
-            onClick={() => { void handleCreateAfs(); }}
-            disabled={isCreating}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-zinc-900 text-white text-sm font-medium hover:bg-zinc-700 disabled:opacity-50 transition-colors"
-          >
-            {isCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-            New AFS
-          </button>
-        </div>
+        <PageHeader
+          icon={FileText}
+          title="Annual Financial Statements"
+          subtitle="IFRS-compliant AFS bundle generation and review"
+          actions={
+            <button
+              onClick={() => { void handleCreateAfs(); }}
+              disabled={isCreating}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium disabled:opacity-50 transition-colors"
+            >
+              {isCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+              New AFS
+            </button>
+          }
+        />
 
         {error && (
           <div className="flex items-center gap-2 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
@@ -101,16 +110,20 @@ export default function AfsIndexPage() {
           </div>
         )}
 
-        {!isLoading && documents.length === 0 && !error && (
+        {!isLoading && visibleDocuments.length === 0 && !error && (
           <div className="flex flex-col items-center justify-center py-16 text-center">
-            <FileText className="w-10 h-10 text-zinc-300 mb-3" />
-            <p className="text-zinc-500 text-sm">No AFS documents yet. Create your first one above.</p>
+            <FileText className="w-10 h-10 text-zinc-700 dark:text-zinc-300 mb-3" />
+            <p className="text-zinc-500 text-sm">
+              {typeFilter
+                ? `No ${typeFilter === 'management_pack' ? 'management pack' : typeFilter} documents yet.`
+                : 'No AFS documents yet. Create your first one above.'}
+            </p>
           </div>
         )}
 
-        {!isLoading && documents.length > 0 && (
+        {!isLoading && visibleDocuments.length > 0 && (
           <div className="rounded-xl border border-zinc-200 dark:border-slate-700 divide-y divide-zinc-100 dark:divide-slate-800 overflow-hidden">
-            {documents.map(doc => (
+            {visibleDocuments.map(doc => (
               <Link
                 key={doc.id}
                 href={`/accounting/afs/${doc.id}`}

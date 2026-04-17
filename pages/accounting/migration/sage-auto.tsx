@@ -294,7 +294,7 @@ export default function SageAutoImportPage() {
             If the auto-pull doesn&apos;t work due to browser restrictions, you can use this bookmarklet.
             Drag it to your bookmarks bar, then click it while on the Sage dashboard.
           </p>
-          <p className="text-xs text-[var(--ff-text-secondary)] font-mono bg-gray-900 p-2 rounded break-all">
+          <p className="text-xs text-[var(--ff-text-secondary)] font-mono bg-white dark:bg-gray-900 p-2 rounded break-all">
             javascript:void(fetch(&apos;/services/Account/GetWithFilter&apos;,&#123;method:&apos;POST&apos;,headers:&#123;&apos;Content-Type&apos;:&apos;application/json&apos;&#125;,body:JSON.stringify(&#123;FilterId:2,Search:&apos;&apos;,Skip:0,Take:1000&#125;)&#125;).then(r=&gt;r.json()).then(d=&gt;&#123;const b=new Blob([JSON.stringify(d)],&#123;type:&apos;application/json&apos;&#125;);const a=document.createElement(&apos;a&apos;);a.href=URL.createObjectURL(b);a.download=&apos;sage-accounts.json&apos;;a.click()&#125;))
           </p>
         </div>

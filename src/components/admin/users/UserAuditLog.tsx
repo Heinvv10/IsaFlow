@@ -78,7 +78,7 @@ export function UserAuditLog({ userId }: Props) {
             </thead>
             <tbody>
               {entries.length === 0 && (
-                <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-400">No audit entries found</td></tr>
+                <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-600 dark:text-gray-400">No audit entries found</td></tr>
               )}
               {entries.map(e => (
                 <tr key={e.id} className="border-b border-gray-100 dark:border-gray-800 last:border-0">

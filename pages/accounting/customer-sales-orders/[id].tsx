@@ -171,7 +171,7 @@ export default function SalesOrderDetailPage() {
                 <button
                   onClick={() => handleAction('confirm')}
                   disabled={actionBusy}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm disabled:opacity-50"
+                  className="flex items-center gap-1.5 px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-lg text-sm disabled:opacity-50"
                 >
                   {actionBusy ? (
                     <Loader2 className="h-4 w-4 animate-spin" />

@@ -56,7 +56,7 @@ export function SelectDropdown({
     >
       {searchable && (
         <div className="border-b border-gray-200 px-3 py-2 dark:border-gray-700">
-          <div className="flex items-center gap-2 text-gray-400">
+          <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
             <Search size={14} aria-hidden="true" />
             <input
               ref={searchRef}
@@ -82,7 +82,7 @@ export function SelectDropdown({
         className="max-h-60 overflow-y-auto py-1 focus:outline-none"
       >
         {options.length === 0 ? (
-          <li className="px-3 py-2 text-sm text-gray-400">No options</li>
+          <li className="px-3 py-2 text-sm text-gray-600 dark:text-gray-400">No options</li>
         ) : (
           options.map((option, i) => {
             const isSelected = selectedValues.includes(option.value);

@@ -79,19 +79,19 @@ export function ReportBuilderFilters({ filters, availableFields, onChange }: Pro
   if (filterableFields.length === 0) return null;
 
   return (
-    <div className="border-b border-gray-200 bg-gray-50 px-4 py-2">
+    <div className="border-b border-gray-200 dark:border-slate-800 bg-gray-50 dark:bg-slate-800/50 px-4 py-2">
       <div className="flex items-center gap-2 mb-2">
-        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Filters</span>
+        <span className="text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wide">Filters</span>
         <button
           onClick={addFilter}
-          className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+          className="flex items-center gap-1 text-xs text-teal-600 dark:text-teal-400 hover:text-teal-800 dark:hover:text-teal-300 font-medium"
         >
           <Plus className="w-3 h-3" /> Add Filter
         </button>
       </div>
 
       {filters.length === 0 && (
-        <p className="text-xs text-gray-400 italic">No filters applied — showing all records</p>
+        <p className="text-xs text-gray-600 dark:text-gray-400 dark:text-slate-500 italic">No filters applied — showing all records</p>
       )}
 
       <div className="flex flex-col gap-2">
@@ -103,12 +103,12 @@ export function ReportBuilderFilters({ filters, availableFields, onChange }: Pro
           const inputType = fieldDef?.type === 'date' ? 'date' : fieldDef?.type === 'currency' || fieldDef?.type === 'number' ? 'number' : 'text';
 
           return (
-            <div key={filter.id} className="flex flex-wrap items-center gap-2 bg-white border border-gray-200 rounded px-2 py-1.5">
+            <div key={filter.id} className="flex flex-wrap items-center gap-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded px-2 py-1.5">
               {/* Field selector */}
               <select
                 value={filter.field}
                 onChange={e => updateFilter(filter.id, { field: e.target.value, operator: 'equals', value: '', value2: '' })}
-                className="text-xs border border-gray-200 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                className="text-xs border border-gray-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-teal-400"
               >
                 <option value="">Select field...</option>
                 {filterableFields.map(f => (
@@ -120,7 +120,7 @@ export function ReportBuilderFilters({ filters, availableFields, onChange }: Pro
               <select
                 value={filter.operator}
                 onChange={e => updateFilter(filter.id, { operator: e.target.value, value: '', value2: '' })}
-                className="text-xs border border-gray-200 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                className="text-xs border border-gray-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-teal-400"
               >
                 {operators.map(o => (
                   <option key={o.value} value={o.value}>{o.label}</option>
@@ -134,25 +134,25 @@ export function ReportBuilderFilters({ filters, availableFields, onChange }: Pro
                   value={filter.value}
                   onChange={e => updateFilter(filter.id, { value: e.target.value })}
                   placeholder="Value"
-                  className="text-xs border border-gray-200 rounded px-1.5 py-1 w-28 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                  className="text-xs border border-gray-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 rounded px-1.5 py-1 w-28 focus:outline-none focus:ring-1 focus:ring-teal-400"
                 />
               )}
               {showRange && (
                 <>
-                  <span className="text-xs text-gray-400">and</span>
+                  <span className="text-xs text-gray-600 dark:text-gray-400 dark:text-slate-500">and</span>
                   <input
                     type={inputType}
                     value={filter.value2}
                     onChange={e => updateFilter(filter.id, { value2: e.target.value })}
                     placeholder="End value"
-                    className="text-xs border border-gray-200 rounded px-1.5 py-1 w-28 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                    className="text-xs border border-gray-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 rounded px-1.5 py-1 w-28 focus:outline-none focus:ring-1 focus:ring-teal-400"
                   />
                 </>
               )}
 
               <button
                 onClick={() => removeFilter(filter.id)}
-                className="ml-auto text-gray-400 hover:text-red-500 transition-colors"
+                className="ml-auto text-gray-600 dark:text-gray-400 dark:text-slate-500 hover:text-red-500 dark:hover:text-red-400 transition-colors"
                 title="Remove filter"
               >
                 <X className="w-3.5 h-3.5" />

@@ -162,7 +162,7 @@ export function ExternalMigrationWizard({ source, onDone, onBack }: Props) {
           <FileUploadZone label="Suppliers" hint={hints.suppliers} count={suppliers.length} loading={parsing === 'suppliers'} onFile={f => parseFile(f, 'suppliers')} />
           <div className="flex items-center justify-between pt-2">
             <button onClick={onBack} className="text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] underline">Back</button>
-            <button onClick={() => setStep('mapping')} disabled={accounts.length === 0} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium disabled:opacity-50">
+            <button onClick={() => setStep('mapping')} disabled={accounts.length === 0} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium disabled:opacity-50">
               Next: Map Accounts <ArrowRight className="h-4 w-4" />
             </button>
           </div>
@@ -174,7 +174,7 @@ export function ExternalMigrationWizard({ source, onDone, onBack }: Props) {
           <AccountMappingTable accounts={accounts} onChange={setAccounts} onAutoMap={runAutoMap} autoMapping={autoMapping} />
           <div className="flex items-center justify-between pt-2">
             <button onClick={() => setStep('upload')} className="text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] underline">Back</button>
-            <button onClick={() => setStep('review')} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium">
+            <button onClick={() => setStep('review')} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium">
               Next: Review <ArrowRight className="h-4 w-4" />
             </button>
           </div>
@@ -224,7 +224,7 @@ export function ExternalMigrationWizard({ source, onDone, onBack }: Props) {
           </div>
 
           {verifyResults.length === 0 ? (
-            <button onClick={runVerify} disabled={verifying} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium disabled:opacity-50">
+            <button onClick={runVerify} disabled={verifying} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium disabled:opacity-50">
               {verifying && <Loader2 className="h-4 w-4 animate-spin" />}
               Verify Balances
             </button>

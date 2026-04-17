@@ -285,10 +285,7 @@ export default function AdminCompanyDetailPage() {
           <div className="flex gap-1 mb-5 border-b border-gray-200 dark:border-gray-700">
             {(['info', 'users', 'features', 'billing'] as const).map(tab => (
               <button key={tab} onClick={() => setActiveTab(tab)}
-                className={`px-4 py-2 text-sm font-medium capitalize border-b-2 -mb-px transition-colors ${
-                  activeTab === tab
-                    ? 'border-teal-500 text-teal-600 dark:text-teal-400'
-                    : 'border-transparent text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}>
+                className={`px-4 py-2 text-sm font-medium capitalize border-b-2 -mb-px transition-colors ${ activeTab === tab ? 'border-teal-500 text-teal-600 dark:text-teal-400' : 'border-transparent text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}>
                 {tab}
               </button>
             ))}
@@ -335,7 +332,7 @@ export default function AdminCompanyDetailPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {users.length === 0 && <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-400">No users</td></tr>}
+                        {users.length === 0 && <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-600 dark:text-gray-400">No users</td></tr>}
                         {users.map(u => (
                           <tr key={u.id} className="border-b border-gray-100 dark:border-gray-800 last:border-0">
                             <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{u.first_name} {u.last_name}</td>
@@ -373,17 +370,13 @@ export default function AdminCompanyDetailPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {features.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400">No feature flags configured</td></tr>}
+                        {features.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-600 dark:text-gray-400">No feature flags configured</td></tr>}
                         {features.map(f => (
                           <tr key={f.id} className="border-b border-gray-100 dark:border-gray-800 last:border-0">
                             <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{f.name}</td>
                             <td className="px-4 py-3 font-mono text-xs text-gray-500 dark:text-gray-400">{f.code}</td>
                             <td className="px-4 py-3">
-                              <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                                f.source === 'override' ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400'
-                                : f.source === 'global' ? 'bg-teal-500/10 text-teal-600 dark:text-teal-400'
-                                : 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
-                              }`}>
+                              <span className={`px-2 py-0.5 rounded text-xs font-medium ${ f.source === 'override' ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400' : f.source === 'global' ? 'bg-teal-500/10 text-teal-600 dark:text-teal-400' : 'bg-blue-500/10 text-blue-600 dark:text-blue-400' }`}>
                                 {f.source}
                               </span>
                             </td>
@@ -394,10 +387,10 @@ export default function AdminCompanyDetailPage() {
                                 className="inline-flex items-center justify-center disabled:opacity-50 transition-colors"
                               >
                                 {featureActionId === f.id
-                                  ? <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+                                  ? <Loader2 className="w-5 h-5 animate-spin text-gray-600 dark:text-gray-400" />
                                   : f.enabled
                                     ? <ToggleRight className="w-6 h-6 text-teal-500" />
-                                    : <ToggleLeft className="w-6 h-6 text-gray-400" />
+                                    : <ToggleLeft className="w-6 h-6 text-gray-600 dark:text-gray-400" />
                                 }
                               </button>
                             </td>
@@ -407,7 +400,7 @@ export default function AdminCompanyDetailPage() {
                                   title="Reset to default"
                                   onClick={() => void handleFeatureClearOverride(f)}
                                   disabled={featureActionId === f.id}
-                                  className="p-1 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                                  className="p-1 rounded text-gray-600 dark:text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors disabled:opacity-50"
                                 >
                                   <RotateCcw className="w-4 h-4" />
                                 </button>

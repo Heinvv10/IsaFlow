@@ -387,7 +387,7 @@ function MigrationStep({ step, icon, title, desc, progress, complete, onRun, onR
           <button
             onClick={onRun}
             disabled={loading || disabled}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium disabled:opacity-50"
             title={disabled ? disabledReason : undefined}
           >
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}

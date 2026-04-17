@@ -28,7 +28,7 @@ function PctCell({ value, isM0 }: { value: number; isM0?: boolean }) {
   if (isM0) {
     // M0 is always 100% by definition if they signed up that month — skip heatmap
     return (
-      <td className="px-4 py-2.5 text-center text-xs font-semibold text-gray-400">
+      <td className="px-4 py-2.5 text-center text-xs font-semibold text-gray-600 dark:text-gray-400">
         {value > 0 ? `${value}%` : '—'}
       </td>
     );
@@ -43,7 +43,7 @@ function PctCell({ value, isM0 }: { value: number; isM0?: boolean }) {
 export function CohortRetentionTable({ data }: Props) {
   if (data.length === 0) {
     return (
-      <div className="flex items-center justify-center py-8 text-gray-400 text-sm">
+      <div className="flex items-center justify-center py-8 text-gray-600 dark:text-gray-400 text-sm">
         No cohort data available yet
       </div>
     );
@@ -82,7 +82,7 @@ export function CohortRetentionTable({ data }: Props) {
           ))}
         </tbody>
       </table>
-      <p className="px-4 py-2 text-xs text-gray-400 dark:text-gray-500 border-t border-gray-100 dark:border-gray-800">
+      <p className="px-4 py-2 text-xs text-gray-600 dark:text-gray-400 dark:text-gray-500 border-t border-gray-100 dark:border-gray-800">
         Retention at end of each month after signup. Red line at 5% churn is benchmark.
       </p>
     </div>

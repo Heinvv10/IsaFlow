@@ -11,14 +11,14 @@ export function LandingTrustBar() {
   return (
     <section className="bg-white py-12 border-b border-gray-100">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-        <p className="text-xs font-semibold tracking-widest uppercase text-gray-400 mb-8">
+        <p className="text-xs font-semibold tracking-widest uppercase text-gray-600 dark:text-gray-400 mb-8">
           Trusted by businesses worldwide
         </p>
         <div className="flex flex-wrap items-center justify-center gap-8 lg:gap-12">
           {TRUST_COMPANIES.map((name) => (
             <div
               key={name}
-              className="text-sm font-semibold text-gray-300 tracking-wide"
+              className="text-sm font-semibold text-gray-700 dark:text-gray-300 tracking-wide"
             >
               {name}
             </div>
@@ -50,15 +50,11 @@ export function LandingPricing() {
           {PRICING_TIERS.map((tier) => (
             <div
               key={tier.name}
-              className={`relative rounded-2xl p-8 ${
-                tier.popular
-                  ? 'bg-gray-900 text-white shadow-2xl shadow-gray-900/20 ring-2 ring-teal-500'
-                  : 'bg-white border border-gray-200 shadow-sm'
-              }`}
+              className={`relative rounded-2xl p-8 ${ tier.popular ? 'bg-gray-900 text-slate-900 dark:text-white shadow-2xl shadow-gray-900/20 ring-2 ring-teal-500' : 'bg-white border border-gray-200 shadow-sm' }`}
             >
               {tier.popular && (
                 <div className="absolute -top-4 left-1/2 -translate-x-1/2">
-                  <span className="inline-flex items-center gap-1 px-4 py-1.5 rounded-full bg-gradient-to-r from-teal-500 to-cyan-500 text-white text-xs font-bold shadow-lg">
+                  <span className="inline-flex items-center gap-1 px-4 py-1.5 rounded-full bg-gradient-to-r from-teal-500 to-cyan-500 text-slate-900 dark:text-white text-xs font-bold shadow-lg">
                     <Star className="w-3 h-3 fill-white" /> MOST POPULAR
                   </span>
                 </div>
@@ -87,11 +83,7 @@ export function LandingPricing() {
               </ul>
               <a
                 href={tier.name === 'Enterprise' ? '#contact' : `${APP_URL}/register`}
-                className={`block w-full text-center py-3 rounded-xl text-sm font-semibold transition-all ${
-                  tier.popular
-                    ? 'bg-gradient-to-r from-teal-500 to-cyan-500 text-white hover:from-teal-600 hover:to-cyan-600 shadow-lg shadow-teal-500/25'
-                    : 'bg-gray-900 text-white hover:bg-gray-800'
-                }`}
+                className={`block w-full text-center py-3 rounded-xl text-sm font-semibold transition-all ${ tier.popular ? 'bg-gradient-to-r from-teal-500 to-cyan-500 text-slate-900 dark:text-white hover:from-teal-600 hover:to-cyan-600 shadow-lg shadow-teal-500/25' : 'bg-gray-900 text-slate-900 dark:text-white hover:bg-gray-800' }`}
               >
                 {tier.cta}
               </a>
@@ -122,13 +114,13 @@ export function LandingTestimonials() {
 
         {/* Featured testimonial */}
         {featured && (
-          <div className="bg-gray-900 rounded-3xl p-10 lg:p-14 mb-8 text-center max-w-4xl mx-auto">
+          <div className="bg-white dark:bg-gray-900 rounded-3xl p-10 lg:p-14 mb-8 text-center max-w-4xl mx-auto">
             <div className="flex justify-center mb-6">
               {Array.from({ length: featured.stars }).map((_, i) => (
                 <Star key={i} className="w-5 h-5 text-teal-400 fill-teal-400" />
               ))}
             </div>
-            <blockquote className="text-xl lg:text-2xl font-medium text-white leading-relaxed mb-8">
+            <blockquote className="text-xl lg:text-2xl font-medium text-slate-900 dark:text-white leading-relaxed mb-8">
               "{featured.quote}"
             </blockquote>
             {featured.metric && (
@@ -137,8 +129,8 @@ export function LandingTestimonials() {
               </div>
             )}
             <div>
-              <p className="font-semibold text-white">{featured.name}</p>
-              <p className="text-sm text-gray-400">{featured.role}, {featured.company}</p>
+              <p className="font-semibold text-slate-900 dark:text-white">{featured.name}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">{featured.role}, {featured.company}</p>
             </div>
           </div>
         )}
@@ -157,7 +149,7 @@ export function LandingTestimonials() {
               </blockquote>
               <div>
                 <p className="font-semibold text-gray-900 text-sm">{t.name}</p>
-                <p className="text-xs text-gray-400">{t.role}, {t.company}</p>
+                <p className="text-xs text-gray-600 dark:text-gray-400">{t.role}, {t.company}</p>
               </div>
             </div>
           ))}
@@ -188,9 +180,7 @@ export function LandingFAQ({ openFaq, onToggle }: FAQProps) {
               >
                 <span className="font-semibold text-gray-900 text-sm">{item.q}</span>
                 <ChevronDown
-                  className={`w-5 h-5 text-gray-400 flex-shrink-0 ml-4 transition-transform duration-200 ${
-                    openFaq === i ? 'rotate-180' : ''
-                  }`}
+                  className={`w-5 h-5 text-gray-600 dark:text-gray-400 flex-shrink-0 ml-4 transition-transform duration-200 ${ openFaq === i ? 'rotate-180' : '' }`}
                 />
               </button>
               {openFaq === i && (
@@ -209,12 +199,12 @@ export function LandingFAQ({ openFaq, onToggle }: FAQProps) {
 // ── Closing CTA ────────────────────────────────────────────────────────────
 export function LandingCTA() {
   return (
-    <section className="py-20 lg:py-28 bg-gray-900">
+    <section className="py-20 lg:py-28 bg-white dark:bg-gray-900">
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-        <h2 className="text-4xl sm:text-5xl font-extrabold text-white tracking-tight mb-4">
+        <h2 className="text-4xl sm:text-5xl font-extrabold text-slate-900 dark:text-white tracking-tight mb-4">
           Ready to take control<br />of your finances?
         </h2>
-        <p className="text-lg text-gray-400 mb-10">
+        <p className="text-lg text-gray-600 dark:text-gray-400 mb-10">
           Start your free 14-day trial today. No credit card required.
         </p>
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -226,7 +216,7 @@ export function LandingCTA() {
           </a>
           <a
             href="#contact"
-            className="inline-flex items-center gap-2 px-8 py-4 text-base font-semibold text-white border border-white/30 rounded-xl hover:bg-white/5 transition-all"
+            className="inline-flex items-center gap-2 px-8 py-4 text-base font-semibold text-slate-900 dark:text-white border border-white/30 rounded-xl hover:bg-white/5 transition-all"
           >
             Book a Demo
           </a>
@@ -239,7 +229,7 @@ export function LandingCTA() {
 // ── Footer ─────────────────────────────────────────────────────────────────
 export function LandingFooter() {
   return (
-    <footer className="bg-gray-900 border-t border-white/10 py-12">
+    <footer className="bg-white dark:bg-gray-900 border-t border-white/10 py-12">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-3">

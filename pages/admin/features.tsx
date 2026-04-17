@@ -128,12 +128,12 @@ export default function AdminFeaturesPage() {
           <button
             onClick={() => void bulkSetGlobal(false)}
             disabled={bulkWorking}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-200 dark:bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-slate-900 dark:text-white text-xs font-medium rounded-lg transition-colors"
           >
             {bulkWorking ? <Loader2 className="w-3 h-3 animate-spin" /> : <ToggleLeft className="w-3.5 h-3.5" />}
             Disable Selected
           </button>
-          <button onClick={() => setSelected(new Set())} className="text-xs text-gray-400 hover:text-gray-200 ml-1">
+          <button onClick={() => setSelected(new Set())} className="text-xs text-gray-600 dark:text-gray-400 hover:text-gray-200 ml-1">
             Clear
           </button>
         </div>
@@ -176,7 +176,7 @@ export default function AdminFeaturesPage() {
               )}
               {!loading && flags.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-gray-400">No feature flags found</td>
+                  <td colSpan={7} className="px-4 py-12 text-center text-gray-600 dark:text-gray-400">No feature flags found</td>
                 </tr>
               )}
               {flags.map((flag) => (

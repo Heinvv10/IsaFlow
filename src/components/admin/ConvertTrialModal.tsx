@@ -83,7 +83,7 @@ export function ConvertTrialModal({ companyId, companyName, onClose, onConverted
           </h2>
           <button
             onClick={onClose}
-            className="p-1.5 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            className="p-1.5 rounded text-gray-600 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
@@ -100,7 +100,7 @@ export function ConvertTrialModal({ companyId, companyName, onClose, onConverted
               <Loader2 className="w-5 h-5 animate-spin text-teal-500" />
             </div>
           ) : plans.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-4">No plans available</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400 text-center py-4">No plans available</p>
           ) : (
             <div className="space-y-2">
               <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">

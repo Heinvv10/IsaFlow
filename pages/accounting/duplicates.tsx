@@ -9,6 +9,7 @@ import { useCompany } from '@/contexts/CompanyContext';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { Copy, Merge, Loader2, AlertCircle, CheckCircle, X } from 'lucide-react';
+import { PageHeader } from '@/components/ui';
 import { MergeDialog } from '@/components/accounting/duplicates/MergeDialog';
 import type { MergeDialogState } from '@/components/accounting/duplicates/MergeDialog';
 import type { DuplicatePair, DuplicateEntity } from '@/modules/accounting/services/core/duplicateDetectionService';
@@ -175,24 +176,21 @@ export default function DuplicatesPage() {
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         <div className="max-w-5xl mx-auto px-4 py-8">
 
-          {/* Header */}
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-3">
-              <Copy className="h-6 w-6 text-teal-500" />
-              <div>
-                <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Duplicate Detection</h1>
-                <p className="text-sm text-[var(--ff-text-muted)] mt-0.5">Find and merge duplicate customers, suppliers, and items</p>
-              </div>
-            </div>
-            <button
-              onClick={() => void handleScan()}
-              disabled={loading}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-teal-600 text-white text-sm font-medium hover:bg-teal-700 transition-colors disabled:opacity-50"
-            >
-              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />}
-              {loading ? 'Scanning…' : 'Scan for Duplicates'}
-            </button>
-          </div>
+          <PageHeader
+            icon={Copy}
+            title="Duplicate Detection"
+            subtitle="Find and merge duplicate customers, suppliers, and items"
+            actions={
+              <button
+                onClick={() => void handleScan()}
+                disabled={loading}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium transition-colors disabled:opacity-50"
+              >
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />}
+                {loading ? 'Scanning…' : 'Scan for Duplicates'}
+              </button>
+            }
+          />
 
           {/* Banners */}
           {mergeSuccess && (

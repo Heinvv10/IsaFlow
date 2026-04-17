@@ -93,12 +93,12 @@ export default function NewPurchaseOrderPage() {
           <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
           <div className="absolute -top-12 right-8 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
           <div className="relative z-10">
-            <Link href="/accounting/purchase-orders" className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 mb-4 transition-colors">
+            <Link href="/accounting/purchase-orders" className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-200 mb-4 transition-colors">
               <ArrowLeft className="h-3.5 w-3.5" /> Back to Purchase Orders
             </Link>
             <div>
               <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-0.5">New Document</p>
-              <h1 className="text-xl font-bold text-white">Purchase Order</h1>
+              <h1 className="text-xl font-bold text-slate-900 dark:text-white">Purchase Order</h1>
             </div>
           </div>
         </div>
@@ -142,7 +142,7 @@ export default function NewPurchaseOrderPage() {
                     <span className="w-5 h-5 rounded bg-amber-500/10 flex items-center justify-center text-amber-500 text-xs font-bold">2</span>
                     Line Items
                   </h3>
-                  <button type="button" onClick={addItem} className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-white font-semibold transition-colors">
+                  <button type="button" onClick={addItem} className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-semibold transition-colors">
                     <Plus className="h-3 w-3" />Add Line
                   </button>
                 </div>
@@ -167,7 +167,7 @@ export default function NewPurchaseOrderPage() {
                           <td className="px-3 py-2"><input type="number" name="taxRate" min="0" step="0.01" value={item.taxRate} onChange={e => updateItem(item.key, 'taxRate', e.target.value)} className={`${inp} text-right`} /></td>
                           <td className="px-4 py-2 text-right font-mono text-sm font-semibold text-slate-800 dark:text-slate-200">{fmt(lineTotal(item))}</td>
                           <td className="px-2 py-2">
-                            <button type="button" onClick={() => removeItem(item.key)} className="p-1.5 rounded-lg text-slate-300 dark:text-slate-700 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors opacity-0 group-hover:opacity-100">
+                            <button type="button" onClick={() => removeItem(item.key)} className="p-1.5 rounded-lg text-slate-700 dark:text-slate-300 dark:text-slate-700 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors opacity-0 group-hover:opacity-100">
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
                           </td>
@@ -208,7 +208,7 @@ export default function NewPurchaseOrderPage() {
                       <span className="font-mono font-bold text-lg text-amber-500">{fmt(subtotal + tax)}</span>
                     </div>
                   </div>
-                  <button type="submit" disabled={saving} onClick={() => setSaveAndNew(false)} className="w-full mt-6 py-3 bg-amber-500 hover:bg-amber-400 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                  <button type="submit" disabled={saving} onClick={() => setSaveAndNew(false)} className="w-full mt-6 py-3 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
                     {saving && !saveAndNew ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : 'Create Purchase Order'}
                   </button>
                   <button type="submit" disabled={saving} onClick={() => setSaveAndNew(true)} className="w-full mt-2 py-2.5 border border-amber-500 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 font-semibold rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-sm">

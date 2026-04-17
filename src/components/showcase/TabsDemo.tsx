@@ -9,7 +9,7 @@ import { Tabs } from '@/components/ui';
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
+      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-600 dark:text-gray-400 dark:text-gray-500">
         {label}
       </p>
       {children}

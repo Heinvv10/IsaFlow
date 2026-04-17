@@ -86,8 +86,8 @@ export default function TaxDirectivesPage() {
                 <FileText className="h-5 w-5 text-teal-400" />
               </div>
               <div>
-                <h1 className="text-xl font-semibold text-white">Tax Directives</h1>
-                <p className="text-sm text-gray-400">SARS lump sum, retirement, severance & death directives</p>
+                <h1 className="text-xl font-semibold text-slate-900 dark:text-white">Tax Directives</h1>
+                <p className="text-sm text-gray-600 dark:text-gray-400">SARS lump sum, retirement, severance & death directives</p>
               </div>
             </div>
             <button
@@ -124,7 +124,7 @@ export default function TaxDirectivesPage() {
               </div>
 
               {/* Directives table */}
-              <div className="bg-gray-800 border border-gray-700 rounded-xl overflow-hidden">
+              <div className="bg-slate-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl overflow-hidden">
                 {loading ? (
                   <div className="flex items-center justify-center py-20">
                     <Loader2 className="h-8 w-8 animate-spin text-teal-400" />
@@ -139,33 +139,33 @@ export default function TaxDirectivesPage() {
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
-                        <tr className="border-b border-gray-700 bg-gray-750">
-                          <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">Employee</th>
-                          <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">Type</th>
-                          <th className="text-right px-4 py-3 text-xs font-medium text-gray-400">Amount</th>
-                          <th className="text-right px-4 py-3 text-xs font-medium text-gray-400">Rate / Table</th>
-                          <th className="text-right px-4 py-3 text-xs font-medium text-gray-400">Tax Amount</th>
-                          <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">Effective Date</th>
-                          <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">Status</th>
-                          <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">Actions</th>
+                        <tr className="border-b border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-750">
+                          <th className="text-left px-4 py-3 text-xs font-medium text-gray-600 dark:text-gray-400">Employee</th>
+                          <th className="text-left px-4 py-3 text-xs font-medium text-gray-600 dark:text-gray-400">Type</th>
+                          <th className="text-right px-4 py-3 text-xs font-medium text-gray-600 dark:text-gray-400">Amount</th>
+                          <th className="text-right px-4 py-3 text-xs font-medium text-gray-600 dark:text-gray-400">Rate / Table</th>
+                          <th className="text-right px-4 py-3 text-xs font-medium text-gray-600 dark:text-gray-400">Tax Amount</th>
+                          <th className="text-left px-4 py-3 text-xs font-medium text-gray-600 dark:text-gray-400">Effective Date</th>
+                          <th className="text-left px-4 py-3 text-xs font-medium text-gray-600 dark:text-gray-400">Status</th>
+                          <th className="text-left px-4 py-3 text-xs font-medium text-gray-600 dark:text-gray-400">Actions</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-700">
+                      <tbody className="divide-y divide-gray-300 dark:divide-gray-700">
                         {directives.map(d => (
-                          <tr key={d.id} className="hover:bg-gray-700/30 transition-colors">
+                          <tr key={d.id} className="hover:bg-gray-100 dark:hover:bg-gray-700/30 transition-colors">
                             <td className="px-4 py-3">
-                              <div className="text-white font-medium">{d.employee_name}</div>
+                              <div className="text-slate-900 dark:text-white font-medium">{d.employee_name}</div>
                               {d.employee_tax_number && (
-                                <div className="text-xs text-gray-400">{d.employee_tax_number}</div>
+                                <div className="text-xs text-gray-600 dark:text-gray-400">{d.employee_tax_number}</div>
                               )}
                             </td>
-                            <td className="px-4 py-3 capitalize text-gray-300">
+                            <td className="px-4 py-3 capitalize text-gray-700 dark:text-gray-300">
                               {d.directive_type.replace('_', ' ')}
                             </td>
-                            <td className="px-4 py-3 text-right text-gray-200">
+                            <td className="px-4 py-3 text-right text-gray-800 dark:text-gray-200">
                               {fmtCurrency(Number(d.amount))}
                             </td>
-                            <td className="px-4 py-3 text-right text-gray-400">
+                            <td className="px-4 py-3 text-right text-gray-600 dark:text-gray-400">
                               {d.tax_rate !== null
                                 ? `${(Number(d.tax_rate) * 100).toFixed(2)}%`
                                 : 'SARS table'}
@@ -173,7 +173,7 @@ export default function TaxDirectivesPage() {
                             <td className="px-4 py-3 text-right text-red-400">
                               {d.tax_amount !== null ? fmtCurrency(Number(d.tax_amount)) : '—'}
                             </td>
-                            <td className="px-4 py-3 text-gray-300">{fmtDate(d.effective_date)}</td>
+                            <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{fmtDate(d.effective_date)}</td>
                             <td className="px-4 py-3">
                               <span className={`inline-block px-2 py-0.5 text-xs rounded-full capitalize ${STATUS_COLORS[d.status] ?? ''}`}>
                                 {d.status}

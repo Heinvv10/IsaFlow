@@ -42,13 +42,13 @@ function InvoiceHeaderPreview({ state }: { state: WizardState }) {
         <div>
           {state.logoData
             ? <img src={state.logoData} alt="Logo" className="w-12 h-12 object-contain rounded mb-1" />
-            : <div className="w-12 h-12 bg-gray-200 dark:bg-gray-700 rounded flex items-center justify-center text-gray-400 text-[10px] mb-1">Logo</div>}
+            : <div className="w-12 h-12 bg-gray-200 dark:bg-gray-700 rounded flex items-center justify-center text-gray-600 dark:text-gray-400 text-[10px] mb-1">Logo</div>}
           <p className="font-semibold text-gray-800 dark:text-gray-100">{state.companyName || 'Your Company Name'}</p>
         </div>
         <div className="text-right">
           <p className="text-base font-bold text-teal-600 dark:text-teal-400">INVOICE</p>
           <p className="text-gray-500 dark:text-gray-400">{num}</p>
-          <p className="text-gray-400 dark:text-gray-500">{new Date().toLocaleDateString('en-ZA')}</p>
+          <p className="text-gray-600 dark:text-gray-400 dark:text-gray-500">{new Date().toLocaleDateString('en-ZA')}</p>
         </div>
       </div>
     </div>
@@ -72,15 +72,15 @@ function Step1({ state, setState }: { state: WizardState; setState: SetState }) 
           <div className="relative inline-block">
             <img src={state.logoData} alt="Logo" className="w-20 h-20 object-contain rounded-lg border border-gray-300 dark:border-gray-600" />
             <button type="button" onClick={() => setState(s => ({ ...s, logoData: '' }))} className="absolute -top-2 -right-2 bg-red-600 rounded-full p-0.5 hover:bg-red-500">
-              <X className="w-3 h-3 text-white" />
+              <X className="w-3 h-3 text-slate-900 dark:text-white" />
             </button>
           </div>
         ) : (
           <div onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
             onClick={() => fileRef.current?.click()} className="border-2 border-dashed border-gray-400 dark:border-gray-600 rounded-lg p-6 text-center cursor-pointer hover:border-teal-500 transition-colors">
-            <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+            <Upload className="w-8 h-8 text-gray-600 dark:text-gray-400 mx-auto mb-2" />
             <p className="text-sm text-gray-500 dark:text-gray-400">Drop logo here or click to browse</p>
-            <p className="text-xs text-gray-400 mt-1">PNG, JPG, WebP — max 2 MB</p>
+            <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">PNG, JPG, WebP — max 2 MB</p>
           </div>
         )}
         <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
@@ -122,7 +122,7 @@ function Step3({ state, setState }: { state: WizardState; setState: SetState }) 
         <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Your next invoice number will be</p>
         <p className="text-2xl font-bold text-teal-600 dark:text-teal-400 tracking-wide">{preview}</p>
       </div>
-      <p className="text-xs text-gray-400 dark:text-gray-500">The number increments automatically with each new invoice.</p>
+      <p className="text-xs text-gray-600 dark:text-gray-400 dark:text-gray-500">The number increments automatically with each new invoice.</p>
     </div>
   );
 }
@@ -147,7 +147,7 @@ export function FirstInvoiceWizard() {
         {step === 2 && <Step3 state={state} setState={setState} />}
       </Modal.Body>
       <Modal.Footer className="justify-between">
-        <button type="button" onClick={dismiss} className="text-sm text-gray-400 hover:text-gray-300 transition-colors">
+        <button type="button" onClick={dismiss} className="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-300 transition-colors">
           Skip for now
         </button>
         <div className="flex gap-2">

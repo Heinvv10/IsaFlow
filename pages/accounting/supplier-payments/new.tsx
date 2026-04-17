@@ -106,7 +106,7 @@ export default function NewSupplierPaymentPage() {
           <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
           <div className="absolute -top-12 right-8 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
           <div className="relative z-10">
-            <Link href="/accounting/supplier-payments" className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 mb-4 transition-colors">
+            <Link href="/accounting/supplier-payments" className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-200 mb-4 transition-colors">
               <ArrowLeft className="h-3.5 w-3.5" /> Back to Payments
             </Link>
             <div className="flex items-center justify-between">
@@ -114,7 +114,7 @@ export default function NewSupplierPaymentPage() {
                 <div className="w-10 h-10 rounded-xl bg-amber-500/15 flex items-center justify-center"><Wallet className="w-5 h-5 text-amber-400" /></div>
                 <div>
                   <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-0.5">New Document</p>
-                  <h1 className="text-xl font-bold text-white">New Supplier Payment</h1>
+                  <h1 className="text-xl font-bold text-slate-900 dark:text-white">New Supplier Payment</h1>
                 </div>
               </div>
               <ScanAndFillButton onExtracted={handleExtracted} label="Scan Document" />
@@ -172,7 +172,7 @@ export default function NewSupplierPaymentPage() {
                     <span className="w-5 h-5 rounded bg-amber-500/10 flex items-center justify-center text-amber-500 text-xs font-bold">2</span>
                     Invoice Allocations
                   </h3>
-                  <button type="button" onClick={addAllocation} className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-white font-semibold transition-colors">
+                  <button type="button" onClick={addAllocation} className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-semibold transition-colors">
                     <Plus className="h-3 w-3" /> Add Allocation
                   </button>
                 </div>
@@ -203,7 +203,7 @@ export default function NewSupplierPaymentPage() {
                         </div>
                         <div className="col-span-1 flex justify-center">
                           {allocations.length > 1 && (
-                            <button type="button" onClick={() => removeAllocation(alloc.key)} className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-400 hover:text-red-500 transition-colors"><Trash2 className="h-4 w-4" /></button>
+                            <button type="button" onClick={() => removeAllocation(alloc.key)} className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-500 dark:text-slate-400 hover:text-red-500 transition-colors"><Trash2 className="h-4 w-4" /></button>
                           )}
                         </div>
                       </div>
@@ -236,11 +236,11 @@ export default function NewSupplierPaymentPage() {
                       <span className="font-mono font-bold text-lg text-amber-500">{formatCurrency(totalAmount)}</span>
                     </div>
                   </div>
-                  <button type="submit" disabled={isSubmitting || totalAmount <= 0} className="w-full mt-6 py-3 bg-amber-500 hover:bg-amber-400 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                  <button type="submit" disabled={isSubmitting || totalAmount <= 0} className="w-full mt-6 py-3 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
                     {isSubmitting ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : <><Wallet className="h-4 w-4" />Create Payment</>}
                   </button>
                 </div>
-                <p className="text-xs text-slate-400 dark:text-slate-500 text-center px-2 mt-3">Payment will be recorded and allocated to the selected invoices.</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 text-center px-2 mt-3">Payment will be recorded and allocated to the selected invoices.</p>
               </div>
             </div>
           </div>

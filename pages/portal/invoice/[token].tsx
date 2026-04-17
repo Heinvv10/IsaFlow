@@ -88,7 +88,7 @@ function PayModal({ onClose, paymentInstructions, accentColor }: {
         )}
         <button
           onClick={onClose}
-          className="w-full text-white font-medium text-sm px-4 py-2.5 rounded-lg transition-colors"
+          className="w-full text-slate-900 dark:text-white font-medium text-sm px-4 py-2.5 rounded-lg transition-colors"
           style={{ backgroundColor: accentColor }}
         >
           Close
@@ -129,7 +129,7 @@ export default function PortalInvoicePage({ invoice, token, isOverdue }: PortalI
                 <img src={invoice.company_logo_url} alt={headerName} className="h-8 w-auto object-contain" />
               ) : (
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: accentColor }}>
-                  <FileText className="w-4 h-4 text-white" />
+                  <FileText className="w-4 h-4 text-slate-900 dark:text-white" />
                 </div>
               )}
               <span className="font-semibold text-gray-900 text-sm">{headerName}</span>
@@ -248,7 +248,7 @@ export default function PortalInvoicePage({ invoice, token, isOverdue }: PortalI
             {canPay && (
               <button
                 onClick={() => setShowPayModal(true)}
-                className="inline-flex items-center gap-2 px-5 py-2.5 text-white font-medium text-sm rounded-xl transition-colors shadow-sm hover:opacity-90"
+                className="inline-flex items-center gap-2 px-5 py-2.5 text-slate-900 dark:text-white font-medium text-sm rounded-xl transition-colors shadow-sm hover:opacity-90"
                 style={{ backgroundColor: accentColor }}
               >
                 <CreditCard className="h-4 w-4" />
@@ -267,7 +267,7 @@ export default function PortalInvoicePage({ invoice, token, isOverdue }: PortalI
           </div>
 
           {/* Footer */}
-          <p className="text-center text-xs text-gray-400 pb-8">
+          <p className="text-center text-xs text-gray-600 dark:text-gray-400 pb-8">
             Powered by ISAFlow &mdash; Cloud Accounting for South Africa
           </p>
         </div>

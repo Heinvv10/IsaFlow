@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ClipboardList, Plus, Search, Loader2, Trash2, Edit, X, FileText } from 'lucide-react';
+import { StatusPill, PageHeader } from '@/components/ui';
 import { apiFetch } from '@/lib/apiFetch';
 
 interface SalesOrder {
@@ -56,7 +57,7 @@ function CreateOrderModal({ customers, onClose, onCreated }: ModalProps) {
             <div className="w-9 h-9 rounded-xl bg-amber-500/10 flex items-center justify-center"><ClipboardList className="w-4 h-4 text-amber-500" /></div>
             <div><h2 className="text-base font-semibold text-slate-900 dark:text-white">New Sales Order</h2><p className="text-xs text-slate-500 dark:text-slate-400">Fill in the order details below</p></div>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition-colors"><X className="w-4 h-4" /></button>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition-colors"><X className="w-4 h-4" /></button>
         </div>
         <div className="p-6 space-y-5">
           <div className="grid grid-cols-2 gap-4">
@@ -93,7 +94,7 @@ function CreateOrderModal({ customers, onClose, onCreated }: ModalProps) {
                       <td className="px-2 py-2"><input type="number" value={l.quantity} min={1} onChange={e => { const n = [...lines]; n[i] = { ...l, quantity: Number(e.target.value) }; setLines(n); }} className={`${inp} text-right`} /></td>
                       <td className="px-2 py-2"><input type="number" value={l.unit_price} min={0} step={0.01} onChange={e => { const n = [...lines]; n[i] = { ...l, unit_price: Number(e.target.value) }; setLines(n); }} className={`${inp} text-right`} /></td>
                       <td className="px-3 py-2 text-right font-mono text-xs font-semibold text-slate-700 dark:text-slate-300">{fmt(l.quantity * l.unit_price)}</td>
-                      <td className="px-2 py-2"><button onClick={() => lines.length > 1 && setLines(lines.filter((_, j) => j !== i))} className="p-1 rounded text-slate-300 dark:text-slate-600 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button></td>
+                      <td className="px-2 py-2"><button onClick={() => lines.length > 1 && setLines(lines.filter((_, j) => j !== i))} className="p-1 rounded text-slate-700 dark:text-slate-300 dark:text-slate-600 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button></td>
                     </tr>
                   ))}
                 </tbody>
@@ -110,7 +111,7 @@ function CreateOrderModal({ customers, onClose, onCreated }: ModalProps) {
         </div>
         <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-2 bg-slate-50/50 dark:bg-slate-800/20">
           <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">Cancel</button>
-          <button onClick={handleCreate} disabled={saving || !form.customer_id || lines.every(l => !l.description)} className="px-5 py-2 text-sm font-semibold bg-amber-500 hover:bg-amber-400 text-white rounded-lg transition-colors disabled:opacity-40 flex items-center gap-2">
+          <button onClick={handleCreate} disabled={saving || !form.customer_id || lines.every(l => !l.description)} className="px-5 py-2 text-sm font-semibold bg-teal-600 hover:bg-teal-700 text-white rounded-lg transition-colors disabled:opacity-40 flex items-center gap-2">
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
             {saving ? 'Creating…' : 'Create Sales Order'}
           </button>
@@ -170,20 +171,16 @@ export default function CustomerSalesOrdersPage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-slate-50 dark:bg-[var(--ff-bg-primary)]">
-        <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-6 py-8">
-          <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
-          <div className="absolute -top-12 right-8 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="relative z-10 flex items-center justify-between">
-            <div>
-              <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-1">Customers</p>
-              <h1 className="text-2xl font-bold text-white">Customer Sales Orders</h1>
-              <p className="text-slate-400 text-sm mt-0.5">{total} {total === 1 ? 'order' : 'orders'}</p>
-            </div>
-            <button onClick={() => setShowNew(true)} className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-white rounded-xl text-sm font-semibold transition-colors shadow-lg shadow-amber-500/25">
+        <PageHeader
+          icon={ClipboardList}
+          title="Customer Sales Orders"
+          subtitle={`${total} ${total === 1 ? 'order' : 'orders'}`}
+          actions={
+            <button onClick={() => setShowNew(true)} className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-medium transition-colors">
               <Plus className="w-4 h-4" /> New Sales Order
             </button>
-          </div>
-        </div>
+          }
+        />
 
         <div className="p-6 space-y-4">
           {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>}
@@ -196,20 +193,20 @@ export default function CustomerSalesOrdersPage() {
               ))}
             </div>
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500 dark:text-slate-400" />
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search sales orders…" className="pl-9 pr-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 text-slate-900 dark:text-slate-100 transition-colors w-56" />
             </div>
           </div>
 
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
             {loading ? (
-              <div className="p-16 flex items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-slate-400" /></div>
+              <div className="p-16 flex items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-slate-500 dark:text-slate-400" /></div>
             ) : orders.length === 0 ? (
               <div className="p-16 text-center">
-                <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto mb-4"><ClipboardList className="w-7 h-7 text-slate-400" /></div>
+                <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto mb-4"><ClipboardList className="w-7 h-7 text-slate-500 dark:text-slate-400" /></div>
                 <h3 className="text-base font-semibold text-slate-900 dark:text-white">No sales orders found</h3>
                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Create your first sales order to get started</p>
-                <button onClick={() => setShowNew(true)} className="mt-5 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-white text-sm font-semibold rounded-lg transition-colors">New Sales Order</button>
+                <button onClick={() => setShowNew(true)} className="mt-5 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold rounded-lg transition-colors">New Sales Order</button>
               </div>
             ) : (
               <table className="w-full text-sm">
@@ -228,12 +225,12 @@ export default function CustomerSalesOrdersPage() {
                       <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{o.orderDate?.split('T')[0]}</td>
                       <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{o.deliveryDate?.split('T')[0] || '—'}</td>
                       <td className="px-5 py-3.5 text-right font-mono font-semibold text-slate-900 dark:text-white">{fmt(o.totalAmount)}</td>
-                      <td className="px-5 py-3.5"><span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${s(o).cls}`}>{s(o).label}</span></td>
+                      <td className="px-5 py-3.5"><StatusPill status={o.status} /></td>
                       <td className="px-4 py-3.5">
                         <div className="flex justify-end gap-1.5">
                           {o.status === 'draft' && (<>
-                            <button onClick={() => router.push(`/accounting/customer-sales-orders/${o.id}`)} title="Edit" className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 text-slate-400 hover:text-blue-500 transition-colors"><Edit className="h-3.5 w-3.5" /></button>
-                            <button onClick={() => void handleDelete(o.id)} disabled={deleting === o.id} title="Delete" className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-400 hover:text-red-500 transition-colors disabled:opacity-50">
+                            <button onClick={() => router.push(`/accounting/customer-sales-orders/${o.id}`)} title="Edit" className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 text-slate-500 dark:text-slate-400 hover:text-blue-500 transition-colors"><Edit className="h-3.5 w-3.5" /></button>
+                            <button onClick={() => void handleDelete(o.id)} disabled={deleting === o.id} title="Delete" className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-500 dark:text-slate-400 hover:text-red-500 transition-colors disabled:opacity-50">
                               {deleting === o.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                             </button>
                           </>)}

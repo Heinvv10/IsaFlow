@@ -27,7 +27,7 @@ function fmtMonth(dateStr: unknown) {
 export function ChurnTrendChart({ data }: Props) {
   if (data.length === 0) {
     return (
-      <div className="flex items-center justify-center h-48 text-gray-400 text-sm">
+      <div className="flex items-center justify-center h-48 text-gray-600 dark:text-gray-400 text-sm">
         No churn data available
       </div>
     );

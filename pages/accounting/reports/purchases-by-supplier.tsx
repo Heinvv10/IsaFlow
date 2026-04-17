@@ -60,7 +60,7 @@ export default function PurchasesBySupplierReport() {
               <span className="text-[var(--ff-text-tertiary)]">to</span>
               <input type="date" value={to} onChange={e => setTo(e.target.value)} className="ff-input text-sm" />
               <button onClick={() => window.open(`/api/accounting/reports/purchases-by-supplier?from=${from}&to=${to}&format=csv`, '_blank')}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-orange-600 hover:bg-orange-500 text-white rounded-lg">
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-teal-600 hover:bg-teal-700 text-white rounded-lg">
                 <Download className="h-4 w-4" /> CSV
               </button>
             </div>

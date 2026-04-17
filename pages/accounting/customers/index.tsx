@@ -6,8 +6,9 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Users, Loader2, AlertCircle, Plus, Search } from 'lucide-react';
+import { Users, Loader2, AlertCircle, Plus, Search, CheckCircle, XCircle } from 'lucide-react';
 import Link from 'next/link';
+import { KpiStrip } from '@/components/ui';
 import { apiFetch } from '@/lib/apiFetch';
 
 interface Customer {
@@ -95,6 +96,17 @@ export default function CustomersPage() {
         </div>
 
         <div className="p-6">
+          {!isLoading && customers.length > 0 && (() => {
+            const active = customers.filter(c => c.is_active).length;
+            const inactive = customers.length - active;
+            return (
+              <KpiStrip items={[
+                { label: 'Total Customers', value: customers.length, icon: Users, tone: 'info' },
+                { label: 'Active', value: active, icon: CheckCircle, tone: 'success' },
+                { label: 'Inactive', value: inactive, icon: XCircle, tone: inactive > 0 ? 'warning' : 'neutral' },
+              ]} />
+            );
+          })()}
           {/* Search bar */}
           <div className="flex items-center gap-3 mb-6">
             <div className="relative">

@@ -1,12 +1,11 @@
 /**
- * AccountingNav configuration — tab definitions and route resolution.
- * Standalone version: all routes are internal /accounting/* paths.
- * /clients routes replaced with /accounting/customers.
- * /suppliers routes replaced with /accounting/suppliers.
- * External links to /procurement/purchase-orders, /stock-items, /inventory removed.
+ * AccountingNav configuration — Option B: Sage/Xero-style 9-menu spine.
  *
- * Split into navSections/ for maintainability. This file re-exports everything
- * for backward compatibility.
+ * Top nav (left → right):
+ *   Dashboard · Sales · Purchases · Inventory · Banking · Accounting · Reports · Tax · Payroll
+ *
+ * Settings lives behind a cog icon in the AppLayout header (top-right), not in the
+ * main tab bar. The settingsTab below is exported for the cog flyout to consume.
  */
 
 // Import types (also re-exported below for backward compatibility)
@@ -19,32 +18,28 @@ export { isFlyout };
 // Re-export route helpers
 export { getActiveTabId, isLinkActive } from './navSections/activeTab';
 
-// Import section tabs
-import { customersTab } from './navSections/customers';
-import { suppliersTab } from './navSections/suppliers';
-import { itemsTab } from './navSections/items';
+// Option B section tabs
+import { salesTab } from './navSections/sales';
+import { purchasesTab } from './navSections/purchases';
+import { inventoryTab } from './navSections/inventory';
 import { bankingTab } from './navSections/banking';
-import { accountsTab, vatTab } from './navSections/generalLedger';
-import { accountantsTab } from './navSections/accountants';
-import { reportsTab, sarsTab } from './navSections/reports';
-import { toolsTab, groupTab } from './navSections/tools';
+import { accountingTab } from './navSections/accounting';
+import { reportsTab } from './navSections/reports';
+import { taxTab } from './navSections/tax';
 import { payrollTab } from './navSections/payroll';
-import { afsTab } from './navSections/afs';
+import { settingsTab } from './navSections/settings';
 
 export const TABS: Tab[] = [
   { id: 'dashboard', label: 'Dashboard', href: '/accounting' },
-  customersTab,
-  suppliersTab,
-  itemsTab,
+  salesTab,
+  purchasesTab,
+  inventoryTab,
   bankingTab,
-  accountsTab,
-  vatTab,
-  accountantsTab,
-  afsTab,
+  accountingTab,
   reportsTab,
-  sarsTab,
-  toolsTab,
-  groupTab,
-  { id: 'import', label: 'Data Import', href: '/accounting/migration' },
+  taxTab,
   payrollTab,
 ];
+
+// Settings tab — rendered behind the cog in the header, not in the main tab strip.
+export { settingsTab };

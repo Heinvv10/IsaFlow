@@ -125,7 +125,7 @@ export function SubscriptionCard({
         </div>
         <div className="flex items-center gap-2">
           <button onClick={onRefresh} title="Refresh"
-            className="p-1.5 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+            className="p-1.5 rounded text-gray-600 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
             <RefreshCw className="w-4 h-4" />
           </button>
           {isCancellable && (
@@ -179,7 +179,7 @@ export function SubscriptionCard({
 
 export function InvoiceTable({ invoices }: { invoices: Invoice[] }) {
   if (invoices.length === 0) {
-    return <div className="px-4 py-10 text-center text-sm text-gray-400">No invoices found.</div>;
+    return <div className="px-4 py-10 text-center text-sm text-gray-600 dark:text-gray-400">No invoices found.</div>;
   }
   return (
     <div className="overflow-x-auto">
@@ -230,9 +230,9 @@ export function NoSubscription({ companyId }: { companyId: string }) {
 
   return (
     <div className="bg-white dark:bg-gray-900 border border-dashed border-gray-300 dark:border-gray-700 rounded-xl p-10 text-center">
-      <CreditCard className="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+      <CreditCard className="w-8 h-8 text-gray-700 dark:text-gray-300 dark:text-gray-600 mx-auto mb-3" />
       <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">No active subscription</p>
-      <p className="text-xs text-gray-400 mb-4">This company has no subscription linked to a billing plan.</p>
+      <p className="text-xs text-gray-600 dark:text-gray-400 mb-4">This company has no subscription linked to a billing plan.</p>
       {createError && <p className="text-xs text-red-500 mb-3">{createError}</p>}
       <button onClick={handleCreate} disabled={creating}
         className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-teal-500 hover:bg-teal-600 text-white transition-colors disabled:opacity-50">

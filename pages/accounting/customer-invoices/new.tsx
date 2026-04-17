@@ -102,7 +102,7 @@ export default function NewCustomerInvoicePage() {
           <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
           <div className="absolute -top-12 right-8 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
           <div className="relative z-10">
-            <Link href="/accounting/customer-invoices" className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 mb-4 transition-colors">
+            <Link href="/accounting/customer-invoices" className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-200 mb-4 transition-colors">
               <ArrowLeft className="h-3.5 w-3.5" /> Back to Invoices
             </Link>
             <div className="flex items-center justify-between">
@@ -110,7 +110,7 @@ export default function NewCustomerInvoicePage() {
                 <div className="w-10 h-10 rounded-xl bg-amber-500/15 flex items-center justify-center"><FileText className="w-5 h-5 text-amber-400" /></div>
                 <div>
                   <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-0.5">New Document</p>
-                  <h1 className="text-xl font-bold text-white">Customer Invoice</h1>
+                  <h1 className="text-xl font-bold text-slate-900 dark:text-white">Customer Invoice</h1>
                 </div>
               </div>
               <ScanAndFillButton onExtracted={handleExtracted} label="Scan Invoice" />
@@ -181,7 +181,7 @@ export default function NewCustomerInvoicePage() {
                     <button onClick={() => setShowDiscount(v => !v)} className={`inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border font-medium transition-colors ${showDiscount ? 'border-teal-400/60 text-teal-600 dark:text-teal-400 bg-teal-50 dark:bg-teal-900/20' : 'border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:border-amber-400/50 hover:text-amber-500'}`}>
                       <SlidersHorizontal className="h-3 w-3" />{showDiscount ? 'Hide Disc.' : 'Disc. %'}
                     </button>
-                    <button onClick={addLine} className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-white font-semibold transition-colors"><Plus className="h-3 w-3" />Add Line</button>
+                    <button onClick={addLine} className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-semibold transition-colors"><Plus className="h-3 w-3" />Add Line</button>
                   </div>
                 </div>
                 <table className="w-full text-sm">
@@ -210,7 +210,7 @@ export default function NewCustomerInvoicePage() {
                           <span className="font-mono text-sm font-semibold text-slate-800 dark:text-slate-200">{formatCurrencyAmount(lineTotal(l), form.currencyCode)}</span>
                           {showDiscount && l.discount > 0 && <span className="block text-xs text-teal-600 dark:text-teal-400 font-medium">-{l.discount}%</span>}
                         </td>
-                        <td className="px-2 py-2"><button onClick={() => removeLine(l.key)} className="p-1.5 rounded-lg text-slate-300 dark:text-slate-700 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors opacity-0 group-hover:opacity-100"><Trash2 className="h-3.5 w-3.5" /></button></td>
+                        <td className="px-2 py-2"><button onClick={() => removeLine(l.key)} className="p-1.5 rounded-lg text-slate-700 dark:text-slate-300 dark:text-slate-700 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors opacity-0 group-hover:opacity-100"><Trash2 className="h-3.5 w-3.5" /></button></td>
                       </tr>
                     ))}
                   </tbody>
@@ -252,12 +252,12 @@ export default function NewCustomerInvoicePage() {
                           <span>ZAR equivalent</span>
                           <span className="font-mono text-amber-600 dark:text-amber-400 font-semibold">{formatCurrencyAmount(zarTotal, 'ZAR')}</span>
                         </p>
-                        <p className="text-xs text-slate-400 mt-0.5">@ {form.exchangeRate} {form.currencyCode}/ZAR</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">@ {form.exchangeRate} {form.currencyCode}/ZAR</p>
                       </div>
                     )}
                   </div>
 
-                  <button onClick={() => handleSubmit(false)} disabled={submitting} className="w-full mt-6 py-3 bg-amber-500 hover:bg-amber-400 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                  <button onClick={() => handleSubmit(false)} disabled={submitting} className="w-full mt-6 py-3 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
                     {submitting && !saveAndNew ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : <><FileText className="h-4 w-4" />Create Invoice</>}
                   </button>
                   <button onClick={() => handleSubmit(true)} disabled={submitting} className="w-full mt-2 py-2.5 border border-amber-500 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 font-semibold rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
@@ -265,7 +265,7 @@ export default function NewCustomerInvoicePage() {
                   </button>
                 </div>
 
-                <p className="text-xs text-slate-400 dark:text-slate-500 text-center px-2">Invoice will be saved as a draft. You can email it from the invoice detail page.</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 text-center px-2">Invoice will be saved as a draft. You can email it from the invoice detail page.</p>
               </div>
             </div>
           </div>

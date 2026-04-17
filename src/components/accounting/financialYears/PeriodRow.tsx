@@ -24,11 +24,9 @@ export function PeriodRow({ period, jeCount, loadingId, onAction }: Props) {
   const isLocked = period.status === 'locked';
 
   return (
-    <tr className={`border-b border-[var(--ff-border-primary)] text-sm transition-colors ${
-      isLocked ? 'bg-slate-900/30' : 'hover:bg-[var(--ff-bg-hover)]'
-    }`}>
+    <tr className={`border-b border-[var(--ff-border-primary)] text-sm transition-colors ${ isLocked ? 'bg-slate-900/30' : 'hover:bg-[var(--ff-bg-hover)]' }`}>
       <td className="pl-12 pr-4 py-3 text-[var(--ff-text-primary)] flex items-center gap-2">
-        {isLocked && <Lock className="h-3 w-3 text-slate-400 shrink-0" />}
+        {isLocked && <Lock className="h-3 w-3 text-slate-500 dark:text-slate-400 shrink-0" />}
         {period.periodName}
       </td>
       <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDate(period.startDate)}</td>
@@ -54,7 +52,7 @@ export function PeriodRow({ period, jeCount, loadingId, onAction }: Props) {
               {period.status === 'closed' && (
                 <>
                   <button onClick={() => onAction(period.id, 'lock')}
-                    className="px-2 py-1 text-xs rounded bg-slate-600/20 hover:bg-slate-600/40 text-slate-400 transition-colors flex items-center gap-1">
+                    className="px-2 py-1 text-xs rounded bg-slate-600/20 hover:bg-slate-600/40 text-slate-500 dark:text-slate-400 transition-colors flex items-center gap-1">
                     <Lock className="h-3 w-3" /> Lock
                   </button>
                   <button onClick={() => onAction(period.id, 'reopen')}

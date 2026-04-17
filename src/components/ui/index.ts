@@ -12,6 +12,15 @@ export type { InputProps } from './Input';
 export { Badge, badgeVariants } from './Badge';
 export type { BadgeProps } from './Badge';
 
+export { StatusPill } from './StatusPill';
+export type { StatusPillProps } from './StatusPill';
+
+export { PageHeader } from './PageHeader';
+export type { PageHeaderProps } from './PageHeader';
+
+export { KpiStrip } from './KpiStrip';
+export type { KpiStripProps, KpiItem } from './KpiStrip';
+
 export { Card, CardHeader, CardBody, CardFooter } from './Card';
 export type { CardProps } from './Card';
 

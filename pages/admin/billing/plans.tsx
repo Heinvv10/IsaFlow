@@ -174,7 +174,7 @@ export default function PlansPage() {
           <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{editId ? 'Edit Plan' : 'Add Plan'}</h3>
-              <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"><X className="w-4 h-4" /></button>
+              <button onClick={() => setShowForm(false)} className="text-gray-600 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"><X className="w-4 h-4" /></button>
             </div>
             <div className="p-5 space-y-4">
               {formError && (
@@ -229,7 +229,7 @@ export default function PlansPage() {
                 <tr><td colSpan={6} className="px-4 py-12 text-center"><Loader2 className="w-5 h-5 animate-spin text-teal-500 mx-auto" /></td></tr>
               )}
               {!loading && plans.length === 0 && (
-                <tr><td colSpan={6} className="px-4 py-12 text-center text-gray-400">No plans found</td></tr>
+                <tr><td colSpan={6} className="px-4 py-12 text-center text-gray-600 dark:text-gray-400">No plans found</td></tr>
               )}
               {plans.map(p => (
                 <tr key={p.id} className="border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors">
@@ -244,11 +244,11 @@ export default function PlansPage() {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
-                      <button onClick={() => openEdit(p)} className="p-1.5 rounded text-gray-400 hover:text-teal-500 hover:bg-teal-500/10 transition-colors" title="Edit">
+                      <button onClick={() => openEdit(p)} className="p-1.5 rounded text-gray-600 dark:text-gray-400 hover:text-teal-500 hover:bg-teal-500/10 transition-colors" title="Edit">
                         <Pencil className="w-3.5 h-3.5" />
                       </button>
                       {p.is_active && (
-                        <button onClick={() => void handleArchive(p.id)} className="p-1.5 rounded text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-colors" title="Archive">
+                        <button onClick={() => void handleArchive(p.id)} className="p-1.5 rounded text-gray-600 dark:text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-colors" title="Archive">
                           <Archive className="w-3.5 h-3.5" />
                         </button>
                       )}

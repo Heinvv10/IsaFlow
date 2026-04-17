@@ -209,11 +209,11 @@ export default function AdminAnnouncementsPage() {
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-2">
                         <button onClick={() => setEditItem(row)}
-                          className="text-gray-400 hover:text-teal-500" title="Edit">
+                          className="text-gray-600 dark:text-gray-400 hover:text-teal-500" title="Edit">
                           <Pencil className="w-4 h-4" />
                         </button>
                         <button onClick={() => setDeleteId(row.id)}
-                          className="text-gray-400 hover:text-red-500" title="Delete">
+                          className="text-gray-600 dark:text-gray-400 hover:text-red-500" title="Delete">
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>

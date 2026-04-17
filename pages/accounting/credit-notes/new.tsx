@@ -80,12 +80,12 @@ export default function NewCreditNotePage() {
           <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
           <div className="absolute -top-12 right-8 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
           <div className="relative z-10">
-            <Link href="/accounting/credit-notes" className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 mb-4 transition-colors">
+            <Link href="/accounting/credit-notes" className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-200 mb-4 transition-colors">
               <ArrowLeft className="h-3.5 w-3.5" /> Back to Credit Notes
             </Link>
             <div>
               <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-0.5">New Document</p>
-              <h1 className="text-xl font-bold text-white">New Credit Note</h1>
+              <h1 className="text-xl font-bold text-slate-900 dark:text-white">New Credit Note</h1>
             </div>
           </div>
         </div>
@@ -182,7 +182,7 @@ export default function NewCreditNotePage() {
                       <span className="font-mono font-bold text-lg text-amber-500">{formatCurrency(totalAmount)}</span>
                     </div>
                   </div>
-                  <button type="submit" disabled={isSubmitting || form.subtotal <= 0} className="w-full mt-6 py-3 bg-amber-500 hover:bg-amber-400 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                  <button type="submit" disabled={isSubmitting || form.subtotal <= 0} className="w-full mt-6 py-3 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
                     {isSubmitting ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : <><FileText className="h-4 w-4" />Create Credit Note</>}
                   </button>
                 </div>

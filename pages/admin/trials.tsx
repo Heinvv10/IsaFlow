@@ -39,7 +39,7 @@ function fmtDate(iso: string): string {
 }
 
 function daysLeftBadge(days: number) {
-  if (days <= 0)  return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-700 text-gray-300">Expired</span>;
+  if (days <= 0)  return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300">Expired</span>;
   if (days <= 2)  return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-500/20 text-red-400">{days}d left</span>;
   if (days <= 5)  return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-orange-500/20 text-orange-400">{days}d left</span>;
   if (days <= 7)  return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-yellow-500/20 text-yellow-400">{days}d left</span>;
@@ -224,7 +224,7 @@ export default function AdminTrialsPage() {
                 {bulkWorking && <Loader2 className="w-3 h-3 animate-spin" />}
                 Extend 7 days
               </button>
-              <button onClick={() => setSelected(new Set())} className="text-xs text-gray-400 hover:text-gray-200">Clear</button>
+              <button onClick={() => setSelected(new Set())} className="text-xs text-gray-600 dark:text-gray-400 hover:text-gray-200">Clear</button>
             </div>
           )}
 
@@ -242,7 +242,7 @@ export default function AdminTrialsPage() {
               <tbody>
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="px-4 py-10 text-center text-gray-400">No trials in this category</td>
+                    <td colSpan={9} className="px-4 py-10 text-center text-gray-600 dark:text-gray-400">No trials in this category</td>
                   </tr>
                 )}
                 {filtered.map((trial) => (
@@ -258,7 +258,7 @@ export default function AdminTrialsPage() {
                     <td className="px-4 py-3">
                       <span className={[
                         'px-2 py-0.5 rounded-full text-xs font-medium',
-                        trial.status === 'active' ? 'bg-green-500/15 text-green-400' : 'bg-gray-700/50 text-gray-400',
+                        trial.status === 'active' ? 'bg-green-500/15 text-green-400' : 'bg-gray-100 dark:bg-gray-700/50 text-gray-400',
                       ].join(' ')}>
                         {trial.status}
                       </span>
@@ -277,7 +277,7 @@ export default function AdminTrialsPage() {
                           </button>
                         )}
                         <Link href={adminHref(`/admin/companies/${trial.id}`)}
-                          className="px-2.5 py-1 text-xs bg-gray-700/40 hover:bg-gray-700/70 text-gray-300 rounded-md transition-colors">
+                          className="px-2.5 py-1 text-xs bg-gray-100 dark:bg-gray-700/40 hover:bg-gray-100 dark:hover:bg-gray-700/70 text-gray-700 dark:text-gray-300 rounded-md transition-colors">
                           View
                         </Link>
                       </div>

@@ -238,7 +238,7 @@ export default function CustomerDetailPage() {
                 <div className="flex items-center gap-2">
                   {customer.is_active
                     ? <><CheckCircle2 className="h-5 w-5 text-teal-400" /><span className="text-sm text-teal-400 font-medium">Active Customer</span></>
-                    : <><XCircle className="h-5 w-5 text-gray-400" /><span className="text-sm text-gray-400 font-medium">Inactive Customer</span></>}
+                    : <><XCircle className="h-5 w-5 text-gray-600 dark:text-gray-400" /><span className="text-sm text-gray-600 dark:text-gray-400 font-medium">Inactive Customer</span></>}
                 </div>
                 {customer.created_at && (
                   <p className="text-xs text-[var(--ff-text-tertiary)] mt-2">
@@ -304,7 +304,7 @@ export default function CustomerDetailPage() {
                             {formatCurrency(Number(row.total_amount))}
                           </td>
                           <td className="px-4 py-3">
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-500/20 text-gray-400">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-500/20 text-gray-600 dark:text-gray-400">
                               {row.status}
                             </span>
                           </td>

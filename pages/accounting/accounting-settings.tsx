@@ -95,7 +95,7 @@ export default function AccountingSettingsPage() {
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
           <div className="px-6 py-4 flex items-center gap-3">
             <div className="p-2 rounded-lg bg-slate-500/10">
-              <Settings className="h-6 w-6 text-slate-400" />
+              <Settings className="h-6 w-6 text-slate-500 dark:text-slate-400" />
             </div>
             <div>
               <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Accounting Settings</h1>
@@ -113,7 +113,7 @@ export default function AccountingSettingsPage() {
 
           {loading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+              <Loader2 className="h-6 w-6 animate-spin text-slate-500 dark:text-slate-400" />
             </div>
           ) : (
             <div className="space-y-6">

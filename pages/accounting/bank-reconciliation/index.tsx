@@ -12,6 +12,7 @@ import {
 import type { BankReconciliation } from '@/modules/accounting/types/bank.types';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
+import { EmptyState } from '@/components/ui';
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -93,16 +94,12 @@ export default function BankReconciliationListPage() {
               <Loader2 className="h-6 w-6 animate-spin text-teal-500" />
             </div>
           ) : reconciliations.length === 0 ? (
-            <div className="text-center py-12">
-              <Landmark className="h-12 w-12 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
-              <p className="text-[var(--ff-text-secondary)] mb-4">No reconciliations started yet</p>
-              <Link
-                href="/accounting/bank-reconciliation/import"
-                className="text-teal-500 hover:text-teal-400 text-sm font-medium"
-              >
-                Import a bank statement to get started
-              </Link>
-            </div>
+            <EmptyState
+              icon={Landmark}
+              title="No reconciliations started yet"
+              description="Import a bank statement to start matching transactions to your GL entries."
+              primaryAction={{ label: 'Import Bank Statement', href: '/accounting/bank-reconciliation/import' }}
+            />
           ) : (
             <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
               <table className="w-full text-sm">

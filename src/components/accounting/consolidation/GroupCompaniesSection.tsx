@@ -20,7 +20,7 @@ export function GroupCompaniesSection({ items, loading, onRefresh, onAdd }: Prop
   return (
     <section className="rounded-2xl border border-white/10 bg-[#1a1f2e]">
       <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
-        <div className="flex items-center gap-2 text-white">
+        <div className="flex items-center gap-2 text-slate-900 dark:text-white">
           <Building2 className="h-5 w-5 text-teal-400" />
           <span className="font-semibold">Group Companies</span>
           {!loading && (
@@ -32,7 +32,7 @@ export function GroupCompaniesSection({ items, loading, onRefresh, onAdd }: Prop
         <div className="flex items-center gap-2">
           <button
             onClick={onRefresh}
-            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
+            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
           >
             <RefreshCw className="h-3.5 w-3.5" /> Refresh
           </button>
@@ -46,13 +46,13 @@ export function GroupCompaniesSection({ items, loading, onRefresh, onAdd }: Prop
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center gap-2 py-10 text-gray-400">
+        <div className="flex items-center justify-center gap-2 py-10 text-gray-600 dark:text-gray-400">
           <Loader2 className="h-5 w-5 animate-spin" /> Loading…
         </div>
       ) : items.length === 0 ? (
         <div className="flex flex-col items-center gap-3 py-12 text-center">
           <Layers className="h-10 w-10 text-gray-600" />
-          <p className="text-gray-400">No subsidiaries linked yet.</p>
+          <p className="text-gray-600 dark:text-gray-400">No subsidiaries linked yet.</p>
           <button
             onClick={onAdd}
             className="mt-1 flex items-center gap-1.5 rounded-lg bg-teal-500 px-4 py-2 text-sm font-medium text-white hover:bg-teal-400 transition-colors"
@@ -78,17 +78,17 @@ export function GroupCompaniesSection({ items, loading, onRefresh, onAdd }: Prop
                     <div className="flex items-center gap-2">
                       <Building2 className="h-4 w-4 shrink-0 text-gray-500" />
                       <div>
-                        <p className="font-medium text-white">{c.name}</p>
+                        <p className="font-medium text-slate-900 dark:text-white">{c.name}</p>
                         <p className="text-xs text-gray-500">{c.id}</p>
                       </div>
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    <span className="rounded-full bg-white/5 px-2 py-0.5 text-xs text-gray-300">
+                    <span className="rounded-full bg-white/5 px-2 py-0.5 text-xs text-gray-700 dark:text-gray-300">
                       {RELATIONSHIP_LABELS[c.relationshipType] ?? c.relationshipType}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-right font-mono text-gray-200">
+                  <td className="px-4 py-3 text-right font-mono text-gray-800 dark:text-gray-200">
                     {c.ownershipPercent.toFixed(2)}%
                   </td>
                   <td className="px-4 py-3">

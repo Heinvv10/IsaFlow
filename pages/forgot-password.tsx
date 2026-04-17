@@ -41,35 +41,35 @@ export default function ForgotPasswordPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-950 flex items-center justify-center px-4">
+    <div className="min-h-screen bg-slate-50 dark:bg-gray-950 flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
 
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <Image src="/logo.png" alt="ISAFlow" width={160} height={64} className="h-16 w-auto brightness-0 invert mb-4" priority />
-          <p className="text-sm text-gray-500 mt-1">Reset your password</p>
+          <Image src="/logo.png" alt="ISAFlow" width={160} height={64} className="h-16 w-auto dark:brightness-0 dark:invert mb-4" priority />
+          <p className="text-sm text-slate-600 dark:text-slate-300 mt-1">Reset your password</p>
         </div>
 
         {sent ? (
           /* Success state */
-          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 shadow-xl text-center">
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl p-6 shadow-xl text-center">
             <div className="flex justify-center mb-4">
               <div className="p-3 bg-teal-500/10 rounded-full">
-                <Mail className="h-8 w-8 text-teal-400" />
+                <Mail className="h-8 w-8 text-teal-600 dark:text-teal-400" />
               </div>
             </div>
-            <h2 className="text-lg font-semibold text-white mb-2">Check your email</h2>
-            <p className="text-sm text-gray-400 leading-relaxed">
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">Check your email</h2>
+            <p className="text-sm text-slate-600 dark:text-gray-400 leading-relaxed">
               If an account exists for{' '}
-              <span className="text-white font-medium">{email}</span>,
+              <span className="text-slate-900 dark:text-white font-medium">{email}</span>,
               we&apos;ve sent a reset link. It expires in 1 hour.
             </p>
-            <p className="text-xs text-gray-500 mt-4">
+            <p className="text-xs text-slate-500 dark:text-gray-500 mt-4">
               Didn&apos;t get it? Check your spam folder or{' '}
               <button
                 type="button"
                 onClick={() => setSent(false)}
-                className="text-teal-400 hover:text-teal-300 underline transition-colors"
+                className="text-teal-600 dark:text-teal-400 hover:text-teal-500 dark:hover:text-teal-300 underline transition-colors"
               >
                 try again
               </button>
@@ -78,14 +78,14 @@ export default function ForgotPasswordPage() {
           </div>
         ) : (
           /* Request form */
-          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 shadow-xl">
-            <p className="text-sm text-gray-400 mb-5 leading-relaxed">
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl p-6 shadow-xl">
+            <p className="text-sm text-slate-600 dark:text-gray-400 mb-5 leading-relaxed">
               Enter your email address and we&apos;ll send you a link to reset your password.
             </p>
 
             <form onSubmit={(e) => void handleSubmit(e)} noValidate>
               <div className="mb-5">
-                <label htmlFor="email" className="block text-xs font-medium text-gray-400 mb-1.5">
+                <label htmlFor="email" className="block text-xs font-medium text-slate-500 dark:text-gray-400 mb-1.5">
                   Email address
                 </label>
                 <input
@@ -96,7 +96,7 @@ export default function ForgotPasswordPage() {
                   value={email}
                   onChange={e => { setError(''); setEmail(e.target.value); }}
                   disabled={submitting}
-                  className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition"
+                  className="w-full bg-slate-50 dark:bg-gray-800 border border-slate-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition"
                   placeholder="you@example.com"
                 />
               </div>
@@ -126,7 +126,7 @@ export default function ForgotPasswordPage() {
         )}
 
         {/* Back to login */}
-        <p className="text-center text-sm text-gray-500 mt-6">
+        <p className="text-center text-sm text-slate-500 dark:text-gray-500 mt-6">
           <Link href="/login" className="text-teal-400 hover:text-teal-300 transition-colors">
             &larr; Back to sign in
           </Link>

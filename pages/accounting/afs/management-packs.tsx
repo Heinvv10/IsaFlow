@@ -118,9 +118,9 @@ export default function ManagementPacksPage() {
           </div>
           <div className="flex items-center gap-2">
             <input value={genPeriod} onChange={e => setGenPeriod(e.target.value)}
-              placeholder="YYYY-MM" className="border border-zinc-200 rounded-lg px-3 py-2 text-sm w-28" />
+              placeholder="YYYY-MM" className="border border-zinc-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 rounded-lg px-3 py-2 text-sm w-28" />
             <button onClick={handleGenerate} disabled={generating || !genPeriod}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-zinc-900 text-white text-sm font-semibold rounded-lg hover:bg-zinc-700 disabled:opacity-50">
+              className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold rounded-lg disabled:opacity-50">
               {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
               Generate
             </button>
@@ -133,13 +133,13 @@ export default function ManagementPacksPage() {
           </div>
         )}
 
-        <div className="flex gap-1 mb-6 border-b border-zinc-200">
+        <div className="flex gap-1 mb-6 border-b border-zinc-200 dark:border-slate-800">
           {[
             { key: 'config', label: 'Configuration', icon: <Settings className="w-4 h-4" /> },
             { key: 'history', label: 'Pack History', icon: <History className="w-4 h-4" /> },
           ].map(t => (
             <button key={t.key} onClick={() => setTab(t.key as 'config' | 'history')}
-              className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${tab === t.key ? 'border-blue-600 text-blue-600' : 'border-transparent text-zinc-500 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white'}`}>
+              className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${tab === t.key ? 'border-teal-500 text-teal-600 dark:text-teal-400' : 'border-transparent text-zinc-500 dark:text-slate-400 hover:text-zinc-900 dark:hover:text-white'}`}>
               {t.icon}{t.label}
             </button>
           ))}
@@ -152,7 +152,7 @@ export default function ManagementPacksPage() {
         ) : tab === 'config' ? (
           config
             ? <ManagementPackConfigTab config={config} onSave={handleSaveConfig} />
-            : <p className="text-sm text-zinc-500">No config loaded.</p>
+            : <p className="text-sm text-zinc-500 dark:text-slate-400">No config loaded.</p>
         ) : (
           <div className="space-y-3">
             {packs.length === 0 ? (
@@ -167,19 +167,19 @@ export default function ManagementPacksPage() {
                     <span className="text-base font-semibold text-zinc-900 dark:text-white">{pack.period}</span>
                     <StatusBadge status={pack.status} />
                   </div>
-                  <p className="text-xs text-zinc-500">
+                  <p className="text-xs text-zinc-500 dark:text-slate-400">
                     Created {new Date(pack.created_at).toLocaleDateString('en-ZA')}
                     {' · '}Updated {new Date(pack.updated_at).toLocaleDateString('en-ZA')}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <a href={`/accounting/afs/${pack.id}`}
-                    className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium border border-zinc-200 rounded-lg text-zinc-700 hover:bg-zinc-50">
+                    className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium border border-zinc-200 dark:border-slate-700 rounded-lg text-zinc-700 dark:text-slate-300 hover:bg-zinc-50 dark:hover:bg-slate-800">
                     <Eye className="w-3.5 h-3.5" /> View
                   </a>
                   {(pack.status === 'draft' || pack.status === 'signed_off') && (
                     <button onClick={() => handleDeliver(pack.id)} disabled={deliveringId === pack.id}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                      className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-teal-600 hover:bg-teal-700 text-white rounded-lg disabled:opacity-50">
                       {deliveringId === pack.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
                       Deliver
                     </button>

@@ -30,6 +30,7 @@ import { useCompany } from '@/contexts/CompanyContext';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { CompanySwitcher } from '@/components/layout/CompanySwitcher';
 import { CreateNewMenu } from '@/components/layout/CreateNewMenu';
+import { SettingsMenu } from '@/components/layout/SettingsMenu';
 import { SidebarNav } from '@/components/layout/SidebarNav';
 import { CommandPalette } from '@/components/layout/CommandPalette';
 import { ShortcutHelpOverlay } from '@/components/layout/ShortcutHelpOverlay';
@@ -113,6 +114,9 @@ export function AppLayout({ children }: AppLayoutProps) {
       e.preventDefault();
       deferredPromptRef.current = e;
       setShowInstallBanner(true);
+      // Auto-hide after 10s so it doesn't permanently eat vertical space.
+      // Still available via the Install button in browser's address bar.
+      setTimeout(() => setShowInstallBanner(false), 10_000);
     };
     window.addEventListener('beforeinstallprompt', handler);
     return () => window.removeEventListener('beforeinstallprompt', handler);
@@ -150,46 +154,53 @@ export function AppLayout({ children }: AppLayoutProps) {
       action: () => { void router.push('/accounting'); },
     },
     {
-      key: 'g c',
-      label: 'G then C',
-      description: 'Go to Customers',
-      category: 'navigation',
-      action: () => { void router.push('/accounting?tab=customers'); },
-    },
-    {
       key: 'g s',
       label: 'G then S',
-      description: 'Go to Suppliers',
+      description: 'Go to Sales',
       category: 'navigation',
-      action: () => { void router.push('/accounting?tab=suppliers'); },
+      action: () => { void router.push('/accounting/customers'); },
+    },
+    {
+      key: 'g p',
+      label: 'G then P',
+      description: 'Go to Purchases',
+      category: 'navigation',
+      action: () => { void router.push('/accounting/suppliers'); },
+    },
+    {
+      key: 'g i',
+      label: 'G then I',
+      description: 'Go to Inventory',
+      category: 'navigation',
+      action: () => { void router.push('/accounting/items'); },
     },
     {
       key: 'g b',
       label: 'G then B',
       description: 'Go to Banking',
       category: 'navigation',
-      action: () => { void router.push('/accounting?tab=banking'); },
+      action: () => { void router.push('/accounting/bank-transactions'); },
     },
     {
       key: 'g a',
       label: 'G then A',
-      description: 'Go to Accounts',
+      description: 'Go to Accounting',
       category: 'navigation',
-      action: () => { void router.push('/accounting?tab=accounts'); },
+      action: () => { void router.push('/accounting/chart-of-accounts'); },
     },
     {
       key: 'g r',
       label: 'G then R',
       description: 'Go to Reports',
       category: 'navigation',
-      action: () => { void router.push('/accounting?tab=reports'); },
+      action: () => { void router.push('/accounting/reports/income-statement'); },
     },
     {
-      key: 'g v',
-      label: 'G then V',
-      description: 'Go to VAT',
+      key: 'g t',
+      label: 'G then T',
+      description: 'Go to Tax',
       category: 'navigation',
-      action: () => { void router.push('/accounting?tab=vat'); },
+      action: () => { void router.push('/accounting/reports/vat-return'); },
     },
   ], [router]);
 
@@ -221,10 +232,10 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-950">
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-gray-950">
         <div className="text-center">
           <LoadingSpinner size="lg" className="mx-auto mb-4" />
-          <p className="text-gray-400 text-sm">Loading...</p>
+          <p className="text-slate-500 dark:text-gray-400 text-sm">Loading...</p>
         </div>
       </div>
     );
@@ -238,7 +249,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       <div className={`flex items-center px-4 py-4 border-b border-gray-200 dark:border-gray-700 ${collapsed ? 'justify-center' : ''}`}>
         {collapsed ? (
           <div className="w-8 h-8 bg-teal-600 rounded-lg flex items-center justify-center flex-shrink-0">
-            <BookOpen className="w-4 h-4 text-white" />
+            <BookOpen className="w-4 h-4 text-slate-900 dark:text-white" />
           </div>
         ) : (
           <Image src="/logo.png" alt="ISAFlow" width={90} height={36} className="h-9 w-auto dark:brightness-0 dark:invert" />
@@ -253,7 +264,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         {user && !collapsed && (
           <div className="flex items-center gap-2 px-2 py-2 mb-1">
             <div className="w-7 h-7 bg-teal-700 rounded-full flex items-center justify-center flex-shrink-0">
-              <span className="text-xs text-white font-semibold">{userInitials}</span>
+              <span className="text-xs text-slate-900 dark:text-white font-semibold">{userInitials}</span>
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-xs font-medium text-gray-900 dark:text-white truncate">
@@ -270,11 +281,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         <button
           onClick={() => void logout()}
           title={collapsed ? 'Log out' : undefined}
-          className={`
-            flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm text-gray-500 dark:text-gray-400
-            hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors
-            ${collapsed ? 'justify-center' : ''}
-          `}
+          className={`flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors ${collapsed ? 'justify-center' : ''}`}
         >
           <LogOut className="w-4 h-4 flex-shrink-0" />
           {!collapsed && <span>Log out</span>}
@@ -292,7 +299,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       {showSidebar && (
         <aside
           className={`hidden lg:flex flex-col transition-all duration-300 flex-shrink-0 ${collapsed ? 'w-16' : 'w-64'}`}
-          style={{ background: 'var(--ff-canvas-base)', borderRight: '1px solid rgba(255,255,255,0.06)' }}
+          style={{ background: 'var(--ff-canvas-base)', borderRight: '1px solid var(--ff-canvas-border)' }}
         >
           {SidebarContent}
 
@@ -300,7 +307,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           <button
             onClick={() => setCollapsed(c => !c)}
             className="flex items-center justify-center h-10 text-slate-500 hover:text-slate-100 hover:bg-white/5 transition-colors"
-            style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}
+            style={{ borderTop: '1px solid var(--ff-canvas-border)' }}
             title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
             {collapsed
@@ -320,7 +327,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       )}
       <aside
         className={`fixed inset-y-0 left-0 z-40 w-64 flex flex-col lg:hidden transition-transform duration-300 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}
-        style={{ background: 'var(--ff-canvas-base)', borderRight: '1px solid rgba(255,255,255,0.06)' }}
+        style={{ background: 'var(--ff-canvas-base)', borderRight: '1px solid var(--ff-canvas-border)' }}
       >
         {SidebarContent}
       </aside>
@@ -347,10 +354,10 @@ export function AppLayout({ children }: AppLayoutProps) {
         )}
 
         {/* Header bar */}
-        <header className="h-14 flex items-center px-4 gap-3 flex-shrink-0" style={{ background: 'var(--ff-canvas-mid)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+        <header className="h-14 flex items-center px-4 gap-3 flex-shrink-0" style={{ background: 'var(--ff-canvas-mid)', borderBottom: '1px solid var(--ff-canvas-border)' }}>
           {/* Mobile hamburger */}
           <button
-            className="lg:hidden text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
+            className="lg:hidden text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
             onClick={() => setMobileOpen(o => !o)}
             aria-label="Open menu"
           >
@@ -376,13 +383,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           <button
             data-tour="command-palette"
             onClick={() => setCommandPaletteOpen(true)}
-            className="
-              hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm
-              text-[var(--ff-text-tertiary)] bg-[var(--ff-bg-secondary)]
-              border border-[var(--ff-border-primary)]
-              hover:border-teal-400 hover:text-[var(--ff-text-primary)]
-              transition-colors
-            "
+            className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm text-[var(--ff-text-tertiary)] bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-primary)] hover:border-teal-400 hover:text-[var(--ff-text-primary)] transition-colors"
             title="Search (Ctrl+K)"
           >
             <Search className="w-3.5 h-3.5" />
@@ -395,7 +396,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           {/* Mobile search icon */}
           <button
             onClick={() => setCommandPaletteOpen(true)}
-            className="sm:hidden p-2 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-white/5 transition-colors"
+            className="sm:hidden p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-100 hover:bg-white/5 transition-colors"
             title="Search"
             aria-label="Open search"
           >
@@ -405,10 +406,13 @@ export function AppLayout({ children }: AppLayoutProps) {
           {/* Setup guide (hidden on admin subdomain) */}
           {!isAdminHost && <SetupGuideButton />}
 
+          {/* Settings cog (hidden on admin subdomain) */}
+          {!isAdminHost && <SettingsMenu />}
+
           {/* Nav mode toggle */}
           <button
             onClick={toggleNavMode}
-            className="p-2 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-white/5 transition-colors"
+            className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-100 hover:bg-white/5 transition-colors"
             title={navMode === 'top' ? 'Switch to sidebar navigation' : 'Switch to top navigation'}
           >
             {navMode === 'top' ? <PanelLeft className="w-4 h-4" /> : <PanelTop className="w-4 h-4" />}
@@ -417,7 +421,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           {/* Theme toggle */}
           <button
             onClick={toggleTheme}
-            className="p-2 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-white/5 transition-colors"
+            className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-100 hover:bg-white/5 transition-colors"
             title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
           >
             {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
@@ -425,7 +429,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
           {/* User info */}
           {user && (
-            <div className="flex items-center gap-2 text-sm text-slate-400">
+            <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
               <User className="w-4 h-4" />
               <span className="hidden sm:inline truncate max-w-[160px]">
                 {user.firstName} {user.lastName}
@@ -437,7 +441,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           {!showSidebar && (
             <button
               onClick={() => void logout()}
-              className="p-2 rounded-lg text-slate-400 hover:text-red-400 hover:bg-white/5 transition-colors"
+              className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-red-400 hover:bg-white/5 transition-colors"
               title="Log out"
             >
               <LogOut className="w-4 h-4" />
@@ -455,7 +459,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         {/* Page content */}
         <main
           className="flex-1 overflow-y-auto p-4 lg:p-6 relative z-0"
-          style={{ background: 'radial-gradient(ellipse at 20% 0%, rgba(20,184,166,0.04) 0%, transparent 60%), linear-gradient(180deg, #0f172a 0%, #0c1424 100%)' }}
+          style={{ background: 'var(--ff-canvas-gradient)' }}
         >
           {children}
         </main>

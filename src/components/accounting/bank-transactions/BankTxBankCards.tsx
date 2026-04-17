@@ -34,7 +34,7 @@ export function BankTxBankCards({ bankAccounts, selectedBank, tab, total, onSele
 
   return (
     <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-      <h1 className="text-2xl font-bold text-[var(--ff-text-primary)] mb-3">Banking</h1>
+      <h1 className="text-2xl font-bold text-[var(--ff-text-primary)] mb-3">Bank Transactions</h1>
       <div className="flex items-center gap-3 flex-wrap">
         {bankAccounts.map(b => {
           const active = b.id === selectedBank;

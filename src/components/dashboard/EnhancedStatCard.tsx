@@ -67,7 +67,7 @@ const EnhancedStatCardComponent = ({
     switch (trend.direction) {
       case 'up': return <TrendingUp className="w-4 h-4 text-green-500" />;
       case 'down': return <TrendingDown className="w-4 h-4 text-red-500" />;
-      case 'stable': return <Minus className="w-4 h-4 text-gray-400" />;
+      case 'stable': return <Minus className="w-4 h-4 text-gray-600 dark:text-gray-400" />;
       default: return null;
     }
   };
@@ -84,19 +84,19 @@ const EnhancedStatCardComponent = ({
   if (isLoading) {
     return (
       <div className={cn(
-        'bg-gray-800 rounded-lg border border-gray-700 shadow-sm animate-pulse',
+        'bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm animate-pulse',
         variant === 'compact' ? 'p-4' : 'p-6',
         className
       )}>
         <div className="flex items-start justify-between mb-4">
           <div className="flex-1">
-            <div className="h-4 bg-gray-700 rounded w-3/4 mb-2" />
-            {variant !== 'compact' && <div className="h-3 bg-gray-700 rounded w-1/2" />}
+            <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4 mb-2" />
+            {variant !== 'compact' && <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/2" />}
           </div>
-          <div className="w-12 h-12 bg-gray-700 rounded-lg" />
+          <div className="w-12 h-12 bg-gray-200 dark:bg-gray-700 rounded-lg" />
         </div>
         <div className="space-y-2">
-          <div className="h-8 bg-gray-700 rounded w-1/2" />
+          <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-1/2" />
         </div>
       </div>
     );
@@ -119,7 +119,7 @@ const EnhancedStatCardComponent = ({
   }
 
   const cardClasses = cn(
-    'group relative overflow-hidden bg-gray-800 rounded-lg border border-gray-700 shadow-sm',
+    'group relative overflow-hidden bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm',
     'hover:shadow-md transition-all duration-200',
     (onClick || route) && !error && 'cursor-pointer hover:border-teal-500/50',
     variant === 'compact' ? 'p-4' : 'p-6',
@@ -139,7 +139,7 @@ const EnhancedStatCardComponent = ({
               {title}
             </h3>
             {subtitle && variant !== 'compact' && (
-              <p className="text-sm text-gray-400 mt-1 leading-relaxed">{subtitle}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 leading-relaxed">{subtitle}</p>
             )}
           </div>
           <div
@@ -174,7 +174,7 @@ const EnhancedStatCardComponent = ({
                   </span>
                 </div>
               )}
-              {description && <p className="text-sm text-gray-400">{description}</p>}
+              {description && <p className="text-sm text-gray-600 dark:text-gray-400">{description}</p>}
             </div>
           )}
 

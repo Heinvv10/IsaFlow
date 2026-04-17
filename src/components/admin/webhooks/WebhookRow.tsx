@@ -21,7 +21,7 @@ const truncateUrl = (url: string, max = 48) =>
 export function StatusBadge({ webhook }: { webhook: AdminWebhook }) {
   if (!webhook.isActive) {
     return (
-      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-700 text-gray-300 border border-gray-600">
+      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-600">
         Disabled
       </span>
     );
@@ -80,16 +80,16 @@ export function WebhookRow({
   return (
     <>
       <tr
-        className="border-b border-gray-700/50 hover:bg-gray-800/40 cursor-pointer transition-colors"
+        className="border-b border-gray-200 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-800/40 cursor-pointer transition-colors"
         onClick={onToggleExpand}
       >
         <td className="px-4 py-3">
           <div className="flex items-center gap-1.5">
             {expanded
-              ? <ChevronDown className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
-              : <ChevronRight className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+              ? <ChevronDown className="w-3.5 h-3.5 text-gray-600 dark:text-gray-400 flex-shrink-0" />
+              : <ChevronRight className="w-3.5 h-3.5 text-gray-600 dark:text-gray-400 flex-shrink-0" />
             }
-            <span className="text-sm font-medium text-white">{wh.companyName}</span>
+            <span className="text-sm font-medium text-slate-900 dark:text-white">{wh.companyName}</span>
           </div>
         </td>
         <td className="px-4 py-3">
@@ -100,12 +100,12 @@ export function WebhookRow({
         <td className="px-4 py-3">
           <div className="flex flex-wrap gap-1">
             {wh.events.slice(0, 3).map((e) => (
-              <span key={e} className="px-1.5 py-0.5 rounded text-xs bg-gray-700 text-gray-300 font-mono">
+              <span key={e} className="px-1.5 py-0.5 rounded text-xs bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-mono">
                 {e}
               </span>
             ))}
             {wh.events.length > 3 && (
-              <span className="px-1.5 py-0.5 rounded text-xs bg-gray-700 text-gray-400">
+              <span className="px-1.5 py-0.5 rounded text-xs bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400">
                 +{wh.events.length - 3}
               </span>
             )}
@@ -118,14 +118,14 @@ export function WebhookRow({
             <span className="text-xs text-gray-500">{fmtDate(wh.lastDeliveryAt)}</span>
           </div>
         </td>
-        <td className="px-4 py-3 text-xs text-gray-400">{fmtDate(wh.createdAt)}</td>
+        <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400">{fmtDate(wh.createdAt)}</td>
         <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center gap-2">
             <button
               onClick={() => onToggleStatus(wh.id, wh.isActive)}
               disabled={isLoading}
               title={wh.isActive ? 'Disable webhook' : 'Enable webhook'}
-              className="text-gray-400 hover:text-teal-400 disabled:opacity-40 transition-colors"
+              className="text-gray-600 dark:text-gray-400 hover:text-teal-400 disabled:opacity-40 transition-colors"
             >
               {isLoading
                 ? <Loader2 className="w-4 h-4 animate-spin" />
@@ -138,7 +138,7 @@ export function WebhookRow({
               onClick={() => onDelete(wh.id, wh.url)}
               disabled={isLoading}
               title="Delete webhook"
-              className="text-gray-400 hover:text-red-400 disabled:opacity-40 transition-colors"
+              className="text-gray-600 dark:text-gray-400 hover:text-red-400 disabled:opacity-40 transition-colors"
             >
               <Trash2 className="w-4 h-4" />
             </button>
@@ -147,7 +147,7 @@ export function WebhookRow({
       </tr>
 
       {expanded && (
-        <tr className="bg-gray-800/20">
+        <tr className="bg-gray-50 dark:bg-gray-800/20">
           <td colSpan={7} className="px-6 pb-4 pt-1">
             <DeliveryLog webhookId={wh.id} />
           </td>

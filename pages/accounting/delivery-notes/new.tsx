@@ -116,12 +116,12 @@ export default function NewDeliveryNotePage() {
           <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
           <div className="absolute -top-12 right-8 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
           <div className="relative z-10">
-            <Link href="/accounting/delivery-notes" className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 mb-4 transition-colors">
+            <Link href="/accounting/delivery-notes" className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-200 mb-4 transition-colors">
               <ArrowLeft className="h-3.5 w-3.5" /> Back to Delivery Notes
             </Link>
             <div>
               <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-0.5">New Document</p>
-              <h1 className="text-xl font-bold text-white">Delivery Note</h1>
+              <h1 className="text-xl font-bold text-slate-900 dark:text-white">Delivery Note</h1>
             </div>
           </div>
         </div>
@@ -140,7 +140,7 @@ export default function NewDeliveryNotePage() {
                   <div>
                     <label className={lbl}>Customer *</label>
                     {loadingCustomers ? (
-                      <div className={`${inp} flex items-center gap-2 text-slate-400`}><Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading...</div>
+                      <div className={`${inp} flex items-center gap-2 text-slate-500 dark:text-slate-400`}><Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading...</div>
                     ) : (
                       <select name="customerId" value={customerId} onChange={e => { setCustomerId(e.target.value); setSalesOrderId(''); }} className={inp}>
                         <option value="">Select customer…</option>
@@ -155,7 +155,7 @@ export default function NewDeliveryNotePage() {
                   <div>
                     <label className={lbl}>Linked Sales Order (optional)</label>
                     {loadingOrders ? (
-                      <div className={`${inp} flex items-center gap-2 text-slate-400`}><Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading...</div>
+                      <div className={`${inp} flex items-center gap-2 text-slate-500 dark:text-slate-400`}><Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading...</div>
                     ) : (
                       <select name="salesOrderId" value={salesOrderId} onChange={e => setSalesOrderId(e.target.value)} disabled={!customerId} className={`${inp} disabled:opacity-50`}>
                         <option value="">None</option>
@@ -222,7 +222,7 @@ export default function NewDeliveryNotePage() {
                   <button onClick={() => void handleSave(false)} disabled={saving} className="w-full py-2.5 mb-2 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold rounded-xl transition-colors border border-slate-200 dark:border-slate-700 disabled:opacity-50 text-sm">
                     {saving ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : 'Save as Draft'}
                   </button>
-                  <button onClick={() => void handleSave(true)} disabled={saving} className="w-full py-3 bg-amber-500 hover:bg-amber-400 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                  <button onClick={() => void handleSave(true)} disabled={saving} className="w-full py-3 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
                     {saving ? <><Loader2 className="h-4 w-4 animate-spin" />Saving…</> : <><Truck className="h-4 w-4" />Save &amp; Dispatch</>}
                   </button>
                 </div>

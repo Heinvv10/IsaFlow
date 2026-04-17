@@ -161,7 +161,7 @@ export default function InvoicesPage() {
       {/* Toolbar */}
       <div className="flex gap-3 flex-wrap mb-5">
         <div className="relative flex-1 min-w-[180px] max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600 dark:text-gray-400" />
           <input type="text" placeholder="Search company or invoice #..." value={search} onChange={e => setSearch(e.target.value)}
             className={`w-full pl-9 pr-3 ${inputCls}`} />
         </div>
@@ -195,7 +195,7 @@ export default function InvoicesPage() {
           <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl w-full max-w-md">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Create Invoice</h3>
-              <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"><X className="w-4 h-4" /></button>
+              <button onClick={() => setShowForm(false)} className="text-gray-600 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"><X className="w-4 h-4" /></button>
             </div>
             <div className="p-5 space-y-4">
               {formError && (
@@ -246,7 +246,7 @@ export default function InvoicesPage() {
                 <tr><td colSpan={10} className="px-4 py-12 text-center"><Loader2 className="w-5 h-5 animate-spin text-teal-500 mx-auto" /></td></tr>
               )}
               {!loading && rows.length === 0 && (
-                <tr><td colSpan={10} className="px-4 py-12 text-center text-gray-400">No invoices found</td></tr>
+                <tr><td colSpan={10} className="px-4 py-12 text-center text-gray-600 dark:text-gray-400">No invoices found</td></tr>
               )}
               {rows.map(inv => (
                 <tr key={inv.id} className="border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors">
@@ -265,13 +265,13 @@ export default function InvoicesPage() {
                     <div className="flex items-center gap-1.5">
                       {inv.status === 'draft' && (
                         <button onClick={() => void handleAction(inv.id, 'send')} disabled={actionId === inv.id}
-                          className="p-1.5 rounded text-gray-400 hover:text-blue-400 hover:bg-blue-500/10 transition-colors disabled:opacity-40" title="Send">
+                          className="p-1.5 rounded text-gray-600 dark:text-gray-400 hover:text-blue-400 hover:bg-blue-500/10 transition-colors disabled:opacity-40" title="Send">
                           {actionId === inv.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
                         </button>
                       )}
                       {(inv.status === 'sent' || inv.status === 'overdue') && (
                         <button onClick={() => void handleAction(inv.id, 'mark_paid')} disabled={actionId === inv.id}
-                          className="p-1.5 rounded text-gray-400 hover:text-teal-400 hover:bg-teal-500/10 transition-colors disabled:opacity-40" title="Mark Paid">
+                          className="p-1.5 rounded text-gray-600 dark:text-gray-400 hover:text-teal-400 hover:bg-teal-500/10 transition-colors disabled:opacity-40" title="Mark Paid">
                           {actionId === inv.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CreditCard className="w-3.5 h-3.5" />}
                         </button>
                       )}

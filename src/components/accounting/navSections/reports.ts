@@ -40,10 +40,19 @@ export const reportsTab: Tab = {
       ],
     },
     {
-      section: 'Compliance & Export',
+      section: 'Annual Financial Statements',
       items: [
+        { label: 'All AFS Documents', href: '/accounting/afs' },
         { label: 'IFRS Disclosure Notes', href: '/accounting/reports/disclosure-notes' },
         { label: 'CaseWare Export', href: '/accounting/reports/caseware-export' },
+      ],
+    },
+    {
+      section: 'Management Packs',
+      items: [
+        { label: 'Management Packs', href: '/accounting/afs/management-packs' },
+        { label: 'Pack Documents', href: '/accounting/afs?type=management_pack' },
+        { label: 'Portal Contacts', href: '/accounting/afs/portal-contacts' },
       ],
     },
     {
@@ -51,26 +60,6 @@ export const reportsTab: Tab = {
       items: [
         { label: 'Report Builder', href: '/accounting/reports/builder' },
         { label: 'My Reports', href: '/accounting/reports/my-reports' },
-      ],
-    },
-  ],
-};
-
-export const sarsTab: Tab = {
-  id: 'sars', label: 'SARS',
-  items: [
-    {
-      section: 'Submissions',
-      items: [
-        { label: 'VAT201', href: '/accounting/sars/vat201' },
-        { label: 'EMP201', href: '/accounting/sars/emp201' },
-      ],
-    },
-    {
-      section: 'Management',
-      items: [
-        { label: 'Compliance Calendar', href: '/accounting/sars' },
-        { label: 'Submission History', href: '/accounting/sars/submissions' },
       ],
     },
   ],

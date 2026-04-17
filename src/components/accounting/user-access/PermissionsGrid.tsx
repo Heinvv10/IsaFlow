@@ -41,9 +41,7 @@ function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (
       type="button"
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-1 focus:ring-offset-gray-900 ${
-        disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
-      } ${checked ? 'bg-teal-600' : 'bg-gray-700'}`}
+      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-1 focus:ring-offset-gray-900 ${ disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer' } ${checked ? 'bg-teal-600' : 'bg-gray-700'}`}
     >
       <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${checked ? 'translate-x-4' : 'translate-x-1'}`} />
     </button>
@@ -159,17 +157,17 @@ export function PermissionsGrid({ userId, userRole, onFeedback }: PermissionsGri
         <button
           onClick={() => void handleReset()}
           disabled={resetting}
-          className="flex items-center gap-1.5 rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:border-red-600 hover:text-red-400 disabled:opacity-50"
+          className="flex items-center gap-1.5 rounded-lg border border-gray-300 dark:border-gray-700 px-3 py-1.5 text-xs text-gray-600 dark:text-gray-400 hover:border-red-600 hover:text-red-400 disabled:opacity-50"
         >
           <RotateCcw className="h-3 w-3" />
           {resetting ? 'Resetting...' : 'Reset to Defaults'}
         </button>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-gray-800">
+      <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-800">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-gray-800 bg-gray-800/50 text-left text-xs text-gray-500">
+            <tr className="border-b border-gray-200 dark:border-gray-800 bg-slate-100 dark:bg-gray-800/50 text-left text-xs text-gray-500">
               <th className="px-4 py-2 font-medium">Module</th>
               {ACTIONS.map((a) => (
                 <th key={a.key} className="px-3 py-2 text-center font-medium">{a.label}</th>
@@ -177,10 +175,10 @@ export function PermissionsGrid({ userId, userRole, onFeedback }: PermissionsGri
               <th className="px-3 py-2 font-medium text-gray-500">Account Range</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-800">
+          <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
             {perms.map((mod) => (
-              <tr key={mod.moduleKey} className="hover:bg-gray-800/30">
-                <td className="px-4 py-2.5 text-gray-300 font-medium">{mod.moduleName}</td>
+              <tr key={mod.moduleKey} className="hover:bg-slate-100 dark:hover:bg-gray-800/30">
+                <td className="px-4 py-2.5 text-gray-700 dark:text-gray-300 font-medium">{mod.moduleName}</td>
                 {ACTIONS.map((a) => (
                   <td key={a.key} className="px-3 py-2.5 text-center">
                     <Toggle
@@ -197,7 +195,7 @@ export function PermissionsGrid({ userId, userRole, onFeedback }: PermissionsGri
                         placeholder="From"
                         value={mod.accountRangeFrom ?? ''}
                         onChange={(e) => handleRangeChange(mod.moduleKey, 'accountRangeFrom', e.target.value)}
-                        className="w-16 rounded border border-gray-700 bg-gray-800 px-1.5 py-1 text-xs text-white placeholder-gray-600 focus:border-teal-500 focus:outline-none"
+                        className="w-16 rounded border border-gray-300 dark:border-gray-700 bg-slate-100 dark:bg-gray-800 px-1.5 py-1 text-xs text-slate-900 dark:text-white placeholder-gray-600 focus:border-teal-500 focus:outline-none"
                       />
                       <span className="text-gray-600">–</span>
                       <input
@@ -205,7 +203,7 @@ export function PermissionsGrid({ userId, userRole, onFeedback }: PermissionsGri
                         placeholder="To"
                         value={mod.accountRangeTo ?? ''}
                         onChange={(e) => handleRangeChange(mod.moduleKey, 'accountRangeTo', e.target.value)}
-                        className="w-16 rounded border border-gray-700 bg-gray-800 px-1.5 py-1 text-xs text-white placeholder-gray-600 focus:border-teal-500 focus:outline-none"
+                        className="w-16 rounded border border-gray-300 dark:border-gray-700 bg-slate-100 dark:bg-gray-800 px-1.5 py-1 text-xs text-slate-900 dark:text-white placeholder-gray-600 focus:border-teal-500 focus:outline-none"
                       />
                     </div>
                   ) : (

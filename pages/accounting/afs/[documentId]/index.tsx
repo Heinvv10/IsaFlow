@@ -107,28 +107,28 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
   return (
     <AppLayout>
       <Head><title>{title}</title></Head>
-      <div className="min-h-screen bg-slate-900">
+      <div className="min-h-screen bg-white dark:bg-slate-900">
 
         {/* Breadcrumb */}
-        <div className="bg-slate-900 border-b border-slate-800 px-6 py-3">
+        <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-6 py-3">
           <div className="flex items-center gap-2 text-sm text-slate-500">
             <Link href="/accounting/afs" className="hover:text-slate-300 transition-colors">AFS</Link>
             <ChevronRight className="w-3.5 h-3.5" />
-            <span className="text-slate-200 font-medium">
+            <span className="text-slate-800 dark:text-slate-200 font-medium">
               {doc ? (doc.documentType === 'afs' ? `AFS ${doc.fiscalYear ?? ''}` : `Pack ${doc.period ?? ''}`) : documentId}
             </span>
           </div>
         </div>
 
         {/* Page header */}
-        <div className="bg-slate-800 border-b border-slate-700 px-6 py-5">
+        <div className="bg-slate-100 dark:bg-slate-800 border-b border-slate-300 dark:border-slate-700 px-6 py-5">
           <div className="max-w-6xl mx-auto flex items-start justify-between gap-4">
             <div className="space-y-1">
               <div className="flex items-center gap-3">
-                <h1 className="text-xl font-bold text-white">Annual Financial Statements</h1>
+                <h1 className="text-xl font-bold text-slate-900 dark:text-white">Annual Financial Statements</h1>
                 {doc && <StatusBadge status={doc.status} />}
               </div>
-              <p className="text-sm text-slate-400">
+              <p className="text-sm text-slate-500 dark:text-slate-400">
                 Period: {periodStart} — {periodEnd}
                 {doc && ` · v${doc.version}`}
               </p>
@@ -164,7 +164,7 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
         </div>
 
         {/* Tab bar */}
-        <div className="bg-slate-800 border-b border-slate-700 px-6">
+        <div className="bg-slate-100 dark:bg-slate-800 border-b border-slate-300 dark:border-slate-700 px-6">
           <div className="max-w-6xl mx-auto flex gap-0">
             {TABS.map(tab => (
               <button
@@ -176,11 +176,7 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
                     setActiveTab(tab.id);
                   }
                 }}
-                className={`inline-flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 -mb-px transition-colors ${
-                  activeTab === tab.id
-                    ? 'border-blue-500 text-blue-400'
-                    : 'border-transparent text-slate-400 hover:text-slate-200'
-                }`}
+                className={`inline-flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 -mb-px transition-colors ${ activeTab === tab.id ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-200' }`}
               >
                 {tab.icon}{tab.label}
               </button>
@@ -194,7 +190,7 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
             <AfsOverviewTab documentId={documentId} periodStart={periodStart} periodEnd={periodEnd} />
           )}
           {activeTab === 'notes' && (
-            <div className="text-slate-400 text-sm py-12 text-center">
+            <div className="text-slate-500 dark:text-slate-400 text-sm py-12 text-center">
               <BookOpen className="w-10 h-10 mx-auto mb-3 opacity-40" />
               <p>Notes to the Financial Statements — coming soon.</p>
               <Link href={`/accounting/afs/${documentId}/notes`} className="text-blue-400 hover:underline mt-2 inline-block">
@@ -203,7 +199,7 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
             </div>
           )}
           {activeTab === 'statements' && (
-            <div className="text-slate-400 text-sm py-12 text-center">
+            <div className="text-slate-500 dark:text-slate-400 text-sm py-12 text-center">
               <BarChart2 className="w-10 h-10 mx-auto mb-3 opacity-40" />
               <p>Full financial statements — Balance Sheet, Income Statement, and more.</p>
               <div className="flex gap-3 justify-center mt-4">
@@ -213,13 +209,13 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
             </div>
           )}
           {activeTab === 'review' && (
-            <div className="text-slate-400 text-sm py-12 text-center">
+            <div className="text-slate-500 dark:text-slate-400 text-sm py-12 text-center">
               <CheckCircle className="w-10 h-10 mx-auto mb-3 opacity-40" />
               <p>Review workflow — sign-off trail and comments.</p>
             </div>
           )}
           {activeTab === 'export' && (
-            <div className="text-slate-400 text-sm py-12 text-center">
+            <div className="text-slate-500 dark:text-slate-400 text-sm py-12 text-center">
               <Download className="w-10 h-10 mx-auto mb-3 opacity-40" />
               <p>Export AFS as PDF or XBRL package.</p>
               <Link href={`/accounting/afs/${documentId}/export`} className="text-blue-400 hover:underline mt-2 inline-block">

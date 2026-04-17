@@ -74,11 +74,7 @@ export function FeatureFlagRow({
           <button
             type="button"
             onClick={() => onEditChange({ is_global: !editState.is_global })}
-            className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-colors ${
-              editState.is_global
-                ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300'
-                : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
-            }`}
+            className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-colors ${ editState.is_global ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300' : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400' }`}
           >
             {editState.is_global
               ? <><Globe className="w-3 h-3" /> Global</>
@@ -86,7 +82,7 @@ export function FeatureFlagRow({
             }
           </button>
         </td>
-        <td className="px-4 py-3 text-gray-400 text-xs">{fmtDate(flag.created_at)}</td>
+        <td className="px-4 py-3 text-gray-600 dark:text-gray-400 text-xs">{fmtDate(flag.created_at)}</td>
         <td className="px-4 py-3">
           <div className="flex items-center gap-1">
             {saveError && <span className="text-xs text-red-500 mr-1">{saveError}</span>}
@@ -124,7 +120,7 @@ export function FeatureFlagRow({
       </td>
       <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{flag.name}</td>
       <td className="px-4 py-3 text-gray-500 dark:text-gray-400 max-w-xs truncate">
-        {flag.description || <span className="italic text-gray-300 dark:text-gray-600">No description</span>}
+        {flag.description || <span className="italic text-gray-700 dark:text-gray-300 dark:text-gray-600">No description</span>}
       </td>
       <td className="px-4 py-3">
         {flag.is_global ? (
@@ -132,16 +128,16 @@ export function FeatureFlagRow({
             <Globe className="w-3.5 h-3.5" /> Global
           </span>
         ) : (
-          <span className="flex items-center gap-1 text-xs text-gray-400">
+          <span className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-400">
             <Lock className="w-3.5 h-3.5" /> Plan only
           </span>
         )}
       </td>
-      <td className="px-4 py-3 text-gray-400 text-xs whitespace-nowrap">{fmtDate(flag.created_at)}</td>
+      <td className="px-4 py-3 text-gray-600 dark:text-gray-400 text-xs whitespace-nowrap">{fmtDate(flag.created_at)}</td>
       <td className="px-4 py-3">
         <button
           onClick={onOpenEdit}
-          className="p-1.5 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+          className="p-1.5 rounded text-gray-600 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
           title="Edit feature flag"
         >
           <Pencil className="w-4 h-4" />

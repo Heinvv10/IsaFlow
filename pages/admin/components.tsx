@@ -61,7 +61,7 @@ function Section({ id, title, description, children }: {
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
+      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-600 dark:text-gray-400 dark:text-gray-500">
         {label}
       </p>
       <div className="flex flex-wrap items-center gap-3">{children}</div>
@@ -98,7 +98,7 @@ export default function ComponentShowcasePage() {
               <nav className="space-y-4">
                 {NAV_SECTIONS.map((section) => (
                   <div key={section.label}>
-                    <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">
+                    <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-gray-600 dark:text-gray-400 dark:text-gray-500">
                       {section.label}
                     </p>
                     <div className="space-y-0.5">
@@ -231,7 +231,7 @@ export default function ComponentShowcasePage() {
                         <p className="text-sm text-gray-600 dark:text-gray-400">Revenue: R 84,200</p>
                       </Card.Body>
                       <Card.Footer>
-                        <p className="text-xs text-gray-400">Updated just now</p>
+                        <p className="text-xs text-gray-600 dark:text-gray-400">Updated just now</p>
                       </Card.Footer>
                     </Card>
                   </Row>

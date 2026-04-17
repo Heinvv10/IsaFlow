@@ -112,10 +112,10 @@ export default function AccountingPage() {
   if (!isMounted) {
     return (
       <AppLayout>
-        <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center">
           <div className="text-center">
             <Loader2 className="h-8 w-8 animate-spin text-teal-500 mx-auto mb-2" />
-            <p className="text-slate-400">Loading accounting module...</p>
+            <p className="text-slate-500 dark:text-slate-400">Loading accounting module...</p>
           </div>
         </div>
       </AppLayout>

@@ -92,7 +92,7 @@ export default function BalanceSheetPage() {
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Balance Sheet</h1>
               </div>
               <button onClick={handleExport} disabled={!report}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium disabled:opacity-50">
+                className="inline-flex items-center gap-2 px-4 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 text-sm font-medium disabled:opacity-50">
                 <Download className="h-4 w-4" /> Export CSV
               </button>
             </div>

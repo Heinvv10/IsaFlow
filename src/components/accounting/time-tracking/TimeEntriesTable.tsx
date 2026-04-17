@@ -110,12 +110,12 @@ export function TimeEntriesTable({
                   {entry.status === 'draft' && (
                     <div className="flex items-center gap-1">
                       <button onClick={() => onEdit(entry)}
-                        className="p-1 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400" title="Edit">
+                        className="p-1 text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400" title="Edit">
                         <Clock className="w-4 h-4" />
                       </button>
                       <button onClick={() => onDelete(entry.id)}
                         disabled={busy === entry.id}
-                        className="p-1 text-gray-400 hover:text-red-600 dark:hover:text-red-400" title="Delete">
+                        className="p-1 text-gray-600 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400" title="Delete">
                         {busy === entry.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                       </button>
                     </div>

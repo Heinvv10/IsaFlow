@@ -118,7 +118,7 @@ export default function NewJournalEntryPage() {
           <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
           <div className="absolute -top-12 right-8 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
           <div className="relative z-10">
-            <Link href="/accounting?tab=journal-entries" className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 mb-4 transition-colors">
+            <Link href="/accounting?tab=journal-entries" className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-200 mb-4 transition-colors">
               <ArrowLeft className="h-3.5 w-3.5" /> Back to Journal Entries
             </Link>
             <div className="flex items-center gap-3">
@@ -127,7 +127,7 @@ export default function NewJournalEntryPage() {
               </div>
               <div>
                 <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-0.5">New Document</p>
-                <h1 className="text-xl font-bold text-white">Journal Entry</h1>
+                <h1 className="text-xl font-bold text-slate-900 dark:text-white">Journal Entry</h1>
               </div>
             </div>
           </div>
@@ -177,7 +177,7 @@ export default function NewJournalEntryPage() {
                       <span className="w-5 h-5 rounded bg-amber-500/10 flex items-center justify-center text-amber-500 text-xs font-bold">2</span>
                       Journal Lines
                     </h3>
-                    <button type="button" onClick={addLine} className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-white font-semibold transition-colors">
+                    <button type="button" onClick={addLine} className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-semibold transition-colors">
                       <Plus className="h-3 w-3" />Add Line
                     </button>
                   </div>
@@ -195,7 +195,7 @@ export default function NewJournalEntryPage() {
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                       {lines.map((line, idx) => (
                         <tr key={line.key} className="group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
-                          <td className="px-4 py-2 text-xs text-slate-400 dark:text-slate-500">{idx + 1}</td>
+                          <td className="px-4 py-2 text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500">{idx + 1}</td>
                           <td className="px-3 py-2">
                             <select name="accountId" value={line.accountId} onChange={e => updateLine(line.key, 'accountId', e.target.value)} className={inp} required>
                               <option value="">Select account…</option>
@@ -220,7 +220,7 @@ export default function NewJournalEntryPage() {
                             <input type="number" value={line.creditAmount} onChange={e => updateLine(line.key, 'creditAmount', e.target.value)} placeholder="0.00" step="0.01" min="0" className={`${inp} text-right`} />
                           </td>
                           <td className="px-2 py-2">
-                            <button type="button" onClick={() => removeLine(line.key)} disabled={lines.length <= 2} className="p-1.5 rounded-lg text-slate-300 dark:text-slate-700 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-20">
+                            <button type="button" onClick={() => removeLine(line.key)} disabled={lines.length <= 2} className="p-1.5 rounded-lg text-slate-700 dark:text-slate-300 dark:text-slate-700 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-20">
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
                           </td>
@@ -263,7 +263,7 @@ export default function NewJournalEntryPage() {
                         </div>
                       )}
                     </div>
-                    <button type="submit" disabled={isSubmitting || !isBalanced} className="w-full mt-6 py-3 bg-amber-500 hover:bg-amber-400 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                    <button type="submit" disabled={isSubmitting || !isBalanced} className="w-full mt-6 py-3 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
                       {isSubmitting ? <><Loader2 className="h-4 w-4 animate-spin" />Posting…</> : 'Post Journal Entry'}
                     </button>
                   </div>

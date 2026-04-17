@@ -186,7 +186,7 @@ export function ExchangeRatesPanel({ currencies, exchangeRates, onRefresh }: Pro
             <button
               onClick={handleSaveRate}
               disabled={savingRate}
-              className="px-4 py-2 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white rounded-lg flex items-center gap-2 text-sm"
+              className="px-4 py-2 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded-lg flex items-center gap-2 text-sm"
             >
               {savingRate ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
               Save Rate

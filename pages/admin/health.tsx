@@ -168,7 +168,7 @@ export default function SystemHealthPage() {
             <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-yellow-500" />
               <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Recent Error Events</h2>
-              <span className="ml-auto text-xs text-gray-400">Last 10 from audit log</span>
+              <span className="ml-auto text-xs text-gray-600 dark:text-gray-400">Last 10 from audit log</span>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -183,7 +183,7 @@ export default function SystemHealthPage() {
                 <tbody>
                   {data.recent_errors.length === 0 && (
                     <tr>
-                      <td colSpan={4} className="px-5 py-8 text-center text-gray-400 text-sm">
+                      <td colSpan={4} className="px-5 py-8 text-center text-gray-600 dark:text-gray-400 text-sm">
                         No error events found — all clear
                       </td>
                     </tr>
@@ -197,7 +197,7 @@ export default function SystemHealthPage() {
                       <td className="px-5 py-3 text-gray-500 dark:text-gray-400 max-w-xs truncate text-xs font-mono">
                         {Object.keys(row.details).length > 0 ? JSON.stringify(row.details) : '—'}
                       </td>
-                      <td className="px-5 py-3 text-gray-400 whitespace-nowrap">{fmtRelative(row.created_at)}</td>
+                      <td className="px-5 py-3 text-gray-600 dark:text-gray-400 whitespace-nowrap">{fmtRelative(row.created_at)}</td>
                     </tr>
                   ))}
                 </tbody>

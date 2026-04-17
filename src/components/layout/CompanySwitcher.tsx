@@ -42,7 +42,7 @@ export function CompanySwitcher() {
           />
         ) : (
           <div className="w-6 h-6 rounded bg-teal-600 flex items-center justify-center flex-shrink-0">
-            <Building2 className="w-3.5 h-3.5 text-white" />
+            <Building2 className="w-3.5 h-3.5 text-slate-900 dark:text-white" />
           </div>
         )}
 
@@ -74,19 +74,13 @@ export function CompanySwitcher() {
                     }
                     setOpen(false);
                   }}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors ${
-                    isActive
-                      ? 'bg-teal-50 dark:bg-teal-900/20'
-                      : 'hover:bg-gray-50 dark:hover:bg-gray-700/50'
-                  }`}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors ${ isActive ? 'bg-teal-50 dark:bg-teal-900/20' : 'hover:bg-gray-50 dark:hover:bg-gray-700/50' }`}
                 >
                   <div className="w-8 h-8 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center flex-shrink-0">
                     <Building2 className={`w-4 h-4 ${isActive ? 'text-teal-600' : 'text-gray-500'}`} />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className={`text-sm font-medium truncate ${
-                      isActive ? 'text-teal-700 dark:text-teal-400' : 'text-gray-900 dark:text-white'
-                    }`}>
+                    <p className={`text-sm font-medium truncate ${ isActive ? 'text-teal-700 dark:text-teal-400' : 'text-gray-900 dark:text-white' }`}>
                       {c.companyName}
                     </p>
                     <p className="text-xs text-gray-500 dark:text-gray-400 capitalize">{c.role}</p>

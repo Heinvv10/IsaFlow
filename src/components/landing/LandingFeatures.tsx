@@ -19,8 +19,8 @@ export function LandingFeaturesGrid() {
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-8">
           {FEATURE_PILLARS.map((pillar) => (
             <div key={pillar.title} className="group text-center">
-              <div className="w-14 h-14 rounded-2xl bg-gray-900 flex items-center justify-center mx-auto mb-5 group-hover:bg-teal-600 transition-colors duration-300">
-                <pillar.icon className="w-6 h-6 text-white" />
+              <div className="w-14 h-14 rounded-2xl bg-white dark:bg-gray-900 flex items-center justify-center mx-auto mb-5 group-hover:bg-teal-600 transition-colors duration-300">
+                <pillar.icon className="w-6 h-6 text-slate-900 dark:text-white" />
               </div>
               <h3 className="text-lg font-bold text-gray-900 mb-2">{pillar.title}</h3>
               <p className="text-sm text-gray-500 leading-relaxed">{pillar.desc}</p>

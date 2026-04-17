@@ -65,7 +65,7 @@ export default function ItemPricingPage() {
               </div>
             </div>
             <button onClick={save} disabled={saving || !changedCount}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium disabled:opacity-50">
+              className="flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-lg text-sm font-medium disabled:opacity-50">
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
               Save {changedCount > 0 ? `(${changedCount})` : ''}
             </button>

@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PackageCheck, Plus, Search, Loader2 } from 'lucide-react';
+import { PageHeader } from '@/components/ui';
 import { apiFetch } from '@/lib/apiFetch';
 
 interface GRN {
@@ -60,24 +61,19 @@ export default function GoodsReceivedPage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-slate-50 dark:bg-[var(--ff-bg-primary)]">
-        {/* Header */}
-        <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-6 py-8">
-          <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
-          <div className="absolute -top-12 right-8 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="relative z-10 flex items-center justify-between">
-            <div>
-              <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-1">Purchasing</p>
-              <h1 className="text-2xl font-bold text-white">Goods Received</h1>
-              <p className="text-slate-400 text-sm mt-0.5">{filtered.length} {filtered.length === 1 ? 'note' : 'notes'}</p>
-            </div>
+        <PageHeader
+          icon={PackageCheck}
+          title="Goods Received"
+          subtitle={`${filtered.length} ${filtered.length === 1 ? 'note' : 'notes'}`}
+          actions={
             <button
               onClick={() => router.push('/accounting/goods-received/new')}
-              className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-white rounded-xl text-sm font-semibold transition-colors shadow-lg shadow-amber-500/25"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-medium transition-colors"
             >
               <Plus className="w-4 h-4" /> New GRN
             </button>
-          </div>
-        </div>
+          }
+        />
 
         <div className="p-6 space-y-4">
           {error && (
@@ -89,7 +85,7 @@ export default function GoodsReceivedPage() {
           {/* Search */}
           <div className="flex justify-end">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500 dark:text-slate-400" />
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
@@ -103,18 +99,18 @@ export default function GoodsReceivedPage() {
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
             {loading ? (
               <div className="p-16 flex items-center justify-center">
-                <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+                <Loader2 className="h-6 w-6 animate-spin text-slate-500 dark:text-slate-400" />
               </div>
             ) : filtered.length === 0 ? (
               <div className="p-16 text-center">
                 <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto mb-4">
-                  <PackageCheck className="w-7 h-7 text-slate-400" />
+                  <PackageCheck className="w-7 h-7 text-slate-500 dark:text-slate-400" />
                 </div>
                 <h3 className="text-base font-semibold text-slate-900 dark:text-white">No goods received notes</h3>
                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Record your first delivery</p>
                 <button
                   onClick={() => router.push('/accounting/goods-received/new')}
-                  className="mt-5 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-white text-sm font-semibold rounded-lg transition-colors"
+                  className="mt-5 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold rounded-lg transition-colors"
                 >
                   New GRN
                 </button>

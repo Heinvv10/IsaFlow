@@ -299,7 +299,7 @@ export default function AdminAuditPage() {
               {!loading && rows.length === 0 && (
                 <tr>
                   <td colSpan={8} className="px-4 py-12 text-center">
-                    <div className="flex flex-col items-center gap-2 text-gray-400">
+                    <div className="flex flex-col items-center gap-2 text-gray-600 dark:text-gray-400">
                       <ScrollText className="w-8 h-8 opacity-30" />
                       <span className="text-sm">No audit entries for selected filters</span>
                     </div>
@@ -319,11 +319,11 @@ export default function AdminAuditPage() {
                   <td className="px-4 py-3">
                     <span className="text-gray-700 dark:text-gray-200 font-medium block">{row.user_name ?? '—'}</span>
                     {row.user_email && (
-                      <span className="text-xs text-gray-400 block">{row.user_email}</span>
+                      <span className="text-xs text-gray-600 dark:text-gray-400 block">{row.user_email}</span>
                     )}
                   </td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-300 text-xs">
-                    {row.company_name ?? <span className="text-gray-400">—</span>}
+                    {row.company_name ?? <span className="text-gray-600 dark:text-gray-400">—</span>}
                   </td>
                   <td className="px-4 py-3">{actionBadge(row.action)}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-300">
@@ -331,14 +331,14 @@ export default function AdminAuditPage() {
                       <span className="block text-xs capitalize">{row.entity_type.replaceAll('_', ' ')}</span>
                     )}
                     {row.entity_ref && (
-                      <span className="block font-mono text-xs text-gray-400">{row.entity_ref}</span>
+                      <span className="block font-mono text-xs text-gray-600 dark:text-gray-400">{row.entity_ref}</span>
                     )}
-                    {!row.entity_type && !row.entity_ref && <span className="text-gray-400 text-xs">—</span>}
+                    {!row.entity_type && !row.entity_ref && <span className="text-gray-600 dark:text-gray-400 text-xs">—</span>}
                   </td>
                   <td className="px-4 py-3 max-w-xs">
                     <DetailsCell value={row.details} />
                   </td>
-                  <td className="px-4 py-3 text-gray-400 font-mono text-xs whitespace-nowrap">
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400 font-mono text-xs whitespace-nowrap">
                     {row.ip_address ?? '—'}
                   </td>
                 </tr>

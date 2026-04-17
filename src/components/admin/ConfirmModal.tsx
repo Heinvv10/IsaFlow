@@ -33,7 +33,7 @@ export function ConfirmModal({
       <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold text-gray-900 dark:text-white">{title}</h3>
-          <button onClick={onCancel} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+          <button onClick={onCancel} className="text-gray-600 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -49,7 +49,7 @@ export function ConfirmModal({
           <button
             onClick={onConfirm}
             disabled={loading}
-            className={`px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-50 transition-colors ${confirmClass}`}
+            className={`px-4 py-2 text-sm font-medium text-slate-900 dark:text-white rounded-lg disabled:opacity-50 transition-colors ${confirmClass}`}
           >
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : confirmLabel}
           </button>

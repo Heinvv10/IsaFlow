@@ -7,6 +7,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import {
   Shield, CheckCircle2, XCircle, Loader2, Trash2, AlertCircle,
 } from 'lucide-react';
+import { PageHeader } from '@/components/ui';
 import { apiFetch } from '@/lib/apiFetch';
 
 function formatCurrency(amount: number): string {
@@ -115,25 +116,16 @@ export default function ApprovalsPage() {
   return (
     <AppLayout>
       <div className="p-4 lg:p-6 space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-teal-500/10">
-              <Shield className="h-6 w-6 text-teal-500" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Approvals</h1>
-              <p className="text-sm text-[var(--ff-text-secondary)]">
-                Review and manage approval workflows
-              </p>
-            </div>
-          </div>
-          {pendingCount > 0 && (
-            <div className="bg-amber-500/20 text-amber-500 px-3 py-1 rounded-full text-sm font-medium">
+        <PageHeader
+          icon={Shield}
+          title="Approvals"
+          subtitle="Review and manage approval workflows"
+          actions={pendingCount > 0 ? (
+            <div className="bg-amber-500/20 text-amber-700 dark:text-amber-400 px-3 py-1 rounded-full text-sm font-medium">
               {pendingCount} pending
             </div>
-          )}
-        </div>
+          ) : undefined}
+        />
 
         {/* Tabs */}
         <div className="flex gap-1 border-b border-[var(--ff-border-primary)]">

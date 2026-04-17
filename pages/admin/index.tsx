@@ -59,7 +59,7 @@ function fmtRelative(dateStr: string) {
 }
 
 function trialDaysBadge(days: number) {
-  if (days <= 0) return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-700 text-gray-300">Expired</span>;
+  if (days <= 0) return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300">Expired</span>;
   if (days <= 2) return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-500/20 text-red-400">{days}d</span>;
   if (days <= 5) return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-orange-500/20 text-orange-400">{days}d</span>;
   return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-yellow-500/20 text-yellow-400">{days}d</span>;
@@ -192,7 +192,7 @@ export default function AdminDashboard() {
                 <tbody>
                   {(stats.recent_activity ?? []).length === 0 && (
                     <tr>
-                      <td colSpan={5} className="px-5 py-8 text-center text-gray-400 text-sm">
+                      <td colSpan={5} className="px-5 py-8 text-center text-gray-600 dark:text-gray-400 text-sm">
                         No recent activity
                       </td>
                     </tr>
@@ -207,7 +207,7 @@ export default function AdminDashboard() {
                       <td className="px-5 py-3 text-gray-700 dark:text-gray-200 max-w-xs truncate">{row.description}</td>
                       <td className="px-5 py-3 text-gray-600 dark:text-gray-300">{row.user_name}</td>
                       <td className="px-5 py-3 text-gray-600 dark:text-gray-300">{row.company_name}</td>
-                      <td className="px-5 py-3 text-gray-400 whitespace-nowrap">{fmtRelative(row.created_at)}</td>
+                      <td className="px-5 py-3 text-gray-600 dark:text-gray-400 whitespace-nowrap">{fmtRelative(row.created_at)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -263,7 +263,7 @@ export default function AdminDashboard() {
                         </button>
                         <Link
                           href={adminHref(`/admin/companies/${trial.id}`)}
-                          className="px-2.5 py-1 text-xs bg-gray-700/40 hover:bg-gray-700/70 text-gray-300 rounded-md transition-colors"
+                          className="px-2.5 py-1 text-xs bg-gray-100 dark:bg-gray-700/40 hover:bg-gray-100 dark:hover:bg-gray-700/70 text-gray-700 dark:text-gray-300 rounded-md transition-colors"
                         >
                           Upgrade
                         </Link>
@@ -287,7 +287,7 @@ export default function AdminDashboard() {
         </Link>
         <Link
           href={adminHref('/admin/users')}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm font-medium rounded-lg transition-colors"
+          className="inline-flex items-center gap-2 px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-600 text-slate-900 dark:text-white text-sm font-medium rounded-lg transition-colors"
         >
           <Users className="w-4 h-4" /> Manage Users <ArrowRight className="w-4 h-4" />
         </Link>

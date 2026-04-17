@@ -45,12 +45,12 @@ function Separator({ type }: { type: BreadcrumbSeparator }) {
     return (
       <ChevronRight
         aria-hidden="true"
-        className="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0"
+        className="w-4 h-4 text-gray-600 dark:text-gray-400 dark:text-gray-500 shrink-0"
       />
     );
   }
   return (
-    <span aria-hidden="true" className="text-gray-400 dark:text-gray-500 select-none">
+    <span aria-hidden="true" className="text-gray-600 dark:text-gray-400 dark:text-gray-500 select-none">
       /
     </span>
   );
@@ -135,7 +135,7 @@ export function Breadcrumb({
                   type="button"
                   aria-label="Show all breadcrumbs"
                   onClick={() => setExpanded(true)}
-                  className="p-0.5 rounded text-gray-400 hover:text-teal-600 dark:hover:text-teal-400 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+                  className="p-0.5 rounded text-gray-600 dark:text-gray-400 hover:text-teal-600 dark:hover:text-teal-400 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
                 >
                   <MoreHorizontal className="w-4 h-4" />
                 </button>

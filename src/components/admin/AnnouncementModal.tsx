@@ -70,7 +70,7 @@ export function AnnouncementModal({ initial, onClose, onSave, saving }: Props) {
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
             {initial.title ? 'Edit Announcement' : 'New Announcement'}
           </h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+          <button onClick={onClose} className="text-gray-600 dark:text-gray-400 hover:text-gray-600">
             <X className="w-5 h-5" />
           </button>
         </div>
