@@ -252,7 +252,7 @@ export function Step1({ d, set }: { d: WizardData; set: SetFn }) {
           <p className="text-xs text-gray-500">No directors added yet. Click &quot;+ Add Director&quot; or upload an ID to auto-fill.</p>
         )}
         {d.directors.map((dir, i) => (
-          <div key={i} className="border border-gray-700 rounded-lg p-3 mb-3">
+          <div key={i} className="border border-gray-300 dark:border-gray-700 rounded-lg p-3 mb-3">
             <div className="grid grid-cols-[1fr_1fr_auto] gap-2 mb-2 items-end">
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Full Name</label>
@@ -279,7 +279,7 @@ export function Step1({ d, set }: { d: WizardData; set: SetFn }) {
               <div className="flex items-center gap-2">
                 {dir.extracting && <Loader2 className="w-3.5 h-3.5 text-teal-400 animate-spin" />}
                 {dir.idDocument ? (
-                  <span className="text-xs text-gray-400">{dir.idDocument.name}</span>
+                  <span className="text-xs text-gray-600 dark:text-gray-400">{dir.idDocument.name}</span>
                 ) : (
                   <label className="flex items-center gap-1.5 cursor-pointer text-xs text-teal-400 hover:text-teal-300">
                     <ScanLine className="w-3.5 h-3.5" /> Upload ID
@@ -291,11 +291,7 @@ export function Step1({ d, set }: { d: WizardData; set: SetFn }) {
             </div>
             {/* ID verification notice */}
             {dir.idVerification && dir.idVerificationMsg && (
-              <div className={`mt-2 flex items-start gap-2 text-xs px-2.5 py-2 rounded-lg ${
-                dir.idVerification === 'verified' ? 'bg-green-500/10 border border-green-500/30 text-green-400'
-                : dir.idVerification === 'updated' ? 'bg-teal-500/10 border border-teal-500/30 text-teal-400'
-                : 'bg-amber-500/10 border border-amber-500/30 text-amber-400'
-              }`}>
+              <div className={`mt-2 flex items-start gap-2 text-xs px-2.5 py-2 rounded-lg ${ dir.idVerification === 'verified' ? 'bg-green-500/10 border border-green-500/30 text-green-400' : dir.idVerification === 'updated' ? 'bg-teal-500/10 border border-teal-500/30 text-teal-400' : 'bg-amber-500/10 border border-amber-500/30 text-amber-400' }`}>
                 <span>{dir.idVerification === 'verified' ? '✓' : dir.idVerification === 'updated' ? '↻' : '⚠'}</span>
                 <span>{dir.idVerificationMsg}</span>
               </div>
@@ -314,11 +310,7 @@ export function Step1({ d, set }: { d: WizardData; set: SetFn }) {
             {!validating && validationWarnings.length > 0 && (
               <div className="space-y-1.5">
                 {validationWarnings.map((w, i) => (
-                  <div key={i} className={`flex items-start gap-2 text-xs px-3 py-2 rounded-lg ${
-                    w.type === 'missing_from_entry' ? 'bg-amber-500/10 border border-amber-500/30 text-amber-400'
-                    : w.type === 'not_on_cipc' ? 'bg-blue-500/10 border border-blue-500/30 text-blue-400'
-                    : 'bg-red-500/10 border border-red-500/30 text-red-400'
-                  }`}>
+                  <div key={i} className={`flex items-start gap-2 text-xs px-3 py-2 rounded-lg ${ w.type === 'missing_from_entry' ? 'bg-amber-500/10 border border-amber-500/30 text-amber-400' : w.type === 'not_on_cipc' ? 'bg-blue-500/10 border border-blue-500/30 text-blue-400' : 'bg-red-500/10 border border-red-500/30 text-red-400' }`}>
                     <span>{w.type === 'missing_from_entry' ? '⚠' : w.type === 'not_on_cipc' ? 'ℹ' : '✗'}</span>
                     <span>{w.message}</span>
                   </div>
@@ -377,7 +369,7 @@ export function Step3({ d, set }: { d: WizardData; set: SetFn }) {
     <div className="flex flex-col items-center gap-4">
       {d.logoData ? (
         <div className="relative">
-          <img src={d.logoData} alt="Logo" className="w-32 h-32 rounded-lg object-contain bg-gray-800" />
+          <img src={d.logoData} alt="Logo" className="w-32 h-32 rounded-lg object-contain bg-slate-100 dark:bg-gray-800" />
           <button onClick={() => set('logoData', '')}
             className="absolute -top-2 -right-2 bg-red-600 rounded-full p-1 hover:bg-red-500">
             <X className="w-3 h-3" />
@@ -391,7 +383,7 @@ export function Step3({ d, set }: { d: WizardData; set: SetFn }) {
           onClick={() => fileRef.current?.click()}
         >
           <Upload className="w-10 h-10 text-gray-500 mx-auto mb-3" />
-          <p className="text-sm text-gray-400">Drag & drop your logo here, or click to browse</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400">Drag & drop your logo here, or click to browse</p>
           <p className="text-xs text-gray-500 mt-1">JPEG, PNG, or WebP. Max 2 MB</p>
         </div>
       )}
@@ -478,12 +470,12 @@ export function Step6({ d, set }: { d: WizardData; set: SetFn }) {
         return (
           <div key={slot.type} className={`border rounded-lg p-4 ${slot.required && !doc ? 'border-teal-500/50' : 'border-gray-700'}`}>
             <div className="flex items-center gap-2 mb-2">
-              <p className="text-sm font-medium text-gray-300">{slot.label}</p>
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{slot.label}</p>
               {slot.required && <span className="text-xs bg-teal-600/20 text-teal-400 px-1.5 py-0.5 rounded">Required</span>}
             </div>
             {doc ? (
               <div className="flex items-center justify-between">
-                <div className="text-xs text-gray-400">
+                <div className="text-xs text-gray-600 dark:text-gray-400">
                   {doc.name} ({(doc.size / 1024).toFixed(0)} KB)
                 </div>
                 <button onClick={() => removeDoc(slot.type)}
@@ -547,7 +539,7 @@ const COA_OPTIONS: CoaOption[] = [
 export function StepCoaTemplate({ d, set }: { d: WizardData; set: SetFn }) {
   return (
     <div className="grid gap-4">
-      <p className="text-sm text-gray-400">
+      <p className="text-sm text-gray-600 dark:text-gray-400">
         Choose the account code layout that matches how your business or accountant works.
         You can always add, rename, or remove accounts later.
       </p>
@@ -568,19 +560,19 @@ export function StepCoaTemplate({ d, set }: { d: WizardData; set: SetFn }) {
             <div className="flex items-start justify-between gap-3">
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-0.5">
-                  <span className="text-sm font-semibold text-white">{opt.label}</span>
+                  <span className="text-sm font-semibold text-slate-900 dark:text-white">{opt.label}</span>
                   <span className="text-xs text-teal-400 bg-teal-900/40 px-2 py-0.5 rounded-full">
                     {opt.tagline}
                   </span>
                 </div>
-                <p className="text-xs text-gray-400 font-mono mb-1.5">{opt.codes}</p>
+                <p className="text-xs text-gray-600 dark:text-gray-400 font-mono mb-1.5">{opt.codes}</p>
                 <p className="text-xs text-gray-500">{opt.detail}</p>
               </div>
               <div className={[
                 'w-5 h-5 rounded-full border-2 flex-shrink-0 mt-0.5 flex items-center justify-center',
                 selected ? 'border-teal-500 bg-teal-500' : 'border-gray-600',
               ].join(' ')}>
-                {selected && <Check className="w-3 h-3 text-white" />}
+                {selected && <Check className="w-3 h-3 text-slate-900 dark:text-white" />}
               </div>
             </div>
           </button>
@@ -603,7 +595,7 @@ export function Step7({ d }: { d: WizardData }) {
           {filtered.map(([k, v]) => (
             <div key={k} className="flex gap-2 text-sm">
               <span className="text-gray-500 w-36 shrink-0">{k}:</span>
-              <span className="text-gray-200">{v}</span>
+              <span className="text-gray-800 dark:text-gray-200">{v}</span>
             </div>
           ))}
         </div>
@@ -626,7 +618,7 @@ export function Step7({ d }: { d: WizardData }) {
           <div className="grid gap-1">
             {d.directors.map((dir, i) => (
               <div key={i} className="flex gap-2 text-sm">
-                <span className="text-gray-200">{dir.name}</span>
+                <span className="text-gray-800 dark:text-gray-200">{dir.name}</span>
                 <span className="text-gray-500">({dir.role})</span>
                 {dir.idNumber && <span className="text-gray-500">— ID: {dir.idNumber}</span>}
               </div>
@@ -641,7 +633,7 @@ export function Step7({ d }: { d: WizardData }) {
       <div>
         <h3 className="text-sm font-semibold text-teal-400 mb-2">Logo</h3>
         {d.logoData ? (
-          <img src={d.logoData} alt="Logo" className="w-16 h-16 rounded-lg object-contain bg-gray-800" />
+          <img src={d.logoData} alt="Logo" className="w-16 h-16 rounded-lg object-contain bg-slate-100 dark:bg-gray-800" />
         ) : (
           <p className="text-sm text-gray-500">Not uploaded</p>
         )}
@@ -660,7 +652,7 @@ export function Step7({ d }: { d: WizardData }) {
         {d.documents.length > 0 ? (
           <ul className="space-y-1">
             {d.documents.map(doc => (
-              <li key={doc.type} className="text-sm text-gray-300">
+              <li key={doc.type} className="text-sm text-gray-700 dark:text-gray-300">
                 {DOC_SLOTS.find(s => s.type === doc.type)?.label || doc.type} — {doc.name}
               </li>
             ))}

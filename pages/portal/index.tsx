@@ -6,6 +6,7 @@
 import { useState, useEffect } from 'react';
 import { BookOpen, FileText, LogOut, Loader2 } from 'lucide-react';
 import Head from 'next/head';
+import Image from 'next/image';
 
 function formatCurrency(amount: number): string {
   return 'R ' + Math.abs(amount).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -97,40 +98,37 @@ export default function PortalPage() {
   if (!user) {
     return (
       <>
-        <Head><title>IsaFlow — Client Portal</title></Head>
-        <div className="min-h-screen bg-gray-950 flex items-center justify-center px-4">
+        <Head><title>ISAFlow — Client Portal</title></Head>
+        <div className="min-h-screen bg-slate-50 dark:bg-gray-950 flex items-center justify-center px-4">
           <div className="w-full max-w-sm">
             <div className="flex flex-col items-center mb-8">
-              <div className="w-12 h-12 bg-teal-600 rounded-xl flex items-center justify-center mb-3">
-                <BookOpen className="w-6 h-6 text-white" />
-              </div>
-              <h1 className="text-xl font-semibold text-white">IsaFlow Portal</h1>
-              <p className="text-sm text-gray-500 mt-1">Sign in to view your account</p>
+              <Image src="/logo.png" alt="ISAFlow" width={160} height={64} className="h-16 w-auto dark:brightness-0 dark:invert mb-4" priority />
+              <p className="text-sm text-slate-600 dark:text-slate-300 mt-1">Client Portal — sign in to view your account</p>
             </div>
-            <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 shadow-xl">
+            <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl p-6 shadow-xl">
               {loginError && (
                 <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
                   {loginError}
                 </div>
               )}
               <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-300 mb-1">Email</label>
+                <label className="block text-sm font-medium text-slate-600 dark:text-gray-300 mb-1">Email</label>
                 <input
                   type="email"
                   value={loginEmail}
                   onChange={e => setLoginEmail(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                  className="w-full bg-slate-50 dark:bg-gray-800 border border-slate-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-teal-500 focus:border-transparent"
                   placeholder="you@company.com"
                 />
               </div>
               <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-300 mb-1">Password</label>
+                <label className="block text-sm font-medium text-slate-600 dark:text-gray-300 mb-1">Password</label>
                 <input
                   type="password"
                   value={loginPassword}
                   onChange={e => setLoginPassword(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && void handleLogin()}
-                  className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                  className="w-full bg-slate-50 dark:bg-gray-800 border border-slate-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-teal-500 focus:border-transparent"
                   placeholder="Enter your password"
                 />
               </div>
@@ -139,7 +137,7 @@ export default function PortalPage() {
                 disabled={loggingIn || !loginEmail || !loginPassword}
                 className="w-full bg-teal-600 hover:bg-teal-500 disabled:bg-teal-800 text-white font-medium text-sm px-4 py-2.5 rounded-lg transition-colors disabled:cursor-not-allowed"
               >
-                {loggingIn ? 'Signing in...' : 'Sign in'}
+                {loggingIn ? 'Signing In...' : 'Sign In'}
               </button>
             </div>
           </div>
@@ -150,19 +148,19 @@ export default function PortalPage() {
 
   return (
     <>
-      <Head><title>IsaFlow — {user.name}</title></Head>
-      <div className="min-h-screen bg-gray-950">
+      <Head><title>ISAFlow — {user.name}</title></Head>
+      <div className="min-h-screen bg-slate-50 dark:bg-gray-950">
         {/* Header */}
-        <header className="bg-gray-900 border-b border-gray-700 px-6 py-4 flex items-center justify-between">
+        <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 bg-teal-600 rounded-lg flex items-center justify-center">
-              <BookOpen className="w-4 h-4 text-white" />
+              <BookOpen className="w-4 h-4 text-slate-900 dark:text-white" />
             </div>
-            <span className="font-semibold text-teal-400 text-sm">IsaFlow Portal</span>
+            <span className="font-semibold text-teal-600 dark:text-teal-400 text-sm">ISAFlow Portal</span>
           </div>
           <div className="flex items-center gap-4">
-            <span className="text-sm text-gray-400">{user.name}</span>
-            <button onClick={handleLogout} className="text-gray-400 hover:text-white transition-colors">
+            <span className="text-sm text-slate-600 dark:text-gray-400">{user.name}</span>
+            <button onClick={handleLogout} className="text-slate-500 dark:text-slate-400 dark:text-gray-400 hover:text-slate-700 dark:hover:text-white transition-colors">
               <LogOut className="h-4 w-4" />
             </button>
           </div>
@@ -171,16 +169,16 @@ export default function PortalPage() {
         <div className="max-w-5xl mx-auto p-6 space-y-6">
           {/* Summary Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="bg-gray-900 border border-gray-700 rounded-xl p-4">
-              <p className="text-xs text-gray-500 mb-1">Total Outstanding</p>
-              <p className="text-2xl font-bold text-white">{formatCurrency(totalOutstanding)}</p>
+            <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+              <p className="text-xs text-slate-500 dark:text-gray-500 mb-1">Total Outstanding</p>
+              <p className="text-2xl font-bold text-slate-900 dark:text-white">{formatCurrency(totalOutstanding)}</p>
             </div>
-            <div className="bg-gray-900 border border-gray-700 rounded-xl p-4">
-              <p className="text-xs text-gray-500 mb-1">Invoices</p>
-              <p className="text-2xl font-bold text-white">{invoices.length}</p>
+            <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+              <p className="text-xs text-slate-500 dark:text-gray-500 mb-1">Invoices</p>
+              <p className="text-2xl font-bold text-slate-900 dark:text-white">{invoices.length}</p>
             </div>
-            <div className="bg-gray-900 border border-gray-700 rounded-xl p-4">
-              <p className="text-xs text-gray-500 mb-1">Overdue</p>
+            <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+              <p className="text-xs text-slate-500 dark:text-gray-500 mb-1">Overdue</p>
               <p className={`text-2xl font-bold ${overdueInvoices.length > 0 ? 'text-red-400' : 'text-teal-400'}`}>
                 {overdueInvoices.length}
               </p>
@@ -188,36 +186,36 @@ export default function PortalPage() {
           </div>
 
           {/* Invoices Table */}
-          <div className="bg-gray-900 border border-gray-700 rounded-xl overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-700 flex items-center gap-2">
-              <FileText className="h-5 w-5 text-gray-400" />
-              <h2 className="text-lg font-semibold text-white">Your Invoices</h2>
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2">
+              <FileText className="h-5 w-5 text-slate-500 dark:text-gray-400" />
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Your Invoices</h2>
             </div>
             {loading ? (
               <div className="flex justify-center py-12">
                 <Loader2 className="h-6 w-6 animate-spin text-teal-500" />
               </div>
             ) : invoices.length === 0 ? (
-              <div className="px-6 py-12 text-center text-gray-500">No invoices found</div>
+              <div className="px-6 py-12 text-center text-slate-500 dark:text-gray-500">No invoices found</div>
             ) : (
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="bg-gray-800/50">
-                    <th className="text-left px-6 py-3 font-medium text-gray-400">Invoice #</th>
-                    <th className="text-left px-6 py-3 font-medium text-gray-400">Date</th>
-                    <th className="text-left px-6 py-3 font-medium text-gray-400">Due Date</th>
-                    <th className="text-right px-6 py-3 font-medium text-gray-400">Total</th>
-                    <th className="text-right px-6 py-3 font-medium text-gray-400">Balance</th>
-                    <th className="text-center px-6 py-3 font-medium text-gray-400">Status</th>
+                  <tr className="bg-slate-50 dark:bg-gray-800/50">
+                    <th className="text-left px-6 py-3 font-medium text-slate-500 dark:text-gray-400">Invoice #</th>
+                    <th className="text-left px-6 py-3 font-medium text-slate-500 dark:text-gray-400">Date</th>
+                    <th className="text-left px-6 py-3 font-medium text-slate-500 dark:text-gray-400">Due Date</th>
+                    <th className="text-right px-6 py-3 font-medium text-slate-500 dark:text-gray-400">Total</th>
+                    <th className="text-right px-6 py-3 font-medium text-slate-500 dark:text-gray-400">Balance</th>
+                    <th className="text-center px-6 py-3 font-medium text-slate-500 dark:text-gray-400">Status</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-800">
+                <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
                   {invoices.map(inv => (
-                    <tr key={inv.id} className="hover:bg-gray-800/30">
-                      <td className="px-6 py-3 text-white font-medium">{inv.invoiceNumber}</td>
-                      <td className="px-6 py-3 text-gray-300">{new Date(inv.invoiceDate).toLocaleDateString('en-ZA')}</td>
-                      <td className="px-6 py-3 text-gray-300">{new Date(inv.dueDate).toLocaleDateString('en-ZA')}</td>
-                      <td className="px-6 py-3 text-right text-gray-300">{formatCurrency(inv.total)}</td>
+                    <tr key={inv.id} className="hover:bg-slate-50 dark:hover:bg-gray-800/30">
+                      <td className="px-6 py-3 text-slate-900 dark:text-white font-medium">{inv.invoiceNumber}</td>
+                      <td className="px-6 py-3 text-slate-600 dark:text-gray-300">{new Date(inv.invoiceDate).toLocaleDateString('en-ZA')}</td>
+                      <td className="px-6 py-3 text-slate-600 dark:text-gray-300">{new Date(inv.dueDate).toLocaleDateString('en-ZA')}</td>
+                      <td className="px-6 py-3 text-right text-slate-600 dark:text-gray-300">{formatCurrency(inv.total)}</td>
                       <td className={`px-6 py-3 text-right font-medium ${inv.balance > 0 ? 'text-amber-400' : 'text-teal-400'}`}>
                         {formatCurrency(inv.balance)}
                       </td>

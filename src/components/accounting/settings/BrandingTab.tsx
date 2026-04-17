@@ -100,7 +100,7 @@ export function BrandingTab({ company, onChange, onCompanyChange, onError }: Pro
         <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-4">Company Logo</h2>
         <div className="flex items-center gap-6 mb-6">
           {company.logoData ? (
-            <img src={company.logoData} className="h-20 w-20 object-contain rounded-lg border border-gray-700" alt="Company logo" />
+            <img src={company.logoData} className="h-20 w-20 object-contain rounded-lg border border-gray-300 dark:border-gray-700" alt="Company logo" />
           ) : (
             <div className="h-20 w-20 rounded-lg border border-dashed border-[var(--ff-border-primary)] flex items-center justify-center">
               <Building2 className="h-8 w-8 text-[var(--ff-text-tertiary)]" />

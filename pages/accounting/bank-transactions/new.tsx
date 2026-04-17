@@ -153,12 +153,12 @@ export default function NewBankTransactionPage() {
           <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
           <div className="absolute -top-12 right-8 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
           <div className="relative z-10">
-            <Link href="/accounting/bank-transactions" className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 mb-4 transition-colors">
+            <Link href="/accounting/bank-transactions" className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-200 mb-4 transition-colors">
               <ArrowLeft className="h-3.5 w-3.5" /> Back to Bank Transactions
             </Link>
             <div>
               <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-0.5">New Document</p>
-              <h1 className="text-xl font-bold text-white">{txType === 'spend' ? 'Spend Money' : 'Receive Money'}</h1>
+              <h1 className="text-xl font-bold text-slate-900 dark:text-white">{txType === 'spend' ? 'Spend Money' : 'Receive Money'}</h1>
             </div>
           </div>
         </div>
@@ -236,11 +236,7 @@ export default function NewBankTransactionPage() {
                         <div className="flex gap-2">
                           {(['account', 'supplier', 'customer'] as AllocType[]).map(t => (
                             <button key={t} type="button" onClick={() => handleAllocTypeChange(t)}
-                              className={`px-4 py-1.5 rounded-lg border text-xs font-medium transition-all ${
-                                form.allocationType === t
-                                  ? 'border-amber-500 bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                                  : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-amber-400/50 hover:text-amber-500'
-                              }`}>
+                              className={`px-4 py-1.5 rounded-lg border text-xs font-medium transition-all ${ form.allocationType === t ? 'border-amber-500 bg-amber-500/10 text-amber-600 dark:text-amber-400' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-amber-400/50 hover:text-amber-500' }`}>
                               {t.charAt(0).toUpperCase() + t.slice(1)}
                             </button>
                           ))}
@@ -259,13 +255,13 @@ export default function NewBankTransactionPage() {
                         {entitySearch.length > 0 && !isSelected && (
                           <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl max-h-52 overflow-y-auto">
                             {entityOptions.length === 0
-                              ? <div className="px-3 py-2 text-xs text-slate-400">No results found</div>
+                              ? <div className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400">No results found</div>
                               : entityOptions.map(o => {
                                   const label = o.code ? `${o.code} — ${o.name}` : o.name;
                                   return (
                                     <button key={o.id} type="button" onClick={() => handleEntitySelect(o.id, label)}
                                       className="w-full text-left px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800 text-sm flex items-center gap-2 transition-colors">
-                                      {o.code && <span className="font-mono text-xs text-slate-400">{o.code}</span>}
+                                      {o.code && <span className="font-mono text-xs text-slate-500 dark:text-slate-400">{o.code}</span>}
                                       <span className="text-slate-900 dark:text-slate-100">{o.name}</span>
                                     </button>
                                   );
@@ -316,11 +312,11 @@ export default function NewBankTransactionPage() {
                     type="button"
                     onClick={(e) => handleSubmit(e as unknown as React.FormEvent<HTMLFormElement>)}
                     disabled={isSubmitting || isLoadingRef}
-                    className="w-full mt-6 py-3 bg-amber-500 hover:bg-amber-400 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm"
+                    className="w-full mt-6 py-3 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm"
                   >
                     {isSubmitting ? <><Loader2 className="h-4 w-4 animate-spin" />Recording…</> : <><Banknote className="h-4 w-4" />Record Transaction</>}
                   </button>
-                  <Link href="/accounting/bank-transactions" className="block mt-3 text-center text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
+                  <Link href="/accounting/bank-transactions" className="block mt-3 text-center text-xs text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
                     Cancel
                   </Link>
                 </div>

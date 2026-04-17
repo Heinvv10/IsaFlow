@@ -232,7 +232,7 @@ export function TwoFactorSection() {
             <div className={`p-2 rounded-lg ${enabled ? 'bg-teal-500/10' : 'bg-gray-500/10'}`}>
               {enabled
                 ? <ShieldCheck className="h-6 w-6 text-teal-500" />
-                : <ShieldOff className="h-6 w-6 text-gray-400" />
+                : <ShieldOff className="h-6 w-6 text-gray-600 dark:text-gray-400" />
               }
             </div>
             <div>

@@ -73,7 +73,10 @@ export default function MigrationHubPage() {
       const res = await apiFetch('/api/accounting/migration/session');
       const json = await res.json();
       if (res.ok && json.data) {
-        setSession(json.data.session ?? json.data);
+        const raw = (json.data.session ?? json.data) as Partial<MigrationSession> | null;
+        if (raw && typeof raw === 'object' && 'id' in raw) {
+          setSession({ ...raw, stepsCompleted: raw.stepsCompleted ?? {} } as MigrationSession);
+        }
       }
     } catch (e) {
       log.warn('Failed to load migration session', { error: e }, 'migration');
@@ -95,7 +98,8 @@ export default function MigrationHubPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Failed to create session');
-      setSession(json.data.session ?? json.data);
+      const raw = (json.data.session ?? json.data) as Partial<MigrationSession>;
+      setSession({ ...raw, stepsCompleted: raw.stepsCompleted ?? {} } as MigrationSession);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start migration');
     } finally {
@@ -104,8 +108,7 @@ export default function MigrationHubPage() {
   };
 
   const stepStatus = (id: keyof StepsCompleted): 'completed' | 'not_started' => {
-    if (!session) return 'not_started';
-    return session.stepsCompleted[id] ? 'completed' : 'not_started';
+    return session?.stepsCompleted?.[id] ? 'completed' : 'not_started';
   };
 
   return (
@@ -225,7 +228,7 @@ function SourceSelection({ onSelect, selecting, isSuperAdmin }: { onSelect: (s: 
 
 function SessionSummary({ session, onReset }: { session: MigrationSession; onReset: () => void }) {
   const sourceLabel = SOURCE_SYSTEMS.find(s => s.id === session.sourceSystem)?.label ?? session.sourceSystem ?? 'Unknown';
-  const completed = Object.values(session.stepsCompleted).filter(Boolean).length;
+  const completed = Object.values(session.stepsCompleted ?? {}).filter(Boolean).length;
   return (
     <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5">
       <div className="flex items-start justify-between gap-4">
@@ -262,7 +265,7 @@ function StepBadge({ status }: { status: 'completed' | 'not_started' }) {
   if (status === 'completed') {
     return <span className="px-2 py-0.5 rounded text-xs font-medium bg-teal-500/20 text-teal-400">Completed</span>;
   }
-  return <span className="px-2 py-0.5 rounded text-xs font-medium bg-gray-500/20 text-gray-400">Not started</span>;
+  return <span className="px-2 py-0.5 rounded text-xs font-medium bg-gray-500/20 text-gray-600 dark:text-gray-400">Not started</span>;
 }
 
 function StatusBadge({ status }: { status: string }) {

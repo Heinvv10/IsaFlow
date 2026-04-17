@@ -98,7 +98,7 @@ export function ContactsTab({ supplierId }: { supplierId: string }) {
         </h3>
         <button
           onClick={() => setShowForm(true)}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium transition-colors"
         >
           <Plus className="h-4 w-4" /> Add Contact
         </button>
@@ -147,7 +147,7 @@ export function ContactsTab({ supplierId }: { supplierId: string }) {
             <button
               onClick={() => void handleAdd()}
               disabled={saving || !form.fullName.trim()}
-              className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium transition-colors"
+              className="px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-medium transition-colors"
             >
               {saving ? 'Saving...' : 'Save Contact'}
             </button>

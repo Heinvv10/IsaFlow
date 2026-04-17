@@ -88,7 +88,7 @@ export default function ExternalMigrationPage() {
               <div className="flex items-center justify-center gap-3">
                 <Link
                   href="/accounting/chart-of-accounts"
-                  className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium"
+                  className="px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium"
                 >
                   View Chart of Accounts
                 </Link>

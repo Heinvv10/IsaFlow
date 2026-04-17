@@ -34,7 +34,7 @@ export function ExportCSVButton({
     <button
       onClick={handleExport}
       disabled={disabled}
-      className="inline-flex items-center gap-2 px-3 py-2 border border-gray-700 rounded-lg hover:bg-gray-700/50 text-gray-400 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+      className="inline-flex items-center gap-2 px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700/50 text-gray-600 dark:text-gray-400 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
     >
       <Download className="h-4 w-4" />
       {label}

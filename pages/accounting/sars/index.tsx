@@ -59,7 +59,7 @@ const statusBadge = (status: string) => {
       );
     default:
       return (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-500/10 text-gray-400">
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-500/10 text-gray-600 dark:text-gray-400">
           {status}
         </span>
       );
@@ -121,9 +121,9 @@ export default function SARSDashboard() {
               <Building2 className="h-6 w-6 text-teal-500" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">SARS eFiling</h1>
+              <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Compliance Calendar</h1>
               <p className="text-sm text-[var(--ff-text-secondary)]">
-                Tax compliance dashboard — VAT201, EMP201, and submission tracking
+                SARS eFiling overview — VAT201, EMP201, and submission tracking
               </p>
             </div>
           </div>
@@ -233,9 +233,7 @@ export default function SARSDashboard() {
                             <td className="px-4 py-3 text-[var(--ff-text-primary)]">{evt.description}</td>
                             <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDate(evt.dueDate)}</td>
                             <td className="px-4 py-3">
-                              <span className={`font-medium ${
-                                days < 0 ? 'text-red-400' : days <= 14 ? 'text-amber-400' : 'text-[var(--ff-text-secondary)]'
-                              }`}>
+                              <span className={`font-medium ${ days < 0 ? 'text-red-400' : days <= 14 ? 'text-amber-400' : 'text-[var(--ff-text-secondary)]' }`}>
                                 {days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? 'Today' : `${days}d`}
                               </span>
                             </td>

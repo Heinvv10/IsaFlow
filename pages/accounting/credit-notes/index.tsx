@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { FileText, Plus, Loader2, Download, ChevronRight } from 'lucide-react';
+import { StatusPill } from '@/components/ui';
 import type { CreditNote } from '@/modules/accounting/types/ar.types';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
@@ -12,16 +13,10 @@ import { apiFetch } from '@/lib/apiFetch';
 const TABS = ['all', 'draft', 'approved', 'applied', 'cancelled'] as const;
 type Tab = typeof TABS[number];
 
-const STATUS: Record<string, { label: string; cls: string }> = {
-  draft:     { label: 'Draft',     cls: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300' },
-  approved:  { label: 'Approved',  cls: 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' },
-  applied:   { label: 'Applied',   cls: 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' },
-  cancelled: { label: 'Cancelled', cls: 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400' },
-};
-
+// Match Bank Transactions colour pattern: Customer = teal, Supplier = amber.
 const TYPE_CLS: Record<string, string> = {
-  customer: 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400',
-  supplier: 'bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400',
+  customer: 'bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400',
+  supplier: 'bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400',
 };
 
 export default function CreditNotesPage() {
@@ -72,16 +67,16 @@ export default function CreditNotesPage() {
           <div className="relative z-10 flex items-center justify-between">
             <div>
               <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-1">Customers &amp; Suppliers</p>
-              <h1 className="text-2xl font-bold text-white">Credit Notes</h1>
-              <p className="text-slate-400 text-sm mt-0.5">{total} {total === 1 ? 'credit note' : 'credit notes'}</p>
+              <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Credit Notes</h1>
+              <p className="text-slate-500 dark:text-slate-400 text-sm mt-0.5">{total} {total === 1 ? 'credit note' : 'credit notes'}</p>
             </div>
             <div className="flex items-center gap-2">
               {creditNotes.length > 0 && (
-                <button onClick={exportCSV} className="flex items-center gap-2 px-3 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl text-sm font-medium transition-colors">
+                <button onClick={exportCSV} className="flex items-center gap-2 px-3 py-2.5 bg-white/10 hover:bg-white/20 text-slate-900 dark:text-white rounded-xl text-sm font-medium transition-colors">
                   <Download className="w-4 h-4" /> CSV
                 </button>
               )}
-              <Link href="/accounting/credit-notes/new" className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-white rounded-xl text-sm font-semibold transition-colors shadow-lg shadow-amber-500/25">
+              <Link href="/accounting/credit-notes/new" className="flex items-center gap-2 px-4 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-sm font-semibold transition-colors shadow-lg shadow-teal-500/25">
                 <Plus className="w-4 h-4" /> New Credit Note
               </Link>
             </div>
@@ -97,7 +92,7 @@ export default function CreditNotesPage() {
             </div>
             <div className="flex gap-2">
               {(['', 'customer', 'supplier'] as const).map(v => (
-                <button key={v} onClick={() => setTypeFilter(v)} className={`px-3 py-1.5 text-xs font-medium rounded-lg capitalize transition-colors ${typeFilter === v ? 'bg-slate-800 dark:bg-slate-200 text-white dark:text-slate-900 shadow-sm' : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
+                <button key={v} onClick={() => setTypeFilter(v)} className={`px-3 py-1.5 text-xs font-medium rounded-lg capitalize transition-colors ${typeFilter === v ? 'bg-slate-800 dark:bg-slate-200 text-slate-900 dark:text-white dark:text-slate-900 shadow-sm' : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>
                   {v === '' ? 'All Types' : v}
                 </button>
               ))}
@@ -110,13 +105,13 @@ export default function CreditNotesPage() {
 
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
             {isLoading ? (
-              <div className="p-16 flex items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-slate-400" /></div>
+              <div className="p-16 flex items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-slate-500 dark:text-slate-400" /></div>
             ) : creditNotes.length === 0 ? (
               <div className="p-16 text-center">
-                <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto mb-4"><FileText className="w-7 h-7 text-slate-400" /></div>
+                <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto mb-4"><FileText className="w-7 h-7 text-slate-500 dark:text-slate-400" /></div>
                 <h3 className="text-base font-semibold text-slate-900 dark:text-white">No credit notes found</h3>
                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Create your first credit note to get started</p>
-                <Link href="/accounting/credit-notes/new" className="inline-flex mt-5 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-white text-sm font-semibold rounded-lg transition-colors">Create Credit Note</Link>
+                <Link href="/accounting/credit-notes/new" className="inline-flex mt-5 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold rounded-lg transition-colors">Create Credit Note</Link>
               </div>
             ) : (
               <table className="w-full text-sm">
@@ -128,9 +123,7 @@ export default function CreditNotesPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {creditNotes.map(cn => {
-                    const sc = STATUS[cn.status];
-                    return (
+                  {creditNotes.map(cn => (
                       <tr key={cn.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors cursor-pointer" onClick={() => { window.location.href = `/accounting/credit-notes/${cn.id}`; }}>
                         <td className="px-5 py-3.5 font-mono text-amber-500 font-semibold">{cn.creditNoteNumber}</td>
                         <td className="px-5 py-3.5"><span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${TYPE_CLS[cn.type] || ''}`}>{cn.type}</span></td>
@@ -138,11 +131,10 @@ export default function CreditNotesPage() {
                         <td className="px-5 py-3.5 font-mono text-xs text-slate-500 dark:text-slate-400">{cn.invoiceNumber || '—'}</td>
                         <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400">{new Date(cn.creditDate).toLocaleDateString('en-ZA')}</td>
                         <td className="px-5 py-3.5 text-right font-mono font-semibold text-slate-900 dark:text-white">{formatCurrency(cn.totalAmount)}</td>
-                        <td className="px-5 py-3.5"><span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${sc?.cls || ''}`}>{sc?.label || cn.status}</span></td>
-                        <td className="px-4 py-3.5 text-right"><ChevronRight className="h-4 w-4 text-slate-400 ml-auto" /></td>
+                        <td className="px-5 py-3.5"><StatusPill status={cn.status} /></td>
+                        <td className="px-4 py-3.5 text-right"><ChevronRight className="h-4 w-4 text-slate-500 dark:text-slate-400 ml-auto" /></td>
                       </tr>
-                    );
-                  })}
+                    ))}
                 </tbody>
               </table>
             )}

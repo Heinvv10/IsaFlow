@@ -135,7 +135,7 @@ export default function JobQueuePage() {
 
   return (
     <AdminLayout title="Background Jobs">
-      <div className="min-h-screen bg-gray-900">
+      <div className="min-h-screen bg-white dark:bg-gray-900">
         {toastMsg && (
           <div className="fixed top-4 right-4 z-50 px-4 py-3 bg-teal-700 text-white text-sm rounded-xl shadow-lg">
             {toastMsg}
@@ -143,15 +143,15 @@ export default function JobQueuePage() {
         )}
 
         {/* Header */}
-        <div className="border-b border-gray-700 bg-gray-800 px-6 py-4">
+        <div className="border-b border-gray-300 dark:border-gray-700 bg-slate-100 dark:bg-gray-800 px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-blue-500/10">
                 <Zap className="h-5 w-5 text-blue-400" />
               </div>
               <div>
-                <h1 className="text-xl font-semibold text-white">Background Jobs</h1>
-                <p className="text-sm text-gray-400">
+                <h1 className="text-xl font-semibold text-slate-900 dark:text-white">Background Jobs</h1>
+                <p className="text-sm text-gray-600 dark:text-gray-400">
                   {total} total jobs
                   {lastRefresh && ` · refreshed ${lastRefresh.toLocaleTimeString('en-ZA')}`}
                 </p>
@@ -168,7 +168,7 @@ export default function JobQueuePage() {
               </button>
               <button
                 onClick={load} disabled={loading}
-                className="flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:text-white border border-gray-600 rounded-lg transition-colors disabled:opacity-50"
+                className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:text-white border border-gray-600 rounded-lg transition-colors disabled:opacity-50"
               >
                 <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
                 Refresh
@@ -181,13 +181,11 @@ export default function JobQueuePage() {
             {STATUS_TABS.map(tab => (
               <button
                 key={tab} onClick={() => setActiveTab(tab)}
-                className={`px-4 py-2 text-sm rounded-t-lg border-b-2 transition-colors capitalize ${
-                  activeTab === tab ? 'text-blue-400 border-blue-400 bg-blue-500/5' : 'text-gray-400 border-transparent hover:text-white'
-                }`}
+                className={`px-4 py-2 text-sm rounded-t-lg border-b-2 transition-colors capitalize ${ activeTab === tab ? 'text-blue-400 border-blue-400 bg-blue-500/5' : 'text-gray-400 border-transparent hover:text-white' }`}
               >
                 {tab}
                 {tab !== 'all' && counts[tab] != null && (
-                  <span className="ml-1.5 text-xs px-1.5 py-0.5 rounded-full bg-gray-700 text-gray-300">{counts[tab]}</span>
+                  <span className="ml-1.5 text-xs px-1.5 py-0.5 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300">{counts[tab]}</span>
                 )}
               </button>
             ))}
@@ -203,7 +201,7 @@ export default function JobQueuePage() {
               onClear={() => setSelectedIds(new Set())}
             />
           )}
-          <div className="bg-gray-800 border border-gray-700 rounded-xl overflow-hidden">
+          <div className="bg-slate-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl overflow-hidden">
             {loading && jobs.length === 0 ? (
               <div className="flex items-center justify-center py-20">
                 <Loader2 className="h-8 w-8 animate-spin text-blue-400" />

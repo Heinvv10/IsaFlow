@@ -217,7 +217,7 @@ export default function AdminUserDetailPage() {
           <div className="flex items-start justify-between gap-4 mb-6 flex-wrap">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-full bg-teal-600 flex items-center justify-center flex-shrink-0">
-                <User className="w-6 h-6 text-white" />
+                <User className="w-6 h-6 text-slate-900 dark:text-white" />
               </div>
               <div>
                 <h2 className="text-xl font-bold text-gray-900 dark:text-white">{user.first_name} {user.last_name}</h2>

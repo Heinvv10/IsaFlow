@@ -79,8 +79,8 @@ export default function ConsolidationPage() {
     <AppLayout>
       <div className="space-y-8 p-6">
         <div>
-          <h1 className="text-2xl font-bold text-white">Group Consolidation</h1>
-          <p className="mt-1 text-sm text-gray-400">
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Group Consolidation</h1>
+          <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
             Manage subsidiary relationships and view consolidated financials
           </p>
         </div>
@@ -95,7 +95,7 @@ export default function ConsolidationPage() {
         {/* ── Consolidated Trial Balance ─────────────────────────────────────── */}
         <section className="rounded-2xl border border-white/10 bg-[#1a1f2e]">
           <div className="border-b border-white/10 px-6 py-4">
-            <div className="flex items-center gap-2 text-white">
+            <div className="flex items-center gap-2 text-slate-900 dark:text-white">
               <BarChart3 className="h-5 w-5 text-indigo-400" />
               <span className="font-semibold">Consolidated Trial Balance</span>
             </div>
@@ -104,24 +104,24 @@ export default function ConsolidationPage() {
           {/* Date controls */}
           <div className="flex flex-wrap items-end gap-4 px-6 py-4">
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-gray-400">Period Start</label>
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Period Start</label>
               <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
                 <Calendar className="h-4 w-4 text-gray-500" />
                 <input
                   type="date" name="periodStart" value={periodStart}
                   onChange={(e) => setPeriodStart(e.target.value)}
-                  className="bg-transparent text-sm text-white focus:outline-none"
+                  className="bg-transparent text-sm text-slate-900 dark:text-white focus:outline-none"
                 />
               </div>
             </div>
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-gray-400">Period End</label>
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Period End</label>
               <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
                 <Calendar className="h-4 w-4 text-gray-500" />
                 <input
                   type="date" name="periodEnd" value={periodEnd}
                   onChange={(e) => setPeriodEnd(e.target.value)}
-                  className="bg-transparent text-sm text-white focus:outline-none"
+                  className="bg-transparent text-sm text-slate-900 dark:text-white focus:outline-none"
                 />
               </div>
             </div>

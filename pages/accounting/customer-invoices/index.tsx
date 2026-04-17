@@ -5,12 +5,16 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { FileText, Loader2, AlertCircle, Plus } from 'lucide-react';
+import { FileText, Loader2, AlertCircle, Plus, AlertTriangle, CheckCircle, CircleDollarSign } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
+import { StatusPill, KpiStrip } from '@/components/ui';
 import Link from 'next/link';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
+
+const VALID_STATUSES = new Set(['all', 'draft', 'approved', 'sent', 'partially_paid', 'paid', 'overdue']);
 
 interface Invoice {
   id: string;
@@ -29,6 +33,7 @@ interface Invoice {
 const LIMIT = 25;
 
 export default function CustomerInvoicesPage() {
+  const router = useRouter();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -37,6 +42,13 @@ export default function CustomerInvoicesPage() {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+
+  // Honour ?filter=<status> deep links from the dashboard Action Items.
+  useEffect(() => {
+    if (!router.isReady) return;
+    const f = router.query.filter;
+    if (typeof f === 'string' && VALID_STATUSES.has(f)) setStatusFilter(f);
+  }, [router.isReady, router.query.filter]);
 
   // Debounce search input
   useEffect(() => {
@@ -94,7 +106,7 @@ export default function CustomerInvoicesPage() {
               </div>
               <div className="flex items-center gap-2">
                 <ExportCSVButton endpoint="/api/accounting/customer-invoices-export" filenamePrefix="customer-invoices" params={{ status: statusFilter }} label="Export CSV" />
-                <Link href="/accounting/customer-invoices/new" className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm">
+                <Link href="/accounting/customer-invoices/new" className="flex items-center gap-1.5 px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-lg text-sm">
                   <Plus className="h-4 w-4" /> New Invoice
                 </Link>
               </div>
@@ -103,6 +115,21 @@ export default function CustomerInvoicesPage() {
         </div>
 
         <div className="p-6">
+          {/* KPI strip — computed from current page; sums reflect visible invoices */}
+          {!isLoading && invoices.length > 0 && (() => {
+            const visTotal = invoices.reduce((s, i) => s + Number(i.total_amount || 0), 0);
+            const visOutstanding = invoices.reduce((s, i) => s + (Number(i.total_amount || 0) - Number(i.amount_paid || 0)), 0);
+            const visOverdue = invoices.filter(i => i.status === 'overdue').length;
+            const fmt = (n: number) => 'R ' + new Intl.NumberFormat('en-ZA', { maximumFractionDigits: 0 }).format(n);
+            return (
+              <KpiStrip items={[
+                { label: 'Total Invoices', value: total, icon: FileText, tone: 'info' },
+                { label: 'Visible Value', value: fmt(visTotal), sub: `${invoices.length} on this page`, icon: CircleDollarSign, tone: 'neutral' },
+                { label: 'Outstanding', value: fmt(visOutstanding), icon: CheckCircle, tone: 'warning' },
+                { label: 'Overdue', value: visOverdue, sub: visOverdue === 0 ? 'All on time' : 'Need follow-up', icon: AlertTriangle, tone: visOverdue > 0 ? 'danger' : 'success' },
+              ]} />
+            );
+          })()}
           {/* Filters */}
           <div className="flex items-center gap-3 mb-6">
             <select
@@ -178,14 +205,7 @@ export default function CustomerInvoicesPage() {
                           {formatCurrency(outstanding)}
                         </td>
                         <td className="py-3 px-4">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            inv.status === 'paid' ? 'bg-teal-500/10 text-teal-400' :
-                            inv.status === 'overdue' ? 'bg-red-500/10 text-red-400' :
-                            inv.status === 'sent' ? 'bg-blue-500/10 text-blue-400' :
-                            'bg-yellow-500/10 text-yellow-400'
-                          }`}>
-                            {inv.status}
-                          </span>
+                          <StatusPill status={inv.status} />
                         </td>
                       </tr>
                     );

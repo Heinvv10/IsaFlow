@@ -38,7 +38,6 @@ const nextConfig = {
       { source: '/accounting/vat', destination: '/accounting/reports/vat-return', permanent: false },
       { source: '/payroll', destination: '/payroll/employees', permanent: false },
       { source: '/payroll/dashboard', destination: '/payroll/employees', permanent: false },
-      { source: '/payroll/runs', destination: '/payroll/employees', permanent: false },
     ];
   },
 

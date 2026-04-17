@@ -210,7 +210,7 @@ export default function SalesRepsPage() {
             </div>
             <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
               <p className="text-xs text-[var(--ff-text-tertiary)]">Inactive</p>
-              <p className="text-xl font-bold text-gray-400">{reps.length - activeCount}</p>
+              <p className="text-xl font-bold text-gray-600 dark:text-gray-400">{reps.length - activeCount}</p>
             </div>
           </div>
 
@@ -288,7 +288,7 @@ export default function SalesRepsPage() {
                           Active
                         </span>
                       ) : (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-500/10 text-gray-400">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-500/10 text-gray-600 dark:text-gray-400">
                           Inactive
                         </span>
                       )}

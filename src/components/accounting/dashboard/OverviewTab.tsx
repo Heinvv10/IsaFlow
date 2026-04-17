@@ -8,6 +8,7 @@ import dynamic from 'next/dynamic';
 import {
   Plus, BarChart3, Landmark, FileText, CreditCard, TrendingUp,
   BookOpen, FileSpreadsheet, Calculator, Calendar, Loader2, ArrowRight, DollarSign,
+  ArrowDown,
 } from 'lucide-react';
 import { Users, Upload } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
@@ -49,16 +50,6 @@ interface KPIData {
 const ICON_MAP: Record<string, React.ElementType> = {
   Plus, BarChart3, Landmark, FileText, CreditCard, TrendingUp,
   BookOpen, FileSpreadsheet, Calculator, Calendar, Users, Upload,
-};
-
-const COLOR_MAP: Record<string, { bg: string; text: string; hover: string }> = {
-  teal:   { bg: 'bg-teal-500/10',   text: 'text-teal-500',   hover: 'hover:border-teal-500/50' },
-  blue:   { bg: 'bg-blue-500/10',   text: 'text-blue-500',   hover: 'hover:border-blue-500/50' },
-  indigo: { bg: 'bg-indigo-500/10', text: 'text-indigo-500', hover: 'hover:border-indigo-500/50' },
-  orange: { bg: 'bg-orange-500/10', text: 'text-orange-500', hover: 'hover:border-orange-500/50' },
-  purple: { bg: 'bg-purple-500/10', text: 'text-purple-500', hover: 'hover:border-purple-500/50' },
-  green:  { bg: 'bg-green-500/10',  text: 'text-green-500',  hover: 'hover:border-green-500/50' },
-  gray:   { bg: 'bg-gray-500/10',   text: 'text-gray-500',   hover: 'hover:border-gray-500/50' },
 };
 
 function fmtCurrency(n: number): string {
@@ -133,19 +124,22 @@ export function OverviewTab() {
       {/* Action Items */}
       <TodoWidget />
 
-      {/* Quick Actions */}
+      {/* Quick Actions — unified teal chip for visual cohesion on the dashboard */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {quickActions.map(action => {
           const Icon = ICON_MAP[action.icon] || Plus;
-          const colors = COLOR_MAP[action.color] ?? COLOR_MAP['teal']!;
           return (
-            <Link key={action.path} href={action.path} className={`flex items-center gap-3 p-4 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] ${colors.hover} hover:shadow-md transition-all group no-underline`}>
-              <div className={`p-2 rounded-lg ${colors.bg}`}><Icon className={`h-5 w-5 ${colors.text}`} /></div>
+            <Link
+              key={action.path}
+              href={action.path}
+              className="flex items-center gap-3 p-4 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] hover:border-teal-500/50 hover:shadow-md transition-all group no-underline"
+            >
+              <div className="p-2 rounded-lg bg-teal-500/10"><Icon className="h-5 w-5 text-teal-500" /></div>
               <div className="flex-1 min-w-0">
                 <p className="font-medium text-[var(--ff-text-primary)]">{action.title}</p>
                 <p className="text-sm text-[var(--ff-text-secondary)]">{action.description}</p>
               </div>
-              <ArrowRight className={`h-4 w-4 text-[var(--ff-text-tertiary)] group-hover:${colors.text} transition-colors`} />
+              <ArrowRight className="h-4 w-4 text-[var(--ff-text-tertiary)] group-hover:text-teal-500 transition-colors" />
             </Link>
           );
         })}
@@ -176,7 +170,10 @@ export function OverviewTab() {
             <span className="text-xs font-medium uppercase tracking-wider text-[var(--ff-text-secondary)]">Cash Position</span>
             <Landmark className="h-4 w-4 text-teal-500" />
           </div>
-          <p className="text-2xl font-bold text-[var(--ff-text-primary)]">{fmtCompact(kpis?.cash.total ?? 0)}</p>
+          <p className={`text-2xl font-bold flex items-center gap-1.5 ${(kpis?.cash.total ?? 0) < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-[var(--ff-text-primary)]'}`}>
+            {(kpis?.cash.total ?? 0) < 0 && <ArrowDown className="h-5 w-5" aria-label="Negative" />}
+            {fmtCompact(kpis?.cash.total ?? 0)}
+          </p>
           <p className={`text-xs mt-1 ${(kpis?.cash.change ?? 0) >= 0 ? 'text-teal-500' : 'text-rose-500'}`}>
             {(kpis?.cash.change ?? 0) >= 0 ? '+' : ''}{fmtCompact(kpis?.cash.change ?? 0)} change
           </p>

@@ -156,7 +156,7 @@ export function Select(props: SelectProps) {
       >
         <span className="flex flex-1 flex-wrap gap-1 overflow-hidden">
           {selectedLabels.length === 0 ? (
-            <span className="text-gray-400">{placeholder}</span>
+            <span className="text-gray-600 dark:text-gray-400">{placeholder}</span>
           ) : isMulti ? (
             selectedLabels.map((lbl) => (
               <span key={lbl} className="inline-flex items-center rounded-md bg-teal-100 px-2 py-0.5 text-xs font-medium text-teal-800 dark:bg-teal-900/50 dark:text-teal-300">{lbl}</span>
@@ -167,7 +167,7 @@ export function Select(props: SelectProps) {
         </span>
         <span className="flex shrink-0 items-center gap-1">
           {hasClear && (
-            <button type="button" aria-label="Clear selection" onClick={clearSelection} className="rounded p-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+            <button type="button" aria-label="Clear selection" onClick={clearSelection} className="rounded p-0.5 text-gray-600 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
               <X size={14} aria-hidden="true" />
             </button>
           )}

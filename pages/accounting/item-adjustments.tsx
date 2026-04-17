@@ -66,7 +66,7 @@ export default function ItemAdjustmentsPage() {
               </div>
             </div>
             <button onClick={() => setShowForm(!showForm)}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium">
+              className="flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-lg text-sm font-medium">
               <Plus className="h-4 w-4" /> New Adjustment
             </button>
           </div>

@@ -6,6 +6,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { Users, Plus, Trash2, AlertCircle, Loader2, X } from 'lucide-react';
+import { PageHeader } from '@/components/ui';
 import type { PortalContact, PortalRole } from '@/modules/accounting/services/afs/afsTypes';
 
 const ROLE_LABELS: Record<PortalRole, string> = {
@@ -110,25 +111,20 @@ export default function PortalContactsPage() {
   return (
     <AppLayout>
       <div className="max-w-4xl mx-auto px-4 py-8">
-        {/* Page header */}
-        <div className="flex items-start justify-between mb-8">
-          <div className="flex items-center gap-3">
-            <Users className="w-7 h-7 text-slate-400" />
-            <div>
-              <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Portal Contacts</h1>
-              <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-                People who receive magic-link access to AFS documents
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={() => { setShowModal(true); setSaveError(''); setForm(EMPTY_FORM); }}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Add Contact
-          </button>
-        </div>
+        <PageHeader
+          icon={Users}
+          title="Portal Contacts"
+          subtitle="People who receive magic-link access to AFS documents"
+          actions={
+            <button
+              onClick={() => { setShowModal(true); setSaveError(''); setForm(EMPTY_FORM); }}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Add Contact
+            </button>
+          }
+        />
 
         {/* Global error */}
         {error && (
@@ -149,24 +145,24 @@ export default function PortalContactsPage() {
         {!loading && contacts.length === 0 && !error && (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <Users className="w-10 h-10 text-slate-600 mb-3" />
-            <p className="text-slate-400 text-sm">No portal contacts yet. Add your first one above.</p>
+            <p className="text-slate-500 dark:text-slate-400 text-sm">No portal contacts yet. Add your first one above.</p>
           </div>
         )}
 
         {/* Contact list */}
         {!loading && contacts.length > 0 && (
-          <div className="rounded-xl border border-slate-700 divide-y divide-slate-800 overflow-hidden">
-            <div className="grid grid-cols-[1fr_1fr_auto_auto] gap-4 px-5 py-3 bg-slate-800 text-xs font-semibold text-slate-400 uppercase tracking-wide">
+          <div className="rounded-xl border border-slate-300 dark:border-slate-700 divide-y divide-slate-200 dark:divide-slate-800 overflow-hidden">
+            <div className="grid grid-cols-[1fr_1fr_auto_auto] gap-4 px-5 py-3 bg-slate-100 dark:bg-slate-800 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
               <span>Name / Email</span>
               <span>Role</span>
               <span>Added</span>
               <span />
             </div>
             {contacts.map(contact => (
-              <div key={contact.id} className="grid grid-cols-[1fr_1fr_auto_auto] gap-4 items-center px-5 py-4 bg-slate-900 hover:bg-slate-800/50 transition-colors">
+              <div key={contact.id} className="grid grid-cols-[1fr_1fr_auto_auto] gap-4 items-center px-5 py-4 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800/50 transition-colors">
                 <div>
-                  <p className="text-sm font-medium text-white">{contact.name}</p>
-                  <p className="text-xs text-slate-400 mt-0.5">{contact.email}</p>
+                  <p className="text-sm font-medium text-slate-900 dark:text-white">{contact.name}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{contact.email}</p>
                 </div>
                 <div>
                   <RoleBadge role={contact.role} />
@@ -193,12 +189,12 @@ export default function PortalContactsPage() {
       {/* Add Contact Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-xl w-full max-w-md mx-4 p-6">
+          <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-2xl shadow-xl w-full max-w-md mx-4 p-6">
             <div className="flex items-center justify-between mb-5">
-              <h2 className="text-lg font-bold text-white">Add Portal Contact</h2>
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white">Add Portal Contact</h2>
               <button
                 onClick={() => setShowModal(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                className="p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -213,31 +209,31 @@ export default function PortalContactsPage() {
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">Name</label>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Name</label>
                 <input
                   type="text"
                   value={form.name}
                   onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
                   placeholder="Full name"
-                  className="w-full rounded-lg bg-slate-800 border border-slate-600 text-white placeholder-slate-500 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">Email</label>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Email</label>
                 <input
                   type="email"
                   value={form.email}
                   onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
                   placeholder="contact@example.com"
-                  className="w-full rounded-lg bg-slate-800 border border-slate-600 text-white placeholder-slate-500 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">Role</label>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Role</label>
                 <select
                   value={form.role}
                   onChange={e => setForm(f => ({ ...f, role: e.target.value as PortalRole }))}
-                  className="w-full rounded-lg bg-slate-800 border border-slate-600 text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   {ROLES.map(r => (
                     <option key={r} value={r}>{ROLE_LABELS[r]}</option>
@@ -249,7 +245,7 @@ export default function PortalContactsPage() {
             <div className="flex justify-end gap-3 mt-6">
               <button
                 onClick={() => setShowModal(false)}
-                className="px-4 py-2 text-sm font-medium text-slate-400 hover:text-white transition-colors"
+                className="px-4 py-2 text-sm font-medium text-slate-500 dark:text-slate-400 hover:text-white transition-colors"
               >
                 Cancel
               </button>

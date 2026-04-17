@@ -6,7 +6,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Scale, Loader2, AlertCircle, Download, ChevronDown, ChevronRight } from 'lucide-react';
+import { Scale, Loader2, AlertCircle, Download, ChevronDown, ChevronRight, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
 import { apiFetch } from '@/lib/apiFetch';
 
@@ -21,6 +21,15 @@ interface CostCentre { id: string; code: string; name: string }
 interface FiscalPeriod { id: string; periodName: string; startDate: string; endDate: string; status: string }
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+
+const TYPE_PILL: Record<string, string> = {
+  asset:     'bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300',
+  liability: 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300',
+  equity:    'bg-purple-100 text-purple-700 dark:bg-purple-500/15 dark:text-purple-300',
+  revenue:   'bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-300',
+  expense:   'bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300',
+};
+const NEUTRAL_PILL = 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300';
 
 export default function TrialBalancePage() {
   const [rows, setRows] = useState<TBRow[]>([]);
@@ -128,7 +137,7 @@ export default function TrialBalancePage() {
                 ))}
               </select>
               <button onClick={handleExport} disabled={rows.length === 0}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium disabled:opacity-50">
+                className="inline-flex items-center gap-2 px-4 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 text-sm font-medium disabled:opacity-50">
                 <Download className="h-4 w-4" /> Export CSV
               </button>
             </div>
@@ -149,9 +158,10 @@ export default function TrialBalancePage() {
               </div>
               <div className={`rounded-lg border p-4 ${balanced ? 'bg-teal-500/5 border-teal-500/30' : 'bg-red-500/5 border-red-500/30'}`}>
                 <p className="text-xs text-[var(--ff-text-tertiary)] mb-1">Difference</p>
-                <p className={`text-xl font-bold ${balanced ? 'text-teal-400' : 'text-red-400'}`}>
+                <p className={`text-xl font-bold flex items-center gap-1.5 ${balanced ? 'text-teal-700 dark:text-teal-400' : 'text-red-700 dark:text-red-400'}`}>
+                  {balanced ? <CheckCircle2 className="h-5 w-5" aria-hidden="true" /> : <AlertTriangle className="h-5 w-5" aria-hidden="true" />}
                   {fmt(Math.abs(totalDebit - totalCredit))}
-                  <span className="text-sm ml-2">{balanced ? 'Balanced' : 'Out of Balance'}</span>
+                  <span className="text-sm ml-1 font-normal">{balanced ? 'Balanced' : 'Out of Balance'}</span>
                 </p>
               </div>
             </div>
@@ -201,7 +211,7 @@ export default function TrialBalancePage() {
                           </span>
                         </td>
                         <td className="px-4 py-3 text-[var(--ff-text-primary)]">{r.accountName}</td>
-                        <td className="px-4 py-3"><span className="px-2 py-0.5 rounded text-xs bg-[var(--ff-bg-primary)] text-[var(--ff-text-secondary)]">{r.accountType}</span></td>
+                        <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded text-xs font-medium uppercase tracking-wide ${TYPE_PILL[r.accountType.toLowerCase()] ?? NEUTRAL_PILL}`}>{r.accountType}</span></td>
                         <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{r.debitBalance > 0 ? fmt(r.debitBalance) : '—'}</td>
                         <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{r.creditBalance > 0 ? fmt(r.creditBalance) : '—'}</td>
                         {comparePeriodId && (

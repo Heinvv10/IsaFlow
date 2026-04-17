@@ -6,8 +6,9 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Package, Loader2, Plus, Search } from 'lucide-react';
+import { Package, Loader2, Plus, Search, CircleDollarSign, Landmark, TrendingDown } from 'lucide-react';
 import Link from 'next/link';
+import { KpiStrip } from '@/components/ui';
 import { apiFetch } from '@/lib/apiFetch';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 
@@ -77,8 +78,8 @@ export default function AssetsListPage() {
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-purple-500/10">
-                <Package className="h-6 w-6 text-purple-500" />
+              <div className="p-2 rounded-lg bg-teal-500/10">
+                <Package className="h-6 w-6 text-teal-500" />
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Fixed Assets</h1>
@@ -101,25 +102,12 @@ export default function AssetsListPage() {
         </div>
 
         <div className="p-6 space-y-4">
-          {/* Summary cards */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
-              <p className="text-xs text-[var(--ff-text-tertiary)]">Total Assets</p>
-              <p className="text-xl font-bold text-[var(--ff-text-primary)]">{assets.length}</p>
-            </div>
-            <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
-              <p className="text-xs text-[var(--ff-text-tertiary)]">Total Cost</p>
-              <p className="text-xl font-bold text-[var(--ff-text-primary)]">{fmt(summary.totalCost)}</p>
-            </div>
-            <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
-              <p className="text-xs text-[var(--ff-text-tertiary)]">Total Book Value</p>
-              <p className="text-xl font-bold text-teal-400">{fmt(summary.totalBookValue)}</p>
-            </div>
-            <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
-              <p className="text-xs text-[var(--ff-text-tertiary)]">Total Depreciation</p>
-              <p className="text-xl font-bold text-purple-400">{fmt(summary.totalDepreciation)}</p>
-            </div>
-          </div>
+          <KpiStrip items={[
+            { label: 'Total Assets',      value: assets.length,               icon: Package,     tone: 'neutral' },
+            { label: 'Total Cost',        value: fmt(summary.totalCost),      icon: CircleDollarSign, tone: 'neutral' },
+            { label: 'Total Book Value',  value: fmt(summary.totalBookValue), icon: Landmark,    tone: 'success' },
+            { label: 'Total Depreciation',value: fmt(summary.totalDepreciation), icon: TrendingDown, tone: 'warning' },
+          ]} />
 
           {/* Filters */}
           <div className="flex items-center gap-3 flex-wrap">

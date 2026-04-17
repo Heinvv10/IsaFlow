@@ -32,7 +32,7 @@ export function UserDeleteCell({ confirming, working, onRequest, onConfirm, onCa
   return (
     <button
       onClick={onRequest}
-      className="p-1.5 rounded text-gray-400 hover:text-red-500 hover:bg-red-500/10 transition-colors"
+      className="p-1.5 rounded text-gray-600 dark:text-gray-400 hover:text-red-500 hover:bg-red-500/10 transition-colors"
       title="Delete user"
     >
       <Trash2 className="w-4 h-4" />

@@ -242,7 +242,7 @@ export default function TimesheetsPage() {
                     <p className={`text-sm ${isToday ? 'text-blue-700 dark:text-blue-300 font-bold' : 'text-gray-700 dark:text-gray-300'}`}>
                       {date.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' })}
                     </p>
-                    {dayHours > 0 && <p className="text-xs text-gray-400 mt-0.5">{dayHours.toFixed(1)}h</p>}
+                    {dayHours > 0 && <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">{dayHours.toFixed(1)}h</p>}
                   </div>
                   <div className="space-y-1.5">
                     {dayEntries.map(entry => (
@@ -254,7 +254,7 @@ export default function TimesheetsPage() {
                           <div className="flex-1 min-w-0">
                             <p className="font-medium text-gray-800 dark:text-gray-200 truncate" title={entry.taskDescription}>{entry.taskDescription}</p>
                             {entry.customerName && <p className="text-gray-500 dark:text-gray-400 truncate">{entry.customerName}</p>}
-                            {entry.projectName && <p className="text-gray-400 dark:text-gray-500 truncate">{entry.projectName}</p>}
+                            {entry.projectName && <p className="text-gray-600 dark:text-gray-400 dark:text-gray-500 truncate">{entry.projectName}</p>}
                           </div>
                         </div>
                         <div className="flex items-center justify-between mt-1">
@@ -267,7 +267,7 @@ export default function TimesheetsPage() {
                     ))}
                   </div>
                   <button onClick={() => { setForm({ ...BLANK_FORM, entryDate: iso }); setShowForm(true); }}
-                    className="w-full text-xs text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-blue-400 py-1">
+                    className="w-full text-xs text-gray-600 dark:text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-blue-400 py-1">
                     + add
                   </button>
                 </div>

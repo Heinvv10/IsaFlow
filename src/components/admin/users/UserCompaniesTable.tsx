@@ -110,7 +110,7 @@ export function UserCompaniesTable({
           </thead>
           <tbody>
             {companies.length === 0 && (
-              <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-400">No companies linked</td></tr>
+              <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-600 dark:text-gray-400">No companies linked</td></tr>
             )}
             {companies.map(c => (
               <tr key={c.company_id} className="border-b border-gray-100 dark:border-gray-800 last:border-0">

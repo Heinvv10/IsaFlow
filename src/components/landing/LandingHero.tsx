@@ -78,9 +78,7 @@ export function LandingHero() {
 
         {/* ISAFlow logo — slides in when video ends, sits in top 25% */}
         <div
-          className={`absolute inset-x-0 top-0 h-[42%] z-[5] flex items-center justify-center pointer-events-none transition-all duration-1000 ease-out ${
-            logoVisible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4'
-          }`}
+          className={`absolute inset-x-0 top-0 h-[42%] z-[5] flex items-center justify-center pointer-events-none transition-all duration-1000 ease-out ${ logoVisible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4' }`}
         >
           <img
             src="/BI/logo-primary-transparent.png"
@@ -97,7 +95,7 @@ export function LandingHero() {
           </p>
 
           {/* Main headline */}
-          <h1 className="text-5xl sm:text-7xl lg:text-8xl font-black tracking-tight leading-[1.02] text-white mb-6">
+          <h1 className="text-5xl sm:text-7xl lg:text-8xl font-black tracking-tight leading-[1.02] text-slate-900 dark:text-white mb-6">
             Your finances,
             <br />
             finally clear.
@@ -119,7 +117,7 @@ export function LandingHero() {
             </a>
             <a
               href="#features"
-              className="inline-flex items-center gap-2 px-8 py-4 text-base font-semibold text-white border border-white/30 rounded-xl hover:bg-white/5 transition-all"
+              className="inline-flex items-center gap-2 px-8 py-4 text-base font-semibold text-slate-900 dark:text-white border border-white/30 rounded-xl hover:bg-white/5 transition-all"
             >
               <PlayCircle className="w-4 h-4" /> Watch Demo
             </a>
@@ -142,13 +140,13 @@ export function LandingHero() {
       </section>
 
       {/* ── Stats Bar ── */}
-      <section className="bg-gray-900 py-14">
+      <section className="bg-white dark:bg-gray-900 py-14">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 text-center">
             {stats.map((s) => (
               <div key={s.label}>
-                <p className="text-4xl lg:text-5xl font-extrabold text-white mb-1">{s.value}</p>
-                <p className="text-sm text-gray-400">{s.label}</p>
+                <p className="text-4xl lg:text-5xl font-extrabold text-slate-900 dark:text-white mb-1">{s.value}</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400">{s.label}</p>
               </div>
             ))}
           </div>

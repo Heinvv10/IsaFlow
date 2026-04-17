@@ -266,7 +266,7 @@ export default function AdminCompaniesPage() {
       {/* Filters */}
       <div className="flex gap-3 flex-wrap mb-4">
         <div className="relative flex-1 min-w-[200px] max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600 dark:text-gray-400" />
           <input
             type="text"
             placeholder="Search companies..."
@@ -367,7 +367,7 @@ export default function AdminCompaniesPage() {
               )}
               {!loading && rows.length === 0 && (
                 <tr>
-                  <td colSpan={colSpan} className="px-4 py-12 text-center text-gray-400">No companies found</td>
+                  <td colSpan={colSpan} className="px-4 py-12 text-center text-gray-600 dark:text-gray-400">No companies found</td>
                 </tr>
               )}
               {rows.map(c => (
@@ -466,7 +466,7 @@ export default function AdminCompaniesPage() {
           <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl w-full max-w-md">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
               <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Add Company</h2>
-              <button onClick={() => setShowCreate(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+              <button onClick={() => setShowCreate(false)} className="text-gray-600 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
                 <X className="w-4 h-4" />
               </button>
             </div>

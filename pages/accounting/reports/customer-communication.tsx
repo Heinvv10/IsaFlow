@@ -180,7 +180,7 @@ export default function CustomerCommunicationReport() {
               />
               <button
                 onClick={handleExportCsv}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-teal-600 hover:bg-teal-500 text-white rounded-lg transition-colors"
               >
                 <Download className="h-4 w-4" /> CSV
               </button>

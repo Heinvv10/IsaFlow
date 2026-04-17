@@ -61,9 +61,9 @@ export function JobTable({ jobs, selectedIds, retrying, onToggleRow, onToggleAll
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-gray-700">
+          <tr className="border-b border-gray-300 dark:border-gray-700">
             <th className="px-4 py-3 w-8">
-              <button onClick={onToggleAll} className="text-gray-400 hover:text-white transition-colors">
+              <button onClick={onToggleAll} className="text-gray-600 dark:text-gray-400 hover:text-white transition-colors">
                 {allSelected || someSelected
                   ? <CheckSquare className={`h-4 w-4 ${allSelected ? 'text-blue-400' : 'text-blue-400/50'}`} />
                   : <Square className="h-4 w-4" />
@@ -75,7 +75,7 @@ export function JobTable({ jobs, selectedIds, retrying, onToggleRow, onToggleAll
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-gray-700">
+        <tbody className="divide-y divide-gray-300 dark:divide-gray-700">
           {jobs.map(job => {
             const isSel = selectedIds.has(job.id);
             return (
@@ -84,16 +84,16 @@ export function JobTable({ jobs, selectedIds, retrying, onToggleRow, onToggleAll
                 className={`cursor-pointer transition-colors ${isSel ? 'bg-blue-500/5 hover:bg-blue-500/10' : 'hover:bg-gray-700/30'}`}
               >
                 <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
-                  <button onClick={() => onToggleRow(job.id)} className="text-gray-400 hover:text-white">
+                  <button onClick={() => onToggleRow(job.id)} className="text-gray-600 dark:text-gray-400 hover:text-white">
                     {isSel ? <CheckSquare className="h-4 w-4 text-blue-400" /> : <Square className="h-4 w-4" />}
                   </button>
                 </td>
                 <td className="px-4 py-3"><span className="font-mono text-xs text-blue-300">{job.job_type}</span></td>
-                <td className="px-4 py-3 text-xs text-gray-400">
+                <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400">
                   {job.company_id ? job.company_id.slice(0, 8) + '…' : <span className="italic">system</span>}
                 </td>
                 <td className="px-4 py-3 max-w-xs">
-                  <span className="text-xs text-gray-300 font-mono truncate block" title={JSON.stringify(job.payload)}>
+                  <span className="text-xs text-gray-700 dark:text-gray-300 font-mono truncate block" title={JSON.stringify(job.payload)}>
                     {payloadSummary(job.payload ?? {})}
                   </span>
                 </td>
@@ -105,9 +105,9 @@ export function JobTable({ jobs, selectedIds, retrying, onToggleRow, onToggleAll
                     <p className="text-xs text-red-400 mt-0.5 max-w-xs truncate" title={job.error_message}>{job.error_message}</p>
                   )}
                 </td>
-                <td className="px-4 py-3 text-center text-xs text-gray-300">{job.attempts}/{job.max_attempts}</td>
-                <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">{fmtDate(job.created_at)}</td>
-                <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">{fmtDuration(job.started_at, job.completed_at)}</td>
+                <td className="px-4 py-3 text-center text-xs text-gray-700 dark:text-gray-300">{job.attempts}/{job.max_attempts}</td>
+                <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">{fmtDate(job.created_at)}</td>
+                <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">{fmtDuration(job.started_at, job.completed_at)}</td>
                 <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                   {job.status === 'failed' && (
                     <button

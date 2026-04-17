@@ -111,13 +111,13 @@ export default function BillingOverviewPage() {
             </Link>
             <Link
               href={adminHref('/admin/billing/subscriptions')}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm font-medium rounded-lg transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-600 text-slate-900 dark:text-white text-sm font-medium rounded-lg transition-colors"
             >
               <List className="w-4 h-4" /> View Subscriptions <ArrowRight className="w-4 h-4" />
             </Link>
             <Link
               href={adminHref('/admin/billing/invoices')}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm font-medium rounded-lg transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-600 text-slate-900 dark:text-white text-sm font-medium rounded-lg transition-colors"
             >
               <FileText className="w-4 h-4" /> View Invoices <ArrowRight className="w-4 h-4" />
             </Link>
@@ -149,7 +149,7 @@ export default function BillingOverviewPage() {
                 <tbody>
                   {recent.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="px-5 py-8 text-center text-gray-400">No subscriptions found</td>
+                      <td colSpan={6} className="px-5 py-8 text-center text-gray-600 dark:text-gray-400">No subscriptions found</td>
                     </tr>
                   )}
                   {recent.map(sub => (

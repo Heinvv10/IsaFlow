@@ -145,7 +145,7 @@ export default function DeliveryNoteDetailPage() {
                   <button
                     onClick={() => void handleStatusChange('dispatched')}
                     disabled={patching}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-50"
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-teal-600 hover:bg-teal-500 text-white rounded-lg disabled:opacity-50"
                   >
                     {patching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
                     Dispatch

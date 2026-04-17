@@ -201,14 +201,14 @@ export default function OnboardingWizard() {
 
   if (!authChecked) {
     return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+      <div className="min-h-screen bg-slate-50 dark:bg-gray-950 flex items-center justify-center">
         <Loader2 className="w-8 h-8 text-teal-500 animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white px-4 py-8">
+    <div className="min-h-screen bg-slate-50 dark:bg-gray-950 text-slate-900 dark:text-white px-4 py-8">
       {/* Logo */}
       <div className="max-w-2xl mx-auto mb-8">
         <img src="/logo.png" alt="ISAFlow" className="h-10 w-auto brightness-0 invert" />
@@ -228,12 +228,7 @@ export default function OnboardingWizard() {
                     onClick={() => { if (isPast && !isDocsAutoSkipped) setStep(i); }}
                     disabled={i > step || isDocsAutoSkipped}
                     title={isDocsAutoSkipped ? 'Already captured from Smart Setup' : s.title}
-                    className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-medium shrink-0 transition-colors ${
-                      isDocsAutoSkipped ? 'bg-teal-600/40 text-white/70 cursor-default' :
-                      isPast            ? 'bg-teal-600 text-white cursor-pointer' :
-                      isCurrent         ? 'bg-teal-500 text-white ring-2 ring-teal-400' :
-                      'bg-gray-800 text-gray-500'
-                    }`}
+                    className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-medium shrink-0 transition-colors ${ isDocsAutoSkipped ? 'bg-teal-600/40 text-white/70 cursor-default' : isPast ? 'bg-teal-600 text-white cursor-pointer' : isCurrent ? 'bg-teal-500 text-white ring-2 ring-teal-400' : 'bg-gray-800 text-gray-500' }`}
                   >
                     {isDocsAutoSkipped || isPast ? <Check className="w-4 h-4" /> : i + 1}
                   </button>
@@ -260,10 +255,10 @@ export default function OnboardingWizard() {
         <div className="max-w-2xl mx-auto">
           <div className="mb-4">
             <h2 className="text-xl font-semibold">{STEPS[step]?.title}</h2>
-            <p className="text-sm text-gray-400">{STEPS[step]?.sub}</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400">{STEPS[step]?.sub}</p>
           </div>
 
-          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 shadow-xl min-h-[320px]">
+          <div className="bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-2xl p-6 shadow-xl min-h-[320px]">
             {step === 0 && <Step1 d={d} set={set} />}
             {step === 1 && <Step2 d={d} set={set} />}
             {step === 2 && <Step3 d={d} set={set} />}
@@ -285,13 +280,13 @@ export default function OnboardingWizard() {
           <div className="flex justify-between mt-6">
             <button
               onClick={step === 0 ? () => setStep(-1) : back}
-              className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-white transition-colors"
+              className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-400 hover:text-white transition-colors"
             >
               <ChevronLeft className="w-4 h-4" /> Back
             </button>
             <div className="flex gap-3">
               {skippable && !isLast && (
-                <button onClick={next} className="text-sm text-gray-400 hover:text-white transition-colors">
+                <button onClick={next} className="text-sm text-gray-600 dark:text-gray-400 hover:text-white transition-colors">
                   Skip
                 </button>
               )}

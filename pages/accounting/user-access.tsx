@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Users, UserPlus, Trash2, Shield, Mail, Clock, ChevronDown } from 'lucide-react';
+import { PageHeader } from '@/components/ui';
 import { apiFetch } from '@/lib/apiFetch';
 import { useAuth } from '@/contexts/AuthContext';
 import { PermissionsGrid } from '@/components/accounting/user-access/PermissionsGrid';
@@ -125,23 +126,21 @@ export default function UserAccessPage() {
 
   return (
     <AppLayout>
-      <div className="min-h-screen bg-gray-950 px-4 py-8 sm:px-8">
+      <div className="min-h-screen bg-slate-50 dark:bg-gray-950 px-4 py-8 sm:px-8">
         <div className="mx-auto max-w-5xl space-y-8">
 
-          <div className="flex items-center gap-3">
-            <Shield className="h-7 w-7 text-teal-400" />
-            <div>
-              <h1 className="text-2xl font-bold text-white">User Access Control</h1>
-              <p className="text-sm text-gray-400">Manage who can access this company and granular module permissions.</p>
-            </div>
-          </div>
+          <PageHeader
+            icon={Shield}
+            title="User Access Control"
+            subtitle="Manage who can access this company and granular module permissions."
+          />
 
           {feedback && <div className="rounded-lg border border-teal-700 bg-teal-900/40 px-4 py-3 text-sm text-teal-300">{feedback}</div>}
           {error && <div className="rounded-lg border border-red-700 bg-red-900/30 px-4 py-3 text-sm text-red-300">{error}</div>}
-          <div className="rounded-xl border border-gray-800 bg-gray-900">
-            <div className="flex items-center gap-2 border-b border-gray-800 px-6 py-4">
+          <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
+            <div className="flex items-center gap-2 border-b border-gray-200 dark:border-gray-800 px-6 py-4">
               <Users className="h-5 w-5 text-teal-400" />
-              <h2 className="font-semibold text-white">Company Users</h2>
+              <h2 className="font-semibold text-slate-900 dark:text-white">Company Users</h2>
             </div>
             {loading ? (
               <div className="px-6 py-10 text-center text-gray-500">Loading...</div>
@@ -152,18 +151,18 @@ export default function UserAccessPage() {
                   const isLastOwner = u.role === 'owner' && ownerCount <= 1;
                   const isExpanded = expandedUserId === u.userId;
                   return (
-                    <div key={u.userId} className="border-b border-gray-800 last:border-b-0">
+                    <div key={u.userId} className="border-b border-gray-200 dark:border-gray-800 last:border-b-0">
                       <div
-                        className="flex w-full items-center gap-2 px-6 py-3 hover:bg-gray-800/40 cursor-pointer text-sm"
+                        className="flex w-full items-center gap-2 px-6 py-3 hover:bg-gray-50 dark:hover:bg-gray-800/40 cursor-pointer text-sm"
                         onClick={() => isAdmin && toggleExpand(u.userId)}
                       >
                         {/* Name */}
-                        <div className="flex-1 text-white min-w-0">
+                        <div className="flex-1 text-slate-900 dark:text-white min-w-0">
                           <span className="font-medium">{u.name}</span>
                           {isSelf && <span className="ml-2 text-xs text-gray-500">(you)</span>}
                         </div>
                         {/* Email */}
-                        <div className="hidden sm:block w-52 text-gray-400 truncate">{u.email}</div>
+                        <div className="hidden sm:block w-52 text-gray-600 dark:text-gray-400 truncate">{u.email}</div>
                         {/* Role */}
                         <div className="w-36">
                           {isAdmin && !isSelf ? (
@@ -171,7 +170,7 @@ export default function UserAccessPage() {
                               value={u.role}
                               onClick={(e) => e.stopPropagation()}
                               onChange={(e) => handleRoleChange(u.userId, e.target.value)}
-                              className="rounded border border-gray-700 bg-gray-800 px-2 py-1 text-xs text-white focus:border-teal-500 focus:outline-none"
+                              className="rounded border border-gray-300 dark:border-gray-700 bg-slate-100 dark:bg-gray-800 px-2 py-1 text-xs text-slate-900 dark:text-white focus:border-teal-500 focus:outline-none"
                             >
                               {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
                             </select>
@@ -181,7 +180,7 @@ export default function UserAccessPage() {
                             </span>
                           )}
                         </div>
-                        <div className="hidden md:block w-28 text-gray-400 text-xs">{fmt(u.joinedAt)}</div>
+                        <div className="hidden md:block w-28 text-gray-600 dark:text-gray-400 text-xs">{fmt(u.joinedAt)}</div>
                         {isAdmin && (
                           <div className="flex items-center gap-3 w-20 justify-end" onClick={(e) => e.stopPropagation()}>
                             {!isSelf && !isLastOwner && (
@@ -202,7 +201,7 @@ export default function UserAccessPage() {
                       </div>
 
                       {isAdmin && isExpanded && (
-                        <div className="border-t border-gray-800 bg-gray-950/60">
+                        <div className="border-t border-gray-200 dark:border-gray-800 bg-slate-50 dark:bg-gray-950/60">
                           <PermissionsGrid
                             userId={u.userId}
                             userRole={u.role}
@@ -218,23 +217,23 @@ export default function UserAccessPage() {
           </div>
 
           {isAdmin && (
-            <div className="rounded-xl border border-gray-800 bg-gray-900">
-              <div className="flex items-center gap-2 border-b border-gray-800 px-6 py-4">
+            <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
+              <div className="flex items-center gap-2 border-b border-gray-200 dark:border-gray-800 px-6 py-4">
                 <UserPlus className="h-5 w-5 text-teal-400" />
-                <h2 className="font-semibold text-white">Invite a User</h2>
+                <h2 className="font-semibold text-slate-900 dark:text-white">Invite a User</h2>
               </div>
               <div className="px-6 py-5">
                 <form onSubmit={handleInvite} className="flex flex-wrap items-end gap-3">
                   <div className="flex-1 min-w-[220px]">
-                    <label className="mb-1 block text-xs font-medium text-gray-400">Email Address</label>
+                    <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Email Address</label>
                     <input type="email" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)}
                       placeholder="colleague@example.com" required
-                      className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-teal-500 focus:outline-none" />
+                      className="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-slate-100 dark:bg-gray-800 px-3 py-2 text-sm text-slate-900 dark:text-white placeholder-gray-500 focus:border-teal-500 focus:outline-none" />
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-gray-400">Role</label>
+                    <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Role</label>
                     <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value)}
-                      className="rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white focus:border-teal-500 focus:outline-none">
+                      className="rounded-lg border border-gray-300 dark:border-gray-700 bg-slate-100 dark:bg-gray-800 px-3 py-2 text-sm text-slate-900 dark:text-white focus:border-teal-500 focus:outline-none">
                       {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
                     </select>
                   </div>
@@ -245,15 +244,15 @@ export default function UserAccessPage() {
                 </form>
               </div>
               {invitations.length > 0 && (
-                <div className="border-t border-gray-800 px-6 py-4">
+                <div className="border-t border-gray-200 dark:border-gray-800 px-6 py-4">
                   <p className="mb-3 text-xs font-medium uppercase tracking-wide text-gray-500">Pending Invitations</p>
                   <ul className="space-y-2">
                     {invitations.map((inv) => (
-                      <li key={inv.id} className="flex items-center justify-between rounded-lg border border-gray-700/50 bg-gray-800/40 px-4 py-3">
+                      <li key={inv.id} className="flex items-center justify-between rounded-lg border border-gray-200 dark:border-gray-700/50 bg-slate-50 dark:bg-gray-800/40 px-4 py-3">
                         <div className="flex items-center gap-3">
                           <Mail className="h-4 w-4 text-gray-500" />
                           <div>
-                            <p className="text-sm text-white">{inv.email}</p>
+                            <p className="text-sm text-slate-900 dark:text-white">{inv.email}</p>
                             <div className="flex items-center gap-2 text-xs text-gray-500">
                               <span className={`inline-flex rounded-full px-2 py-0.5 font-medium ${ROLE_BADGE[inv.role] ?? 'bg-gray-700 text-gray-300'}`}>{inv.role}</span>
                               <Clock className="h-3 w-3" />

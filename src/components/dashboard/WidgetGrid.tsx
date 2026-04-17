@@ -73,7 +73,7 @@ function AddWidgetModal({ onAdd, onClose, existingTypes }: AddWidgetModalProps) 
           <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">Add Widget</h2>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-md text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            className="p-1.5 rounded-md text-gray-600 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
           >
             <X className="h-4 w-4" />
           </button>
@@ -143,7 +143,7 @@ export function WidgetGrid({ widgets, editMode, onLayoutChange }: WidgetGridProp
           >
             {/* Drag handle (visual only) */}
             {editMode && (
-              <div className="absolute top-2 left-2 z-10 p-1 rounded cursor-grab text-gray-400 dark:text-gray-500">
+              <div className="absolute top-2 left-2 z-10 p-1 rounded cursor-grab text-gray-600 dark:text-gray-400 dark:text-gray-500">
                 <GripVertical className="h-4 w-4" />
               </div>
             )}
@@ -169,7 +169,7 @@ export function WidgetGrid({ widgets, editMode, onLayoutChange }: WidgetGridProp
           <div className="col-span-1">
             <button
               onClick={() => setShowAddModal(true)}
-              className="w-full h-full min-h-[120px] flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 hover:border-teal-400 dark:hover:border-teal-500 hover:bg-teal-50 dark:hover:bg-teal-900/10 transition-colors text-gray-400 dark:text-gray-500 hover:text-teal-600 dark:hover:text-teal-400"
+              className="w-full h-full min-h-[120px] flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 hover:border-teal-400 dark:hover:border-teal-500 hover:bg-teal-50 dark:hover:bg-teal-900/10 transition-colors text-gray-600 dark:text-gray-400 dark:text-gray-500 hover:text-teal-600 dark:hover:text-teal-400"
             >
               <Plus className="h-6 w-6" />
               <span className="text-sm font-medium">Add Widget</span>

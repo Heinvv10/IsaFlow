@@ -161,9 +161,7 @@ export default function ItemDetailPage() {
               )}
             </div>
             <span
-              className={`px-3 py-1 rounded-full text-sm font-medium ${
-                item.is_active ? 'bg-teal-500/20 text-teal-400' : 'bg-gray-500/20 text-gray-400'
-              }`}
+              className={`px-3 py-1 rounded-full text-sm font-medium ${ item.is_active ? 'bg-teal-500/20 text-teal-400' : 'bg-gray-500/20 text-gray-400' }`}
             >
               {item.is_active ? 'Active' : 'Inactive'}
             </span>
@@ -199,8 +197,8 @@ export default function ItemDetailPage() {
                 </>
               ) : (
                 <>
-                  <XCircle className="h-5 w-5 text-gray-400" />
-                  <span className="text-sm text-gray-400 font-medium">Inactive Item</span>
+                  <XCircle className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+                  <span className="text-sm text-gray-600 dark:text-gray-400 font-medium">Inactive Item</span>
                 </>
               )}
             </div>
@@ -223,16 +221,12 @@ export default function ItemDetailPage() {
                 <button
                   onClick={handleToggleBundle}
                   disabled={togglingBundle}
-                  className={`relative inline-flex h-5 w-9 rounded-full transition-colors focus:outline-none ${
-                    isBundle ? 'bg-purple-600' : 'bg-[var(--ff-border-light)]'
-                  } ${togglingBundle ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  className={`relative inline-flex h-5 w-9 rounded-full transition-colors focus:outline-none ${ isBundle ? 'bg-purple-600' : 'bg-[var(--ff-border-light)]' } ${togglingBundle ? 'opacity-50 cursor-not-allowed' : ''}`}
                   role="switch"
                   aria-checked={isBundle}
                 >
                   <span
-                    className={`inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform mt-0.5 ${
-                      isBundle ? 'translate-x-4' : 'translate-x-0.5'
-                    }`}
+                    className={`inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform mt-0.5 ${ isBundle ? 'translate-x-4' : 'translate-x-0.5' }`}
                   />
                 </button>
               </label>

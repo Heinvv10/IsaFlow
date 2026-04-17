@@ -146,13 +146,13 @@ export default function NewCustomerPaymentPage() {
           <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
           <div className="absolute -top-12 right-8 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
           <div className="relative z-10">
-            <Link href="/accounting/customer-payments" className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 mb-4 transition-colors">
+            <Link href="/accounting/customer-payments" className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-200 mb-4 transition-colors">
               <ArrowLeft className="h-3.5 w-3.5" /> Back to Payments
             </Link>
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-0.5">New Document</p>
-                <h1 className="text-xl font-bold text-white">Record Customer Payment</h1>
+                <h1 className="text-xl font-bold text-slate-900 dark:text-white">Record Customer Payment</h1>
               </div>
               <ScanAndFillButton onExtracted={handleExtracted} label="Scan Document" />
             </div>
@@ -213,11 +213,11 @@ export default function NewCustomerPaymentPage() {
                     <span className="w-5 h-5 rounded bg-amber-500/10 flex items-center justify-center text-amber-500 text-xs font-bold">2</span>
                     Invoice Allocations
                   </h3>
-                  <button type="button" onClick={addAllocation} className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-white font-semibold transition-colors"><Plus className="h-3 w-3" />Add Line</button>
+                  <button type="button" onClick={addAllocation} className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-semibold transition-colors"><Plus className="h-3 w-3" />Add Line</button>
                 </div>
                 <div className="p-5 space-y-3">
-                  {!form.clientId && <p className="text-sm text-slate-400 dark:text-slate-500 text-center py-4">Select a client to see outstanding invoices</p>}
-                  {form.clientId && invoices.length === 0 && <p className="text-sm text-slate-400 dark:text-slate-500">No outstanding invoices for this client</p>}
+                  {!form.clientId && <p className="text-sm text-slate-500 dark:text-slate-400 dark:text-slate-500 text-center py-4">Select a client to see outstanding invoices</p>}
+                  {form.clientId && invoices.length === 0 && <p className="text-sm text-slate-500 dark:text-slate-400 dark:text-slate-500">No outstanding invoices for this client</p>}
                   {allocations.map(alloc => {
                     const inv = invoices.find(i => i.id === alloc.invoiceId);
                     const balance = inv ? Number(inv.total_amount) - Number(inv.amount_paid) : 0;
@@ -231,7 +231,7 @@ export default function NewCustomerPaymentPage() {
                         </select>
                         <input type="number" name="amount" step="0.01" min="0" max={balance || undefined} value={alloc.amount || ''} onChange={e => updateAllocation(alloc.key, 'amount', Number(e.target.value))} placeholder="Amount" className={`${inp} w-36`} />
                         {allocations.length > 1 && (
-                          <button type="button" onClick={() => removeAllocation(alloc.key)} className="p-1.5 rounded-lg text-slate-300 dark:text-slate-700 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"><Trash2 className="h-4 w-4" /></button>
+                          <button type="button" onClick={() => removeAllocation(alloc.key)} className="p-1.5 rounded-lg text-slate-700 dark:text-slate-300 dark:text-slate-700 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"><Trash2 className="h-4 w-4" /></button>
                         )}
                       </div>
                     );
@@ -258,12 +258,12 @@ export default function NewCustomerPaymentPage() {
                       <span className="font-mono font-bold text-lg text-amber-500">{fmt(totalAllocated)}</span>
                     </div>
                   </div>
-                  <button type="submit" disabled={isSubmitting || totalAllocated <= 0} className="w-full mt-6 py-3 bg-amber-500 hover:bg-amber-400 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                  <button type="submit" disabled={isSubmitting || totalAllocated <= 0} className="w-full mt-6 py-3 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
                     {isSubmitting ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : <><CreditCard className="h-4 w-4" />Create Payment</>}
                   </button>
                   <Link href="/accounting/customer-payments" className="block w-full mt-2 py-2.5 text-center text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors">Cancel</Link>
                 </div>
-                <p className="text-xs text-slate-400 dark:text-slate-500 text-center px-2 mt-3">Payment will be recorded and allocations applied to the selected invoices.</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 text-center px-2 mt-3">Payment will be recorded and allocations applied to the selected invoices.</p>
               </div>
             </div>
           </div>

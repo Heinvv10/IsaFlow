@@ -122,7 +122,7 @@ export function CompanyBillingTab({ companyId }: Props) {
       <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Invoice History</h3>
-          <span className="text-xs text-gray-400">Last 10</span>
+          <span className="text-xs text-gray-600 dark:text-gray-400">Last 10</span>
         </div>
         {invoicesLoading ? (
           <div className="flex items-center justify-center py-10">

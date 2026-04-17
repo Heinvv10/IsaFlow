@@ -155,7 +155,7 @@ export default function AdminMigrationsPage() {
             <div>
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Company</label>
               {loadingCo ? (
-                <div className="flex items-center gap-2 text-sm text-gray-400"><Loader2 className="w-4 h-4 animate-spin" /> Loading&hellip;</div>
+                <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400"><Loader2 className="w-4 h-4 animate-spin" /> Loading&hellip;</div>
               ) : (
                 <select value={companyId} onChange={e => setCompanyId(e.target.value)} className={selectCls}>
                   {!companies.length && <option value="">No companies found</option>}
@@ -188,9 +188,9 @@ export default function AdminMigrationsPage() {
                     {z.status === 'uploading' ? <Loader2 className="w-5 h-5 animate-spin text-teal-500" />
                       : z.status === 'parsed'  ? <CheckCircle2 className="w-5 h-5 text-teal-500" />
                       : z.status === 'error'   ? <AlertCircle className="w-5 h-5 text-red-500" />
-                      : <Upload className="w-5 h-5 text-gray-400" />}
+                      : <Upload className="w-5 h-5 text-gray-600 dark:text-gray-400" />}
                     <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{label}</span>
-                    {z.status === 'idle'      && <span className="text-xs text-gray-400">.csv / .xlsx</span>}
+                    {z.status === 'idle'      && <span className="text-xs text-gray-600 dark:text-gray-400">.csv / .xlsx</span>}
                     {z.status === 'uploading' && <span className="text-xs text-teal-500">Parsing&hellip;</span>}
                     {z.status === 'parsed'    && <span className="text-xs font-semibold text-teal-600 dark:text-teal-400">{z.count} records</span>}
                     {z.status === 'error'     && <span className="text-xs text-red-500 line-clamp-2">{z.error}</span>}
@@ -199,7 +199,7 @@ export default function AdminMigrationsPage() {
               );
             })}
           </div>
-          <p className="text-xs text-gray-400">Files are parsed client-side — no data saved until you execute below.</p>
+          <p className="text-xs text-gray-600 dark:text-gray-400">Files are parsed client-side — no data saved until you execute below.</p>
         </div>
 
         {/* Step 3 — Summary + Execute */}
@@ -241,7 +241,7 @@ export default function AdminMigrationsPage() {
             <div className="grid grid-cols-3 gap-3 text-center text-sm">
               {ZONES.map(({ type, label }) => {
                 const r = result[type];
-                if (!r) return <div key={type} className="bg-white dark:bg-gray-800 rounded-lg py-3 px-2 text-gray-400 text-xs">{label}<br />not imported</div>;
+                if (!r) return <div key={type} className="bg-white dark:bg-gray-800 rounded-lg py-3 px-2 text-gray-600 dark:text-gray-400 text-xs">{label}<br />not imported</div>;
                 return (
                   <div key={type} className="bg-white dark:bg-gray-800 rounded-lg py-3 px-2">
                     <p className="font-medium text-gray-900 dark:text-white">{label}</p>

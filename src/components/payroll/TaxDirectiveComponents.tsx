@@ -77,10 +77,10 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="bg-gray-800 border border-gray-700 rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700">
-          <h2 className="text-lg font-semibold text-white">New Tax Directive</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-white"><X className="h-5 w-5" /></button>
+      <div className="bg-slate-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-300 dark:border-gray-700">
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-white">New Tax Directive</h2>
+          <button onClick={onClose} className="text-gray-600 dark:text-gray-400 hover:text-white"><X className="h-5 w-5" /></button>
         </div>
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {error && (
@@ -133,7 +133,7 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
             </div>
           </div>
           <div className="flex justify-end gap-3 pt-2">
-            <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-300 hover:text-white border border-gray-600 rounded-lg">
+            <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:text-white border border-gray-600 rounded-lg">
               Cancel
             </button>
             <button type="submit" disabled={saving} className="px-4 py-2 text-sm font-medium bg-teal-600 hover:bg-teal-500 text-white rounded-lg disabled:opacity-50 flex items-center gap-2">
@@ -164,10 +164,10 @@ export function LumpSumCalculator() {
   };
 
   return (
-    <div className="bg-gray-800 border border-gray-700 rounded-xl p-5">
+    <div className="bg-slate-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl p-5">
       <div className="flex items-center gap-2 mb-4">
         <Calculator className="h-5 w-5 text-teal-400" />
-        <h3 className="text-sm font-semibold text-white">Lump Sum Calculator</h3>
+        <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Lump Sum Calculator</h3>
       </div>
       <div className="space-y-3">
         <div>
@@ -180,7 +180,7 @@ export function LumpSumCalculator() {
         </div>
         <label className="flex items-center gap-2 cursor-pointer">
           <input type="checkbox" checked={useDirectiveRate} onChange={e => setUseDirectiveRate(e.target.checked)} className="accent-teal-500" />
-          <span className="text-xs text-gray-300">Use directive rate</span>
+          <span className="text-xs text-gray-700 dark:text-gray-300">Use directive rate</span>
         </label>
         {useDirectiveRate && (
           <div>
@@ -196,26 +196,26 @@ export function LumpSumCalculator() {
           Calculate Tax
         </button>
         {result && (
-          <div className="mt-3 space-y-2 border-t border-gray-700 pt-3">
+          <div className="mt-3 space-y-2 border-t border-gray-300 dark:border-gray-700 pt-3">
             <div className="space-y-1">
               {result.breakdown.map((b, i) => (
                 <div key={i} className="flex justify-between text-xs">
-                  <span className="text-gray-400">{b.bracket}</span>
-                  <span className="text-gray-200">{fmtCurrency(b.tax)}</span>
+                  <span className="text-gray-600 dark:text-gray-400">{b.bracket}</span>
+                  <span className="text-gray-800 dark:text-gray-200">{fmtCurrency(b.tax)}</span>
                 </div>
               ))}
             </div>
             <div className="flex justify-between text-sm font-semibold border-t border-gray-600 pt-2">
-              <span className="text-white">Total Tax</span>
+              <span className="text-slate-900 dark:text-white">Total Tax</span>
               <span className="text-red-400">{fmtCurrency(result.taxAmount)}</span>
             </div>
             <div className="flex justify-between text-xs">
-              <span className="text-gray-400">Net Payment</span>
+              <span className="text-gray-600 dark:text-gray-400">Net Payment</span>
               <span className="text-teal-400">{fmtCurrency(result.grossAmount - result.taxAmount)}</span>
             </div>
             <div className="flex justify-between text-xs">
-              <span className="text-gray-400">Effective Rate</span>
-              <span className="text-gray-200">{(result.effectiveRate * 100).toFixed(2)}%</span>
+              <span className="text-gray-600 dark:text-gray-400">Effective Rate</span>
+              <span className="text-gray-800 dark:text-gray-200">{(result.effectiveRate * 100).toFixed(2)}%</span>
             </div>
             {result.directiveRateUsed && (
               <p className="text-xs text-amber-400">Using SARS directive rate</p>

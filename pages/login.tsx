@@ -78,20 +78,20 @@ function TwoFactorScreen({
   };
 
   return (
-    <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 shadow-xl">
+    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl p-6 shadow-xl">
       <div className="flex flex-col items-center mb-6">
         <div className="p-3 bg-teal-500/10 rounded-full mb-3">
           <ShieldCheck className="h-8 w-8 text-teal-400" />
         </div>
-        <h2 className="text-lg font-semibold text-white">Two-Factor Authentication</h2>
-        <p className="text-sm text-gray-400 mt-1 text-center">
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Two-Factor Authentication</h2>
+        <p className="text-sm text-slate-500 dark:text-gray-400 mt-1 text-center">
           Enter the 6-digit code from your authenticator app, or a backup code.
         </p>
       </div>
 
       <form onSubmit={(e) => void handleSubmit(e)} noValidate>
         <div className="mb-4">
-          <label htmlFor="code" className="block text-xs font-medium text-gray-400 mb-1.5">
+          <label htmlFor="code" className="block text-xs font-medium text-slate-500 dark:text-gray-400 mb-1.5">
             Authentication Code
           </label>
           <input
@@ -105,7 +105,7 @@ function TwoFactorScreen({
             onChange={e => setCode(e.target.value.replace(/\s/g, ''))}
             disabled={loading}
             placeholder="000000"
-            className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition text-center tracking-widest font-mono text-lg"
+            className="w-full bg-slate-50 dark:bg-gray-800 border border-slate-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition text-center tracking-widest font-mono text-lg"
           />
         </div>
 
@@ -115,9 +115,9 @@ function TwoFactorScreen({
             type="checkbox"
             checked={trustDevice}
             onChange={e => setTrustDevice(e.target.checked)}
-            className="rounded border-gray-600 bg-gray-800 text-teal-500 focus:ring-teal-500"
+            className="rounded border-slate-300 dark:border-gray-600 bg-slate-100 dark:bg-gray-800 text-teal-500 focus:ring-teal-500"
           />
-          <label htmlFor="trust-device" className="text-sm text-gray-400 cursor-pointer">
+          <label htmlFor="trust-device" className="text-sm text-slate-500 dark:text-gray-400 cursor-pointer">
             Trust this device for 30 days
           </label>
         </div>
@@ -243,13 +243,13 @@ export default function LoginPage() {
   const isBusy = submitting;
 
   return (
-    <div className="min-h-screen bg-gray-950 flex items-center justify-center px-4">
+    <div className="min-h-screen bg-slate-50 dark:bg-gray-950 flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
 
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <Image src="/logo.png" alt="ISAFlow" width={160} height={64} className="h-16 w-auto brightness-0 invert mb-4" priority />
-          <p className="text-sm text-gray-500 mt-1">
+          <Image src="/logo.png" alt="ISAFlow" width={160} height={64} className="h-16 w-auto dark:brightness-0 dark:invert mb-4" priority />
+          <p className="text-sm text-slate-600 dark:text-slate-300 mt-1">
             {twoFactorChallenge ? 'Verify your identity' : 'Sign in to your account'}
           </p>
         </div>
@@ -260,7 +260,7 @@ export default function LoginPage() {
             <Building2 className="h-4 w-4 text-teal-400 mt-0.5 flex-shrink-0" />
             <p className="text-sm text-teal-300">
               You&apos;ve been invited to join{' '}
-              <span className="font-medium text-white">{inviteData.companyName}</span>
+              <span className="font-medium text-slate-900 dark:text-white">{inviteData.companyName}</span>
               {' '}as <span className="font-medium">{inviteData.role}</span>.
               Sign in to accept.
             </p>
@@ -283,12 +283,12 @@ export default function LoginPage() {
           />
         ) : (
           /* Login Card */
-          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 shadow-xl">
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl p-6 shadow-xl">
             <form onSubmit={(e) => void handleSubmit(e)} noValidate>
 
               {/* Email */}
               <div className="mb-4">
-                <label htmlFor="email" className="block text-xs font-medium text-gray-400 mb-1.5">
+                <label htmlFor="email" className="block text-xs font-medium text-slate-500 dark:text-gray-400 mb-1.5">
                   Email address
                 </label>
                 <input
@@ -299,7 +299,7 @@ export default function LoginPage() {
                   value={email}
                   onChange={e => { clearError(); setEmail(e.target.value); }}
                   disabled={isBusy}
-                  className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition"
+                  className="w-full bg-slate-50 dark:bg-gray-800 border border-slate-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition"
                   placeholder="you@example.com"
                 />
               </div>
@@ -307,7 +307,7 @@ export default function LoginPage() {
               {/* Password */}
               <div className="mb-6">
                 <div className="flex items-center justify-between mb-1.5">
-                  <label htmlFor="password" className="block text-xs font-medium text-gray-400">
+                  <label htmlFor="password" className="block text-xs font-medium text-slate-500 dark:text-gray-400">
                     Password
                   </label>
                   <Link
@@ -327,7 +327,7 @@ export default function LoginPage() {
                     value={password}
                     onChange={e => { clearError(); setPassword(e.target.value); }}
                     disabled={isBusy}
-                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2.5 pr-10 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition"
+                    className="w-full bg-slate-50 dark:bg-gray-800 border border-slate-300 dark:border-gray-600 rounded-lg px-3 py-2.5 pr-10 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition"
                     placeholder="Enter your password"
                   />
                   <button
@@ -370,7 +370,7 @@ export default function LoginPage() {
 
         {/* Footer link — only on login screen */}
         {!twoFactorChallenge && (
-          <p className="text-center text-sm text-gray-500 mt-6">
+          <p className="text-center text-sm text-slate-500 dark:text-gray-500 mt-6">
             Don&apos;t have an account?{' '}
             <Link
               href={inviteToken ? `/register?invite=${inviteToken}` : '/register'}

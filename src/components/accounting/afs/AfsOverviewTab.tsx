@@ -20,9 +20,9 @@ function fmt(amount: number): string {
 
 function SectionLoader({ label }: { label: string }) {
   return (
-    <div className="animate-pulse bg-slate-800 border border-slate-700 rounded-lg p-6 mb-8">
-      <div className="h-5 bg-slate-700 rounded w-1/3 mb-4" />
-      {[1, 2, 3].map(i => <div key={i} className="h-4 bg-slate-700/50 rounded w-full mb-2" />)}
+    <div className="animate-pulse bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg p-6 mb-8">
+      <div className="h-5 bg-slate-200 dark:bg-slate-700 rounded w-1/3 mb-4" />
+      {[1, 2, 3].map(i => <div key={i} className="h-4 bg-slate-100 dark:bg-slate-700/50 rounded w-full mb-2" />)}
       <p className="text-xs text-slate-500 mt-4">Loading {label}…</p>
     </div>
   );
@@ -39,7 +39,7 @@ function SectionError({ label, message }: { label: string; message: string }) {
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return (
-    <h2 className="text-sm font-bold text-slate-200 uppercase tracking-wide mb-4 border-b border-slate-700 pb-2">
+    <h2 className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide mb-4 border-b border-slate-300 dark:border-slate-700 pb-2">
       {children}
     </h2>
   );
@@ -66,15 +66,15 @@ function ChangesInEquitySection({ report }: { report: ChangesInEquityReport }) {
   return (
     <section className="mb-8">
       <SectionHeading>Statement of Changes in Equity</SectionHeading>
-      <div className="overflow-x-auto rounded-lg border border-slate-700">
+      <div className="overflow-x-auto rounded-lg border border-slate-300 dark:border-slate-700">
         <table className="w-full text-sm border-collapse">
           <thead>
-            <tr className="bg-slate-700">
-              <th className="text-left px-4 py-3 font-semibold text-slate-200 w-48">Movement</th>
+            <tr className="bg-slate-200 dark:bg-slate-700">
+              <th className="text-left px-4 py-3 font-semibold text-slate-800 dark:text-slate-200 w-48">Movement</th>
               {report.columns.map(c => (
-                <th key={c.subtype} className="text-right px-4 py-3 font-semibold text-slate-200">{c.label}</th>
+                <th key={c.subtype} className="text-right px-4 py-3 font-semibold text-slate-800 dark:text-slate-200">{c.label}</th>
               ))}
-              <th className="text-right px-4 py-3 font-semibold text-slate-200">Total Equity</th>
+              <th className="text-right px-4 py-3 font-semibold text-slate-800 dark:text-slate-200">Total Equity</th>
             </tr>
           </thead>
           <tbody>
@@ -84,16 +84,16 @@ function ChangesInEquitySection({ report }: { report: ChangesInEquityReport }) {
                 <tr
                   key={row.key}
                   className={isTotal
-                    ? 'bg-slate-700/60 font-semibold border-t border-b border-slate-600'
-                    : i % 2 === 0 ? 'bg-slate-800' : 'bg-slate-800/50'}
+                    ? 'bg-slate-200 dark:bg-slate-700/60 font-semibold border-t border-b border-slate-300 dark:border-slate-600'
+                    : i % 2 === 0 ? 'bg-slate-100 dark:bg-slate-800' : 'bg-slate-50 dark:bg-slate-800/50'}
                 >
-                  <td className="px-4 py-3 text-slate-300">{row.label}</td>
+                  <td className="px-4 py-3 text-slate-700 dark:text-slate-300">{row.label}</td>
                   {report.columns.map(c => (
-                    <td key={c.subtype} className="text-right px-4 py-3 font-mono text-slate-200">
+                    <td key={c.subtype} className="text-right px-4 py-3 font-mono text-slate-800 dark:text-slate-200">
                       {fmt(c[row.key] as number)}
                     </td>
                   ))}
-                  <td className="text-right px-4 py-3 font-mono font-semibold text-white">
+                  <td className="text-right px-4 py-3 font-mono font-semibold text-slate-900 dark:text-white">
                     {fmt(totalByRow[row.key] ?? 0)}
                   </td>
                 </tr>
@@ -110,12 +110,12 @@ function DirectCashFlowSection({ report }: { report: CashFlowDirectReport }) {
   return (
     <section className="mb-8">
       <SectionHeading>Statement of Cash Flows — Direct Method</SectionHeading>
-      <div className="rounded-lg border border-slate-700 overflow-hidden">
+      <div className="rounded-lg border border-slate-300 dark:border-slate-700 overflow-hidden">
         <table className="w-full text-sm border-collapse">
           <thead>
-            <tr className="bg-slate-700">
-              <th className="text-left px-4 py-3 font-semibold text-slate-200">Description</th>
-              <th className="text-right px-4 py-3 font-semibold text-slate-200">R</th>
+            <tr className="bg-slate-200 dark:bg-slate-700">
+              <th className="text-left px-4 py-3 font-semibold text-slate-800 dark:text-slate-200">Description</th>
+              <th className="text-right px-4 py-3 font-semibold text-slate-800 dark:text-slate-200">R</th>
             </tr>
           </thead>
           <tbody>
@@ -125,28 +125,28 @@ function DirectCashFlowSection({ report }: { report: CashFlowDirectReport }) {
               { label: 'Financing', items: report.financingItems, total: report.financingTotal },
             ]).map((activity) => (
               <React.Fragment key={activity.label}>
-                <tr className="bg-slate-700/40">
-                  <td className="px-4 py-3 font-semibold text-slate-300" colSpan={2}>{activity.label} Activities</td>
+                <tr className="bg-slate-100 dark:bg-slate-700/40">
+                  <td className="px-4 py-3 font-semibold text-slate-700 dark:text-slate-300" colSpan={2}>{activity.label} Activities</td>
                 </tr>
                 {activity.items.map((item, i) => (
-                  <tr key={item.cashGroup} className={i % 2 === 0 ? 'bg-slate-800' : 'bg-slate-800/50'}>
-                    <td className="px-4 py-3 pl-8 text-slate-400">{item.label}</td>
-                    <td className="text-right px-4 py-3 font-mono text-slate-200">{fmt(item.amount)}</td>
+                  <tr key={item.cashGroup} className={i % 2 === 0 ? 'bg-slate-100 dark:bg-slate-800' : 'bg-slate-50 dark:bg-slate-800/50'}>
+                    <td className="px-4 py-3 pl-8 text-slate-500 dark:text-slate-400">{item.label}</td>
+                    <td className="text-right px-4 py-3 font-mono text-slate-800 dark:text-slate-200">{fmt(item.amount)}</td>
                   </tr>
                 ))}
-                <tr className="bg-slate-700/60 font-semibold border-t border-slate-600">
-                  <td className="px-4 py-3 text-slate-200">Net cash from {activity.label.toLowerCase()} activities</td>
-                  <td className="text-right px-4 py-3 font-mono text-white">{fmt(activity.total)}</td>
+                <tr className="bg-slate-200 dark:bg-slate-700/60 font-semibold border-t border-slate-300 dark:border-slate-600">
+                  <td className="px-4 py-3 text-slate-800 dark:text-slate-200">Net cash from {activity.label.toLowerCase()} activities</td>
+                  <td className="text-right px-4 py-3 font-mono text-slate-900 dark:text-white">{fmt(activity.total)}</td>
                 </tr>
               </React.Fragment>
             ))}
-            <tr className="bg-slate-800 border-t border-slate-600">
-              <td className="px-4 py-3 text-slate-400">Opening cash balance</td>
-              <td className="text-right px-4 py-3 font-mono text-slate-200">{fmt(report.openingCash)}</td>
+            <tr className="bg-slate-100 dark:bg-slate-800 border-t border-slate-600">
+              <td className="px-4 py-3 text-slate-500 dark:text-slate-400">Opening cash balance</td>
+              <td className="text-right px-4 py-3 font-mono text-slate-800 dark:text-slate-200">{fmt(report.openingCash)}</td>
             </tr>
-            <tr className="bg-slate-700 font-bold">
-              <td className="px-4 py-3 text-white">Closing cash balance</td>
-              <td className="text-right px-4 py-3 font-mono text-white">{fmt(report.closingCash)}</td>
+            <tr className="bg-slate-200 dark:bg-slate-700 font-bold">
+              <td className="px-4 py-3 text-slate-900 dark:text-white">Closing cash balance</td>
+              <td className="text-right px-4 py-3 font-mono text-slate-900 dark:text-white">{fmt(report.closingCash)}</td>
             </tr>
           </tbody>
         </table>
@@ -169,13 +169,13 @@ function ReconciliationSection({ rec }: { rec: CashFlowReconciliation }) {
               { label: 'Bank balance per GL',          val: rec.bankBalance },
             ].map(row => (
               <tr key={row.label}>
-                <td className="py-1 text-slate-400">{row.label}</td>
-                <td className="text-right font-mono text-slate-200">R {fmt(row.val)}</td>
+                <td className="py-1 text-slate-500 dark:text-slate-400">{row.label}</td>
+                <td className="text-right font-mono text-slate-800 dark:text-slate-200">R {fmt(row.val)}</td>
               </tr>
             ))}
             <tr className="border-t border-slate-600 font-semibold">
-              <td className="py-2 text-slate-300">Variance</td>
-              <td className="text-right font-mono text-white">R {fmt(rec.variance)}</td>
+              <td className="py-2 text-slate-700 dark:text-slate-300">Variance</td>
+              <td className="text-right font-mono text-slate-900 dark:text-white">R {fmt(rec.variance)}</td>
             </tr>
           </tbody>
         </table>
@@ -222,13 +222,13 @@ export function AfsOverviewTab({ documentId, periodStart, periodEnd }: Props) {
       <div className="flex gap-3 mb-8">
         <Link
           href={`/accounting/afs/${documentId}/balance-sheet?${params}`}
-          className="px-4 py-2 text-sm font-medium text-slate-300 bg-slate-800 border border-slate-700 rounded-lg hover:bg-slate-700 hover:text-white transition-colors"
+          className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-white transition-colors"
         >
           Balance Sheet →
         </Link>
         <Link
           href={`/accounting/afs/${documentId}/income-statement?${params}`}
-          className="px-4 py-2 text-sm font-medium text-slate-300 bg-slate-800 border border-slate-700 rounded-lg hover:bg-slate-700 hover:text-white transition-colors"
+          className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-white transition-colors"
         >
           Income Statement →
         </Link>

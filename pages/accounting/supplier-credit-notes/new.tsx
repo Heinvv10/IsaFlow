@@ -105,12 +105,12 @@ export default function NewSupplierCreditNotePage() {
           <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
           <div className="absolute -top-12 right-8 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
           <div className="relative z-10">
-            <Link href="/accounting/supplier-credit-notes" className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 mb-4 transition-colors">
+            <Link href="/accounting/supplier-credit-notes" className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-200 mb-4 transition-colors">
               <ArrowLeft className="h-3.5 w-3.5" /> Back
             </Link>
             <div>
               <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-0.5">New Document</p>
-              <h1 className="text-xl font-bold text-white">Supplier Credit Note</h1>
+              <h1 className="text-xl font-bold text-slate-900 dark:text-white">Supplier Credit Note</h1>
             </div>
           </div>
         </div>
@@ -161,7 +161,7 @@ export default function NewSupplierCreditNotePage() {
                     <span className="w-5 h-5 rounded bg-amber-500/10 flex items-center justify-center text-amber-500 text-xs font-bold">2</span>
                     Line Items
                   </h3>
-                  <button type="button" onClick={() => setLineItems(prev => [...prev, emptyLine()])} className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-white font-semibold transition-colors">
+                  <button type="button" onClick={() => setLineItems(prev => [...prev, emptyLine()])} className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-semibold transition-colors">
                     <Plus className="h-3 w-3" /> Add Line
                   </button>
                 </div>
@@ -192,7 +192,7 @@ export default function NewSupplierCreditNotePage() {
                             {formatCurrency(li.quantity * li.unitPrice)}
                           </td>
                           <td className="px-2 py-2">
-                            <button type="button" onClick={() => removeLine(idx)} disabled={lineItems.length === 1} className="p-1.5 rounded-lg text-slate-300 dark:text-slate-700 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-20">
+                            <button type="button" onClick={() => removeLine(idx)} disabled={lineItems.length === 1} className="p-1.5 rounded-lg text-slate-700 dark:text-slate-300 dark:text-slate-700 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-20">
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
                           </td>
@@ -238,7 +238,7 @@ export default function NewSupplierCreditNotePage() {
                   </div>
 
                   <div className="flex flex-col gap-2 mt-6">
-                    <button type="submit" onClick={() => setSubmitAction('post')} disabled={isSubmitting} className="w-full py-3 bg-amber-500 hover:bg-amber-400 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                    <button type="submit" onClick={() => setSubmitAction('post')} disabled={isSubmitting} className="w-full py-3 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
                       {isSubmitting && submitAction === 'post' ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                       Post Credit Note
                     </button>

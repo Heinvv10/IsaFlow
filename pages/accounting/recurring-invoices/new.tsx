@@ -112,7 +112,7 @@ export default function NewRecurringInvoicePage() {
           <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
           <div className="absolute -top-12 right-8 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
           <div className="relative z-10">
-            <Link href="/accounting/recurring-invoices" className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 mb-4 transition-colors">
+            <Link href="/accounting/recurring-invoices" className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-200 mb-4 transition-colors">
               <ArrowLeft className="h-3.5 w-3.5" /> Back to Recurring Invoices
             </Link>
             <div className="flex items-center gap-3">
@@ -121,7 +121,7 @@ export default function NewRecurringInvoicePage() {
               </div>
               <div>
                 <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-0.5">New Document</p>
-                <h1 className="text-xl font-bold text-white">Recurring Invoice</h1>
+                <h1 className="text-xl font-bold text-slate-900 dark:text-white">Recurring Invoice</h1>
               </div>
             </div>
           </div>
@@ -243,14 +243,14 @@ export default function NewRecurringInvoicePage() {
                         <span className="font-mono font-bold text-lg text-amber-500">{fmtR(total)}</span>
                       </div>
                       {form.frequency && (
-                        <p className="text-xs text-slate-400 dark:text-slate-500 capitalize">{form.frequency} billing starting {form.nextRunDate || '—'}</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 capitalize">{form.frequency} billing starting {form.nextRunDate || '—'}</p>
                       )}
                     </div>
-                    <button type="submit" disabled={submitting} className="w-full mt-6 py-3 bg-amber-500 hover:bg-amber-400 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                    <button type="submit" disabled={submitting} className="w-full mt-6 py-3 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
                       {submitting ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : <><RefreshCw className="h-4 w-4" />Create Recurring Invoice</>}
                     </button>
                   </div>
-                  <p className="text-xs text-slate-400 dark:text-slate-500 text-center px-2 mt-3">Template will be active immediately and generate invoices on each run date.</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 text-center px-2 mt-3">Template will be active immediately and generate invoices on each run date.</p>
                 </div>
               </div>
             </div>

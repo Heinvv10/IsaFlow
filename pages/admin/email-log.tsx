@@ -39,31 +39,31 @@ const TYPE_LABELS: Record<string, string> = {
 function StatsCards({ stats }: { stats: EmailLogStats }) {
   return (
     <div className="grid grid-cols-3 gap-4 mb-6">
-      <div className="bg-gray-800 border border-gray-700 rounded-xl p-4 flex items-center gap-3">
+      <div className="bg-slate-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl p-4 flex items-center gap-3">
         <div className="p-2 rounded-lg bg-teal-500/10">
           <CheckCircle className="h-5 w-5 text-teal-400" />
         </div>
         <div>
-          <p className="text-xs text-gray-400">Total Sent (30d)</p>
-          <p className="text-xl font-semibold text-white">{stats.total_sent.toLocaleString()}</p>
+          <p className="text-xs text-gray-600 dark:text-gray-400">Total Sent (30d)</p>
+          <p className="text-xl font-semibold text-slate-900 dark:text-white">{stats.total_sent.toLocaleString()}</p>
         </div>
       </div>
-      <div className="bg-gray-800 border border-gray-700 rounded-xl p-4 flex items-center gap-3">
+      <div className="bg-slate-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl p-4 flex items-center gap-3">
         <div className="p-2 rounded-lg bg-red-500/10">
           <AlertCircle className="h-5 w-5 text-red-400" />
         </div>
         <div>
-          <p className="text-xs text-gray-400">Failed (30d)</p>
-          <p className="text-xl font-semibold text-white">{stats.total_failed.toLocaleString()}</p>
+          <p className="text-xs text-gray-600 dark:text-gray-400">Failed (30d)</p>
+          <p className="text-xl font-semibold text-slate-900 dark:text-white">{stats.total_failed.toLocaleString()}</p>
         </div>
       </div>
-      <div className="bg-gray-800 border border-gray-700 rounded-xl p-4 flex items-center gap-3">
+      <div className="bg-slate-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl p-4 flex items-center gap-3">
         <div className="p-2 rounded-lg bg-blue-500/10">
           <Clock className="h-5 w-5 text-blue-400" />
         </div>
         <div>
-          <p className="text-xs text-gray-400">Success Rate</p>
-          <p className="text-xl font-semibold text-white">{stats.success_rate}%</p>
+          <p className="text-xs text-gray-600 dark:text-gray-400">Success Rate</p>
+          <p className="text-xl font-semibold text-slate-900 dark:text-white">{stats.success_rate}%</p>
         </div>
       </div>
     </div>
@@ -146,23 +146,23 @@ export default function EmailLogPage() {
 
   return (
     <AdminLayout title="Email Delivery Log">
-      <div className="min-h-screen bg-gray-900">
+      <div className="min-h-screen bg-white dark:bg-gray-900">
         {/* Header */}
-        <div className="border-b border-gray-700 bg-gray-800 px-6 py-4">
+        <div className="border-b border-gray-300 dark:border-gray-700 bg-slate-100 dark:bg-gray-800 px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-teal-500/10">
                 <Mail className="h-5 w-5 text-teal-400" />
               </div>
               <div>
-                <h1 className="text-xl font-semibold text-white">Email Delivery Log</h1>
-                <p className="text-sm text-gray-400">{total.toLocaleString()} records</p>
+                <h1 className="text-xl font-semibold text-slate-900 dark:text-white">Email Delivery Log</h1>
+                <p className="text-sm text-gray-600 dark:text-gray-400">{total.toLocaleString()} records</p>
               </div>
             </div>
             <button
               onClick={() => void load(page)}
               disabled={loading}
-              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:text-white border border-gray-600 rounded-lg transition-colors disabled:opacity-50"
+              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:text-white border border-gray-600 rounded-lg transition-colors disabled:opacity-50"
             >
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
               Refresh
@@ -174,14 +174,14 @@ export default function EmailLogPage() {
           <StatsCards stats={stats} />
 
           {/* Filter Bar */}
-          <div className="bg-gray-800 border border-gray-700 rounded-xl p-4 mb-4">
+          <div className="bg-slate-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl p-4 mb-4">
             <div className="flex flex-wrap gap-3 items-end">
               <div>
-                <label className="block text-xs text-gray-400 mb-1">Status</label>
+                <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Status</label>
                 <select
                   value={statusFilter}
                   onChange={e => setStatusFilter(e.target.value)}
-                  className="bg-gray-700 border border-gray-600 text-gray-200 text-sm rounded-lg px-3 py-1.5"
+                  className="bg-gray-200 dark:bg-gray-700 border border-slate-300 dark:border-gray-600 text-gray-800 dark:text-gray-200 text-sm rounded-lg px-3 py-1.5"
                 >
                   <option value="">All</option>
                   <option value="sent">Sent</option>
@@ -190,11 +190,11 @@ export default function EmailLogPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs text-gray-400 mb-1">Type</label>
+                <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Type</label>
                 <select
                   value={typeFilter}
                   onChange={e => setTypeFilter(e.target.value)}
-                  className="bg-gray-700 border border-gray-600 text-gray-200 text-sm rounded-lg px-3 py-1.5"
+                  className="bg-gray-200 dark:bg-gray-700 border border-slate-300 dark:border-gray-600 text-gray-800 dark:text-gray-200 text-sm rounded-lg px-3 py-1.5"
                 >
                   <option value="">All Types</option>
                   {EMAIL_TYPES.map(t => (
@@ -203,32 +203,32 @@ export default function EmailLogPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs text-gray-400 mb-1">From</label>
+                <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">From</label>
                 <input
                   type="date"
                   value={dateFrom}
                   onChange={e => setDateFrom(e.target.value)}
-                  className="bg-gray-700 border border-gray-600 text-gray-200 text-sm rounded-lg px-3 py-1.5"
+                  className="bg-gray-200 dark:bg-gray-700 border border-slate-300 dark:border-gray-600 text-gray-800 dark:text-gray-200 text-sm rounded-lg px-3 py-1.5"
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-400 mb-1">To</label>
+                <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">To</label>
                 <input
                   type="date"
                   value={dateTo}
                   onChange={e => setDateTo(e.target.value)}
-                  className="bg-gray-700 border border-gray-600 text-gray-200 text-sm rounded-lg px-3 py-1.5"
+                  className="bg-gray-200 dark:bg-gray-700 border border-slate-300 dark:border-gray-600 text-gray-800 dark:text-gray-200 text-sm rounded-lg px-3 py-1.5"
                 />
               </div>
               <div className="flex-1 min-w-40">
-                <label className="block text-xs text-gray-400 mb-1">Recipient</label>
+                <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Recipient</label>
                 <input
                   type="text"
                   placeholder="Search email…"
                   value={search}
                   onChange={e => setSearch(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && handleFilter()}
-                  className="w-full bg-gray-700 border border-gray-600 text-gray-200 text-sm rounded-lg px-3 py-1.5 placeholder-gray-500"
+                  className="w-full bg-gray-200 dark:bg-gray-700 border border-slate-300 dark:border-gray-600 text-gray-800 dark:text-gray-200 text-sm rounded-lg px-3 py-1.5 placeholder-slate-400 dark:placeholder-gray-500"
                 />
               </div>
               <button
@@ -239,7 +239,7 @@ export default function EmailLogPage() {
               </button>
               <button
                 onClick={handleClear}
-                className="px-4 py-1.5 text-sm text-gray-400 hover:text-white border border-gray-600 rounded-lg transition-colors"
+                className="px-4 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:text-white border border-gray-600 rounded-lg transition-colors"
               >
                 Clear
               </button>
@@ -247,9 +247,9 @@ export default function EmailLogPage() {
           </div>
 
           {/* Table */}
-          <div className="bg-gray-800 border border-gray-700 rounded-xl overflow-hidden">
+          <div className="bg-slate-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl overflow-hidden">
             {error && (
-              <div className="flex items-center gap-2 p-4 text-red-400 text-sm border-b border-gray-700">
+              <div className="flex items-center gap-2 p-4 text-red-400 text-sm border-b border-gray-300 dark:border-gray-700">
                 <AlertCircle className="h-4 w-4 flex-shrink-0" />
                 {error}
               </div>
@@ -267,17 +267,17 @@ export default function EmailLogPage() {
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-gray-700">
-                      <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">Sent At</th>
-                      <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">Company</th>
-                      <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">Recipient</th>
-                      <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">Subject</th>
-                      <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">Type</th>
-                      <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">Status</th>
-                      <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">Actions</th>
+                    <tr className="border-b border-gray-300 dark:border-gray-700">
+                      <th className="text-left px-4 py-3 text-xs font-medium text-gray-600 dark:text-gray-400">Sent At</th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-gray-600 dark:text-gray-400">Company</th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-gray-600 dark:text-gray-400">Recipient</th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-gray-600 dark:text-gray-400">Subject</th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-gray-600 dark:text-gray-400">Type</th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-gray-600 dark:text-gray-400">Status</th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-gray-600 dark:text-gray-400">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-700">
+                  <tbody className="divide-y divide-gray-300 dark:divide-gray-700">
                     {items.map(item => {
                       const isFailed  = item.status === 'failed';
                       const isExpanded = expandedId === item.id;
@@ -285,26 +285,22 @@ export default function EmailLogPage() {
                         <>
                           <tr
                             key={item.id}
-                            className={`transition-colors cursor-pointer ${
-                              isFailed
-                                ? 'bg-red-900/10 hover:bg-red-900/20'
-                                : 'hover:bg-gray-700/30'
-                            }`}
+                            className={`transition-colors cursor-pointer ${ isFailed ? 'bg-red-900/10 hover:bg-red-900/20' : 'hover:bg-gray-100 dark:hover:bg-gray-700/30' }`}
                             onClick={() => setExpandedId(isExpanded ? null : item.id)}
                           >
-                            <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">
+                            <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">
                               {fmtDate(item.sent_at)}
                             </td>
-                            <td className="px-4 py-3 text-xs text-gray-300 max-w-[140px] truncate">
+                            <td className="px-4 py-3 text-xs text-gray-700 dark:text-gray-300 max-w-[140px] truncate">
                               {item.company_name ?? <span className="italic text-gray-500">—</span>}
                             </td>
-                            <td className="px-4 py-3 text-xs text-gray-300 max-w-[180px] truncate">
+                            <td className="px-4 py-3 text-xs text-gray-700 dark:text-gray-300 max-w-[180px] truncate">
                               {item.recipient_email}
                             </td>
-                            <td className="px-4 py-3 text-xs text-gray-300 max-w-[220px] truncate">
+                            <td className="px-4 py-3 text-xs text-gray-700 dark:text-gray-300 max-w-[220px] truncate">
                               {item.subject}
                             </td>
-                            <td className="px-4 py-3 text-xs text-gray-400">
+                            <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400">
                               {TYPE_LABELS[item.email_type] ?? item.email_type}
                             </td>
                             <td className="px-4 py-3">
@@ -347,12 +343,12 @@ export default function EmailLogPage() {
                             </tr>
                           )}
                           {isExpanded && !item.error_message && (
-                            <tr key={`${item.id}-detail`} className="bg-gray-700/20">
+                            <tr key={`${item.id}-detail`} className="bg-gray-100 dark:bg-gray-700/20">
                               <td colSpan={7} className="px-6 py-2">
-                                <p className="text-xs text-gray-400">
-                                  ID: <span className="font-mono text-gray-300">{item.id}</span>
+                                <p className="text-xs text-gray-600 dark:text-gray-400">
+                                  ID: <span className="font-mono text-gray-700 dark:text-gray-300">{item.id}</span>
                                   {item.sent_by && (
-                                    <> · Sent by: <span className="font-mono text-gray-300">{item.sent_by}</span></>
+                                    <> · Sent by: <span className="font-mono text-gray-700 dark:text-gray-300">{item.sent_by}</span></>
                                   )}
                                 </p>
                               </td>
@@ -368,22 +364,22 @@ export default function EmailLogPage() {
 
             {/* Pagination */}
             {totalPages > 1 && (
-              <div className="flex items-center justify-between px-4 py-3 border-t border-gray-700">
-                <p className="text-xs text-gray-400">
+              <div className="flex items-center justify-between px-4 py-3 border-t border-gray-300 dark:border-gray-700">
+                <p className="text-xs text-gray-600 dark:text-gray-400">
                   Page {page} of {totalPages} · {total.toLocaleString()} records
                 </p>
                 <div className="flex gap-2">
                   <button
                     onClick={() => setPage(p => Math.max(1, p - 1))}
                     disabled={page === 1}
-                    className="px-3 py-1.5 text-xs border border-gray-600 text-gray-300 rounded-lg disabled:opacity-40 hover:bg-gray-700 transition-colors"
+                    className="px-3 py-1.5 text-xs border border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg disabled:opacity-40 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
                   >
                     Prev
                   </button>
                   <button
                     onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                     disabled={page === totalPages}
-                    className="px-3 py-1.5 text-xs border border-gray-600 text-gray-300 rounded-lg disabled:opacity-40 hover:bg-gray-700 transition-colors"
+                    className="px-3 py-1.5 text-xs border border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg disabled:opacity-40 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
                   >
                     Next
                   </button>

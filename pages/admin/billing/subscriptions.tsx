@@ -169,7 +169,7 @@ export default function SubscriptionsPage() {
       {/* Toolbar */}
       <div className="flex gap-3 flex-wrap mb-5">
         <div className="relative flex-1 min-w-[200px] max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600 dark:text-gray-400" />
           <input type="text" placeholder="Search company..." value={search} onChange={e => setSearch(e.target.value)}
             className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500" />
         </div>
@@ -213,7 +213,7 @@ export default function SubscriptionsPage() {
           <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl w-full max-w-md">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Add Subscription</h3>
-              <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"><X className="w-4 h-4" /></button>
+              <button onClick={() => setShowForm(false)} className="text-gray-600 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"><X className="w-4 h-4" /></button>
             </div>
             <div className="p-5 space-y-4">
               {formError && (
@@ -283,7 +283,7 @@ export default function SubscriptionsPage() {
                 <tr><td colSpan={9} className="px-4 py-12 text-center"><Loader2 className="w-5 h-5 animate-spin text-teal-500 mx-auto" /></td></tr>
               )}
               {!loading && rows.length === 0 && (
-                <tr><td colSpan={9} className="px-4 py-12 text-center text-gray-400">No subscriptions found</td></tr>
+                <tr><td colSpan={9} className="px-4 py-12 text-center text-gray-600 dark:text-gray-400">No subscriptions found</td></tr>
               )}
               {rows.map(s => {
                 const canCancel = s.status === 'active' || s.status === 'trial';

@@ -52,7 +52,7 @@ function StatPill({ label, value, sub, accent = 'teal' }: StatCardProps) {
     <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm p-5 flex flex-col gap-1">
       <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">{label}</span>
       <span className={`text-2xl font-bold ${accentMap[accent] ?? accentMap['teal']}`}>{value}</span>
-      {sub && <span className="text-xs text-gray-400 dark:text-gray-500">{sub}</span>}
+      {sub && <span className="text-xs text-gray-600 dark:text-gray-400 dark:text-gray-500">{sub}</span>}
     </div>
   );
 }

@@ -159,7 +159,7 @@ export default function AdminAnalytics() {
                 </thead>
                 <tbody>
                   {data.revenue_by_plan.length === 0 && (
-                    <tr><td colSpan={3} className="px-5 py-8 text-center text-gray-400">No plan data</td></tr>
+                    <tr><td colSpan={3} className="px-5 py-8 text-center text-gray-600 dark:text-gray-400">No plan data</td></tr>
                   )}
                   {data.revenue_by_plan.map((row, i) => (
                     <tr key={i} className="border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800/40">
@@ -189,7 +189,7 @@ export default function AdminAnalytics() {
                 </thead>
                 <tbody>
                   {data.feature_adoption.length === 0 && (
-                    <tr><td colSpan={3} className="px-5 py-8 text-center text-gray-400">No feature data</td></tr>
+                    <tr><td colSpan={3} className="px-5 py-8 text-center text-gray-600 dark:text-gray-400">No feature data</td></tr>
                   )}
                   {data.feature_adoption.map((row, i) => (
                     <tr key={i} className="border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800/40">
@@ -222,7 +222,7 @@ export default function AdminAnalytics() {
                 </thead>
                 <tbody>
                   {data.churn_signals.length === 0 && (
-                    <tr><td colSpan={3} className="px-5 py-8 text-center text-gray-400">No churn signals — great!</td></tr>
+                    <tr><td colSpan={3} className="px-5 py-8 text-center text-gray-600 dark:text-gray-400">No churn signals — great!</td></tr>
                   )}
                   {data.churn_signals.map((row, i) => (
                     <tr

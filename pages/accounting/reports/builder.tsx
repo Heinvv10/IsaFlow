@@ -203,18 +203,18 @@ export default function ReportBuilderPage() {
     <AppLayout>
       <div className="flex flex-col h-full" style={{ height: 'calc(100vh - 64px)' }}>
         {/* Top bar */}
-        <div className="flex items-center gap-3 px-4 py-3 bg-white border-b border-gray-200 shrink-0">
-          <Link href="/accounting/reports/my-reports" className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800 transition-colors">
+        <div className="flex items-center gap-3 px-4 py-3 bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-800 shrink-0">
+          <Link href="/accounting/reports/my-reports" className="flex items-center gap-1 text-sm text-gray-500 dark:text-slate-400 hover:text-gray-800 dark:hover:text-slate-200 transition-colors">
             <ChevronLeft className="w-4 h-4" />
             My Reports
           </Link>
-          <div className="w-px h-5 bg-gray-200" />
-          <BookOpen className="w-5 h-5 text-indigo-600" />
+          <div className="w-px h-5 bg-gray-200 dark:bg-slate-700" />
+          <BookOpen className="w-5 h-5 text-teal-600 dark:text-teal-400" />
           <input
             type="text"
             value={reportName}
             onChange={e => setReportName(e.target.value)}
-            className="text-base font-semibold text-gray-800 bg-transparent border-b border-transparent hover:border-gray-300 focus:border-indigo-500 focus:outline-none px-1 py-0.5 transition-colors w-64"
+            className="text-base font-semibold text-gray-800 dark:text-slate-100 bg-transparent border-b border-transparent hover:border-gray-300 dark:hover:border-slate-700 focus:border-teal-500 focus:outline-none px-1 py-0.5 transition-colors w-64"
             placeholder="Report name..."
           />
 
@@ -222,7 +222,7 @@ export default function ReportBuilderPage() {
 
           <button
             onClick={() => setSidebarOpen(o => !o)}
-            className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded transition-colors"
+            className="px-3 py-1.5 text-sm text-gray-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-800 rounded transition-colors"
           >
             {sidebarOpen ? 'Hide Sidebar' : 'Show Sidebar'}
           </button>
@@ -230,7 +230,7 @@ export default function ReportBuilderPage() {
           <button
             onClick={handleRun}
             disabled={isRunning || !dataSource || columns.length === 0}
-            className="flex items-center gap-2 px-4 py-1.5 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 disabled:opacity-40 transition-colors"
+            className="flex items-center gap-2 px-4 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium rounded-md disabled:opacity-40 transition-colors"
           >
             <Play className="w-4 h-4" />
             {isRunning ? 'Running...' : 'Run'}
@@ -238,7 +238,7 @@ export default function ReportBuilderPage() {
           <button
             onClick={handleSave}
             disabled={isSaving || !dataSource || columns.length === 0}
-            className="flex items-center gap-2 px-4 py-1.5 bg-green-600 text-white text-sm font-medium rounded-md hover:bg-green-700 disabled:opacity-40 transition-colors"
+            className="flex items-center gap-2 px-4 py-1.5 border border-gray-300 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-800 text-sm font-medium rounded-md disabled:opacity-40 transition-colors"
           >
             <Save className="w-4 h-4" />
             {isSaving ? 'Saving...' : 'Save'}
@@ -246,7 +246,7 @@ export default function ReportBuilderPage() {
           <button
             onClick={handleExport}
             disabled={!dataSource || columns.length === 0}
-            className="flex items-center gap-2 px-4 py-1.5 bg-gray-600 text-white text-sm font-medium rounded-md hover:bg-gray-700 disabled:opacity-40 transition-colors"
+            className="flex items-center gap-2 px-4 py-1.5 border border-gray-300 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-800 text-sm font-medium rounded-md disabled:opacity-40 transition-colors"
           >
             <Download className="w-4 h-4" />
             Export CSV
@@ -287,7 +287,7 @@ export default function ReportBuilderPage() {
 
       {/* Toast */}
       {toast && (
-        <div className="fixed bottom-6 right-6 z-50 bg-gray-800 text-white text-sm px-4 py-2 rounded-lg shadow-lg animate-fade-in">
+        <div className="fixed bottom-6 right-6 z-50 bg-slate-100 dark:bg-gray-800 text-slate-900 dark:text-white text-sm px-4 py-2 rounded-lg shadow-lg animate-fade-in">
           {toast}
         </div>
       )}

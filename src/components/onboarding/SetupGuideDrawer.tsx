@@ -40,7 +40,7 @@ function TaskRow({ task, isDone, onMarkDone }: TaskRowProps) {
       <div className="mt-0.5 flex-shrink-0">
         {isDone
           ? <CheckCircle2 className="w-4 h-4 text-teal-500" />
-          : <Circle className="w-4 h-4 text-gray-300 dark:text-gray-600" />
+          : <Circle className="w-4 h-4 text-gray-700 dark:text-gray-300 dark:text-gray-600" />
         }
       </div>
 
@@ -141,15 +141,15 @@ function CategorySection({
           )}>
             {label}
           </span>
-          <span className="ml-2 text-xs text-gray-400 dark:text-gray-500">
+          <span className="ml-2 text-xs text-gray-600 dark:text-gray-400 dark:text-gray-500">
             {doneCount} of {tasks.length}
           </span>
         </div>
 
         {/* Chevron */}
         {isOpen
-          ? <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0" />
-          : <ChevronRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
+          ? <ChevronDown className="w-4 h-4 text-gray-600 dark:text-gray-400 flex-shrink-0" />
+          : <ChevronRight className="w-4 h-4 text-gray-600 dark:text-gray-400 flex-shrink-0" />
         }
       </button>
 

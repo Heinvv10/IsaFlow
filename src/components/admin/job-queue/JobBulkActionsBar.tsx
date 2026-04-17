@@ -45,7 +45,7 @@ export function JobBulkActionsBar({ count, loading, onRetry, onCancel, onClear }
 
       <button
         onClick={onClear}
-        className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-gray-400 hover:text-gray-200 hover:bg-gray-700 transition-colors"
+        className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-gray-600 dark:text-gray-400 hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
         title="Clear selection"
       >
         <X className="w-3.5 h-3.5" />

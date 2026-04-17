@@ -73,7 +73,7 @@ export default function ARAgingPage() {
                 </div>
               </div>
               <button onClick={handleExport} disabled={buckets.length === 0}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-rose-600 text-white rounded-lg hover:bg-rose-700 text-sm font-medium disabled:opacity-50">
+                className="inline-flex items-center gap-2 px-4 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 text-sm font-medium disabled:opacity-50">
                 <Download className="h-4 w-4" /> Export CSV
               </button>
             </div>
@@ -98,19 +98,19 @@ export default function ARAgingPage() {
             </div>
           )}
 
-          {/* Summary Cards */}
+          {/* Summary Cards — traffic-light coloring (current → green, 90+ → deep red) */}
           <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
             {[
-              { label: 'Current', value: totals.current, color: 'teal' },
-              { label: '1-30 Days', value: totals.days30, color: 'amber' },
-              { label: '31-60 Days', value: totals.days60, color: 'orange' },
-              { label: '61-90 Days', value: totals.days90, color: 'red' },
-              { label: '90+ Days', value: totals.days120Plus, color: 'purple' },
-              { label: 'Total', value: totals.total, color: 'blue' },
+              { label: 'Current',    value: totals.current,     bg: 'bg-emerald-500/5', text: 'text-emerald-700 dark:text-emerald-400' },
+              { label: '1-30 Days',  value: totals.days30,      bg: 'bg-amber-500/5',   text: 'text-amber-700 dark:text-amber-400' },
+              { label: '31-60 Days', value: totals.days60,      bg: 'bg-orange-500/5',  text: 'text-orange-700 dark:text-orange-400' },
+              { label: '61-90 Days', value: totals.days90,      bg: 'bg-red-500/5',     text: 'text-red-700 dark:text-red-400' },
+              { label: '90+ Days',   value: totals.days120Plus, bg: 'bg-rose-500/10',   text: 'text-rose-700 dark:text-rose-400' },
+              { label: 'Total',      value: totals.total,       bg: 'bg-slate-500/5',   text: 'text-slate-900 dark:text-slate-100' },
             ].map(card => (
-              <div key={card.label} className={`p-3 rounded-lg border border-[var(--ff-border-light)] bg-${card.color}-500/5`}>
+              <div key={card.label} className={`p-3 rounded-lg border border-[var(--ff-border-light)] ${card.bg}`}>
                 <p className="text-xs text-[var(--ff-text-tertiary)]">{card.label}</p>
-                <p className={`text-lg font-bold text-${card.color}-400`}>{formatCurrency(card.value)}</p>
+                <p className={`text-lg font-bold ${card.text}`}>{formatCurrency(card.value)}</p>
               </div>
             ))}
           </div>
@@ -130,11 +130,11 @@ export default function ARAgingPage() {
                 <thead>
                   <tr className="border-b border-[var(--ff-border-light)]">
                     <th className="text-left px-4 py-3 text-[var(--ff-text-secondary)] font-medium">Client</th>
-                    <th className="text-right px-4 py-3 text-teal-400 font-medium">Current</th>
-                    <th className="text-right px-4 py-3 text-amber-400 font-medium">1-30</th>
-                    <th className="text-right px-4 py-3 text-orange-400 font-medium">31-60</th>
-                    <th className="text-right px-4 py-3 text-red-400 font-medium">61-90</th>
-                    <th className="text-right px-4 py-3 text-purple-400 font-medium">90+</th>
+                    <th className="text-right px-4 py-3 text-emerald-700 dark:text-emerald-400 font-medium">Current</th>
+                    <th className="text-right px-4 py-3 text-amber-700 dark:text-amber-400 font-medium">1-30</th>
+                    <th className="text-right px-4 py-3 text-orange-700 dark:text-orange-400 font-medium">31-60</th>
+                    <th className="text-right px-4 py-3 text-red-700 dark:text-red-400 font-medium">61-90</th>
+                    <th className="text-right px-4 py-3 text-rose-700 dark:text-rose-400 font-medium">90+</th>
                     <th className="text-right px-4 py-3 text-[var(--ff-text-secondary)] font-medium">Total</th>
                   </tr>
                 </thead>
@@ -146,11 +146,11 @@ export default function ARAgingPage() {
                           {b.entityName}
                         </Link>
                       </td>
-                      <td className="px-4 py-3 text-right font-mono text-teal-400">{formatCurrency(b.current)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-amber-400">{formatCurrency(b.days30)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-orange-400">{formatCurrency(b.days60)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-red-400">{formatCurrency(b.days90)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-purple-400">{formatCurrency(b.days120Plus)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-emerald-700 dark:text-emerald-400">{formatCurrency(b.current)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-amber-700 dark:text-amber-400">{formatCurrency(b.days30)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-orange-700 dark:text-orange-400">{formatCurrency(b.days60)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-red-700 dark:text-red-400">{formatCurrency(b.days90)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-rose-700 dark:text-rose-400">{formatCurrency(b.days120Plus)}</td>
                       <td className="px-4 py-3 text-right font-mono font-bold text-[var(--ff-text-primary)]">{formatCurrency(b.total)}</td>
                     </tr>
                   ))}

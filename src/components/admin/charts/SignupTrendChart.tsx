@@ -26,7 +26,7 @@ function fmtShortDate(dateStr: unknown) {
 export function SignupTrendChart({ data }: Props) {
   if (data.length === 0) {
     return (
-      <div className="flex items-center justify-center h-48 text-gray-400 text-sm">
+      <div className="flex items-center justify-center h-48 text-gray-600 dark:text-gray-400 text-sm">
         No signup data available
       </div>
     );

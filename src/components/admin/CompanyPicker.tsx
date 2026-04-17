@@ -142,7 +142,7 @@ export function CompanyPicker({ value, onChange }: Props) {
     <div className="space-y-2">
       {/* Search input */}
       <div className="relative">
-        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600 dark:text-gray-400 pointer-events-none">
           {loading ? (
             <Loader2 className="w-4 h-4 animate-spin" />
           ) : (
@@ -163,9 +163,7 @@ export function CompanyPicker({ value, onChange }: Props) {
           onFocus={() => { if (results.length > 0) setOpen(true); }}
           onBlur={() => setTimeout(() => setOpen(false), 150)}
           placeholder="Search companies by name…"
-          className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700
-                     text-sm pl-9 pr-3 py-2 text-gray-900 dark:text-white
-                     focus:outline-none focus:ring-2 focus:ring-teal-500"
+          className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm pl-9 pr-3 py-2 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
         />
 
         {/* Dropdown */}
@@ -175,9 +173,7 @@ export function CompanyPicker({ value, onChange }: Props) {
             ref={listRef}
             role="listbox"
             aria-label="Company search results"
-            className="absolute z-50 mt-1 w-full max-h-52 overflow-y-auto
-                       rounded-lg border border-gray-200 dark:border-gray-600
-                       bg-white dark:bg-gray-800 shadow-lg"
+            className="absolute z-50 mt-1 w-full max-h-52 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 shadow-lg"
           >
             {results.map((company, idx) => {
               const alreadySelected = value.includes(company.id);
@@ -213,8 +209,7 @@ export function CompanyPicker({ value, onChange }: Props) {
         )}
 
         {open && !loading && results.length === 0 && query.trim() && (
-          <div className="absolute z-50 mt-1 w-full rounded-lg border border-gray-200 dark:border-gray-600
-                          bg-white dark:bg-gray-800 shadow-lg px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
+          <div className="absolute z-50 mt-1 w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 shadow-lg px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
             No companies found for &quot;{query}&quot;
           </div>
         )}
@@ -227,8 +222,7 @@ export function CompanyPicker({ value, onChange }: Props) {
             {selectedEntries.map(company => (
               <span
                 key={company.id}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium
-                           bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300"
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300"
               >
                 {company.name}
                 <button
@@ -245,7 +239,7 @@ export function CompanyPicker({ value, onChange }: Props) {
           <button
             type="button"
             onClick={clearAll}
-            className="text-xs text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+            className="text-xs text-gray-600 dark:text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
           >
             Clear all
           </button>

@@ -90,7 +90,7 @@ const panelCls =
   'absolute left-full top-0 bg-gray-800 border border-gray-700 rounded-r-lg shadow-xl min-w-[210px] py-1';
 
 const inactiveLinkCls =
-  'text-gray-300 hover:text-white hover:bg-gray-700/50';
+  'text-gray-300 hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700/50';
 
 // ─── Internal helpers that need accent tokens ─────────────────────────────────
 
@@ -136,9 +136,7 @@ function SubMenuItems({ items, asPath, onClose, accent }: SubMenuItemsProps) {
                 key={item.href}
                 href={item.href}
                 onClick={onClose}
-                className={`flex items-center gap-2 px-4 py-2 text-sm border-t border-gray-700 mt-1 pt-2 whitespace-nowrap transition-colors ${
-                  isLinkActive(item.href, asPath) ? accent.activeLinkBg : 'text-gray-400 hover:text-white hover:bg-gray-700/50'
-                }`}
+                className={`flex items-center gap-2 px-4 py-2 text-sm border-t border-gray-300 dark:border-gray-700 mt-1 pt-2 whitespace-nowrap transition-colors ${ isLinkActive(item.href, asPath) ? accent.activeLinkBg : 'text-gray-400 hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700/50' }`}
               >
                 <Settings className="h-3.5 w-3.5 flex-shrink-0" />
                 {item.label}
@@ -189,7 +187,7 @@ interface FlatDropdownProps {
 
 function FlatDropdown({ items, asPath, onClose, accent }: FlatDropdownProps) {
   return (
-    <div className="absolute top-full left-0 bg-gray-800 border border-gray-700 rounded-b-lg shadow-xl min-w-[220px] py-1 z-40">
+    <div className="absolute top-full left-0 bg-slate-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-b-lg shadow-xl min-w-[220px] py-1 z-40">
       {items.map(item => (
         <Link
           key={item.href}
@@ -225,19 +223,19 @@ function FlyoutDropdown({ tab, asPath, onClose, accent }: FlyoutDropdownProps) {
 
   return (
     <div className="absolute top-full left-0 z-40">
-      <div className="bg-gray-800 border border-gray-700 rounded-b-lg shadow-xl min-w-[200px] py-1">
+      <div className="bg-slate-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-b-lg shadow-xl min-w-[200px] py-1">
         {tab.topItems?.map(item => (
           <Link
             key={item.href}
             href={item.href}
             onClick={onClose}
-            className="block px-4 py-2 text-sm text-gray-300 hover:text-white hover:bg-gray-700/50 transition-colors"
+            className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors"
           >
             {item.label}
           </Link>
         ))}
         {tab.topItems && tab.topItems.length > 0 && (
-          <div className="border-t border-gray-700 my-1" />
+          <div className="border-t border-gray-300 dark:border-gray-700 my-1" />
         )}
 
         {regularSections.map(section => {
@@ -270,9 +268,7 @@ function FlyoutDropdown({ tab, asPath, onClose, accent }: FlyoutDropdownProps) {
               key={item.href}
               href={item.href}
               onClick={onClose}
-              className={`flex items-center gap-2 px-4 py-2 text-sm border-t border-gray-700 mt-1 whitespace-nowrap transition-colors ${
-                isLinkActive(item.href, asPath) ? accent.activeLinkBg : 'text-gray-400 hover:text-white hover:bg-gray-700/50'
-              }`}
+              className={`flex items-center gap-2 px-4 py-2 text-sm border-t border-gray-300 dark:border-gray-700 mt-1 whitespace-nowrap transition-colors ${ isLinkActive(item.href, asPath) ? accent.activeLinkBg : 'text-gray-400 hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700/50' }`}
             >
               <Settings className="h-3.5 w-3.5 flex-shrink-0" />
               {item.label}
@@ -315,7 +311,7 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor }: ModuleNavProps)
   const hasFlyout = (t: Tab) => t.items?.some(isFlyout) ?? false;
 
   return (
-    <nav ref={navRef} className="bg-gray-900 border-b border-gray-700 relative z-30">
+    <nav ref={navRef} className="bg-white dark:bg-gray-900 border-b border-gray-300 dark:border-gray-700 relative z-30">
       <div className="flex items-center gap-0 px-2">
         {(tabs ?? []).map(t => (
           <div key={t.id} className="relative" data-tour={`nav-${t.id}`}>

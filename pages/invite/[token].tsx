@@ -97,12 +97,12 @@ export default function InvitePage() {
   const roleLabel = inviteData ? (ROLE_LABELS[inviteData.role] ?? inviteData.role) : '';
 
   return (
-    <div className="min-h-screen bg-gray-950 flex items-center justify-center px-4">
+    <div className="min-h-screen bg-slate-50 dark:bg-gray-950 flex items-center justify-center px-4">
       <div className="w-full max-w-md">
 
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <img src="/logo.png" alt="ISAFlow" className="h-16 w-auto brightness-0 invert mb-4" />
+          <img src="/logo.png" alt="ISAFlow" className="h-16 w-auto dark:brightness-0 dark:invert mb-4" />
         </div>
 
         {/* Loading state */}
@@ -114,10 +114,10 @@ export default function InvitePage() {
 
         {/* Invalid token */}
         {pageState === 'invalid' && (
-          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-8 text-center shadow-xl">
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl p-8 text-center shadow-xl">
             <AlertTriangle className="h-12 w-12 text-amber-400 mx-auto mb-4" />
-            <h1 className="text-xl font-bold text-white mb-2">Invitation Not Found</h1>
-            <p className="text-gray-400 text-sm mb-6">
+            <h1 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Invitation Not Found</h1>
+            <p className="text-slate-600 dark:text-gray-400 text-sm mb-6">
               This invitation link is invalid, has already been used, or has expired.
             </p>
             <Link
@@ -131,13 +131,13 @@ export default function InvitePage() {
 
         {/* Error state */}
         {pageState === 'error' && (
-          <div className="bg-gray-900 border border-red-800 rounded-2xl p-8 text-center shadow-xl">
+          <div className="bg-white dark:bg-gray-900 border border-red-300 dark:border-red-800 rounded-2xl p-8 text-center shadow-xl">
             <AlertTriangle className="h-12 w-12 text-red-400 mx-auto mb-4" />
-            <h1 className="text-xl font-bold text-white mb-2">Something Went Wrong</h1>
-            <p className="text-gray-400 text-sm mb-6">{errorMsg}</p>
+            <h1 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Something Went Wrong</h1>
+            <p className="text-slate-600 dark:text-gray-400 text-sm mb-6">{errorMsg}</p>
             <button
               onClick={() => window.location.reload()}
-              className="rounded-lg bg-gray-700 px-6 py-2.5 text-sm font-medium text-white hover:bg-gray-600 transition-colors"
+              className="rounded-lg bg-slate-200 dark:bg-gray-700 px-6 py-2.5 text-sm font-medium text-slate-900 dark:text-white hover:bg-slate-300 dark:hover:bg-gray-600 transition-colors"
             >
               Try Again
             </button>
@@ -146,12 +146,12 @@ export default function InvitePage() {
 
         {/* Accepted */}
         {pageState === 'accepted' && (
-          <div className="bg-gray-900 border border-teal-700 rounded-2xl p-8 text-center shadow-xl">
+          <div className="bg-white dark:bg-gray-900 border border-teal-300 dark:border-teal-700 rounded-2xl p-8 text-center shadow-xl">
             <UserCheck className="h-12 w-12 text-teal-400 mx-auto mb-4" />
-            <h1 className="text-xl font-bold text-white mb-2">Welcome Aboard!</h1>
-            <p className="text-gray-400 text-sm">
+            <h1 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Welcome Aboard!</h1>
+            <p className="text-slate-600 dark:text-gray-400 text-sm">
               You have joined{' '}
-              <span className="text-white font-medium">{inviteData?.companyName}</span>.
+              <span className="text-slate-900 dark:text-white font-medium">{inviteData?.companyName}</span>.
               Redirecting to your dashboard…
             </p>
           </div>
@@ -159,21 +159,21 @@ export default function InvitePage() {
 
         {/* Valid invitation card */}
         {(pageState === 'valid' || pageState === 'accepting') && inviteData && (
-          <div className="bg-gray-900 border border-gray-700 rounded-2xl shadow-xl overflow-hidden">
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-xl overflow-hidden">
 
             {/* Header */}
             <div className="bg-teal-900/30 border-b border-teal-800/50 px-6 py-5 text-center">
               <Building2 className="h-10 w-10 text-teal-400 mx-auto mb-3" />
-              <h1 className="text-xl font-bold text-white mb-1">You&apos;re Invited!</h1>
-              <p className="text-sm text-gray-400">
-                <span className="text-gray-300">{inviteData.invitedBy}</span> has invited you to join
+              <h1 className="text-xl font-bold text-slate-900 dark:text-white mb-1">You&apos;re Invited!</h1>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                <span className="text-gray-700 dark:text-gray-300">{inviteData.invitedBy}</span> has invited you to join
               </p>
               <p className="text-lg font-semibold text-teal-300 mt-1">{inviteData.companyName}</p>
             </div>
 
             {/* Role badge */}
-            <div className="px-6 py-4 flex items-center justify-center gap-2 border-b border-gray-800">
-              <span className="text-sm text-gray-400">as</span>
+            <div className="px-6 py-4 flex items-center justify-center gap-2 border-b border-gray-200 dark:border-gray-800">
+              <span className="text-sm text-gray-600 dark:text-gray-400">as</span>
               <span className="inline-flex rounded-full bg-teal-900 px-3 py-1 text-sm font-medium text-teal-300">
                 {roleLabel}
               </span>
@@ -184,9 +184,9 @@ export default function InvitePage() {
               {/* Already logged in — show Join button */}
               {currentUser ? (
                 <>
-                  <p className="text-center text-sm text-gray-400 mb-4">
+                  <p className="text-center text-sm text-gray-600 dark:text-gray-400 mb-4">
                     Signed in as{' '}
-                    <span className="text-white">{currentUser.email}</span>
+                    <span className="text-slate-900 dark:text-white">{currentUser.email}</span>
                   </p>
                   <button
                     onClick={() => void handleAccept()}
@@ -224,14 +224,14 @@ export default function InvitePage() {
                   </Link>
                   <Link
                     href={`/register?invite=${token}`}
-                    className="w-full flex items-center justify-center gap-2 rounded-lg border border-gray-600 px-4 py-3 text-sm font-medium text-gray-300 hover:bg-gray-800 hover:text-white transition-colors"
+                    className="w-full flex items-center justify-center gap-2 rounded-lg border border-slate-300 dark:border-gray-600 px-4 py-3 text-sm font-medium text-slate-700 dark:text-gray-300 hover:bg-slate-100 dark:hover:bg-gray-800 hover:text-slate-900 dark:hover:text-white transition-colors"
                   >
                     <UserPlus className="h-4 w-4" />
                     Create an Account
                   </Link>
                   <p className="text-center text-xs text-gray-600 pt-1">
                     Invitation sent to{' '}
-                    <span className="text-gray-400">{inviteData.email}</span>
+                    <span className="text-slate-600 dark:text-gray-400">{inviteData.email}</span>
                   </p>
                 </>
               )}

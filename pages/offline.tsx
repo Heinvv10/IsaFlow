@@ -5,13 +5,13 @@
 
 export default function OfflinePage() {
   return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center px-4">
+    <div className="min-h-screen bg-white dark:bg-slate-900 flex items-center justify-center px-4">
       <div className="text-center max-w-md">
         {/* Logo */}
         <div className="mb-8 flex justify-center">
           <div className="w-16 h-16 bg-teal-600 rounded-2xl flex items-center justify-center">
             <svg
-              className="w-8 h-8 text-white"
+              className="w-8 h-8 text-slate-900 dark:text-white"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -26,7 +26,7 @@ export default function OfflinePage() {
           </div>
         </div>
 
-        <h1 className="text-2xl font-bold text-white mb-2">IsaFlow</h1>
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">IsaFlow</h1>
 
         {/* Offline indicator */}
         <div className="mb-6 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/20">
@@ -34,7 +34,7 @@ export default function OfflinePage() {
           <span className="text-sm text-amber-400 font-medium">You&apos;re offline</span>
         </div>
 
-        <p className="text-slate-400 text-sm leading-relaxed mb-8">
+        <p className="text-slate-500 dark:text-slate-400 text-sm leading-relaxed mb-8">
           Some features are available offline. Please check your connection to access all features.
         </p>
 

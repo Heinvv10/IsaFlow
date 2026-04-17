@@ -45,7 +45,7 @@ const LIMIT = 25;
 
 function CompanyCell({ primaryCompany, count }: { primaryCompany: string | null; count: number }) {
   if (!primaryCompany) {
-    return <span className="text-gray-400 dark:text-gray-600 italic text-xs">None</span>;
+    return <span className="text-gray-600 dark:text-gray-400 dark:text-gray-600 italic text-xs">None</span>;
   }
   const extra = count - 1;
   return (
@@ -146,7 +146,7 @@ export default function AdminUsersPage() {
       <div className="flex gap-3 flex-wrap mb-5">
         {/* Name / email search */}
         <div className="relative flex-1 min-w-[180px] max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600 dark:text-gray-400" />
           <input
             type="text"
             placeholder="Search name or email..."
@@ -158,7 +158,7 @@ export default function AdminUsersPage() {
 
         {/* Company name filter */}
         <div className="relative flex-1 min-w-[180px] max-w-xs">
-          <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600 dark:text-gray-400" />
           <input
             type="text"
             placeholder="Filter by company..."
@@ -240,7 +240,7 @@ export default function AdminUsersPage() {
               )}
               {!loading && rows.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center text-gray-400">No users found</td>
+                  <td colSpan={8} className="px-4 py-12 text-center text-gray-600 dark:text-gray-400">No users found</td>
                 </tr>
               )}
               {rows.map(u => (

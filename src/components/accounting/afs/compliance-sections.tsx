@@ -16,7 +16,7 @@ export function ScoreRing({ score }: { score: number }) {
   const colour = score >= 80 ? 'text-green-600' : score >= 50 ? 'text-amber-500' : 'text-red-600';
   return (
     <div className={`text-5xl font-black ${colour}`}>
-      {score}<span className="text-2xl font-semibold text-gray-400">/100</span>
+      {score}<span className="text-2xl font-semibold text-gray-600 dark:text-gray-400">/100</span>
     </div>
   );
 }
@@ -56,7 +56,7 @@ export function IssueList({ result }: { result: ComplianceResult }) {
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <SeverityBadge severity={issue.severity} />
-              <span className="text-xs text-gray-400 font-mono">{issue.checkId}</span>
+              <span className="text-xs text-gray-600 dark:text-gray-400 font-mono">{issue.checkId}</span>
             </div>
             <p className="text-sm text-gray-800 mt-1">{issue.message}</p>
             {issue.detail && <p className="text-xs text-gray-500 mt-0.5">{issue.detail}</p>}
@@ -107,10 +107,10 @@ export function CipcGuideSection({ guide }: { guide: CipcFilingGuide }) {
             <div key={item.label} className="flex items-start gap-3">
               {item.ready
                 ? <CheckCircle className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
-                : <XCircle className="w-4 h-4 text-gray-300 flex-shrink-0 mt-0.5" />}
+                : <XCircle className="w-4 h-4 text-gray-700 dark:text-gray-300 flex-shrink-0 mt-0.5" />}
               <div>
                 <p className="text-sm text-gray-800">{item.label}</p>
-                {item.detail && <p className="text-xs text-gray-400">{item.detail}</p>}
+                {item.detail && <p className="text-xs text-gray-600 dark:text-gray-400">{item.detail}</p>}
               </div>
             </div>
           ))}

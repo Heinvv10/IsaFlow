@@ -82,10 +82,10 @@ export function AccountCategorySidebar({
   const total = accounts.length;
 
   return (
-    <div className="w-52 flex-shrink-0 flex flex-col gap-3 bg-slate-800/50 border border-white/10 rounded-xl p-4">
+    <div className="w-52 flex-shrink-0 flex flex-col gap-3 bg-slate-100 dark:bg-slate-800/50 border border-white/10 rounded-xl p-4">
       {/* Prefix search */}
       <div>
-        <label className="block text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">
+        <label className="block text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-2">
           Jump to prefix
         </label>
         <input
@@ -94,11 +94,7 @@ export function AccountCategorySidebar({
           onChange={e => onSearchPrefixChange(e.target.value)}
           placeholder="e.g. 41"
           maxLength={6}
-          className="w-full px-3 py-1.5 text-sm rounded-lg border border-white/10
-            bg-slate-900/50 text-slate-200
-            placeholder:text-slate-500
-            focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500
-            transition-colors"
+          className="w-full px-3 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-900/50 text-slate-800 dark:text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500 transition-colors"
         />
         {searchPrefix && (
           <button
@@ -114,21 +110,17 @@ export function AccountCategorySidebar({
 
       {/* Category list */}
       <div>
-        <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">
+        <p className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-2">
           Account Type
         </p>
         <div className="flex flex-col gap-0.5">
           {/* All Accounts */}
           <button
             onClick={() => { onSelectType('all'); onSearchPrefixChange(''); }}
-            className={`flex items-center justify-between w-full px-3 py-2 rounded-lg text-sm transition-colors text-left
-              ${selectedType === 'all' && !searchPrefix
-                ? 'bg-teal-500/15 border border-teal-500/30 text-teal-300 font-medium'
-                : 'hover:bg-white/5 text-slate-400 hover:text-slate-200 border border-transparent'
-              }`}
+            className={`flex items-center justify-between w-full px-3 py-2 rounded-lg text-sm transition-colors text-left ${selectedType === 'all' && !searchPrefix ? 'bg-teal-500/15 border border-teal-500/30 text-teal-300 font-medium' : 'hover:bg-white/5 text-slate-500 dark:text-slate-400 hover:text-slate-200 border border-transparent' }`}
           >
             <span>All Accounts</span>
-            <span className="text-xs bg-slate-700 text-slate-300 rounded-full px-1.5 py-0.5">
+            <span className="text-xs bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-full px-1.5 py-0.5">
               {total}
             </span>
           </button>
@@ -155,7 +147,7 @@ export function AccountCategorySidebar({
                 <span className={`text-xs rounded-full px-1.5 py-0.5 ${
                   isSelected
                     ? `${cat.bgClass} ${cat.colorClass}`
-                    : 'bg-slate-700 text-slate-300'
+                    : 'bg-slate-200 dark:bg-slate-700 text-slate-300'
                 }`}>
                   {count}
                 </span>

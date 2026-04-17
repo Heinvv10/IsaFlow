@@ -62,11 +62,11 @@ export default function Emp501Page() {
       <div className="p-6 space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">EMP501 Reconciliation</h1>
-            <p className="text-sm text-gray-500">Annual PAYE/UIF vs sum of monthly EMP201s</p>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">EMP501 Reconciliation</h1>
+            <p className="text-sm text-gray-500 dark:text-slate-400">Annual PAYE/UIF vs sum of monthly EMP201s</p>
           </div>
           <select
-            className="rounded-md border-gray-300 text-sm"
+            className="rounded-md border-gray-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 text-sm"
             value={taxYear}
             onChange={(e) => setTaxYear(Number(e.target.value))}
           >
@@ -76,19 +76,19 @@ export default function Emp501Page() {
           </select>
         </div>
 
-        {loading && <div className="text-gray-500">Loading…</div>}
-        {error && <div className="text-red-600">{error}</div>}
+        {loading && <div className="text-gray-500 dark:text-slate-400">Loading…</div>}
+        {error && <div className="text-red-600 dark:text-red-400">{error}</div>}
 
         {data && (
           <>
-            <div className={`rounded-lg p-4 ${data.isReconciled ? 'bg-green-50' : 'bg-red-50'}`}>
+            <div className={`rounded-lg p-4 ${data.isReconciled ? 'bg-green-50 dark:bg-emerald-500/10 dark:border dark:border-emerald-500/30 text-green-900 dark:text-emerald-200' : 'bg-red-50 dark:bg-red-500/10 dark:border dark:border-red-500/30 text-red-900 dark:text-red-200'}`}>
               <div className="font-semibold">
                 {data.isReconciled
                   ? '✔ Reconciled — EMP201 totals match IRP5 totals'
                   : '✘ Not reconciled — differences detected'}
               </div>
               {!data.isReconciled && (
-                <div className="mt-2 text-sm text-red-800 space-y-1">
+                <div className="mt-2 text-sm text-red-800 dark:text-red-300 space-y-1">
                   {data.differences.paye !== 0 && <div>PAYE difference: {R(data.differences.paye)}</div>}
                   {data.differences.uifEmployee !== 0 && <div>UIF employee difference: {R(data.differences.uifEmployee)}</div>}
                   {data.differences.uifEmployer !== 0 && <div>UIF employer difference: {R(data.differences.uifEmployer)}</div>}
@@ -96,30 +96,30 @@ export default function Emp501Page() {
               )}
             </div>
 
-            <div className="bg-white rounded-lg shadow overflow-hidden">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow overflow-hidden">
+              <table className="min-w-full divide-y divide-gray-200 dark:divide-slate-800">
+                <thead className="bg-gray-50 dark:bg-slate-800/50">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Month</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">PAYE</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">UIF (emp)</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">UIF (er)</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">SDL</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">ETI</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase">Month</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-slate-400 uppercase">PAYE</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-slate-400 uppercase">UIF (emp)</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-slate-400 uppercase">UIF (er)</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-slate-400 uppercase">SDL</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-slate-400 uppercase">ETI</th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
+                <tbody className="bg-white dark:bg-slate-900 divide-y divide-gray-200 dark:divide-slate-800">
                   {data.monthly.map((m) => (
-                    <tr key={m.month}>
-                      <td className="px-4 py-3 text-sm font-medium text-gray-900">{m.month}</td>
-                      <td className="px-4 py-3 text-sm text-right">{R(m.paye)}</td>
-                      <td className="px-4 py-3 text-sm text-right">{R(m.uifEmployee)}</td>
-                      <td className="px-4 py-3 text-sm text-right">{R(m.uifEmployer)}</td>
-                      <td className="px-4 py-3 text-sm text-right">{R(m.sdl)}</td>
-                      <td className="px-4 py-3 text-sm text-right text-green-700">{R(m.eti)}</td>
+                    <tr key={m.month} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                      <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-slate-100">{m.month}</td>
+                      <td className="px-4 py-3 text-sm text-right text-gray-700 dark:text-slate-300">{R(m.paye)}</td>
+                      <td className="px-4 py-3 text-sm text-right text-gray-700 dark:text-slate-300">{R(m.uifEmployee)}</td>
+                      <td className="px-4 py-3 text-sm text-right text-gray-700 dark:text-slate-300">{R(m.uifEmployer)}</td>
+                      <td className="px-4 py-3 text-sm text-right text-gray-700 dark:text-slate-300">{R(m.sdl)}</td>
+                      <td className="px-4 py-3 text-sm text-right text-green-700 dark:text-emerald-400">{R(m.eti)}</td>
                     </tr>
                   ))}
-                  <tr className="bg-gray-50 font-semibold">
+                  <tr className="bg-gray-50 dark:bg-slate-800/60 font-semibold text-gray-900 dark:text-slate-100">
                     <td className="px-4 py-3 text-sm">EMP201 total</td>
                     <td className="px-4 py-3 text-sm text-right">{R(data.emp201Totals.paye)}</td>
                     <td className="px-4 py-3 text-sm text-right">{R(data.emp201Totals.uifEmployee)}</td>
@@ -127,7 +127,7 @@ export default function Emp501Page() {
                     <td className="px-4 py-3 text-sm text-right">{R(data.emp201Totals.sdl)}</td>
                     <td className="px-4 py-3 text-sm text-right">{R(data.emp201Totals.eti)}</td>
                   </tr>
-                  <tr className="bg-gray-50 font-semibold">
+                  <tr className="bg-gray-50 dark:bg-slate-800/60 font-semibold text-gray-900 dark:text-slate-100">
                     <td className="px-4 py-3 text-sm">IRP5 aggregate</td>
                     <td className="px-4 py-3 text-sm text-right">{R(data.irp5Totals.paye)}</td>
                     <td className="px-4 py-3 text-sm text-right">{R(data.irp5Totals.uifEmployee)}</td>

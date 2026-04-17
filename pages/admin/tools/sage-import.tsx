@@ -252,7 +252,7 @@ export default function AdminSageImportPage() {
                   </div>
                   <div className="shrink-0">
                     {step.status === 'pending' && (
-                      <span className="text-xs text-gray-400">Waiting</span>
+                      <span className="text-xs text-gray-600 dark:text-gray-400">Waiting</span>
                     )}
                     {step.status === 'pulling' && (
                       <Loader2 className="h-4 w-4 animate-spin text-teal-500" />
@@ -302,7 +302,7 @@ export default function AdminSageImportPage() {
             If auto-pull fails due to browser restrictions, drag the snippet below to your
             bookmarks bar and click it while on the Sage dashboard.
           </p>
-          <p className="text-xs font-mono bg-gray-900 text-gray-300 p-2 rounded break-all">
+          <p className="text-xs font-mono bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 p-2 rounded break-all">
             javascript:void(fetch(&apos;/services/Account/GetWithFilter&apos;,&#123;method:&apos;POST&apos;,headers:&#123;&apos;Content-Type&apos;:&apos;application/json&apos;&#125;,body:JSON.stringify(&#123;FilterId:2,Search:&apos;&apos;,Skip:0,Take:1000&#125;)&#125;).then(r=&gt;r.json()).then(d=&gt;&#123;const b=new Blob([JSON.stringify(d)],&#123;type:&apos;application/json&apos;&#125;);const a=document.createElement(&apos;a&apos;);a.href=URL.createObjectURL(b);a.download=&apos;sage-accounts.json&apos;;a.click()&#125;))
           </p>
         </div>

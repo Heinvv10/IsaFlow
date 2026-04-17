@@ -137,7 +137,7 @@ export default function ProductDetailPage() {
             <div className="flex items-center gap-2">
               {product.is_active
                 ? <><CheckCircle2 className="h-5 w-5 text-teal-400" /><span className="text-sm text-teal-400 font-medium">Active Product</span></>
-                : <><XCircle className="h-5 w-5 text-gray-400" /><span className="text-sm text-gray-400 font-medium">Inactive Product</span></>
+                : <><XCircle className="h-5 w-5 text-gray-600 dark:text-gray-400" /><span className="text-sm text-gray-600 dark:text-gray-400 font-medium">Inactive Product</span></>
               }
             </div>
             {product.created_at && (

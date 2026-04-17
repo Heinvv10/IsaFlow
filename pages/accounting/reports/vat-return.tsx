@@ -168,7 +168,7 @@ export default function VATReturnPage() {
                 const params = new URLSearchParams({ period_start: periodStart ?? '', period_end: periodEnd ?? '' });
                 window.open(`/api/accounting/vat-return-export?${params}`, '_blank');
               }} disabled={!report}
-                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg flex items-center gap-2 text-sm font-medium disabled:opacity-50">
+                className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg flex items-center gap-2 text-sm font-medium disabled:opacity-50">
                 <Download className="h-4 w-4" /> Export CSV
               </button>
             </div>

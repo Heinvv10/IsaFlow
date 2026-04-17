@@ -127,7 +127,7 @@ export function AccountingTour() {
         <div className="flex items-start justify-between mb-2">
           <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{currentStep.title}</h3>
           <button onClick={() => void completeTour()} className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors" aria-label="Skip tour">
-            <X className="w-3.5 h-3.5 text-gray-400" />
+            <X className="w-3.5 h-3.5 text-gray-600 dark:text-gray-400" />
           </button>
         </div>
 
@@ -136,9 +136,9 @@ export function AccountingTour() {
         </p>
 
         <div className="flex items-center justify-between">
-          <span className="text-xs text-gray-400">Step {step + 1} of {TOUR_STEPS.length}</span>
+          <span className="text-xs text-gray-600 dark:text-gray-400">Step {step + 1} of {TOUR_STEPS.length}</span>
           <div className="flex items-center gap-2">
-            <button onClick={() => void completeTour()} className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors">
+            <button onClick={() => void completeTour()} className="text-xs text-gray-600 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors">
               Skip Tour
             </button>
             {step > 0 && (

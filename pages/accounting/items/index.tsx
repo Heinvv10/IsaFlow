@@ -4,8 +4,9 @@
  */
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Package, Plus, Search, Loader2 } from 'lucide-react';
+import { Package, Plus, Search, Loader2, Box, Wrench } from 'lucide-react';
 import Link from 'next/link';
+import { KpiStrip } from '@/components/ui';
 import { apiFetch } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
 
@@ -106,21 +107,11 @@ export default function ItemsListPage() {
         </div>
 
         <div className="p-6 space-y-4">
-          {/* Summary cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
-              <p className="text-xs text-[var(--ff-text-tertiary)]">Total Items</p>
-              <p className="text-xl font-bold text-[var(--ff-text-primary)]">{items.length}</p>
-            </div>
-            <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
-              <p className="text-xs text-[var(--ff-text-tertiary)]">Physical</p>
-              <p className="text-xl font-bold text-blue-400">{physicalCount}</p>
-            </div>
-            <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
-              <p className="text-xs text-[var(--ff-text-tertiary)]">Service</p>
-              <p className="text-xl font-bold text-purple-400">{serviceCount}</p>
-            </div>
-          </div>
+          <KpiStrip items={[
+            { label: 'Total Items', value: items.length, icon: Package, tone: 'neutral' },
+            { label: 'Physical', value: physicalCount, icon: Box, tone: 'info' },
+            { label: 'Service', value: serviceCount, icon: Wrench, tone: 'success' },
+          ]} />
 
           {/* Filters */}
           <div className="flex items-center gap-3 flex-wrap">

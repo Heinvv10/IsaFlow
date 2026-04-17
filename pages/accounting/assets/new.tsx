@@ -109,7 +109,7 @@ export default function NewAssetPage() {
           <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
           <div className="absolute -top-12 right-8 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
           <div className="relative z-10">
-            <Link href="/accounting/assets" className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 mb-4 transition-colors">
+            <Link href="/accounting/assets" className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-200 mb-4 transition-colors">
               <ArrowLeft className="h-3.5 w-3.5" /> Back to Assets
             </Link>
             <div className="flex items-center gap-3">
@@ -118,7 +118,7 @@ export default function NewAssetPage() {
               </div>
               <div>
                 <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-0.5">New Record</p>
-                <h1 className="text-xl font-bold text-white">New Asset</h1>
+                <h1 className="text-xl font-bold text-slate-900 dark:text-white">New Asset</h1>
               </div>
             </div>
           </div>
@@ -263,13 +263,13 @@ export default function NewAssetPage() {
                     <div className="space-y-3 mb-5">
                       {form.name && (
                         <div>
-                          <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Name</p>
+                          <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Name</p>
                           <p className="text-sm text-slate-900 dark:text-slate-100 font-medium mt-0.5 truncate">{form.name}</p>
                         </div>
                       )}
                       {selectedCategory && (
                         <div>
-                          <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Category</p>
+                          <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Category</p>
                           <p className="text-sm text-slate-900 dark:text-slate-100 mt-0.5">{selectedCategory.name}</p>
                           <p className="text-xs text-slate-500 dark:text-slate-400">{selectedCategory.sars_rate}% / yr</p>
                         </div>
@@ -299,7 +299,7 @@ export default function NewAssetPage() {
                     </div>
 
                     <button type="submit" disabled={saving}
-                      className="w-full py-3 bg-amber-500 hover:bg-amber-400 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                      className="w-full py-3 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
                       {saving
                         ? <><Loader2 className="h-4 w-4 animate-spin" />Saving…</>
                         : <><Package className="h-4 w-4" />Create Asset</>}
