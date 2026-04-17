@@ -59,6 +59,30 @@ export async function getCurrentFiscalPeriod(companyId: string): Promise<FiscalP
   }
 }
 
+/**
+ * Resolve the fiscal_period_id that contains the given date for this company.
+ * Returns null if no period covers the date — callers must decide whether
+ * to create a period or reject the posting.
+ */
+export async function getFiscalPeriodIdForDate(
+  companyId: string,
+  entryDate: string | Date,
+): Promise<string | null> {
+  try {
+    const date = typeof entryDate === 'string' ? entryDate : toISODate(entryDate);
+    const rows = (await sql`
+      SELECT id FROM fiscal_periods
+      WHERE company_id = ${companyId}
+        AND ${date}::date BETWEEN start_date AND end_date
+      LIMIT 1
+    `) as Row[];
+    return rows.length > 0 ? String(rows[0]!.id) : null;
+  } catch (err) {
+    log.error('Failed to resolve fiscal period for date', { companyId, entryDate, error: err }, 'accounting');
+    throw err;
+  }
+}
+
 export async function createFiscalYear(companyId: string, year: number): Promise<FiscalPeriod[]> {
   try {
     const existing = (await sql`

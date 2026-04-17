@@ -19,19 +19,23 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   try {
     const {
-      bank_account_id, reconciliation_id, status,
-      from_date, to_date, from_amount, to_amount,
+      bank_account_id, bankAccountId,
+      reconciliation_id, reconciliationId,
+      status,
+      from_date, fromDate, to_date, toDate,
+      from_amount, fromAmount, to_amount, toAmount,
       search, limit, offset,
       sort_order, allocation_filter, tx_type, alloc_type, has_suggestion,
     } = req.query;
+    const pick = (a?: unknown, b?: unknown) => (a ?? b) as string | undefined;
     const result = await getBankTransactions(companyId, {
-      bankAccountId:    bank_account_id    ? String(bank_account_id)    : undefined,
-      reconciliationId: reconciliation_id  ? String(reconciliation_id)  : undefined,
+      bankAccountId:    pick(bank_account_id, bankAccountId)     ? String(pick(bank_account_id, bankAccountId))     : undefined,
+      reconciliationId: pick(reconciliation_id, reconciliationId) ? String(pick(reconciliation_id, reconciliationId)) : undefined,
       status:           status             ? String(status)             : undefined,
-      fromDate:         from_date          ? String(from_date)          : undefined,
-      toDate:           to_date            ? String(to_date)            : undefined,
-      fromAmount:       from_amount        ? String(from_amount)        : undefined,
-      toAmount:         to_amount          ? String(to_amount)          : undefined,
+      fromDate:         pick(from_date, fromDate)   ? String(pick(from_date, fromDate))   : undefined,
+      toDate:           pick(to_date, toDate)       ? String(pick(to_date, toDate))       : undefined,
+      fromAmount:       pick(from_amount, fromAmount) ? String(pick(from_amount, fromAmount)) : undefined,
+      toAmount:         pick(to_amount, toAmount)   ? String(pick(to_amount, toAmount))   : undefined,
       search:           search             ? String(search)             : undefined,
       limit:            limit              ? Number(limit)              : undefined,
       offset:           offset             ? Number(offset)             : undefined,

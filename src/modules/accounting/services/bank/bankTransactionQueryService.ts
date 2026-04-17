@@ -184,12 +184,16 @@ export async function getBankTransactions(
           AND (bt.description ILIKE ${searchPattern} OR bt.reference ILIKE ${searchPattern})
           ${sql.unsafe(extra)}`) as Row[];
     } else if (filters?.bankAccountId) {
+      const fromDate = filters.fromDate || '1900-01-01';
+      const toDate = filters.toDate || '2099-12-31';
       rows = (await sql`${sql.unsafe(TX_SELECT)}
         WHERE bt.bank_account_id = ${filters.bankAccountId}::UUID
+          AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
         ORDER BY bt.transaction_date DESC, bt.amount DESC
         LIMIT ${limit} OFFSET ${offset}`) as Row[];
       countRows = (await sql`SELECT COUNT(*) AS cnt FROM bank_transactions
-        WHERE bank_account_id = ${filters.bankAccountId}::UUID`) as Row[];
+        WHERE bank_account_id = ${filters.bankAccountId}::UUID
+          AND transaction_date >= ${fromDate} AND transaction_date <= ${toDate}`) as Row[];
     } else {
       const statusFilter = filters?.status ?? null;
       rows = (await sql`${sql.unsafe(TX_SELECT)}
