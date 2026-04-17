@@ -68,10 +68,11 @@ if [ ! -f /etc/nginx/sites-available/app-isaflow ]; then
 fi
 
 # 6. Run database migrations against production DB
+# .env.local is owned by velo:velo (0600) so we read it with sudo.
 echo "Running database migrations..."
 PROD_ENV="$DEPLOY_DIR/.env.local"
-if [ -f "$PROD_ENV" ]; then
-  PROD_DB=$(grep "^DATABASE_URL=" "$PROD_ENV" | cut -d= -f2-)
+if sudo test -f "$PROD_ENV"; then
+  PROD_DB=$(sudo grep "^DATABASE_URL=" "$PROD_ENV" | cut -d= -f2-)
   if [ -n "$PROD_DB" ]; then
     DATABASE_URL="$PROD_DB" node "$REPO_DIR/scripts/run-migrations.mjs" 2>&1 | grep -E "Running:|Done|Failed|complete|==="
   else
