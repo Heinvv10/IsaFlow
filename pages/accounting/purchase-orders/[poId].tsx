@@ -18,6 +18,7 @@ import {
   Trash2,
   Plus,
   Download,
+  PackagePlus,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 
@@ -34,6 +35,7 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const EDITABLE_STATUSES = ['draft', 'submitted'];
+const GRN_ALLOWED_STATUSES = ['submitted', 'approved', 'partially_received'];
 
 interface PoItem {
   id?: string;
@@ -257,6 +259,7 @@ export default function PurchaseOrderDetailPage() {
   }
 
   const canEdit = EDITABLE_STATUSES.includes(po.status);
+  const canCreateGrn = GRN_ALLOWED_STATUSES.includes(po.status);
 
   return (
     <AppLayout>
@@ -291,6 +294,14 @@ export default function PurchaseOrderDetailPage() {
               >
                 <Download className="h-4 w-4" />PDF
               </a>
+              {canCreateGrn && !editing && (
+                <Link
+                  href={`/accounting/goods-received/new?poId=${po.id}`}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 text-sm font-medium"
+                >
+                  <PackagePlus className="h-4 w-4" /> Create GRN
+                </Link>
+              )}
               {canEdit && !editing && (
                 <>
                   <button onClick={startEdit}

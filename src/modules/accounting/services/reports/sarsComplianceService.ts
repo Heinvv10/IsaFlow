@@ -3,7 +3,7 @@
  * Submissions CRUD and DB-backed compliance calendar for SA tax obligations.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, fmtDate } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getComplianceCalendar } from './sarsTaxPeriodsService';
 
@@ -33,16 +33,16 @@ function mapSubmissionRow(row: DbRow): SARSSubmission {
   return {
     id: String(row.id),
     formType: String(row.form_type),
-    periodStart: String(row.period_start).slice(0, 10),
-    periodEnd: String(row.period_end).slice(0, 10),
+    periodStart: fmtDate(row.period_start),
+    periodEnd: fmtDate(row.period_end),
     status: String(row.status),
     formData: (row.form_data as Record<string, unknown>) ?? {},
     submissionReference: row.submission_reference ? String(row.submission_reference) : null,
     submittedAt: row.submitted_at ? String(row.submitted_at) : null,
     submittedBy: row.submitted_by ? String(row.submitted_by) : null,
     notes: row.notes ? String(row.notes) : null,
-    createdAt: String(row.created_at),
-    updatedAt: String(row.updated_at),
+    createdAt: fmtDate(row.created_at) || String(row.created_at),
+    updatedAt: fmtDate(row.updated_at) || String(row.updated_at),
   };
 }
 

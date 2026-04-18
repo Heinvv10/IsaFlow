@@ -9,9 +9,16 @@ import { useRouter } from 'next/router';
 import { apiFetch } from '@/lib/apiFetch';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { formatCurrency, formatDate } from '@/utils/formatters';
-import { Users, Loader2, AlertCircle, ArrowLeft, Save, FileText } from 'lucide-react';
+import { Users, Loader2, AlertCircle, ArrowLeft, Save, FileText, CalendarDays } from 'lucide-react';
 import Link from 'next/link';
 import { notify } from '@/utils/toast';
+
+interface LeaveBalance {
+  leave_type: string;
+  days_entitled: number;
+  days_taken: number;
+  days_remaining: number;
+}
 
 interface PayStructure {
   id: string;
@@ -70,7 +77,32 @@ export default function EmployeeDetailPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [editForm, setEditForm] = useState<Record<string, string>>({});
-  const [activeTab, setActiveTab] = useState<'details' | 'pay_history' | 'payslips'>('details');
+  const [activeTab, setActiveTab] = useState<'details' | 'pay_history' | 'payslips' | 'leave_balances'>('details');
+  const [leaveBalances, setLeaveBalances] = useState<LeaveBalance[] | null>(null);
+  const [leaveLoading, setLeaveLoading] = useState(false);
+  const [leaveError, setLeaveError] = useState('');
+
+  const loadLeaveBalances = useCallback(async () => {
+    if (!employeeId || leaveBalances !== null) return;
+    setLeaveLoading(true);
+    setLeaveError('');
+    try {
+      const res = await apiFetch(`/api/payroll/leave-balances?employeeId=${employeeId}`);
+      if (res.status === 404) { setLeaveBalances([]); return; }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      const data = json.data ?? json;
+      setLeaveBalances(Array.isArray(data) ? data : (data.balances ?? []));
+    } catch {
+      setLeaveError('endpoint-missing');
+    } finally {
+      setLeaveLoading(false);
+    }
+  }, [employeeId, leaveBalances]);
+
+  useEffect(() => {
+    if (activeTab === 'leave_balances') loadLeaveBalances();
+  }, [activeTab, loadLeaveBalances]);
 
   const loadEmployee = useCallback(async () => {
     if (!employeeId) return;
@@ -229,7 +261,7 @@ export default function EmployeeDetailPage() {
         {/* Tabs */}
         <div className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
           <div className="px-6 flex gap-1">
-            {(['details', 'pay_history', 'payslips'] as const).map(tab => (
+            {(['details', 'pay_history', 'payslips', 'leave_balances'] as const).map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -239,7 +271,10 @@ export default function EmployeeDetailPage() {
                     : 'border-transparent text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'
                 }`}
               >
-                {tab === 'details' ? 'Details' : tab === 'pay_history' ? 'Pay History' : 'Payslips'}
+                {tab === 'details' ? 'Details'
+                  : tab === 'pay_history' ? 'Pay History'
+                  : tab === 'payslips' ? 'Payslips'
+                  : 'Leave Balances'}
               </button>
             ))}
           </div>
@@ -438,6 +473,64 @@ export default function EmployeeDetailPage() {
                 </div>
               ) : (
                 <p className="text-sm text-[var(--ff-text-tertiary)] text-center py-12">No payslips generated yet</p>
+              )}
+            </div>
+          )}
+          {/* Leave Balances Tab */}
+          {activeTab === 'leave_balances' && (
+            <div>
+              {leaveLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-6 w-6 animate-spin text-teal-500" />
+                </div>
+              ) : leaveError === 'endpoint-missing' ? (
+                <div className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] p-10 text-center">
+                  <CalendarDays className="h-10 w-10 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
+                  <p className="text-sm text-[var(--ff-text-secondary)] mb-2">
+                    Coming soon — see{' '}
+                    <Link href="/payroll/leave" className="text-teal-400 hover:text-teal-300 underline underline-offset-2">
+                      Leave Management
+                    </Link>{' '}
+                    for the company-wide view.
+                  </p>
+                </div>
+              ) : leaveBalances && leaveBalances.length > 0 ? (
+                <div className="rounded-lg border border-[var(--ff-border-primary)] overflow-hidden bg-[var(--ff-surface-primary)]">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
+                        <th className="text-left py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Leave Type</th>
+                        <th className="text-right py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Entitled (days)</th>
+                        <th className="text-right py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Taken (days)</th>
+                        <th className="text-right py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Remaining (days)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {leaveBalances.map((lb, i) => (
+                        <tr key={i} className="border-b border-[var(--ff-border-primary)] last:border-0">
+                          <td className="py-3 px-4 text-[var(--ff-text-primary)] capitalize">{lb.leave_type.replace(/_/g, ' ')}</td>
+                          <td className="py-3 px-4 text-right font-mono text-[var(--ff-text-secondary)]">{lb.days_entitled}</td>
+                          <td className="py-3 px-4 text-right font-mono text-[var(--ff-text-secondary)]">{lb.days_taken}</td>
+                          <td className={`py-3 px-4 text-right font-mono font-medium ${lb.days_remaining < 0 ? 'text-red-400' : 'text-teal-400'}`}>
+                            {lb.days_remaining}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  <CalendarDays className="h-10 w-10 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
+                  <p className="text-sm text-[var(--ff-text-tertiary)]">No leave balances found for this employee.</p>
+                  <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">
+                    See{' '}
+                    <Link href="/payroll/leave" className="text-teal-400 hover:text-teal-300 underline underline-offset-2">
+                      Leave Management
+                    </Link>{' '}
+                    for the company-wide view.
+                  </p>
+                </div>
               )}
             </div>
           )}
