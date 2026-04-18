@@ -95,14 +95,14 @@ echo "=== Deploy complete ==="
 echo "App: https://app.isaflow.co.za"
 
 # 8. Finalize Sentry release (fail-open — never block a deploy).
-# Source SENTRY_* from .env.local so the script doesn't need them in the
-# parent shell. Add ~/.local/bin to PATH so the user-installed sentry-cli
-# binary is found under sudo / non-login shells.
+# Pull only the SENTRY_* keys from .env.local — we can't `source` the whole
+# file because some app values contain unquoted chars / multi-line content
+# that would break `set -a; .`. Add ~/.local/bin to PATH so the
+# user-installed sentry-cli binary is found under sudo / non-login shells.
 if [ -f "$REPO_DIR/.env.local" ]; then
-  set -a
-  # shellcheck disable=SC1091
-  . "$REPO_DIR/.env.local"
-  set +a
+  while IFS= read -r line; do
+    [ -n "$line" ] && export "$line"
+  done < <(grep -E '^SENTRY_(AUTH_TOKEN|URL|ORG|PROJECT)=' "$REPO_DIR/.env.local" || true)
 fi
 export PATH="$HOME/.local/bin:$PATH"
 
