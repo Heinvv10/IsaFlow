@@ -63,31 +63,25 @@ export function withAuth(handler: Handler): NextApiHandler {
     const client = await getAuthPool().connect();
     try {
       await client.query('BEGIN');
+      await client.query('SET LOCAL ROLE app_user');
+      await client.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify(claims)]);
+      await client.query(`SELECT set_config('app.current_company_id', $1, true)`, [activeCompanyId]);
 
-      // Membership check runs as postgres (superuser, bypasses RLS) to avoid
-      // the recursive policy on company_users (cu_self_or_admin reads back into
-      // company_users, causing infinite recursion under app_user role).
+      // Belt-and-braces membership check. Runs under app_user (inside the RLS
+      // scope) so this query also validates that the RLS policies don't
+      // regress — if app_user can't see its own company_users row, the policy
+      // is wrong. Wrapped in try/catch because a forged cookie may contain
+      // a non-UUID string, which pg rejects at cast time.
       let membership: { rows: Array<{ role: string }> };
       try {
         membership = await client.query<{ role: string }>(
           `SELECT role FROM company_users WHERE user_id = $1 AND company_id = $2::uuid LIMIT 1`,
           [claims.sub, activeCompanyId]
         );
-      } catch (pgErr) {
-        // Invalid UUID format or similar — treat as forbidden.
+      } catch {
         await client.query('ROLLBACK');
         return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Not a member of this company' } });
       }
-
-      if (membership.rows.length === 0) {
-        await client.query('ROLLBACK');
-        clearAuthCookies(res);
-        return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Not a member of this company' } });
-      }
-
-      await client.query('SET LOCAL ROLE app_user');
-      await client.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify(claims)]);
-      await client.query(`SELECT set_config('app.current_company_id', $1, true)`, [activeCompanyId]);
 
       (req as CompanyAuthedRequest).user = {
         id: claims.sub,
