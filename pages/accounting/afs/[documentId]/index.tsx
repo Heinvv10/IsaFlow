@@ -15,6 +15,10 @@ import {
 } from 'lucide-react';
 import type { AfsDocument, DocumentStatus } from '@/modules/accounting/services/afs/afsTypes';
 import { AfsOverviewTab } from '@/components/accounting/afs/AfsOverviewTab';
+import { AfsNotesTab } from '@/components/accounting/afs/AfsNotesTab';
+import { AfsStatementsTab } from '@/components/accounting/afs/AfsStatementsTab';
+import { AfsReviewTab } from '@/components/accounting/afs/AfsReviewTab';
+import { AfsExportTab } from '@/components/accounting/afs/AfsExportTab';
 
 type TabId = 'overview' | 'notes' | 'statements' | 'review' | 'compliance' | 'export';
 
@@ -190,38 +194,19 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
             <AfsOverviewTab documentId={documentId} periodStart={periodStart} periodEnd={periodEnd} />
           )}
           {activeTab === 'notes' && (
-            <div className="text-slate-500 dark:text-slate-400 text-sm py-12 text-center">
-              <BookOpen className="w-10 h-10 mx-auto mb-3 opacity-40" />
-              <p>Notes to the Financial Statements — coming soon.</p>
-              <Link href={`/accounting/afs/${documentId}/notes`} className="text-blue-400 hover:underline mt-2 inline-block">
-                Open Notes editor →
-              </Link>
-            </div>
+            <AfsNotesTab fiscalYear={doc?.fiscalYear ?? Number(periodStart.slice(0, 4))} />
           )}
           {activeTab === 'statements' && (
-            <div className="text-slate-500 dark:text-slate-400 text-sm py-12 text-center">
-              <BarChart2 className="w-10 h-10 mx-auto mb-3 opacity-40" />
-              <p>Full financial statements — Balance Sheet, Income Statement, and more.</p>
-              <div className="flex gap-3 justify-center mt-4">
-                <Link href={`/accounting/afs/${documentId}/balance-sheet`} className="text-blue-400 hover:underline">Balance Sheet →</Link>
-                <Link href={`/accounting/afs/${documentId}/income-statement`} className="text-blue-400 hover:underline">Income Statement →</Link>
-              </div>
-            </div>
+            <AfsStatementsTab periodStart={periodStart} periodEnd={periodEnd} />
           )}
           {activeTab === 'review' && (
-            <div className="text-slate-500 dark:text-slate-400 text-sm py-12 text-center">
-              <CheckCircle className="w-10 h-10 mx-auto mb-3 opacity-40" />
-              <p>Review workflow — sign-off trail and comments.</p>
-            </div>
+            <AfsReviewTab documentId={documentId} doc={doc} onDocUpdate={setDoc} />
           )}
           {activeTab === 'export' && (
-            <div className="text-slate-500 dark:text-slate-400 text-sm py-12 text-center">
-              <Download className="w-10 h-10 mx-auto mb-3 opacity-40" />
-              <p>Export AFS as PDF or XBRL package.</p>
-              <Link href={`/accounting/afs/${documentId}/export`} className="text-blue-400 hover:underline mt-2 inline-block">
-                Open Export →
-              </Link>
-            </div>
+            <AfsExportTab
+              documentId={documentId}
+              fiscalYear={doc?.fiscalYear ?? Number(periodStart.slice(0, 4))}
+            />
           )}
         </div>
       </div>
