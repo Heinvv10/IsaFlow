@@ -84,6 +84,7 @@ export function withAuth(handler: Handler): NextApiHandler {
       return res.status(401).json({ success: false, error: { code: 'INVALID_TOKEN', message: 'Invalid or expired token' } });
     }
 
+    const startedAt = Date.now();
     const client = await getAuthPool().connect();
     try {
       await client.query('BEGIN');
@@ -142,6 +143,11 @@ export function withAuth(handler: Handler): NextApiHandler {
       throw err;
     } finally {
       client.release();
+      const ms = Date.now() - startedAt;
+      if (ms > 100) log.info('withAuth slow request', { ms, url: req.url }, 'Auth');
+      if (process.env.SENTRY_ENABLED === 'true') {
+        Sentry.metrics.distribution('auth.withAuth.duration_ms', ms, { unit: 'millisecond' });
+      }
     }
   };
 }
