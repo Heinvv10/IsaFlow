@@ -94,12 +94,23 @@ echo ""
 echo "=== Deploy complete ==="
 echo "App: https://app.isaflow.co.za"
 
-# 8. Finalize Sentry release (fail-open — never block a deploy)
+# 8. Finalize Sentry release (fail-open — never block a deploy).
+# Source SENTRY_* from .env.local so the script doesn't need them in the
+# parent shell. Add ~/.local/bin to PATH so the user-installed sentry-cli
+# binary is found under sudo / non-login shells.
+if [ -f "$REPO_DIR/.env.local" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . "$REPO_DIR/.env.local"
+  set +a
+fi
+export PATH="$HOME/.local/bin:$PATH"
+
 if [ -n "$SENTRY_AUTH_TOKEN" ] && command -v sentry-cli >/dev/null 2>&1; then
   echo "Finalizing Sentry release $GIT_SHA..."
   sentry-cli releases finalize "$GIT_SHA" || echo "WARN: sentry-cli finalize failed (non-fatal)"
   sentry-cli releases deploys "$GIT_SHA" new -e production \
     || echo "WARN: sentry-cli deploys failed (non-fatal)"
 else
-  echo "Skipping Sentry release finalize (no SENTRY_AUTH_TOKEN or sentry-cli)"
+  echo "Skipping Sentry release finalize (SENTRY_AUTH_TOKEN=${SENTRY_AUTH_TOKEN:+set} sentry-cli=$(command -v sentry-cli || echo missing))"
 fi
