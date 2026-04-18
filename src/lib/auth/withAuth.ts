@@ -107,6 +107,12 @@ export function withAuth(handler: Handler): NextApiHandler {
         return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Not a member of this company' } });
       }
 
+      if (membership.rows.length === 0) {
+        await client.query('ROLLBACK');
+        clearAuthCookies(res);
+        return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Not a member of this company' } });
+      }
+
       (req as CompanyAuthedRequest).user = {
         id: claims.sub,
         email: typeof claims.email === 'string' ? claims.email : undefined,
