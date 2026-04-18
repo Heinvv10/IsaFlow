@@ -33,25 +33,59 @@ LOGDIR="/home/velo/backups/cutover-isaflow/${TS}"
 mkdir -p "$LOGDIR"
 
 # ---------- configuration ----------
-NEON_HOST="ep-dry-surf-al35kgz6.c-3.eu-central-1.aws.neon.tech"   # direct, not -pooler
-NEON_USER="neondb_owner"
-NEON_DB="neondb"
-NEON_PASS="npg_TDuKN9ao1sZB"
-
-SUPABASE_HOST="localhost"
-SUPABASE_PORT="5437"            # current direct port of supabase-db container
-SUPABASE_SUPERUSER="postgres"
-SUPABASE_SUPERPASS="a23f6104debd1d3e88e8f00c0067f22f"
-SUPABASE_DB="isaflow"
-
 APP_DEPLOY_DIR="/home/velo/isaflow"
 APP_SERVICE="isaflow.service"
 APP_HEALTH_URL="http://localhost:3101/api/health"
 
-# App-runtime connection. Prefer Supavisor transaction pooler (:6543) so the
-# 335 API routes share a warm connection pool. Swap to 5437 for direct TCP if
-# the pooler is ever down.
+# SOURCE OF TRUTH: parse the live .env.local so we always dump from whatever
+# DB the app is actually using — not from stale hardcoded creds. A previous
+# iteration of this script hardcoded a stale Neon endpoint and a "successful"
+# dry-run compared stale-against-stale, masking the drift.
+PROD_ENV_FILE="${APP_DEPLOY_DIR}/.env.local"
+if ! sudo test -r "$PROD_ENV_FILE"; then
+  echo "FAIL: cannot read $PROD_ENV_FILE (need sudo)"; exit 1
+fi
+LIVE_DB_URL=$(sudo grep -E '^DATABASE_URL=' "$PROD_ENV_FILE" | head -1 | cut -d= -f2-)
+if [[ -z "$LIVE_DB_URL" ]]; then
+  echo "FAIL: no DATABASE_URL in $PROD_ENV_FILE"; exit 1
+fi
+
+# Parse the URL — postgresql://<user>:<pass>@<host>:<port>/<db>?<query>
+# Strip '-pooler.' from hostname (we need direct access for pg_dump) and
+# 'channel_binding=require' (pg_dump doesn't negotiate it).
+parse_url() {
+  local url="$1"
+  local stripped="${url#postgres://}"
+  stripped="${stripped#postgresql://}"
+  NEON_USER="${stripped%%:*}"
+  local rest="${stripped#*:}"
+  NEON_PASS="${rest%%@*}"
+  rest="${rest#*@}"
+  local hostport="${rest%%/*}"
+  NEON_HOST="${hostport%%:*}"
+  NEON_HOST="${NEON_HOST/-pooler./.}"
+  rest="${rest#*/}"
+  NEON_DB="${rest%%\?*}"
+}
+parse_url "$LIVE_DB_URL"
+
+SUPABASE_HOST="localhost"
+SUPABASE_PORT="5437"            # direct port of the supabase-db container
+SUPABASE_SUPERUSER="postgres"
+SUPABASE_SUPERPASS="a23f6104debd1d3e88e8f00c0067f22f"
+SUPABASE_DB="isaflow"
+
+# App-runtime connection. Supavisor transaction pooler (:6543) — the 335 API
+# routes share a warm pool. Swap to :5437 for direct TCP if the pooler dies.
 NEW_DATABASE_URL="postgresql://${SUPABASE_SUPERUSER}:${SUPABASE_SUPERPASS}@${SUPABASE_HOST}:6543/${SUPABASE_DB}?sslmode=disable"
+
+echo "=== source ==="
+echo "Neon host: $NEON_HOST"
+echo "Neon db:   $NEON_DB"
+echo "Neon user: $NEON_USER"
+echo "=== target ==="
+echo "Supa:      ${SUPABASE_HOST}:${SUPABASE_PORT}/${SUPABASE_DB}"
+echo "=================================================================="
 
 # Tables used for row-count verification. If any of these drift, abort.
 PROBE_TABLES=(
@@ -153,24 +187,30 @@ log "  restore errors: $ERR_COUNT"
 [[ "$ERR_COUNT" -lt 20 ]] || { log "FAIL: too many restore errors — see $LOGDIR/restore.log"; exit 1; }
 
 # ---------- Step 6: row-count verification ----------
+# Write rowcount.md directly (no subshell) so MISMATCH propagates to the
+# parent where the abort check reads it. The `{ ... } | tee` pattern is
+# tempting but drops the counter when the block runs in a subshell.
 log "Step 6: row-count diff (Neon vs Supabase)"
+MISMATCH=0
 {
   printf '| %-30s | %10s | %10s | %6s |\n' Table Neon Supabase Diff
   printf '|--------------------------------|------------|------------|--------|\n'
-  MISMATCH=0
-  for t in "${PROBE_TABLES[@]}"; do
-    N=$(psql_neon -t -A -c "SELECT count(*) FROM public.\"$t\"" 2>/dev/null || echo ERR)
-    S=$(psql_supa -t -A -c "SELECT count(*) FROM public.\"$t\"" 2>/dev/null || echo ERR)
-    if [[ "$N" =~ ^[0-9]+$ && "$S" =~ ^[0-9]+$ ]]; then
-      D=$((N - S))
-      printf '| %-30s | %10s | %10s | %6s |\n' "$t" "$N" "$S" "$D"
-      [[ "$D" -ne 0 ]] && MISMATCH=$((MISMATCH + 1))
-    else
-      printf '| %-30s | %10s | %10s | %6s |\n' "$t" "$N" "$S" "ERR"
+} > "$LOGDIR/rowcount.md"
+for t in "${PROBE_TABLES[@]}"; do
+  N=$(psql_neon -t -A -c "SELECT count(*) FROM public.\"$t\"" 2>/dev/null || echo ERR)
+  S=$(psql_supa -t -A -c "SELECT count(*) FROM public.\"$t\"" 2>/dev/null || echo ERR)
+  if [[ "$N" =~ ^[0-9]+$ && "$S" =~ ^[0-9]+$ ]]; then
+    D=$((N - S))
+    printf '| %-30s | %10s | %10s | %6s |\n' "$t" "$N" "$S" "$D" >> "$LOGDIR/rowcount.md"
+    if [[ "$D" -ne 0 ]]; then
       MISMATCH=$((MISMATCH + 1))
     fi
-  done
-} | tee "$LOGDIR/rowcount.md"
+  else
+    printf '| %-30s | %10s | %10s | %6s |\n' "$t" "$N" "$S" "ERR" >> "$LOGDIR/rowcount.md"
+    MISMATCH=$((MISMATCH + 1))
+  fi
+done
+cat "$LOGDIR/rowcount.md"
 if [[ "$MISMATCH" -gt 0 ]]; then
   log "WARN: $MISMATCH probe tables differ. Review $LOGDIR/rowcount.md before proceeding."
   if [[ "$DRY_RUN" -eq 0 ]]; then
