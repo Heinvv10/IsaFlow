@@ -4,14 +4,14 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
-import type { CompanyApiRequest } from '@/lib/auth/withCompany';
+import type { CompanyAuthedRequest } from '@/lib/auth/withAuth';
 type Row = Record<string, unknown>;
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
-  const companyId = (req as CompanyApiRequest).companyId;
+  const companyId = (req as CompanyAuthedRequest).companyId;
   const { employeeId, year } = req.query;
   const yr = year ? Number(year) : new Date().getFullYear();
   if (employeeId) {
@@ -21,4 +21,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const rows = await sql`SELECT lb.*, lt.name as leave_type_name, e.first_name, e.last_name FROM leave_balances lb JOIN leave_types lt ON lb.leave_type_id = lt.id JOIN employees e ON lb.employee_id = e.id WHERE e.company_id = ${companyId}::UUID AND lb.year = ${yr} ORDER BY e.last_name, lt.name` as Row[];
   return apiResponse.success(res, rows);
 }
-export default withCompany(withErrorHandler(handler));
+export default withAuth(withErrorHandler(handler));

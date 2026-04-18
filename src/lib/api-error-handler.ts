@@ -44,7 +44,7 @@ export type ApiResponse<T = unknown> = ApiSuccessResponse<T> | ApiErrorResponse;
  * Wraps an API handler with error handling.
  *
  * Generic R extends NextApiRequest to support AuthenticatedNextApiRequest,
- * CompanyApiRequest, or plain NextApiRequest without requiring `as any` casts.
+ * CompanyAuthedRequest, or plain NextApiRequest without requiring `as any` casts.
  * The handler's res parameter is typed as NextApiResponse<any> so callers that
  * declare `res: NextApiResponse` (without a type argument) are assignable.
  */
@@ -59,7 +59,7 @@ export function withErrorHandler(
     res.setHeader('X-Request-Id', requestId);
 
     // Defensive isolation: nest a fresh scope so setTenantTags never writes to
-    // the global hub even if withCompany is absent or the wrap order is reversed.
+    // the global hub even if withAuth is absent or the wrap order is reversed.
     const runScoped = async () => {
       if (process.env.SENTRY_ENABLED === 'true') {
         setTenantTags({ requestId, route: sanitizeRoute(req.url) });
@@ -154,7 +154,7 @@ export function withErrorHandler(
         });
       } finally {
         // Standard-shape request-completion log line. Reads userId/companyId
-        // off req if withCompany populated them; otherwise null.
+        // off req if withAuth populated them; otherwise null.
         const anyReq = req as unknown as {
           user?: { id?: string };
           companyId?: string;

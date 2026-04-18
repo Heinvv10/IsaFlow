@@ -84,6 +84,12 @@ class LazyQuery<T = DbRow> implements Promise<T[]> {
       const res = await this.boundClient.query(this.text, this.values);
       return res.rows as T[];
     }
+    // If a request-scoped tx is in flight, route through it so RLS sees the GUCs.
+    const ctxClient = (await import('@/lib/als')).als.getStore()?.client;
+    if (ctxClient) {
+      const res = await ctxClient.query(this.text, this.values);
+      return res.rows as T[];
+    }
     const res = await getPool().query(this.text, this.values);
     return res.rows as T[];
   }

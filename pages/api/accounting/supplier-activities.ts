@@ -8,7 +8,7 @@
 import type { NextApiResponse } from 'next';
 import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, withWriteAccess } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { log } from '@/lib/logger';
@@ -40,7 +40,7 @@ function isActivityType(v: unknown): v is ActivityType {
   return typeof v === 'string' && VALID_ACTIVITY_TYPES.has(v as ActivityType);
 }
 
-async function handler(req: CompanyApiRequest, res: NextApiResponse) {
+async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const { companyId, user } = req;
 
   // ─── GET: List activities for a supplier ───────────────────────────────────
@@ -157,4 +157,4 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST', 'DELETE']);
 }
 
-export default withCompany(withErrorHandler(withCsrf(withWriteAccess(handler as never))));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler as never))));

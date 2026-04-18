@@ -175,6 +175,7 @@ export function BankTxTable(props: Props) {
   } = props;
   const [openSel, setOpenSel] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [dropUp, setDropUp] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   // Close dropdown when clicking outside it (data-attribute approach for multi-row support)
@@ -345,7 +346,12 @@ export function BankTxTable(props: Props) {
                       )}
                       <button
                         data-bank-toggle
-                        onClick={() => { setOpenSel(isOpen ? null : tx.id); setSearch(''); }}
+                        onClick={(e) => {
+                          if (isOpen) { setOpenSel(null); return; }
+                          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                          setDropUp(rect.bottom + 260 > window.innerHeight);
+                          setOpenSel(tx.id); setSearch('');
+                        }}
                         className={`text-xs px-2 py-0.5 rounded truncate max-w-[200px] block ${
                           sel?.entityId
                             ? tx.suggestedGlAccountId && sel.entityId === tx.suggestedGlAccountId
@@ -365,7 +371,7 @@ export function BankTxTable(props: Props) {
                         )}
                       </button>
                       {isOpen && (
-                        <div data-bank-dropdown className="absolute z-50 top-full left-0 mt-1 w-80 bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-lg shadow-xl">
+                        <div data-bank-dropdown className={`absolute z-50 left-0 w-80 bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-lg shadow-xl ${dropUp ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
                           <div className="p-2">
                             <div className="relative">
                               <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-[var(--ff-text-tertiary)]" />

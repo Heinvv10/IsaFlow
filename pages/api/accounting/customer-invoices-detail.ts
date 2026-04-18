@@ -9,7 +9,7 @@ import { z } from 'zod';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
@@ -32,7 +32,7 @@ const PostBodySchema = z.object({
 });
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
 
   if (req.method === 'GET') {
     const queryParsed = GetQuerySchema.safeParse(req.query);
@@ -121,7 +121,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     let glJournalEntryId: string | null = null;
     if (action === 'approve') {
       try {
-        const userId = (req as CompanyApiRequest).user?.id || 'system';
+        const userId = (req as CompanyAuthedRequest).user?.id || 'system';
         glJournalEntryId = await postCustomerInvoiceToGL(companyId, id, userId);
         log.info('Customer invoice GL posted on approve', { id, glJournalEntryId });
       } catch (glErr) {
@@ -137,4 +137,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
  
-export default withCompany(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

@@ -33,7 +33,7 @@ import {
   getUnmappedAccounts,
 } from '@/modules/accounting/services/reports/groupCompanyService';
 
-// Uses withAuth (not withCompany) because group operations span multiple companies.
+// Uses withAuth (not withAuth) because group operations span multiple companies.
 // Security is provided by verifyGroupAccess() before every operation — groupId is
 // always validated against company_group_members joined with company_users.
 async function handler(req: NextApiRequest, res: NextApiResponse) {

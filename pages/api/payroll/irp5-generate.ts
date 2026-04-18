@@ -5,7 +5,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -13,7 +13,7 @@ import { buildIRP5Certificate, validateIRP5Data, type IRP5EmployeeData } from '@
 
 type Row = Record<string, unknown>;
 
-async function handler(req: CompanyApiRequest, res: NextApiResponse) {
+async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
     // List generated IRP5 certificates
     const { taxYear } = req.query;
@@ -109,4 +109,4 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST']);
 }
 
-export default withCompany(withErrorHandler(withCsrf(handler)));
+export default withAuth(withErrorHandler(withCsrf(handler)));

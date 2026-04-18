@@ -5,7 +5,7 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { withCompany, type CompanyApiRequest } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { seedChartOfAccountsFromTemplate, type CoaTemplate } from '@/modules/accounting/services/gl/chartOfAccountsService';
@@ -17,7 +17,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
   }
 
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
   const template = (req.body?.template ?? 'isaflow_standard') as CoaTemplate;
 
   if (!VALID_TEMPLATES.includes(template)) {
@@ -28,4 +28,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, { seeded: true, template });
 }
 
-export default withCompany(withErrorHandler(handler));
+export default withAuth(withErrorHandler(handler));

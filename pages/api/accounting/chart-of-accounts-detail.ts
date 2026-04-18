@@ -8,7 +8,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import {
@@ -18,7 +18,7 @@ import {
 } from '@/modules/accounting/services/gl/chartOfAccountsService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
   const id = (req.query.id || req.body?.id) as string;
 
   if (req.method === 'GET') {
@@ -66,4 +66,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 // admins can update or delete GL accounts (including bank accounts).
 // The deleteAccount() service layer also refuses to delete a bank
 // account with a non-zero GL balance or unreconciled transactions.
-export default withCompany(withErrorHandler(withCsrf(withWriteAccess(handler, { allowedRoles: ['owner', 'admin'] }))));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler, { allowedRoles: ['owner', 'admin'] }))));

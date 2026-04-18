@@ -6,7 +6,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { calculateRatioTrends } from '@/modules/accounting/services/reports/ratioTrendService';
 import type { FinancialData } from '@/modules/accounting/services/reports/reportingEngineService';
@@ -14,7 +14,7 @@ import type { FinancialData } from '@/modules/accounting/services/reports/report
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method || '', ['GET']);
 
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
   const months = Math.min(12, Math.max(3, parseInt(String(req.query.months || '6'), 10)));
 
   // Build financial data for each of the last N months
@@ -98,4 +98,4 @@ async function buildMonthData(companyId: string, from: string, to: string): Prom
 }
 
  
-export default withCompany(withErrorHandler(withWriteAccess(handler)));
+export default withAuth(withErrorHandler(withWriteAccess(handler)));

@@ -18,7 +18,7 @@ import { log } from '@/lib/logger';
 type Row = Record<string, unknown>;
 
 
-// Uses withAuth (not withCompany) because documents can be uploaded for any company
+// Uses withAuth (not withAuth) because documents can be uploaded for any company
 // the user belongs to. Security is provided by validateMembership() before every
 // read/write — companyId from the request is always validated against company_users.
 async function handler(req: NextApiRequest, res: NextApiResponse) {

@@ -5,7 +5,7 @@
  * before allowing access. Owner and admin roles bypass the check.
  *
  * Usage:
- *   export default withCompany(withErrorHandler(
+ *   export default withAuth(withErrorHandler(
  *     withModulePermission('customers', 'write')(handler as any) as any
  *   ));
  */
@@ -13,20 +13,20 @@
 import type { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
 import { checkPermission } from './permissionService';
 import { apiResponse } from '@/lib/apiResponse';
-import type { CompanyApiRequest } from './withCompany';
-import type { AuthenticatedNextApiRequest } from './middleware';
+import type { CompanyAuthedRequest } from './withAuth';
+import type { UserAuthedRequest } from './withUserAuth';
 
 type Action = 'read' | 'write' | 'delete' | 'export' | 'approve';
 
 /**
  * Returns a handler wrapper that enforces a module + action permission.
- * Must be used inside withCompany (companyId and companyRole must be set).
+ * Must be used inside withAuth (companyId and companyRole must be set).
  */
 export function withModulePermission(moduleKey: string, action: Action) {
   return (handler: NextApiHandler): NextApiHandler => {
     return async (req: NextApiRequest, res: NextApiResponse) => {
-      const companyReq = req as CompanyApiRequest;
-      const authReq = req as AuthenticatedNextApiRequest;
+      const companyReq = req as CompanyAuthedRequest;
+      const authReq = req as UserAuthedRequest;
 
       const companyId = companyReq.companyId;
       const companyRole = companyReq.companyRole;

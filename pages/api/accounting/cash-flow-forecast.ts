@@ -6,8 +6,8 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type AuthenticatedNextApiRequest } from '@/lib/auth';
-import type { CompanyApiRequest } from '@/lib/auth/withCompany';
+import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import type { CompanyAuthedRequest } from '@/lib/auth/withAuth';
 import { log } from '@/lib/logger';
 import { getForecast } from '@/modules/accounting/services/reports/cashFlowForecastService';
 
@@ -18,7 +18,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
   }
 
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
 
   const rawHorizon = Number(req.query['horizon'] ?? 30);
   const horizonDays = VALID_HORIZONS.has(rawHorizon) ? rawHorizon : 30;
@@ -30,4 +30,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, forecast);
 }
 
-export default withCompany(withErrorHandler(handler as never));
+export default withAuth(withErrorHandler(handler as never));

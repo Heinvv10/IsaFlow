@@ -16,7 +16,7 @@ import Link from 'next/link';
 import { verifyToken } from '@/lib/auth/jwt';
 import { sql } from '@/lib/neon';
 import { serialize } from 'cookie';
-import { AUTH_COOKIE_NAME } from '@/lib/auth/middleware';
+import { ACCESS_COOKIE as AUTH_COOKIE_NAME } from '@/lib/auth/cookies';
 import { log } from '@/lib/logger';
 import crypto from 'crypto';
 

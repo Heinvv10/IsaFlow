@@ -8,7 +8,7 @@
  * `outcome` is derived from status: <400 ok, <500 client_error, else server_error.
  * `route` strips the querystring from req.url.
  * `userId` / `companyId` are passed in by the caller (withErrorHandler pulls them
- * from req after withCompany has populated them, if present).
+ * from req after withAuth has populated them, if present).
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';

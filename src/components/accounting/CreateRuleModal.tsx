@@ -200,6 +200,7 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
         matchPattern: pattern.trim(),
         autoCreateEntry,
         vatCode,
+        bankAccountId,
       };
       // GL account only needed for 'account' type — supplier/customer use AP/AR automatically
       if (needsGlAccount && selectedGl) body.glAccountId = selectedGl.id;

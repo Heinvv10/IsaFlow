@@ -8,7 +8,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import {
@@ -18,7 +18,7 @@ import {
   type TaxDirectiveInput,
 } from '@/modules/accounting/services/reports/taxDirectiveService';
 
-async function handler(req: CompanyApiRequest, res: NextApiResponse) {
+async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const { companyId, user } = req;
 
   // ── GET ──────────────────────────────────────────────────────────────────
@@ -80,4 +80,4 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST', 'PATCH']);
 }
 
-export default withCompany(withErrorHandler(withCsrf(handler)));
+export default withAuth(withErrorHandler(withCsrf(handler)));

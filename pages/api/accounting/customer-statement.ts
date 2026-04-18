@@ -12,8 +12,8 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import {
-  withCompany,
-  type CompanyApiRequest,
+  withAuth,
+  type CompanyAuthedRequest,
   withWriteAccess,
   type AuthenticatedNextApiRequest,
 } from '@/lib/auth';
@@ -49,7 +49,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
   }
 
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
   const { customerId, fromDate, toDate, format } = req.query;
 
   if (!customerId || typeof customerId !== 'string') {
@@ -193,4 +193,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withCompany(withErrorHandler(withWriteAccess(handler)));
+export default withAuth(withErrorHandler(withWriteAccess(handler)));

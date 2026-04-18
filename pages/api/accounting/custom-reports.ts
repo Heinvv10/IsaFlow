@@ -8,7 +8,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import {
@@ -20,7 +20,7 @@ import {
 } from '@/modules/accounting/services/reports/customReportService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId, user } = req as CompanyApiRequest;
+  const { companyId, user } = req as CompanyAuthedRequest;
   const userId = user.id;
 
   if (req.method === 'GET') {
@@ -62,4 +62,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST', 'DELETE']);
 }
 
-export default withCompany(withErrorHandler(withCsrf(withWriteAccess(handler) as never)));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler) as never)));

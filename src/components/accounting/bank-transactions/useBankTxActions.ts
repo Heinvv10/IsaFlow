@@ -28,6 +28,7 @@ interface ActionDeps {
   setRulePrompt: (v: RulePrompt | null) => void;
   setExcludingTxId: (v: string | null) => void;
   loadTransactions: () => void;
+  refreshBankAccounts: () => void;
 }
 
 export function buildBankTxActions(deps: ActionDeps) {
@@ -35,7 +36,7 @@ export function buildBankTxActions(deps: ActionDeps) {
     transactions, glAccounts, selectedBank, selectedIds, rowSelections, batchType,
     excludingTxId, createEntityTxId,
     setSmartRunning, setRowSelections, setTransactions, setSelectedIds, setShowBatchEdit,
-    setRulePrompt, setExcludingTxId, loadTransactions,
+    setRulePrompt, setExcludingTxId, loadTransactions, refreshBankAccounts,
   } = deps;
 
   const callAction = async (body: Record<string, string>) => {
@@ -76,7 +77,7 @@ export function buildBankTxActions(deps: ActionDeps) {
       if (sel.buId) body.buId = sel.buId;
       await callAction(body);
       notify.success('Transaction allocated');
-      loadTransactions();
+      loadTransactions(); refreshBankAccounts();
       if (sel.type === 'account' && sel.entityId) {
         apiFetch('/api/accounting/smart-categorize', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
@@ -105,11 +106,11 @@ export function buildBankTxActions(deps: ActionDeps) {
     setExcludingTxId(null);
     try {
       await callAction({ action: 'exclude', bankTransactionId: txId, excludeReason: reason });
-      notify.success('Transaction excluded'); loadTransactions();
+      notify.success('Transaction excluded'); loadTransactions(); refreshBankAccounts();
     } catch (e) { notify.error(e instanceof Error ? e.message : 'Failed to exclude'); }
   };
   const handleUnmatch = async (txId: string) => {
-    try { await callAction({ action: 'unmatch', bankTransactionId: txId }); notify.success('Allocation undone'); loadTransactions(); }
+    try { await callAction({ action: 'unmatch', bankTransactionId: txId }); notify.success('Allocation undone'); loadTransactions(); refreshBankAccounts(); }
     catch (e) { notify.error(e instanceof Error ? e.message : 'Failed'); }
   };
   const handleUpdateNotes = async (txId: string, notes: string) => {
@@ -139,7 +140,7 @@ export function buildBankTxActions(deps: ActionDeps) {
         await callAction(body); ok++;
       } catch { fail++; }
     }
-    notify.success(`${ok} allocated${fail ? `, ${fail} failed` : ''}`); setSelectedIds(() => new Set()); loadTransactions();
+    notify.success(`${ok} allocated${fail ? `, ${fail} failed` : ''}`); setSelectedIds(() => new Set()); loadTransactions(); refreshBankAccounts();
   };
   const handleBatchDelete = async () => {
     if (selectedIds.size === 0) return;
@@ -147,7 +148,7 @@ export function buildBankTxActions(deps: ActionDeps) {
     try {
       await callAction({ action: 'delete', bankTransactionIds: Array.from(selectedIds) } as unknown as Record<string, string>);
       notify.success(`${selectedIds.size} transaction(s) deleted`);
-      setSelectedIds(() => new Set()); loadTransactions();
+      setSelectedIds(() => new Set()); loadTransactions(); refreshBankAccounts();
     } catch (e) { notify.error(e instanceof Error ? e.message : 'Delete failed'); }
   };
   const handleBulkAccept = async () => {
@@ -160,7 +161,7 @@ export function buildBankTxActions(deps: ActionDeps) {
       const json = await res.json();
       if (!res.ok || json.success === false) throw new Error(json.message || 'Failed to mark as reviewed');
       notify.success(`${json.data?.accepted ?? selectedIds.size} transaction(s) marked as reviewed`);
-      setSelectedIds(() => new Set()); loadTransactions();
+      setSelectedIds(() => new Set()); loadTransactions(); refreshBankAccounts();
     } catch (e) { notify.error(e instanceof Error ? e.message : 'Failed to mark as reviewed'); }
   };
   const handleApplyRules = async () => {
@@ -173,7 +174,7 @@ export function buildBankTxActions(deps: ActionDeps) {
         body: JSON.stringify({ action: 'apply', bankAccountId: selectedBank }),
       });
       const rulesJson = await rulesRes.json();
-      if (!rulesRes.ok || rulesJson.success === false) throw new Error(rulesJson.message || 'Apply rules failed');
+      if (!rulesRes.ok || rulesJson.success === false) throw new Error(rulesJson.error?.message || rulesJson.message || 'Apply rules failed');
       const rulesApplied = rulesJson.data?.applied ?? 0;
       let smartCategorized = 0, totalSkipped = 0;
       try {
@@ -192,7 +193,7 @@ export function buildBankTxActions(deps: ActionDeps) {
       notify.success(rulesApplied + smartCategorized > 0
         ? `${rulesApplied} rules applied, ${smartCategorized} smart-categorised, ${totalSkipped} skipped`
         : 'No new categorisations found');
-      setRowSelections(() => ({})); loadTransactions();
+      setRowSelections(() => ({})); loadTransactions(); refreshBankAccounts();
     } catch (e) { notify.error(e instanceof Error ? e.message : 'Failed to apply rules'); }
     finally { setSmartRunning(false); }
   };
@@ -205,7 +206,7 @@ export function buildBankTxActions(deps: ActionDeps) {
     try {
       await callAction({ action: 'reverse', bankTransactionId: txId });
       notify.success(tx?.status === 'allocated' ? 'Allocation undone' : 'Transaction reversed');
-      loadTransactions();
+      loadTransactions(); refreshBankAccounts();
     } catch (e) { notify.error(e instanceof Error ? e.message : 'Reverse failed'); }
   };
   const handleExport = (bankAccountCode: string | undefined) => {

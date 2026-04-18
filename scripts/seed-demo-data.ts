@@ -7,12 +7,14 @@
  */
 
 // Env vars must be set before running:
-// export $(grep DATABASE_URL .env.local | xargs) && npx tsx scripts/seed-demo-data.ts
+// export $(grep -E '^(MIGRATION_ADMIN_DATABASE_URL|DATABASE_URL)=' .env.local | xargs) && npx tsx scripts/seed-demo-data.ts
+// Uses MIGRATION_ADMIN_DATABASE_URL (BYPASSRLS) so seed inserts aren't blocked by RLS policies.
 import { createSql } from './_pg';
 import { randomUUID } from 'crypto';
 
-const DATABASE_URL = process.env.DATABASE_URL;
-if (!DATABASE_URL) { console.error('ERROR: DATABASE_URL not found in .env.local'); process.exit(1); }
+// Prefer migration_admin URL (BYPASSRLS) for seed scripts that write cross-tenant bulk data.
+const DATABASE_URL = process.env.MIGRATION_ADMIN_DATABASE_URL ?? process.env.DATABASE_URL;
+if (!DATABASE_URL) { console.error('ERROR: MIGRATION_ADMIN_DATABASE_URL or DATABASE_URL not found in .env.local'); process.exit(1); }
 
 const sql = createSql(DATABASE_URL);
 

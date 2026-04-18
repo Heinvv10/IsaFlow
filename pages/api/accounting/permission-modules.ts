@@ -7,7 +7,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, withWriteAccess} from '@/lib/auth';
+import { withAuth, withWriteAccess} from '@/lib/auth';
 import { getPermissionModules } from '@/lib/auth/permissionService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -20,4 +20,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
  
-export default withCompany(withErrorHandler(withWriteAccess(handler)));
+export default withAuth(withErrorHandler(withWriteAccess(handler)));

@@ -1,63 +1,20 @@
-/**
- * POST /api/auth/logout
- * Deletes the current user session from the database and clears the auth cookie.
- */
-
-import type { NextApiRequest, NextApiResponse } from 'next';
-import { serialize } from 'cookie';
+// pages/api/auth/logout.ts
+import type { NextApiHandler } from 'next';
+import { logout as gotrueLogout } from '@/lib/auth/gotrue';
+import { parseCookies, clearAuthCookies, ACCESS_COOKIE } from '@/lib/auth/cookies';
 import { log } from '@/lib/logger';
-import { apiResponse } from '@/lib/apiResponse';
-import { verifyToken } from '@/lib/auth/jwt';
-import { deleteSession } from '@/lib/auth/session';
-import { AUTH_COOKIE_NAME } from '@/lib/auth/middleware';
-import { withErrorHandler } from '@/lib/api-error-handler';
 
-async function handler(req: NextApiRequest, res: NextApiResponse) {
+const handler: NextApiHandler = async (req, res) => {
   if (req.method !== 'POST') {
-    return apiResponse.methodNotAllowed(res, req.method ?? 'unknown', ['POST']);
+    return res.status(405).json({ success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'POST required' } });
   }
-
-  const token = req.cookies[AUTH_COOKIE_NAME];
-
-  // Best-effort session deletion — don't fail if token is missing/invalid
+  const token = parseCookies(req)[ACCESS_COOKIE];
   if (token) {
-    try {
-      const payload = await verifyToken(token);
-      if (payload?.sessionId) {
-        await deleteSession(payload.sessionId);
-      }
-    } catch (err) {
-      log.warn('Failed to delete session during logout', { err }, 'auth/logout');
-    }
+    try { await gotrueLogout(token); }
+    catch (err) { log.info('gotrue logout non-fatal error', { message: err instanceof Error ? err.message : String(err) }, 'Auth'); }
   }
+  clearAuthCookies(res);
+  return res.status(200).json({ success: true, data: null });
+};
 
-  // Clear the auth cookie and onboarding cookie on both domains
-  const isProd = process.env.NODE_ENV === 'production';
-  const secureSuffix = isProd ? '; Secure' : '';
-  const clearOpts = {
-    httpOnly: true,
-    secure: isProd,
-    sameSite: 'strict' as const,
-    path: '/',
-    maxAge: 0,
-    expires: new Date(0),
-  };
-  res.setHeader('Set-Cookie', [
-    // Clear auth cookie with .isaflow.co.za domain (for admin + app subdomains)
-    serialize(AUTH_COOKIE_NAME, '', {
-      ...clearOpts,
-      ...(isProd ? { domain: '.isaflow.co.za' } : {}),
-    }),
-    // Clear auth cookie without domain (host-scoped, backward compat)
-    serialize(AUTH_COOKIE_NAME, '', clearOpts),
-    // Clear onboarding cookie with domain
-    `ff_onboarding_done=; Path=/; Max-Age=0; SameSite=Lax${secureSuffix}${isProd ? '; Domain=.isaflow.co.za' : ''}`,
-    // Clear onboarding cookie without domain (host-scoped)
-    `ff_onboarding_done=; Path=/; Max-Age=0; SameSite=Lax${secureSuffix}`,
-  ]);
-
-  log.info('User logged out', {}, 'auth/logout');
-  return apiResponse.success(res, null, 'Logged out successfully');
-}
-
-export default withErrorHandler(handler);
+export default handler;
