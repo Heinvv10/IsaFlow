@@ -11,7 +11,7 @@ import { apiFetch } from '@/lib/apiFetch';
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
-interface Payment { id: string; paymentNumber: string; supplierName: string; date: string; amount: number; allocatedAmount: number; }
+interface Payment { id: string; paymentNumber: string; supplierName: string; date: string; amount: number; allocatedAmount: number; totalAmount?: number; }
 
 export default function UnallocatedPaymentsReport() {
   const [items, setItems] = useState<Payment[]>([]);
@@ -25,7 +25,10 @@ export default function UnallocatedPaymentsReport() {
       const res = await apiFetch('/api/accounting/supplier-payments?unallocated=true', { credentials: 'include' });
       const json = await res.json();
       const d = json.data;
-      setItems(Array.isArray(d) ? d : d?.items || d?.payments || []);
+      const raw: Payment[] = Array.isArray(d) ? d : d?.items || d?.payments || [];
+      setItems(raw
+        .map(p => ({ ...p, amount: Number(p.totalAmount ?? p.amount ?? 0), allocatedAmount: Number(p.allocatedAmount ?? 0) }))
+        .filter(p => (p.amount - p.allocatedAmount) > 0.01));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to load data');
     } finally {

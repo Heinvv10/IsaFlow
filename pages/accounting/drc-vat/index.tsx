@@ -83,7 +83,7 @@ export default function DRCVatPage() {
           {/* Info box */}
           <div className="bg-rose-500/5 border border-rose-500/20 rounded-lg p-4 text-sm text-[var(--ff-text-secondary)]">
             <strong className="text-rose-400">How DRC works:</strong> When a supplier doesn&apos;t charge VAT on their invoice,
-            FibreFlow self-accounts both Input VAT (claimable) and Output VAT (payable). The net effect is zero,
+            ISAFlow self-accounts both Input VAT (claimable) and Output VAT (payable). The net effect is zero,
             but both sides are recorded for SARS compliance. Select invoices below to apply DRC VAT at 15%.
           </div>
 

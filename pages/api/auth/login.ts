@@ -199,11 +199,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       UPDATE user_sessions SET token_hash = ${finalHash} WHERE id = ${Number(session.id)}
     `;
 
-    // Set HttpOnly cookie — 8h session, always secure
+    // Set HttpOnly cookie — 8h session. `secure` only in prod so localhost over
+    // HTTP can still receive the cookie for dev/QA testing.
     const isProd = process.env.NODE_ENV === 'production';
     const authCookieString = serialize(AUTH_COOKIE_NAME, finalToken, {
       httpOnly: true,
-      secure: true,
+      secure: isProd,
       sameSite: 'lax',
       path: '/',
       maxAge: 8 * 60 * 60, // 8 hours

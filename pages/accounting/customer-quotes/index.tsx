@@ -30,16 +30,27 @@ function CreateQuoteModal({ customers, onClose, onCreated }: ModalProps) {
   const [form, setForm] = useState({ clientId: '', customerName: '', quoteDate: new Date().toISOString().split('T')[0], expiryDate: '', notes: '' });
   const [lines, setLines] = useState([{ desc: '', qty: 1, price: 0 }]);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
   const subtotal = lines.reduce((s, l) => s + l.qty * l.price, 0);
 
   const handleCreate = async () => {
     if (!form.clientId || lines.every(l => !l.desc)) return;
     setSaving(true);
-    await apiFetch('/api/accounting/customer-quotes', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ clientId: form.clientId, customerName: form.customerName, quoteDate: form.quoteDate, expiryDate: form.expiryDate, notes: form.notes, lines: lines.filter(l => l.desc).map(l => ({ description: l.desc, quantity: l.qty, unitPrice: l.price, taxRate: 15 })) }),
-    });
-    setSaving(false); onCreated(); onClose();
+    setError('');
+    try {
+      const res = await apiFetch('/api/accounting/customer-quotes', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId: form.clientId, customerName: form.customerName, quoteDate: form.quoteDate, expiryDate: form.expiryDate, notes: form.notes, lines: lines.filter(l => l.desc).map(l => ({ description: l.desc, quantity: l.qty, unitPrice: l.price, taxRate: 15 })) }),
+      });
+      const json = await res.json() as { error?: { message?: string }; message?: string };
+      if (!res.ok) throw new Error(json.error?.message ?? json.message ?? `Create failed (${res.status})`);
+      onCreated();
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to create quote');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -104,6 +115,9 @@ function CreateQuoteModal({ customers, onClose, onCreated }: ModalProps) {
           </div>
         </div>
 
+        {error && (
+          <div className="px-6 pt-2 text-sm text-red-600 dark:text-red-400">{error}</div>
+        )}
         <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-2 bg-slate-50/50 dark:bg-slate-800/20">
           <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">Cancel</button>
           <button onClick={handleCreate} disabled={saving || !form.clientId || lines.every(l => !l.desc)} className="px-5 py-2 text-sm font-semibold bg-teal-600 hover:bg-teal-700 text-white rounded-lg transition-colors disabled:opacity-40 flex items-center gap-2">

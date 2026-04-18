@@ -40,7 +40,9 @@ export async function generateDisclosureNotes(
 ): Promise<DisclosureNote[]> {
   log.info('Generating disclosure notes', { companyId, fiscalYear }, 'disclosureNoteService');
 
-  const [n1, n2, n3, n4, n5, n6, n7] = await Promise.all([
+  // Use allSettled so a single sub-note failure (e.g. missing fiscal period)
+  // doesn't bring down the entire response. Failed notes are logged and skipped.
+  const results = await Promise.allSettled([
     noteAccountingPolicies(companyId, fiscalYear),
     notePPE(companyId, fiscalYear),
     noteReceivables(companyId, fiscalYear),
@@ -50,7 +52,15 @@ export async function generateDisclosureNotes(
     noteTaxation(companyId, fiscalYear),
   ]);
 
-  return [n1, n2, n3, n4, n5, n6, n7];
+  const notes: DisclosureNote[] = [];
+  for (const [i, r] of results.entries()) {
+    if (r.status === 'fulfilled') {
+      notes.push(r.value);
+    } else {
+      log.warn('Disclosure note generation skipped', { fiscalYear, noteIndex: i, error: r.reason instanceof Error ? r.reason.message : String(r.reason) }, 'disclosureNoteService');
+    }
+  }
+  return notes;
 }
 
 // ── Manual Notes CRUD ─────────────────────────────────────────────────────────
