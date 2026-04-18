@@ -32,8 +32,16 @@ export default function CustomerAllocationsPage() {
       const res = await apiFetch('/api/accounting/customer-payments?unallocated=true', { credentials: 'include' });
       const json = await res.json();
       const d = json.data;
-      const raw: Payment[] = Array.isArray(d) ? d : d?.items || d?.payments || [];
-      setPayments(raw.map(p => ({ ...p, amount: Number(p.amount), allocatedAmount: Number(p.allocatedAmount) })));
+      const raw: (Payment & { totalAmount?: number })[] = Array.isArray(d) ? d : d?.items || d?.payments || [];
+      // API mapper returns `totalAmount` (camelCase of total_amount), not `amount`.
+      // Filter unallocated client-side because the `?unallocated=true` query param
+      // is not yet honoured by the customer-payments service.
+      const mapped = raw.map(p => ({
+        ...p,
+        amount: Number(p.totalAmount ?? p.amount ?? 0),
+        allocatedAmount: Number(p.allocatedAmount ?? 0),
+      }));
+      setPayments(mapped.filter(p => (p.amount - p.allocatedAmount) > 0.01));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to load data');
     } finally {

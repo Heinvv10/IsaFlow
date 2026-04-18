@@ -29,15 +29,24 @@ export default function BusinessUnitsPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await apiFetch('/api/accounting/cost-centres', { credentials: 'include' });
-    const json = await res.json();
-    const rows: BusinessUnit[] = (json.data || []).map((d: BusinessUnit) => ({
-      id: d.id, name: d.name, code: d.code,
-      description: d.description, isActive: d.isActive,
-      staffCount: d.staffCount,
-    }));
-    setItems(rows);
-    setLoading(false);
+    setError('');
+    try {
+      const res = await apiFetch('/api/accounting/business-units', { credentials: 'include' });
+      const json = await res.json() as { data?: BusinessUnit[] | { items?: BusinessUnit[] } };
+      const data = json.data;
+      const rawRows: BusinessUnit[] = Array.isArray(data)
+        ? data
+        : (data?.items ?? []);
+      setItems(rawRows.map(d => ({
+        id: d.id, name: d.name, code: d.code,
+        description: d.description, isActive: d.isActive,
+        staffCount: d.staffCount,
+      })));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load business units');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => { load(); }, [load]);

@@ -128,6 +128,7 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
           if (id) {
             setCompanyRole('owner');
             await loadCompanyDetails(id);
+            setLoading(false);
             return;
           }
         }

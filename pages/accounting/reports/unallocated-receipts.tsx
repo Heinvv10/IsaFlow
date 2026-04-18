@@ -11,7 +11,7 @@ import { apiFetch } from '@/lib/apiFetch';
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
-interface Receipt { id: string; paymentNumber: string; clientName: string; date: string; amount: number; allocatedAmount: number; }
+interface Receipt { id: string; paymentNumber: string; clientName: string; date: string; amount: number; allocatedAmount: number; totalAmount?: number; }
 
 export default function UnallocatedReceiptsReport() {
   const [items, setItems] = useState<Receipt[]>([]);
@@ -25,7 +25,12 @@ export default function UnallocatedReceiptsReport() {
       const res = await apiFetch('/api/accounting/customer-payments?unallocated=true', { credentials: 'include' });
       const json = await res.json();
       const d = json.data;
-      setItems(Array.isArray(d) ? d : d?.items || d?.payments || []);
+      const raw: Receipt[] = Array.isArray(d) ? d : d?.items || d?.payments || [];
+      // API returns `totalAmount`; normalise to `amount` for downstream rendering.
+      // Filter unallocated client-side until the API honours `?unallocated=true`.
+      setItems(raw
+        .map(r => ({ ...r, amount: Number(r.totalAmount ?? r.amount ?? 0), allocatedAmount: Number(r.allocatedAmount ?? 0) }))
+        .filter(r => (r.amount - r.allocatedAmount) > 0.01));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to load data');
     } finally {
