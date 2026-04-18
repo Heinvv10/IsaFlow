@@ -6,9 +6,9 @@
  * Usage: node scripts/audit-2026-04-14/perf-explain.mjs
  * Requires: DATABASE_URL exported from .env.local
  */
-import { neon } from '@neondatabase/serverless';
+import { createSql } from '../_pg';
 
-const sql = neon(process.env.DATABASE_URL);
+const sql = createSql();
 const C = 'd27bac33-cdc0-4e58-bf6b-709c1597d41c'; // Brightsphere
 
 async function explain(label, query) {

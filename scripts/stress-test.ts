@@ -9,7 +9,7 @@
  * Run: npx tsx scripts/stress-test.ts [--seed-only] [--load-only] [--clean]
  */
 
-import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
+import { createSql } from './_pg';
 import * as fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
@@ -22,7 +22,7 @@ if (fs.existsSync(envPath)) {
   }
 }
 
-const sql: NeonQueryFunction<false, false> = neon(process.env.DATABASE_URL!);
+const sql = createSql();
 const BASE = 'http://localhost:3200';
 const args = process.argv.slice(2);
 const SEED_ONLY  = args.includes('--seed-only');

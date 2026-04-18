@@ -3,7 +3,7 @@
  * bank statement import flow can be tested end-to-end with matching
  * statements (4069625895).
  */
-import { neon } from '@neondatabase/serverless';
+import { createSql } from './_pg';
 import * as fs from 'node:fs';
 
 const envPath = '/home/hein/Workspace/IsaFlow/.env.local';
@@ -23,7 +23,7 @@ const BANK_NAME = 'ABSA';
 const BANK_ACCOUNT_NUMBER = '4069625895';
 
 async function main() {
-  const sql = neon(process.env.DATABASE_URL!);
+  const sql = createSql();
 
   // Idempotent check
   const existing = (await sql`

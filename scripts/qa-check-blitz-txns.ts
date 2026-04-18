@@ -1,11 +1,11 @@
-import { neon } from '@neondatabase/serverless';
+import { createSql } from './_pg';
 import * as fs from 'node:fs';
 const env = fs.readFileSync('/home/hein/Workspace/IsaFlow/.env.local', 'utf-8');
 for (const line of env.split('\n')) {
   const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)\s*$/);
   if (m && !process.env[m[1]!]) process.env[m[1]!] = m[2]!.replace(/^["']|["']$/g, '');
 }
-const sql = neon(process.env.DATABASE_URL!);
+const sql = createSql();
 const BLITZ_PE = 'b5e17198-c23d-4441-a90d-68c9bc4febef';
 
 async function main() {

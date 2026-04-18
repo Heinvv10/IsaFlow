@@ -1,6 +1,7 @@
-import { neon } from '@neondatabase/serverless';
-const PROD_URL = 'postgresql://neondb_owner:npg_TDuKN9ao1sZB@ep-shiny-flower-aldyej0o-pooler.c-3.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require';
-const sql = neon(PROD_URL);
+import { createSql } from './_pg';
+// Post Neon→Supabase cutover (2026-04-18), "prod" = self-hosted Supabase.
+const PROD_URL = 'postgresql://postgres:a23f6104debd1d3e88e8f00c0067f22f@100.96.203.105:5437/isaflow?sslmode=disable';
+const sql = createSql(PROD_URL);
 async function main() {
   const users = await sql`
     SELECT email, first_name, last_name, is_active, password_hash IS NOT NULL AS has_password

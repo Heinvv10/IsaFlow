@@ -10,7 +10,7 @@ import { apiFetch } from '@/lib/apiFetch';
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
-interface Row { id: string; itemCode: string; name: string; description: string; category: string; uom: string; sellingPrice: number; costPrice: number; qtyOnHand: number; isActive: boolean; }
+interface Row { id: string; itemCode: string; name: string; category: string; uom: string; sellingPrice: number; costPrice: number; qtyOnHand: number; isActive: boolean; }
 
 export default function ItemListingReport() {
   const [rows, setRows] = useState<Row[]>([]);

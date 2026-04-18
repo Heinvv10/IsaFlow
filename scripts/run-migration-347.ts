@@ -1,8 +1,8 @@
 /**
- * Runs migration 347 using @neondatabase/serverless.
+ * Runs migration 347 against the configured DATABASE_URL.
  * Idempotent: safe to re-run.
  */
-import { neon } from '@neondatabase/serverless';
+import { createSql } from './_pg';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -13,7 +13,7 @@ for (const line of fs.readFileSync(envPath, 'utf-8').split('\n')) {
   if (m && !process.env[m[1]!]) process.env[m[1]!] = m[2]!.replace(/^["']|["']$/g, '');
 }
 
-const sql = neon(process.env.DATABASE_URL!);
+const sql = createSql();
 const migrationFile = path.resolve(__dirname, 'migrations/sql/347_auto_posting_foundation.sql');
 const content = fs.readFileSync(migrationFile, 'utf-8');
 const checksum = createHash('sha256').update(content).digest('hex');

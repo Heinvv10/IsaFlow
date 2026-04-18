@@ -8,13 +8,13 @@
 
 // Env vars must be set before running:
 // export $(grep DATABASE_URL .env.local | xargs) && npx tsx scripts/seed-demo-data.ts
-import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
+import { createSql } from './_pg';
 import { randomUUID } from 'crypto';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) { console.error('ERROR: DATABASE_URL not found in .env.local'); process.exit(1); }
 
-const sql: NeonQueryFunction<false, false> = neon(DATABASE_URL!);
+const sql = createSql(DATABASE_URL);
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 

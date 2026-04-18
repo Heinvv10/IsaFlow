@@ -2,7 +2,7 @@
  * Seed ISAFlow Standard COA for Blitz PE company.
  * Blitz PE was created before the onboarding COA seeding existed.
  */
-import { neon } from '@neondatabase/serverless';
+import { createSql } from './_pg';
 import * as fs from 'node:fs';
 
 const envPath = '/home/hein/Workspace/IsaFlow/.env.local';
@@ -66,7 +66,7 @@ const ACCOUNTS: Account[] = [
 ];
 
 async function main() {
-  const sql = neon(process.env.DATABASE_URL!);
+  const sql = createSql();
 
   // Check existing non-bank accounts
   const existing = (await sql`
