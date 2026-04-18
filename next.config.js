@@ -86,6 +86,12 @@ module.exports = withSentryConfig(nextConfig, {
   authToken: process.env.SENTRY_AUTH_TOKEN,
   url: process.env.SENTRY_URL,
   silent: !process.env.CI,
+  // Pin the release name to GIT_SHA so the webpack plugin creates
+  // exactly the release that scripts/deploy.sh later finalises via
+  // `sentry-cli releases finalize "$GIT_SHA"`.
+  release: process.env.SENTRY_RELEASE
+    ? { name: process.env.SENTRY_RELEASE }
+    : undefined,
   sourcemaps: {
     disable: !process.env.SENTRY_AUTH_TOKEN,
   },
