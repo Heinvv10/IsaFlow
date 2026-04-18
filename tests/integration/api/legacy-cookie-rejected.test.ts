@@ -1,44 +1,52 @@
 /**
- * Integration test: BL-32 — legacy ff_auth_token cookie must be rejected
+ * Integration test: GoTrue cookie acceptance
  *
- * Security finding S-009: the ff_auth_token cookie fallback allowed sessions
- * established under the old cookie name to continue working indefinitely,
- * bypassing the security boundary introduced by renaming to isaflow_auth.
+ * Phase 2 uses sb-access-token (ACCESS_COOKIE from @/lib/auth/cookies).
+ * The legacy ff_auth_token / isaflow_auth cookies are no longer checked.
  *
  * Properties under test:
- *   A. extractToken() returns null when only ff_auth_token is present —
- *      the fallback read path has been removed.
- *   B. extractToken() still returns the token when isaflow_auth is present.
- *
- * This tests the actual code path (no running server required) since the
- * fallback was in extractToken() itself.
+ *   A. parseCookies() returns the sb-access-token value when present.
+ *   B. parseCookies() returns undefined for unknown cookie names.
+ *   C. Old cookie names (ff_auth_token, isaflow_auth) do not grant access
+ *      — their values are just regular unknown cookies, not treated as auth tokens.
  */
 
 import { describe, it, expect } from 'vitest';
-import { extractToken } from '@/lib/auth/sessionHelpers';
+import { parseCookies, ACCESS_COOKIE } from '@/lib/auth/cookies';
 import type { NextApiRequest } from 'next';
 
 function makeReq(cookies: Record<string, string>): NextApiRequest {
+  // Build a Cookie header string from the cookies map
+  const cookieHeader = Object.entries(cookies)
+    .map(([k, v]) => `${k}=${v}`)
+    .join('; ');
   return {
-    cookies,
-    headers: {},
+    headers: { cookie: cookieHeader },
   } as unknown as NextApiRequest;
 }
 
-describe('legacy ff_auth_token cookie (BL-32)', () => {
-  it('returns null when only ff_auth_token is present — fallback removed (S-009)', () => {
-    const req = makeReq({ ff_auth_token: 'somevalue' });
-    // After BL-32 removal the fallback is gone — must return null, not 'somevalue'
-    expect(extractToken(req)).toBeNull();
+describe('GoTrue cookie (Phase 2 — BL-32 successor)', () => {
+  it('parses sb-access-token when present', () => {
+    const req = makeReq({ [ACCESS_COOKIE]: 'valid.jwt.token' });
+    const cookies = parseCookies(req);
+    expect(cookies[ACCESS_COOKIE]).toBe('valid.jwt.token');
   });
 
-  it('still returns token when isaflow_auth is present', () => {
-    const req = makeReq({ isaflow_auth: 'valid.jwt.token' });
-    expect(extractToken(req)).toBe('valid.jwt.token');
+  it('returns undefined for ACCESS_COOKIE when only legacy ff_auth_token is present', () => {
+    const req = makeReq({ ff_auth_token: 'old.token' });
+    const cookies = parseCookies(req);
+    expect(cookies[ACCESS_COOKIE]).toBeUndefined();
   });
 
-  it('prefers isaflow_auth over ff_auth_token if both are present', () => {
-    const req = makeReq({ isaflow_auth: 'new.token', ff_auth_token: 'old.token' });
-    expect(extractToken(req)).toBe('new.token');
+  it('returns undefined for ACCESS_COOKIE when only legacy isaflow_auth is present', () => {
+    const req = makeReq({ isaflow_auth: 'old.token' });
+    const cookies = parseCookies(req);
+    expect(cookies[ACCESS_COOKIE]).toBeUndefined();
+  });
+
+  it('prefers sb-access-token even when legacy cookies are also present', () => {
+    const req = makeReq({ [ACCESS_COOKIE]: 'new.token', isaflow_auth: 'old.token' });
+    const cookies = parseCookies(req);
+    expect(cookies[ACCESS_COOKIE]).toBe('new.token');
   });
 });

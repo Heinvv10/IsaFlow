@@ -1,7 +1,6 @@
 /**
  * Auth utilities for Next.js App Router routes (NextRequest).
- * Provides the same JWT-based identity resolution as withAuth() in middleware.ts,
- * but compatible with the App Router request/response API.
+ * Phase 2: Uses GoTrue JWT verification via parseCookies + verifyToken.
  *
  * Usage:
  *   import { getUserFromRequest } from '@/lib/auth/app-router';
@@ -11,17 +10,22 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyToken } from './jwt';
-import { AUTH_COOKIE_NAME, getUserAndValidateSession } from './middleware';
-import type { AuthUser } from './types';
-import { createHash } from 'crypto';
+import { verifyToken } from './gotrue';
+import { ACCESS_COOKIE } from './cookies';
+import type { UserAuthedRequest } from './withUserAuth';
+
+export type AppRouterUser = {
+  id: string;
+  email?: string;
+  claims: Record<string, unknown>;
+};
 
 /**
- * Extract the JWT token from a NextRequest (cookie or Authorization header).
+ * Extract the GoTrue JWT from a NextRequest (sb-access-token cookie or Bearer header).
  */
 function extractToken(req: NextRequest): string | null {
-  // 1. Cookie (preferred)
-  const cookieToken = req.cookies.get(AUTH_COOKIE_NAME)?.value;
+  // 1. Cookie (preferred — set by login/register handlers)
+  const cookieToken = req.cookies.get(ACCESS_COOKIE)?.value;
   if (cookieToken) return cookieToken;
 
   // 2. Authorization: Bearer <token>
@@ -34,22 +38,21 @@ function extractToken(req: NextRequest): string | null {
 }
 
 /**
- * Resolve the full AuthUser from a NextRequest.
- * Returns null if the request is unauthenticated or the token is invalid.
- *
- * IMPORTANT: User identity comes ONLY from the verified JWT — never from
- * client-supplied headers like x-user-id.
+ * Resolve the authenticated user from a NextRequest.
+ * Returns null if the request is unauthenticated or the JWT is invalid/expired.
  */
-export async function getUserFromRequest(req: NextRequest): Promise<AuthUser | null> {
+export async function getUserFromRequest(req: NextRequest): Promise<AppRouterUser | null> {
   const token = extractToken(req);
   if (!token) return null;
 
-  const payload = await verifyToken(token);
-  if (!payload || !payload.sub) return null;
-
   try {
-    const tokenHash = createHash('sha256').update(token).digest('hex');
-    return await getUserAndValidateSession(payload.sub, payload.sessionId, tokenHash);
+    const claims = await verifyToken(token);
+    if (!claims.sub) return null;
+    return {
+      id: claims.sub,
+      email: typeof claims.email === 'string' ? claims.email : undefined,
+      claims: claims as Record<string, unknown>,
+    };
   } catch {
     return null;
   }
@@ -65,10 +68,13 @@ export async function getUserFromRequest(req: NextRequest): Promise<AuthUser | n
  */
 export async function requireAuth(
   req: NextRequest
-): Promise<[AuthUser, null] | [null, NextResponse]> {
+): Promise<[AppRouterUser, null] | [null, NextResponse]> {
   const user = await getUserFromRequest(req);
   if (!user) {
     return [null, NextResponse.json({ error: 'Unauthorized' }, { status: 401 })];
   }
   return [user, null];
 }
+
+// Back-compat export shape for callers that typed the return as AuthUser
+export type { AppRouterUser as AuthUser };
