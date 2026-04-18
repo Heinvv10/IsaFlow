@@ -88,6 +88,16 @@ export default function AccountingPage() {
   }, [router.query.tab, isMounted]);
 
   const handleTabChange = useCallback((tab: string) => {
+    // chart-of-accounts and fiscal-periods have dedicated standalone pages —
+    // navigate there so deep links / bookmarks / emails resolve correctly.
+    if (tab === 'chart-of-accounts') {
+      void router.push('/accounting/chart-of-accounts');
+      return;
+    }
+    if (tab === 'fiscal-periods') {
+      void router.push('/accounting/fiscal-periods');
+      return;
+    }
     setActiveTab(tab as AccountingTab);
     router.push({ pathname: '/accounting', query: { tab } }, undefined, { shallow: true });
   }, [router]);

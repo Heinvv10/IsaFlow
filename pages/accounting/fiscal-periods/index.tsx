@@ -1,18 +1,27 @@
-import { useEffect } from 'react';
-import { useRouter } from 'next/router';
+/**
+ * Fiscal Periods — standalone page.
+ * Replaces the redirect shim that previously bounced to /accounting?tab=fiscal-periods.
+ */
+
+import { Calendar } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Loader2 } from 'lucide-react';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { FiscalPeriodsTab } from '@/components/accounting/dashboard/FiscalPeriodsTab';
 
 export default function FiscalPeriodsPage() {
-  const router = useRouter();
-  useEffect(() => {
-    router.replace('/accounting?tab=fiscal-periods');
-  }, [router]);
-
   return (
     <AppLayout>
-      <div className="min-h-screen bg-[var(--ff-bg-primary)] flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
+      <div className="min-h-screen bg-[var(--ff-bg-primary)]">
+        <PageHeader
+          icon={Calendar}
+          title="Fiscal Periods"
+          subtitle="Manage accounting periods — open, close, lock, or reopen"
+          backLink={{ label: 'Accounting', href: '/accounting' }}
+          chipColor="bg-amber-500/10 text-amber-500 dark:text-amber-400"
+        />
+        <div className="px-6 pb-8">
+          <FiscalPeriodsTab />
+        </div>
       </div>
     </AppLayout>
   );
