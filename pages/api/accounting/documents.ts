@@ -10,7 +10,7 @@ import { sql } from '@/lib/neon';
 import formidable from 'formidable';
 import fs from 'fs';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, withWriteAccess } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
@@ -41,7 +41,7 @@ function parseForm(req: NextApiRequest): Promise<{ fields: formidable.Fields; fi
 }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
   const user = (req as NextApiRequest & { user: { id: string; name: string; email: string } }).user;
 
   if (req.method === 'GET') return handleGet(req, res, companyId);
@@ -194,4 +194,4 @@ async function handleDelete(req: NextApiRequest, res: NextApiResponse, companyId
   return apiResponse.success(res, { id: row.id, deleted: true });
 }
 
-export default withCompany(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

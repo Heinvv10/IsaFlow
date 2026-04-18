@@ -5,11 +5,11 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
+import { withAuth, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { checkRateLimit } from '@/lib/rateLimit';
-import type { CompanyApiRequest } from '@/lib/auth/withCompany';
+import type { CompanyAuthedRequest } from '@/lib/auth/withAuth';
 import {
   buildTextToSQLPrompt, parseSQLResponse, validateGeneratedSQL,
   formatQueryResult, buildSchemaDescription, classifyQueryIntent,
@@ -49,7 +49,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'Question is too long (maximum 500 characters)');
   }
 
-  const companyId = (req as CompanyApiRequest).companyId;
+  const companyId = (req as CompanyAuthedRequest).companyId;
   const intent = classifyQueryIntent(question);
   const schemaDesc = buildSchemaDescription(SCHEMA_TABLES);
   const prompt = buildTextToSQLPrompt(question, schemaDesc, companyId);
@@ -151,4 +151,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withCompany(withErrorHandler(withWriteAccess(handler)));
+export default withAuth(withErrorHandler(withWriteAccess(handler)));

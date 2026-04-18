@@ -6,9 +6,9 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
+import { withAuth, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { sql } from '@/lib/neon';
-import type { CompanyApiRequest } from '@/lib/auth/withCompany';
+import type { CompanyAuthedRequest } from '@/lib/auth/withAuth';
 
 type Row = Record<string, unknown>;
 
@@ -17,7 +17,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
   }
 
-  const companyId = (req as CompanyApiRequest).companyId;
+  const companyId = (req as CompanyAuthedRequest).companyId;
   const { asOf } = req.query;
   const asOfDate = asOf ? String(asOf) : new Date().toISOString().split('T')[0];
 
@@ -42,4 +42,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, { assets: rows, summary });
 }
 
-export default withCompany(withErrorHandler(withWriteAccess(handler)));
+export default withAuth(withErrorHandler(withWriteAccess(handler)));

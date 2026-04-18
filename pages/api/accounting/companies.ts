@@ -8,7 +8,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import {
@@ -17,7 +17,7 @@ import {
 } from '@/modules/accounting/services/core/companyService';
 
 /**
- * AUTH: Uses withAuth (not withCompany) because this endpoint manages the list of
+ * AUTH: Uses withAuth (not withAuth) because this endpoint manages the list of
  * companies a user belongs to — it is intentionally cross-company. All reads are scoped
  * to getUserCompanies(userId), which filters by the authenticated user's company_users
  * rows. Any access to a specific company (GET ?id=, PUT, POST set-default) is guarded by
@@ -35,7 +35,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
     if (req.query.id) {
       // super_admin can access any company (impersonation / support access)
-      const isSuperAdmin = (req as AuthenticatedNextApiRequest).user.role === 'super_admin';
+      const isSuperAdmin = (req as CompanyAuthedRequest).companyRole === 'super_admin';
       if (!isSuperAdmin) {
         const userCompanies = await getUserCompanies(userId);
         const hasAccess = userCompanies.some(c => c.companyId === req.query.id);

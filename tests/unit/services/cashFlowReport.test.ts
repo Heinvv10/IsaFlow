@@ -79,24 +79,24 @@ function makeRes(): NextApiResponse {
 // Import the handler AFTER mocks are set up
 // ---------------------------------------------------------------------------
 // We import the raw handler function, not the wrapped export, so we bypass
-// withCompany/withErrorHandler wrappers that need full Next.js context.
-// The handler is the default export after withCompany wrapping; to test the
+// withAuth/withErrorHandler wrappers that need full Next.js context.
+// The handler is the default export after withAuth wrapping; to test the
 // inner logic we import the module and call the inner handler via a thin shim.
 //
-// Because the default export is `withCompany(withErrorHandler(withWriteAccess(handler)))`,
+// Because the default export is `withAuth(withErrorHandler(withWriteAccess(handler)))`,
 // we cannot easily extract `handler` directly. Instead we mock all deps and
 // call the wrapped export with a pre-set companyId (bypassing auth middleware).
 
 // ---------------------------------------------------------------------------
 // We test via the module's default export but bypass auth by directly calling
-// the API logic. Since withCompany reads req.companyId which we inject,
+// the API logic. Since withAuth reads req.companyId which we inject,
 // the simplest approach is to mock the auth wrappers to be pass-through.
 // ---------------------------------------------------------------------------
 vi.mock('@/lib/auth', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/lib/auth')>();
   return {
     ...original,
-    withCompany: (fn: (req: NextApiRequest, res: NextApiResponse) => unknown) => fn,
+    withAuth: (fn: (req: NextApiRequest, res: NextApiResponse) => unknown) => fn,
     withWriteAccess: (fn: (req: NextApiRequest, res: NextApiResponse) => unknown) => fn,
   };
 });

@@ -2,7 +2,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { exportToPdf } from '@/modules/accounting/services/afs/pdfExportService';
 
@@ -11,7 +11,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
   }
 
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
   const documentId = req.query.documentId as string;
 
   log.info('Generating AFS proof copy', { companyId, documentId }, 'afs-proof-copy-api');
@@ -26,4 +26,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return res.status(200).send(buffer);
 }
 
-export default withCompany(withErrorHandler(handler as never));
+export default withAuth(withErrorHandler(handler as never));

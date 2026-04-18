@@ -7,7 +7,7 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { cache } from '@/lib/cache';
@@ -15,7 +15,7 @@ import { cache } from '@/lib/cache';
 const ADMIN_ROLES = ['owner', 'admin', 'super_admin'];
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId, companyRole } = req as CompanyApiRequest;
+  const { companyId, companyRole } = req as CompanyAuthedRequest;
 
   if (!ADMIN_ROLES.includes(companyRole)) {
     return apiResponse.forbidden(res, 'Only admins can view or manage cache statistics.');
@@ -41,4 +41,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
  
-export default withCompany(withErrorHandler(withWriteAccess(handler)));
+export default withAuth(withErrorHandler(withWriteAccess(handler)));

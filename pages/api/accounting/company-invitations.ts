@@ -8,7 +8,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -27,7 +27,7 @@ const ADMIN_ROLES = ['owner', 'admin'];
 const BASE_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.isaflow.co.za';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const companyReq = req as CompanyApiRequest;
+  const companyReq = req as CompanyAuthedRequest;
   const { companyId, companyRole } = companyReq;
 
   // GET — list pending invitations
@@ -56,7 +56,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     const invitedBy = companyReq.user.id;
-    const inviterName = companyReq.user.name || companyReq.user.email;
+    const inviterName = companyReq.user.email ?? companyReq.user.id;
 
     try {
       const result = await createInvitation(companyId, emailLower, role, invitedBy);
@@ -125,4 +125,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
  
-export default withCompany(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

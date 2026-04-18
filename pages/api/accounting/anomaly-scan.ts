@@ -5,10 +5,10 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
+import { withAuth, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import type { CompanyApiRequest } from '@/lib/auth/withCompany';
+import type { CompanyAuthedRequest } from '@/lib/auth/withAuth';
 import {
   benfordsLawAnalysis, detectStatisticalOutliers, detectDuplicatePayments,
   detectUnusualPostingPatterns, buildAlertMessage, type Transaction,
@@ -19,7 +19,7 @@ type Row = Record<string, unknown>;
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
 
-  const companyId = (req as CompanyApiRequest).companyId;
+  const companyId = (req as CompanyAuthedRequest).companyId;
   const { period } = req.body;
   const fromDate = period || new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
@@ -76,4 +76,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     duplicates, patterns, alerts, scannedTransactions: transactions.length,
   });
 }
-export default withCompany(withErrorHandler(withWriteAccess(handler)));
+export default withAuth(withErrorHandler(withWriteAccess(handler)));

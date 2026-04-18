@@ -7,7 +7,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import {
@@ -20,7 +20,7 @@ import type { DbRow } from '@/lib/neon';
 type Row = DbRow;
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
   const userId = (req as AuthenticatedNextApiRequest).user.id;
 
   if (req.method === 'GET') {
@@ -71,4 +71,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST']);
 }
 
-export default withCompany(withErrorHandler(withCsrf(handler as Parameters<typeof withCompany>[0])));
+export default withAuth(withErrorHandler(withCsrf(handler as Parameters<typeof withAuth>[0])));

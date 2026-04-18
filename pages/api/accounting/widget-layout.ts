@@ -7,7 +7,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -45,7 +45,7 @@ async function buildAdaptiveDefault(companyId: string): Promise<WidgetConfig[]> 
   return layout;
 }
 
-async function handler(req: CompanyApiRequest, res: NextApiResponse) {
+async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const { companyId } = req;
   const userId = req.user.id;
 
@@ -107,4 +107,4 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 // Per-user dashboard layout — viewers must be able to save their own UI state,
 // so the write-access gate is explicitly disabled for this endpoint.
-export default withCompany(withErrorHandler(withCsrf(withWriteAccess(handler, { allowedRoles: null }))));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler, { allowedRoles: null }))));

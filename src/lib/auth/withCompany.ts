@@ -11,12 +11,12 @@ import { withAuth, type AuthenticatedNextApiRequest } from './middleware';
 import { log } from '@/lib/logger';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 
-export interface CompanyApiRequest extends AuthenticatedNextApiRequest {
+export interface CompanyAuthedRequest extends AuthenticatedNextApiRequest {
   companyId: string;
   companyRole: string;
 }
 
-// Accept handlers that declare a more specific req type (e.g. CompanyApiRequest,
+// Accept handlers that declare a more specific req type (e.g. CompanyAuthedRequest,
 // AuthenticatedNextApiRequest) — the cast inside withCompany is safe because
 // by the time handler is called, the request has been enriched with those fields.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -44,8 +44,8 @@ export function withCompany(handler: CompanyHandler): NextApiHandler {
       if (companyId) {
         // super_admin can access any company (impersonation and support access)
         if (authReq.user.role === 'super_admin') {
-          (req as CompanyApiRequest).companyId = companyId;
-          (req as CompanyApiRequest).companyRole = 'owner';
+          (req as CompanyAuthedRequest).companyId = companyId;
+          (req as CompanyAuthedRequest).companyRole = 'owner';
           if (process.env.SENTRY_ENABLED === 'true') {
             return Sentry.withIsolationScope(() => {
               setTenantTags({ companyId, userId, route: sanitizeRoute(req.url) });
@@ -70,8 +70,8 @@ export function withCompany(handler: CompanyHandler): NextApiHandler {
           });
         }
 
-        (req as CompanyApiRequest).companyId = companyId;
-        (req as CompanyApiRequest).companyRole = access[0]!.role as string;
+        (req as CompanyAuthedRequest).companyId = companyId;
+        (req as CompanyAuthedRequest).companyRole = access[0]!.role as string;
         if (process.env.SENTRY_ENABLED === 'true') {
           return Sentry.withIsolationScope(() => {
             setTenantTags({ companyId, userId, route: sanitizeRoute(req.url) });
@@ -99,8 +99,8 @@ export function withCompany(handler: CompanyHandler): NextApiHandler {
       }
 
       const resolvedCompanyId = companies[0]!.company_id as string;
-      (req as CompanyApiRequest).companyId = resolvedCompanyId;
-      (req as CompanyApiRequest).companyRole = companies[0]!.role as string;
+      (req as CompanyAuthedRequest).companyId = resolvedCompanyId;
+      (req as CompanyAuthedRequest).companyRole = companies[0]!.role as string;
       if (process.env.SENTRY_ENABLED === 'true') {
         return Sentry.withIsolationScope(() => {
           setTenantTags({ companyId: resolvedCompanyId, userId, route: sanitizeRoute(req.url) });

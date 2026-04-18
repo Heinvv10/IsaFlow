@@ -9,10 +9,10 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import {
-  withCompany,
+  withAuth,
   withWriteAccess,
   type AuthenticatedNextApiRequest,
-  type CompanyApiRequest,
+  type CompanyAuthedRequest,
 } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
@@ -30,7 +30,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
 
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
   const userId = req.user.id;
   const { recurring_invoice_id } = req.body as { recurring_invoice_id?: string };
 
@@ -88,4 +88,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, result);
 }
 
-export default withCompany(withErrorHandler(withWriteAccess(handler as never)));
+export default withAuth(withErrorHandler(withWriteAccess(handler as never)));

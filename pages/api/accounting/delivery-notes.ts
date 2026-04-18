@@ -11,9 +11,9 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import {
-  withCompany,
+  withAuth,
   withWriteAccess,
-  type CompanyApiRequest,
+  type CompanyAuthedRequest,
   type AuthenticatedNextApiRequest,
 } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -28,7 +28,7 @@ import {
 import { log } from '@/lib/logger';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
 
   if (req.method === 'GET') {
     const { id, status, limit, offset } = req.query;
@@ -94,4 +94,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST', 'PATCH', 'DELETE']);
 }
 
-export default withCompany(withErrorHandler(withCsrf(withWriteAccess(handler as never))));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler as never))));

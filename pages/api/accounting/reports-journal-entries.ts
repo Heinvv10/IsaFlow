@@ -7,7 +7,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { GLEntryStatus, GLEntrySource } from '@/modules/accounting/types/gl.types';
@@ -29,7 +29,7 @@ function fmtDateStr(val: Date | string | null | undefined): string {
   return String(val).split('T')[0]!;
 }
 
-async function handler(req: CompanyApiRequest, res: NextApiResponse) {
+async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const { companyId } = req;
 
   if (req.method !== 'GET') {
@@ -101,4 +101,4 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withCompany(withErrorHandler(handler));
+export default withAuth(withErrorHandler(handler));
