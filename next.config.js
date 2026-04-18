@@ -18,6 +18,19 @@ const nextConfig = {
     optimizePackageImports: ['lucide-react', 'recharts'],
   },
 
+  // Proxy GoTrue's /auth/v1/* through the app. GoTrue recovery emails link
+  // to {SITE_URL}/auth/v1/verify?... and the Cloudflare tunnel for
+  // app.isaflow.co.za goes direct to Next.js (bypasses nginx), so the proxy
+  // has to live here.
+  async rewrites() {
+    return [
+      {
+        source: '/auth/v1/:path*',
+        destination: 'http://localhost:8300/auth/v1/:path*',
+      },
+    ];
+  },
+
   // Backward-compatibility redirects for deleted shim pages
   async redirects() {
     return [
