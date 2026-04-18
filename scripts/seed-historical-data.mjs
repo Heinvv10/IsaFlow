@@ -5,9 +5,11 @@
 
 import pg from 'pg';
 
-const DATABASE_URL = process.env.DATABASE_URL;
+// Seed scripts write to company-scoped tables and must bypass RLS.
+// Prefer MIGRATION_ADMIN_DATABASE_URL (BYPASSRLS role); fall back to DATABASE_URL.
+const DATABASE_URL = process.env.MIGRATION_ADMIN_DATABASE_URL ?? process.env.DATABASE_URL;
 if (!DATABASE_URL) {
-  console.error('ERROR: DATABASE_URL required.');
+  console.error('ERROR: MIGRATION_ADMIN_DATABASE_URL or DATABASE_URL required.');
   process.exit(1);
 }
 
