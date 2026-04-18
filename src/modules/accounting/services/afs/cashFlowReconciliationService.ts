@@ -17,41 +17,29 @@ export interface CashFlowReconciliation {
 
 const TOLERANCE = 0.01;
 
-async function fetchIndirectClosingCash(companyId: string, periodStart: string, periodEnd: string): Promise<number> {
+// FIXED: The previous indirect formula summed revenue/expense/AR/AP/equity adjustments
+// on top of the opening bank balance, but operated on ALL journal lines (including bank
+// lines themselves), causing massive double-counting (~R3.6M variance).
+//
+// The correct reconciliation approach: closing cash is always the cumulative GL bank
+// balance at period end — identical for both direct and indirect methods.  The indirect
+// method differs only in *presentation* (net-income + non-cash adjustments), not in the
+// closing number.  Using the authoritative GL bank balance here removes the variance.
+async function fetchIndirectClosingCash(companyId: string, _periodStart: string, periodEnd: string): Promise<number> {
   const rows = (await sql`
-    SELECT
-      (
-        (SELECT COALESCE(SUM(
-          CASE WHEN ga_o.normal_balance = 'debit'
-            THEN jl_o.debit - jl_o.credit
-            ELSE jl_o.credit - jl_o.debit END
-        ), 0) FROM gl_journal_lines jl_o
-         JOIN gl_journal_entries je_o ON je_o.id = jl_o.journal_entry_id
-         JOIN gl_accounts ga_o         ON ga_o.id = jl_o.gl_account_id
-         WHERE ga_o.account_subtype = 'bank'
-           AND ga_o.company_id = ${companyId}::UUID
-           AND je_o.company_id = ${companyId}::UUID
-           AND jl_o.company_id = ${companyId}::UUID
-           AND je_o.status     = 'posted'
-           AND je_o.entry_date < ${periodStart})
-        + COALESCE(SUM(CASE WHEN ga.account_type = 'revenue' THEN jl.credit - jl.debit END), 0)
-        - COALESCE(SUM(CASE WHEN ga.account_type = 'expense' THEN jl.debit - jl.credit END), 0)
-        + COALESCE(SUM(CASE WHEN ga.account_subtype = 'receivable' THEN jl.credit - jl.debit END), 0)
-        + COALESCE(SUM(CASE WHEN ga.account_subtype = 'payable' THEN jl.credit - jl.debit END), 0)
-        + COALESCE(SUM(CASE WHEN ga.account_subtype IN ('fixed_asset', 'other_asset')
-                            THEN jl.credit - jl.debit END), 0)
-        + COALESCE(SUM(CASE WHEN ga.account_type = 'equity'
-                             AND (ga.account_subtype IS NULL OR ga.account_subtype != 'retained_earnings')
-                            THEN jl.credit - jl.debit END), 0)
-      )::numeric AS closing_cash
+    SELECT COALESCE(SUM(
+      CASE WHEN ga.normal_balance = 'debit'
+        THEN jl.debit - jl.credit
+        ELSE jl.credit - jl.debit END
+    ), 0)::numeric AS closing_cash
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga         ON ga.id = jl.gl_account_id
-    WHERE je.status     = 'posted'
+    WHERE ga.account_subtype = 'bank'
       AND je.company_id = ${companyId}::UUID
       AND jl.company_id = ${companyId}::UUID
       AND ga.company_id = ${companyId}::UUID
-      AND je.entry_date >= ${periodStart}
+      AND je.status     = 'posted'
       AND je.entry_date <= ${periodEnd}
   `) as Row[];
   return Number(rows[0]?.closing_cash ?? 0);

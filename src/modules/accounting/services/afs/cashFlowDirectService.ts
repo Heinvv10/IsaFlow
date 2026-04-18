@@ -65,7 +65,9 @@ async function fetchGroupedAllocations(
   periodStart: string,
   periodEnd: string,
 ): Promise<Array<{ cashGroup: string; amount: number }>> {
-  const rows = (await sql`
+  // Primary source: bank transactions that have been matched to a journal line.
+  // The contra-account (the non-bank leg) determines the cash-flow category.
+  const matchedRows = (await sql`
     SELECT
       CASE
         WHEN ga.account_subtype IN ('revenue', 'receivable')          THEN 'cash_received_from_customers'
@@ -99,10 +101,46 @@ async function fetchGroupedAllocations(
     GROUP BY cash_group
   `) as Row[];
 
-  return rows.map(r => ({
-    cashGroup: String(r.cash_group),
-    amount:    Number(r.amount),
-  }));
+  // Secondary source: posted bank-account journal lines with NO matching bank_transaction
+  // (e.g. manual journals, opening-balance entries, year-end postings).  These are
+  // classified as 'other_operating' since there is no contra-account metadata to
+  // determine a more specific category.  Without this, direct closing cash diverges
+  // from the GL bank balance by the sum of all unmatched bank-line movements.
+  const unmatchedRows = (await sql`
+    SELECT
+      'other_operating' AS cash_group,
+      COALESCE(SUM(
+        CASE WHEN ga.normal_balance = 'debit'
+          THEN jl.debit - jl.credit
+          ELSE jl.credit - jl.debit END
+      ), 0)::numeric AS amount
+    FROM gl_journal_lines jl
+    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+    JOIN gl_accounts ga         ON ga.id = jl.gl_account_id
+    WHERE ga.account_subtype = 'bank'
+      AND je.status     = 'posted'
+      AND jl.company_id = ${companyId}::UUID
+      AND je.company_id = ${companyId}::UUID
+      AND ga.company_id = ${companyId}::UUID
+      AND je.entry_date >= ${periodStart}
+      AND je.entry_date <= ${periodEnd}
+      AND NOT EXISTS (
+        SELECT 1 FROM bank_transactions bt
+        WHERE bt.matched_journal_line_id = jl.id
+          AND bt.company_id = ${companyId}::UUID
+      )
+    GROUP BY cash_group
+  `) as Row[];
+
+  // Merge: add the unmatched amount into the 'other_operating' bucket.
+  const combined = [...matchedRows, ...unmatchedRows];
+  const merged = new Map<string, number>();
+  for (const r of combined) {
+    const group = String(r.cash_group);
+    merged.set(group, (merged.get(group) ?? 0) + Number(r.amount));
+  }
+
+  return Array.from(merged.entries()).map(([cashGroup, amount]) => ({ cashGroup, amount }));
 }
 
 export async function getCashFlowDirect(

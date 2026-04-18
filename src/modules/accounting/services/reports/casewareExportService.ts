@@ -119,18 +119,23 @@ export async function exportCaseWareTB(
 ): Promise<string> {
   log.info('Exporting CaseWare trial balance', { companyId, periodStart, periodEnd }, 'casewareExportService');
 
+  // NOTE: gl_journal_lines uses columns `debit` / `credit` and `gl_account_id` (not
+  // `debit_amount` / `credit_amount` / `account_id`).  GROUP BY must include ga.id so
+  // that duplicate account_codes (data issue) each get their own row rather than being
+  // silently merged — callers can see the duplication and flag it for cleanup.
   const rows = await sql`
     SELECT
+      ga.id AS ga_id,
       ga.account_code AS "AccountCode",
       ga.account_name AS "AccountName",
       ga.account_type AS "AccountType",
       ga.account_subtype AS "AccountSubtype",
-      COALESCE(SUM(gjl.debit_amount), 0) AS debit,
-      COALESCE(SUM(gjl.credit_amount), 0) AS credit,
+      COALESCE(SUM(gjl.debit), 0) AS debit,
+      COALESCE(SUM(gjl.credit), 0) AS credit,
       COALESCE(aem.external_code, '') AS "CaseWareCode",
       COALESCE(aem.external_label, '') AS "CaseWareLabel"
     FROM gl_accounts ga
-    LEFT JOIN gl_journal_lines gjl ON gjl.account_id = ga.id
+    LEFT JOIN gl_journal_lines gjl ON gjl.gl_account_id = ga.id
       AND gjl.company_id = ${companyId}
     LEFT JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
       AND gje.entry_date BETWEEN ${periodStart} AND ${periodEnd}
@@ -141,9 +146,9 @@ export async function exportCaseWareTB(
       AND aem.target_system = 'caseware'
     WHERE ga.company_id = ${companyId}
       AND ga.is_active = true
-    GROUP BY ga.account_code, ga.account_name, ga.account_type, ga.account_subtype,
+    GROUP BY ga.id, ga.account_code, ga.account_name, ga.account_type, ga.account_subtype,
              aem.external_code, aem.external_label
-    HAVING COALESCE(SUM(gjl.debit_amount), 0) != 0 OR COALESCE(SUM(gjl.credit_amount), 0) != 0
+    HAVING COALESCE(SUM(gjl.debit), 0) != 0 OR COALESCE(SUM(gjl.credit), 0) != 0
     ORDER BY ga.account_code
   ` as DbRow[];
 

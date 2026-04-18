@@ -7,6 +7,7 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ClipboardList, ArrowLeft, CheckCircle, FileText, Loader2, AlertCircle } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { formatDate } from '@/utils/formatters';
 
 interface SalesOrderItem {
   id: string;
@@ -131,8 +132,6 @@ export default function SalesOrderDetailPage() {
     );
   }
 
-  const dateStr = (d: string) => String(d).split('T')[0] ?? String(d);
-
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
@@ -155,7 +154,7 @@ export default function SalesOrderDetailPage() {
                   {order.orderNumber}
                 </h1>
                 <p className="text-sm text-[var(--ff-text-secondary)]">
-                  {order.customerName || 'No customer'} &middot; {dateStr(order.orderDate)}
+                  {order.customerName || 'No customer'} &middot; {formatDate(order.orderDate)}
                 </p>
               </div>
               <span
@@ -222,12 +221,12 @@ export default function SalesOrderDetailPage() {
               </div>
               <div>
                 <p className="text-[var(--ff-text-tertiary)] text-xs uppercase mb-1">Order Date</p>
-                <p className="text-[var(--ff-text-primary)]">{dateStr(order.orderDate)}</p>
+                <p className="text-[var(--ff-text-primary)]">{formatDate(order.orderDate)}</p>
               </div>
               <div>
                 <p className="text-[var(--ff-text-tertiary)] text-xs uppercase mb-1">Delivery Date</p>
                 <p className="text-[var(--ff-text-primary)]">
-                  {order.deliveryDate ? dateStr(order.deliveryDate) : '—'}
+                  {order.deliveryDate ? formatDate(order.deliveryDate) : '—'}
                 </p>
               </div>
               <div>

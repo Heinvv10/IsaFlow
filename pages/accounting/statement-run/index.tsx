@@ -138,7 +138,13 @@ export default function StatementRunPage() {
               </div>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => sendEmails(selected)}
+                  onClick={() => {
+                    if (selected.size === 0) return;
+                    const confirmed = confirm(
+                      `Send statements to ${emailCount} customer${emailCount !== 1 ? 's' : ''}? This cannot be undone.`
+                    );
+                    if (confirmed) sendEmails(selected);
+                  }}
                   disabled={selected.size === 0 || isSending || isGenerating}
                   title={
                     emailCount < selected.size

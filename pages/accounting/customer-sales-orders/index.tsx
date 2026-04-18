@@ -7,6 +7,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { ClipboardList, Plus, Search, Loader2, Trash2, Edit, X, FileText } from 'lucide-react';
 import { StatusPill, PageHeader } from '@/components/ui';
 import { apiFetch } from '@/lib/apiFetch';
+import { formatDate } from '@/utils/formatters';
 
 interface SalesOrder {
   id: string; orderNumber: string; customerName: string;
@@ -222,8 +223,8 @@ export default function CustomerSalesOrdersPage() {
                     <tr key={o.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
                       <td className="px-5 py-3.5 font-mono text-amber-500 font-semibold">{o.orderNumber}</td>
                       <td className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{o.customerName}</td>
-                      <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{o.orderDate?.split('T')[0]}</td>
-                      <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{o.deliveryDate?.split('T')[0] || '—'}</td>
+                      <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{formatDate(o.orderDate)}</td>
+                      <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{formatDate(o.deliveryDate) || '—'}</td>
                       <td className="px-5 py-3.5 text-right font-mono font-semibold text-slate-900 dark:text-white">{fmt(o.totalAmount)}</td>
                       <td className="px-5 py-3.5"><StatusPill status={o.status} /></td>
                       <td className="px-4 py-3.5">

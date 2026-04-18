@@ -15,7 +15,7 @@ export const taxTab: Tab = {
       section: 'SARS Submissions',
       items: [
         { label: 'VAT201', href: '/accounting/sars/vat201' },
-        { label: 'EMP201', href: '/accounting/sars/emp201' },
+        { label: 'EMP201 Submission', href: '/accounting/sars/emp201' },
         { label: 'EMP201 / SDL (Payroll)', href: '/payroll/emp201' },
         { label: 'EMP501 Reconciliation', href: '/payroll/emp501' },
         { label: 'IRP5 Certificates', href: '/payroll/irp5' },

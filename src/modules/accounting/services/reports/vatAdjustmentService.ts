@@ -8,6 +8,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
 import { getSystemAccount } from '../gl/systemAccountResolver';
+import { resolveUserUuid } from '../gl/journalEntryCrudService';
 import type { VATAdjustment, VATAdjustmentCreateInput } from '../../types/gl.types';
 import type { JournalLineInput } from '../../types/gl.types';
 type Row = DbRow;
@@ -44,16 +45,17 @@ export async function getVATAdjustments(companyId: string, filters?: {
   return { items: rows.map(mapRow), total: Number(countRows[0]?.cnt || 0) };
 }
 
-export async function createVATAdjustment(companyId: string, 
+export async function createVATAdjustment(companyId: string,
   input: VATAdjustmentCreateInput,
   userId: string
 ): Promise<VATAdjustment> {
+  const safeUserId = await resolveUserUuid(userId);
   const rows = (await sql`
     INSERT INTO vat_adjustments (
       company_id, adjustment_date, vat_period, adjustment_type, amount, reason, created_by
     ) VALUES (
       ${companyId}, ${input.adjustmentDate}, ${input.vatPeriod || null},
-      ${input.adjustmentType}, ${input.amount}, ${input.reason}, ${userId}::UUID
+      ${input.adjustmentType}, ${input.amount}, ${input.reason}, ${safeUserId}::UUID
     ) RETURNING *
   `) as Row[];
 
@@ -61,10 +63,11 @@ export async function createVATAdjustment(companyId: string,
   return mapRow(rows[0]!);
 }
 
-export async function approveVATAdjustment(companyId: string, 
+export async function approveVATAdjustment(companyId: string,
   id: string,
   userId: string
 ): Promise<VATAdjustment> {
+  const safeUserId = await resolveUserUuid(userId);
   const vaRows = (await sql`SELECT * FROM vat_adjustments WHERE id = ${id} AND company_id = ${companyId}`) as Row[];
   if (!vaRows[0]) throw new Error('VAT adjustment not found');
   if (vaRows[0].status !== 'draft') throw new Error('VAT adjustment is not in draft status');
@@ -100,12 +103,12 @@ export async function approveVATAdjustment(companyId: string,
     source: 'auto_vat_adjustment',
     sourceDocumentId: id,
     lines,
-  }, userId);
-  await postJournalEntry(companyId, je.id, userId);
+  }, safeUserId);
+  await postJournalEntry(companyId, je.id, safeUserId);
 
   const updated = (await sql`
     UPDATE vat_adjustments
-    SET status = 'approved', approved_by = ${userId}::UUID, approved_at = NOW(),
+    SET status = 'approved', approved_by = ${safeUserId}::UUID, approved_at = NOW(),
         gl_journal_entry_id = ${je.id}::UUID
     WHERE id = ${id} AND company_id = ${companyId} RETURNING *
   `) as Row[];

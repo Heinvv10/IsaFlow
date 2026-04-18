@@ -8,6 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowRightLeft, Loader2, Check } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { apiFetch } from '@/lib/apiFetch';
+import { formatDate } from '@/utils/formatters';
 
 interface Invoice {
   id: string; invoiceNumber: string; supplierName: string;
@@ -119,7 +120,7 @@ export default function DRCVatPage() {
                   <tr key={inv.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50">
                     <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">{inv.invoiceNumber}</td>
                     <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{inv.supplierName}</td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{inv.invoiceDate}</td>
+                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDate(inv.invoiceDate)}</td>
                     <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{fmt(inv.totalAmount)}</td>
                     <td className="px-4 py-3 text-right text-rose-400 font-medium">{fmt(inv.vatAmount || inv.totalAmount * DEFAULT_VAT_RATE)}</td>
                     {tab === 'eligible' && (
