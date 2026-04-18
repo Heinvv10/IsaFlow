@@ -29,10 +29,16 @@ const ALLOCATION_ROWS = [
 describe('cashFlowDirectService', () => {
   beforeEach(() => vi.clearAllMocks());
 
+  // The service issues three sql calls: opening cash + matched allocations
+  // + unmatched bank-line allocations. The tests below mock all three; the
+  // third (unmatched) is empty because these scenarios have no unmatched
+  // bank lines. A prior version mocked only two and left unmatchedRows
+  // undefined, which tripped `[...matched, ...unmatched]`.
   it('returns correct section totals', async () => {
     mockSql
       .mockResolvedValueOnce(OPENING_ROWS)
-      .mockResolvedValueOnce(ALLOCATION_ROWS);
+      .mockResolvedValueOnce(ALLOCATION_ROWS)
+      .mockResolvedValueOnce([]);
 
     const result = await getCashFlowDirect(COMPANY_ID, PERIOD_START, PERIOD_END);
 
@@ -48,7 +54,8 @@ describe('cashFlowDirectService', () => {
   it('exposes line items for each operating group', async () => {
     mockSql
       .mockResolvedValueOnce(OPENING_ROWS)
-      .mockResolvedValueOnce(ALLOCATION_ROWS);
+      .mockResolvedValueOnce(ALLOCATION_ROWS)
+      .mockResolvedValueOnce([]);
 
     const result = await getCashFlowDirect(COMPANY_ID, PERIOD_START, PERIOD_END);
 
@@ -62,6 +69,7 @@ describe('cashFlowDirectService', () => {
   it('returns zero cash when no bank transactions exist', async () => {
     mockSql
       .mockResolvedValueOnce([{ balance: 0 }])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
 
     const result = await getCashFlowDirect(COMPANY_ID, PERIOD_START, PERIOD_END);

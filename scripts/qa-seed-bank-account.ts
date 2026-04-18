@@ -4,7 +4,7 @@
  * distinctive bank_account_number so the security gate test has something
  * clearly-wrong to reject.
  */
-import { neon } from '@neondatabase/serverless';
+import { createSql } from './_pg';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -22,7 +22,7 @@ const BLITZ_PE = 'b5e17198-c23d-4441-a90d-68c9bc4febef';
 const ACCOUNT_NUMBER = '9999000001'; // Fake — distinct from any real Brighttech statement
 
 async function main() {
-  const sql = neon(process.env.DATABASE_URL!);
+  const sql = createSql();
 
   // Try to find an existing "Current Assets" parent — if none exists we'll
   // create this as a root bank account (no parent).

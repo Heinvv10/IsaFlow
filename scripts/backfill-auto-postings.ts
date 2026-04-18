@@ -16,7 +16,7 @@
  *   npx tsx scripts/backfill-auto-postings.ts --company <companyId> --commit --from 2024-01-01 --to 2024-12-31
  */
 
-import { neon } from '@neondatabase/serverless';
+import { createSql } from './_pg';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -38,7 +38,7 @@ if (!process.env.DATABASE_URL) {
   process.exit(1);
 }
 
-const sql = neon(process.env.DATABASE_URL!);
+const sql = createSql();
 
 // ---------------------------------------------------------------------------
 // Argument parsing

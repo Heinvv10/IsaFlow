@@ -1,5 +1,5 @@
-import { neon } from '@neondatabase/serverless';
-const sql = neon(process.env.DATABASE_URL!);
+import { createSql } from './_pg';
+const sql = createSql();
 (async () => {
   const je = (await sql`SELECT COUNT(*)::int AS c, COUNT(*) FILTER (WHERE fiscal_period_id IS NULL)::int AS null_fp FROM gl_journal_entries`) as Array<{c:number; null_fp:number}>;
   const inv = (await sql`SELECT COUNT(*)::int AS c, COUNT(*) FILTER (WHERE gl_journal_entry_id IS NULL AND status IN ('approved','sent','paid','partially_paid','overdue'))::int AS unposted FROM customer_invoices`) as Array<{c:number; unposted:number}>;

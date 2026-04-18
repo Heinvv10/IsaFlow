@@ -1,10 +1,10 @@
-import { neon } from '@neondatabase/serverless';
+import { createSql } from './_pg';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 const envPath = path.resolve(__dirname, '..', '.env.local');
 for (const line of fs.readFileSync(envPath,'utf-8').split('\n')) { const m=line.match(/^\s*([A-Z_]+)\s*=\s*(.*)\s*$/); if(m&&!process.env[m[1]!])process.env[m[1]!]=m[2]!.replace(/^["']|["']$/g,''); }
 (async () => {
-  const sql = neon(process.env.DATABASE_URL!);
+  const sql = createSql();
   const cid = '00000000-0000-0000-0000-000000000001';
 
   // Trial balance totals for 2024

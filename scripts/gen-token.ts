@@ -1,10 +1,12 @@
 import { SignJWT } from 'jose';
-import { neon } from '@neondatabase/serverless';
+import { createSql } from './_pg';
 import * as crypto from 'crypto';
 
-const PROD_DB = 'postgresql://neondb_owner:***REMOVED-R04***@ep-shiny-flower-aldyej0o-pooler.c-3.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require';
+// Post Neon→Supabase cutover (2026-04-18), "prod" = self-hosted Supabase
+// on velo-server (tailnet). Legacy Neon data still exists but is frozen.
+const PROD_DB = 'postgresql://postgres:***REMOVED-R10***@100.96.203.105:5437/isaflow?sslmode=disable';
 const JWT_SECRET = '***REMOVED-R05***';
-const sql = neon(PROD_DB);
+const sql = createSql(PROD_DB);
 
 async function main() {
   // Use hein@isaflow.co.za — viewer in ISAFlow Demo — not super_admin, won't redirect to admin

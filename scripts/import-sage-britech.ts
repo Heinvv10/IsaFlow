@@ -2,10 +2,10 @@
  * Import Sage data into ISAFlow for Brightsphere Technologies
  * Usage: DATABASE_URL="..." bun run /tmp/sage-pull-britech/import-sage-data.ts
  */
-import { neon } from '@neondatabase/serverless';
+import { createSql } from './_pg';
 import { readFileSync } from 'fs';
 
-const sql = neon(process.env.DATABASE_URL!);
+const sql = createSql();
 const CID = 'd27bac33-cdc0-4e58-bf6b-709c1597d41c';
 
 const USER_ID = 'aeb3949e-6c93-4c17-bbdf-b6d2d99fa9a2'; // hein@isaflow.co.za

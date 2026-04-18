@@ -13,7 +13,7 @@
  * Run: npx tsx scripts/advanced-workflow-test.ts
  */
 
-import { neon } from '@neondatabase/serverless';
+import { createSql } from './_pg';
 import * as fs from 'node:fs';
 
 // ─── Load .env.local ────────────────────────────────────────────────────────
@@ -27,7 +27,7 @@ for (const line of envContent.split('\n')) {
 const BASE_URL = 'http://localhost:3200';
 const FIXED_COMPANY_ID = '00000000-0000-0000-0000-000000000001';
 
-const sql = neon(process.env.DATABASE_URL!);
+const sql = createSql();
 
 // ─── Test tracking ────────────────────────────────────────────────────────────
 

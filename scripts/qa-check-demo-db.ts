@@ -2,7 +2,7 @@
  * Check the state of the current DATABASE_URL target.
  * Tells us if we're staring at a clean/empty Neon branch or a populated one.
  */
-import { neon } from '@neondatabase/serverless';
+import { createSql } from './_pg';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -26,7 +26,7 @@ if (!DATABASE_URL) {
 const redacted = DATABASE_URL.replace(/\/\/[^@]+@/, '//*****@');
 console.log(`Target: ${redacted}`);
 
-const sql = neon(DATABASE_URL);
+const sql = createSql(DATABASE_URL);
 
 async function main() {
   // Ask Postgres about tables in public.

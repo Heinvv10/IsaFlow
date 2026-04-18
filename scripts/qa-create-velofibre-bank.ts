@@ -1,4 +1,4 @@
-import { neon } from '@neondatabase/serverless';
+import { createSql } from './_pg';
 import * as fs from 'node:fs';
 
 const envPath = '/home/hein/Workspace/IsaFlow/.env.local';
@@ -14,7 +14,7 @@ if (fs.existsSync(envPath)) {
 const BLITZ_PE = 'b5e17198-c23d-4441-a90d-68c9bc4febef';
 
 async function main() {
-  const sql = neon(process.env.DATABASE_URL!);
+  const sql = createSql();
   const existing = (await sql`
     SELECT id FROM gl_accounts
     WHERE company_id = ${BLITZ_PE} AND account_subtype = 'bank' AND bank_account_number = '0000310650550'

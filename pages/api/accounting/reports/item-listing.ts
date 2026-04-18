@@ -20,11 +20,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const search = req.query.search as string | undefined;
     const format = req.query.format as string;
 
+    // stock_items has no `description` column (unlike the sibling `items`
+    // table). The report UI does not render a description — keep the SELECT
+    // aligned to the actual schema.
     let rows;
     if (category && search) {
       const like = `%${search}%`;
       rows = await sql`
-        SELECT id, item_code, name, description, category, uom,
+        SELECT id, item_code, name, category, uom,
           list_price, standard_cost, qty_available, is_active
         FROM stock_items
         WHERE company_id = ${companyId}
@@ -33,7 +36,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       `;
     } else if (category) {
       rows = await sql`
-        SELECT id, item_code, name, description, category, uom,
+        SELECT id, item_code, name, category, uom,
           list_price, standard_cost, qty_available, is_active
         FROM stock_items WHERE company_id = ${companyId} AND category = ${category}
         ORDER BY name
@@ -41,7 +44,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     } else if (search) {
       const like = `%${search}%`;
       rows = await sql`
-        SELECT id, item_code, name, description, category, uom,
+        SELECT id, item_code, name, category, uom,
           list_price, standard_cost, qty_available, is_active
         FROM stock_items
         WHERE company_id = ${companyId} AND (name ILIKE ${like} OR item_code ILIKE ${like})
@@ -49,7 +52,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       `;
     } else {
       rows = await sql`
-        SELECT id, item_code, name, description, category, uom,
+        SELECT id, item_code, name, category, uom,
           list_price, standard_cost, qty_available, is_active
         FROM stock_items WHERE company_id = ${companyId} ORDER BY name
       `;
@@ -59,7 +62,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       id: r.id,
       itemCode: r.item_code || '',
       name: r.name,
-      description: r.description || '',
       category: r.category || 'uncategorized',
       uom: r.uom || '',
       sellingPrice: Number(r.list_price || 0),
@@ -69,9 +71,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }));
 
     if (format === 'csv') {
-      const header = 'Item Code,Name,Description,Category,UOM,Selling Price,Cost Price,Qty On Hand,Active';
+      const header = 'Item Code,Name,Category,UOM,Selling Price,Cost Price,Qty On Hand,Active';
       const csvRows = data.map(r =>
-        `${csvCell(r.itemCode)},${csvCell(r.name)},${csvCell(r.description)},${csvCell(r.category)},${csvCell(r.uom)},${r.sellingPrice.toFixed(2)},${r.costPrice.toFixed(2)},${r.qtyOnHand},${r.isActive}`
+        `${csvCell(r.itemCode)},${csvCell(r.name)},${csvCell(r.category)},${csvCell(r.uom)},${r.sellingPrice.toFixed(2)},${r.costPrice.toFixed(2)},${r.qtyOnHand},${r.isActive}`
       );
       res.setHeader('Content-Type', 'text/csv');
       res.setHeader('Content-Disposition', 'attachment; filename="item-listing.csv"');

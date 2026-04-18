@@ -11,7 +11,7 @@
  * Talks to the real dev server on localhost:3200 and the demo DB
  * directly for setup/teardown.
  */
-import { neon } from '@neondatabase/serverless';
+import { createSql } from './_pg';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -66,7 +66,7 @@ async function api(cookie: string, method: string, url: string, body?: unknown) 
 }
 
 async function main() {
-  const sql = neon(process.env.DATABASE_URL!);
+  const sql = createSql();
   await sql`UPDATE gl_accounts SET is_active = true WHERE id = ${BRIGHTTECH_ACCOUNT}`;
 
   // ── Group 1: Role matrix enforcement ───────────────────────────────────────

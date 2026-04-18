@@ -4,7 +4,7 @@
  * Runs comprehensive double-entry accounting sanity checks against the live DB.
  * Usage: npx tsx scripts/integrity-check.ts
  */
-import { neon } from '@neondatabase/serverless';
+import { createSql } from './_pg';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -26,7 +26,7 @@ if (!process.env.DATABASE_URL) {
   process.exit(1);
 }
 
-const sql = neon(process.env.DATABASE_URL!);
+const sql = createSql();
 
 // ---------------------------------------------------------------------------
 // Helpers

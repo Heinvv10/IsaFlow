@@ -1,9 +1,10 @@
 import { SignJWT } from 'jose';
-import { neon } from '@neondatabase/serverless';
+import { createSql } from './_pg';
 import crypto from 'node:crypto';
 
-const PROD_DB = 'postgresql://neondb_owner:***REMOVED-R04***@ep-shiny-flower-aldyej0o-pooler.c-3.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require';
-const sql = neon(PROD_DB);
+// Post Neon→Supabase cutover (2026-04-18), "prod" = self-hosted Supabase.
+const PROD_DB = 'postgresql://postgres:***REMOVED-R10***@100.96.203.105:5437/isaflow?sslmode=disable';
+const sql = createSql(PROD_DB);
 
 const JWT_SECRET = process.env.JWT_SECRET!;
 const key = new TextEncoder().encode(JWT_SECRET);

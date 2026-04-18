@@ -6,7 +6,7 @@
  *
  * Usage: bun run scripts/qa-cleanup-inspect.ts
  */
-import { neon } from '@neondatabase/serverless';
+import { createSql } from './_pg';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -27,7 +27,7 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
-const sql = neon(DATABASE_URL);
+const sql = createSql(DATABASE_URL);
 
 const TEST_EMAILS = ['qa-onboard-01@isaflow.test', 'qa-onboard-02@isaflow.test'];
 const TEST_COMPANY_IDS = [

@@ -7,7 +7,7 @@
  * Run:  npx tsx scripts/large-scale-seed.ts [--clean]
  */
 
-import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
+import { createSql } from './_pg';
 import * as fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
@@ -20,7 +20,7 @@ if (fs.existsSync(envPath)) {
   }
 }
 
-const sql: NeonQueryFunction<false, false> = neon(process.env.DATABASE_URL!);
+const sql = createSql();
 const args = process.argv.slice(2);
 const CLEAN = args.includes('--clean');
 

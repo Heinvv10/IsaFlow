@@ -2,7 +2,7 @@
  * Run SQL migration using Neon serverless driver
  * Usage: bun run scripts/run-migration.ts scripts/migrations/sql/220_multi_company_scoping.sql
  */
-import { neon } from '@neondatabase/serverless';
+import { createSql } from './_pg';
 import * as fs from 'node:fs';
 
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -18,7 +18,7 @@ if (!sqlFile) {
 }
 
 const sqlContent = fs.readFileSync(sqlFile, 'utf-8');
-const sql = neon(DATABASE_URL);
+const sql = createSql(DATABASE_URL);
 
 async function run() {
   console.log(`Running migration: ${sqlFile}`);

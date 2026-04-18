@@ -12,7 +12,7 @@
  * Runs directly against the demo DB via neon + the dev-server API so
  * we exercise the full middleware + service code path.
  */
-import { neon } from '@neondatabase/serverless';
+import { createSql } from './_pg';
 import * as fs from 'node:fs';
 
 const envPath = '/home/hein/Workspace/IsaFlow/.env.local';
@@ -53,7 +53,7 @@ async function restoreAccount(sql: ReturnType<typeof neon>) {
 }
 
 async function main() {
-  const sql = neon(process.env.DATABASE_URL!);
+  const sql = createSql();
   const cookie = await login();
   console.log('✓ Logged in as qa-onboard-05');
 

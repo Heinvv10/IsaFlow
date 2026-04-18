@@ -6,7 +6,7 @@
  * Run: npx tsx scripts/perf-profile.ts
  */
 
-import { neon } from '@neondatabase/serverless';
+import { createSql } from './_pg';
 import * as fs from 'node:fs';
 
 // ─── Load .env.local ────────────────────────────────────────────────────────
@@ -18,7 +18,7 @@ for (const line of envContent.split('\n')) {
 }
 
 const BASE_URL = 'http://localhost:3200';
-const sql = neon(process.env.DATABASE_URL!);
+const sql = createSql();
 
 // ─── State ───────────────────────────────────────────────────────────────────
 let authCookie = '';
