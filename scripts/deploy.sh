@@ -108,8 +108,16 @@ echo "App: https://app.isaflow.co.za"
 # SENTRY_AUTH_TOKEN was already loaded at the top of this script so the
 # webpack plugin could create the release during build.
 if [ -n "$SENTRY_AUTH_TOKEN" ] && command -v sentry-cli >/dev/null 2>&1; then
-  echo "Finalizing Sentry release $GIT_SHA..."
-  sentry-cli releases finalize "$GIT_SHA" || echo "WARN: sentry-cli finalize failed (non-fatal)"
+  echo "Recording Sentry release $GIT_SHA..."
+  # `new` creates the release; idempotent — re-running on the same SHA is a no-op.
+  # The webpack plugin sometimes doesn't create the release reliably under
+  # the standalone build path, so we own the lifecycle here.
+  sentry-cli releases new "$GIT_SHA" \
+    || echo "WARN: sentry-cli new failed (non-fatal)"
+  sentry-cli releases set-commits "$GIT_SHA" --auto \
+    || echo "WARN: sentry-cli set-commits failed (non-fatal)"
+  sentry-cli releases finalize "$GIT_SHA" \
+    || echo "WARN: sentry-cli finalize failed (non-fatal)"
   sentry-cli releases deploys "$GIT_SHA" new -e production \
     || echo "WARN: sentry-cli deploys failed (non-fatal)"
 else
