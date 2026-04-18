@@ -1,86 +1,31 @@
-// eslint-disable no-console -- This module is the logging fallback path; using
-// console is intentional when structured logging is unavailable.
 /**
- * Neon Database Client
- * Standalone serverless PostgreSQL connection for the Accounting app
- * Uses @neondatabase/serverless with retry logic and proper config
+ * DRAFT — pg.Pool-backed replacement for src/lib/neon.ts.
+ *
+ * Connects to any vanilla PostgreSQL over TCP (Supabase self-hosted,
+ * RDS, etc.), preserving the public surface that the rest of the app
+ * depends on:
+ *
+ *   - `sql\`...\`` tagged template returning rows
+ *   - `sql.transaction([q1, q2])` array form (Neon-style batching)
+ *   - `sql.transaction((tx) => [q1, q2], { isolationLevel })` callback form
+ *   - `transaction((tx) => [...])` helper re-export (unchanged call sites)
+ *   - `withTransaction(async (tx) => {...})` sequential helper (unchanged)
+ *   - `fmtDate()` and `DbRow`
+ *
+ * Deployment cut-over: rename this file to `neon.ts` once the rewrite
+ * passes type-check + integration tests.
  */
 
-import { neon, neonConfig, type NeonQueryFunction } from '@neondatabase/serverless';
 import pg from 'pg';
-import { withSlowQueryTiming } from '@/lib/observability/slowQuery';
-
-/** Shared DB row type — import this instead of declaring local `type Row` */
-export type DbRow = Record<string, unknown>;
 import { log } from '@/lib/logger';
 
-// Enable connection caching for better performance
-neonConfig.fetchConnectionCache = true;
+// Matches the shape the Neon driver returned to the rest of the codebase —
+// `NeonQueryFunction<false, false>` yields `Record<string, any>[]`. Keeping
+// `any` for values preserves existing call-site ergonomics; tighten per-row
+// types by parameterising `sql<Row>\`...\`` where it matters.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type DbRow = Record<string, any>;
 
-// Configure transport for Node.js environments (not in browser/edge)
-declare const EdgeRuntime: unknown;
-
-const isNodeEnv =
-  typeof window === 'undefined' &&
-  typeof EdgeRuntime === 'undefined';
-
-if (isNodeEnv) {
-  const useHttpTransport = process.env.NEON_USE_HTTP === 'true';
-
-  if (!useHttpTransport) {
-    // WebSocket transport - faster for Node.js
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const ws = require('ws');
-      neonConfig.webSocketConstructor = ws;
-      log.info('Using WebSocket transport', {}, 'Neon');
-    } catch {
-      log.info('WebSocket not available, falling back to HTTP', {}, 'Neon');
-    }
-  } else {
-    log.info('Using HTTP transport (NEON_USE_HTTP=true)', {}, 'Neon');
-  }
-
-  // Configure WebSocket proxy (Neon v2 protocol)
-  neonConfig.wsProxy = (host: string, port: number | string) => `${host}:${port}/v2`;
-
-  // Use secure WebSocket connections
-  neonConfig.useSecureWebSocket = true;
-
-  // Pipeline authentication for faster connections
-  neonConfig.pipelineConnect = 'password';
-
-  // Enable automatic retries on transient errors
-  neonConfig.fetchFunction = async (...args: Parameters<typeof fetch>) => {
-    const maxRetries = 3;
-    let lastError: unknown;
-
-    for (let i = 0; i < maxRetries; i++) {
-      try {
-        const response = await fetch(...args);
-        if (!response.ok && response.status >= 500 && i < maxRetries - 1) {
-          // Retry on server errors with exponential backoff
-          await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 100));
-          continue;
-        }
-        return response;
-      } catch (error) {
-        lastError = error;
-        if (i < maxRetries - 1) {
-          log.warn('DB query retry attempt', { attempt: i + 1, error: error instanceof Error ? error.message : String(error) }, 'Neon');
-          // Exponential backoff: 100ms, 200ms, 400ms
-          await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 100));
-          continue;
-        }
-      }
-    }
-    throw lastError || new Error('Request failed after retries');
-  };
-}
-
-/**
- * Get the DATABASE_URL, throwing a clear error if not set
- */
 function getDatabaseUrl(): string {
   const url = process.env.DATABASE_URL;
   if (!url) {
@@ -89,167 +34,259 @@ function getDatabaseUrl(): string {
   return url;
 }
 
-const SLOW_QUERY_MS_THRESHOLD = Number(process.env.SLOW_QUERY_MS_THRESHOLD ?? 500);
-
-/**
- * Serverless SQL client for use in API routes and edge functions.
- * Wrapped with a slow-query timing shim that emits structured warnings
- * when a query exceeds SLOW_QUERY_MS_THRESHOLD (default 500ms).
- */
-// `as any` here bridges NeonQueryFunction (which does not satisfy the
-// shim's `Record<string, unknown>` index signature) into the shim; the
-// outer cast restores the full public type for consumers.
-export const sql = withSlowQueryTiming(neon(getDatabaseUrl()) as any, SLOW_QUERY_MS_THRESHOLD) as unknown as NeonQueryFunction<false, false>;
-
-/**
- * Execute multiple queries in a transaction using the Neon serverless driver.
- *
- * IMPORTANT: The Neon HTTP driver is stateless — each tagged template call is an
- * independent HTTP request. Issuing BEGIN/COMMIT as separate calls does NOT
- * guarantee they run on the same connection. We use the official `transaction()`
- * API from @neondatabase/serverless which batches queries into a single HTTP request.
- *
- * @param queries - Array of query-producing functions that receive the sql client
- * @returns Array of query results
- *
- * @example
- * const results = await transaction([
- *   (sql) => sql`INSERT INTO accounts (name) VALUES (${'Cash'}) RETURNING id`,
- *   (sql) => sql`UPDATE balances SET amount = 0 WHERE account_id = ${id}`,
- * ]);
- */
-export async function transaction(
-  queriesFn: (txSql: typeof sql) => Array<ReturnType<typeof sql>>
-): Promise<unknown[]> {
-  try {
-    // Reuse module-level sql client instead of creating a new neon() client per call
-    const results = await sql.transaction(
-      (tx) => queriesFn(tx as unknown as typeof sql) as any,
-      { isolationLevel: 'ReadCommitted' }
-    );
-    return results as unknown[];
-  } catch (error) {
-    log.error(
-      'Transaction failed',
-      error instanceof Error ? { message: error.message } : { error },
-      'Neon'
-    );
-    throw error;
-  }
-}
-
-/**
- * Execute a sequential, multi-step transaction using a dedicated pool client.
- *
- * Unlike `transaction()` above (which batches static queries in a single HTTP
- * round-trip), `withTransaction` allows intermediate `await` calls inside the
- * callback — necessary when later queries depend on IDs returned by earlier
- * inserts (INSERT … RETURNING id → INSERT … WHERE fk = id).
- *
- * The pool client issues genuine BEGIN / COMMIT / ROLLBACK, giving full ACID
- * guarantees. Any error thrown inside `fn` triggers an automatic ROLLBACK.
- *
- * @example
- * const invoiceId = await withTransaction(async (tx) => {
- *   const [row] = await tx`INSERT INTO invoices (total) VALUES (${total}) RETURNING id`;
- *   await tx`INSERT INTO invoice_items (invoice_id) VALUES (${row.id})`;
- *   return String(row.id);
- * });
- */
-/**
- * Derive a direct (non-pooler) connection URL from the DATABASE_URL.
- * The Neon pooler uses PgBouncer in transaction mode which doesn't support
- * session-level BEGIN/COMMIT via the pg driver. The direct URL bypasses
- * PgBouncer and gives a full PostgreSQL session.
- *
- * Neon pooler hostname: ep-xxx-pooler.region.aws.neon.tech
- * Neon direct hostname: ep-xxx.region.aws.neon.tech
- */
-function getDirectUrl(): string {
-  const url = getDatabaseUrl();
-  // Remove '-pooler' from the hostname and 'channel_binding=require' from query params
-  return url.replace('-pooler.', '.').replace('&channel_binding=require', '').replace('?channel_binding=require', '?');
-}
-
-let _pgPool: pg.Pool | null = null;
+let _pool: pg.Pool | null = null;
 
 function getPool(): pg.Pool {
-  if (!_pgPool) {
-    _pgPool = new pg.Pool({
-      connectionString: getDirectUrl(),
-      max: 5,
+  if (!_pool) {
+    _pool = new pg.Pool({
+      connectionString: getDatabaseUrl(),
+      max: Number(process.env.PG_POOL_MAX ?? 10),
       connectionTimeoutMillis: 15000,
       idleTimeoutMillis: 30000,
-      ssl: { rejectUnauthorized: false },
+      // Supabase self-hosted uses self-signed certs; flip DATABASE_SSL=strict
+      // to enforce CA verification when moving to a properly-certified host.
+      ssl:
+        process.env.DATABASE_SSL === 'strict'
+          ? { rejectUnauthorized: true }
+          : process.env.DATABASE_SSL === 'disable'
+            ? false
+            : { rejectUnauthorized: false },
     });
-    _pgPool.on('error', (err) => {
-      log.warn('pg pool background error', { message: err.message }, 'Neon');
+    _pool.on('error', (err) => {
+      log.warn('pg pool background error', { message: err.message }, 'DB');
     });
   }
-  return _pgPool;
+  return _pool;
 }
 
-// Type for a transaction-scoped sql tagged-template function
-export type TxSql = (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]>;
+interface TransactionOptions {
+  isolationLevel?: 'ReadCommitted' | 'RepeatableRead' | 'Serializable';
+  readOnly?: boolean;
+  deferrable?: boolean;
+}
 
-export async function withTransaction<T>(fn: (tx: TxSql) => Promise<T>): Promise<T> {
+/**
+ * Lazy result of a tagged-template call. Awaiting it runs the query against
+ * the module-level pool; collecting many into an array and handing them to
+ * `sql.transaction([...])` runs them atomically on a single tx client.
+ */
+class LazyQuery<T = DbRow> implements Promise<T[]> {
+  readonly [Symbol.toStringTag] = 'LazyQuery';
+
+  constructor(
+    public readonly text: string,
+    public readonly values: unknown[],
+    private readonly boundClient?: pg.PoolClient
+  ) {}
+
+  private async run(): Promise<T[]> {
+    if (this.boundClient) {
+      const res = await this.boundClient.query(this.text, this.values);
+      return res.rows as T[];
+    }
+    const res = await getPool().query(this.text, this.values);
+    return res.rows as T[];
+  }
+
+  then<TResult1 = T[], TResult2 = never>(
+    onfulfilled?: ((value: T[]) => TResult1 | PromiseLike<TResult1>) | null,
+    onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
+  ): Promise<TResult1 | TResult2> {
+    return this.run().then(onfulfilled, onrejected);
+  }
+
+  catch<TResult = never>(
+    onrejected?: ((reason: unknown) => TResult | PromiseLike<TResult>) | null
+  ): Promise<T[] | TResult> {
+    return this.run().catch(onrejected);
+  }
+
+  finally(onfinally?: (() => void) | null): Promise<T[]> {
+    return this.run().finally(onfinally);
+  }
+}
+
+/**
+ * Build a parameterised query from a tagged-template call. Interpolated
+ * `LazyQuery` values (from `sql\`nested\`` or `sql.unsafe(raw)`) are spliced
+ * in as raw fragments with their own `$N` placeholders renumbered to sit
+ * alongside the surrounding query's parameters.
+ */
+function buildQuery(
+  strings: TemplateStringsArray,
+  values: unknown[]
+): { text: string; values: unknown[] } {
+  let text = '';
+  const params: unknown[] = [];
+  for (let i = 0; i < strings.length; i++) {
+    text += strings[i];
+    if (i < values.length) {
+      const v = values[i];
+      if (v instanceof LazyQuery) {
+        const offset = params.length;
+        const renumbered = v.text.replace(/\$(\d+)/g, (_, n) => `$${Number(n) + offset}`);
+        text += renumbered;
+        params.push(...v.values);
+      } else {
+        params.push(v);
+        text += `$${params.length}`;
+      }
+    }
+  }
+  return { text, values: params };
+}
+
+function isolationClause(level: TransactionOptions['isolationLevel']): string {
+  switch (level) {
+    case 'ReadCommitted':
+      return 'ISOLATION LEVEL READ COMMITTED';
+    case 'RepeatableRead':
+      return 'ISOLATION LEVEL REPEATABLE READ';
+    case 'Serializable':
+      return 'ISOLATION LEVEL SERIALIZABLE';
+    default:
+      return '';
+  }
+}
+
+interface SqlFunction {
+  <T = DbRow>(strings: TemplateStringsArray, ...values: unknown[]): LazyQuery<T>;
+  transaction<T = unknown>(
+    queries: LazyQuery<any>[] | ((tx: SqlFunction) => LazyQuery<any>[]),
+    options?: TransactionOptions
+  ): Promise<T[][]>;
+  /** Raw SQL fragment — awaitable as a query, interpolatable as a splice. */
+  unsafe<T = DbRow>(text: string, values?: unknown[]): LazyQuery<T>;
+  /** Parameterised raw query — equivalent to pg's `client.query(text, values)`. */
+  query<T = DbRow>(text: string, values?: unknown[]): LazyQuery<T>;
+}
+
+function createSql(client?: pg.PoolClient): SqlFunction {
+  const fn = (<T = DbRow>(
+    strings: TemplateStringsArray,
+    ...values: unknown[]
+  ) => {
+    const { text, values: params } = buildQuery(strings, values);
+    return new LazyQuery<T>(text, params, client);
+  }) as SqlFunction;
+
+  fn.unsafe = <T = DbRow>(text: string, values: unknown[] = []) =>
+    new LazyQuery<T>(text, values, client);
+
+  fn.query = fn.unsafe;
+
+  fn.transaction = async <T = unknown>(
+    queries: LazyQuery<any>[] | ((tx: SqlFunction) => LazyQuery<any>[]),
+    options: TransactionOptions = {}
+  ): Promise<T[][]> => {
+    const pool = getPool();
+    const txClient = await pool.connect();
+    try {
+      const clauses: string[] = ['BEGIN'];
+      const iso = isolationClause(options.isolationLevel);
+      if (iso) clauses.push(iso);
+      if (options.readOnly) clauses.push('READ ONLY');
+      if (options.deferrable) clauses.push('DEFERRABLE');
+      await txClient.query(clauses.join(' '));
+
+      const list =
+        typeof queries === 'function' ? queries(createSql(txClient)) : queries;
+
+      const results: T[][] = [];
+      for (const q of list) {
+        const res = await txClient.query(q.text, q.values);
+        results.push(res.rows as T[]);
+      }
+
+      await txClient.query('COMMIT');
+      return results;
+    } catch (err) {
+      try {
+        await txClient.query('ROLLBACK');
+      } catch {
+        // ROLLBACK failure is secondary to the original error; swallow.
+      }
+      log.error(
+        'sql.transaction rolled back',
+        err instanceof Error ? { message: err.message } : { error: err },
+        'DB'
+      );
+      throw err;
+    } finally {
+      txClient.release();
+    }
+  };
+
+  return fn;
+}
+
+export const sql = createSql();
+
+/**
+ * Callback-form helper preserved for existing `transaction((sql) => [...])`
+ * call sites. Executes with READ COMMITTED isolation by default.
+ */
+export async function transaction(
+  queriesFn: (txSql: SqlFunction) => LazyQuery[]
+): Promise<unknown[][]> {
+  return sql.transaction((tx) => queriesFn(tx), {
+    isolationLevel: 'ReadCommitted',
+  });
+}
+
+export type TxSql = (
+  strings: TemplateStringsArray,
+  ...values: unknown[]
+) => Promise<unknown[]>;
+
+export async function withTransaction<T>(
+  fn: (tx: TxSql) => Promise<T>
+): Promise<T> {
   const pool = getPool();
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    // Wrap the pool client's parameterised query as a tagged-template function
-    // so callers can use tx`SELECT ...` instead of raw client.query strings.
     const tx: TxSql = async (strings, ...values) => {
-      let text = '';
-      strings.forEach((s, i) => {
-        text += s;
-        if (i < values.length) text += `$${i + 1}`;
-      });
-      const result = await client.query(text, values as unknown[]);
-      return result.rows as unknown[];
+      const { text, values: params } = buildQuery(strings, values);
+      const res = await client.query(text, params);
+      return res.rows as unknown[];
     };
 
     const result = await fn(tx);
     await client.query('COMMIT');
     return result;
-  } catch (error) {
-    await client.query('ROLLBACK');
+  } catch (err) {
+    try {
+      await client.query('ROLLBACK');
+    } catch {
+      // ROLLBACK failure is secondary to the original error; swallow.
+    }
     log.error(
       'withTransaction rolled back',
-      error instanceof Error ? { message: error.message } : { error },
-      'Neon'
+      err instanceof Error ? { message: err.message } : { error: err },
+      'DB'
     );
-    throw error;
+    throw err;
   } finally {
     client.release();
   }
 }
 
 /**
- * Format a value from a DB date column as an ISO date string (YYYY-MM-DD).
- *
- * The @neondatabase/serverless driver returns PostgreSQL `date` columns as
- * JavaScript Date objects. Calling String() on them produces a locale-specific
- * string ("Sat Apr 11 2026 00:00:00 GMT+0200 ...") which PostgreSQL cannot
- * parse when used as a query parameter. This helper extracts the local-time
- * date portion regardless of whether the value is already a string or a Date.
- *
- * @param val - Raw value from a DB `date` column (Date object or string)
- * @returns  YYYY-MM-DD string suitable for use in SQL parameters
+ * Format a value from a DB date column as YYYY-MM-DD, robust to Date
+ * objects and strings. Unchanged from the Neon implementation — the pg
+ * driver also returns `date` columns as JavaScript Date.
  */
 export function fmtDate(val: unknown): string {
   if (!val) return '';
   if (val instanceof Date) {
-    // Use local-time date parts to avoid UTC off-by-one on midnight dates
     const y = val.getFullYear();
     const m = String(val.getMonth() + 1).padStart(2, '0');
     const d = String(val.getDate()).padStart(2, '0');
     return `${y}-${m}-${d}`;
   }
-  // Already a string — return as-is (may be YYYY-MM-DD already)
   const s = String(val);
-  // If it looks like an ISO timestamp (contains 'T'), extract date portion
   if (s.includes('T')) return s.split('T')[0]!;
   return s;
 }
