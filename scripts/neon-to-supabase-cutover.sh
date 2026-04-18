@@ -75,9 +75,13 @@ SUPABASE_SUPERUSER="postgres"
 SUPABASE_SUPERPASS="a23f6104debd1d3e88e8f00c0067f22f"
 SUPABASE_DB="isaflow"
 
-# App-runtime connection. Supavisor transaction pooler (:6543) — the 335 API
-# routes share a warm pool. Swap to :5437 for direct TCP if the pooler dies.
-NEW_DATABASE_URL="postgresql://${SUPABASE_SUPERUSER}:${SUPABASE_SUPERPASS}@${SUPABASE_HOST}:6543/${SUPABASE_DB}?sslmode=disable"
+# App-runtime connection. Direct TCP to the Postgres container (:5437).
+# Supavisor transaction pooler (:6543) is deliberately skipped — self-hosted
+# Supavisor rejects the plain `postgres` username with "Tenant or user not
+# found" because it expects a multi-tenant `postgres.<tenant_id>` format.
+# pg.Pool + direct :5437 is fine for the 335 API routes; revisit Supavisor
+# once we configure a per-app tenant or switch to pg_bouncer.
+NEW_DATABASE_URL="postgresql://${SUPABASE_SUPERUSER}:${SUPABASE_SUPERPASS}@${SUPABASE_HOST}:${SUPABASE_PORT}/${SUPABASE_DB}?sslmode=disable"
 
 echo "=== source ==="
 echo "Neon host: $NEON_HOST"
