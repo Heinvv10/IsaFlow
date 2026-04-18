@@ -41,7 +41,7 @@ export default function BankTransactionsPage() {
   const [bankAccounts, setBankAccounts] = useState<BankAcct[]>([]);
   const [selectedBank, setSelectedBank] = useState('');
   const didApplyQueryParam = useRef(false);
-  useBankTxRefData({ setBankAccounts, setGlAccounts, setSuppliers, setCustomers, setCc1Options, setCc2Options, setBuOptions, setSelectedBank });
+  const { refreshBankAccounts } = useBankTxRefData({ setBankAccounts, setGlAccounts, setSuppliers, setCustomers, setCc1Options, setCc2Options, setBuOptions, setSelectedBank });
 
   // Pre-select bank account from query param (e.g. ?account_id=...)
   useEffect(() => {
@@ -173,7 +173,7 @@ export default function BankTransactionsPage() {
     transactions, glAccounts, selectedBank, selectedIds, rowSelections, batchType,
     excludingTxId, createEntityTxId,
     setSmartRunning, setRowSelections, setTransactions, setSelectedIds, setShowBatchEdit,
-    setRulePrompt, setExcludingTxId, loadTransactions,
+    setRulePrompt, setExcludingTxId, loadTransactions, refreshBankAccounts,
   });
 
   const bank = bankAccounts.find(b => b.id === selectedBank);
@@ -303,7 +303,7 @@ export default function BankTransactionsPage() {
         onExcludeClose={() => setExcludingTxId(null)} onExcludeConfirm={actions.handleExcludeConfirm}
         onFindMatchClose={() => setFindMatchTxId(null)} onFindMatchDone={() => { setFindMatchTxId(null); loadTransactions(); }}
         onAttachmentsClose={() => setAttachmentsTxId(null)} onCreateRuleClose={() => setCreateRuleTx(null)}
-        onCreateRuleDone={() => { setCreateRuleTx(null); setRowSelections(() => ({})); loadTransactions(); }}
+        onCreateRuleDone={() => { setCreateRuleTx(null); setRowSelections(() => ({})); loadTransactions(); refreshBankAccounts(); }}
         onCreateEntityClose={() => { setCreateEntityTxId(null); setCreateEntityType(null); }}
         onCreateEntityDone={(entity, type) => { actions.handleCreateEntityDone(entity, type, setGlAccounts, setSuppliers, setCustomers); setCreateEntityTxId(null); setCreateEntityType(null); }}
       />
