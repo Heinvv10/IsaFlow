@@ -73,7 +73,11 @@ BEGIN
     WHERE c.column_name = 'company_id'
       AND c.table_schema = 'public'
       AND tb.table_type = 'BASE TABLE'
-      AND c.table_name NOT IN ('companies')      -- handled below (uses id)
+      -- companies uses `id`, not `company_id`. company_users and
+      -- company_invitations have special-case policies below; leaving
+      -- tenant_isolation on them would OR with the special-case policy
+      -- (RLS is PERMISSIVE by default) and over-grant access.
+      AND c.table_name NOT IN ('companies', 'company_users', 'company_invitations')
   LOOP
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('ALTER TABLE public.%I FORCE ROW LEVEL SECURITY', t);
@@ -112,6 +116,11 @@ CREATE POLICY companies_owner_write ON public.companies FOR ALL TO app_user
 ALTER TABLE public.company_users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.company_users FORCE ROW LEVEL SECURITY;
 
+-- Cleanup: earlier plan revisions allowed tenant_isolation to be applied to
+-- company_users via the DO-block. Drop any stale policy before installing
+-- the admin-gated one below.
+DROP POLICY IF EXISTS tenant_isolation ON public.company_users;
+
 DROP POLICY IF EXISTS cu_self_or_admin ON public.company_users;
 CREATE POLICY cu_self_or_admin ON public.company_users FOR ALL TO app_user
   USING (
@@ -126,6 +135,9 @@ CREATE POLICY cu_self_or_admin ON public.company_users FOR ALL TO app_user
 -- ─────────── Special-case: company_invitations (anonymous token accept) ─────
 ALTER TABLE public.company_invitations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.company_invitations FORCE ROW LEVEL SECURITY;
+
+-- Same cleanup as above — earlier DO-block revisions over-applied.
+DROP POLICY IF EXISTS tenant_isolation ON public.company_invitations;
 
 DROP POLICY IF EXISTS invites_tenant ON public.company_invitations;
 CREATE POLICY invites_tenant ON public.company_invitations FOR ALL TO app_user
