@@ -16,6 +16,16 @@ export SENTRY_RELEASE="$GIT_SHA"
 export NEXT_PUBLIC_GIT_SHA="$GIT_SHA"
 echo "Release SHA: $GIT_SHA"
 
+# Load SENTRY_* keys from .env.local NOW (not later) so the Sentry webpack
+# plugin can create the release during the build. Pull only the SENTRY_*
+# keys — `set -a; .` trips on multi-line app values.
+if [ -f "$REPO_DIR/.env.local" ]; then
+  while IFS= read -r line; do
+    [ -n "$line" ] && export "$line"
+  done < <(grep -E '^SENTRY_(AUTH_TOKEN|URL|ORG|PROJECT)=' "$REPO_DIR/.env.local" || true)
+fi
+export PATH="$HOME/.local/bin:$PATH"
+
 # 1. Build locally with bun
 echo "Installing dependencies..."
 $BUN install
@@ -95,17 +105,8 @@ echo "=== Deploy complete ==="
 echo "App: https://app.isaflow.co.za"
 
 # 8. Finalize Sentry release (fail-open — never block a deploy).
-# Pull only the SENTRY_* keys from .env.local — we can't `source` the whole
-# file because some app values contain unquoted chars / multi-line content
-# that would break `set -a; .`. Add ~/.local/bin to PATH so the
-# user-installed sentry-cli binary is found under sudo / non-login shells.
-if [ -f "$REPO_DIR/.env.local" ]; then
-  while IFS= read -r line; do
-    [ -n "$line" ] && export "$line"
-  done < <(grep -E '^SENTRY_(AUTH_TOKEN|URL|ORG|PROJECT)=' "$REPO_DIR/.env.local" || true)
-fi
-export PATH="$HOME/.local/bin:$PATH"
-
+# SENTRY_AUTH_TOKEN was already loaded at the top of this script so the
+# webpack plugin could create the release during build.
 if [ -n "$SENTRY_AUTH_TOKEN" ] && command -v sentry-cli >/dev/null 2>&1; then
   echo "Finalizing Sentry release $GIT_SHA..."
   sentry-cli releases finalize "$GIT_SHA" || echo "WARN: sentry-cli finalize failed (non-fatal)"
