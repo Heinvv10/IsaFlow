@@ -19,7 +19,7 @@ const CompanyLogoSchema = z.object({
 
 
 /**
- * AUTH: Uses withAuth (not withCompany) because a user may own/admin multiple companies
+ * AUTH: Uses withAuth (not withAuth) because a user may own/admin multiple companies
  * and this endpoint accepts an explicit companyId in the request body. Tenant scoping is
  * enforced by a membership check against company_users (owner/admin role required) before
  * any write is performed — no cross-tenant write is possible.

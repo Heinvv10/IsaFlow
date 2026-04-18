@@ -2,7 +2,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { generateSection } from '@/modules/accounting/services/afs/noteEngineService';
 import type { ReportingFramework } from '@/modules/accounting/services/afs/afsTypes';
@@ -10,7 +10,7 @@ import type { ReportingFramework } from '@/modules/accounting/services/afs/afsTy
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
 
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
   const { documentId, sectionId } = req.query as { documentId: string; sectionId: string };
   const { fiscalYear, framework } = req.body as { fiscalYear?: unknown; framework?: unknown };
 
@@ -31,4 +31,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, { sectionId });
 }
 
-export default withCompany(withErrorHandler(handler as never));
+export default withAuth(withErrorHandler(handler as never));

@@ -15,7 +15,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import {
@@ -26,7 +26,7 @@ import type { CandidateType } from '@/modules/accounting/types/bank-match.types'
 type Row = Record<string, unknown>;
 
 
-async function handler(req: CompanyApiRequest, res: NextApiResponse) {
+async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
@@ -42,7 +42,7 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   };
 
   const { companyId } = req;
-  const userId: string = req.user?.id ?? req.user?.userId ?? 'system';
+  const userId: string = req.user?.id ?? 'system';
 
   if (!bankTransactionId) return apiResponse.badRequest(res, 'bankTransactionId is required');
   if (!candidateType) return apiResponse.badRequest(res, 'candidateType is required');
@@ -174,4 +174,4 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
 }
 
  
-export default withCompany(withErrorHandler(withWriteAccess(handler)));
+export default withAuth(withErrorHandler(withWriteAccess(handler)));

@@ -15,7 +15,7 @@ import { log } from '@/lib/logger';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { signToken } from '@/lib/auth/jwt';
 import { createSession } from '@/lib/auth/session';
-import { AUTH_COOKIE_NAME } from '@/lib/auth/middleware';
+import { ACCESS_COOKIE as AUTH_COOKIE_NAME } from '@/lib/auth/cookies';
 import type { AuthRole } from '@/lib/auth/types';
 import { Email, NonEmptyString } from '@/lib/schemas/common';
 type Row = Record<string, unknown>;

@@ -8,15 +8,15 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { log } from '@/lib/logger';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
 
-export default withCompany(withErrorHandler(async (req: NextApiRequest, res: NextApiResponse) => {
-  const { companyId } = req as CompanyApiRequest;
+export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextApiResponse) => {
+  const { companyId } = req as CompanyAuthedRequest;
 
   switch (req.method) {
     case 'GET': {

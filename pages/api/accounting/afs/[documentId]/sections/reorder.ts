@@ -2,14 +2,14 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'PUT') return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['PUT']);
 
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
   const { documentId } = req.query as { documentId: string };
   const { sections } = req.body as { sections?: unknown };
 
@@ -55,4 +55,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, { reordered: typedItems.length });
 }
 
-export default withCompany(withErrorHandler(handler as never));
+export default withAuth(withErrorHandler(handler as never));

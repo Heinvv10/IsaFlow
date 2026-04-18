@@ -6,14 +6,14 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { csvCell } from '@/lib/csv';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
 
   try {
     const rows = await sql`
@@ -49,4 +49,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withCompany(withErrorHandler(withWriteAccess(handler)));
+export default withAuth(withErrorHandler(withWriteAccess(handler)));

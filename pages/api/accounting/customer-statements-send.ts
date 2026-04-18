@@ -11,7 +11,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, withWriteAccess, type CompanyApiRequest, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withAuth, withWriteAccess, type CompanyAuthedRequest, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { sendStatementEmail } from '@/modules/accounting/services/ar/statementEmailService';
@@ -51,7 +51,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
 
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
 
   const body = req.body as {
     customer_ids?: unknown;
@@ -133,4 +133,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, { sent, failed, errors });
 }
 
-export default withCompany(withErrorHandler(withWriteAccess(handler as never)));
+export default withAuth(withErrorHandler(withWriteAccess(handler as never)));

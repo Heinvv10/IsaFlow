@@ -9,12 +9,12 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { getQuotes, getQuote, createQuote, updateQuote, deleteQuote } from '@/modules/accounting/services/ar/quoteService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
 
   if (req.method === 'GET') {
     const { id, status, search, limit, offset } = req.query;
@@ -58,4 +58,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 }
 
  
-export default withCompany(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

@@ -10,7 +10,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import type { AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
@@ -23,7 +23,7 @@ import {
 } from '@/modules/accounting/services/ap/purchaseOrderService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
 
   // ── GET ───────────────────────────────────────────────────────────────────
   if (req.method === 'GET') {
@@ -141,4 +141,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default withCompany(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

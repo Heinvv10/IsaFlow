@@ -11,6 +11,9 @@ export interface UserAuthedRequest extends NextApiRequest {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Handler = (req: any, res: NextApiResponse<any>) => any;
 
+/** Back-compat alias — callers that imported AuthenticatedNextApiRequest from middleware.ts */
+export type AuthenticatedNextApiRequest = UserAuthedRequest;
+
 export function withUserAuth(handler: Handler): NextApiHandler {
   return async (req, res) => {
     const cookies = parseCookies(req);

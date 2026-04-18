@@ -1,11 +1,11 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { getChangesInEquity } from '@/modules/accounting/services/afs/changesInEquityService';
 
-async function handler(req: CompanyApiRequest, res: NextApiResponse) {
+async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
 
   const { companyId } = req;
@@ -20,4 +20,4 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, { report });
 }
 
-export default withCompany(withErrorHandler(handler as never));
+export default withAuth(withErrorHandler(handler as never));

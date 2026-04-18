@@ -9,7 +9,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 
@@ -35,7 +35,7 @@ export interface SdlYearResult {
 }
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
 
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
@@ -115,4 +115,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withCompany(withErrorHandler(handler as Parameters<typeof withCompany>[0]));
+export default withAuth(withErrorHandler(handler as Parameters<typeof withAuth>[0]));

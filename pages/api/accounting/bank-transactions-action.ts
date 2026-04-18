@@ -8,7 +8,7 @@ import { z } from 'zod';
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
@@ -69,7 +69,7 @@ const BankTxActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('reverse'), bankTransactionId: UUID }),
 ]);
 
-async function handler(req: CompanyApiRequest, res: NextApiResponse) {
+async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
   }
@@ -83,7 +83,7 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
 
   const body = parsed.data;
   try {
-    const userId: string = req.user?.id || req.user?.userId || 'system';
+    const userId: string = req.user?.id || 'system';
 
     switch (body.action) {
       case 'match': {
@@ -180,4 +180,4 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
 }
 
  
-export default withCompany(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

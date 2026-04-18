@@ -9,10 +9,10 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, withWriteAccess} from '@/lib/auth';
+import { withAuth, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import type { CompanyApiRequest } from '@/lib/auth/withCompany';
+import type { CompanyAuthedRequest } from '@/lib/auth/withAuth';
 type Row = Record<string, unknown>;
 
 
@@ -48,7 +48,7 @@ async function getUserPii(userId: string, companyId: string) {
 }
 
 async function handleAccess(req: NextApiRequest, res: NextApiResponse) {
-  const companyReq = req as CompanyApiRequest;
+  const companyReq = req as CompanyAuthedRequest;
   const userId = companyReq.user.id;
   const companyId = companyReq.companyId;
 
@@ -58,7 +58,7 @@ async function handleAccess(req: NextApiRequest, res: NextApiResponse) {
 }
 
 async function handleExport(req: NextApiRequest, res: NextApiResponse) {
-  const companyReq = req as CompanyApiRequest;
+  const companyReq = req as CompanyAuthedRequest;
   const userId = companyReq.user.id;
   const companyId = companyReq.companyId;
 
@@ -71,7 +71,7 @@ async function handleExport(req: NextApiRequest, res: NextApiResponse) {
 }
 
 async function handleErasure(req: NextApiRequest, res: NextApiResponse) {
-  const companyReq = req as CompanyApiRequest;
+  const companyReq = req as CompanyAuthedRequest;
   const userId = companyReq.user.id;
 
   const placeholder = `anonymized_${userId.slice(0, 8)}`;
@@ -107,4 +107,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
  
-export default withCompany(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

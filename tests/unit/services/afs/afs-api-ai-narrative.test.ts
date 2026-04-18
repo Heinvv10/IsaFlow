@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 vi.mock('@/lib/auth', () => ({
-  withCompany: (handler: (req: NextApiRequest, res: NextApiResponse) => unknown) => handler,
+  withAuth: (handler: (req: NextApiRequest, res: NextApiResponse) => unknown) => handler,
 }));
 vi.mock('@/lib/api-error-handler', () => ({
   withErrorHandler: (handler: (req: NextApiRequest, res: NextApiResponse) => unknown) => handler,

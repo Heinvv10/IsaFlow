@@ -7,7 +7,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { log } from '@/lib/logger';
 
@@ -22,10 +22,10 @@ interface Transaction {
   balance: number;
 }
 
-export default withCompany(withErrorHandler(async (req: NextApiRequest, res: NextApiResponse) => {
+export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextApiResponse) => {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method || '', ['GET']);
 
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
   const { supplier_id } = req.query;
   if (!supplier_id) return apiResponse.badRequest(res, 'supplier_id is required');
 

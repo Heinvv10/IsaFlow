@@ -5,7 +5,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
+import { withAuth, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { checkRateLimit } from '@/lib/rateLimit';
 import {
@@ -62,4 +62,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     aiGenerated: !!narrative,
   });
 }
-export default withCompany(withErrorHandler(withWriteAccess(handler)));
+export default withAuth(withErrorHandler(withWriteAccess(handler)));

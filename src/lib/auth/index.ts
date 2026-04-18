@@ -1,68 +1,56 @@
 /**
- * Auth Library
- * Central export for all authentication utilities
+ * Auth Library — Phase 2 GoTrue barrel
+ * Central export for all authentication utilities.
+ *
+ * Old custom-auth modules (jwt, password, session, middleware, sessionHelpers,
+ * withCompany) are being removed as part of the GoTrue cutover.  Any remaining
+ * callers should import from the new wrappers below.
  */
 
-// Types
+// ── Types ────────────────────────────────────────────────────────────────────
 export * from './types';
 
-// JWT utilities
-export { signToken, verifyToken, isTokenExpired, getTokenExpiryTime } from './jwt';
+// ── New GoTrue wrappers ───────────────────────────────────────────────────────
+// withAuth: user + company + tx + GUCs (replaces old withCompany)
+// withRole: role gate, compose inside withAuth
+export { withAuth, withRole, type CompanyAuthedRequest } from './withAuth';
 
-// Password utilities
-export {
-  hashPassword,
-  verifyPassword,
-  checkPasswordStrength,
-  generateRandomPassword,
-  generateResetToken,
-  hashResetToken,
-  isResetTokenExpired,
-} from './password';
+// withUserAuth: JWT-verify only, no company (replaces old withAuth from middleware)
+export { withUserAuth, type UserAuthedRequest, type AuthenticatedNextApiRequest } from './withUserAuth';
 
-// Session management
-export {
-  createSession,
-  validateSession,
-  getSession,
-  deleteSession,
-  deleteAllUserSessions,
-  getUserSessions,
-  cleanupExpiredSessions,
-  extendSession,
-} from './session';
+// Back-compat alias — callers that still reference CompanyApiRequest by the old name
+export type { CompanyAuthedRequest as CompanyApiRequest } from './withAuth';
 
-// Middleware (Pages Router)
-export {
-  withAuth,
-  withRole,
-  withPermission,
-  withRoleAndPermission,
-  withOptionalAuth,
-  hasRole,
-  hasPermission,
-  AUTH_COOKIE_NAME,
-  type AuthenticatedNextApiRequest,
-} from './middleware';
-
-// Company-scoped middleware
-export { withCompany, type CompanyApiRequest } from './withCompany';
-
+// ── Guards ───────────────────────────────────────────────────────────────────
 // Write-access gate (blocks viewers from mutating)
 export { withWriteAccess, DEFAULT_WRITE_ROLES, type WriteRole } from './withWriteAccess';
 
-// App Router utilities (NextRequest)
+// CSRF gate
+export { withCsrf } from './withCsrf';
+
+// Module-permission gate
+export { withModulePermission } from './withModulePermission';
+
+// ── App Router ────────────────────────────────────────────────────────────────
 export { getUserFromRequest, requireAuth } from './app-router';
 
+// ── Cookie constants ─────────────────────────────────────────────────────────
+export { ACCESS_COOKIE, REFRESH_COOKIE, ACTIVE_COMPANY_COOKIE } from './cookies';
+
+// ── Transitional exports (remove when Stage 3 rewrites register.ts) ──────────
+// register.ts still uses hashPassword/checkPasswordStrength until it is ported
+// to GoTrue's admin.createUser() flow in Stage 3.
+export { hashPassword, checkPasswordStrength } from './password';
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 import type { NextApiRequest } from 'next';
-import type { AuthenticatedNextApiRequest } from './middleware';
-import type { AuthUser } from './types';
+import type { CompanyAuthedRequest } from './withAuth';
 
 /**
- * Get the authenticated user from request
- * Must be used after withAuth middleware
+ * Get the authenticated user from a company-authed request.
+ * Must be used after withAuth middleware.
  */
-export function getAuthUser(req: NextApiRequest): AuthUser | null {
-  const authReq = req as AuthenticatedNextApiRequest;
-  return authReq.user || null;
+export function getAuthUser(req: NextApiRequest) {
+  const authedReq = req as CompanyAuthedRequest;
+  return authedReq.user ?? null;
 }

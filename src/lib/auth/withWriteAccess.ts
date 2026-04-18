@@ -1,14 +1,14 @@
 /**
  * Write-access gate — requires owner/admin/manager role for mutating methods.
  *
- * Wraps a handler that has already been enriched by withCompany (so
+ * Wraps a handler that has already been enriched by withAuth (so
  * `req.companyRole` is populated). For any POST/PUT/PATCH/DELETE request
  * where the caller's per-company role is NOT owner/admin/manager (i.e. it's
  * "viewer" or some unknown future read-only role), returns 403 before the
  * handler runs. GET/HEAD/OPTIONS pass through unchanged.
  *
  * Usage:
- *   export default withCompany(withErrorHandler(withWriteAccess(handler)));
+ *   export default withAuth(withErrorHandler(withWriteAccess(handler)));
  *
  * Defaults apply to the vast majority of accounting endpoints. For a
  * stricter gate (e.g. "admins only") pass `{ allowedRoles: [...] }`.
@@ -19,7 +19,7 @@
 
 import type { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
 import { apiResponse } from '@/lib/apiResponse';
-import type { CompanyApiRequest } from './withCompany';
+import type { CompanyAuthedRequest } from './withAuth';
 
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 export const DEFAULT_WRITE_ROLES = ['owner', 'admin', 'manager'] as const;
@@ -56,10 +56,10 @@ export function withWriteAccess(
       return handler(req, res);
     }
 
-    const companyReq = req as CompanyApiRequest;
+    const companyReq = req as CompanyAuthedRequest;
     const role = companyReq.companyRole;
 
-    // If withCompany didn't run first (misuse), fail closed.
+    // If withAuth didn't run first (misuse), fail closed.
     if (!role) {
       return apiResponse.forbidden(
         res,

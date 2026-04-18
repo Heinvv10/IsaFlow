@@ -9,7 +9,7 @@ import { createHash } from 'crypto';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth/middleware';
+import { withUserAuth, type AuthenticatedNextApiRequest } from '@/lib/auth/withUserAuth';
 import { serialize } from 'cookie';
 type Row = Record<string, unknown>;
 
@@ -107,7 +107,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   const userId = authReq.user.id;
 
   // Verify invited email matches the logged-in user's email
-  if ((inv.email as string).toLowerCase() !== authReq.user.email.toLowerCase()) {
+  if ((inv.email as string).toLowerCase() !== (authReq.user.email ?? '').toLowerCase()) {
     return apiResponse.forbidden(res, 'This invitation was sent to a different email address');
   }
 
@@ -145,7 +145,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
-const postHandler = withAuth(handlePost);
+const postHandler = withUserAuth(handlePost);
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {

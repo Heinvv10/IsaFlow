@@ -9,7 +9,7 @@ import { runDailyScheduler } from '@/modules/accounting/services/afs/packSchedul
  * Cron endpoint — called at 06:00 SAST by system cron / Vercel Cron.
  *
  * Authentication: X-Cron-Secret header must match CRON_SECRET env var.
- * This route does NOT use withCompany — it is a system-level endpoint
+ * This route does NOT use withAuth — it is a system-level endpoint
  * that processes multiple companies internally.
  */
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -34,5 +34,5 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, { processed: result.companiesFound, result });
 }
 
-// NOTE: no withCompany — system-level cron endpoint
+// NOTE: no withAuth — system-level cron endpoint
 export default withErrorHandler(handler as never);

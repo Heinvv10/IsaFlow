@@ -6,7 +6,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { getTimeSummary } from '@/modules/accounting/services/core/timeTrackingService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -14,7 +14,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
   }
 
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
   const { dateFrom, dateTo, userId } = req.query;
 
   const summary = await getTimeSummary(companyId, {
@@ -27,4 +27,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 }
 
  
-export default withCompany(withErrorHandler(withWriteAccess(handler)));
+export default withAuth(withErrorHandler(withWriteAccess(handler)));

@@ -8,13 +8,13 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, withRole, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, withRole, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { listFiscalYears, closeFiscalYear } from '@/modules/accounting/services/gl/yearEndService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
 
   // ── GET ───────────────────────────────────────────────────────────────────
   if (req.method === 'GET') {
@@ -71,4 +71,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
  
-export default withCompany(withRole('admin')(withErrorHandler(withCsrf(handler))));
+export default withAuth(withRole('admin')(withErrorHandler(withCsrf(handler))));

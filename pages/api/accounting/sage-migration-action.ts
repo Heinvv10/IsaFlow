@@ -9,7 +9,7 @@ import type { NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, withRole, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, withRole, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import {
   autoMapAccounts,
@@ -45,7 +45,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method || '', ['POST']);
   }
 
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
   const userId = req.user.id;
 
   const parsed = SageMigrationActionSchema.safeParse(req.body);
@@ -102,4 +102,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 }
 
  
-export default withCompany(withRole('admin')(withErrorHandler(handler)));
+export default withAuth(withRole('admin')(withErrorHandler(handler)));

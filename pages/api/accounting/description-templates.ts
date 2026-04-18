@@ -8,7 +8,7 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { withCompany } from '@/lib/auth/withCompany';
+import { withAuth } from '@/lib/auth/withAuth';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -18,10 +18,10 @@ import {
   createTemplate,
   deleteTemplate,
 } from '@/modules/accounting/services/core/descriptionTemplateService';
-import type { CompanyApiRequest } from '@/lib/auth/withCompany';
+import type { CompanyAuthedRequest } from '@/lib/auth/withAuth';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const companyReq = req as CompanyApiRequest;
+  const companyReq = req as CompanyAuthedRequest;
   const companyId = companyReq.companyId;
 
   // ── GET ──────────────────────────────────────────────────────────────────
@@ -59,4 +59,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method ?? 'unknown', ['GET', 'POST', 'DELETE']);
 }
 
-export default withCompany(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

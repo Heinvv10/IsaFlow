@@ -12,7 +12,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import sql from '@/lib/neon';
 
@@ -129,7 +129,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
   }
 
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
   const { status, date_from, date_to } = req.query;
 
   const statusVal = status && typeof status === 'string' ? status : null;
@@ -145,4 +145,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withCompany(withErrorHandler(handler as Parameters<typeof withCompany>[0]));
+export default withAuth(withErrorHandler(handler as Parameters<typeof withAuth>[0]));

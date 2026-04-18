@@ -34,7 +34,7 @@ vi.mock('@/lib/neon', () => {
 
 // auth middleware — unwrap, injecting companyId via req object
 vi.mock('@/lib/auth', () => ({
-  withCompany: (fn: Function) => fn,
+  withAuth: (fn: Function) => fn,
   withWriteAccess: (fn: Function) => fn,
 }));
 
@@ -64,7 +64,7 @@ function makeReq(query: Record<string, string | string[]> = {}): NextApiRequest 
   return {
     method: 'GET',
     query,
-    // withCompany middleware injects companyId on the request object
+    // withAuth middleware injects companyId on the request object
     companyId: COMPANY_ID,
   } as unknown as NextApiRequest;
 }

@@ -10,7 +10,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest } from '@/lib/auth/withCompany';
+import { withAuth, type CompanyAuthedRequest } from '@/lib/auth/withAuth';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { sql } from '@/lib/neon';
 type Row = Record<string, unknown>;
@@ -24,7 +24,7 @@ interface DirectorInput {
 }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
 
   if (req.method === 'GET') {
     const rows = (await sql`
@@ -108,7 +108,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
  
-export default withCompany(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
 
 export const config = {
   api: { bodyParser: { sizeLimit: '50mb' } },

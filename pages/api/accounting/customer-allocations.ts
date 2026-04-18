@@ -7,7 +7,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
@@ -18,7 +18,7 @@ interface AllocationItem {
 }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
 
   if (req.method === 'GET') {
     try {
@@ -188,4 +188,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'POST']);
 }
 
-export default withCompany(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

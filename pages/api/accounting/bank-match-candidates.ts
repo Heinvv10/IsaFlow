@@ -14,7 +14,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, withWriteAccess } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { getMatchCandidates, fetchBankTransaction } from '@/modules/accounting/services/bank/bankMatchCandidatesService';
 
@@ -28,7 +28,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'bankTransactionId query param is required');
   }
 
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
 
   try {
     // Verify transaction exists and belongs to this company
@@ -46,4 +46,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withCompany(withErrorHandler(withWriteAccess(handler)));
+export default withAuth(withErrorHandler(withWriteAccess(handler)));

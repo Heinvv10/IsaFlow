@@ -7,6 +7,7 @@ import { parseCookies, clearAuthCookies, ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE } 
 import { als } from '@/lib/als';
 import { log } from '@/lib/logger';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
+import { ROLE_HIERARCHY, type AuthRole } from './types';
 
 export interface CompanyAuthedRequest extends NextApiRequest {
   user: { id: string; email?: string; claims: Record<string, unknown> };
@@ -16,6 +17,29 @@ export interface CompanyAuthedRequest extends NextApiRequest {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Handler = (req: any, res: NextApiResponse<any>) => any;
+
+/**
+ * Role gate — must be composed inside withAuth.
+ * Checks req.companyRole against the ROLE_HIERARCHY.
+ *
+ * Usage: withAuth(withRole('admin')(withErrorHandler(handler)))
+ */
+export function withRole(requiredRole: AuthRole) {
+  return (handler: Handler): Handler => {
+    return async (req: NextApiRequest, res: NextApiResponse) => {
+      const authedReq = req as CompanyAuthedRequest;
+      const userRoleLevel = ROLE_HIERARCHY[authedReq.companyRole as AuthRole] ?? 0;
+      const requiredRoleLevel = ROLE_HIERARCHY[requiredRole] ?? 0;
+      if (userRoleLevel < requiredRoleLevel) {
+        return res.status(403).json({
+          success: false,
+          error: { code: 'FORBIDDEN', message: `This action requires ${requiredRole} role or higher` },
+        });
+      }
+      return handler(req, res);
+    };
+  };
+}
 
 let _pool: pg.Pool | null = null;
 function getAuthPool(): pg.Pool {

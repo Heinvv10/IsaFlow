@@ -4,7 +4,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
+import { withAuth, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { calculateComplianceDeadlines } from '@/modules/accounting/services/reports/sarsEfilingService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -14,4 +14,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const deadlines = calculateComplianceDeadlines(year);
   return apiResponse.success(res, { year, deadlines, total: deadlines.length });
 }
-export default withCompany(withErrorHandler(withWriteAccess(handler)));
+export default withAuth(withErrorHandler(withWriteAccess(handler)));

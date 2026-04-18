@@ -12,8 +12,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, withWriteAccess } from '@/lib/auth';
-import type { AuthenticatedNextApiRequest } from '@/lib/auth/middleware';
+import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { checkComplianceAlerts } from '@/modules/accounting/services/reports/statutoryDocService';
 import {
   getActiveAfsAlerts,
@@ -21,7 +20,7 @@ import {
 } from '@/modules/accounting/services/afs/complianceAlertService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
 
   if (req.method === 'GET') {
     const [statutoryAlerts, afsAlerts] = await Promise.all([
@@ -36,7 +35,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (typeof body.alertId !== 'string') {
       return apiResponse.badRequest(res, 'alertId is required');
     }
-    const userId = (req as unknown as AuthenticatedNextApiRequest).user.id;
+    const userId = (req as CompanyAuthedRequest).user.id;
     await dismissAfsAlert(companyId, body.alertId, userId);
     return apiResponse.success(res, { dismissed: true });
   }
@@ -45,4 +44,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // withWriteAccess passes GET through; blocks POST for viewer role
-export default withCompany(withErrorHandler(withWriteAccess(handler as never)));
+export default withAuth(withErrorHandler(withWriteAccess(handler as never)));

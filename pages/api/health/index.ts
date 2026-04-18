@@ -1,7 +1,7 @@
 /**
  * Shallow health endpoint (liveness probe).
  *
- * - No auth, no CSRF, no withCompany — must be callable by load balancers.
+ * - No auth, no CSRF, no withAuth — must be callable by load balancers.
  * - Target <50ms. Does only a single `SELECT 1` round-trip.
  * - Returns 200 when DB is reachable, 503 otherwise.
  */

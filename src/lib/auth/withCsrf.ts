@@ -13,9 +13,9 @@
 import type { NextApiHandler, NextApiResponse } from 'next';
 import { apiResponse } from '@/lib/apiResponse';
 import { verifyCsrf } from './csrf';
-import type { CompanyApiRequest } from './withCompany';
+import type { CompanyAuthedRequest } from './withAuth';
 
-export type CompanyApiHandler = (req: CompanyApiRequest, res: NextApiResponse) => void | Promise<void>;
+export type CompanyApiHandler = (req: CompanyAuthedRequest, res: NextApiResponse) => void | Promise<void>;
 
 export function withCsrf<T extends NextApiHandler | CompanyApiHandler>(handler: T): T {
   return (async (req: Parameters<T>[0], res: NextApiResponse) => {

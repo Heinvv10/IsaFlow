@@ -7,7 +7,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
@@ -34,7 +34,7 @@ interface Emp501Reconciliation {
 
 function round2(n: number): number { return Math.round(n * 100) / 100; }
 
-async function handler(req: CompanyApiRequest, res: NextApiResponse) {
+async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
   }
@@ -127,4 +127,4 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withCompany(withErrorHandler(handler));
+export default withAuth(withErrorHandler(handler));

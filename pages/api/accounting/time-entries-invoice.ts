@@ -9,14 +9,14 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, type AuthenticatedNextApiRequest, withWriteAccess } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 
 type Row = Record<string, unknown>;
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
 
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
@@ -153,4 +153,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withCompany(withErrorHandler(withWriteAccess(handler)));
+export default withAuth(withErrorHandler(withWriteAccess(handler)));

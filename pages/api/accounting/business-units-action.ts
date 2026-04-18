@@ -6,7 +6,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { updateBusinessUnit, toggleBusinessUnit, deleteBusinessUnit } from '@/modules/accounting/services/core/businessUnitService';
@@ -14,7 +14,7 @@ import { updateBusinessUnit, toggleBusinessUnit, deleteBusinessUnit } from '@/mo
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
 
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
   const { action, id, ...data } = req.body;
   if (!action || !id) return apiResponse.badRequest(res, 'action and id required');
 
@@ -39,4 +39,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
  
-export default withCompany(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

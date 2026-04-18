@@ -4,7 +4,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type AuthenticatedNextApiRequest, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
+import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { buildEMP501Summary, type EMP501MonthlyData } from '@/modules/accounting/services/reports/irp5Service';
 
@@ -12,7 +12,7 @@ type Row = Record<string, unknown>;
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
-  const { companyId } = req as unknown as CompanyApiRequest;
+  const { companyId } = req as unknown as CompanyAuthedRequest;
 
   const parsedTaxYear = Number(req.query.taxYear);
   const taxYear = parsedTaxYear >= 2000 && parsedTaxYear <= 2100 ? parsedTaxYear : new Date().getFullYear();
@@ -46,4 +46,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, summary);
 }
 
-export default withCompany(withErrorHandler(withWriteAccess(handler)));
+export default withAuth(withErrorHandler(withWriteAccess(handler)));

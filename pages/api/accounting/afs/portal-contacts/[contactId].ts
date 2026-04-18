@@ -1,10 +1,10 @@
 // pages/api/accounting/afs/portal-contacts/[contactId].ts — PUT / DELETE
-// Auth: withCompany (staff-only)
+// Auth: withAuth (staff-only)
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import {
   updatePortalContact,
@@ -13,7 +13,7 @@ import {
 import type { PortalRole } from '@/modules/accounting/services/afs/afsTypes';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
   const contactId = req.query.contactId as string;
   if (!contactId) return apiResponse.badRequest(res, 'contactId is required');
 
@@ -47,4 +47,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['PUT', 'DELETE']);
 }
 
-export default withCompany(withErrorHandler(handler as never));
+export default withAuth(withErrorHandler(handler as never));

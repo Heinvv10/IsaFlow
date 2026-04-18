@@ -8,7 +8,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, withWriteAccess } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { log } from '@/lib/logger';
@@ -41,7 +41,7 @@ function isActivityType(v: unknown): v is ActivityType {
 }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId, user } = req as CompanyApiRequest;
+  const { companyId, user } = req as CompanyAuthedRequest;
 
   // ─── GET: List activities for a customer ───────────────────────────────────
   if (req.method === 'GET') {
@@ -124,7 +124,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const { id } = req.query;
     if (!id || typeof id !== 'string') return apiResponse.badRequest(res, 'id is required');
 
-    const companyReq = req as CompanyApiRequest;
+    const companyReq = req as CompanyAuthedRequest;
     const isPrivileged = ['owner', 'admin', 'manager'].includes(companyReq.companyRole);
 
     try {
@@ -156,4 +156,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST', 'DELETE']);
 }
 
-export default withCompany(withErrorHandler(withCsrf(withWriteAccess(handler as never))));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler as never))));
