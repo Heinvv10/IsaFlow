@@ -17,14 +17,14 @@ import { sql } from '@/lib/neon';
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, withWriteAccess } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { log } from '@/lib/logger';
 
 // account_subtype column has been present since migration 260+.
 // No runtime schema probe needed.
 const HAS_SUBTYPE = true as const;
 
-async function handler(req: CompanyApiRequest, res: NextApiResponse) {
+async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
   }
@@ -159,4 +159,4 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withCompany(withErrorHandler(withWriteAccess(handler)));
+export default withAuth(withErrorHandler(withWriteAccess(handler)));

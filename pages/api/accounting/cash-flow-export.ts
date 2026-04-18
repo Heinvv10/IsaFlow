@@ -14,7 +14,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { sql } from '@/lib/neon';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { csvVal } from '@/lib/csv';
 
@@ -24,7 +24,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const periodStart = req.query.period_start as string;
   const periodEnd = req.query.period_end as string;
 
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
 
   if (!periodStart) return apiResponse.badRequest(res, 'period_start is required');
   if (!periodEnd) return apiResponse.badRequest(res, 'period_end is required');
@@ -274,4 +274,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
  
-export default withCompany(withErrorHandler(withWriteAccess(handler)));
+export default withAuth(withErrorHandler(withWriteAccess(handler)));

@@ -11,7 +11,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import {
   getPermissionModules,
@@ -24,7 +24,7 @@ import { log } from '@/lib/logger';
 const ADMIN_ROLES = ['owner', 'admin'];
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId, companyRole } = req as CompanyApiRequest;
+  const { companyId, companyRole } = req as CompanyAuthedRequest;
 
   // All mutating operations are admin/owner only
   if (req.method !== 'GET' && !ADMIN_ROLES.includes(companyRole)) {
@@ -121,4 +121,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
  
-export default withCompany(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

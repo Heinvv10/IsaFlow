@@ -10,7 +10,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, withRole } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, withRole } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import {
   buildSageAccountsFetchScript,
@@ -24,7 +24,7 @@ import {
 } from '@/modules/accounting/services/core/sageAutoImportService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
 
   if (req.method === 'GET') {
     // Return the JS scripts the browser extension will inject into Sage
@@ -114,4 +114,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // Super admin only — ISAFlow internal tool
-export default withCompany(withRole('super_admin')(withErrorHandler(handler)));
+export default withAuth(withRole('super_admin')(withErrorHandler(handler)));

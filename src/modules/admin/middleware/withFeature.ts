@@ -5,15 +5,15 @@
  */
 
 import type { NextApiResponse } from 'next';
-import type { CompanyApiRequest } from '@/lib/auth';
+import type { CompanyAuthedRequest } from '@/lib/auth';
 import { hasFeature } from '@/modules/admin/services/featureFlagService';
 import { log } from '@/lib/logger';
 
 export function withFeature(featureCode: string) {
   return (
-    handler: (req: CompanyApiRequest, res: NextApiResponse) => Promise<void>
+    handler: (req: CompanyAuthedRequest, res: NextApiResponse) => Promise<void>
   ) => {
-    return async (req: CompanyApiRequest, res: NextApiResponse) => {
+    return async (req: CompanyAuthedRequest, res: NextApiResponse) => {
       const companyId = (req as unknown as Record<string, unknown>).companyId as string | undefined;
 
       if (!companyId) {

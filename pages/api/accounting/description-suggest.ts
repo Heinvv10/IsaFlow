@@ -10,19 +10,19 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { withCompany } from '@/lib/auth/withCompany';
+import { withAuth } from '@/lib/auth/withAuth';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { suggestDescriptions } from '@/modules/accounting/services/core/descriptionTemplateService';
-import type { CompanyApiRequest } from '@/lib/auth/withCompany';
+import type { CompanyAuthedRequest } from '@/lib/auth/withAuth';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method ?? 'unknown', ['GET']);
   }
 
-  const companyReq = req as CompanyApiRequest;
+  const companyReq = req as CompanyAuthedRequest;
   const companyId = companyReq.companyId;
 
   const q = (req.query.q as string | undefined) ?? '';
@@ -37,4 +37,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, { suggestions });
 }
 
-export default withCompany(withErrorHandler(withWriteAccess(handler)));
+export default withAuth(withErrorHandler(withWriteAccess(handler)));

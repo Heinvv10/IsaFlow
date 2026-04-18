@@ -133,7 +133,7 @@ describe('withWriteAccess', () => {
     expect(res._status).toBe(200);
   });
 
-  it('fails closed with 403 when companyRole is missing (withCompany misuse)', async () => {
+  it('fails closed with 403 when companyRole is missing (withAuth misuse)', async () => {
     const handler = vi.fn();
     const wrapped = withWriteAccess(handler);
     const res = mockRes();

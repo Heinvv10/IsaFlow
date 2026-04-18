@@ -9,12 +9,12 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { convertAmount as convertAmountPure } from '@/modules/accounting/services/core/multiCurrencyService';
 import { getLatestRate, getExchangeRates } from '@/modules/accounting/services/core/currencyService';
 import { log } from '@/lib/logger';
 
-async function handler(req: CompanyApiRequest, res: NextApiResponse) {
+async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
   }
@@ -88,4 +88,4 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, { result, rate, effectiveDate });
 }
 
-export default withCompany(withErrorHandler(handler));
+export default withAuth(withErrorHandler(handler));

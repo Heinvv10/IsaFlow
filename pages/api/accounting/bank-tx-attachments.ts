@@ -15,7 +15,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { extractFromPdf, extractFromImage } from '@/modules/accounting/services/core/ocrService';
@@ -62,9 +62,9 @@ function estimateDataUrlBytes(dataUrl: string): number {
 
 // ── Handler ───────────────────────────────────────────────────────────────────
 
-async function handler(req: CompanyApiRequest, res: NextApiResponse) {
+async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const { companyId } = req;
-  const userId: string | null = req.user?.id ?? req.user?.userId ?? null;
+  const userId: string | null = req.user?.id ?? null;
 
   // ── GET ────────────────────────────────────────────────────────────────────
   if (req.method === 'GET') {
@@ -214,4 +214,4 @@ async function extractAttachmentData(dataUrl: string, mime: string, attachmentId
 }
 
  
-export default withCompany(withErrorHandler(withWriteAccess(handler)));
+export default withAuth(withErrorHandler(withWriteAccess(handler)));

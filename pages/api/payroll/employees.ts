@@ -7,13 +7,13 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { listEmployees, createEmployee } from '@/modules/payroll/payrollService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
 
   if (req.method === 'GET') {
     try {
@@ -75,7 +75,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         if (!r.valid) return apiResponse.badRequest(res, `Tax number: ${r.reason}`);
       }
 
-      const userId = (req as CompanyApiRequest).user?.id ?? null;
+      const userId = (req as CompanyAuthedRequest).user?.id ?? null;
 
       const employee = await createEmployee(companyId, {
         employee_number: employee_number.trim(),
@@ -123,4 +123,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 }
 
  
-export default withCompany(withErrorHandler(withCsrf(handler)));
+export default withAuth(withErrorHandler(withCsrf(handler)));

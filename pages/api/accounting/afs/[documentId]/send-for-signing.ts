@@ -1,5 +1,5 @@
 // pages/api/accounting/afs/[documentId]/send-for-signing.ts — POST
-// Auth: withCompany (staff-only)
+// Auth: withAuth (staff-only)
 // Reads rendered AFS HTML, calls Signum, sends per-signer notifications.
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -7,7 +7,7 @@ import fs from 'fs/promises';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { afsHtmlPath } from '@/lib/storage/afsStorage';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { sendForSigning } from '@/modules/accounting/services/afs/signumIntegrationService';
@@ -21,7 +21,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
 
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
   const documentId = req.query.documentId as string;
   if (!documentId) return apiResponse.badRequest(res, 'documentId is required');
 
@@ -135,4 +135,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   });
 }
 
-export default withCompany(withErrorHandler(handler as never));
+export default withAuth(withErrorHandler(handler as never));

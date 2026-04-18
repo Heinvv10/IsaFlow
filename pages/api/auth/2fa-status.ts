@@ -4,8 +4,8 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { withAuth } from '@/lib/auth/middleware';
-import type { AuthenticatedNextApiRequest } from '@/lib/auth/middleware';
+import { withUserAuth } from '@/lib/auth/withUserAuth';
+import type { AuthenticatedNextApiRequest } from '@/lib/auth/withUserAuth';
 import { apiResponse } from '@/lib/apiResponse';
 import { get2FAStatus } from '@/modules/auth/services/twoFactorService';
 import { log } from '@/lib/logger';
@@ -27,4 +27,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(withErrorHandler(handler));
+export default withUserAuth(withErrorHandler(handler));

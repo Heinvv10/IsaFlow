@@ -1,9 +1,11 @@
 /**
- * /reset-password?token=<token>
- * Validates the reset token and lets the user choose a new password.
+ * /reset-password
+ * GoTrue's recovery mailer lands the user here with the recovery token in
+ * the URL fragment: `#access_token=<jwt>&refresh_token=<r>&type=recovery`.
+ * We read it client-side, strip the fragment, and POST to do-reset-password.
  */
 
-import { useState, FormEvent } from 'react';
+import { useEffect, useState, FormEvent } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -36,7 +38,23 @@ const STRENGTH_COLORS = ['bg-red-500', 'bg-red-500', 'bg-yellow-500', 'bg-green-
 
 export default function ResetPasswordPage() {
   const router = useRouter();
-  const token = typeof router.query.token === 'string' ? router.query.token : '';
+  // GoTrue puts the recovery JWT in the URL fragment, not the query string.
+  // Fall back to ?token= for back-compat with the legacy flow during cutover.
+  const [token, setToken] = useState('');
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const hash = window.location.hash.replace(/^#/, '');
+    const params = new URLSearchParams(hash);
+    const accessToken = params.get('access_token');
+    const type = params.get('type');
+    if (accessToken && type === 'recovery') {
+      setToken(accessToken);
+      // Strip the fragment so a page reload doesn't surface the JWT again.
+      window.history.replaceState({}, '', window.location.pathname + window.location.search);
+      return;
+    }
+    if (typeof router.query.token === 'string') setToken(router.query.token);
+  }, [router.query.token]);
 
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -67,7 +85,7 @@ export default function ResetPasswordPage() {
       const res = await fetch('/api/auth/do-reset-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, password, confirmPassword }),
+        body: JSON.stringify({ recoveryToken: token, newPassword: password }),
       });
 
       const data = await res.json() as { error?: { message?: string }; message?: string };

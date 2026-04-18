@@ -31,7 +31,7 @@ vi.mock('@/lib/api-error-handler', () => ({
 }));
 
 vi.mock('@/lib/auth', () => ({
-  withCompany: (fn: unknown) => fn,
+  withAuth: (fn: unknown) => fn,
   withWriteAccess: (fn: unknown) => fn,
 }));
 

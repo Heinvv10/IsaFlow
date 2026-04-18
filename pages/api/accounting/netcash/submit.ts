@@ -7,14 +7,14 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { submitEftBatch, type NetcashPayment } from '@/modules/accounting/services/ap/netcashService';
 
 type Row = Record<string, unknown>;
 
-async function handler(req: CompanyApiRequest, res: NextApiResponse) {
+async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
 
   const { companyId } = req;
@@ -119,4 +119,4 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   });
 }
 
-export default withCompany(withErrorHandler(handler as Parameters<typeof withCompany>[0]));
+export default withAuth(withErrorHandler(handler as Parameters<typeof withAuth>[0]));

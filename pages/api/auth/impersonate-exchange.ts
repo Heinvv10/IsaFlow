@@ -10,7 +10,7 @@
  */
 
 import type { NextApiResponse } from 'next';
-import { type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withAuth } from '@/lib/auth';
 import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
@@ -22,7 +22,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
   }
 
-  if (req.user.role !== 'super_admin') {
+  if ((req as unknown as CompanyAuthedRequest).companyRole !== 'super_admin') {
     return apiResponse.forbidden(res, 'Only super_admin can use impersonation');
   }
 

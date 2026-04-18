@@ -7,7 +7,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import {
@@ -30,11 +30,11 @@ const DEFAULT_THRESHOLDS: PipelineThresholds = {
   lowValueAutoApproveAmount: 5000,
 };
 
-async function handler(req: CompanyApiRequest, res: NextApiResponse) {
+async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method || '', ['POST']);
 
   const { companyId } = req;
-  const userId: string = req.user?.id || req.user?.userId || '';
+  const userId: string = req.user?.id || '';
   const { documentId } = req.body as { documentId?: string };
 
   if (!documentId) return apiResponse.badRequest(res, 'documentId is required');
@@ -118,4 +118,4 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
 }
 
  
-export default withCompany(withErrorHandler(withWriteAccess(handler)));
+export default withAuth(withErrorHandler(withWriteAccess(handler)));

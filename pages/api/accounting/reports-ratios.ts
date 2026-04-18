@@ -4,17 +4,17 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
+import { withAuth, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { calculateFinancialRatios, type FinancialData } from '@/modules/accounting/services/reports/reportingEngineService';
-import type { CompanyApiRequest } from '@/lib/auth/withCompany';
+import type { CompanyAuthedRequest } from '@/lib/auth/withAuth';
 
 type Row = Record<string, unknown>;
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
 
-  const companyId = (req as CompanyApiRequest).companyId;
+  const companyId = (req as CompanyAuthedRequest).companyId;
 
   // Get financial data from GL balances
   const [revenueRows, cosRows, expenseRows, assetRows, liabilityRows, equityRows] = await Promise.all([
@@ -45,4 +45,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const ratios = calculateFinancialRatios(data);
   return apiResponse.success(res, { ratios, financialData: data });
 }
-export default withCompany(withErrorHandler(withWriteAccess(handler)));
+export default withAuth(withErrorHandler(withWriteAccess(handler)));

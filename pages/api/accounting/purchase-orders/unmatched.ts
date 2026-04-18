@@ -12,8 +12,8 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type AuthenticatedNextApiRequest } from '@/lib/auth';
-import type { CompanyApiRequest } from '@/lib/auth/withCompany';
+import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import type { CompanyAuthedRequest } from '@/lib/auth/withAuth';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 
@@ -24,7 +24,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
   }
 
-  const companyId = (req as CompanyApiRequest).companyId;
+  const companyId = (req as CompanyAuthedRequest).companyId;
   const { supplierId, purchaseOrderId, include = 'both' } = req.query;
 
   if (!supplierId) {
@@ -85,4 +85,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, { pos, grns });
 }
 
-export default withCompany(withErrorHandler(handler as never));
+export default withAuth(withErrorHandler(handler as never));

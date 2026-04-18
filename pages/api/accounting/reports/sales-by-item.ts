@@ -6,7 +6,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { csvCell } from '@/lib/csv';
@@ -19,7 +19,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const to = (req.query.to as string) || new Date().toISOString().split('T')[0];
     const format = req.query.format as string;
 
-    const { companyId } = req as CompanyApiRequest;
+    const { companyId } = req as CompanyAuthedRequest;
     const rows = await sql`
       SELECT
         cii.description AS name,
@@ -66,4 +66,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withCompany(withErrorHandler(withWriteAccess(handler)));
+export default withAuth(withErrorHandler(withWriteAccess(handler)));

@@ -2,7 +2,7 @@
  * Portal authentication middleware.
  * Reads the `portal_session` cookie, verifies via verifyPortalToken,
  * attaches `portalSession` to req, or returns 401.
- * Completely separate from staff withCompany — uses PORTAL_JWT_SECRET.
+ * Completely separate from staff withAuth — uses PORTAL_JWT_SECRET.
  */
 
 import type { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';

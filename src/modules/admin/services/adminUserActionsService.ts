@@ -8,7 +8,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { generateResetToken } from '@/lib/auth/password';
+import { generateResetToken } from '@/lib/auth';
 import { sendEmail } from '@/modules/accounting/services/core/emailService';
 import { passwordResetEmailHtml } from '@/lib/email-templates-auth';
 

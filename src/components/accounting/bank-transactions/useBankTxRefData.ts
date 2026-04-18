@@ -4,7 +4,7 @@
  * All requests fire in parallel via Promise.all.
  */
 
-import { useEffect } from 'react';
+import { useEffect, useCallback } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import type { SelectOption } from '@/components/accounting/BankTxTable';
 import type { BankAcct } from './BankTxBankCards';
@@ -30,11 +30,18 @@ type Setters = {
   setSelectedBank: (fn: (prev: string) => string) => void;
 };
 
-export function useBankTxRefData(setters: Setters): void {
+export function useBankTxRefData(setters: Setters): { refreshBankAccounts: () => void } {
   const {
     setBankAccounts, setGlAccounts, setSuppliers, setCustomers,
     setCc1Options, setCc2Options, setBuOptions, setSelectedBank,
   } = setters;
+
+  const refreshBankAccounts = useCallback(() => {
+    apiFetch('/api/accounting/bank-accounts').then(r => r.json()).then(bankJson => {
+      const bankList: BankAcct[] = Array.isArray(bankJson.data || bankJson) ? (bankJson.data || bankJson) : [];
+      setBankAccounts(bankList);
+    }).catch(() => { /* non-critical */ });
+  }, [setBankAccounts]);
 
   useEffect(() => {
     Promise.all([
@@ -80,6 +87,8 @@ export function useBankTxRefData(setters: Setters): void {
     }).catch(() => { /* non-critical: UI handles empty lists */ });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  return { refreshBankAccounts };
 }
 
 export type { RefData };

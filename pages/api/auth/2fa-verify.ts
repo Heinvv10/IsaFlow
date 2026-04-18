@@ -11,7 +11,7 @@ import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
 import { verifyToken, signToken } from '@/lib/auth/jwt';
 import { createSession } from '@/lib/auth/session';
-import { AUTH_COOKIE_NAME } from '@/lib/auth/middleware';
+import { ACCESS_COOKIE as AUTH_COOKIE_NAME } from '@/lib/auth/cookies';
 import { verifyTOTPCode, addTrustedDevice } from '@/modules/auth/services/twoFactorService';
 import { log } from '@/lib/logger';
 import type { AuthRole } from '@/lib/auth/types';

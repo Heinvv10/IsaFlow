@@ -20,7 +20,7 @@ import { serialize } from 'cookie';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { verifyToken } from '@/lib/auth/jwt';
-import { AUTH_COOKIE_NAME } from '@/lib/auth/middleware';
+import { ACCESS_COOKIE as AUTH_COOKIE_NAME } from '@/lib/auth/cookies';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import crypto from 'crypto';
 

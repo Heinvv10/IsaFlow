@@ -6,11 +6,11 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { syncBankFeed } from '@/modules/accounting/services/bank/openBankingService';
 
-async function handler(req: CompanyApiRequest, res: NextApiResponse) {
+async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const { companyId } = req;
   const userId = req.user.id;
   const connectionId = req.query.id as string;
@@ -27,4 +27,4 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
 }
 
-export default withCompany(withErrorHandler(withCsrf(handler)));
+export default withAuth(withErrorHandler(withCsrf(handler)));

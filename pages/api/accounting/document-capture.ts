@@ -9,7 +9,7 @@ import { Writable } from 'stream';
 import formidable from 'formidable';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest, withWriteAccess} from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
@@ -95,7 +95,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
 /** GET — List captured documents */
 async function handleGet(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
   const status = req.query.status as string | undefined;
   const page = Math.max(1, parseInt(String(req.query.page || '1'), 10));
   const pageSize = Math.min(100, Math.max(1, parseInt(String(req.query.pageSize || '25'), 10)));
@@ -136,7 +136,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
 
 /** POST — Upload a PDF or image, extract data, save to captured_documents */
 async function handlePost(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyApiRequest;
+  const { companyId } = req as CompanyAuthedRequest;
   const user = (req as NextApiRequest & { user: { id: string } }).user;
   try {
     const { files } = await parseForm(req);
@@ -242,4 +242,4 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 }
 
  
-export default withCompany(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

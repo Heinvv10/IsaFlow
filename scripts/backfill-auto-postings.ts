@@ -33,12 +33,14 @@ if (fs.existsSync(envPath)) {
   }
 }
 
-if (!process.env.DATABASE_URL) {
-  console.error('DATABASE_URL missing. Create .env.local or export it.');
+// Backfill writes to company-scoped tables and must bypass RLS.
+// Prefer MIGRATION_ADMIN_DATABASE_URL (BYPASSRLS role); fall back to DATABASE_URL.
+if (!process.env.MIGRATION_ADMIN_DATABASE_URL && !process.env.DATABASE_URL) {
+  console.error('MIGRATION_ADMIN_DATABASE_URL or DATABASE_URL missing. Create .env.local or export it.');
   process.exit(1);
 }
 
-const sql = createSql();
+const sql = createSql(process.env.MIGRATION_ADMIN_DATABASE_URL ?? process.env.DATABASE_URL);
 
 // ---------------------------------------------------------------------------
 // Argument parsing

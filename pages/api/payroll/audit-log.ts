@@ -6,7 +6,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import {
   listAuditEntries,
@@ -15,7 +15,7 @@ import {
 
 const VALID_TYPES: AuditEntityType[] = ['employee', 'pay_structure', 'payroll_run'];
 
-async function handler(req: CompanyApiRequest, res: NextApiResponse) {
+async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
   }
@@ -41,4 +41,4 @@ async function handler(req: CompanyApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withCompany(withErrorHandler(handler));
+export default withAuth(withErrorHandler(handler));

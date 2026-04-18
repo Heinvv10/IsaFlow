@@ -93,7 +93,7 @@ export default function AdminMigrationsPage() {
       fd.append('file', file);
       fd.append('source', source);
       fd.append('fileType', type);
-      // withCompany middleware reads X-Company-Id header — pass the admin-selected company explicitly
+      // withAuth middleware reads X-Company-Id header — pass the admin-selected company explicitly
       const res  = await apiFetch('/api/accounting/migration-parse', {
         method: 'POST',
         headers: { 'X-Company-Id': companyId },
@@ -111,7 +111,7 @@ export default function AdminMigrationsPage() {
     if (!companyId) return;
     setExecuting(true); setExecErr(''); setResult(null);
     try {
-      // withCompany middleware reads X-Company-Id header — pass the admin-selected company explicitly
+      // withAuth middleware reads X-Company-Id header — pass the admin-selected company explicitly
       const res  = await apiFetch('/api/accounting/migration-execute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Company-Id': companyId },
