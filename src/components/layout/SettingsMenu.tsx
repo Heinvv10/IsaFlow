@@ -18,9 +18,10 @@ import type { DropdownItem } from '@/components/accounting/navSections/types';
 interface PanelProps {
   anchorRect: DOMRect;
   onSelect: (href: string) => void;
+  panelRef: React.RefObject<HTMLDivElement | null>;
 }
 
-function Panel({ anchorRect, onSelect }: PanelProps) {
+function Panel({ anchorRect, onSelect, panelRef }: PanelProps) {
   const top = anchorRect.bottom + window.scrollY + 8;
   const left = anchorRect.right + window.scrollX;
 
@@ -28,6 +29,7 @@ function Panel({ anchorRect, onSelect }: PanelProps) {
 
   return createPortal(
     <div
+      ref={panelRef}
       role="menu"
       aria-label="Settings"
       style={{ position: 'absolute', top, left, transform: 'translateX(-100%)' }}
@@ -73,6 +75,7 @@ export function SettingsMenu() {
   const [open, setOpen] = useState(false);
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   const openMenu = useCallback(() => {
     if (buttonRef.current) {
@@ -94,7 +97,9 @@ export function SettingsMenu() {
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (buttonRef.current?.contains(e.target as Node)) return;
+      const target = e.target as Node;
+      if (buttonRef.current?.contains(target)) return;
+      if (panelRef.current?.contains(target)) return;
       setOpen(false);
     };
     const id = setTimeout(() => document.addEventListener('mousedown', handler), 0);
@@ -146,7 +151,7 @@ export function SettingsMenu() {
         </button>
       </Tooltip>
 
-      {open && anchorRect && <Panel anchorRect={anchorRect} onSelect={navigate} />}
+      {open && anchorRect && <Panel anchorRect={anchorRect} onSelect={navigate} panelRef={panelRef} />}
     </>
   );
 }
