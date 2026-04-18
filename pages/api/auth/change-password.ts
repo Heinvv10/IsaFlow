@@ -1,81 +1,31 @@
-/**
- * POST /api/auth/change-password
- * Allows the authenticated user to change their password.
- */
+// pages/api/auth/change-password.ts
+import type { NextApiHandler } from 'next';
+import { withUserAuth, type UserAuthedRequest } from '@/lib/auth/withUserAuth';
+import { signIn, adminUpdateUser } from '@/lib/auth/gotrue';
 
-import type { NextApiRequest, NextApiResponse } from 'next';
-import { z } from 'zod';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
-import { withErrorHandler } from '@/lib/api-error-handler';
-import { apiResponse } from '@/lib/apiResponse';
-import { verifyPassword, hashPassword, checkPasswordStrength } from '@/lib/auth';
-import { sql } from '@/lib/neon';
-import { log } from '@/lib/logger';
-import { checkRateLimit } from '@/lib/rateLimit';
-type Row = Record<string, unknown>;
-
-const PostBody = z.object({
-  oldPassword: z.string().min(1, 'Current password is required'),
-  newPassword: z.string().min(8, 'New password must be at least 8 characters'),
-  confirmPassword: z.string().min(1, 'Password confirmation is required'),
-}).strict().refine((d) => d.newPassword === d.confirmPassword, {
-  message: 'New passwords do not match',
-  path: ['confirmPassword'],
-});
-
-async function handler(req: NextApiRequest, res: NextApiResponse) {
+const handler: NextApiHandler = async (req, res) => {
   if (req.method !== 'POST') {
-    return apiResponse.methodNotAllowed(res, req.method ?? 'unknown', ['POST']);
+    return res.status(405).json({ success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'POST required' } });
   }
-
-  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
-  if (!(await checkRateLimit(`change-password:${ip}`, { max: 5, windowSecs: 15 * 60 }))) {
-    return res.status(429).json({ success: false, error: 'Too many attempts. Try again later.' });
+  const user = (req as UserAuthedRequest).user;
+  const { currentPassword, newPassword } = req.body ?? {};
+  if (typeof currentPassword !== 'string' || typeof newPassword !== 'string') {
+    return res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'currentPassword and newPassword required' } });
   }
-
-  const authReq = req as AuthenticatedNextApiRequest;
-  const userId = authReq.user.id;
-
-  const parsed = PostBody.safeParse(req.body);
-  if (!parsed.success) {
-    return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
+  if (newPassword.length < 10) {
+    return res.status(400).json({ success: false, error: { code: 'WEAK_PASSWORD', message: 'Password must be at least 10 characters' } });
   }
-
-  const { oldPassword, newPassword } = parsed.data;
-
-  const strength = checkPasswordStrength(newPassword);
-  if (!strength.isValid) {
-    return apiResponse.badRequest(
-      res,
-      `Password too weak: ${strength.issues[0] ?? 'Please choose a stronger password'}`
-    );
+  if (!user.email) {
+    return res.status(400).json({ success: false, error: { code: 'NO_EMAIL', message: 'User email missing in token' } });
   }
-
-  // Fetch current password hash
-  const rows = (await sql`
-    SELECT password_hash FROM users WHERE id = ${userId} LIMIT 1
-  `) as Row[];
-
-  if (!rows.length) {
-    return apiResponse.notFound(res, 'User');
+  try {
+    // Re-auth by signing in with the current password — GoTrue will reject if wrong.
+    await signIn(user.email, currentPassword);
+  } catch {
+    return res.status(400).json({ success: false, error: { code: 'WRONG_PASSWORD', message: 'Current password is incorrect' } });
   }
+  await adminUpdateUser(user.id, { password: newPassword });
+  return res.status(200).json({ success: true, data: null });
+};
 
-  const currentHash: string = String(rows[0]!.password_hash);
-  const valid = await verifyPassword(oldPassword, currentHash);
-
-  if (!valid) {
-    return apiResponse.badRequest(res, 'Current password is incorrect');
-  }
-
-  const newHash = await hashPassword(newPassword);
-
-  await sql`
-    UPDATE users SET password_hash = ${newHash} WHERE id = ${userId}
-  `;
-
-  log.info('Password changed', { userId }, 'auth/change-password');
-
-  return apiResponse.success(res, null, 'Password changed successfully');
-}
-
-export default withAuth(withErrorHandler(handler));
+export default withUserAuth(handler);
