@@ -73,6 +73,8 @@ function mapWipEntry(r: DbRow): PracticeTimeEntry {
     status: s(r.status) as PracticeTimeEntry['status'],
     approvedBy: sn(r.approved_by), approvedAt: sn(r.approved_at),
     billedAt: sn(r.billed_at), invoiceId: sn(r.invoice_id),
+    writeOffReason: sn(r.write_off_reason), writtenOffBy: sn(r.written_off_by),
+    writtenOffAt: sn(r.written_off_at),
     practiceClientName: sn(r.practice_client_name),
     jobCategoryName: sn(r.job_category_name), workItemName: sn(r.work_item_name),
     createdAt: s(r.created_at), updatedAt: s(r.updated_at),

@@ -18,6 +18,9 @@ export interface PracticeTimeEntry {
   approvedAt: string | null;
   billedAt: string | null;
   invoiceId: string | null;
+  writeOffReason: string | null;
+  writtenOffBy: string | null;
+  writtenOffAt: string | null;
   practiceClientName?: string | null;
   jobCategoryName?: string | null;
   workItemName?: string | null;

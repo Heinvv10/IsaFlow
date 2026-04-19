@@ -27,6 +27,7 @@ import {
   submitPracticeEntries,
   approvePracticeEntries,
   markEntriesBilled,
+  writeOffEntries,
 } from '@/modules/accounting/services/practice/practiceTimeEntryWorkflow';
 
 const COMPANY = 'aaaaaaaa-0000-0000-0000-000000000001';
@@ -343,5 +344,28 @@ describe('markEntriesBilled', () => {
     sqlMock.mockResolvedValueOnce([{ id: 'a' }, { id: 'b' }]);
     const count = await markEntriesBilled(COMPANY, ['a', 'b'], 'inv-1');
     expect(count).toBe(2);
+  });
+});
+
+describe('writeOffEntries', () => {
+  it('rejects empty reason', async () => {
+    await expect(writeOffEntries(COMPANY, ['a'], USER, '   '))
+      .rejects.toThrow(/reason is required/i);
+  });
+
+  it('returns 0 for empty ids without hitting DB', async () => {
+    const count = await writeOffEntries(COMPANY, [], USER, 'duplicate work');
+    expect(count).toBe(0);
+    expect(sqlMock).not.toHaveBeenCalled();
+  });
+
+  it('writes off submitted/approved entries with reason + writer stamp', async () => {
+    sqlMock.mockResolvedValueOnce([{ id: 'a' }, { id: 'b' }]);
+    const count = await writeOffEntries(COMPANY, ['a', 'b'], USER, 'duplicate work');
+    expect(count).toBe(2);
+    const call = sqlMock.mock.calls[0]!;
+    const values = call.slice(1);
+    expect(values).toContain('duplicate work');
+    expect(values).toContain(USER);
   });
 });

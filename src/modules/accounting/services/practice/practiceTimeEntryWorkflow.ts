@@ -118,3 +118,28 @@ export async function markEntriesBilled(
   log.info('Marked time entries billed', { count: rows.length, invoiceId }, 'practice');
   return rows.length;
 }
+
+export async function writeOffEntries(
+  companyId: string,
+  ids: string[],
+  writtenOffBy: string,
+  reason: string,
+): Promise<number> {
+  if (!ids.length) return 0;
+  if (!reason.trim()) throw new Error('write-off reason is required');
+
+  const rows = (await sql`
+    UPDATE time_entries
+    SET status = 'not_billable',
+        write_off_reason = ${reason},
+        written_off_by = ${writtenOffBy}::UUID,
+        written_off_at = NOW(),
+        updated_at = NOW()
+    WHERE company_id = ${companyId}::UUID
+      AND id = ANY(${ids}::UUID[])
+      AND status IN ('submitted', 'approved')
+    RETURNING id
+  `) as DbRow[];
+  log.info('Wrote off time entries', { count: rows.length, reason, writtenOffBy }, 'practice');
+  return rows.length;
+}
