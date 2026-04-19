@@ -1,17 +1,13 @@
 // pages/api/admin/users/[id]/reset-2fa.ts
 // Super-admin operation: wipe all of the target user's MFA factors so they
 // can log in without 2FA and re-enroll. Used when a user loses their device.
+// Uses GoTrue's admin HTTP API exclusively — auth.mfa_factors lives in the
+// shared postgres database, not per-app DBs, so direct SQL would fail.
 import type { NextApiResponse } from 'next';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import type { PlatformAdminRequest } from '@/lib/auth';
-import { adminUnenrollFactor, GotrueMfaError } from '@/lib/auth/gotrue-mfa';
-import { sql } from '@/lib/neon';
+import { adminListUserFactors, adminUnenrollFactor, GotrueMfaError } from '@/lib/auth/gotrue-mfa';
 import { log } from '@/lib/logger';
-
-interface AuthFactorRow {
-  id: string;
-  user_id: string;
-}
 
 async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'POST') {
@@ -24,19 +20,21 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise
     return;
   }
 
-  // platform_admin can SELECT from auth.mfa_factors thanks to the grant in
-  // migration 354 (to be applied). This query runs inside the handler's
-  // platform_admin tx, so BYPASSRLS is engaged.
-  const factors = await sql<AuthFactorRow>`
-    SELECT id::text, user_id::text
-    FROM auth.mfa_factors
-    WHERE user_id = ${targetUserId}::uuid
-  `;
+  let factors;
+  try {
+    factors = await adminListUserFactors(targetUserId);
+  } catch (err) {
+    if (err instanceof GotrueMfaError && err.status === 404) {
+      res.status(404).json({ success: false, error: { code: 'USER_NOT_FOUND', message: 'User not found in GoTrue' } });
+      return;
+    }
+    throw err;
+  }
 
   let removed = 0;
   for (const f of factors) {
     try {
-      await adminUnenrollFactor(f.user_id, f.id);
+      await adminUnenrollFactor(targetUserId, f.id);
       removed++;
     } catch (err) {
       if (err instanceof GotrueMfaError && err.status === 404) continue; // already gone

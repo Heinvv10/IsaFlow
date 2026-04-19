@@ -121,4 +121,26 @@ describe('gotrue-mfa client', () => {
     await expect(listFactors('tok')).rejects.toBeInstanceOf(GotrueMfaError);
     await expect(listFactors('tok')).rejects.toMatchObject({ status: 403 });
   });
+
+  it('adminListUserFactors GETs /admin/users/:uid with service-role bearer', async () => {
+    fetchMock.mockReturnValueOnce(okJson({
+      id: 'user-uid',
+      email: 'u@test.co',
+      factors: [{ id: 'f1', status: 'verified', factor_type: 'totp', friendly_name: 'Phone' }],
+    }));
+    const { adminListUserFactors } = await import('@/lib/auth/gotrue-mfa');
+    const factors = await adminListUserFactors('user-uid');
+    expect(fetchMock.mock.calls[0]![0]).toBe('http://gotrue.test/auth/v1/admin/users/user-uid');
+    const hdrs = fetchMock.mock.calls[0]![1].headers as Record<string, string>;
+    expect(hdrs.Authorization).toBe('Bearer service-key');
+    expect(factors).toHaveLength(1);
+    expect(factors[0]!.id).toBe('f1');
+  });
+
+  it('adminListUserFactors returns empty array when user has no factors', async () => {
+    fetchMock.mockReturnValueOnce(okJson({ id: 'user-uid', email: 'u@test.co' }));
+    const { adminListUserFactors } = await import('@/lib/auth/gotrue-mfa');
+    const factors = await adminListUserFactors('user-uid');
+    expect(factors).toEqual([]);
+  });
 });
