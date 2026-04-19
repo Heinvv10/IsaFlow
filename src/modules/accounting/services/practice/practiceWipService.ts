@@ -2,6 +2,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import { markEntriesBilled } from './practiceTimeEntryWorkflow';
+import { mapEntry } from './practiceTimeEntryService';
 import type { PracticeTimeEntry } from './practiceTimeEntryTypes';
 
 export interface WipClientRow {
@@ -53,32 +54,6 @@ function buildGroupedLines(entries: DbRow[], groupBy: 'by_work_item' | 'by_categ
     groups.set(k, prev);
   }
   return groups;
-}
-
-const s = (v: unknown): string => String(v);
-const sn = (v: unknown): string | null => (v != null && v !== '' ? s(v) : null);
-
-function mapWipEntry(r: DbRow): PracticeTimeEntry {
-  return {
-    id: s(r.id), companyId: s(r.company_id), userId: s(r.user_id),
-    entryDate: typeof r.entry_date === 'string'
-      ? r.entry_date : (r.entry_date as Date).toISOString().split('T')[0]!,
-    hours: Number(r.hours), practiceClientId: s(r.practice_client_id),
-    jobCategoryId: s(r.job_category_id), workItemId: s(r.work_item_id),
-    taskDescription: s(r.task_description), notes: sn(r.notes),
-    billable: Boolean(r.billable),
-    appliedRate: r.applied_rate != null ? Number(r.applied_rate) : null,
-    lineTotal: r.line_total != null ? Number(r.line_total) : null,
-    origin: s(r.origin ?? 'manual') as PracticeTimeEntry['origin'],
-    status: s(r.status) as PracticeTimeEntry['status'],
-    approvedBy: sn(r.approved_by), approvedAt: sn(r.approved_at),
-    billedAt: sn(r.billed_at), invoiceId: sn(r.invoice_id),
-    writeOffReason: sn(r.write_off_reason), writtenOffBy: sn(r.written_off_by),
-    writtenOffAt: sn(r.written_off_at),
-    practiceClientName: sn(r.practice_client_name),
-    jobCategoryName: sn(r.job_category_name), workItemName: sn(r.work_item_name),
-    createdAt: s(r.created_at), updatedAt: s(r.updated_at),
-  };
 }
 
 export async function getWipByClient(
@@ -140,19 +115,22 @@ export async function getWipByClient(
   for (const r of entryRows) {
     const cid = String(r.practice_client_id);
     const list = entriesByClient.get(cid) ?? [];
-    list.push(mapWipEntry(r));
+    list.push(mapEntry(r));
     entriesByClient.set(cid, list);
   }
 
   return summary.map((r) => {
-    const cid = s(r.practice_client_id);
+    const cid = String(r.practice_client_id);
     const raw = r.oldest_approved_date;
-    const oldestApprovedDate = raw instanceof Date ? raw.toISOString().split('T')[0]! : s(raw ?? '');
+    const oldestApprovedDate = raw instanceof Date ? raw.toISOString().split('T')[0]! : String(raw ?? '');
     return {
-      practiceClientId: cid, legalName: s(r.legal_name),
-      linkCustomerId: sn(r.link_customer_id),
-      totalHours: Number(r.total_hours), totalValue: Number(r.total_value),
-      oldestApprovedDate, entries: entriesByClient.get(cid) ?? [],
+      practiceClientId: cid,
+      legalName: String(r.legal_name),
+      linkCustomerId: r.link_customer_id ? String(r.link_customer_id) : null,
+      totalHours: Number(r.total_hours),
+      totalValue: Number(r.total_value),
+      oldestApprovedDate,
+      entries: entriesByClient.get(cid) ?? [],
     };
   });
 }
@@ -172,7 +150,7 @@ export async function generateWipInvoice(
     throw new Error('practice client not found or not active');
   if (!clientRows[0].link_customer_id)
     throw new Error('practice client has no linked AR customer — set link_customer_id before generating an invoice');
-  const customerId = s(clientRows[0].link_customer_id);
+  const customerId = String(clientRows[0].link_customer_id);
 
   // 2. Load eligible entries
   const entries = (await sql`
