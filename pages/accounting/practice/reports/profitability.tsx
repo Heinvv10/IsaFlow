@@ -8,13 +8,17 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, AlertCircle, TrendingUp } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import type { ProfitabilityRow } from '@/modules/accounting/services/practice/practiceReportsService';
+import { PeriodPicker } from '@/components/practice/PeriodPicker';
+import type { PeriodRange } from '@/components/practice/PeriodPicker';
 
-function firstOfMonth() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`; }
+function firstOfMonth() {
+  const d = new Date();
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString().split('T')[0]!;
+}
 function todayIso() { return new Date().toISOString().slice(0, 10); }
 
 const TH = 'text-left py-2 px-3 text-[10px] tracking-widest font-semibold text-[var(--ff-text-secondary)] uppercase';
 const TD = 'py-2 px-3 text-sm text-[var(--ff-text-secondary)]';
-const INPUT = 'rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] px-3 py-1.5 text-sm text-[var(--ff-text-primary)] focus:outline-none focus:ring-2 focus:ring-teal-500/40';
 
 function ErrBanner({ msg }: { msg: string }) {
   return (
@@ -28,12 +32,12 @@ export default function ProfitabilityPage() {
   const [rows, setRows] = useState<ProfitabilityRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [params, setParams] = useState({ dateFrom: firstOfMonth(), dateTo: todayIso() });
+  const [period, setPeriod] = useState<PeriodRange>({ dateFrom: firstOfMonth(), dateTo: todayIso() });
 
   useEffect(() => {
     setLoading(true);
     setError(null);
-    const qs = new URLSearchParams({ dateFrom: params.dateFrom, dateTo: params.dateTo });
+    const qs = new URLSearchParams({ dateFrom: period.dateFrom, dateTo: period.dateTo });
     apiFetch(`/api/accounting/practice/reports/profitability?${qs.toString()}`)
       .then(async (res) => {
         const json = (await res.json()) as { data?: ProfitabilityRow[] } | ProfitabilityRow[];
@@ -42,7 +46,7 @@ export default function ProfitabilityPage() {
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load'))
       .finally(() => setLoading(false));
-  }, [params.dateFrom, params.dateTo]);
+  }, [period.dateFrom, period.dateTo]);
 
   return (
     <AppLayout>
@@ -56,17 +60,8 @@ export default function ProfitabilityPage() {
 
         <div className="px-6 py-5 max-w-7xl space-y-5">
           {/* filters */}
-          <div className="flex flex-wrap gap-4 items-end p-4 rounded-xl border border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-[var(--ff-text-secondary)]">Date from</label>
-              <input type="date" className={INPUT} value={params.dateFrom}
-                onChange={(e) => setParams((p) => ({ ...p, dateFrom: e.target.value }))} />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-[var(--ff-text-secondary)]">Date to</label>
-              <input type="date" className={INPUT} value={params.dateTo}
-                onChange={(e) => setParams((p) => ({ ...p, dateTo: e.target.value }))} />
-            </div>
+          <div className="p-4 rounded-xl border border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
+            <PeriodPicker mode="range" value={period} onChange={(v) => setPeriod(v as PeriodRange)} />
           </div>
 
           {error && <ErrBanner msg={error} />}

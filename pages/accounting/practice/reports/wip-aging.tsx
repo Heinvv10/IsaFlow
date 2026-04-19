@@ -8,13 +8,11 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, AlertCircle, Clock } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import type { WipAgingRow } from '@/modules/accounting/services/practice/practiceReportsService';
-
-function todayIso() { return new Date().toISOString().slice(0, 10); }
+import { PeriodPicker } from '@/components/practice/PeriodPicker';
 
 const TH = 'text-left py-2 px-3 text-[10px] tracking-widest font-semibold text-[var(--ff-text-secondary)] uppercase';
 const TD = 'py-2 px-3 text-sm text-[var(--ff-text-secondary)]';
 const TF = 'py-2 px-3 text-sm font-semibold text-[var(--ff-text-primary)]';
-const INPUT = 'rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] px-3 py-1.5 text-sm text-[var(--ff-text-primary)] focus:outline-none focus:ring-2 focus:ring-teal-500/40';
 
 function ErrBanner({ msg }: { msg: string }) {
   return (
@@ -36,7 +34,7 @@ export default function WipAgingPage() {
   const [rows, setRows] = useState<WipAgingRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [asOfDate, setAsOfDate] = useState(todayIso());
+  const [asOfDate, setAsOfDate] = useState(new Date().toISOString().slice(0, 10));
 
   useEffect(() => {
     setLoading(true);
@@ -68,12 +66,12 @@ export default function WipAgingPage() {
 
         <div className="px-6 py-5 max-w-7xl space-y-5">
           {/* filter */}
-          <div className="flex flex-wrap gap-4 items-end p-4 rounded-xl border border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-[var(--ff-text-secondary)]">As of date</label>
-              <input type="date" className={INPUT} value={asOfDate}
-                onChange={(e) => setAsOfDate(e.target.value)} />
-            </div>
+          <div className="p-4 rounded-xl border border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
+            <PeriodPicker
+              mode="asof"
+              value={{ asOfDate }}
+              onChange={(v) => setAsOfDate((v as { asOfDate: string }).asOfDate)}
+            />
           </div>
 
           {error && <ErrBanner msg={error} />}

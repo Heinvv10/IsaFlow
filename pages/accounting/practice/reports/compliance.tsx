@@ -9,13 +9,17 @@ import { Loader2, AlertCircle, ShieldCheck } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import type { ComplianceRow } from '@/modules/accounting/services/practice/practiceReportsService';
 import type { CompanyUserSummary } from '@/modules/accounting/services/practice/practiceUsersService';
+import { PeriodPicker } from '@/components/practice/PeriodPicker';
+import type { PeriodRange } from '@/components/practice/PeriodPicker';
 
-function firstOfMonth() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`; }
+function firstOfMonth() {
+  const d = new Date();
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString().split('T')[0]!;
+}
 function todayIso() { return new Date().toISOString().slice(0, 10); }
 
 const TH = 'text-left py-2 px-3 text-[10px] tracking-widest font-semibold text-[var(--ff-text-secondary)] uppercase';
 const TD = 'py-2 px-3 text-sm text-[var(--ff-text-secondary)]';
-const INPUT = 'rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] px-3 py-1.5 text-sm text-[var(--ff-text-primary)] focus:outline-none focus:ring-2 focus:ring-teal-500/40';
 
 function ErrBanner({ msg }: { msg: string }) {
   return (
@@ -48,7 +52,7 @@ export default function CompliancePage() {
   const [users, setUsers] = useState<CompanyUserSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [params, setParams] = useState({ periodStart: firstOfMonth(), periodEnd: todayIso() });
+  const [period, setPeriod] = useState<PeriodRange>({ dateFrom: firstOfMonth(), dateTo: todayIso() });
 
   useEffect(() => {
     apiFetch('/api/accounting/practice/users').then(async (res) => {
@@ -61,7 +65,8 @@ export default function CompliancePage() {
   useEffect(() => {
     setLoading(true);
     setError(null);
-    const qs = new URLSearchParams({ periodStart: params.periodStart, periodEnd: params.periodEnd });
+    // compliance API uses periodStart/periodEnd — map from PeriodRange
+    const qs = new URLSearchParams({ periodStart: period.dateFrom, periodEnd: period.dateTo });
     apiFetch(`/api/accounting/practice/reports/compliance?${qs.toString()}`)
       .then(async (res) => {
         const json = (await res.json()) as { data?: ComplianceRow[] } | ComplianceRow[];
@@ -70,7 +75,7 @@ export default function CompliancePage() {
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load'))
       .finally(() => setLoading(false));
-  }, [params.periodStart, params.periodEnd]);
+  }, [period.dateFrom, period.dateTo]);
 
   const userMap = new Map(users.map((u) => [u.id, u.displayName]));
 
@@ -86,17 +91,13 @@ export default function CompliancePage() {
 
         <div className="px-6 py-5 max-w-7xl space-y-5">
           {/* filters */}
-          <div className="flex flex-wrap gap-4 items-end p-4 rounded-xl border border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-[var(--ff-text-secondary)]">Period start</label>
-              <input type="date" className={INPUT} value={params.periodStart}
-                onChange={(e) => setParams((p) => ({ ...p, periodStart: e.target.value }))} />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-[var(--ff-text-secondary)]">Period end</label>
-              <input type="date" className={INPUT} value={params.periodEnd}
-                onChange={(e) => setParams((p) => ({ ...p, periodEnd: e.target.value }))} />
-            </div>
+          <div className="p-4 rounded-xl border border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
+            <PeriodPicker
+              mode="range"
+              value={period}
+              onChange={(v) => setPeriod(v as PeriodRange)}
+              labelRange={{ from: 'Period start', to: 'Period end' }}
+            />
           </div>
 
           {error && <ErrBanner msg={error} />}

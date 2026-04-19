@@ -8,10 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, AlertCircle, Layers } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import type { PipelineSummary } from '@/modules/accounting/services/practice/practiceReportsService';
-
-function todayIso() { return new Date().toISOString().slice(0, 10); }
-
-const INPUT = 'rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] px-3 py-1.5 text-sm text-[var(--ff-text-primary)] focus:outline-none focus:ring-2 focus:ring-teal-500/40';
+import { PeriodPicker } from '@/components/practice/PeriodPicker';
 
 function ErrBanner({ msg }: { msg: string }) {
   return (
@@ -44,7 +41,7 @@ export default function RevenuePipelinePage() {
   const [summary, setSummary] = useState<PipelineSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [asOfDate, setAsOfDate] = useState(todayIso());
+  const [asOfDate, setAsOfDate] = useState(new Date().toISOString().slice(0, 10));
 
   useEffect(() => {
     setLoading(true);
@@ -71,12 +68,12 @@ export default function RevenuePipelinePage() {
 
         <div className="px-6 py-5 max-w-5xl space-y-6">
           {/* filter */}
-          <div className="flex flex-wrap gap-4 items-end p-4 rounded-xl border border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-[var(--ff-text-secondary)]">As of date</label>
-              <input type="date" className={INPUT} value={asOfDate}
-                onChange={(e) => setAsOfDate(e.target.value)} />
-            </div>
+          <div className="p-4 rounded-xl border border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
+            <PeriodPicker
+              mode="asof"
+              value={{ asOfDate }}
+              onChange={(v) => setAsOfDate((v as { asOfDate: string }).asOfDate)}
+            />
           </div>
 
           {error && <ErrBanner msg={error} />}
@@ -85,22 +82,9 @@ export default function RevenuePipelinePage() {
             ? <div className="flex items-center gap-2 py-12 justify-center text-[var(--ff-text-tertiary)] text-sm"><Loader2 className="h-5 w-5 animate-spin" />Loading…</div>
             : summary && (
               <div className="flex flex-wrap gap-4">
-                <StatCard
-                  title="Approved & unbilled"
-                  value={`R${summary.totalApproved.toFixed(2)}`}
-                  colour="blue"
-                />
-                <StatCard
-                  title="Invoiced last 30 days"
-                  value={`R${summary.totalInvoicedLast30d.toFixed(2)}`}
-                  colour="green"
-                />
-                <StatCard
-                  title="Forecast (next 30 days)"
-                  value={`R${summary.forecast30d.toFixed(2)}`}
-                  colour="amber"
-                  footnote="80% of approved WIP"
-                />
+                <StatCard title="Approved & unbilled" value={`R${summary.totalApproved.toFixed(2)}`} colour="blue" />
+                <StatCard title="Invoiced last 30 days" value={`R${summary.totalInvoicedLast30d.toFixed(2)}`} colour="green" />
+                <StatCard title="Forecast (next 30 days)" value={`R${summary.forecast30d.toFixed(2)}`} colour="amber" footnote="80% of approved WIP" />
               </div>
             )
           }

@@ -8,8 +8,13 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, AlertCircle, BarChart2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import type { UtilisationRow } from '@/modules/accounting/services/practice/practiceReportsService';
+import { PeriodPicker } from '@/components/practice/PeriodPicker';
+import type { PeriodRange } from '@/components/practice/PeriodPicker';
 
-function firstOfMonth() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`; }
+function firstOfMonth() {
+  const d = new Date();
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString().split('T')[0]!;
+}
 function todayIso() { return new Date().toISOString().slice(0, 10); }
 
 const TH = 'text-left py-2 px-3 text-[10px] tracking-widest font-semibold text-[var(--ff-text-secondary)] uppercase';
@@ -34,13 +39,14 @@ export default function UtilisationPage() {
   const [rows, setRows] = useState<UtilisationRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [params, setParams] = useState({ dateFrom: firstOfMonth(), dateTo: todayIso(), userId: '' });
+  const [period, setPeriod] = useState<PeriodRange>({ dateFrom: firstOfMonth(), dateTo: todayIso() });
+  const [userId, setUserId] = useState('');
 
   useEffect(() => {
     setLoading(true);
     setError(null);
-    const qs = new URLSearchParams({ dateFrom: params.dateFrom, dateTo: params.dateTo });
-    if (params.userId.trim()) qs.set('userId', params.userId.trim());
+    const qs = new URLSearchParams({ dateFrom: period.dateFrom, dateTo: period.dateTo });
+    if (userId.trim()) qs.set('userId', userId.trim());
     apiFetch(`/api/accounting/practice/reports/utilisation?${qs.toString()}`)
       .then(async (res) => {
         const json = (await res.json()) as { data?: UtilisationRow[] } | UtilisationRow[];
@@ -49,7 +55,7 @@ export default function UtilisationPage() {
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load'))
       .finally(() => setLoading(false));
-  }, [params.dateFrom, params.dateTo, params.userId]);
+  }, [period.dateFrom, period.dateTo, userId]);
 
   return (
     <AppLayout>
@@ -63,21 +69,14 @@ export default function UtilisationPage() {
 
         <div className="px-6 py-5 max-w-7xl space-y-5">
           {/* filters */}
-          <div className="flex flex-wrap gap-4 items-end p-4 rounded-xl border border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-[var(--ff-text-secondary)]">Date from</label>
-              <input type="date" className={INPUT} value={params.dateFrom}
-                onChange={(e) => setParams((p) => ({ ...p, dateFrom: e.target.value }))} />
+          <div className="flex flex-wrap gap-4 items-start p-4 rounded-xl border border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
+            <div className="flex-1 min-w-[280px]">
+              <PeriodPicker mode="range" value={period} onChange={(v) => setPeriod(v as PeriodRange)} />
             </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-[var(--ff-text-secondary)]">Date to</label>
-              <input type="date" className={INPUT} value={params.dateTo}
-                onChange={(e) => setParams((p) => ({ ...p, dateTo: e.target.value }))} />
-            </div>
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1 pt-8">
               <label className="text-xs font-medium text-[var(--ff-text-secondary)]">User ID (optional)</label>
-              <input type="text" className={INPUT} placeholder="Filter by user id…" value={params.userId}
-                onChange={(e) => setParams((p) => ({ ...p, userId: e.target.value }))} />
+              <input type="text" className={INPUT} placeholder="Filter by user id…" value={userId}
+                onChange={(e) => setUserId(e.target.value)} />
             </div>
           </div>
 
