@@ -1,55 +1,56 @@
 /**
- * Payroll Runs List Page
- * Displays all payroll runs with status, totals, and action links.
+ * Payroll Runs List — Phase 2.
  * Route: /payroll/runs
  */
-
-import { useState, useEffect, useCallback } from 'react';
-import { AppLayout } from '@/components/layout/AppLayout';
-import { formatCurrency, formatDate } from '@/utils/formatters';
-import { CalendarDays, Loader2, AlertCircle, Plus } from 'lucide-react';
+import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
+import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
+import { formatCurrency } from '@/utils/formatters';
+import { CalendarDays, Loader2, AlertCircle, Plus } from 'lucide-react';
 
-interface PayrollRunItem {
+interface RunRow {
   id: string;
-  period_start: string;
-  period_end: string;
-  run_date: string;
+  periodMonth: number;
+  periodYear: number;
   status: string;
-  total_gross: number;
-  total_net: number;
-  total_paye: number;
-  total_company_cost: number;
+  totalGross: number;
+  totalPaye: number;
+  totalNet: number;
+  employeeCount: number;
 }
+
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const periodLabel = (r: RunRow) => `${MONTHS[r.periodMonth - 1]} ${r.periodYear}`;
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
     draft: 'bg-yellow-500/10 text-yellow-400',
-    processing: 'bg-blue-500/10 text-blue-400',
-    completed: 'bg-teal-500/10 text-teal-400',
-    reversed: 'bg-red-500/10 text-red-400',
+    calculated: 'bg-blue-500/10 text-blue-400',
+    approved: 'bg-teal-500/10 text-teal-400',
+    posted: 'bg-emerald-500/10 text-emerald-400',
+    cancelled: 'bg-red-500/10 text-red-400',
   };
   return (
-    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${colors[status] || 'bg-gray-500/10 text-gray-400'}`}>
-      {status.charAt(0).toUpperCase() + status.slice(1)}
+    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${colors[status] ?? 'bg-gray-500/10 text-gray-400'}`}>
+      {status}
     </span>
   );
 }
 
-export default function PayrollRunsPage() {
-  const [runs, setRuns] = useState<PayrollRunItem[]>([]);
+export default function PayrollRunsListPage() {
+  const [runs, setRuns] = useState<RunRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const loadRuns = useCallback(async () => {
+  const load = useCallback(async () => {
     setIsLoading(true);
     setError('');
     try {
-      const res = await apiFetch('/api/payroll/payroll-runs');
+      const res = await apiFetch('/api/payroll/runs');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
-      setRuns((json.data ?? json) as PayrollRunItem[]);
+      setRuns((json.data ?? json) as RunRow[]);
     } catch {
       setError('Failed to load payroll runs');
     } finally {
@@ -57,14 +58,11 @@ export default function PayrollRunsPage() {
     }
   }, []);
 
-  useEffect(() => {
-    loadRuns();
-  }, [loadRuns]);
+  useEffect(() => { load(); }, [load]);
 
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
-        {/* Header */}
         <div className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
           <div className="px-6 py-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -73,15 +71,11 @@ export default function PayrollRunsPage() {
               </div>
               <div>
                 <h1 className="text-xl font-semibold text-[var(--ff-text-primary)]">Payroll Runs</h1>
-                <p className="text-sm text-[var(--ff-text-secondary)]">Process and manage payroll</p>
+                <p className="text-sm text-[var(--ff-text-secondary)]">Monthly payroll cycles</p>
               </div>
             </div>
-            <Link
-              href="/payroll/runs/new"
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium transition-colors"
-            >
-              <Plus className="h-4 w-4" />
-              New Payroll Run
+            <Link href="/payroll/runs/new" className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium">
+              <Plus className="h-4 w-4" /> New Payroll Run
             </Link>
           </div>
         </div>
@@ -93,57 +87,41 @@ export default function PayrollRunsPage() {
             </div>
           ) : error ? (
             <div className="flex items-center justify-center gap-2 text-red-400 py-12">
-              <AlertCircle className="h-5 w-5" />
-              <span>{error}</span>
+              <AlertCircle className="h-5 w-5" /><span>{error}</span>
             </div>
           ) : runs.length === 0 ? (
             <div className="text-center py-16">
               <CalendarDays className="h-12 w-12 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
               <p className="text-[var(--ff-text-secondary)] font-medium">No payroll runs yet</p>
-              <p className="text-sm text-[var(--ff-text-tertiary)] mt-1">Create your first payroll run</p>
-              <Link
-                href="/payroll/runs/new"
-                className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium transition-colors"
-              >
-                <Plus className="h-4 w-4" />
-                New Payroll Run
+              <Link href="/payroll/runs/new" className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium">
+                <Plus className="h-4 w-4" /> New Payroll Run
               </Link>
             </div>
           ) : (
             <div className="rounded-lg border border-[var(--ff-border-primary)] overflow-hidden bg-[var(--ff-surface-primary)]">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
-                    <th className="text-left py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Period</th>
-                    <th className="text-left py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Run Date</th>
-                    <th className="text-left py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Status</th>
-                    <th className="text-right py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Total Gross</th>
-                    <th className="text-right py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Total PAYE</th>
-                    <th className="text-right py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Total Net</th>
-                    <th className="text-right py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Company Cost</th>
-                    <th className="text-left py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Actions</th>
+                  <tr className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] text-left">
+                    <th className="py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Period</th>
+                    <th className="py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Status</th>
+                    <th className="py-3 px-4 text-[var(--ff-text-secondary)] font-medium text-right">Employees</th>
+                    <th className="py-3 px-4 text-[var(--ff-text-secondary)] font-medium text-right">Gross</th>
+                    <th className="py-3 px-4 text-[var(--ff-text-secondary)] font-medium text-right">PAYE</th>
+                    <th className="py-3 px-4 text-[var(--ff-text-secondary)] font-medium text-right">Net</th>
+                    <th className="py-3 px-4"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {runs.map((run) => (
-                    <tr
-                      key={run.id}
-                      className="border-b border-[var(--ff-border-primary)] last:border-0 hover:bg-[var(--ff-bg-tertiary)] transition-colors"
-                    >
-                      <td className="py-3 px-4 text-[var(--ff-text-primary)]">
-                        {formatDate(run.period_start)} - {formatDate(run.period_end)}
-                      </td>
-                      <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{formatDate(run.run_date)}</td>
-                      <td className="py-3 px-4"><StatusBadge status={run.status} /></td>
-                      <td className="py-3 px-4 text-right font-mono text-[var(--ff-text-primary)]">{formatCurrency(run.total_gross)}</td>
-                      <td className="py-3 px-4 text-right font-mono text-[var(--ff-text-secondary)]">{formatCurrency(run.total_paye)}</td>
-                      <td className="py-3 px-4 text-right font-mono text-[var(--ff-text-primary)] font-medium">{formatCurrency(run.total_net)}</td>
-                      <td className="py-3 px-4 text-right font-mono text-[var(--ff-text-secondary)]">{formatCurrency(run.total_company_cost)}</td>
-                      <td className="py-3 px-4">
-                        <Link
-                          href={`/payroll/runs/${run.id}`}
-                          className="text-teal-400 hover:text-teal-300 text-xs font-medium transition-colors"
-                        >
+                  {runs.map(r => (
+                    <tr key={r.id} className="border-b border-[var(--ff-border-primary)] last:border-0 hover:bg-[var(--ff-bg-tertiary)]">
+                      <td className="py-3 px-4 text-[var(--ff-text-primary)]">{periodLabel(r)}</td>
+                      <td className="py-3 px-4"><StatusBadge status={r.status} /></td>
+                      <td className="py-3 px-4 text-right text-[var(--ff-text-secondary)]">{r.employeeCount}</td>
+                      <td className="py-3 px-4 text-right font-mono text-[var(--ff-text-primary)]">{formatCurrency(r.totalGross)}</td>
+                      <td className="py-3 px-4 text-right font-mono text-[var(--ff-text-secondary)]">{formatCurrency(r.totalPaye)}</td>
+                      <td className="py-3 px-4 text-right font-mono text-[var(--ff-text-primary)] font-medium">{formatCurrency(r.totalNet)}</td>
+                      <td className="py-3 px-4 text-right">
+                        <Link href={`/payroll/runs/${r.id}`} className="text-teal-400 hover:text-teal-300 text-xs font-medium">
                           View
                         </Link>
                       </td>
