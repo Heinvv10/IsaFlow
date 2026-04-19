@@ -2,6 +2,12 @@
  * /login — Email + password sign-in page.
  * Supports ?invite=[token] to show an invitation banner.
  * Redirects to /accounting on success; shows 2FA challenge if required.
+ *
+ * Two 2FA paths:
+ *  1. GoTrue (new): login API returns {requires_2fa, factor_id, pending_token}
+ *     → local `step` state → TwoFactorScreen → /api/auth/2fa-challenge
+ *  2. Legacy: login API returns {requiresTwoFactor, tempToken}
+ *     → AuthContext.twoFactorChallenge → TwoFactorScreen → /api/auth/2fa-verify
  */
 
 import { useState, useEffect, useRef, FormEvent } from 'react';
@@ -11,6 +17,8 @@ import Image from 'next/image';
 import { Eye, EyeOff, Building2, ShieldCheck } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+
+type LoginStep = 'credentials' | 'totp';
 
 interface InviteData {
   companyName: string;
@@ -56,10 +64,12 @@ function getDeviceName(): string {
 
 function TwoFactorScreen({
   onVerify,
+  onCancel,
   loading,
   error,
 }: {
   onVerify: (code: string, trustDevice: boolean) => Promise<void>;
+  onCancel?: () => void;
   loading: boolean;
   error: string | null;
 }) {
@@ -142,6 +152,17 @@ function TwoFactorScreen({
             'Verify Code'
           )}
         </button>
+
+        {onCancel && (
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={loading}
+            className="mt-3 w-full text-sm text-slate-500 dark:text-gray-400 hover:text-slate-700 dark:hover:text-gray-200 transition-colors disabled:opacity-50"
+          >
+            Back to sign in
+          </button>
+        )}
       </form>
     </div>
   );
@@ -157,13 +178,18 @@ function isSafeRedirect(url: string): boolean {
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login, completeTwoFactor, error, clearError, twoFactorChallenge } = useAuth();
+  const { completeTwoFactor, error, clearError, twoFactorChallenge } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [inviteData, setInviteData] = useState<InviteData | null>(null);
+
+  // GoTrue TOTP step state
+  const [step, setStep] = useState<LoginStep>('credentials');
+  const [pendingFactor, setPendingFactor] = useState<{ factor_id: string; pending_token: string } | null>(null);
+  const [totpError, setTotpError] = useState<string | null>(null);
 
   const inviteToken =
     typeof router.query.invite === 'string' ? router.query.invite : null;
@@ -188,7 +214,6 @@ export default function LoginPage() {
   }, [inviteToken]);
 
   // Post-auth redirect: send users with no companies to /onboarding
-  // instead of the skeleton /accounting dashboard (which 400s every data API).
   const postLoginRedirect = async (): Promise<string> => {
     if (isAdminHost) return returnTo;
     try {
@@ -206,26 +231,93 @@ export default function LoginPage() {
     return returnTo;
   };
 
+  // Credential submit — direct fetch so we can intercept requires_2fa before AuthContext
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     clearError();
+    setTotpError(null);
     setSubmitting(true);
 
     try {
       const fingerprint = getDeviceFingerprint();
-      const didRequire2FA = await login(email.trim().toLowerCase(), password, fingerprint);
-      if (!didRequire2FA) {
-        await router.push(await postLoginRedirect());
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim().toLowerCase(), password, deviceFingerprint: fingerprint }),
+        credentials: 'include',
+      });
+
+      const json = await res.json() as {
+        success: boolean;
+        data?: {
+          requires_2fa?: boolean;
+          factor_id?: string;
+          pending_token?: string;
+          user?: unknown;
+        };
+        error?: { message: string };
+        message?: string;
+      };
+
+      if (!res.ok || !json.success) {
+        // Surface error — setError is not exposed from AuthContext, so throw to catch block
+        throw new Error(json.error?.message ?? json.message ?? 'Login failed');
       }
-      // If 2FA required, twoFactorChallenge is now set — component re-renders to show 2FA screen
-    } catch {
-      // Error already set in AuthContext
+
+      // GoTrue 2FA gate — show TOTP step
+      if (json.data?.requires_2fa) {
+        setPendingFactor({
+          factor_id: json.data.factor_id as string,
+          pending_token: json.data.pending_token as string,
+        });
+        setStep('totp');
+        return; // do NOT navigate yet
+      }
+
+      // No 2FA — navigate
+      await router.push(await postLoginRedirect());
+    } catch (err) {
+      setTotpError(err instanceof Error ? err.message : 'Login failed');
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleTwoFactorVerify = async (code: string, trustDevice: boolean) => {
+  // GoTrue TOTP verify — POST to /api/auth/2fa-challenge
+  const handleTotpVerify = async (code: string, _trustDevice: boolean) => {
+    if (!pendingFactor) return;
+    setTotpError(null);
+    setSubmitting(true);
+    try {
+      const res = await fetch('/api/auth/2fa-challenge', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          factor_id: pendingFactor.factor_id,
+          code,
+          pending_token: pendingFactor.pending_token,
+        }),
+      });
+      const json = await res.json() as {
+        success: boolean;
+        data?: { user?: { id: string }; activeCompanyId?: string | null };
+        error?: { message: string };
+      };
+      if (!json.success) {
+        setTotpError(json.error?.message ?? 'Invalid code');
+        return;
+      }
+      // Navigate using same postLoginRedirect logic as the no-MFA path
+      await router.push(await postLoginRedirect());
+    } catch {
+      setTotpError('Network error. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Legacy 2FA verify — delegated to AuthContext (uses /api/auth/2fa-verify)
+  const handleLegacyTwoFactorVerify = async (code: string, trustDevice: boolean) => {
     clearError();
     setSubmitting(true);
     try {
@@ -240,7 +332,16 @@ export default function LoginPage() {
     }
   };
 
+  const cancelTotp = () => {
+    setStep('credentials');
+    setPendingFactor(null);
+    setTotpError(null);
+  };
+
   const isBusy = submitting;
+  const showTotpStep = step === 'totp';
+  // Legacy 2FA is active when AuthContext set twoFactorChallenge (old /api/auth/2fa-verify path)
+  const showLegacy2FA = !!twoFactorChallenge && !showTotpStep;
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-gray-950 flex items-center justify-center px-4">
@@ -250,12 +351,12 @@ export default function LoginPage() {
         <div className="flex flex-col items-center mb-8">
           <Image src="/logo.png" alt="ISAFlow" width={160} height={64} className="h-16 w-auto dark:brightness-0 dark:invert mb-4" priority />
           <p className="text-sm text-slate-600 dark:text-slate-300 mt-1">
-            {twoFactorChallenge ? 'Verify your identity' : 'Sign in to your account'}
+            {(showTotpStep || showLegacy2FA) ? 'Verify your identity' : 'Sign in to your account'}
           </p>
         </div>
 
-        {/* Invite banner — only on login screen */}
-        {!twoFactorChallenge && inviteData && (
+        {/* Invite banner — only on credentials screen */}
+        {!showTotpStep && !showLegacy2FA && inviteData && (
           <div className="mb-4 px-4 py-3 bg-teal-900/30 border border-teal-700/50 rounded-lg flex items-start gap-3">
             <Building2 className="h-4 w-4 text-teal-400 mt-0.5 flex-shrink-0" />
             <p className="text-sm text-teal-300">
@@ -268,21 +369,33 @@ export default function LoginPage() {
         )}
 
         {/* Registration success banner */}
-        {!twoFactorChallenge && router.query.registered === '1' && (
+        {!showTotpStep && !showLegacy2FA && router.query.registered === '1' && (
           <div className="mb-4 px-3 py-2.5 bg-green-500/10 border border-green-500/30 rounded-lg">
             <p className="text-sm text-green-400">Account created successfully! Please sign in.</p>
           </div>
         )}
 
-        {/* 2FA Screen */}
-        {twoFactorChallenge ? (
+        {/* GoTrue TOTP step */}
+        {showTotpStep && (
           <TwoFactorScreen
-            onVerify={handleTwoFactorVerify}
+            onVerify={handleTotpVerify}
+            onCancel={cancelTotp}
+            loading={isBusy}
+            error={totpError}
+          />
+        )}
+
+        {/* Legacy 2FA step (AuthContext path) */}
+        {showLegacy2FA && (
+          <TwoFactorScreen
+            onVerify={handleLegacyTwoFactorVerify}
             loading={isBusy}
             error={error}
           />
-        ) : (
-          /* Login Card */
+        )}
+
+        {/* Credentials card */}
+        {!showTotpStep && !showLegacy2FA && (
           <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl p-6 shadow-xl">
             <form onSubmit={(e) => void handleSubmit(e)} noValidate>
 
@@ -297,7 +410,7 @@ export default function LoginPage() {
                   autoComplete="email"
                   required
                   value={email}
-                  onChange={e => { clearError(); setEmail(e.target.value); }}
+                  onChange={e => { clearError(); setTotpError(null); setEmail(e.target.value); }}
                   disabled={isBusy}
                   className="w-full bg-slate-50 dark:bg-gray-800 border border-slate-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition"
                   placeholder="you@example.com"
@@ -325,7 +438,7 @@ export default function LoginPage() {
                     autoComplete="current-password"
                     required
                     value={password}
-                    onChange={e => { clearError(); setPassword(e.target.value); }}
+                    onChange={e => { clearError(); setTotpError(null); setPassword(e.target.value); }}
                     disabled={isBusy}
                     className="w-full bg-slate-50 dark:bg-gray-800 border border-slate-300 dark:border-gray-600 rounded-lg px-3 py-2.5 pr-10 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition"
                     placeholder="Enter your password"
@@ -342,10 +455,10 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              {/* Error message */}
-              {error && (
+              {/* Error message (AuthContext error or local fetch error) */}
+              {(error ?? totpError) && (
                 <div className="mb-4 px-3 py-2.5 bg-red-500/10 border border-red-500/30 rounded-lg">
-                  <p className="text-sm text-red-400">{error}</p>
+                  <p className="text-sm text-red-400">{error ?? totpError}</p>
                 </div>
               )}
 
@@ -368,8 +481,8 @@ export default function LoginPage() {
           </div>
         )}
 
-        {/* Footer link — only on login screen */}
-        {!twoFactorChallenge && (
+        {/* Footer link — only on credentials screen */}
+        {!showTotpStep && !showLegacy2FA && (
           <p className="text-center text-sm text-slate-500 dark:text-gray-500 mt-6">
             Don&apos;t have an account?{' '}
             <Link
