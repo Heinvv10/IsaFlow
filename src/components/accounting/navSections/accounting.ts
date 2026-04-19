@@ -41,6 +41,14 @@ export const accountingTab: Tab = {
       ],
     },
     {
+      section: 'Loans',
+      items: [
+        { label: 'Portfolio Dashboard', href: '/accounting/loans' },
+        { label: 'New Loan', href: '/accounting/loans/new' },
+        { label: 'Rate Curves', href: '/accounting/loans/rate-curves' },
+      ],
+    },
+    {
       section: 'Fixed Assets',
       items: [
         { label: 'Asset Register', href: '/accounting/assets' },
