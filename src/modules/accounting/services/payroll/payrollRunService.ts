@@ -223,3 +223,54 @@ export async function calculatePayrollRun(
   );
   return mapRunRow(updated[0]);
 }
+
+export interface PayrollRunLine {
+  id: string;
+  runId: string;
+  employeeId: string;
+  employeeNumber: string;
+  employeeName: string;
+  grossPay: number;
+  taxableIncome: number;
+  paye: number;
+  uifEmployee: number;
+  uifEmployer: number;
+  sdl: number;
+  eti: number;
+  netPay: number;
+}
+
+export async function getPayrollRunLines(
+  runId: string,
+  companyId: string,
+): Promise<PayrollRunLine[]> {
+  const rows = (await sql`
+    SELECT
+      prl.*,
+      pe.employee_number,
+      pe.first_name,
+      pe.last_name
+    FROM payroll_run_lines prl
+    JOIN payroll_run_headers prh ON prh.id = prl.run_id
+    JOIN payroll_employees    pe  ON pe.id  = prl.employee_id
+    WHERE prl.run_id = ${runId}::uuid
+      AND prh.company_id = ${companyId}::uuid
+    ORDER BY pe.employee_number
+  `) as Row[];
+
+  return rows.map(r => ({
+    id: String(r.id),
+    runId: String(r.run_id),
+    employeeId: String(r.employee_id),
+    employeeNumber: String(r.employee_number),
+    employeeName: `${r.first_name} ${r.last_name}`,
+    grossPay: Number(r.gross_pay),
+    taxableIncome: Number(r.taxable_income),
+    paye: Number(r.paye),
+    uifEmployee: Number(r.uif_employee),
+    uifEmployer: Number(r.uif_employer),
+    sdl: Number(r.sdl),
+    eti: Number(r.eti),
+    netPay: Number(r.net_pay),
+  }));
+}
