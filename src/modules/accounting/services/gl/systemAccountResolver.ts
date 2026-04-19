@@ -32,7 +32,8 @@ export type SystemAccountKey =
   | 'default_expense'           // Default expense (Materials & Supplies)
   | 'admin_expense'             // Administrative Expenses
   | 'accumulated_depreciation'  // Accumulated Depreciation
-  | 'depreciation_expense';     // Depreciation Expense
+  | 'depreciation_expense'      // Depreciation Expense
+  | 'disposal_profit_loss';     // Profit / Loss on Disposal of Assets
 
 // ── In-memory cache (per company) ───────────────────────────────────────────
 

@@ -26,6 +26,10 @@ interface Asset {
   depreciation_method: string;
   status: string;
   location: string;
+  serial_number: string | null;
+  custodian: string | null;
+  production_code: string | null;
+  below_threshold: boolean | null;
   sars_rate: number;
 }
 
@@ -141,44 +145,51 @@ export default function AssetsListPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[var(--ff-border-light)] text-left text-[var(--ff-text-secondary)]">
-                  <th className="px-4 py-3">Asset</th>
+                  <th className="px-4 py-3">Asset #</th>
                   <th className="px-4 py-3">Name</th>
                   <th className="px-4 py-3">Category</th>
+                  <th className="px-4 py-3">Serial #</th>
+                  <th className="px-4 py-3">Custodian</th>
+                  <th className="px-4 py-3">Location</th>
+                  <th className="px-4 py-3">Prod Code</th>
                   <th className="px-4 py-3 text-right">Cost</th>
                   <th className="px-4 py-3 text-right">Book Value</th>
-                  <th className="px-4 py-3">Method</th>
                   <th className="px-4 py-3">Status</th>
                 </tr>
               </thead>
               <tbody>
                 {loading && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">
-                      <Loader2 className="h-5 w-5 animate-spin inline mr-2" />Loading...
+                    <td colSpan={10} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">
+                      <Loader2 className="h-5 w-5 animate-spin inline mr-2" />Loading…
                     </td>
                   </tr>
                 )}
                 {!loading && assets.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">
+                    <td colSpan={10} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">
                       No assets found. <Link href="/accounting/assets/new" className="text-teal-400 hover:underline">Add your first asset</Link>
                     </td>
                   </tr>
                 )}
-                {assets.map(a => (
-                  <tr key={a.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50">
-                    <td className="px-4 py-3 font-medium text-[var(--ff-text-primary)]">
+                {assets.map((a, i) => (
+                  <tr key={a.id} className={`border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50 ${i % 2 === 0 ? '' : 'bg-[var(--ff-bg-primary)]/10'}`}>
+                    <td className="px-4 py-3 font-mono text-xs font-semibold text-[var(--ff-text-primary)]">
                       <Link href={`/accounting/assets/${a.id}`} className="hover:text-teal-400">
                         {a.asset_number}
                       </Link>
+                      {a.below_threshold && <span className="ml-1 text-amber-400 text-[10px]">⚠</span>}
                     </td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)] truncate max-w-[200px]">{a.name}</td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{a.category_name || a.category}</td>
-                    <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{fmt(Number(a.purchase_price))}</td>
-                    <td className="px-4 py-3 text-right text-teal-400">{fmt(Number(a.current_book_value || a.purchase_price))}</td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)] text-xs capitalize">{(a.depreciation_method || '').replace(/_/g, ' ')}</td>
+                    <td className="px-4 py-3 text-[var(--ff-text-secondary)] truncate max-w-[160px]">{a.name}</td>
+                    <td className="px-4 py-3 text-[var(--ff-text-secondary)] text-xs">{a.category_name || a.category || '—'}</td>
+                    <td className="px-4 py-3 text-[var(--ff-text-tertiary)] font-mono text-xs">{a.serial_number || '—'}</td>
+                    <td className="px-4 py-3 text-[var(--ff-text-tertiary)] text-xs">{a.custodian || '—'}</td>
+                    <td className="px-4 py-3 text-[var(--ff-text-tertiary)] text-xs">{a.location || '—'}</td>
+                    <td className="px-4 py-3 text-[var(--ff-text-tertiary)] font-mono text-xs">{a.production_code || '—'}</td>
+                    <td className="px-4 py-3 text-right text-[var(--ff-text-primary)] font-mono text-xs">{fmt(Number(a.purchase_price))}</td>
+                    <td className="px-4 py-3 text-right text-teal-400 font-mono text-xs">{fmt(Number(a.current_book_value || a.purchase_price))}</td>
                     <td className="px-4 py-3">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${statusColors[a.status] || ''}`}>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${statusColors[a.status] ?? ''}`}>
                         {(a.status || '').replace(/_/g, ' ')}
                       </span>
                     </td>

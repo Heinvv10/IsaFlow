@@ -48,6 +48,8 @@ export const accountingTab: Tab = {
         { label: 'SARS Categories', href: '/accounting/assets/categories' },
         { label: 'Disposals', href: '/accounting/assets/disposals' },
         { label: 'Register Report', href: '/accounting/assets/register' },
+        { label: 'FAR Report', href: '/accounting/assets/far-report' },
+        { label: 'Below Threshold', href: '/accounting/assets/below-threshold' },
         { label: 'Depreciation', href: '/accounting/depreciation' },
       ],
     },
