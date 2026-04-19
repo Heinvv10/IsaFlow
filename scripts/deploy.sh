@@ -47,8 +47,14 @@ echo "Syncing standalone build..."
 sudo -u velo bash -c "mkdir -p $DEPLOY_DIR"
 
 # Standalone server + bundled node_modules
+# Preserve .env.local plus any .env.*.bak / .env.pre-* rollback backups that
+# ops created for cutover safety. rsync --delete wipes everything else in
+# the target that isn't in source.
 sudo rsync -a --delete \
   --exclude=.env.local \
+  --exclude='.env.*.bak' \
+  --exclude='.env.pre-*' \
+  --exclude='.env.backup-*' \
   "$REPO_DIR/.next/standalone/" "$DEPLOY_DIR/"
 
 # Static assets (not included in standalone by default)
