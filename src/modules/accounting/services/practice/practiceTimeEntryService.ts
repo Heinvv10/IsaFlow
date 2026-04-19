@@ -137,23 +137,53 @@ export async function updatePracticeEntry(
   input: PracticeTimeEntryUpdateInput,
 ): Promise<PracticeTimeEntry> {
   const existing = (await sql`
-    SELECT status, practice_client_id, entry_date, user_id
+    SELECT status, practice_client_id, entry_date, user_id, hours, job_category_id, work_item_id
     FROM time_entries
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
   if (!existing.length) throw new Error('not found');
   if (existing[0]!.status !== 'draft') throw new Error('only draft entries can be updated');
 
-  const clientId = String(input.practiceClientId ?? existing[0]!.practice_client_id);
-  const entryDate = String(input.entryDate ?? existing[0]!.entry_date);
-  const userId = String(existing[0]!.user_id);
+  const row = existing[0]!;
+
+  // Validate entryDate if provided
+  if (input.entryDate !== undefined) {
+    const today = new Date().toISOString().split('T')[0]!;
+    if (input.entryDate > today) throw new Error('entry date cannot be in the future');
+  }
+
+  // Validate hours if provided
+  if (input.hours !== undefined) {
+    if (!(input.hours > 0 && input.hours <= 24)) {
+      throw new Error('hours must be between 0 and 24');
+    }
+  }
+
+  // Validate client/category/work-item when any of them are being changed
+  const changingClient = input.practiceClientId !== undefined;
+  const changingCategory = input.jobCategoryId !== undefined;
+  const changingWorkItem = input.workItemId !== undefined;
+
+  if (changingClient || changingCategory || changingWorkItem) {
+    const effectiveClientId = String(input.practiceClientId ?? row.practice_client_id);
+    const effectiveCategoryId = String(input.jobCategoryId ?? row.job_category_id);
+    const effectiveWorkItemId = String(input.workItemId ?? row.work_item_id);
+    await validateClientCategoryWorkItem(
+      companyId,
+      effectiveClientId,
+      effectiveCategoryId,
+      effectiveWorkItemId,
+    );
+  }
+
+  const clientId = String(input.practiceClientId ?? row.practice_client_id);
+  const entryDate = String(input.entryDate ?? row.entry_date);
+  const userId = String(row.user_id);
 
   const appliedRate = await resolveRate(companyId, userId, clientId, entryDate);
-  const hours = input.hours ?? undefined;
-  const lineTotal = appliedRate != null && hours != null
-    ? Math.round(hours * appliedRate * 100) / 100
-    : appliedRate != null
-    ? null
+  const effectiveHours = input.hours ?? Number(row.hours);
+  const lineTotal = appliedRate != null
+    ? Math.round(effectiveHours * appliedRate * 100) / 100
     : null;
 
   const rows = (await sql`
@@ -230,6 +260,7 @@ export async function listPracticeEntries(
       AND (${dateFrom}::DATE IS NULL     OR te.entry_date        >= ${dateFrom}::DATE)
       AND (${dateTo}::DATE IS NULL       OR te.entry_date        <= ${dateTo}::DATE)
       AND (${status}::TEXT IS NULL       OR te.status             = ${status}::TEXT)
+      -- Scope to practice-side entries only; legacy time_entries without a practice_client_id belong to the old project timesheets
       AND te.practice_client_id IS NOT NULL
   `) as DbRow[];
 
@@ -249,6 +280,7 @@ export async function listPracticeEntries(
       AND (${dateFrom}::DATE IS NULL     OR te.entry_date        >= ${dateFrom}::DATE)
       AND (${dateTo}::DATE IS NULL       OR te.entry_date        <= ${dateTo}::DATE)
       AND (${status}::TEXT IS NULL       OR te.status             = ${status}::TEXT)
+      -- Scope to practice-side entries only; legacy time_entries without a practice_client_id belong to the old project timesheets
       AND te.practice_client_id IS NOT NULL
     ORDER BY te.entry_date DESC, te.created_at DESC
   `) as DbRow[];

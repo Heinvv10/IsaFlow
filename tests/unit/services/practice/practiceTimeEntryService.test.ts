@@ -159,12 +159,61 @@ describe('updatePracticeEntry', () => {
       practice_client_id: CLIENT,
       entry_date: '2026-04-19',
       user_id: USER,
+      hours: 2,
+      job_category_id: CATEGORY,
+      work_item_id: WORK_ITEM,
     }]);
     resolveRateMock.mockResolvedValueOnce(900);
     sqlMock.mockResolvedValueOnce([{ ...entryRow, hours: 3, applied_rate: 900, line_total: 2700 }]);
 
     const result = await updatePracticeEntry(COMPANY, ENTRY_ID, { hours: 3 });
     expect(result.lineTotal).toBe(2700);
+  });
+
+  it('update rejects future date', async () => {
+    sqlMock.mockResolvedValueOnce([{
+      status: 'draft', practice_client_id: CLIENT,
+      entry_date: '2026-04-19', user_id: USER, hours: 2,
+      job_category_id: CATEGORY, work_item_id: WORK_ITEM,
+    }]);
+    await expect(updatePracticeEntry(COMPANY, ENTRY_ID, { entryDate: '2099-01-01' }))
+      .rejects.toThrow(/future/i);
+  });
+
+  it('update rejects hours > 24', async () => {
+    sqlMock.mockResolvedValueOnce([{
+      status: 'draft', practice_client_id: CLIENT,
+      entry_date: '2026-04-19', user_id: USER, hours: 2,
+      job_category_id: CATEGORY, work_item_id: WORK_ITEM,
+    }]);
+    await expect(updatePracticeEntry(COMPANY, ENTRY_ID, { hours: 25 }))
+      .rejects.toThrow(/hours must be between 0 and 24/);
+  });
+
+  it('update rejects changing to inactive client', async () => {
+    sqlMock.mockResolvedValueOnce([{
+      status: 'draft', practice_client_id: CLIENT,
+      entry_date: '2026-04-19', user_id: USER, hours: 2,
+      job_category_id: CATEGORY, work_item_id: WORK_ITEM,
+    }]);
+    sqlMock.mockResolvedValueOnce([]); // client lookup empty
+    await expect(updatePracticeEntry(COMPANY, ENTRY_ID, { practiceClientId: 'other-client' }))
+      .rejects.toThrow(/practice client not found or not active/);
+  });
+
+  it('update with only notes change preserves line_total', async () => {
+    sqlMock.mockResolvedValueOnce([{
+      status: 'draft', practice_client_id: CLIENT,
+      entry_date: '2026-04-19', user_id: USER, hours: 2.5,
+      job_category_id: CATEGORY, work_item_id: WORK_ITEM,
+    }]);
+    // No validation call for active status because clientId/categoryId/workItemId untouched
+    resolveRateMock.mockResolvedValueOnce(850);
+    sqlMock.mockResolvedValueOnce([{ ...entryRow, notes: 'updated', applied_rate: 850, line_total: 2125, hours: 2.5 }]);
+
+    const result = await updatePracticeEntry(COMPANY, ENTRY_ID, { notes: 'updated' });
+    expect(result.lineTotal).toBe(2125);
+    expect(result.hours).toBe(2.5);
   });
 });
 
