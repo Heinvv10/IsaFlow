@@ -1,0 +1,22 @@
+{
+  "collection": "isaflow_kb",
+  "targets": [
+    {
+      "pattern": "src/lib/*.ts",
+      "strategy": "file",
+      "template": ".claude/templates/lib-claude-md.template"
+    },
+    {
+      "pattern": "src/modules/accounting/services/**/*.ts",
+      "strategy": "group",
+      "group_by": "src/modules/accounting/services/",
+      "template": ".claude/templates/service-group-claude-md.template"
+    },
+    {
+      "pattern": "pages/api/accounting/**/*.ts",
+      "strategy": "group",
+      "group_by": "pages/api/accounting/",
+      "template": ".claude/templates/api-group-claude-md.template"
+    }
+  ]
+}
