@@ -1,22 +1,27 @@
--- Migration 395: Practice client rate overrides
--- Per-staff-member billing rate overrides for a specific client.
+-- Migration 395: Extend practice_client_rate_overrides for the new service signature
+-- The table was first created in 372_practice_staff_rates.sql with columns
+--   (user_id, rate). The new practiceClientRateOverrideService writes
+--   (staff_user_id, rate_per_hour, notes) and expects updated_at. Add the new
+--   columns non-destructively, back-fill from the legacy columns, then add
+--   the staff index + RLS policy.
 
-CREATE TABLE IF NOT EXISTS practice_client_rate_overrides (
-  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  company_id     UUID NOT NULL REFERENCES companies(id),
-  client_id      UUID NOT NULL REFERENCES practice_clients(id) ON DELETE CASCADE,
-  staff_user_id  UUID NOT NULL,
-  rate_per_hour  NUMERIC(10,2) NOT NULL CHECK (rate_per_hour >= 0),
-  effective_from DATE NOT NULL DEFAULT CURRENT_DATE,
-  effective_to   DATE,
-  notes          TEXT,
-  created_at     TIMESTAMPTZ DEFAULT NOW(),
-  updated_at     TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE (company_id, client_id, staff_user_id, effective_from)
-);
+ALTER TABLE practice_client_rate_overrides
+  ADD COLUMN IF NOT EXISTS staff_user_id UUID,
+  ADD COLUMN IF NOT EXISTS rate_per_hour NUMERIC(10,2),
+  ADD COLUMN IF NOT EXISTS notes         TEXT,
+  ADD COLUMN IF NOT EXISTS updated_at    TIMESTAMPTZ DEFAULT NOW();
 
-CREATE INDEX IF NOT EXISTS idx_pcro_company_client ON practice_client_rate_overrides(company_id, client_id);
-CREATE INDEX IF NOT EXISTS idx_pcro_staff ON practice_client_rate_overrides(company_id, staff_user_id);
+-- Back-fill new columns from legacy ones
+UPDATE practice_client_rate_overrides
+   SET staff_user_id = user_id
+ WHERE staff_user_id IS NULL;
+
+UPDATE practice_client_rate_overrides
+   SET rate_per_hour = rate
+ WHERE rate_per_hour IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_pcro_staff
+  ON practice_client_rate_overrides(company_id, staff_user_id);
 
 ALTER TABLE practice_client_rate_overrides ENABLE ROW LEVEL SECURITY;
 
