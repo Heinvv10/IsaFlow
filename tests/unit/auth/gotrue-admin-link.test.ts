@@ -54,7 +54,7 @@ describe('gotrue-admin-link client', () => {
     expect(res.token).toBe('REC123');
   });
 
-  it('verifyMagicLink POSTs /verify with type=email and token_hash, returns token pair', async () => {
+  it('verifyMagicLink POSTs /verify with type=magiclink and token_hash only, returns token pair', async () => {
     fetchMock.mockReturnValueOnce(okJson({
       access_token: 'at',
       refresh_token: 'rt',
@@ -65,9 +65,8 @@ describe('gotrue-admin-link client', () => {
     const res = await verifyMagicLink('HASH123', 'c@t.co');
     expect(fetchMock.mock.calls[0]![0]).toBe('http://gotrue.test/auth/v1/verify');
     expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toEqual({
-      type: 'email',
+      type: 'magiclink',
       token_hash: 'HASH123',
-      email: 'c@t.co',
     });
     const hdrs = fetchMock.mock.calls[0]![1].headers as Record<string, string>;
     expect(hdrs.apikey).toBe('anon-key');

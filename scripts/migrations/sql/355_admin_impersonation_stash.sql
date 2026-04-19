@@ -15,3 +15,4 @@ CREATE INDEX IF NOT EXISTS idx_admin_impersonation_stash_expires
   ON admin_impersonation_stash(expires_at);
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE admin_impersonation_stash TO platform_admin;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE admin_impersonation_stash TO postgres;
