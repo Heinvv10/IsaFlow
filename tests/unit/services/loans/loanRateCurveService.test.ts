@@ -92,6 +92,19 @@ describe('getRateCurveWithPoints', () => {
     const result = await getRateCurveWithPoints(COMPANY_ID, CURVE_ID);
     expect(result).toBeNull();
   });
+
+  it('points query uses a company-scoped JOIN (defence-in-depth)', async () => {
+    sqlMock
+      .mockResolvedValueOnce([makeCurveRow()])
+      .mockResolvedValueOnce([]);
+    await getRateCurveWithPoints(COMPANY_ID, CURVE_ID);
+    // Second call must include company_id in its bindings — the JOIN makes it
+    // impossible for a stolen curveId to leak points from another tenant even
+    // if the first-query ownership check was somehow bypassed.
+    const secondCall = sqlMock.mock.calls[1];
+    const bindings = Array.isArray(secondCall) ? secondCall.slice(1).flat() : [];
+    expect(bindings).toContain(COMPANY_ID);
+  });
 });
 
 // ── createRateCurve ───────────────────────────────────────────────────────────
