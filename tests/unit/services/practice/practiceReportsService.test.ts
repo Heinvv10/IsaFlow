@@ -79,13 +79,21 @@ describe('getStaffUtilisation', () => {
 // getClientProfitability
 // ─────────────────────────────────────────────────────────────────────────────
 describe('getClientProfitability', () => {
-  it('returns mapped rows ordered by revenue desc with null margin fields', async () => {
+  it('returns mapped rows with timeCost, margin, marginPct computed', async () => {
+    // Query A: revenue rows
     sqlMock.mockResolvedValueOnce([
       {
         practice_client_id: CLIENT_1,
         legal_name: 'Acme Ltd',
         revenue: '12000',
         hours: '14',
+      },
+    ]);
+    // Query B: time cost rows
+    sqlMock.mockResolvedValueOnce([
+      {
+        practice_client_id: CLIENT_1,
+        time_cost: '8400',
       },
     ]);
 
@@ -100,9 +108,55 @@ describe('getClientProfitability', () => {
     expect(row.legalName).toBe('Acme Ltd');
     expect(row.revenue).toBe(12000);
     expect(row.hours).toBe(14);
-    expect(row.timeCost).toBeNull();
-    expect(row.margin).toBeNull();
-    expect(row.marginPct).toBeNull();
+    expect(row.timeCost).toBe(8400);
+    expect(row.margin).toBe(3600);
+    expect(row.marginPct).toBe(30);
+  });
+
+  it('sets marginPct to 0 when revenue is 0 (no divide-by-zero)', async () => {
+    sqlMock.mockResolvedValueOnce([
+      {
+        practice_client_id: CLIENT_1,
+        legal_name: 'Zero Rev',
+        revenue: '0',
+        hours: '5',
+      },
+    ]);
+    sqlMock.mockResolvedValueOnce([
+      { practice_client_id: CLIENT_1, time_cost: '500' },
+    ]);
+
+    const result = await getClientProfitability(COMPANY, {
+      dateFrom: '2026-04-01',
+      dateTo: '2026-04-30',
+    });
+
+    const row = result[0]!;
+    expect(row.marginPct).toBe(0);
+    expect(row.margin).toBe(-500);
+  });
+
+  it('uses timeCost=0 when client has no cost rate entries', async () => {
+    sqlMock.mockResolvedValueOnce([
+      {
+        practice_client_id: CLIENT_1,
+        legal_name: 'Acme Ltd',
+        revenue: '5000',
+        hours: '8',
+      },
+    ]);
+    // Cost query returns empty — client not in map
+    sqlMock.mockResolvedValueOnce([]);
+
+    const result = await getClientProfitability(COMPANY, {
+      dateFrom: '2026-04-01',
+      dateTo: '2026-04-30',
+    });
+
+    const row = result[0]!;
+    expect(row.timeCost).toBe(0);
+    expect(row.margin).toBe(5000);
+    expect(row.marginPct).toBe(100);
   });
 });
 

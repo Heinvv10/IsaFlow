@@ -41,6 +41,7 @@ export const practiceTab: Tab = {
       items: [
         { label: 'Job Categories', href: '/accounting/practice/job-categories' },
         { label: 'Staff Rates', href: '/accounting/practice/staff-rates' },
+        { label: 'Staff Cost Rates', href: '/accounting/practice/staff-cost-rates' },
       ],
     },
     {
