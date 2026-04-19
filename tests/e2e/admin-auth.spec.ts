@@ -1,4 +1,10 @@
 // tests/e2e/admin-auth.spec.ts
+//
+// IMPORTANT: Set E2E_BASE_URL=http://localhost:<dev-port> before running.
+// The default below happens to match prod's systemd port (3101) — do NOT
+// let this fall through to the default unless you explicitly mean to test
+// against a prod-parity instance. Seeded users are created in the target
+// GoTrue instance; running against prod would pollute prod's user table.
 import { test, expect, type APIRequestContext } from '@playwright/test';
 
 const BASE = process.env.E2E_BASE_URL ?? 'http://localhost:3101';
