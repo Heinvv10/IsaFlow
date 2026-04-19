@@ -123,6 +123,16 @@ describe('generateWipInvoice', () => {
     expect(result.invoiceId).toBe(INVOICE_ID);
     expect(result.invoiceNumber).toMatch(/^INV-\d{5}$/);
     expect(markEntriesBilledMock).toHaveBeenCalledWith(COMPANY, [ENTRY_A, ENTRY_B], INVOICE_ID);
+
+    const insertLineItemCalls = sqlMock.mock.calls.filter((c) => {
+      const strings = c[0] as TemplateStringsArray;
+      return strings.some((s) => s.includes('INSERT INTO customer_invoice_items'));
+    });
+    expect(insertLineItemCalls).toHaveLength(2);
+    const firstInsertValues = insertLineItemCalls[0]!.slice(1);
+    const secondInsertValues = insertLineItemCalls[1]!.slice(1);
+    expect([...firstInsertValues, ...secondInsertValues]).toContain(ENTRY_A);
+    expect([...firstInsertValues, ...secondInsertValues]).toContain(ENTRY_B);
   });
 
   it('groupBy=by_work_item collapses entries per work item', async () => {
@@ -159,6 +169,8 @@ describe('generateWipInvoice', () => {
       return strings.some((s) => s.includes('INSERT INTO customer_invoice_items'));
     });
     expect(insertLineItemCalls).toHaveLength(1);
+    const insertValues = insertLineItemCalls[0]!.slice(1);
+    expect(insertValues).toContain(null);
     expect(result.lineCount).toBe(1);
   });
 
@@ -191,6 +203,8 @@ describe('generateWipInvoice', () => {
       return strings.some((s) => s.includes('INSERT INTO customer_invoice_items'));
     });
     expect(insertLineItemCalls).toHaveLength(1);
+    const insertValues = insertLineItemCalls[0]!.slice(1);
+    expect(insertValues).toContain(null);
     expect(result.lineCount).toBe(1);
   });
 });

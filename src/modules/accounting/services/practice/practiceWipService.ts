@@ -254,9 +254,9 @@ export async function generateWipInvoice(
       const desc = `${dateStr}${wi} — ${String(e.task_description)} (${hours}h @ R${rate}/h)`;
       await sql`
         INSERT INTO customer_invoice_items (
-          invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code
+          invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code, time_entry_id
         ) VALUES (
-          ${invoiceId}::UUID, ${desc}, ${rate}, ${hours}, ${lineAmount}, ${taxRate}, 'ZAR'
+          ${invoiceId}::UUID, ${desc}, ${rate}, ${hours}, ${lineAmount}, ${taxRate}, 'ZAR', ${String(e.id)}::UUID
         )
       `;
       lineCount++;
@@ -269,9 +269,9 @@ export async function generateWipInvoice(
       const unit = hours > 0 ? round2(value / hours) : 0;
       await sql`
         INSERT INTO customer_invoice_items (
-          invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code
+          invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code, time_entry_id
         ) VALUES (
-          ${invoiceId}::UUID, ${g.name}, ${unit}, ${hours}, ${value}, ${taxRate}, 'ZAR'
+          ${invoiceId}::UUID, ${g.name}, ${unit}, ${hours}, ${value}, ${taxRate}, 'ZAR', ${null as null}
         )
       `;
       lineCount++;
