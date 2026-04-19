@@ -9,7 +9,12 @@ function isSecure(): boolean {
   return process.env.NODE_ENV === 'production';
 }
 
-function cookieFlags(maxAgeSeconds: number): string {
+function cookieDomain(): string | undefined {
+  const v = process.env.COOKIE_DOMAIN?.trim();
+  return v ? v : undefined;
+}
+
+function cookieFlags(maxAgeSeconds: number, domain?: string): string {
   const parts = [
     `Path=/`,
     `Max-Age=${maxAgeSeconds}`,
@@ -17,6 +22,7 @@ function cookieFlags(maxAgeSeconds: number): string {
     `SameSite=Lax`,
   ];
   if (isSecure()) parts.push('Secure');
+  if (domain) parts.push(`Domain=${domain}`);
   return parts.join('; ');
 }
 
@@ -50,23 +56,41 @@ export function setAuthCookies(
   res: NextApiResponse,
   params: { accessToken: string; refreshToken: string; expiresIn: number }
 ): void {
-  appendSetCookie(res, `${ACCESS_COOKIE}=${params.accessToken}; ${cookieFlags(params.expiresIn)}`);
+  const domain = cookieDomain();
+  appendSetCookie(
+    res,
+    `${ACCESS_COOKIE}=${params.accessToken}; ${cookieFlags(params.expiresIn, domain)}`
+  );
   // Refresh token lives longer than the access token; GoTrue default 30d.
   appendSetCookie(
     res,
-    `${REFRESH_COOKIE}=${params.refreshToken}; ${cookieFlags(60 * 60 * 24 * 30)}`
+    `${REFRESH_COOKIE}=${params.refreshToken}; ${cookieFlags(60 * 60 * 24 * 30, domain)}`
   );
 }
 
 export function setActiveCompanyCookie(res: NextApiResponse, companyId: string): void {
   appendSetCookie(
     res,
-    `${ACTIVE_COMPANY_COOKIE}=${companyId}; ${cookieFlags(60 * 60 * 24 * 30)}`
+    `${ACTIVE_COMPANY_COOKIE}=${companyId}; ${cookieFlags(60 * 60 * 24 * 30, cookieDomain())}`
   );
 }
 
+/**
+ * Clears auth cookies. During the COOKIE_DOMAIN transition we emit clears for
+ * BOTH host-scoped (pre-transition) and domain-scoped (post-transition)
+ * cookies, so a single logout resolves any ambiguity left by older sessions.
+ *
+ * NOTE: If COOKIE_DOMAIN is removed from env after previously being set,
+ * domain-scoped cookies from pre-removal sessions will NOT be cleared by
+ * this function. Always pair a COOKIE_DOMAIN removal with a forced session
+ * invalidation on the server side (e.g. rotate JWT_SECRET).
+ */
 export function clearAuthCookies(res: NextApiResponse): void {
+  const domain = cookieDomain();
   for (const name of [ACCESS_COOKIE, REFRESH_COOKIE, ACTIVE_COMPANY_COOKIE]) {
     appendSetCookie(res, `${name}=; ${cookieFlags(0)}`);
+    if (domain) {
+      appendSetCookie(res, `${name}=; ${cookieFlags(0, domain)}`);
+    }
   }
 }
