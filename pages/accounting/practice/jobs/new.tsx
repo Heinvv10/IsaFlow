@@ -26,8 +26,16 @@ const LC = 'block text-sm font-medium text-[var(--ff-text-primary)] mb-1.5';
 
 async function fetchOpts(url: string): Promise<Opt[]> {
   const r = await apiFetch(url); if (!r.ok) return [];
-  const j = await r.json() as { data?: Opt[] } | Opt[];
-  return (Array.isArray(j) ? j : (j as { data?: Opt[] }).data) ?? [];
+  const j = await r.json() as unknown;
+  const payload = (j && typeof j === 'object' && 'data' in j ? (j as { data: unknown }).data : j) as unknown;
+  if (Array.isArray(payload)) return payload as Opt[];
+  if (payload && typeof payload === 'object') {
+    const p = payload as Record<string, unknown>;
+    for (const k of ['clients', 'jobs', 'tasks', 'categories', 'workItems', 'items']) {
+      if (Array.isArray(p[k])) return p[k] as Opt[];
+    }
+  }
+  return [];
 }
 
 async function fetchUsers(): Promise<CompanyUserSummary[]> {
