@@ -27,6 +27,7 @@ import { accountingTab } from './navSections/accounting';
 import { reportsTab } from './navSections/reports';
 import { taxTab } from './navSections/tax';
 import { payrollTab } from './navSections/payroll';
+import { practiceTab } from './navSections/practice';
 import { settingsTab } from './navSections/settings';
 
 export const TABS: Tab[] = [
@@ -39,6 +40,7 @@ export const TABS: Tab[] = [
   reportsTab,
   taxTab,
   payrollTab,
+  practiceTab,
 ];
 
 // Settings tab — rendered behind the cog in the header, not in the main tab strip.

@@ -25,7 +25,11 @@ function issueCsrfCookie(request: NextRequest, response: NextResponse): NextResp
   return response;
 }
 
-const AUTH_COOKIE_NAME = 'isaflow_auth';
+// Phase 2: auth cookie moved from custom-auth ('isaflow_auth') to GoTrue
+// ('sb-access-token'). Admin platform still uses the legacy cookie pending a
+// separate port, so keep both names here until admin is migrated too.
+const AUTH_COOKIE_NAME = 'sb-access-token';
+const LEGACY_ADMIN_COOKIE = 'isaflow_auth';
 
 // Sentinel used when JWT_SECRET is absent — any token verified against this will
 // always fail the role check, giving defense-in-depth without crashing the edge runtime.
@@ -102,8 +106,10 @@ export async function middleware(request: NextRequest) {
       return NextResponse.next();
     }
 
-    // Verify super_admin auth for all other paths (page navigations)
-    const adminToken = request.cookies.get(AUTH_COOKIE_NAME)?.value;
+    // Verify super_admin auth for all other paths (page navigations).
+    // Admin platform still uses the legacy custom-auth cookie pending its own
+    // GoTrue port — see Phase 3 scope.
+    const adminToken = request.cookies.get(LEGACY_ADMIN_COOKIE)?.value;
     if (!adminToken) {
       const loginUrl = new URL('/login', request.url);
       loginUrl.searchParams.set('returnTo', pathname);
