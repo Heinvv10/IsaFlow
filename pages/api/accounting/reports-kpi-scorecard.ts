@@ -80,7 +80,7 @@ async function buildFinancialData(companyId: string, from: string, to: string): 
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id
       WHERE je.company_id = ${companyId} AND jl.company_id = ${companyId}::UUID AND je.status = 'posted' AND je.entry_date <= ${to}::date
     ` as Promise<Row[]>,
-    sql`SELECT COUNT(*)::int as count FROM employees WHERE company_id = ${companyId} AND status = 'active'` as Promise<Row[]>,
+    sql`SELECT COUNT(*)::int as count FROM payroll_employees WHERE company_id = ${companyId}::uuid AND (end_date IS NULL OR end_date > NOW())` as Promise<Row[]>,
   ]);
 
   const revenue = parseFloat(totals?.revenue || '0');

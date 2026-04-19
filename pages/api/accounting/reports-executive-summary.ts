@@ -129,7 +129,7 @@ async function getBalanceSheet(companyId: string, to: string): Promise<Row | und
 
 async function getEmployeeCount(companyId: string): Promise<number> {
   const rows = (await sql`
-    SELECT COUNT(*)::int as count FROM employees WHERE company_id = ${companyId} AND status = 'active'
+    SELECT COUNT(*)::int as count FROM payroll_employees WHERE company_id = ${companyId}::uuid AND (end_date IS NULL OR end_date > NOW())
   `) as Row[];
   return rows[0]?.count || 0;
 }
