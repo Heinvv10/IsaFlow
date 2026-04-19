@@ -57,11 +57,12 @@ VALUES
   -- Telephones
   ('Telephone Equipment',          'Tel', 100.00, 1, 1,    0.00, 2,    'straight_line', 'OE',   5000, 'Tel',   'Fixed-line telephone systems'),
   ('Cellular Telephones',          'Cell', 20.00, 5, 10,   0.10, 5,    'straight_line', 'OE',   5000, 'Cell',  'Mobile phones and cellular devices'),
-  -- Special categories
-  ('Building PPE',                 'LPPE', NULL,  0, NULL,  NULL, NULL, 'straight_line', 'LPPE', 5000, 'LPPE',  'Land, plant and property improvements — entity-defined life'),
-  ('Other Asset',                  'OA',   NULL,  0, NULL,  NULL, NULL, 'straight_line', 'OA',   5000, 'OA',    'Miscellaneous assets — entity-defined life'),
-  ('Contract Assets – Leases',     'LEASE',NULL,  0, NULL,  NULL, NULL, 'straight_line', 'LEASE',5000, 'LEASE', 'Right-of-use assets under IFRS 16')
-ON CONFLICT (code) DO UPDATE SET
+  -- Special categories (entity-defined life; sars_rate=0 as no fixed SARS rate applies)
+  ('Building PPE',                 'LPPE', 0,     0, NULL,  NULL, NULL, 'straight_line', 'LPPE', 5000, 'LPPE',  'Land, plant and property improvements — entity-defined life'),
+  ('Other Asset',                  'OA',   0,     0, NULL,  NULL, NULL, 'straight_line', 'OA',   5000, 'OA',    'Miscellaneous assets — entity-defined life'),
+  ('Contract Assets – Leases',     'LEASE',0,     0, NULL,  NULL, NULL, 'straight_line', 'LEASE',5000, 'LEASE', 'Right-of-use assets under IFRS 16')
+ON CONFLICT (name) DO UPDATE SET
+  code                      = EXCLUDED.code,
   useful_life_years         = EXCLUDED.useful_life_years,
   residual_pct              = EXCLUDED.residual_pct,
   tax_life_years            = EXCLUDED.tax_life_years,
