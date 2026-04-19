@@ -9,7 +9,6 @@
 
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { jwtVerify } from 'jose';
 import { CSRF_COOKIE, generateCsrfToken } from './src/lib/auth/csrf';
 
 /** Issue the CSRF cookie on a response if it is not already present. */
@@ -25,22 +24,9 @@ function issueCsrfCookie(request: NextRequest, response: NextResponse): NextResp
   return response;
 }
 
-// Phase 2: auth cookie moved from custom-auth ('isaflow_auth') to GoTrue
-// ('sb-access-token'). Admin platform still uses the legacy cookie pending a
-// separate port, so keep both names here until admin is migrated too.
+// Auth cookie is GoTrue's sb-access-token across both app and admin hosts.
+// The legacy custom-auth isaflow_auth is fully retired post-Phase-3a.
 const AUTH_COOKIE_NAME = 'sb-access-token';
-const LEGACY_ADMIN_COOKIE = 'isaflow_auth';
-
-// Sentinel used when JWT_SECRET is absent — any token verified against this will
-// always fail the role check, giving defense-in-depth without crashing the edge runtime.
-const MISSING_SECRET_SENTINEL = '__MIDDLEWARE_NO_SECRET__';
-
-const getJWTSecret = (): Uint8Array => {
-  const secret = process.env.JWT_SECRET;
-  // Return sentinel instead of empty string so jwtVerify still runs but produces
-  // a payload that cannot match a real token signed with the real secret.
-  return new TextEncoder().encode(secret ?? MISSING_SECRET_SENTINEL);
-};
 
 const PUBLIC_PATHS = [
   '/login',
@@ -76,17 +62,12 @@ const ADMIN_PASSTHROUGH = [
 
 const ADMIN_URL = process.env.NEXT_PUBLIC_ADMIN_URL ?? 'https://admin.isaflow.co.za';
 
-async function verifyAdmin(token: string): Promise<boolean> {
-  // Reject immediately if JWT_SECRET is not configured — never allow access
-  // with a missing secret, regardless of what the token contains.
-  if (!process.env.JWT_SECRET) return false;
-  try {
-    const { payload } = await jwtVerify(token, getJWTSecret());
-    return payload.role === 'super_admin';
-  } catch {
-    return false;
-  }
-}
+// Edge middleware gates admin-subdomain page navigation by cookie presence only.
+// Real super_admin enforcement lives in withPlatformAdmin (src/lib/auth/withPlatformAdmin.ts)
+// on every admin API handler, which does a two-pool fail-closed role check against
+// users.role via RLS. Edge can't do DB lookups; the JWT has no role claim
+// (GoTrue user_metadata doesn't surface users.role), so edge verification would
+// be strictly signature-shape and add no real security over cookie-presence.
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -106,19 +87,11 @@ export async function middleware(request: NextRequest) {
       return NextResponse.next();
     }
 
-    // Verify super_admin auth for all other paths (page navigations).
-    // Admin platform still uses the legacy custom-auth cookie pending its own
-    // GoTrue port — see Phase 3 scope.
-    const adminToken = request.cookies.get(LEGACY_ADMIN_COOKIE)?.value;
+    const adminToken = request.cookies.get(AUTH_COOKIE_NAME)?.value;
     if (!adminToken) {
       const loginUrl = new URL('/login', request.url);
       loginUrl.searchParams.set('returnTo', pathname);
       return NextResponse.redirect(loginUrl);
-    }
-
-    const isAdmin = await verifyAdmin(adminToken);
-    if (!isAdmin) {
-      return NextResponse.redirect(new URL('/login', request.url));
     }
 
     // Rewrite page paths: / → /admin, /companies → /admin/companies, etc.
