@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { sqlMock, resolveRateMock } = vi.hoisted(() => {
+const { sqlMock, resolveRateMock, getEntryTemplateMock } = vi.hoisted(() => {
   const sqlMock = vi.fn();
   const resolveRateMock = vi.fn();
-  return { sqlMock, resolveRateMock };
+  const getEntryTemplateMock = vi.fn();
+  return { sqlMock, resolveRateMock, getEntryTemplateMock };
 });
 
 vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
@@ -12,6 +13,9 @@ vi.mock('@/lib/logger', () => ({
 }));
 vi.mock('@/modules/accounting/services/practice/practiceStaffRateService', () => ({
   resolveRate: resolveRateMock,
+}));
+vi.mock('@/modules/accounting/services/practice/practiceEntryTemplateService', () => ({
+  getEntryTemplate: getEntryTemplateMock,
 }));
 
 import {
@@ -28,6 +32,7 @@ import {
   approvePracticeEntries,
   markEntriesBilled,
   writeOffEntries,
+  bulkCreateFromTemplate,
 } from '@/modules/accounting/services/practice/practiceTimeEntryWorkflow';
 
 const COMPANY = 'aaaaaaaa-0000-0000-0000-000000000001';
@@ -74,7 +79,9 @@ const entryRow = {
   updated_at: new Date('2026-04-19T09:00:00Z'),
 };
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 describe('createPracticeEntry', () => {
   it('rejects future date', async () => {
@@ -367,5 +374,106 @@ describe('writeOffEntries', () => {
     const values = call.slice(1);
     expect(values).toContain('duplicate work');
     expect(values).toContain(USER);
+  });
+});
+
+describe('bulkCreateFromTemplate', () => {
+  const TEMPLATE_ID = 'ttttttt0-0000-0000-0000-000000000009';
+
+  const completeTemplate = {
+    id: TEMPLATE_ID,
+    companyId: COMPANY,
+    userId: USER,
+    name: 'Monthly bookkeeping',
+    practiceClientId: CLIENT,
+    jobCategoryId: CATEGORY,
+    workItemId: WORK_ITEM,
+    defaultHours: 2,
+    taskDescription: 'Bookkeeping',
+    notes: null,
+    billable: true,
+    createdAt: '',
+    updatedAt: '',
+  };
+
+  it('rejects missing template', async () => {
+    getEntryTemplateMock.mockResolvedValueOnce(null);
+    await expect(bulkCreateFromTemplate(COMPANY, USER, {
+      templateId: TEMPLATE_ID, dateFrom: '2026-04-13', dateTo: '2026-04-17',
+    })).rejects.toThrow(/template not found/);
+  });
+
+  it('rejects incomplete template (missing practiceClientId)', async () => {
+    getEntryTemplateMock.mockResolvedValueOnce({
+      ...completeTemplate,
+      practiceClientId: null,
+    });
+    await expect(bulkCreateFromTemplate(COMPANY, USER, {
+      templateId: TEMPLATE_ID, dateFrom: '2026-04-13', dateTo: '2026-04-17',
+    })).rejects.toThrow(/template is incomplete/);
+  });
+
+  it('rejects when hours missing everywhere', async () => {
+    getEntryTemplateMock.mockResolvedValueOnce({
+      ...completeTemplate,
+      defaultHours: null,
+      taskDescription: null,
+    });
+    await expect(bulkCreateFromTemplate(COMPANY, USER, {
+      templateId: TEMPLATE_ID, dateFrom: '2026-04-13', dateTo: '2026-04-17',
+    })).rejects.toThrow(/hours required/);
+  });
+
+  it('rejects inverted date range', async () => {
+    getEntryTemplateMock.mockResolvedValueOnce(completeTemplate);
+    await expect(bulkCreateFromTemplate(COMPANY, USER, {
+      templateId: TEMPLATE_ID, dateFrom: '2026-04-17', dateTo: '2026-04-13',
+    })).rejects.toThrow(/dateFrom must be on or before dateTo/);
+  });
+
+  it('rejects range larger than 62 days', async () => {
+    getEntryTemplateMock.mockResolvedValueOnce(completeTemplate);
+    await expect(bulkCreateFromTemplate(COMPANY, USER, {
+      templateId: TEMPLATE_ID, dateFrom: '2026-01-01', dateTo: '2026-12-31',
+    })).rejects.toThrow(/too large/);
+  });
+
+  it('filters weekdays and creates one draft per matching day', async () => {
+    // UTC-safe: 2026-04-13 Mon(1), 2026-04-14 Tue(2), 2026-04-15 Wed(3),
+    //           2026-04-16 Thu(4), 2026-04-17 Fri(5) — all 5 match default weekday filter
+    // Verified: new Date('2026-04-13T00:00:00Z').getUTCDay() === 1
+    getEntryTemplateMock.mockResolvedValueOnce(completeTemplate);
+    // 4 sql calls per day (client check, category check, work-item check, INSERT) × 5 days
+    for (let i = 0; i < 5; i++) {
+      sqlMock.mockResolvedValueOnce([{ id: CLIENT, status: 'active' }]);
+      sqlMock.mockResolvedValueOnce([{ id: CATEGORY, is_active: true }]);
+      sqlMock.mockResolvedValueOnce([{ id: WORK_ITEM, is_active: true, category_id: CATEGORY }]);
+      resolveRateMock.mockResolvedValueOnce(850);
+      sqlMock.mockResolvedValueOnce([{
+        ...entryRow,
+        entry_date: `2026-04-${13 + i}`,
+        status: 'draft',
+        origin: 'recurring',
+      }]);
+    }
+
+    const result = await bulkCreateFromTemplate(COMPANY, USER, {
+      templateId: TEMPLATE_ID, dateFrom: '2026-04-13', dateTo: '2026-04-17',
+    });
+    expect(result.created).toBe(5);
+    expect(result.skipped).toBe(0);
+    expect(result.failed).toEqual([]);
+  });
+
+  it('skips weekend days with default Mon-Fri filter', async () => {
+    // UTC-safe: 2026-04-18 Sat(6), 2026-04-19 Sun(0) — both filtered by default [1,2,3,4,5]
+    // Verified: new Date('2026-04-18T00:00:00Z').getUTCDay() === 6
+    //           new Date('2026-04-19T00:00:00Z').getUTCDay() === 0
+    getEntryTemplateMock.mockResolvedValueOnce(completeTemplate);
+    const result = await bulkCreateFromTemplate(COMPANY, USER, {
+      templateId: TEMPLATE_ID, dateFrom: '2026-04-18', dateTo: '2026-04-19',
+    });
+    expect(result.created).toBe(0);
+    expect(result.skipped).toBe(2);
   });
 });

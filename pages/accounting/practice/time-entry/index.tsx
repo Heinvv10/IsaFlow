@@ -5,12 +5,14 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Clock, Loader2, AlertCircle, ChevronLeft, ChevronRight, Trash2, Send } from 'lucide-react';
+import { Clock, Loader2, AlertCircle, ChevronLeft, ChevronRight, Trash2, Send, CalendarRange } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { useAuth } from '@/contexts/AuthContext';
 import { TimeEntryForm, type Client, type Category } from '@/components/practice/TimeEntryForm';
 import { DayTotalsBar } from '@/components/practice/DayTotalsBar';
+import { BulkRangeModal } from '@/components/practice/BulkRangeModal';
 import type { PracticeTimeEntry, PracticeTimeEntryInput } from '@/modules/accounting/services/practice/practiceTimeEntryTypes';
+import type { BulkFromTemplateResult } from '@/modules/accounting/services/practice/practiceTimeEntryWorkflow';
 
 // ---------- helpers ----------
 
@@ -58,6 +60,8 @@ export default function TimeEntryPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [actionError, setActionError] = useState('');
+  const [showBulk, setShowBulk] = useState(false);
+  const [bulkResult, setBulkResult] = useState<BulkFromTemplateResult | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -148,6 +152,16 @@ export default function TimeEntryPage() {
         <div className="px-6 py-6 space-y-6 max-w-5xl">
           {initError && <ErrorBanner msg={initError} />}
           {actionError && <ErrorBanner msg={actionError} />}
+          {bulkResult && (
+            <div className="p-3 rounded-lg bg-teal-500/10 border border-teal-500/20 text-teal-300 text-sm space-y-1">
+              <span>Bulk fill: created {bulkResult.created}, skipped {bulkResult.skipped}, failed {bulkResult.failed.length}</span>
+              {bulkResult.failed.length > 0 && (
+                <ul className="mt-1 space-y-0.5 text-xs text-red-400">
+                  {bulkResult.failed.map((f) => <li key={f.date}>{f.date}: {f.error}</li>)}
+                </ul>
+              )}
+            </div>
+          )}
 
           {/* Day nav */}
           <div className="flex items-center gap-2">
@@ -218,12 +232,23 @@ export default function TimeEntryPage() {
               {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               {submitting ? 'Submitting…' : `Submit Day${draftCount > 0 ? ` (${draftCount} draft${draftCount !== 1 ? 's' : ''})` : ''}`}
             </button>
+            <button onClick={() => { setBulkResult(null); setShowBulk(true); }} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-[var(--ff-border-primary)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-tertiary)] text-sm font-medium transition-colors">
+              <CalendarRange className="h-4 w-4" />Fill Range
+            </button>
             {draftCount === 0 && !submitting && entries.length > 0 && (
               <span className="text-sm text-[var(--ff-text-tertiary)]">No draft entries to submit.</span>
             )}
           </div>
         </div>
       </div>
+
+      {showBulk && user?.id && (
+        <BulkRangeModal
+          userId={user.id}
+          onClose={() => setShowBulk(false)}
+          onDone={(r) => { setBulkResult(r); setShowBulk(false); void reloadEntries(); }}
+        />
+      )}
     </AppLayout>
   );
 }

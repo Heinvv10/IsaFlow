@@ -5,8 +5,101 @@ import { resolveRate } from './practiceStaffRateService';
 import {
   mapEntry,
   validateClientCategoryWorkItem,
+  createPracticeEntry,
 } from './practiceTimeEntryService';
 import type { PracticeTimeEntry } from './practiceTimeEntryTypes';
+import { getEntryTemplate } from './practiceEntryTemplateService';
+
+export interface BulkFromTemplateInput {
+  templateId: string;
+  dateFrom: string;            // 'YYYY-MM-DD'
+  dateTo: string;              // 'YYYY-MM-DD', inclusive
+  weekdays?: number[];         // 0=Sun..6=Sat; default [1,2,3,4,5] (Mon-Fri)
+  hoursOverride?: number;      // falls back to template.default_hours
+  taskOverride?: string;       // falls back to template.task_description
+}
+
+export interface BulkFromTemplateResult {
+  created: number;
+  skipped: number;             // weekend days filtered out
+  failed: Array<{ date: string; error: string }>;
+}
+
+export async function bulkCreateFromTemplate(
+  companyId: string,
+  userId: string,
+  input: BulkFromTemplateInput,
+): Promise<BulkFromTemplateResult> {
+  const template = await getEntryTemplate(companyId, input.templateId);
+  if (!template) throw new Error('template not found');
+
+  if (!template.practiceClientId || !template.jobCategoryId || !template.workItemId) {
+    throw new Error('template is incomplete — client, category and work item required before bulk use');
+  }
+
+  const hours = input.hoursOverride ?? template.defaultHours;
+  if (hours == null) {
+    throw new Error('hours required (template has no default_hours and no hoursOverride)');
+  }
+
+  const taskDescription = input.taskOverride ?? template.taskDescription ?? template.name;
+
+  if (input.dateFrom > input.dateTo) {
+    throw new Error('dateFrom must be on or before dateTo');
+  }
+
+  // Build inclusive date list using UTC to avoid DST drift
+  const allDates: string[] = [];
+  const [fy, fm, fd] = input.dateFrom.split('-').map(Number) as [number, number, number];
+  const [ty, tm, tdd] = input.dateTo.split('-').map(Number) as [number, number, number];
+  const cursor = new Date(Date.UTC(fy, fm - 1, fd));
+  const end = new Date(Date.UTC(ty, tm - 1, tdd));
+  while (cursor <= end) {
+    const y = cursor.getUTCFullYear();
+    const mo = String(cursor.getUTCMonth() + 1).padStart(2, '0');
+    const dy = String(cursor.getUTCDate()).padStart(2, '0');
+    allDates.push(`${y}-${mo}-${dy}`);
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+
+  if (allDates.length > 62) {
+    throw new Error('bulk range too large (max 62 days)');
+  }
+
+  const allowedWeekdays = input.weekdays ?? [1, 2, 3, 4, 5];
+  const filteredDates = allDates.filter(
+    (d) => allowedWeekdays.includes(new Date(d + 'T00:00:00Z').getUTCDay()),
+  );
+  const skipped = allDates.length - filteredDates.length;
+
+  let created = 0;
+  const failed: Array<{ date: string; error: string }> = [];
+
+  for (const entryDate of filteredDates) {
+    try {
+      await createPracticeEntry(companyId, userId, {
+        entryDate,
+        hours,
+        practiceClientId: template.practiceClientId,
+        jobCategoryId: template.jobCategoryId,
+        workItemId: template.workItemId,
+        taskDescription,
+        notes: template.notes ?? undefined,
+        billable: template.billable,
+        origin: 'recurring',
+      });
+      created++;
+    } catch (err) {
+      failed.push({ date: entryDate, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  log.info('Bulk created time entries from template', {
+    templateId: input.templateId, created, skipped, failed: failed.length,
+  }, 'practice');
+
+  return { created, skipped, failed };
+}
 
 export async function duplicatePracticeEntry(
   companyId: string,
