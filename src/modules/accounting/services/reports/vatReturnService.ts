@@ -157,6 +157,28 @@ export async function getVATReturn(companyId: string,
       .filter((b) => Math.abs(b.amount) > 0.001)
       .map((b) => ({ accountCode: b.box, accountName: b.label, amount: b.amount }));
 
+    // Query taxable base from invoices so effective VAT rate can be verified (~15%)
+    const [salesRows, purchaseRows] = await Promise.all([
+      sql`
+        SELECT COALESCE(SUM(subtotal), 0) AS base
+        FROM customer_invoices
+        WHERE company_id = ${companyId}::UUID
+          AND status NOT IN ('draft','cancelled')
+          AND invoice_date >= ${periodStart}
+          AND invoice_date <= ${periodEnd}
+      ` as unknown as Row[],
+      sql`
+        SELECT COALESCE(SUM(subtotal), 0) AS base
+        FROM supplier_invoices
+        WHERE company_id = ${companyId}::UUID
+          AND status NOT IN ('draft','cancelled')
+          AND invoice_date >= ${periodStart}
+          AND invoice_date <= ${periodEnd}
+      ` as unknown as Row[],
+    ]);
+    const standardRatedSupplies  = Number(salesRows[0]?.base ?? 0);
+    const standardRatedPurchases = Number(purchaseRows[0]?.base ?? 0);
+
     return {
       periodStart, periodEnd,
       outputBoxes, totalOutputTax,
@@ -164,6 +186,8 @@ export async function getVATReturn(companyId: string,
       outputVAT: totalOutputTax,
       inputVAT:  totalInputTax,
       outputDetails, inputDetails,
+      standardRatedSupplies,
+      standardRatedPurchases,
     };
   } catch (err) {
     log.error('Failed to generate VAT return', { error: err }, 'accounting');

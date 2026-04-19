@@ -12,9 +12,13 @@ import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { getLoanById, updateLoan, type LoanUpdateInput } from '@/modules/accounting/services/loans/loanService';
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
   const loanId = String(req.query.id);
+
+  if (!UUID_RE.test(loanId)) return apiResponse.notFound(res, 'Loan', loanId);
 
   if (req.method === 'GET') {
     const loan = await getLoanById(companyId, loanId);

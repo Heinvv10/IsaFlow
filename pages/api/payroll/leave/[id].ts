@@ -14,9 +14,13 @@ import {
   deleteLeaveRequest,
 } from '@/modules/accounting/services/payroll/payrollLeaveService';
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   const { companyId } = req as CompanyAuthedRequest;
   const id = String(req.query.id);
+
+  if (!UUID_RE.test(id)) return apiResponse.notFound(res, 'Leave request not found');
 
   if (req.method === 'GET') {
     const request = await getLeaveRequest(id, companyId);
