@@ -1,6 +1,10 @@
 /**
  * EMP201 Generation Service
- * Generates SARS EMP201 (PAYE/UIF/SDL) data from payroll tables.
+ * Reads SARS EMP201 (PAYE/UIF/SDL) totals from Phase 1 payroll tables
+ * (payroll_run_headers). Gracefully returns zero-filled data if the
+ * tables have not yet been created (clean-install safety net).
+ *
+ * Legacy tables (payroll_runs, payslips) were dropped in migration 384.
  */
 
 import { sql } from '@/lib/neon';
@@ -25,6 +29,7 @@ export interface EMP201Data {
 
 export interface EMP201PayrollRun {
   id: string;
+  /** ISO date string constructed from period_year + period_month (first of month) */
   runDate: string;
   employeeCount: number;
   grossPay: number;
@@ -38,12 +43,16 @@ function roundCents(n: number): number {
 }
 
 /**
- * Generate EMP201 (monthly PAYE/UIF/SDL) data from payroll tables.
- * Handles missing payroll tables gracefully by returning zero-filled data.
+ * Generate EMP201 (monthly PAYE/UIF/SDL) data from Phase 1 payroll_run_headers.
+ *
+ * Note on UIF split: payroll_run_headers stores total_uif as a single combined
+ * value (employee + employer). Phase 4 will aggregate per-line employee/employer
+ * UIF from payroll_run_lines. Until then we approximate 50/50.
  */
-export async function generateEMP201(companyId: string,
+export async function generateEMP201(
+  companyId: string,
   periodStart: string,
-  periodEnd: string
+  periodEnd: string,
 ): Promise<EMP201Data> {
   log.info('Generating EMP201', { companyId, periodStart, periodEnd }, 'emp201Service');
 
@@ -61,90 +70,95 @@ export async function generateEMP201(companyId: string,
     payrollRuns: [],
   };
 
-  let hasPayrollTables = false;
+  let tablesReady = false;
   try {
     const tables = (await sql`
       SELECT table_name FROM information_schema.tables
       WHERE table_schema = 'public'
-        AND table_name IN ('payroll_runs', 'payslips')
+        AND table_name IN ('payroll_run_headers', 'payroll_run_lines')
     `) as Row[];
-    hasPayrollTables = tables.length >= 2;
+    tablesReady = tables.length >= 2;
   } catch (err) {
     log.warn('Could not check payroll tables', { error: err }, 'emp201Service');
   }
 
-  if (!hasPayrollTables) {
+  if (!tablesReady) {
     log.info('Payroll tables not found, returning empty EMP201', {}, 'emp201Service');
     return emptyResult;
   }
 
   try {
+    const startDate = periodStart.slice(0, 10);
+    const endDate = periodEnd.slice(0, 10);
+
     const runs = (await sql`
       SELECT
-        pr.id,
-        pr.run_date,
-        COUNT(DISTINCT ps.employee_id) AS employee_count,
-        COALESCE(SUM(ps.gross_pay), 0) AS gross_pay,
-        COALESCE(SUM(ps.paye), 0) AS paye,
-        COALESCE(SUM(ps.uif_employee), 0) AS uif_employee,
-        COALESCE(SUM(ps.uif_employer), 0) AS uif_employer,
-        COALESCE(SUM(ps.sdl), 0) AS sdl
-      FROM payroll_runs pr
-      LEFT JOIN payslips ps ON ps.payroll_run_id = pr.id
-      WHERE pr.company_id = ${companyId}::UUID
-        AND pr.run_date >= ${periodStart}
-        AND pr.run_date <= ${periodEnd}
-        AND pr.status != 'cancelled'
-      GROUP BY pr.id, pr.run_date
-      ORDER BY pr.run_date
+        prh.id,
+        prh.period_month,
+        prh.period_year,
+        prh.employee_count,
+        prh.total_gross,
+        prh.total_paye,
+        prh.total_uif,
+        prh.total_sdl
+      FROM payroll_run_headers prh
+      WHERE prh.company_id = ${companyId}::uuid
+        AND prh.status = 'calculated'
+        AND make_date(prh.period_year, prh.period_month, 1) >= ${startDate}::date
+        AND make_date(prh.period_year, prh.period_month, 1) <= ${endDate}::date
+      ORDER BY prh.period_year, prh.period_month
     `) as Row[];
 
     if (runs.length === 0) return emptyResult;
 
     let totalPAYE = 0;
-    let totalUIFEmployee = 0;
-    let totalUIFEmployer = 0;
+    let totalUIF = 0;
     let totalSDL = 0;
     let totalGross = 0;
+    let maxEmployeeCount = 0;
 
     const payrollRuns: EMP201PayrollRun[] = runs.map((r: Row) => {
-      const paye = Number(r.paye) || 0;
-      const uifEmp = Number(r.uif_employee) || 0;
-      const uifEr = Number(r.uif_employer) || 0;
-      const sdl = Number(r.sdl) || 0;
-      const gross = Number(r.gross_pay) || 0;
+      const paye = Number(r.total_paye) || 0;
+      const uif = Number(r.total_uif) || 0;
+      const sdl = Number(r.total_sdl) || 0;
+      const gross = Number(r.total_gross) || 0;
+      const count = Number(r.employee_count) || 0;
 
       totalPAYE += paye;
-      totalUIFEmployee += uifEmp;
-      totalUIFEmployer += uifEr;
+      totalUIF += uif;
       totalSDL += sdl;
       totalGross += gross;
+      maxEmployeeCount = Math.max(maxEmployeeCount, count);
 
+      const month = String(r.period_month).padStart(2, '0');
       return {
         id: String(r.id),
-        runDate: String(r.run_date),
-        employeeCount: Number(r.employee_count) || 0,
+        runDate: `${r.period_year}-${month}-01`,
+        employeeCount: count,
         grossPay: roundCents(gross),
         paye: roundCents(paye),
-        uif: roundCents(uifEmp + uifEr),
+        uif: roundCents(uif),
         sdl: roundCents(sdl),
       };
     });
 
-    const totalUIF = roundCents(totalUIFEmployee + totalUIFEmployer);
-    const totalDeductions = roundCents(totalPAYE + totalUIF + totalSDL);
+    // Phase 1 aggregates total_uif as combined employee+employer.
+    // Phase 4 will split these by summing payroll_run_lines per employee/employer UIF.
+    // Meanwhile, approximate 50/50.
+    const uifEmployee = roundCents(totalUIF / 2);
+    const uifEmployer = roundCents(totalUIF / 2);
 
     return {
       periodStart,
       periodEnd,
       totalPAYE: roundCents(totalPAYE),
-      totalUIF_employee: roundCents(totalUIFEmployee),
-      totalUIF_employer: roundCents(totalUIFEmployer),
-      totalUIF,
+      totalUIF_employee: uifEmployee,
+      totalUIF_employer: uifEmployer,
+      totalUIF: roundCents(totalUIF),
       totalSDL: roundCents(totalSDL),
-      employeeCount: payrollRuns.reduce((max, r) => Math.max(max, r.employeeCount), 0),
+      employeeCount: maxEmployeeCount,
       totalTaxableRemuneration: roundCents(totalGross),
-      totalDeductions,
+      totalDeductions: roundCents(totalPAYE + totalUIF + totalSDL),
       payrollRuns,
     };
   } catch (err) {
