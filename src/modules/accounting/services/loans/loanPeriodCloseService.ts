@@ -15,11 +15,17 @@ export interface PeriodLock {
   lockedBy: string | null;
 }
 
+export interface SkippedLoan {
+  loanId: string;
+  reason: string;
+}
+
 export interface CloseResult {
   yyyymm: string;
   loansProcessed: number;
   reclassEntries: string[];
   locked: boolean;
+  skippedLoans?: SkippedLoan[];
 }
 
 interface SnapshotRow {
@@ -109,38 +115,51 @@ export async function closeLoanPeriod(
     throw new Error(`Period ${yyyymm} is already locked`);
   }
 
-  const loans = (await sql`
-    SELECT * FROM loans WHERE company_id = ${companyId} AND status = 'active'
-  `) as Row[];
-
-  const reclassEntries: string[] = [];
-
-  for (const loanRow of loans) {
-    const accounts = extractAccounts(loanRow);
-    if (!accounts) {
-      log.warn('Skipping loan without GL accounts', { loanId: String(loanRow.id), yyyymm }, 'loans');
-      continue;
-    }
-
-    // Find the period-end schedule row (last row whose month matches yyyymm)
-    const periodRows = (await sql`
+  // One JOINed query: every active loan with its latest schedule-row snapshot
+  // for the target month. LEFT JOIN on LATERAL so loans with no row in this
+  // period still come back (and get skipped below). Replaces the previous
+  // O(N) per-loan query.
+  const rows = (await sql`
+    SELECT l.*,
+           snap.closing     AS snapshot_closing,
+           snap.st_liability AS snapshot_stliability,
+           snap.date        AS snapshot_date
+    FROM loans l
+    LEFT JOIN LATERAL (
       SELECT lsr.closing, lsr.st_liability, lsr.date
       FROM loan_schedule_rows lsr
       JOIN loan_schedule_runs lsrun ON lsrun.id = lsr.run_id
-      WHERE lsrun.loan_id = ${String(loanRow.id)}
+      WHERE lsrun.loan_id = l.id
         AND TO_CHAR(lsr.date, 'YYYYMM') = ${yyyymm}
-      ORDER BY lsr.computed_at DESC NULLS LAST, lsr.period DESC
+      ORDER BY lsrun.computed_at DESC NULLS LAST, lsr.period DESC
       LIMIT 1
-    `) as Row[];
+    ) snap ON true
+    WHERE l.company_id = ${companyId} AND l.status = 'active'
+  `) as Row[];
 
-    if (periodRows.length === 0) continue;
+  const reclassEntries: string[] = [];
+  const skippedLoans: SkippedLoan[] = [];
+
+  for (const row of rows) {
+    const loanId = String(row.id);
+    const accounts = extractAccounts(row);
+    if (!accounts) {
+      skippedLoans.push({ loanId, reason: 'missing GL accounts' });
+      log.warn('Skipping loan without GL accounts', { loanId, yyyymm }, 'loans');
+      continue;
+    }
+
+    if (row.snapshot_closing == null || row.snapshot_date == null) {
+      skippedLoans.push({ loanId, reason: 'no schedule row for period' });
+      continue;
+    }
 
     const snapshot: SnapshotRow = {
-      closing: parseFloat(String(periodRows[0]!.closing ?? '0')),
-      stLiability: parseFloat(String(periodRows[0]!.st_liability ?? '0')),
+      closing: parseFloat(String(row.snapshot_closing)),
+      stLiability: parseFloat(String(row.snapshot_stliability ?? '0')),
     };
-    const postingDate = String(periodRows[0]!.date).slice(0, 10);
-    const narrative = `Reclassification – loan ${String(loanRow.reference ?? loanRow.id)} for ${yyyymm}`;
+    const postingDate = String(row.snapshot_date).slice(0, 10);
+    const narrative = `Reclassification – loan ${String(row.reference ?? loanId)} for ${yyyymm}`;
 
     const input = buildReclassificationInput(snapshot, accounts, postingDate, narrative);
     if (input.lines.length === 0) continue;
@@ -155,6 +174,18 @@ export async function closeLoanPeriod(
     VALUES (${companyId}, ${yyyymm}, now(), ${userId})
   `;
 
-  log.info('Closed loan period', { companyId, yyyymm, loans: loans.length, reclass: reclassEntries.length }, 'loans');
-  return { yyyymm, loansProcessed: loans.length, reclassEntries, locked: true };
+  log.info(
+    'Closed loan period',
+    { companyId, yyyymm, loans: rows.length, reclass: reclassEntries.length, skipped: skippedLoans.length },
+    'loans',
+  );
+
+  const result: CloseResult = {
+    yyyymm,
+    loansProcessed: rows.length,
+    reclassEntries,
+    locked: true,
+  };
+  if (skippedLoans.length > 0) result.skippedLoans = skippedLoans;
+  return result;
 }

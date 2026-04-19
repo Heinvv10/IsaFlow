@@ -153,30 +153,29 @@ describe('closeLoanPeriod', () => {
 
   it('processes each active loan: posts reclass, then locks period', async () => {
     sqlMock
-      .mockResolvedValueOnce([])                               // isPeriodLocked → not locked
-      .mockResolvedValueOnce([makeLoanRow()])                  // active loans query
-      .mockResolvedValueOnce([{                                 // period-end row for this loan
-        closing: '200000', st_liability: '48000', date: '2026-04-30',
+      .mockResolvedValueOnce([])                                // 1. isPeriodLocked
+      .mockResolvedValueOnce([{                                  // 2. JOINed loans + snapshot
+        ...makeLoanRow(),
+        snapshot_closing: '200000',
+        snapshot_stliability: '48000',
+        snapshot_date: '2026-04-30',
       }])
-      .mockResolvedValue([]);                                    // subsequent inserts
-
-    sqlMock.mockResolvedValueOnce([{
-      company_id: COMPANY_ID,
-      yyyymm: '202604',
-      locked_at: '2026-04-30T00:00:00Z',
-      locked_by: USER_ID,
-    }]);
+      .mockResolvedValueOnce([{                                  // 3. lock insert
+        company_id: COMPANY_ID, yyyymm: '202604',
+        locked_at: '2026-04-30T00:00:00Z', locked_by: USER_ID,
+      }]);
 
     const result = await closeLoanPeriod(COMPANY_ID, '202604', USER_ID);
     expect(result.yyyymm).toBe('202604');
-    expect(result.loansProcessed).toBeGreaterThanOrEqual(0);
+    expect(result.loansProcessed).toBe(1);
+    expect(result.reclassEntries).toHaveLength(1);
     expect(result.locked).toBe(true);
   });
 
   it('completes even when no active loans exist', async () => {
     sqlMock
       .mockResolvedValueOnce([])                               // isPeriodLocked
-      .mockResolvedValueOnce([])                               // no active loans
+      .mockResolvedValueOnce([])                               // no active loans (JOINed query)
       .mockResolvedValueOnce([{                                 // lock insert
         company_id: COMPANY_ID,
         yyyymm: '202604',
@@ -186,5 +185,62 @@ describe('closeLoanPeriod', () => {
     const result = await closeLoanPeriod(COMPANY_ID, '202604', USER_ID);
     expect(result.loansProcessed).toBe(0);
     expect(result.locked).toBe(true);
+  });
+
+  it('fetches loans + period rows in a single query (no N+1)', async () => {
+    const loansPlusRows = [
+      {
+        ...makeLoanRow(),
+        snapshot_closing: '200000', snapshot_stliability: '48000', snapshot_date: '2026-04-30',
+      },
+      {
+        ...makeLoanRow({ id: 'bbbbbbbb-0000-0000-0000-000000000003', reference: 'BND-002' }),
+        snapshot_closing: '100000', snapshot_stliability: '20000', snapshot_date: '2026-04-30',
+      },
+    ];
+    sqlMock
+      .mockResolvedValueOnce([])                               // isPeriodLocked
+      .mockResolvedValueOnce(loansPlusRows)                    // JOINed loans + period rows
+      .mockResolvedValueOnce([{ yyyymm: '202604', locked_at: 't' }]);
+
+    await closeLoanPeriod(COMPANY_ID, '202604', USER_ID);
+    // Previously this was 1 loans query + N period-row queries. Now must be 1 JOINed query.
+    // So total sql calls = isLocked(1) + JOINed fetch(1) + lock(1) = 3 (not 1 + 1 + N*1 + 1).
+    expect(sqlMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('posts reclass journal with correct Dr/Cr amounts', async () => {
+    const { createJournalEntry } = await import('@/modules/accounting/services/gl/journalEntryCrudService');
+    const createMock = createJournalEntry as unknown as ReturnType<typeof vi.fn>;
+    sqlMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        ...makeLoanRow(),
+        snapshot_closing: '200000', snapshot_stliability: '48000', snapshot_date: '2026-04-30',
+      }])
+      .mockResolvedValueOnce([{ yyyymm: '202604', locked_at: 't' }]);
+
+    await closeLoanPeriod(COMPANY_ID, '202604', USER_ID);
+
+    expect(createMock).toHaveBeenCalledTimes(1);
+    const input = createMock.mock.calls[0]![1];
+    const liabLine = input.lines.find((l: { glAccountId: string }) => l.glAccountId === ACCOUNTS.loanLiability)!;
+    const currentLine = input.lines.find((l: { glAccountId: string }) => l.glAccountId === ACCOUNTS.currentPortion)!;
+    expect(liabLine.debit).toBeCloseTo(48_000, 2);
+    expect(currentLine.credit).toBeCloseTo(48_000, 2);
+  });
+
+  it('skips loans missing required GL accounts and records them in result', async () => {
+    sqlMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{                                  // loan with NULL gl_account_id
+        ...makeLoanRow({ gl_account_id: null }),
+        snapshot_closing: '100000', snapshot_stliability: '20000', snapshot_date: '2026-04-30',
+      }])
+      .mockResolvedValueOnce([{ yyyymm: '202604', locked_at: 't' }]);
+
+    const result = await closeLoanPeriod(COMPANY_ID, '202604', USER_ID);
+    expect(result.skippedLoans).toHaveLength(1);
+    expect(result.skippedLoans![0]).toMatchObject({ loanId: LOAN_ID, reason: 'missing GL accounts' });
   });
 });
