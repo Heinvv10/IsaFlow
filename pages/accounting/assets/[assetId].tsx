@@ -6,7 +6,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, Package, Loader2, AlertCircle, Trash2, Calendar, CheckCircle2, XCircle } from 'lucide-react';
+import { ArrowLeft, Package, Loader2, AlertCircle, Trash2, Calendar, CheckCircle2, XCircle, BarChart2 } from 'lucide-react';
+import { AssetDualTrackPanel } from '@/components/assets/AssetDualTrackPanel';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
@@ -248,6 +249,17 @@ export default function AssetDetailPage() {
           )}
 
           <DepTable asset={asset} />
+
+          {/* Dual-track policy vs tax depreciation panel */}
+          <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--ff-border-light)]">
+              <BarChart2 className="h-4 w-4 text-blue-400" />
+              <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Policy vs Tax Depreciation Track</h2>
+            </div>
+            <div className="p-4">
+              <AssetDualTrackPanel assetId={asset.id} />
+            </div>
+          </div>
         </div>
       </div>
     </AppLayout>
