@@ -1,5 +1,5 @@
 /**
- * Payroll Run Detail — Phase 2.
+ * Payroll Run Detail — Phase 3.
  * Route: /payroll/runs/[id]
  */
 import { useEffect, useState, useCallback } from 'react';
@@ -8,24 +8,12 @@ import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
-import { CalendarDays, ArrowLeft, Loader2, AlertCircle, Calculator, CheckCircle2 } from 'lucide-react';
+import { CalendarDays, ArrowLeft, Loader2, AlertCircle } from 'lucide-react';
+import { PayrollRunActions } from '@/components/payroll/PayrollRunActions';
+import { PayrollRunLinesTable } from '@/components/payroll/PayrollRunLinesTable';
+import type { Line } from '@/components/payroll/PayrollRunLinesTable';
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-
-interface Line {
-  id: string;
-  employeeId: string;
-  employeeNumber: string;
-  employeeName: string;
-  grossPay: number;
-  taxableIncome: number;
-  paye: number;
-  uifEmployee: number;
-  uifEmployer: number;
-  sdl: number;
-  eti: number;
-  netPay: number;
-}
 
 interface RunDetail {
   id: string;
@@ -39,6 +27,7 @@ interface RunDetail {
   totalEti: number;
   totalNet: number;
   employeeCount: number;
+  postedJournalEntryId: string | null;
   lines: Line[];
 }
 
@@ -47,7 +36,7 @@ function StatusBadge({ status }: { status: string }) {
     draft: 'bg-yellow-500/10 text-yellow-400',
     calculated: 'bg-blue-500/10 text-blue-400',
     approved: 'bg-teal-500/10 text-teal-400',
-    posted: 'bg-emerald-500/10 text-emerald-400',
+    paid: 'bg-emerald-500/10 text-emerald-400',
     cancelled: 'bg-red-500/10 text-red-400',
   };
   return (
@@ -57,6 +46,8 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+type BusyLabel = '' | 'calculating' | 'approving' | 'paying' | 'cancelling';
+
 export default function PayrollRunDetailPage() {
   const router = useRouter();
   const { id } = router.query;
@@ -65,7 +56,8 @@ export default function PayrollRunDetailPage() {
   const [run, setRun] = useState<RunDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  const [calculating, setCalculating] = useState(false);
+  const [busyLabel, setBusyLabel] = useState<BusyLabel>('');
+  const isBusy = busyLabel !== '';
 
   const load = useCallback(async () => {
     if (!runId) return;
@@ -85,22 +77,29 @@ export default function PayrollRunDetailPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const calculate = async () => {
-    if (!runId) return;
-    setCalculating(true);
+  const doAction = useCallback(async (label: BusyLabel, url: string): Promise<void> => {
+    setBusyLabel(label);
     setError('');
     try {
-      const res = await apiFetch(`/api/payroll/runs/${runId}/calculate`, { method: 'POST' });
+      const res = await apiFetch(url, { method: 'POST' });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
         throw new Error((j as { error?: string }).error || `HTTP ${res.status}`);
       }
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Calculate failed');
+      setError(err instanceof Error ? err.message : 'Action failed');
     } finally {
-      setCalculating(false);
+      setBusyLabel('');
     }
+  }, [load]);
+
+  const calculate = () => doAction('calculating', `/api/payroll/runs/${runId}/calculate`);
+  const approve   = () => doAction('approving',   `/api/payroll/runs/${runId}/approve`);
+  const pay       = () => doAction('paying',      `/api/payroll/runs/${runId}/pay`);
+  const cancel    = () => {
+    if (!confirm('Cancel this payroll run? If it has been approved, the GL journal entry will be reversed.')) return;
+    void doAction('cancelling', `/api/payroll/runs/${runId}/cancel`);
   };
 
   if (isLoading) {
@@ -126,7 +125,6 @@ export default function PayrollRunDetailPage() {
   if (!run) return null;
 
   const period = `${MONTHS[run.periodMonth - 1]} ${run.periodYear}`;
-  const canCalculate = run.status === 'draft' || run.status === 'calculated';
 
   return (
     <AppLayout>
@@ -142,14 +140,28 @@ export default function PayrollRunDetailPage() {
               </div>
               <div>
                 <h1 className="text-xl font-semibold text-[var(--ff-text-primary)]">Payroll Run — {period}</h1>
-                <div className="flex items-center gap-2 mt-1"><StatusBadge status={run.status} /></div>
+                <div className="flex items-center gap-2 mt-1">
+                  <StatusBadge status={run.status} />
+                  {run.postedJournalEntryId && (
+                    <Link
+                      href={`/accounting/journal-entries/${run.postedJournalEntryId}`}
+                      className="text-teal-400 hover:text-teal-300 text-xs font-medium"
+                    >
+                      View in GL →
+                    </Link>
+                  )}
+                </div>
               </div>
             </div>
-            <button onClick={calculate} disabled={calculating || !canCalculate}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-medium">
-              {calculating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Calculator className="h-4 w-4" />}
-              {run.status === 'draft' ? 'Calculate' : 'Recalculate'}
-            </button>
+            <PayrollRunActions
+              status={run.status}
+              isBusy={isBusy}
+              busyLabel={busyLabel}
+              onCalculate={calculate}
+              onApprove={approve}
+              onPay={pay}
+              onCancel={cancel}
+            />
           </div>
         </div>
 
@@ -176,52 +188,7 @@ export default function PayrollRunDetailPage() {
             ))}
           </div>
 
-          <section className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] overflow-hidden">
-            <div className="px-4 py-3 border-b border-[var(--ff-border-primary)] flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Line items</h2>
-              {run.status === 'calculated' && (
-                <span className="flex items-center gap-1 text-xs text-teal-400">
-                  <CheckCircle2 className="h-4 w-4" /> Calculated
-                </span>
-              )}
-            </div>
-            {run.lines.length === 0 ? (
-              <div className="p-8 text-center text-[var(--ff-text-tertiary)] text-sm">
-                No lines yet — press <span className="text-teal-400 font-medium">Calculate</span> to generate payroll for this period.
-              </div>
-            ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-[var(--ff-bg-secondary)] text-left">
-                    <th className="py-2 px-4 text-[var(--ff-text-secondary)] font-medium">Emp #</th>
-                    <th className="py-2 px-4 text-[var(--ff-text-secondary)] font-medium">Name</th>
-                    <th className="py-2 px-4 text-[var(--ff-text-secondary)] font-medium text-right">Gross</th>
-                    <th className="py-2 px-4 text-[var(--ff-text-secondary)] font-medium text-right">PAYE</th>
-                    <th className="py-2 px-4 text-[var(--ff-text-secondary)] font-medium text-right">UIF (E)</th>
-                    <th className="py-2 px-4 text-[var(--ff-text-secondary)] font-medium text-right">UIF (R)</th>
-                    <th className="py-2 px-4 text-[var(--ff-text-secondary)] font-medium text-right">SDL</th>
-                    <th className="py-2 px-4 text-[var(--ff-text-secondary)] font-medium text-right">ETI</th>
-                    <th className="py-2 px-4 text-[var(--ff-text-secondary)] font-medium text-right">Net</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {run.lines.map(l => (
-                    <tr key={l.id} className="border-t border-[var(--ff-border-primary)]">
-                      <td className="py-2 px-4 font-mono text-xs text-[var(--ff-text-secondary)]">{l.employeeNumber}</td>
-                      <td className="py-2 px-4 text-[var(--ff-text-primary)]">{l.employeeName}</td>
-                      <td className="py-2 px-4 text-right font-mono text-[var(--ff-text-primary)]">{formatCurrency(l.grossPay)}</td>
-                      <td className="py-2 px-4 text-right font-mono text-[var(--ff-text-secondary)]">{formatCurrency(l.paye)}</td>
-                      <td className="py-2 px-4 text-right font-mono text-[var(--ff-text-secondary)]">{formatCurrency(l.uifEmployee)}</td>
-                      <td className="py-2 px-4 text-right font-mono text-[var(--ff-text-secondary)]">{formatCurrency(l.uifEmployer)}</td>
-                      <td className="py-2 px-4 text-right font-mono text-[var(--ff-text-secondary)]">{formatCurrency(l.sdl)}</td>
-                      <td className="py-2 px-4 text-right font-mono text-[var(--ff-text-secondary)]">{formatCurrency(l.eti)}</td>
-                      <td className="py-2 px-4 text-right font-mono text-teal-400 font-medium">{formatCurrency(l.netPay)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </section>
+          <PayrollRunLinesTable runId={runId} lines={run.lines} runStatus={run.status} />
         </div>
       </div>
     </AppLayout>

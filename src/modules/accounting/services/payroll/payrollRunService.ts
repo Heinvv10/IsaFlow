@@ -24,6 +24,7 @@ export interface PayrollRunSummary {
   totalEti: number;
   totalNet: number;
   employeeCount: number;
+  postedJournalEntryId: string | null;
 }
 
 function mapRunRow(r: Row): PayrollRunSummary {
@@ -40,6 +41,7 @@ function mapRunRow(r: Row): PayrollRunSummary {
     totalEti: Number(r.total_eti) || 0,
     totalNet: Number(r.total_net) || 0,
     employeeCount: Number(r.employee_count) || 0,
+    postedJournalEntryId: r.posted_journal_entry_id ? String(r.posted_journal_entry_id) : null,
   };
 }
 
