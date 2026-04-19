@@ -268,6 +268,16 @@ describe('listPracticeEntries', () => {
     expect(result.total).toBe(1);
     expect(result.entries[0]!.id).toBe(ENTRY_ID);
   });
+
+  it('filters by jobId', async () => {
+    const JOB = 'ffffffff-0000-0000-0000-ffffffffffff';
+    sqlMock.mockResolvedValueOnce([{ cnt: 1 }]).mockResolvedValueOnce([{ ...entryRow, job_id: JOB }]);
+    const result = await listPracticeEntries(COMPANY, { jobId: JOB });
+    expect(result.total).toBe(1);
+    expect(result.entries[0]!.jobId).toBe(JOB);
+    const countCallValues = sqlMock.mock.calls[0]!.slice(1);
+    expect(countCallValues).toContain(JOB);
+  });
 });
 
 describe('duplicatePracticeEntry', () => {

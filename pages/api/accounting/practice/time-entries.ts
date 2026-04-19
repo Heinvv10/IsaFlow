@@ -20,13 +20,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
 
   if (req.method === 'GET') {
-    const { userId, practiceClientId, dateFrom, dateTo, status } = req.query;
+    const { userId, practiceClientId, dateFrom, dateTo, status, jobId } = req.query;
     const result = await listPracticeEntries(companyId, {
       userId: userId as string | undefined,
       practiceClientId: practiceClientId as string | undefined,
       dateFrom: dateFrom as string | undefined,
       dateTo: dateTo as string | undefined,
       status: status as PracticeTimeEntry['status'] | undefined,
+      jobId: jobId as string | undefined,
     });
     return apiResponse.success(res, result);
   }
