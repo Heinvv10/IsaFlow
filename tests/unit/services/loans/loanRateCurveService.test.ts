@@ -68,6 +68,18 @@ describe('listRateCurves', () => {
     const result = await listRateCurves(COMPANY_ID);
     expect(result).toEqual([]);
   });
+
+  it('includes system-level curves alongside company curves', async () => {
+    sqlMock.mockResolvedValueOnce([
+      { id: 'sys-1', company_id: null, name: 'SA Prime', source: 'SARB', is_system: true, created_at: 't' },
+      makeCurveRow({ name: 'Custom' }),
+    ]);
+    const result = await listRateCurves(COMPANY_ID);
+    expect(result).toHaveLength(2);
+    expect(result[0]!.isSystem).toBe(true);
+    expect(result[0]!.companyId).toBeNull();
+    expect(result[1]!.companyId).toBe(COMPANY_ID);
+  });
 });
 
 // ── getRateCurveWithPoints ────────────────────────────────────────────────────
@@ -104,6 +116,18 @@ describe('getRateCurveWithPoints', () => {
     const secondCall = sqlMock.mock.calls[1];
     const bindings = Array.isArray(secondCall) ? secondCall.slice(1).flat() : [];
     expect(bindings).toContain(COMPANY_ID);
+  });
+
+  it('returns a system-level curve even when company_id does not match', async () => {
+    // System curves (company_id IS NULL, is_system = true) are readable by all.
+    const systemCurve = { id: 'sys-1', company_id: null, name: 'SA Prime', source: 'SARB', is_system: true, created_at: 't' };
+    sqlMock
+      .mockResolvedValueOnce([systemCurve])
+      .mockResolvedValueOnce([makePointRow({ curve_id: 'sys-1' })]);
+    const result = await getRateCurveWithPoints(COMPANY_ID, 'sys-1');
+    expect(result).not.toBeNull();
+    expect(result!.isSystem).toBe(true);
+    expect(result!.points).toHaveLength(1);
   });
 });
 

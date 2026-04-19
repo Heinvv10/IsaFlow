@@ -6,7 +6,8 @@ type Row = DbRow;
 
 export interface RateCurve {
   id: string;
-  companyId: string;
+  /** null when the curve is a system-level curve shared across tenants. */
+  companyId: string | null;
   name: string;
   source: string | null;
   isSystem: boolean;
@@ -38,7 +39,7 @@ export interface RatePointInput {
 function mapCurveRow(row: Row): RateCurve {
   return {
     id: String(row.id),
-    companyId: String(row.company_id),
+    companyId: row.company_id != null ? String(row.company_id) : null,
     name: String(row.name),
     source: row.source != null ? String(row.source) : null,
     isSystem: Boolean(row.is_system),
@@ -56,10 +57,13 @@ function mapPointRow(row: Row): RatePoint {
 }
 
 export async function listRateCurves(companyId: string): Promise<RateCurve[]> {
+  // System curves (company_id IS NULL, is_system = true) are shared across
+  // tenants for read access. Seeded by migration 393 (SA Prime).
   const rows = (await sql`
     SELECT * FROM loan_rate_curves
     WHERE company_id = ${companyId}
-    ORDER BY name
+       OR (is_system = true AND company_id IS NULL)
+    ORDER BY is_system DESC, name
   `) as Row[];
   return rows.map(mapCurveRow);
 }
@@ -70,17 +74,19 @@ export async function getRateCurveWithPoints(
 ): Promise<RateCurveWithPoints | null> {
   const curves = (await sql`
     SELECT * FROM loan_rate_curves
-    WHERE id = ${curveId} AND company_id = ${companyId}
+    WHERE id = ${curveId}
+      AND (company_id = ${companyId} OR (is_system = true AND company_id IS NULL))
   `) as Row[];
   if (curves.length === 0) return null;
 
   // Defence-in-depth: join back to loan_rate_curves with company_id so a
   // caller can never pull points for a curve that doesn't belong to them,
-  // even if the ownership gate above is ever removed.
+  // even if the ownership gate above is ever removed. Allow system curves.
   const points = (await sql`
     SELECT lrp.* FROM loan_rate_points lrp
     JOIN loan_rate_curves lrc ON lrc.id = lrp.curve_id
-    WHERE lrp.curve_id = ${curveId} AND lrc.company_id = ${companyId}
+    WHERE lrp.curve_id = ${curveId}
+      AND (lrc.company_id = ${companyId} OR (lrc.is_system = true AND lrc.company_id IS NULL))
     ORDER BY lrp.effective_date ASC
   `) as Row[];
 
@@ -145,7 +151,8 @@ export async function getRatePointsForCurve(
   const rows = (await sql`
     SELECT lrp.* FROM loan_rate_points lrp
     JOIN loan_rate_curves lrc ON lrc.id = lrp.curve_id
-    WHERE lrp.curve_id = ${curveId} AND lrc.company_id = ${companyId}
+    WHERE lrp.curve_id = ${curveId}
+      AND (lrc.company_id = ${companyId} OR (lrc.is_system = true AND lrc.company_id IS NULL))
     ORDER BY lrp.effective_date ASC
   `) as Row[];
   return rows
