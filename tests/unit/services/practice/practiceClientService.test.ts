@@ -164,7 +164,12 @@ describe('createClientContact', () => {
 
 describe('deleteClientContact', () => {
   it('deletes without error', async () => {
-    sqlMock.mockResolvedValueOnce([]);
+    sqlMock.mockResolvedValueOnce([{ id: CONTACT_ID }]);
     await expect(deleteClientContact(COMPANY, CONTACT_ID)).resolves.toBeUndefined();
+  });
+
+  it('throws when contact not found', async () => {
+    sqlMock.mockResolvedValueOnce([]);
+    await expect(deleteClientContact(COMPANY, CONTACT_ID)).rejects.toThrow('not found');
   });
 });

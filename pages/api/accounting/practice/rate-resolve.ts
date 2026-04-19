@@ -19,6 +19,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!clientId) return apiResponse.badRequest(res, 'clientId is required');
     if (!date) return apiResponse.badRequest(res, 'date is required');
     const rate = await resolveRate(companyId, userId as string, clientId as string, date as string);
+    if (rate === null) return apiResponse.notFound(res, 'No rate configured for this staff/client/date combination');
     return apiResponse.success(res, { rate });
   }
 

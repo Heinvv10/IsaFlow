@@ -71,8 +71,9 @@ export async function createStaffRate(
       ${input.effectiveTo ?? null}::DATE
     ) RETURNING *
   `) as DbRow[];
-  log.info('Created staff rate', { id: rows[0]?.id, userId: input.userId }, 'practice');
-  return mapRate(rows[0]!);
+  if (!rows[0]) throw new Error('database returned no row after insert/update');
+  log.info('Created staff rate', { id: rows[0].id, userId: input.userId }, 'practice');
+  return mapRate(rows[0]);
 }
 
 export async function updateStaffRate(
@@ -92,7 +93,8 @@ export async function updateStaffRate(
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
     RETURNING *
   `) as DbRow[];
-  return mapRate(rows[0]!);
+  if (!rows[0]) throw new Error('database returned no row after insert/update');
+  return mapRate(rows[0]);
 }
 
 export async function resolveRate(
@@ -124,6 +126,7 @@ export async function resolveRate(
   `) as DbRow[];
   if (staff.length) return Number(staff[0]!.rate);
 
+  log.warn('resolveRate: no rate found', { companyId, userId, clientId, onDate }, 'practice');
   return null;
 }
 
@@ -147,5 +150,6 @@ export async function createClientRateOverride(
       ${input.rate}, ${input.effectiveFrom}::DATE, ${input.effectiveTo ?? null}::DATE
     ) RETURNING *
   `) as DbRow[];
-  return mapOverride(rows[0]!);
+  if (!rows[0]) throw new Error('database returned no row after insert/update');
+  return mapOverride(rows[0]);
 }

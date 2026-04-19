@@ -103,15 +103,28 @@ export async function listPracticeClients(
 ): Promise<{ clients: PracticeClient[]; total: number }> {
   const lim = filters?.limit ?? 50;
   const off = filters?.offset ?? 0;
+  const status = filters?.status ?? null;
+  const search = filters?.search ? `%${filters.search}%` : null;
+  const groupId = filters?.groupId ?? null;
+
   const countRows = (await sql`
-    SELECT COUNT(*)::int AS cnt FROM practice_clients WHERE company_id = ${companyId}::UUID
+    SELECT COUNT(*)::int AS cnt FROM practice_clients
+    WHERE company_id = ${companyId}::UUID
+      AND (${status}::TEXT IS NULL OR status = ${status}::TEXT)
+      AND (${search}::TEXT IS NULL OR legal_name ILIKE ${search}::TEXT OR trading_name ILIKE ${search}::TEXT)
+      AND (${groupId}::UUID IS NULL OR client_group_id = ${groupId}::UUID)
   `) as DbRow[];
+
   const rows = (await sql`
     SELECT * FROM practice_clients
     WHERE company_id = ${companyId}::UUID
+      AND (${status}::TEXT IS NULL OR status = ${status}::TEXT)
+      AND (${search}::TEXT IS NULL OR legal_name ILIKE ${search}::TEXT OR trading_name ILIKE ${search}::TEXT)
+      AND (${groupId}::UUID IS NULL OR client_group_id = ${groupId}::UUID)
     ORDER BY legal_name ASC
     LIMIT ${lim} OFFSET ${off}
   `) as DbRow[];
+
   return { clients: rows.map(mapClient), total: Number(countRows[0]?.cnt ?? 0) };
 }
 
@@ -147,8 +160,9 @@ export async function createPracticeClient(
     ) RETURNING *
   `) as DbRow[];
 
-  log.info('Created practice client', { id: rows[0]?.id, companyId }, 'practice');
-  return mapClient(rows[0]!);
+  if (!rows[0]) throw new Error('database returned no row after insert/update');
+  log.info('Created practice client', { id: rows[0].id, companyId }, 'practice');
+  return mapClient(rows[0]);
 }
 
 export async function updatePracticeClient(
@@ -178,8 +192,9 @@ export async function updatePracticeClient(
     RETURNING *
   `) as DbRow[];
 
+  if (!rows[0]) throw new Error('database returned no row after insert/update');
   log.info('Updated practice client', { id }, 'practice');
-  return mapClient(rows[0]!);
+  return mapClient(rows[0]);
 }
 
 export async function deletePracticeClient(companyId: string, id: string): Promise<void> {
@@ -213,8 +228,9 @@ export async function createClientGroup(
     VALUES (${companyId}::UUID, ${input.name}, ${input.description ?? null})
     RETURNING *
   `) as DbRow[];
-  log.info('Created client group', { id: rows[0]?.id }, 'practice');
-  return mapGroup(rows[0]!);
+  if (!rows[0]) throw new Error('database returned no row after insert/update');
+  log.info('Created client group', { id: rows[0].id }, 'practice');
+  return mapGroup(rows[0]);
 }
 
 export async function listClientContacts(companyId: string, clientId: string): Promise<ClientContact[]> {
@@ -239,12 +255,16 @@ export async function createClientContact(
       ${input.isPrimary ?? false}
     ) RETURNING *
   `) as DbRow[];
-  return mapContact(rows[0]!);
+  if (!rows[0]) throw new Error('database returned no row after insert/update');
+  return mapContact(rows[0]);
 }
 
 export async function deleteClientContact(companyId: string, contactId: string): Promise<void> {
-  await sql`
+  const rows = (await sql`
     DELETE FROM practice_client_contacts
     WHERE id = ${contactId}::UUID AND company_id = ${companyId}::UUID
-  `;
+    RETURNING id
+  `) as DbRow[];
+  if (!rows.length) throw new Error('not found');
+  log.info('Deleted client contact', { contactId, companyId }, 'practice');
 }

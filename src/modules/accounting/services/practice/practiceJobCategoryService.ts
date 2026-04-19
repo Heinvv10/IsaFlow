@@ -81,8 +81,9 @@ export async function createJobCategory(
     VALUES (${companyId}::UUID, ${input.name}, ${input.sortOrder ?? 0}, ${input.reportingTag ?? null})
     RETURNING *
   `) as DbRow[];
-  log.info('Created job category', { id: rows[0]?.id }, 'practice');
-  return mapCategory(rows[0]!);
+  if (!rows[0]) throw new Error('database returned no row after insert/update');
+  log.info('Created job category', { id: rows[0].id }, 'practice');
+  return mapCategory(rows[0]);
 }
 
 export async function updateJobCategory(
@@ -105,7 +106,8 @@ export async function updateJobCategory(
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
     RETURNING *
   `) as DbRow[];
-  return mapCategory(rows[0]!);
+  if (!rows[0]) throw new Error('database returned no row after insert/update');
+  return mapCategory(rows[0]);
 }
 
 export async function deleteJobCategory(companyId: string, id: string): Promise<void> {
@@ -164,7 +166,8 @@ export async function createWorkItem(
       ${input.defaultRateOverride ?? null}
     ) RETURNING *
   `) as DbRow[];
-  return mapWorkItem(rows[0]!);
+  if (!rows[0]) throw new Error('database returned no row after insert/update');
+  return mapWorkItem(rows[0]);
 }
 
 export async function updateWorkItem(
@@ -188,7 +191,8 @@ export async function updateWorkItem(
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
     RETURNING *
   `) as DbRow[];
-  return mapWorkItem(rows[0]!);
+  if (!rows[0]) throw new Error('database returned no row after insert/update');
+  return mapWorkItem(rows[0]);
 }
 
 export async function seedDefaultCategories(companyId: string): Promise<void> {

@@ -10,6 +10,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { withWriteAccess } from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { log } from '@/lib/logger';
 import {
   listPracticeClients,
   createPracticeClient,
@@ -61,7 +62,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       status,
       linkCustomerId,
     });
-    await seedDefaultCategories(companyId);
+    try {
+      await seedDefaultCategories(companyId);
+    } catch (err) {
+      log.warn('seedDefaultCategories failed after client creation — non-fatal', { companyId, error: err instanceof Error ? err.message : String(err) }, 'practice');
+    }
     return apiResponse.created(res, client);
   }
 
