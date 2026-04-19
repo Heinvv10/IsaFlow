@@ -26,7 +26,7 @@ const nextConfig = {
     return [
       {
         source: '/auth/v1/:path*',
-        destination: 'http://localhost:8300/auth/v1/:path*',
+        destination: 'http://localhost:7770/auth/v1/:path*',
       },
     ];
   },
