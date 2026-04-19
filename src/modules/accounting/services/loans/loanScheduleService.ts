@@ -220,19 +220,26 @@ export async function getPortfolioSummary(companyId: string): Promise<PortfolioS
     FROM loans l
     LEFT JOIN LATERAL (
       SELECT lsr2.st_liability, lsr2.interest
-      FROM loan_schedule_runs r2
-      JOIN loan_schedule_rows lsr2 ON lsr2.run_id = r2.id
-      WHERE r2.loan_id = l.id
-      ORDER BY r2.computed_at DESC, lsr2.period ASC
+      FROM loan_schedule_rows lsr2
+      WHERE lsr2.run_id = (
+        SELECT r2.id FROM loan_schedule_runs r2
+        WHERE r2.loan_id = l.id
+        ORDER BY r2.computed_at DESC
+        LIMIT 1
+      )
+      ORDER BY lsr2.period ASC
       LIMIT 1
     ) lsr ON true
     LEFT JOIN LATERAL (
       SELECT SUM(lsr3.interest) AS interest_sum
-      FROM loan_schedule_runs r3
-      JOIN loan_schedule_rows lsr3 ON lsr3.run_id = r3.id
-      WHERE r3.loan_id = l.id
-      ORDER BY r3.computed_at DESC
-      LIMIT 12
+      FROM loan_schedule_rows lsr3
+      WHERE lsr3.run_id = (
+        SELECT r3.id FROM loan_schedule_runs r3
+        WHERE r3.loan_id = l.id
+        ORDER BY r3.computed_at DESC
+        LIMIT 1
+      )
+        AND lsr3.period BETWEEN 1 AND 12
     ) next12 ON true
     WHERE l.company_id = ${companyId}
   `) as Row[];

@@ -166,13 +166,16 @@ async function cleanExisting(): Promise<void> {
   await sql.query(`DELETE FROM supplier_invoice_items WHERE supplier_invoice_id IN (SELECT id FROM supplier_invoices WHERE company_id = $1)`, [COMPANY_ID]);
   await sql.query(`DELETE FROM customer_sales_order_items WHERE sales_order_id IN (SELECT id FROM customer_sales_orders WHERE company_id = $1)`, [COMPANY_ID]);
   await sql.query(`DELETE FROM supplier_purchase_order_items WHERE purchase_order_id IN (SELECT id FROM supplier_purchase_orders WHERE company_id = $1)`, [COMPANY_ID]);
+  // Clear bank_transactions FK references before deleting journal lines
+  await sql.query(`UPDATE bank_transactions SET matched_journal_line_id = NULL WHERE company_id = $1`, [COMPANY_ID]);
   await sql.query(`DELETE FROM gl_journal_lines WHERE journal_entry_id IN (SELECT id FROM gl_journal_entries WHERE company_id = $1)`, [COMPANY_ID]);
 
-  // Delete parent tables with company_id
+  // Delete parent tables with company_id (credit_notes before customer_invoices due to FK)
   const tables = [
     'customer_payments', 'supplier_payments',
+    'credit_notes',
     'customer_invoices', 'supplier_invoices',
-    'credit_notes', 'gl_journal_entries',
+    'gl_journal_entries',
     'bank_transactions',
     'customer_sales_orders', 'supplier_purchase_orders',
   ];
@@ -597,6 +600,7 @@ async function seedJournalEntries(gl: GlAccounts): Promise<void> {
           id: randomUUID(),
           journal_entry_id: jeId,
           gl_account_id: gl[l.acct],
+          company_id: COMPANY_ID,
           debit: l.debit,
           credit: l.credit,
           description: jType.desc,

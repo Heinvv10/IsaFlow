@@ -121,6 +121,8 @@ export interface VATReturnReport {
   inputVAT: number;
   outputDetails: Array<{ accountCode: string; accountName: string; amount: number }>;
   inputDetails: Array<{ accountCode: string; accountName: string; amount: number }>;
+  standardRatedSupplies: number;
+  standardRatedPurchases: number;
 }
 
 export interface ProjectProfitabilityReport {
