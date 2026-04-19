@@ -29,6 +29,8 @@ interface LoanForm {
   repriceMode: string;
   skipMode: string;
   lumpMode: string;
+  originationFee: string;
+  originationFeeVatType: 'standard' | 'zero' | 'exempt';
 }
 
 const INITIAL: LoanForm = {
@@ -39,6 +41,8 @@ const INITIAL: LoanForm = {
   repriceMode: 'RESOLVE_ON_RATE_CHANGE',
   skipMode: 'MAINTAIN_TERM',
   lumpMode: 'REDUCE_INSTALLMENT',
+  originationFee: '0',
+  originationFeeVatType: 'standard',
 };
 
 export default function NewLoanPage() {
@@ -88,6 +92,8 @@ export default function NewLoanPage() {
         repriceMode: form.repriceMode,
         skipMode: form.skipMode,
         lumpMode: form.lumpMode,
+        originationFee: Number(form.originationFee || '0'),
+        originationFeeVatType: form.originationFeeVatType,
       };
       const res = await apiFetch('/api/accounting/loans', {
         method: 'POST',
@@ -163,6 +169,18 @@ export default function NewLoanPage() {
                 <div>
                   <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Residual (ZAR)</label>
                   <input type="number" step="0.01" min="0" className="ff-input w-full text-sm" placeholder="0.00" value={form.residual} onChange={e => set('residual', e.target.value)} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Origination Fee (ZAR, excl VAT)</label>
+                  <input type="number" step="0.01" min="0" className="ff-input w-full text-sm" placeholder="0.00" value={form.originationFee} onChange={e => set('originationFee', e.target.value)} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Origination Fee VAT</label>
+                  <select className="ff-select w-full text-sm" value={form.originationFeeVatType} onChange={e => set('originationFeeVatType', e.target.value as 'standard' | 'zero' | 'exempt')}>
+                    <option value="standard">Standard (15%)</option>
+                    <option value="zero">Zero-rated</option>
+                    <option value="exempt">Exempt</option>
+                  </select>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Start Date *</label>

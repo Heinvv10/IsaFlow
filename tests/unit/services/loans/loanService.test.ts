@@ -188,6 +188,34 @@ describe('createLoan', () => {
     const loan = await createLoan(COMPANY_ID, VALID_CREATE);
     expect(loan.recurringSkipMonths).toEqual([12, 1]);
   });
+
+  it('stores and maps origination fee + VAT type (IFRS / VAT compliance)', async () => {
+    sqlMock.mockResolvedValueOnce([
+      makeLoanRow({ origination_fee: '2500.00', origination_fee_vat_type: 'standard' }),
+    ]);
+    const loan = await createLoan(COMPANY_ID, {
+      ...VALID_CREATE,
+      originationFee: 2500,
+      originationFeeVatType: 'standard',
+    });
+    expect(loan.originationFee).toBeCloseTo(2500, 2);
+    expect(loan.originationFeeVatType).toBe('standard');
+  });
+
+  it('defaults origination fee to 0 and VAT type to standard', async () => {
+    sqlMock.mockResolvedValueOnce([
+      makeLoanRow({ origination_fee: '0.00', origination_fee_vat_type: 'standard' }),
+    ]);
+    const loan = await createLoan(COMPANY_ID, VALID_CREATE);
+    expect(loan.originationFee).toBe(0);
+    expect(loan.originationFeeVatType).toBe('standard');
+  });
+
+  it('throws when originationFee is negative', async () => {
+    await expect(
+      createLoan(COMPANY_ID, { ...VALID_CREATE, originationFee: -100 }),
+    ).rejects.toThrow('originationFee');
+  });
 });
 
 // ── updateLoan ────────────────────────────────────────────────────────────────
