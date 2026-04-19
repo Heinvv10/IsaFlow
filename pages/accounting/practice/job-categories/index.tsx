@@ -1,9 +1,3 @@
-/**
- * Job Categories Admin Page
- * Two-level taxonomy: categories → work items, used in time entries.
- * Route: /accounting/practice/job-categories
- */
-
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Tag, Loader2, AlertCircle, Plus, ChevronDown, ChevronRight } from 'lucide-react';
@@ -54,29 +48,21 @@ function WorkItemList({ categoryId }: { categoryId: string }) {
     return () => { cancelled = true; };
   }, [categoryId]);
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center gap-2 px-4 py-3 text-[var(--ff-text-tertiary)] text-sm">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        Loading work items…
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex items-center gap-2 px-4 py-3 text-red-400 text-sm">
-        <AlertCircle className="h-4 w-4" />
-        {error}
-      </div>
-    );
-  }
-
-  if (items.length === 0) {
-    return (
-      <p className="px-4 py-3 text-sm text-[var(--ff-text-tertiary)]">No work items in this category.</p>
-    );
-  }
+  if (isLoading) return (
+    <div className="flex items-center gap-2 px-4 py-3 text-[var(--ff-text-tertiary)] text-sm">
+      <Loader2 className="h-4 w-4 animate-spin" />
+      Loading work items…
+    </div>
+  );
+  if (error) return (
+    <div className="flex items-center gap-2 px-4 py-3 text-red-400 text-sm">
+      <AlertCircle className="h-4 w-4" />
+      {error}
+    </div>
+  );
+  if (items.length === 0) return (
+    <p className="px-4 py-3 text-sm text-[var(--ff-text-tertiary)]">No work items in this category.</p>
+  );
 
   return (
     <ul className="divide-y divide-[var(--ff-border-primary)]">
@@ -85,22 +71,10 @@ function WorkItemList({ categoryId }: { categoryId: string }) {
           key={item.id}
           className="flex items-center justify-between px-4 py-2"
         >
-          <span
-            className={
-              item.isActive
-                ? 'text-sm text-[var(--ff-text-primary)]'
-                : 'text-sm text-[var(--ff-text-tertiary)] line-through'
-            }
-          >
+          <span className={item.isActive ? 'text-sm text-[var(--ff-text-primary)]' : 'text-sm text-[var(--ff-text-tertiary)] line-through'}>
             {item.name}
           </span>
-          <span
-            className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-              item.isBillable
-                ? 'bg-teal-500/20 text-teal-400'
-                : 'bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-tertiary)]'
-            }`}
-          >
+          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${item.isBillable ? 'bg-teal-500/20 text-teal-400' : 'bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-tertiary)]'}`}>
             {item.isBillable ? 'Billable' : 'Non-billable'}
           </span>
         </li>
@@ -125,21 +99,13 @@ function CategoryRow({ category, onToggle }: CategoryRowProps) {
 
   return (
     <div className="border border-[var(--ff-border-primary)] rounded-lg overflow-hidden bg-[var(--ff-surface-primary)]">
-      {/* Card header */}
       <button
         type="button"
         onClick={() => setIsExpanded((v) => !v)}
         className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-teal-500/[0.04] transition-colors"
       >
-        {isExpanded
-          ? <ChevronDown className="h-4 w-4 text-[var(--ff-text-tertiary)] flex-shrink-0" />
-          : <ChevronRight className="h-4 w-4 text-[var(--ff-text-tertiary)] flex-shrink-0" />
-        }
-        <span
-          className={`font-medium text-sm flex-1 ${
-            category.isActive ? 'text-[var(--ff-text-primary)]' : 'text-[var(--ff-text-tertiary)] line-through'
-          }`}
-        >
+        {isExpanded ? <ChevronDown className="h-4 w-4 text-[var(--ff-text-tertiary)] flex-shrink-0" /> : <ChevronRight className="h-4 w-4 text-[var(--ff-text-tertiary)] flex-shrink-0" />}
+        <span className={`font-medium text-sm flex-1 ${category.isActive ? 'text-[var(--ff-text-primary)]' : 'text-[var(--ff-text-tertiary)] line-through'}`}>
           {category.name}
         </span>
         {category.reportingTag && (
@@ -161,7 +127,6 @@ function CategoryRow({ category, onToggle }: CategoryRowProps) {
         </button>
       </button>
 
-      {/* Expandable work items */}
       {isExpanded && (
         <div className="border-t border-[var(--ff-border-primary)] bg-[var(--ff-bg-primary)]">
           <WorkItemList categoryId={category.id} />
@@ -239,7 +204,6 @@ export default function JobCategoriesPage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
-        {/* Header */}
         <div className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
           <div className="px-6 py-4 flex items-center gap-3">
             <div className="p-2 rounded-lg bg-teal-500/10">
@@ -254,9 +218,7 @@ export default function JobCategoriesPage() {
           </div>
         </div>
 
-        {/* Content */}
         <div className="px-6 py-6 max-w-2xl">
-          {/* Add category */}
           <div className="flex items-center gap-3 mb-6">
             <input
               type="text"
@@ -286,7 +248,6 @@ export default function JobCategoriesPage() {
             </p>
           )}
 
-          {/* List */}
           {isLoading ? (
             <div className="flex items-center justify-center py-16">
               <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
