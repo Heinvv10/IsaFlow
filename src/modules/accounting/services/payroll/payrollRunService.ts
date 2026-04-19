@@ -6,6 +6,7 @@ import { getEmployeeComponents } from './payrollComponentService';
 import { calculatePayrollLine } from './payrollCalculator';
 import { validateEmployee, validatePayrollLine } from './validationEngine';
 import { getTaxYear } from './taxTables';
+import { getAnnualPayrollEstimate } from './payrollRollupService';
 import type { PayrollPeriod } from './payrollTypes';
 
 type Row = DbRow;
@@ -112,7 +113,7 @@ export async function calculatePayrollRun(
   let totalEti = 0;
   let totalNet = 0;
 
-  const annualPayrollEstimate = employees.length * 25_000 * 12;
+  const annualPayrollEstimate = await getAnnualPayrollEstimate(companyId, period);
 
   // Build all line inserts in memory before touching the DB
   type LineInsert = {
