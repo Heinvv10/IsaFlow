@@ -18,7 +18,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'POST') {
     try {
-      await resetPassword(userId);
+      const { reset_link } = await resetPassword(userId);
 
       await logAdminAction(
         req.user.id,
@@ -32,7 +32,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       log.info('Password reset performed', { userId }, 'admin-api');
       return apiResponse.success(res, {
         success: true,
-        message: 'Password reset email sent to the user.',
+        message: 'Password reset link generated. Share with the user if they did not receive the email.',
+        reset_link,
       });
     } catch (err) {
       log.error('Failed to reset user password', { userId, error: err }, 'admin-api');
