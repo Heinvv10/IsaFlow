@@ -3,11 +3,8 @@
  * Supports ?invite=[token] to show an invitation banner.
  * Redirects to /accounting on success; shows 2FA challenge if required.
  *
- * Two 2FA paths:
- *  1. GoTrue (new): login API returns {requires_2fa, factor_id, pending_token}
- *     → local `step` state → TwoFactorScreen → /api/auth/2fa-challenge
- *  2. Legacy: login API returns {requiresTwoFactor, tempToken}
- *     → AuthContext.twoFactorChallenge → TwoFactorScreen → /api/auth/2fa-verify
+ * 2FA path: login API returns {requires_2fa, factor_id, pending_token}
+ * → local `step` state → TwoFactorScreen → /api/auth/2fa-challenge
  */
 
 import { useState, useEffect, useRef, FormEvent } from 'react';
@@ -46,18 +43,6 @@ function getDeviceFingerprint(): string {
     hash = ((hash << 5) + hash) ^ raw.charCodeAt(i);
   }
   return (hash >>> 0).toString(16);
-}
-
-function getDeviceName(): string {
-  if (typeof window === 'undefined') return 'Unknown Device';
-  const ua = window.navigator.userAgent;
-  if (/iPhone/.test(ua)) return 'iPhone';
-  if (/iPad/.test(ua)) return 'iPad';
-  if (/Android/.test(ua)) return 'Android Device';
-  if (/Mac/.test(ua)) return 'Mac';
-  if (/Windows/.test(ua)) return 'Windows PC';
-  if (/Linux/.test(ua)) return 'Linux PC';
-  return 'Unknown Device';
 }
 
 // ── 2FA Screen ────────────────────────────────────────────────────────────────
@@ -178,7 +163,7 @@ function isSafeRedirect(url: string): boolean {
 
 export default function LoginPage() {
   const router = useRouter();
-  const { completeTwoFactor, error, clearError, twoFactorChallenge } = useAuth();
+  const { error, clearError } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -316,22 +301,6 @@ export default function LoginPage() {
     }
   };
 
-  // Legacy 2FA verify — delegated to AuthContext (uses /api/auth/2fa-verify)
-  const handleLegacyTwoFactorVerify = async (code: string, trustDevice: boolean) => {
-    clearError();
-    setSubmitting(true);
-    try {
-      const fingerprint = getDeviceFingerprint();
-      const deviceName = getDeviceName();
-      await completeTwoFactor(code, trustDevice, fingerprint, deviceName);
-      await router.push(await postLoginRedirect());
-    } catch {
-      // Error already set in AuthContext
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   const cancelTotp = () => {
     setStep('credentials');
     setPendingFactor(null);
@@ -340,8 +309,6 @@ export default function LoginPage() {
 
   const isBusy = submitting;
   const showTotpStep = step === 'totp';
-  // Legacy 2FA is active when AuthContext set twoFactorChallenge (old /api/auth/2fa-verify path)
-  const showLegacy2FA = !!twoFactorChallenge && !showTotpStep;
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-gray-950 flex items-center justify-center px-4">
@@ -351,12 +318,12 @@ export default function LoginPage() {
         <div className="flex flex-col items-center mb-8">
           <Image src="/logo.png" alt="ISAFlow" width={160} height={64} className="h-16 w-auto dark:brightness-0 dark:invert mb-4" priority />
           <p className="text-sm text-slate-600 dark:text-slate-300 mt-1">
-            {(showTotpStep || showLegacy2FA) ? 'Verify your identity' : 'Sign in to your account'}
+            {showTotpStep ? 'Verify your identity' : 'Sign in to your account'}
           </p>
         </div>
 
         {/* Invite banner — only on credentials screen */}
-        {!showTotpStep && !showLegacy2FA && inviteData && (
+        {!showTotpStep && inviteData && (
           <div className="mb-4 px-4 py-3 bg-teal-900/30 border border-teal-700/50 rounded-lg flex items-start gap-3">
             <Building2 className="h-4 w-4 text-teal-400 mt-0.5 flex-shrink-0" />
             <p className="text-sm text-teal-300">
@@ -369,7 +336,7 @@ export default function LoginPage() {
         )}
 
         {/* Registration success banner */}
-        {!showTotpStep && !showLegacy2FA && router.query.registered === '1' && (
+        {!showTotpStep && router.query.registered === '1' && (
           <div className="mb-4 px-3 py-2.5 bg-green-500/10 border border-green-500/30 rounded-lg">
             <p className="text-sm text-green-400">Account created successfully! Please sign in.</p>
           </div>
@@ -385,17 +352,8 @@ export default function LoginPage() {
           />
         )}
 
-        {/* Legacy 2FA step (AuthContext path) */}
-        {showLegacy2FA && (
-          <TwoFactorScreen
-            onVerify={handleLegacyTwoFactorVerify}
-            loading={isBusy}
-            error={error}
-          />
-        )}
-
         {/* Credentials card */}
-        {!showTotpStep && !showLegacy2FA && (
+        {!showTotpStep && (
           <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl p-6 shadow-xl">
             <form onSubmit={(e) => void handleSubmit(e)} noValidate>
 
@@ -482,7 +440,7 @@ export default function LoginPage() {
         )}
 
         {/* Footer link — only on credentials screen */}
-        {!showTotpStep && !showLegacy2FA && (
+        {!showTotpStep && (
           <p className="text-center text-sm text-slate-500 dark:text-gray-500 mt-6">
             Don&apos;t have an account?{' '}
             <Link
