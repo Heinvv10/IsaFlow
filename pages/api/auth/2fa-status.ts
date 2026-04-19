@@ -1,30 +1,31 @@
-/**
- * GET /api/auth/2fa-status
- * Return current 2FA status for the authenticated user.
- */
+// pages/api/auth/2fa-status.ts
+// Tiny wrapper over GoTrue listFactors — gives the my-account UI a single
+// GET to check whether TOTP is enabled.
+import type { NextApiHandler } from 'next';
+import { parseCookies, ACCESS_COOKIE } from '@/lib/auth/cookies';
+import { listFactors, GotrueMfaError } from '@/lib/auth/gotrue-mfa';
 
-import type { NextApiRequest, NextApiResponse } from 'next';
-import { withUserAuth } from '@/lib/auth/withUserAuth';
-import type { AuthenticatedNextApiRequest } from '@/lib/auth/withUserAuth';
-import { apiResponse } from '@/lib/apiResponse';
-import { get2FAStatus } from '@/modules/auth/services/twoFactorService';
-import { log } from '@/lib/logger';
-import { withErrorHandler } from '@/lib/api-error-handler';
-
-async function handler(req: NextApiRequest, res: NextApiResponse) {
+const handler: NextApiHandler = async (req, res) => {
   if (req.method !== 'GET') {
-    return apiResponse.methodNotAllowed(res, req.method ?? 'unknown', ['GET']);
+    return res.status(405).json({ success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'GET required' } });
   }
-
-  const { user } = req as AuthenticatedNextApiRequest;
-
+  const token = parseCookies(req)[ACCESS_COOKIE];
+  if (!token) {
+    return res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+  }
   try {
-    const status = await get2FAStatus(user.id);
-    return apiResponse.success(res, status);
+    const factors = await listFactors(token);
+    const verified = factors.totp.find((f) => f.status === 'verified');
+    return res.status(200).json({
+      success: true,
+      data: { enabled: !!verified, factor_id: verified?.id ?? null },
+    });
   } catch (err) {
-    log.error('2fa-status error', err instanceof Error ? { message: err.message } : { err }, 'api/auth/2fa-status');
-    return apiResponse.internalError(res, err);
+    if (err instanceof GotrueMfaError) {
+      return res.status(err.status).json({ success: false, error: { code: 'STATUS_FAILED', message: err.message } });
+    }
+    throw err;
   }
-}
+};
 
-export default withUserAuth(withErrorHandler(handler));
+export default handler;
