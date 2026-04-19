@@ -18,6 +18,7 @@ export interface PracticeTimeEntry {
   approvedAt: string | null;
   billedAt: string | null;
   invoiceId: string | null;
+  jobId: string | null;
   writeOffReason: string | null;
   writtenOffBy: string | null;
   writtenOffAt: string | null;
@@ -38,6 +39,7 @@ export interface PracticeTimeEntryInput {
   notes?: string | null;
   billable?: boolean;
   origin?: 'manual' | 'assisted' | 'recurring';
+  jobId?: string | null;
 }
 
 export interface PracticeTimeEntryUpdateInput {
@@ -49,6 +51,7 @@ export interface PracticeTimeEntryUpdateInput {
   taskDescription?: string;
   notes?: string | null;
   billable?: boolean;
+  jobId?: string | null;
 }
 
 export interface PracticeEntryFilters {
@@ -57,4 +60,5 @@ export interface PracticeEntryFilters {
   dateFrom?: string;
   dateTo?: string;
   status?: PracticeTimeEntry['status'];
+  jobId?: string;
 }
