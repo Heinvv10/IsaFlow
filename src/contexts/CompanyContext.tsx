@@ -61,7 +61,22 @@ const CompanyContext = createContext<CompanyContextType | undefined>(undefined);
 export function CompanyProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated, user } = useAuth();
   const userRole = user?.role ?? null;
-  const [activeCompany, setActiveCompany] = useState<Company | null>(null);
+  // Hydrate active company synchronously from localStorage so the first render
+  // has at least {id, name} — avoids a flash of the 'ISAFlow' fallback title
+  // until the async /api/accounting/companies fetch resolves. The async fetch
+  // that follows will enrich the company with the full profile.
+  const [activeCompany, setActiveCompany] = useState<Company | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const stored = window.localStorage.getItem(STORAGE_KEY);
+      if (!stored) return null;
+      const parsed = JSON.parse(stored) as { id?: string; name?: string };
+      if (parsed?.id && parsed?.name) return { id: parsed.id, name: parsed.name };
+    } catch {
+      // Malformed entry — fall through to null and let the fetch drive state.
+    }
+    return null;
+  });
   const [companies, setCompanies] = useState<CompanyUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [companyRole, setCompanyRole] = useState<string | null>(null);
