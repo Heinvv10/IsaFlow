@@ -4,6 +4,8 @@ import { log } from '@/lib/logger';
 
 type Row = DbRow;
 
+export type LoanVatType = 'standard' | 'zero' | 'exempt';
+
 export interface Loan {
   id: string;
   companyId: string;
@@ -28,6 +30,10 @@ export interface Loan {
   status: 'active' | 'closed' | 'written_off';
   ncaCompliant: boolean;
   currency: string;
+  /** Upfront origination fee (ZAR, excl VAT). Default 0. */
+  originationFee: number;
+  /** VAT treatment of the origination fee. Interest itself is always exempt. */
+  originationFeeVatType: LoanVatType;
   createdAt: string;
   updatedAt: string;
 }
@@ -52,6 +58,8 @@ export interface LoanCreateInput {
   lumpMode?: 'REDUCE_INSTALLMENT' | 'MAINTAIN_INSTALLMENT';
   recurringSkipMonths?: number[];
   currency?: string;
+  originationFee?: number;
+  originationFeeVatType?: LoanVatType;
 }
 
 export interface LoanUpdateInput {
@@ -112,6 +120,10 @@ function mapLoanRow(row: Row): Loan {
     status: String(row.status) as Loan['status'],
     ncaCompliant: Boolean(row.nca_compliant),
     currency: String(row.currency ?? 'ZAR'),
+    originationFee: row.origination_fee != null ? parseFloat(String(row.origination_fee)) : 0,
+    originationFeeVatType: (row.origination_fee_vat_type != null
+      ? String(row.origination_fee_vat_type)
+      : 'standard') as LoanVatType,
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
   };
@@ -136,6 +148,9 @@ function validateCreate(input: LoanCreateInput): void {
   if (!input.termMonths || input.termMonths <= 0) throw new Error('termMonths must be positive');
   if (input.rateMode === 'FIXED' && (input.fixedRate == null || input.fixedRate <= 0)) {
     throw new Error('fixedRate is required for FIXED rate mode');
+  }
+  if (input.originationFee != null && input.originationFee < 0) {
+    throw new Error('originationFee must not be negative');
   }
 }
 
@@ -181,7 +196,8 @@ export async function createLoan(companyId: string, input: LoanCreateInput): Pro
       principal, start_date, term_months,
       rate_mode, margin, fixed_rate, residual,
       day_count, reprice_mode, skip_mode, lump_mode,
-      recurring_skip_months, currency
+      recurring_skip_months, currency,
+      origination_fee, origination_fee_vat_type
     ) VALUES (
       ${companyId},
       ${input.curveId ?? null},
@@ -202,7 +218,9 @@ export async function createLoan(companyId: string, input: LoanCreateInput): Pro
       ${input.skipMode ?? 'MAINTAIN_TERM'},
       ${input.lumpMode ?? 'REDUCE_INSTALLMENT'},
       ${input.recurringSkipMonths ?? []},
-      ${input.currency ?? 'ZAR'}
+      ${input.currency ?? 'ZAR'},
+      ${input.originationFee ?? 0},
+      ${input.originationFeeVatType ?? 'standard'}
     )
     RETURNING *
   `) as Row[];

@@ -20,6 +20,7 @@ import {
   computeEclAmount,
   computeDaysPastDue,
   computeNpvImpact,
+  computeRateSensitivity,
   assessLoan,
   listAssessments,
 } from '@/modules/accounting/services/loans/loanComplianceService';
@@ -179,6 +180,42 @@ describe('computeNpvImpact', () => {
     const restructured: LoanInputs = { ...baseLoan, termMonths: 120, fixedRate: 5 };
     const result = computeNpvImpact(baseLoan, restructured, curve);
     expect(result.substantial).toBe(result.deltaPct > 10);
+  });
+});
+
+// ── computeRateSensitivity (pure, IFRS 7) ──────────────────────────────────
+
+describe('computeRateSensitivity', () => {
+  const baseLoan: LoanInputs = {
+    id: 'sens', principal: 1_000_000, startDate: '2026-03-15', termMonths: 60,
+    rateMode: 'PRIME_PLUS', margin: 2, residual: 0,
+    recurringSkipMonths: [], dayCount: 'ACTUAL_365',
+    repriceMode: 'RESOLVE_ON_RATE_CHANGE', skipMode: 'MAINTAIN_TERM', lumpMode: 'REDUCE_INSTALLMENT',
+  };
+  const curve: RatePoint[] = [{ effectiveDate: '2026-01-01', rate: 10 }];
+
+  it('returns ±100bp and ±200bp interest-expense deltas for the next 12 months', () => {
+    const result = computeRateSensitivity(baseLoan, curve);
+    expect(result.baseInterest12m).toBeGreaterThan(0);
+    expect(result).toHaveProperty('minus200bp');
+    expect(result).toHaveProperty('minus100bp');
+    expect(result).toHaveProperty('plus100bp');
+    expect(result).toHaveProperty('plus200bp');
+  });
+
+  it('higher rates → higher interest expense (sign consistency)', () => {
+    const result = computeRateSensitivity(baseLoan, curve);
+    expect(result.plus100bp.interestDelta).toBeGreaterThan(0);
+    expect(result.plus200bp.interestDelta).toBeGreaterThan(result.plus100bp.interestDelta);
+    expect(result.minus100bp.interestDelta).toBeLessThan(0);
+    expect(result.minus200bp.interestDelta).toBeLessThan(result.minus100bp.interestDelta);
+  });
+
+  it('fixed-rate loan is insensitive to rate shocks (delta ≈ 0)', () => {
+    const fixed: LoanInputs = { ...baseLoan, rateMode: 'FIXED', fixedRate: 12, margin: 0 };
+    const result = computeRateSensitivity(fixed, curve);
+    expect(Math.abs(result.plus100bp.interestDelta)).toBeLessThan(1);
+    expect(Math.abs(result.minus200bp.interestDelta)).toBeLessThan(1);
   });
 });
 
