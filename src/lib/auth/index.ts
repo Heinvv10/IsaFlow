@@ -18,6 +18,9 @@ export { withAuth, withRole, type CompanyAuthedRequest } from './withAuth';
 // withUserAuth: JWT-verify only, no company (replaces old withAuth from middleware)
 export { withUserAuth, type UserAuthedRequest, type AuthenticatedNextApiRequest } from './withUserAuth';
 
+// withPlatformAdmin: user-only + super_admin gate + BYPASSRLS pool
+export { withPlatformAdmin, type PlatformAdminRequest } from './withPlatformAdmin';
+
 // Back-compat alias — callers that still reference CompanyApiRequest by the old name
 export type { CompanyAuthedRequest as CompanyApiRequest } from './withAuth';
 
