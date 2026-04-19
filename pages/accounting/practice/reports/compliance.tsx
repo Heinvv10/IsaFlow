@@ -8,6 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, AlertCircle, ShieldCheck } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import type { ComplianceRow } from '@/modules/accounting/services/practice/practiceReportsService';
+import type { CompanyUserSummary } from '@/modules/accounting/services/practice/practiceUsersService';
 
 function firstOfMonth() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`; }
 function todayIso() { return new Date().toISOString().slice(0, 10); }
@@ -44,9 +45,18 @@ function formatMissingDays(days: string[]) {
 
 export default function CompliancePage() {
   const [rows, setRows] = useState<ComplianceRow[]>([]);
+  const [users, setUsers] = useState<CompanyUserSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [params, setParams] = useState({ periodStart: firstOfMonth(), periodEnd: todayIso() });
+
+  useEffect(() => {
+    apiFetch('/api/accounting/practice/users').then(async (res) => {
+      if (!res.ok) return;
+      const json = (await res.json()) as { data?: CompanyUserSummary[] } | CompanyUserSummary[];
+      setUsers(Array.isArray(json) ? json : ((json as { data?: CompanyUserSummary[] }).data ?? []));
+    }).catch(() => { /* non-critical */ });
+  }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -61,6 +71,8 @@ export default function CompliancePage() {
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load'))
       .finally(() => setLoading(false));
   }, [params.periodStart, params.periodEnd]);
+
+  const userMap = new Map(users.map((u) => [u.id, u.displayName]));
 
   return (
     <AppLayout>
@@ -108,7 +120,7 @@ export default function CompliancePage() {
                       ? <tr><td colSpan={5} className="py-12 text-center text-[var(--ff-text-tertiary)] text-sm">No data for this period.</td></tr>
                       : rows.map((r, i) => (
                         <tr key={r.userId} className={i % 2 === 1 ? 'bg-slate-50/5' : ''}>
-                          <td className={`${TD} font-mono`}>{r.userId.slice(0, 8)}</td>
+                          <td className={`${TD} font-mono`}>{userMap.get(r.userId) ?? r.userId.slice(0, 8)}</td>
                           <td className={`${TD} text-right tabular-nums`}>{r.expectedDays}</td>
                           <td className={`${TD} text-right tabular-nums`}>{r.submittedDays}</td>
                           <td className={`${TD} font-mono text-xs`}>{formatMissingDays(r.missingDays)}</td>

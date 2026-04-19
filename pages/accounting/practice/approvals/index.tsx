@@ -9,6 +9,7 @@ import { CheckCircle, Loader2, AlertCircle, XCircle } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import type { PracticeTimeEntry } from '@/modules/accounting/services/practice/practiceTimeEntryTypes';
 import type { PracticeClient } from '@/modules/accounting/services/practice/practiceClientService';
+import type { CompanyUserSummary } from '@/modules/accounting/services/practice/practiceUsersService';
 
 // ---------- helpers ----------
 
@@ -40,6 +41,7 @@ export default function ApprovalsPage() {
   const [entries, setEntries] = useState<PracticeTimeEntry[]>([]);
   const [total, setTotal] = useState(0);
   const [clients, setClients] = useState<PracticeClient[]>([]);
+  const [users, setUsers] = useState<CompanyUserSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
@@ -80,12 +82,22 @@ export default function ApprovalsPage() {
     } catch (_err) { /* non-fatal */ }
   }, []);
 
-  useEffect(() => { void loadClients(); void loadEntries(EMPTY_FILTERS); }, [loadClients, loadEntries]);
+  const loadUsers = useCallback(async () => {
+    try {
+      const res = await apiFetch('/api/accounting/practice/users');
+      if (!res.ok) return;
+      const json = (await res.json()) as { data?: CompanyUserSummary[] } | CompanyUserSummary[];
+      setUsers(Array.isArray(json) ? json : ((json as { data?: CompanyUserSummary[] }).data ?? []));
+    } catch (_err) { /* non-fatal */ }
+  }, []);
+
+  useEffect(() => { void loadClients(); void loadUsers(); void loadEntries(EMPTY_FILTERS); }, [loadClients, loadUsers, loadEntries]);
 
   function applyFilter(patch: Partial<Filters>) { const next = { ...filters, ...patch }; setFilters(next); void loadEntries(next); }
   function clearFilters() { setFilters(EMPTY_FILTERS); void loadEntries(EMPTY_FILTERS); }
 
   const submitterIds = Array.from(new Set(entries.map((e) => e.userId)));
+  const userMap = new Map(users.map((u) => [u.id, u.displayName]));
   const allChecked = entries.length > 0 && selected.size === entries.length;
   const someChecked = selected.size > 0 && selected.size < entries.length;
   function toggleAll() { setSelected(allChecked ? new Set() : new Set(entries.map((e) => e.id))); }
@@ -162,7 +174,7 @@ export default function ApprovalsPage() {
               <label className="text-xs font-medium text-[var(--ff-text-secondary)]">Submitter</label>
               <select value={filters.userId} onChange={(e) => applyFilter({ userId: e.target.value })} className={SEL_CLS}>
                 <option value="">All submitters</option>
-                {submitterIds.map((id) => <option key={id} value={id}>{shortId(id)}</option>)}
+                {submitterIds.map((id) => <option key={id} value={id}>{userMap.get(id) ?? shortId(id)}</option>)}
               </select>
             </div>
             <div className="flex flex-col gap-1">
@@ -208,7 +220,7 @@ export default function ApprovalsPage() {
                   {entries.map((e) => (
                     <tr key={e.id} onClick={() => toggleRow(e.id)} className="border-t border-[var(--ff-border-primary)] hover:bg-[var(--ff-bg-tertiary)]/50 cursor-pointer transition-colors">
                       <td className="py-2.5 px-3"><input type="checkbox" readOnly checked={selected.has(e.id)} className="h-4 w-4 rounded accent-teal-500 cursor-pointer" /></td>
-                      <td className={TD}><span className="font-mono text-xs">{shortId(e.userId)}</span></td>
+                      <td className={TD}><span className="text-xs">{userMap.get(e.userId) ?? shortId(e.userId)}</span></td>
                       <td className={TD}>{fmtDate(e.entryDate)}</td>
                       <td className={TD}>{e.practiceClientName ?? '—'}</td>
                       <td className={TD}>{e.jobCategoryName ?? '—'}{e.workItemName && <span className="text-[var(--ff-text-tertiary)]"> / {e.workItemName}</span>}</td>

@@ -12,6 +12,7 @@ import { JobStatusBadge } from '@/components/practice/JobStatusBadge';
 import type { PracticeJob } from '@/modules/accounting/services/practice/practiceJobService';
 import type { PracticeTask } from '@/modules/accounting/services/practice/practiceTaskService';
 import type { PracticeTimeEntry } from '@/modules/accounting/services/practice/practiceTimeEntryService';
+import type { CompanyUserSummary } from '@/modules/accounting/services/practice/practiceUsersService';
 
 type Tab = 'details' | 'tasks' | 'time';
 
@@ -46,17 +47,25 @@ export default function JobDetailPage() {
   const [adding, setAdding] = useState(false);
   const [entries, setEntries] = useState<PracticeTimeEntry[]>([]);
   const [timeLoaded, setTimeLoaded] = useState(false);
+  const [users, setUsers] = useState<CompanyUserSummary[]>([]);
 
   const loadJob = useCallback(async () => {
     if (!jobId) return;
     setLoading(true); setError('');
     try {
-      const r = await apiFetch(`/api/accounting/practice/jobs/${jobId}`);
-      if (r.status === 404) { setError('Job not found'); return; }
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const j = await r.json() as { data?: PracticeJob } | PracticeJob;
+      const [jobRes, usersRes] = await Promise.all([
+        apiFetch(`/api/accounting/practice/jobs/${jobId}`),
+        apiFetch('/api/accounting/practice/users'),
+      ]);
+      if (jobRes.status === 404) { setError('Job not found'); return; }
+      if (!jobRes.ok) throw new Error(`HTTP ${jobRes.status}`);
+      const j = await jobRes.json() as { data?: PracticeJob } | PracticeJob;
       const job = ('data' in j ? j.data : j) as PracticeJob;
       setJob(job); setForm(job);
+      if (usersRes.ok) {
+        const uj = await usersRes.json() as { data?: CompanyUserSummary[] } | CompanyUserSummary[];
+        setUsers(Array.isArray(uj) ? uj : ((uj as { data?: CompanyUserSummary[] }).data ?? []));
+      }
     } catch { setError('Failed to load job'); }
     finally { setLoading(false); }
   }, [jobId]);
@@ -135,6 +144,7 @@ export default function JobDetailPage() {
 
   const isOverdue = job.dueDate && job.status !== 'complete' && job.status !== 'cancelled' && new Date(job.dueDate) < new Date();
   const allowed = ALLOWED[job.status];
+  const userMap = new Map(users.map((u) => [u.id, u.displayName]));
   const totalH = entries.reduce((s, e) => s + e.hours, 0);
   const billH = entries.filter(e => e.billable).reduce((s, e) => s + e.hours, 0);
   const totalV = entries.reduce((s, e) => s + (e.lineTotal ?? 0), 0);
@@ -160,8 +170,8 @@ export default function JobDetailPage() {
                 <div className="flex flex-wrap items-center gap-3 mt-1 text-xs text-[var(--ff-text-secondary)]">
                   <Link href={`/accounting/practice/clients/${job.practiceClientId}`} className="hover:text-teal-400 transition-colors">{job.practiceClientName ?? trunc(job.practiceClientId)}</Link>
                   {job.dueDate && <span className={isOverdue ? 'text-amber-400 font-medium' : ''}>Due {job.dueDate}</span>}
-                  {job.partnerId && <span>Partner: {trunc(job.partnerId)}</span>}
-                  {job.preparerId && <span>Preparer: {trunc(job.preparerId)}</span>}
+                  {job.partnerId && <span>Partner: {userMap.get(job.partnerId) ?? trunc(job.partnerId)}</span>}
+                  {job.preparerId && <span>Preparer: {userMap.get(job.preparerId) ?? trunc(job.preparerId)}</span>}
                   {job.budgetedHours != null && <span>{job.budgetedHours}h budgeted</span>}
                   {job.fixedFeeAmount != null && <span>R{job.fixedFeeAmount.toFixed(2)} fixed</span>}
                 </div>
@@ -196,6 +206,26 @@ export default function JobDetailPage() {
                   </select>
                 </label>
                 <label><span className="block text-xs text-[var(--ff-text-secondary)] mb-1">Financial Year</span><input value={form.financialYear ?? ''} onChange={e => setForm(f => ({ ...f, financialYear: e.target.value || null }))} className={inp} /></label>
+                <div><span className="block text-xs text-[var(--ff-text-secondary)] mb-1">Partner</span>
+                  {users.length > 0 ? (
+                    <select value={form.partnerId ?? ''} onChange={e => setForm(f => ({ ...f, partnerId: e.target.value || null }))} className={inp}>
+                      <option value="">— select —</option>
+                      {users.map((u) => <option key={u.id} value={u.id}>{u.displayName}</option>)}
+                    </select>
+                  ) : (
+                    <input value={form.partnerId ?? ''} onChange={e => setForm(f => ({ ...f, partnerId: e.target.value || null }))} className={inp} />
+                  )}
+                </div>
+                <div><span className="block text-xs text-[var(--ff-text-secondary)] mb-1">Preparer</span>
+                  {users.length > 0 ? (
+                    <select value={form.preparerId ?? ''} onChange={e => setForm(f => ({ ...f, preparerId: e.target.value || null }))} className={inp}>
+                      <option value="">— select —</option>
+                      {users.map((u) => <option key={u.id} value={u.id}>{u.displayName}</option>)}
+                    </select>
+                  ) : (
+                    <input value={form.preparerId ?? ''} onChange={e => setForm(f => ({ ...f, preparerId: e.target.value || null }))} className={inp} />
+                  )}
+                </div>
                 <label><span className="block text-xs text-[var(--ff-text-secondary)] mb-1">Billing Type</span>
                   <select value={form.billingType ?? ''} onChange={e => setForm(f => ({ ...f, billingType: (e.target.value || null) as PracticeJob['billingType'] }))} className={inp}>
                     <option value="">None</option><option value="hourly">Hourly</option><option value="fixed">Fixed</option><option value="retainer">Retainer</option>
