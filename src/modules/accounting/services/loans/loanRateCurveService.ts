@@ -74,10 +74,14 @@ export async function getRateCurveWithPoints(
   `) as Row[];
   if (curves.length === 0) return null;
 
+  // Defence-in-depth: join back to loan_rate_curves with company_id so a
+  // caller can never pull points for a curve that doesn't belong to them,
+  // even if the ownership gate above is ever removed.
   const points = (await sql`
-    SELECT * FROM loan_rate_points
-    WHERE curve_id = ${curveId}
-    ORDER BY effective_date ASC
+    SELECT lrp.* FROM loan_rate_points lrp
+    JOIN loan_rate_curves lrc ON lrc.id = lrp.curve_id
+    WHERE lrp.curve_id = ${curveId} AND lrc.company_id = ${companyId}
+    ORDER BY lrp.effective_date ASC
   `) as Row[];
 
   return {
