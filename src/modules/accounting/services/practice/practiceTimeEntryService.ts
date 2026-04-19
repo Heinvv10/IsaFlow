@@ -41,6 +41,7 @@ export function mapEntry(r: DbRow): PracticeTimeEntry {
     approvedAt: r.approved_at ? String(r.approved_at) : null,
     billedAt: r.billed_at ? String(r.billed_at) : null,
     invoiceId: r.invoice_id ? String(r.invoice_id) : null,
+    jobId: r.job_id ? String(r.job_id) : null,
     writeOffReason: r.write_off_reason ? String(r.write_off_reason) : null,
     writtenOffBy: r.written_off_by ? String(r.written_off_by) : null,
     writtenOffAt: r.written_off_at ? String(r.written_off_at) : null,
@@ -258,6 +259,7 @@ export async function listPracticeEntries(
   const dateFrom = filters.dateFrom ?? null;
   const dateTo = filters.dateTo ?? null;
   const status = filters.status ?? null;
+  const jobId = filters.jobId ?? null;
 
   const countRows = (await sql`
     SELECT COUNT(*)::int AS cnt
@@ -268,6 +270,7 @@ export async function listPracticeEntries(
       AND (${dateFrom}::DATE IS NULL     OR te.entry_date        >= ${dateFrom}::DATE)
       AND (${dateTo}::DATE IS NULL       OR te.entry_date        <= ${dateTo}::DATE)
       AND (${status}::TEXT IS NULL       OR te.status             = ${status}::TEXT)
+      AND (${jobId}::UUID IS NULL        OR te.job_id             = ${jobId}::UUID)
       -- Scope to practice-side entries only; legacy time_entries without a practice_client_id belong to the old project timesheets
       AND te.practice_client_id IS NOT NULL
   `) as DbRow[];
@@ -288,6 +291,7 @@ export async function listPracticeEntries(
       AND (${dateFrom}::DATE IS NULL     OR te.entry_date        >= ${dateFrom}::DATE)
       AND (${dateTo}::DATE IS NULL       OR te.entry_date        <= ${dateTo}::DATE)
       AND (${status}::TEXT IS NULL       OR te.status             = ${status}::TEXT)
+      AND (${jobId}::UUID IS NULL        OR te.job_id             = ${jobId}::UUID)
       -- Scope to practice-side entries only; legacy time_entries without a practice_client_id belong to the old project timesheets
       AND te.practice_client_id IS NOT NULL
     ORDER BY te.entry_date DESC, te.created_at DESC
