@@ -6,6 +6,7 @@ import { Briefcase, Loader2, ArrowLeft, Save, AlertCircle } from 'lucide-react';
 import Link from 'next/link';
 import { apiFetch } from '@/lib/apiFetch';
 import type { PracticeJob } from '@/modules/accounting/services/practice/practiceJobService';
+import type { CompanyUserSummary } from '@/modules/accounting/services/practice/practiceUsersService';
 
 interface Opt { id: string; name?: string; legalName?: string }
 interface FormState {
@@ -29,10 +30,17 @@ async function fetchOpts(url: string): Promise<Opt[]> {
   return (Array.isArray(j) ? j : (j as { data?: Opt[] }).data) ?? [];
 }
 
+async function fetchUsers(): Promise<CompanyUserSummary[]> {
+  const r = await apiFetch('/api/accounting/practice/users'); if (!r.ok) return [];
+  const j = await r.json() as { data?: CompanyUserSummary[] } | CompanyUserSummary[];
+  return (Array.isArray(j) ? j : (j as { data?: CompanyUserSummary[] }).data) ?? [];
+}
+
 export default function NewPracticeJobPage() {
   const router = useRouter();
   const [form, setForm] = useState<FormState>(INITIAL);
   const [clients, setClients] = useState<Opt[]>([]); const [cats, setCats] = useState<Opt[]>([]);
+  const [users, setUsers] = useState<CompanyUserSummary[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false); const [error, setError] = useState('');
   const [fe, setFe] = useState<Partial<Record<keyof FormState, string>>>({});
 
@@ -40,6 +48,7 @@ export default function NewPracticeJobPage() {
     void Promise.all([
       fetchOpts('/api/accounting/practice/clients?status=active').then(setClients),
       fetchOpts('/api/accounting/practice/job-categories?isActive=true').then(setCats),
+      fetchUsers().then(setUsers),
     ]);
   }, []);
 
@@ -142,12 +151,26 @@ export default function NewPracticeJobPage() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className={LC}>Partner <span className="text-xs text-[var(--ff-text-tertiary)] font-normal">(paste user id)</span></label>
-                <input type="text" value={form.partnerId} onChange={(e) => set('partnerId', e.target.value)} placeholder="UUID" className={IC} />
+                <label className={LC}>Partner</label>
+                {users.length > 0 ? (
+                  <select value={form.partnerId} onChange={(e) => set('partnerId', e.target.value)} className={SC}>
+                    <option value="">— select —</option>
+                    {users.map((u) => <option key={u.id} value={u.id}>{u.displayName}</option>)}
+                  </select>
+                ) : (
+                  <input type="text" value={form.partnerId} onChange={(e) => set('partnerId', e.target.value)} placeholder="UUID" className={IC} />
+                )}
               </div>
               <div>
-                <label className={LC}>Preparer <span className="text-xs text-[var(--ff-text-tertiary)] font-normal">(paste user id)</span></label>
-                <input type="text" value={form.preparerId} onChange={(e) => set('preparerId', e.target.value)} placeholder="UUID" className={IC} />
+                <label className={LC}>Preparer</label>
+                {users.length > 0 ? (
+                  <select value={form.preparerId} onChange={(e) => set('preparerId', e.target.value)} className={SC}>
+                    <option value="">— select —</option>
+                    {users.map((u) => <option key={u.id} value={u.id}>{u.displayName}</option>)}
+                  </select>
+                ) : (
+                  <input type="text" value={form.preparerId} onChange={(e) => set('preparerId', e.target.value)} placeholder="UUID" className={IC} />
+                )}
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">

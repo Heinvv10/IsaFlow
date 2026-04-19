@@ -10,6 +10,7 @@ import { CheckSquare, Loader2, AlertCircle, Plus } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { useAuth } from '@/contexts/AuthContext';
 import type { PracticeTask, PracticeTaskInput } from '@/modules/accounting/services/practice/practiceTaskService';
+import type { CompanyUserSummary } from '@/modules/accounting/services/practice/practiceUsersService';
 
 interface JobOption { id: string; title: string }
 type TabKey = 'my' | 'overdue' | 'upcoming' | 'all' | 'unassigned';
@@ -56,6 +57,7 @@ export default function PracticeTasksPage() {
 
   const [tasks,     setTasks]    = useState<PracticeTask[]>([]);
   const [jobs,      setJobs]     = useState<JobOption[]>([]);
+  const [users,     setUsers]    = useState<CompanyUserSummary[]>([]);
   const [loading,   setLoading]  = useState(true);
   const [error,     setError]    = useState('');
   const [toast,     setToast]    = useState('');
@@ -86,6 +88,11 @@ export default function PracticeTasksPage() {
       if (!r.ok) return;
       const j = await r.json() as { data?: { jobs: JobOption[] }; jobs?: JobOption[] };
       setJobs(((j.data ?? j) as { jobs: JobOption[] }).jobs ?? []);
+    }).catch(() => { /* non-critical */ });
+    apiFetch('/api/accounting/practice/users').then(async r => {
+      if (!r.ok) return;
+      const j = await r.json() as { data?: CompanyUserSummary[] } | CompanyUserSummary[];
+      setUsers(Array.isArray(j) ? j : ((j as { data?: CompanyUserSummary[] }).data ?? []));
     }).catch(() => { /* non-critical */ });
   }, []);
   useEffect(() => {
@@ -123,6 +130,7 @@ export default function PracticeTasksPage() {
   function goTab(t: TabKey) { void router.push({ query: { ...router.query, tab: t } }, undefined, { shallow: true }); }
 
   const visible = filterTab(tasks, tab, user?.id);
+  const userMap = new Map(users.map((u) => [u.id, u.displayName]));
   const inputCls = 'py-1.5 px-3 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500 placeholder:text-[var(--ff-text-tertiary)]';
 
   return (
@@ -180,8 +188,8 @@ export default function PracticeTasksPage() {
                         <td className="py-3 px-4 text-[var(--ff-text-secondary)]">
                           {task.jobId ? <Link href={`/accounting/practice/jobs/${task.jobId}`} className="text-teal-400 hover:text-teal-300">{task.jobTitle ?? task.jobId.slice(0, 8)}</Link> : '—'}
                         </td>
-                        <td className="py-3 px-4 text-[var(--ff-text-secondary)] font-mono text-xs">
-                          {task.assignedTo ? task.assignedTo.slice(0, 8) + '…' : <span className="text-[var(--ff-text-tertiary)]">Unassigned</span>}
+                        <td className="py-3 px-4 text-[var(--ff-text-secondary)] text-xs">
+                          {task.assignedTo ? (userMap.get(task.assignedTo) ?? task.assignedTo.slice(0, 8) + '…') : <span className="text-[var(--ff-text-tertiary)]">Unassigned</span>}
                         </td>
                         <td className={`py-3 px-4 ${ov ? 'text-amber-400 font-medium' : 'text-[var(--ff-text-secondary)]'}`}>{task.dueDate ?? '—'}</td>
                         <td className="py-3 px-4">
@@ -217,7 +225,14 @@ export default function PracticeTasksPage() {
         <div className="fixed bottom-0 left-0 right-0 bg-[var(--ff-bg-secondary)] border-t border-[var(--ff-border-primary)] px-6 py-3 z-10">
           <form onSubmit={e => void doAdd(e)} className="flex items-center gap-2 flex-wrap">
             <input value={qaTitle} onChange={e => setQaTitle(e.target.value)} required placeholder="Task title…" className={`flex-1 min-w-[160px] ${inputCls}`} />
-            <input value={qaAssigned} onChange={e => setQaAssigned(e.target.value)} placeholder="Assigned to (user id)" className={`w-40 ${inputCls}`} />
+            {users.length > 0 ? (
+              <select value={qaAssigned} onChange={e => setQaAssigned(e.target.value)} className={`w-44 ${inputCls}`}>
+                <option value="">Unassigned</option>
+                {users.map((u) => <option key={u.id} value={u.id}>{u.displayName}</option>)}
+              </select>
+            ) : (
+              <input value={qaAssigned} onChange={e => setQaAssigned(e.target.value)} placeholder="Assigned to (user id)" className={`w-40 ${inputCls}`} />
+            )}
             <input type="date" value={qaDue} onChange={e => setQaDue(e.target.value)} className={inputCls} />
             <select value={qaPriority} onChange={e => setQaPriority(e.target.value as PracticeTask['priority'])} className={inputCls}>
               {(['low', 'normal', 'high', 'urgent'] as const).map(p => <option key={p} value={p}>{PRI_LBL[p]}</option>)}
