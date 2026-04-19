@@ -17,7 +17,8 @@ export const practiceTab: Tab = {
     {
       section: 'Time Entry',
       items: [
-        { label: 'Enter Time', href: '/accounting/time-tracking' },
+        { label: 'Enter Time', href: '/accounting/practice/time-entry' },
+        { label: 'Approvals', href: '/accounting/practice/approvals' },
         { label: 'My Timesheet', href: '/accounting/timesheets' },
       ],
     },
