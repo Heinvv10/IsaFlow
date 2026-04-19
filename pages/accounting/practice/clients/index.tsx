@@ -88,7 +88,8 @@ export default function PracticeClientsPage() {
       const res = await apiFetch(`/api/accounting/practice/clients?${params}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
-      setClients((json.data ?? json) as PracticeClient[]);
+      const payload = json.data ?? json;
+      setClients((payload?.clients ?? payload ?? []) as PracticeClient[]);
     } catch {
       setError('Failed to load clients');
     } finally {
