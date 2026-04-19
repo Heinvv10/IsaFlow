@@ -42,7 +42,7 @@ export default function NewEmployeePage() {
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) =>
     setForm(prev => ({ ...prev, [k]: v }));
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError('');
     if (!form.firstName || !form.lastName || !form.employeeNumber || !form.startDate) {

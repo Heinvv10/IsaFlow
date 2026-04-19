@@ -59,7 +59,7 @@ export default function PayComponentsPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const create = async (e: React.FormEvent) => {
+  const create = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!name || !sarsCode) return;
     setCreating(true);
