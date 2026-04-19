@@ -123,12 +123,18 @@ describe('gotrue-mfa client', () => {
     return Promise.resolve(new Response(JSON.stringify(body), { status }));
   }
 
-  it('listFactors GETs /factors with user bearer + apikey', async () => {
-    fetchMock.mockReturnValueOnce(okJson({ totp: [{ id: 'f1', status: 'verified' }], phone: [] }));
+  it('listFactors GETs /user and extracts totp factors', async () => {
+    fetchMock.mockReturnValueOnce(okJson({
+      id: 'user-uid', email: 'alice@test.co',
+      factors: [
+        { id: 'f1', status: 'verified', factor_type: 'totp', friendly_name: 'Phone' },
+        { id: 'f2', status: 'unverified', factor_type: 'totp', friendly_name: 'iPad' },
+      ],
+    }));
     const { listFactors } = await import('@/lib/auth/gotrue-mfa');
     const res = await listFactors('user-tok');
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://gotrue.test/auth/v1/factors',
+      'http://gotrue.test/auth/v1/user',
       expect.objectContaining({
         method: 'GET',
         headers: expect.objectContaining({
@@ -137,7 +143,16 @@ describe('gotrue-mfa client', () => {
         }),
       })
     );
+    expect(res.totp).toHaveLength(2);
     expect(res.totp[0]!.id).toBe('f1');
+    expect(res.totp[0]!.status).toBe('verified');
+  });
+
+  it('listFactors returns empty array when user has no factors', async () => {
+    fetchMock.mockReturnValueOnce(okJson({ id: 'user-uid', email: 'alice@test.co' })); // no factors key
+    const { listFactors } = await import('@/lib/auth/gotrue-mfa');
+    const res = await listFactors('user-tok');
+    expect(res.totp).toEqual([]);
   });
 
   it('enrollTotp POSTs /factors with factor_type:totp', async () => {
@@ -270,21 +285,24 @@ export interface Factor {
 
 export interface ListFactorsResponse {
   totp: Factor[];
-  phone: Factor[];
 }
 
+// GoTrue v2 has no GET /factors — the authoritative source for a user's
+// enrolled factors is GET /user, which returns { ..., factors: [...] }.
 export async function listFactors(userAccessToken: string): Promise<ListFactorsResponse> {
-  return mfaFetch<ListFactorsResponse>(
-    '/factors',
+  const user = await mfaFetch<{ factors?: Factor[] }>(
+    '/user',
     { method: 'GET' },
     { Authorization: `Bearer ${userAccessToken}` }
   );
+  const all = user.factors ?? [];
+  return { totp: all.filter((f) => f.factor_type === 'totp') };
 }
 
 export interface EnrollTotpResult {
   factor_id: string;
-  qr_code: string; // data: URL
-  secret: string; // base32 shared secret
+  qr_code: string; // SVG XML string (raw <svg>…</svg>) — NOT a data: URL
+  secret: string; // base32 shared secret (32 chars)
 }
 
 export async function enrollTotp(userAccessToken: string, friendlyName: string): Promise<EnrollTotpResult> {
@@ -989,7 +1007,14 @@ export function TwoFactorSection() {
       <div className="space-y-4">
         <h3 className="text-base font-semibold">Set up two-factor authentication</h3>
         <p className="text-sm text-gray-600">Scan this QR code with your authenticator app (Google Authenticator, 1Password, Authy).</p>
-        <img src={enroll.qr_code} alt="TOTP QR code" className="border border-gray-200 rounded-md" style={{ width: 180, height: 180 }} />
+        {/* enroll.qr_code is raw SVG XML from GoTrue. Wrap as a data: URL
+            and render via <img> so we avoid dangerouslySetInnerHTML. */}
+        <img
+          src={`data:image/svg+xml;base64,${btoa(enroll.qr_code)}`}
+          alt="TOTP QR code"
+          className="border border-gray-200 rounded-md bg-white"
+          style={{ width: 200, height: 200 }}
+        />
         <p className="text-xs text-gray-500 font-mono break-all">Or enter manually: <span className="font-semibold">{enroll.secret}</span></p>
         <label className="block text-sm">
           <span>Enter the 6-digit code from your app</span>
