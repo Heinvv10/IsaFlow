@@ -40,33 +40,42 @@ export interface WipFilters {
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
+type GroupedLine = { name: string; hours: number; value: number };
+
+function buildGroupedLines(entries: DbRow[], groupBy: 'by_work_item' | 'by_category'): Map<string, GroupedLine> {
+  const wi = groupBy === 'by_work_item';
+  const groups = new Map<string, GroupedLine>();
+  for (const e of entries) {
+    const k = wi ? String(e.work_item_id) : String(e.job_category_id);
+    const name = wi ? String(e.work_item_name ?? 'Work item') : String(e.job_category_name ?? 'Category');
+    const prev = groups.get(k) ?? { name, hours: 0, value: 0 };
+    prev.hours += Number(e.hours); prev.value += Number(e.line_total);
+    groups.set(k, prev);
+  }
+  return groups;
+}
+
+const s = (v: unknown): string => String(v);
+const sn = (v: unknown): string | null => (v != null && v !== '' ? s(v) : null);
+
 function mapWipEntry(r: DbRow): PracticeTimeEntry {
   return {
-    id: String(r.id),
-    companyId: String(r.company_id),
-    userId: String(r.user_id),
+    id: s(r.id), companyId: s(r.company_id), userId: s(r.user_id),
     entryDate: typeof r.entry_date === 'string'
-      ? r.entry_date
-      : (r.entry_date as Date).toISOString().split('T')[0]!,
-    hours: Number(r.hours),
-    practiceClientId: String(r.practice_client_id),
-    jobCategoryId: String(r.job_category_id),
-    workItemId: String(r.work_item_id),
-    taskDescription: String(r.task_description),
-    notes: r.notes ? String(r.notes) : null,
+      ? r.entry_date : (r.entry_date as Date).toISOString().split('T')[0]!,
+    hours: Number(r.hours), practiceClientId: s(r.practice_client_id),
+    jobCategoryId: s(r.job_category_id), workItemId: s(r.work_item_id),
+    taskDescription: s(r.task_description), notes: sn(r.notes),
     billable: Boolean(r.billable),
     appliedRate: r.applied_rate != null ? Number(r.applied_rate) : null,
     lineTotal: r.line_total != null ? Number(r.line_total) : null,
-    origin: String(r.origin ?? 'manual') as PracticeTimeEntry['origin'],
-    status: String(r.status) as PracticeTimeEntry['status'],
-    approvedBy: r.approved_by ? String(r.approved_by) : null,
-    approvedAt: r.approved_at ? String(r.approved_at) : null,
-    billedAt: r.billed_at ? String(r.billed_at) : null,
-    invoiceId: r.invoice_id ? String(r.invoice_id) : null,
-    practiceClientName: r.practice_client_name ? String(r.practice_client_name) : null,
-    jobCategoryName: r.job_category_name ? String(r.job_category_name) : null,
-    workItemName: r.work_item_name ? String(r.work_item_name) : null,
-    createdAt: String(r.created_at), updatedAt: String(r.updated_at),
+    origin: s(r.origin ?? 'manual') as PracticeTimeEntry['origin'],
+    status: s(r.status) as PracticeTimeEntry['status'],
+    approvedBy: sn(r.approved_by), approvedAt: sn(r.approved_at),
+    billedAt: sn(r.billed_at), invoiceId: sn(r.invoice_id),
+    practiceClientName: sn(r.practice_client_name),
+    jobCategoryName: sn(r.job_category_name), workItemName: sn(r.work_item_name),
+    createdAt: s(r.created_at), updatedAt: s(r.updated_at),
   };
 }
 
@@ -134,19 +143,14 @@ export async function getWipByClient(
   }
 
   return summary.map((r) => {
-    const cid = String(r.practice_client_id);
-    const oldestRaw = r.oldest_approved_date;
-    const oldestStr = oldestRaw instanceof Date
-      ? oldestRaw.toISOString().split('T')[0]!
-      : String(oldestRaw ?? '');
+    const cid = s(r.practice_client_id);
+    const raw = r.oldest_approved_date;
+    const oldestApprovedDate = raw instanceof Date ? raw.toISOString().split('T')[0]! : s(raw ?? '');
     return {
-      practiceClientId: cid,
-      legalName: String(r.legal_name),
-      linkCustomerId: r.link_customer_id ? String(r.link_customer_id) : null,
-      totalHours: Number(r.total_hours),
-      totalValue: Number(r.total_value),
-      oldestApprovedDate: oldestStr,
-      entries: entriesByClient.get(cid) ?? [],
+      practiceClientId: cid, legalName: s(r.legal_name),
+      linkCustomerId: sn(r.link_customer_id),
+      totalHours: Number(r.total_hours), totalValue: Number(r.total_value),
+      oldestApprovedDate, entries: entriesByClient.get(cid) ?? [],
     };
   });
 }
@@ -162,15 +166,11 @@ export async function generateWipInvoice(
     WHERE id = ${input.practiceClientId}::UUID
       AND company_id = ${companyId}::UUID
   `) as DbRow[];
-  if (!clientRows[0] || clientRows[0].status !== 'active') {
+  if (!clientRows[0] || clientRows[0].status !== 'active')
     throw new Error('practice client not found or not active');
-  }
-  if (!clientRows[0].link_customer_id) {
-    throw new Error(
-      'practice client has no linked AR customer — set link_customer_id before generating an invoice',
-    );
-  }
-  const customerId = String(clientRows[0].link_customer_id);
+  if (!clientRows[0].link_customer_id)
+    throw new Error('practice client has no linked AR customer — set link_customer_id before generating an invoice');
+  const customerId = s(clientRows[0].link_customer_id);
 
   // 2. Load eligible entries
   const entries = (await sql`
@@ -205,7 +205,7 @@ export async function generateWipInvoice(
   for (let attempt = 0; attempt < 5; attempt++) {
     const maxRows = (await sql`
       SELECT COALESCE(MAX(CAST(SUBSTRING(invoice_number FROM '[0-9]+$') AS INTEGER)), 0) AS max_num
-      FROM customer_invoices WHERE company_id = ${companyId} AND invoice_number ~ '^INV-[0-9]+$'
+      FROM customer_invoices WHERE company_id = ${companyId}::UUID AND invoice_number ~ '^INV-[0-9]+$'
     `) as DbRow[];
     const base = Number(maxRows[0]?.['max_num'] ?? 0) + 1 + attempt;
     invoiceNumber = `INV-${String(base).padStart(5, '0')}`;
@@ -217,7 +217,7 @@ export async function generateWipInvoice(
           invoice_date, status, created_by,
           currency_code, exchange_rate, functional_total
         ) VALUES (
-          ${companyId}, ${invoiceNumber}, ${customerId}::UUID, ${customerId}::UUID,
+          ${companyId}::UUID, ${invoiceNumber}, ${customerId}::UUID, ${customerId}::UUID,
           ${subtotal}, ${taxRate}, ${taxAmount}, ${totalAmount},
           ${invDate}, 'draft', ${userId},
           'ZAR', 1.0, ${totalAmount}
@@ -227,9 +227,15 @@ export async function generateWipInvoice(
       break;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('unique') && attempt < 4) continue;
+      if (msg.includes('unique') && attempt < 4) {
+        log.warn('Invoice number collision, retrying', { attempt, invoiceNumber, companyId }, 'practice');
+        continue;
+      }
       throw err;
     }
+  }
+  if (!invoiceId) {
+    throw new Error('invoice number generation failed — exhausted 5 attempts');
   }
 
   // 4. Insert line items based on groupBy mode
@@ -256,23 +262,7 @@ export async function generateWipInvoice(
       lineCount++;
     }
   } else {
-    // Group by work_item_id or job_category_id
-    const keyOf = (e: DbRow): string =>
-      groupBy === 'by_work_item' ? String(e.work_item_id) : String(e.job_category_id);
-    const nameOf = (e: DbRow): string =>
-      groupBy === 'by_work_item'
-        ? String(e.work_item_name ?? 'Work item')
-        : String(e.job_category_name ?? 'Category');
-
-    const groups = new Map<string, { name: string; hours: number; value: number }>();
-    for (const e of entries) {
-      const k = keyOf(e);
-      const prev = groups.get(k) ?? { name: nameOf(e), hours: 0, value: 0 };
-      prev.hours += Number(e.hours);
-      prev.value += Number(e.line_total);
-      groups.set(k, prev);
-    }
-
+    const groups = buildGroupedLines(entries, groupBy);
     for (const g of groups.values()) {
       const hours = round2(g.hours);
       const value = round2(g.value);
@@ -290,7 +280,17 @@ export async function generateWipInvoice(
 
   // 5. Mark entries billed via workflow
   const eligibleIds = entries.map((e) => String(e.id));
-  await markEntriesBilled(companyId, eligibleIds, invoiceId);
+  try {
+    await markEntriesBilled(companyId, eligibleIds, invoiceId);
+  } catch (err) {
+    log.error('markEntriesBilled failed after invoice creation — orphan invoice may need cleanup', {
+      invoiceId,
+      invoiceNumber,
+      entryCount: eligibleIds.length,
+      error: err instanceof Error ? err.message : String(err),
+    }, 'practice');
+    throw err;
+  }
 
   log.info('Generated WIP invoice', {
     invoiceId, invoiceNumber, lineCount, subtotal, totalAmount,

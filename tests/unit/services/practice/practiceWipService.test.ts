@@ -121,6 +121,7 @@ describe('generateWipInvoice', () => {
     expect(result.taxAmount).toBe(637.5);
     expect(result.totalAmount).toBe(4887.5);
     expect(result.invoiceId).toBe(INVOICE_ID);
+    expect(result.invoiceNumber).toMatch(/^INV-\d{5}$/);
     expect(markEntriesBilledMock).toHaveBeenCalledWith(COMPANY, [ENTRY_A, ENTRY_B], INVOICE_ID);
   });
 
@@ -153,6 +154,38 @@ describe('generateWipInvoice', () => {
     });
 
     // Only ONE line item insert expected (2 entries → 1 grouped line)
+    const insertLineItemCalls = sqlMock.mock.calls.filter((c) => {
+      const strings = c[0] as TemplateStringsArray;
+      return strings.some((s) => s.includes('INSERT INTO customer_invoice_items'));
+    });
+    expect(insertLineItemCalls).toHaveLength(1);
+    expect(result.lineCount).toBe(1);
+  });
+
+  it('groupBy=by_category collapses entries per category', async () => {
+    sqlMock.mockResolvedValueOnce([{ id: CLIENT, status: 'active', link_customer_id: LINK_CUSTOMER }]);
+    sqlMock.mockResolvedValueOnce([
+      {
+        id: ENTRY_A, hours: 2, applied_rate: 850, line_total: 1700,
+        entry_date: '2026-04-10', work_item_id: 'wi-1', job_category_id: 'cat-1',
+        work_item_name: 'Monthly bookkeeping', job_category_name: 'Accounting',
+      },
+      {
+        id: ENTRY_B, hours: 3, applied_rate: 850, line_total: 2550,
+        entry_date: '2026-04-11', work_item_id: 'wi-2', job_category_id: 'cat-1',
+        work_item_name: 'Bank recon', job_category_name: 'Accounting',
+      },
+    ]);
+    sqlMock.mockResolvedValueOnce([{ max_num: 0 }]);
+    sqlMock.mockResolvedValueOnce([{ id: INVOICE_ID }]);
+    sqlMock.mockResolvedValueOnce([]); // single grouped line
+    markEntriesBilledMock.mockResolvedValueOnce(2);
+
+    const result = await generateWipInvoice(COMPANY, USER, {
+      ...baseInput,
+      groupBy: 'by_category',
+    });
+
     const insertLineItemCalls = sqlMock.mock.calls.filter((c) => {
       const strings = c[0] as TemplateStringsArray;
       return strings.some((s) => s.includes('INSERT INTO customer_invoice_items'));
