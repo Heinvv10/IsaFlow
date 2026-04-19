@@ -19,5 +19,11 @@ export const payrollTab: Tab = {
         { label: 'Payroll Runs', href: '/payroll/runs' },
       ],
     },
+    {
+      section: 'Configuration',
+      items: [
+        { label: 'Settings', href: '/payroll/settings' },
+      ],
+    },
   ],
 };
