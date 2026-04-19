@@ -7,41 +7,13 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
-import { formatCurrency } from '@/utils/formatters';
-import { User, ArrowLeft, Loader2, AlertCircle, Plus, X, Save } from 'lucide-react';
-
-interface Employee {
-  id: string;
-  employeeNumber: string;
-  firstName: string;
-  lastName: string;
-  employmentType: 'permanent' | 'contract' | 'casual' | 'director';
-  startDate: string;
-  endDate?: string;
-  taxNumber?: string;
-  idNumber?: string;
-  dateOfBirth?: string;
-  uifExcluded: boolean;
-  medicalAidMainMember: boolean;
-  medicalAidDependantsCount: number;
-}
-
-interface Component {
-  id: string;
-  name: string;
-  sarsSourceCode: string;
-  componentType: 'earning' | 'deduction' | 'employer_contribution';
-}
-
-interface Assignment {
-  id: string;
-  componentId: string;
-  componentName: string;
-  componentType: string;
-  amount: number;
-  effectiveFrom: string;
-  effectiveTo: string | null;
-}
+import { User, ArrowLeft, Loader2, AlertCircle } from 'lucide-react';
+import { EmployeeProfileCard, type Employee } from '@/components/payroll/EmployeeProfileCard';
+import {
+  EmployeeComponentsCard,
+  type Component,
+  type Assignment,
+} from '@/components/payroll/EmployeeComponentsCard';
 
 export default function EmployeeDetailPage() {
   const router = useRouter();
@@ -173,9 +145,6 @@ export default function EmployeeDetailPage() {
 
   if (!employee) return null;
 
-  const field = 'w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:ring-1 focus:ring-teal-500';
-  const label = 'block text-xs font-medium text-[var(--ff-text-secondary)] mb-1';
-
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
@@ -203,136 +172,26 @@ export default function EmployeeDetailPage() {
             </div>
           )}
 
-          <section className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-4">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Profile</h2>
-              <button
-                onClick={saveProfile}
-                disabled={savingProfile}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-xs font-medium"
-              >
-                {savingProfile ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
-                Save
-              </button>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className={label}>First name</label>
-                <input className={field} value={employee.firstName}
-                  onChange={e => setEmployee({ ...employee, firstName: e.target.value })} />
-              </div>
-              <div>
-                <label className={label}>Last name</label>
-                <input className={field} value={employee.lastName}
-                  onChange={e => setEmployee({ ...employee, lastName: e.target.value })} />
-              </div>
-              <div>
-                <label className={label}>Tax number</label>
-                <input className={field} value={employee.taxNumber ?? ''}
-                  onChange={e => setEmployee({ ...employee, taxNumber: e.target.value })} />
-              </div>
-              <div>
-                <label className={label}>ID number</label>
-                <input className={field} value={employee.idNumber ?? ''}
-                  onChange={e => setEmployee({ ...employee, idNumber: e.target.value })} />
-              </div>
-              <div>
-                <label className={label}>Date of birth</label>
-                <input type="date" className={field} value={employee.dateOfBirth?.slice(0, 10) ?? ''}
-                  onChange={e => setEmployee({ ...employee, dateOfBirth: e.target.value })} />
-              </div>
-              <div>
-                <label className={label}>End date</label>
-                <input type="date" className={field} value={employee.endDate?.slice(0, 10) ?? ''}
-                  onChange={e => setEmployee({ ...employee, endDate: e.target.value || undefined })} />
-              </div>
-              <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)]">
-                <input type="checkbox" checked={employee.uifExcluded}
-                  onChange={e => setEmployee({ ...employee, uifExcluded: e.target.checked })} />
-                UIF excluded
-              </label>
-              <label className="flex items-center gap-2 text-sm text-[var(--ff-text-primary)]">
-                <input type="checkbox" checked={employee.medicalAidMainMember}
-                  onChange={e => setEmployee({ ...employee, medicalAidMainMember: e.target.checked })} />
-                Medical aid main member
-              </label>
-              <div>
-                <label className={label}>Medical aid dependants</label>
-                <input type="number" min="0" className={field} value={employee.medicalAidDependantsCount}
-                  onChange={e => setEmployee({ ...employee, medicalAidDependantsCount: Number(e.target.value) || 0 })} />
-              </div>
-            </div>
-          </section>
+          <EmployeeProfileCard
+            employee={employee}
+            onChange={setEmployee}
+            onSave={saveProfile}
+            saving={savingProfile}
+          />
 
-          <section className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-4">
-            <h2 className="text-sm font-semibold text-[var(--ff-text-primary)] mb-4">Pay Components</h2>
-
-            <div className="flex items-end gap-3 mb-4 pb-4 border-b border-[var(--ff-border-primary)]">
-              <div className="flex-1">
-                <label className={label}>Component</label>
-                <select className={field} value={newComponentId} onChange={e => setNewComponentId(e.target.value)}>
-                  <option value="">Select a component…</option>
-                  {components.map(c => (
-                    <option key={c.id} value={c.id}>{c.name} ({c.componentType})</option>
-                  ))}
-                </select>
-              </div>
-              <div className="w-40">
-                <label className={label}>Amount (R)</label>
-                <input type="number" step="0.01" className={field}
-                  value={newAmount} onChange={e => setNewAmount(e.target.value)} />
-              </div>
-              <div className="w-40">
-                <label className={label}>Effective from</label>
-                <input type="date" className={field}
-                  value={newFrom} onChange={e => setNewFrom(e.target.value)} />
-              </div>
-              <button
-                onClick={assignComponent}
-                disabled={!newComponentId || !newAmount || addingAssignment}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-medium"
-              >
-                {addingAssignment ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                Assign
-              </button>
-            </div>
-
-            {assignments.length === 0 ? (
-              <p className="text-sm text-[var(--ff-text-tertiary)]">No components assigned yet. Assign at least a basic-salary component to produce non-zero payroll.</p>
-            ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-[var(--ff-border-primary)] text-left">
-                    <th className="py-2 text-[var(--ff-text-secondary)] font-medium">Component</th>
-                    <th className="py-2 text-[var(--ff-text-secondary)] font-medium">Type</th>
-                    <th className="py-2 text-[var(--ff-text-secondary)] font-medium text-right">Amount</th>
-                    <th className="py-2 text-[var(--ff-text-secondary)] font-medium">From</th>
-                    <th className="py-2 text-[var(--ff-text-secondary)] font-medium">To</th>
-                    <th className="py-2"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {assignments.map(a => (
-                    <tr key={a.id} className="border-b border-[var(--ff-border-primary)] last:border-0">
-                      <td className="py-2 text-[var(--ff-text-primary)]">{a.componentName}</td>
-                      <td className="py-2 text-[var(--ff-text-secondary)] capitalize">{a.componentType}</td>
-                      <td className="py-2 text-right font-mono text-[var(--ff-text-primary)]">{formatCurrency(a.amount)}</td>
-                      <td className="py-2 text-[var(--ff-text-secondary)]">{a.effectiveFrom.slice(0, 10)}</td>
-                      <td className="py-2 text-[var(--ff-text-secondary)]">{a.effectiveTo ? a.effectiveTo.slice(0, 10) : '—'}</td>
-                      <td className="py-2 text-right">
-                        {!a.effectiveTo && (
-                          <button onClick={() => endAssignment(a.id)}
-                            className="p-1 rounded hover:bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-tertiary)] hover:text-red-400">
-                            <X className="h-4 w-4" />
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </section>
+          <EmployeeComponentsCard
+            components={components}
+            assignments={assignments}
+            newComponentId={newComponentId}
+            newAmount={newAmount}
+            newFrom={newFrom}
+            onNewComponentId={setNewComponentId}
+            onNewAmount={setNewAmount}
+            onNewFrom={setNewFrom}
+            onAssign={assignComponent}
+            onEnd={endAssignment}
+            adding={addingAssignment}
+          />
         </div>
       </div>
     </AppLayout>
