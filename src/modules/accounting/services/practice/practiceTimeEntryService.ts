@@ -17,6 +17,7 @@ import type {
   PracticeEntryFilters,
 } from './practiceTimeEntryTypes';
 
+/** @internal used by practiceTimeEntryWorkflow — do not import elsewhere */
 export function mapEntry(r: DbRow): PracticeTimeEntry {
   return {
     id: String(r.id),
@@ -48,6 +49,7 @@ export function mapEntry(r: DbRow): PracticeTimeEntry {
   };
 }
 
+/** @internal used by practiceTimeEntryWorkflow — do not import elsewhere */
 export async function validateClientCategoryWorkItem(
   companyId: string,
   practiceClientId: string,
@@ -186,6 +188,9 @@ export async function updatePracticeEntry(
     ? Math.round(effectiveHours * appliedRate * 100) / 100
     : null;
 
+  const updateNotes = 'notes' in input;
+  const notesValue = input.notes ?? null;
+
   const rows = (await sql`
     UPDATE time_entries SET
       entry_date         = COALESCE(${input.entryDate ?? null}::DATE, entry_date),
@@ -194,7 +199,7 @@ export async function updatePracticeEntry(
       job_category_id    = COALESCE(${input.jobCategoryId ?? null}::UUID, job_category_id),
       work_item_id       = COALESCE(${input.workItemId ?? null}::UUID, work_item_id),
       task_description   = COALESCE(${input.taskDescription ?? null}, task_description),
-      notes              = COALESCE(${input.notes ?? null}, notes),
+      notes              = CASE WHEN ${updateNotes}::boolean THEN ${notesValue} ELSE notes END,
       billable           = COALESCE(${input.billable ?? null}, billable),
       applied_rate       = ${appliedRate},
       line_total         = ${lineTotal},

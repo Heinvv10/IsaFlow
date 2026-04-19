@@ -13,6 +13,9 @@ export async function duplicatePracticeEntry(
   id: string,
   newDate: string,
 ): Promise<PracticeTimeEntry> {
+  const today = new Date().toISOString().split('T')[0]!;
+  if (newDate > today) throw new Error('entry date cannot be in the future');
+
   const sourceRows = (await sql`
     SELECT * FROM time_entries
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID

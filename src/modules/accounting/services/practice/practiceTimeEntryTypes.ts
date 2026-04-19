@@ -53,5 +53,5 @@ export interface PracticeEntryFilters {
   practiceClientId?: string;
   dateFrom?: string;
   dateTo?: string;
-  status?: string;
+  status?: PracticeTimeEntry['status'];
 }

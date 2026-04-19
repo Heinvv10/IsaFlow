@@ -147,6 +147,28 @@ describe('createPracticeEntry', () => {
 });
 
 describe('updatePracticeEntry', () => {
+  it('update allows clearing notes by passing null', async () => {
+    sqlMock.mockResolvedValueOnce([{
+      status: 'draft',
+      practice_client_id: CLIENT,
+      entry_date: '2026-04-19',
+      user_id: USER,
+      hours: 2.5,
+      job_category_id: CATEGORY,
+      work_item_id: WORK_ITEM,
+    }]);
+    resolveRateMock.mockResolvedValueOnce(850);
+    sqlMock.mockResolvedValueOnce([{ ...entryRow, notes: null }]);
+
+    const result = await updatePracticeEntry(COMPANY, ENTRY_ID, { notes: null });
+    expect(result.notes).toBeNull();
+
+    // Verify updateNotes sentinel = true, notesValue = null in the UPDATE SQL args
+    const updateCall = sqlMock.mock.calls[1]!;
+    const updateValues = updateCall.slice(1);
+    expect(updateValues).toContain(true);  // updateNotes sentinel
+  });
+
   it('rejects update when entry not draft', async () => {
     sqlMock.mockResolvedValueOnce([{ status: 'approved' }]);
     await expect(updatePracticeEntry(COMPANY, ENTRY_ID, { hours: 3 }))
@@ -241,6 +263,11 @@ describe('listPracticeEntries', () => {
 });
 
 describe('duplicatePracticeEntry', () => {
+  it('duplicate rejects future date', async () => {
+    await expect(duplicatePracticeEntry(COMPANY, ENTRY_ID, '2099-01-01'))
+      .rejects.toThrow(/future/i);
+  });
+
   it('copies an entry to a new date with draft status and origin=recurring', async () => {
     sqlMock.mockResolvedValueOnce([entryRow]); // source lookup
     sqlMock
@@ -251,15 +278,37 @@ describe('duplicatePracticeEntry', () => {
     sqlMock.mockResolvedValueOnce([{
       ...entryRow,
       id: 'new-id',
-      entry_date: '2026-04-20',
+      entry_date: '2026-04-18',
       origin: 'recurring',
       status: 'draft',
     }]);
 
-    const result = await duplicatePracticeEntry(COMPANY, ENTRY_ID, '2026-04-20');
+    const result = await duplicatePracticeEntry(COMPANY, ENTRY_ID, '2026-04-18');
     expect(result.origin).toBe('recurring');
     expect(result.status).toBe('draft');
-    expect(result.entryDate).toBe('2026-04-20');
+    expect(result.entryDate).toBe('2026-04-18');
+  });
+});
+
+describe('getPracticeEntry', () => {
+  it('returns mapped entry with joined names', async () => {
+    sqlMock.mockResolvedValueOnce([{
+      ...entryRow,
+      practice_client_name: 'Acme (Pty) Ltd',
+      job_category_name: 'Accounting',
+      work_item_name: 'Monthly bookkeeping',
+    }]);
+    const result = await getPracticeEntry(COMPANY, ENTRY_ID);
+    expect(result).not.toBeNull();
+    expect(result!.practiceClientName).toBe('Acme (Pty) Ltd');
+    expect(result!.jobCategoryName).toBe('Accounting');
+    expect(result!.workItemName).toBe('Monthly bookkeeping');
+  });
+
+  it('returns null when entry not found', async () => {
+    sqlMock.mockResolvedValueOnce([]);
+    const result = await getPracticeEntry(COMPANY, ENTRY_ID);
+    expect(result).toBeNull();
   });
 });
 
