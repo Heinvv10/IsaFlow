@@ -19,5 +19,19 @@ export const payrollTab: Tab = {
         { label: 'Payroll Runs', href: '/payroll/runs' },
       ],
     },
+    {
+      section: 'Leave',
+      items: [
+        { label: 'Leave Management', href: '/payroll/leave' },
+        { label: 'Leave Balances', href: '/payroll/leave/balances' },
+      ],
+    },
+    {
+      section: 'Compliance',
+      items: [
+        { label: 'IRP5 Readiness', href: '/payroll/irp5' },
+        { label: 'EMP501 Reconciliation', href: '/payroll/emp501' },
+      ],
+    },
   ],
 };

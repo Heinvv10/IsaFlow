@@ -15,6 +15,21 @@ export interface PeriodLock {
   lockedBy: string | null;
 }
 
+export interface LoanPeriodStatus {
+  loanId: string;
+  reference: string | null;
+  description: string | null;
+  product: string | null;
+  principalBalance: number;
+  rateMode: string;
+  margin: number;
+  fixedRate: number | null;
+  nextPaymentDate: string | null;
+  accruedInterest: number;
+  /** 'posted' if loan_gl_postings row exists for the period, else 'open' */
+  periodStatus: 'open' | 'posted';
+}
+
 export interface SkippedLoan {
   loanId: string;
   reason: string;
@@ -188,4 +203,81 @@ export async function closeLoanPeriod(
   };
   if (skippedLoans.length > 0) result.skippedLoans = skippedLoans;
   return result;
+}
+
+// ── listLoansForPeriodClose ─────────────────────────────────────────────────
+
+/**
+ * Returns every active loan with:
+ *  - latest closing balance for the target period (from the most recent schedule run)
+ *  - accrued interest for the period
+ *  - next payment date (first schedule row after the period)
+ *  - posting status for the period
+ */
+export async function listLoansForPeriodClose(
+  companyId: string,
+  targetYyyymm: string,
+): Promise<LoanPeriodStatus[]> {
+  const rows = (await sql`
+    SELECT
+      l.id                          AS loan_id,
+      l.reference,
+      l.description,
+      l.product,
+      l.rate_mode,
+      l.margin,
+      l.fixed_rate,
+      COALESCE(snap.closing, l.principal)  AS principal_balance,
+      COALESCE(snap.interest, 0)           AS accrued_interest,
+      next_pay.date                         AS next_payment_date,
+      CASE WHEN post.loan_id IS NOT NULL THEN 'posted' ELSE 'open' END AS period_status
+    FROM loans l
+    -- Latest schedule row for this period (most recent run wins)
+    LEFT JOIN LATERAL (
+      SELECT lsr.closing, lsr.interest, lsr.date
+      FROM loan_schedule_rows lsr
+      JOIN loan_schedule_runs lsrun ON lsrun.id = lsr.run_id
+      WHERE lsrun.loan_id = l.id
+        AND TO_CHAR(lsr.date, 'YYYYMM') = ${targetYyyymm}
+        AND lsrun.company_id = ${companyId}
+      ORDER BY lsrun.computed_at DESC NULLS LAST
+      LIMIT 1
+    ) snap ON true
+    -- Next payment date after the period
+    LEFT JOIN LATERAL (
+      SELECT lsr2.date
+      FROM loan_schedule_rows lsr2
+      JOIN loan_schedule_runs lsrun2 ON lsrun2.id = lsr2.run_id
+      WHERE lsrun2.loan_id = l.id
+        AND lsrun2.company_id = ${companyId}
+        AND TO_CHAR(lsr2.date, 'YYYYMM') > ${targetYyyymm}
+        AND lsr2.skip_flag = false
+      ORDER BY lsrun2.computed_at DESC NULLS LAST, lsr2.date ASC
+      LIMIT 1
+    ) next_pay ON true
+    -- Check if any GL posting already exists for this loan + period
+    LEFT JOIN (
+      SELECT DISTINCT loan_id
+      FROM loan_gl_postings
+      WHERE company_id = ${companyId}
+        AND posted_period = ${targetYyyymm}
+    ) post ON post.loan_id = l.id
+    WHERE l.company_id = ${companyId} AND l.status = 'active'
+    ORDER BY l.reference ASC NULLS LAST, l.created_at ASC
+  `) as Row[];
+
+  return rows.map((r) => ({
+    loanId: String(r.loan_id),
+    reference: r.reference != null ? String(r.reference) : null,
+    description: r.description != null ? String(r.description) : null,
+    product: r.product != null ? String(r.product) : null,
+    principalBalance: parseFloat(String(r.principal_balance ?? '0')),
+    rateMode: String(r.rate_mode),
+    margin: parseFloat(String(r.margin ?? '0')),
+    fixedRate: r.fixed_rate != null ? parseFloat(String(r.fixed_rate)) : null,
+    nextPaymentDate:
+      r.next_payment_date != null ? String(r.next_payment_date).slice(0, 10) : null,
+    accruedInterest: parseFloat(String(r.accrued_interest ?? '0')),
+    periodStatus: (r.period_status === 'posted' ? 'posted' : 'open') as 'open' | 'posted',
+  }));
 }
