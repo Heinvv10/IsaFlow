@@ -28,6 +28,7 @@ export async function listComponents(companyId: string): Promise<PayrollComponen
 
 export async function getEmployeeComponents(
   employeeId: string,
+  companyId: string,
   periodDate: Date,
 ): Promise<EmployeeComponent[]> {
   const dateStr = periodDate.toISOString().split('T')[0];
@@ -38,7 +39,9 @@ export async function getEmployeeComponents(
       pc.is_taxable, pc.is_uif_applicable, pc.is_sdl_applicable
     FROM payroll_employee_components pec
     JOIN payroll_components pc ON pc.id = pec.component_id
+    JOIN payroll_employees pe ON pe.id = pec.employee_id
     WHERE pec.employee_id = ${employeeId}::uuid
+      AND pe.company_id = ${companyId}::uuid
       AND pec.effective_from <= ${dateStr}
       AND (pec.effective_to IS NULL OR pec.effective_to >= ${dateStr})
       AND pc.is_active = TRUE

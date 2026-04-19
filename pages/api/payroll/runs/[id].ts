@@ -5,6 +5,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { apiResponse } from '@/lib/apiResponse';
 import {
   withAuth,
@@ -33,4 +34,4 @@ async function handler(
   return apiResponse.success(res, run);
 }
 
-export default withAuth(withErrorHandler(handler));
+export default withAuth(withErrorHandler(withCsrf(handler)));

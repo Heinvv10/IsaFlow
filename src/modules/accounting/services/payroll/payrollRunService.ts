@@ -114,10 +114,19 @@ export async function calculatePayrollRun(
 
   const annualPayrollEstimate = employees.length * 25_000 * 12;
 
-  await sql`DELETE FROM payroll_run_lines WHERE run_id = ${runId}::uuid`;
+  // Build all line inserts in memory before touching the DB
+  type LineInsert = {
+    employeeId: string;
+    grossPay: number; taxableIncome: number; paye: number;
+    uifEmployee: number; uifEmployer: number; sdl: number;
+    eti: number; netPay: number;
+    componentBreakdown: string; validationResults: string;
+  };
+
+  const lineInserts: LineInsert[] = [];
 
   for (const employee of employees) {
-    const components = await getEmployeeComponents(employee.id, periodDate);
+    const components = await getEmployeeComponents(employee.id, companyId, periodDate);
     const line = calculatePayrollLine({
       employee,
       components,
@@ -134,20 +143,19 @@ export async function calculatePayrollRun(
       grossPay: line.grossPay,
     });
 
-    await sql`
-      INSERT INTO payroll_run_lines (
-        run_id, employee_id, gross_pay, taxable_income, paye,
-        uif_employee, uif_employer, sdl, eti, net_pay,
-        component_breakdown, validation_results
-      ) VALUES (
-        ${runId}::uuid, ${employee.id}::uuid,
-        ${line.grossPay}, ${line.taxableIncome}, ${line.paye.monthlyPaye},
-        ${line.uif.employeeContribution}, ${line.uif.employerContribution},
-        ${line.sdl}, ${line.eti.monthlyEti}, ${line.netPay},
-        ${JSON.stringify(line.componentBreakdown)},
-        ${JSON.stringify([...empValidation, ...lineValidation])}
-      )
-    `;
+    lineInserts.push({
+      employeeId: employee.id,
+      grossPay: line.grossPay,
+      taxableIncome: line.taxableIncome,
+      paye: line.paye.monthlyPaye,
+      uifEmployee: line.uif.employeeContribution,
+      uifEmployer: line.uif.employerContribution,
+      sdl: line.sdl,
+      eti: line.eti.monthlyEti,
+      netPay: line.netPay,
+      componentBreakdown: JSON.stringify(line.componentBreakdown),
+      validationResults: JSON.stringify([...empValidation, ...lineValidation]),
+    });
 
     totalGross += line.grossPay;
     totalPaye += line.paye.monthlyPaye;
@@ -159,6 +167,36 @@ export async function calculatePayrollRun(
   }
 
   const r = (n: number) => Math.round(n * 100) / 100;
+
+  // All DB mutations in a single transaction so partial failures don't corrupt state
+  await sql`BEGIN`;
+  try {
+    await sql`DELETE FROM payroll_run_lines WHERE run_id = ${runId}::uuid AND run_id IN (
+      SELECT id FROM payroll_run_headers WHERE company_id = ${companyId}::uuid
+    )`;
+
+    for (const ins of lineInserts) {
+      await sql`
+        INSERT INTO payroll_run_lines (
+          run_id, employee_id, gross_pay, taxable_income, paye,
+          uif_employee, uif_employer, sdl, eti, net_pay,
+          component_breakdown, validation_results
+        ) VALUES (
+          ${runId}::uuid, ${ins.employeeId}::uuid,
+          ${ins.grossPay}, ${ins.taxableIncome}, ${ins.paye},
+          ${ins.uifEmployee}, ${ins.uifEmployer},
+          ${ins.sdl}, ${ins.eti}, ${ins.netPay},
+          ${ins.componentBreakdown},
+          ${ins.validationResults}
+        )
+      `;
+    }
+
+    await sql`COMMIT`;
+  } catch (err) {
+    await sql`ROLLBACK`;
+    throw err;
+  }
 
   const updated = (await sql`
     UPDATE payroll_run_headers SET
@@ -172,7 +210,7 @@ export async function calculatePayrollRun(
       total_net      = ${r(totalNet)},
       employee_count = ${employees.length},
       updated_at     = NOW()
-    WHERE id = ${runId}::uuid
+    WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
     RETURNING *
   `) as Row[];
 
