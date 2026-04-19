@@ -77,10 +77,11 @@ export interface VerifyMagicLinkResult {
   expires_in: number;
 }
 
-export async function verifyMagicLink(tokenHash: string, email: string): Promise<VerifyMagicLinkResult> {
+export async function verifyMagicLink(tokenHash: string, _email: string): Promise<VerifyMagicLinkResult> {
+  // GoTrue /verify with token_hash accepts ONLY { type, token_hash } — no email field.
   const res = await doFetch<VerifyMagicLinkResult & { token_type?: string; expires_at?: number }>(
     '/verify',
-    { method: 'POST', body: JSON.stringify({ type: 'email', token_hash: tokenHash, email }) },
+    { method: 'POST', body: JSON.stringify({ type: 'magiclink', token_hash: tokenHash }) },
     { apikey: anonKey() }
   );
   return { access_token: res.access_token, refresh_token: res.refresh_token, expires_in: res.expires_in };
