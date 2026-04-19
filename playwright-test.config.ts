@@ -21,5 +21,13 @@ export default defineConfig({
       },
       dependencies: ['setup'],
     },
+    {
+      // API-only tests that manage their own auth — no setup dependency
+      name: 'api',
+      testMatch: /admin-auth\.spec\.ts/,
+      use: {
+        browserName: 'chromium',
+      },
+    },
   ],
 });
