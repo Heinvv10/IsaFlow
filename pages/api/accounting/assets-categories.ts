@@ -19,7 +19,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const categories = await sql`
     SELECT id, name, code, sars_rate, sars_years, description,
            gl_asset_account_id, gl_depreciation_account_id, gl_expense_account_id,
-           is_active
+           is_active,
+           useful_life_years, residual_pct, tax_life_years, depreciation_method,
+           ias16_group, capitalization_threshold, tax_code, sars_section
     FROM asset_categories
     WHERE is_active = true
     ORDER BY name
