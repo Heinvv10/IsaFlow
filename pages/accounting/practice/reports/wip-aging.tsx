@@ -5,10 +5,12 @@
 
 import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Loader2, AlertCircle, Clock } from 'lucide-react';
+import { Loader2, AlertCircle, Clock, Download } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import type { WipAgingRow } from '@/modules/accounting/services/practice/practiceReportsService';
 import { PeriodPicker } from '@/components/practice/PeriodPicker';
+import { downloadCsv, asOfFilename } from '@/lib/csvExport';
+import type { CsvColumn } from '@/lib/csvExport';
 
 const TH = 'text-left py-2 px-3 text-[10px] tracking-widest font-semibold text-[var(--ff-text-secondary)] uppercase';
 const TD = 'py-2 px-3 text-sm text-[var(--ff-text-secondary)]';
@@ -54,6 +56,18 @@ export default function WipAgingPage() {
     { b0: 0, b8: 0, b15: 0, b31: 0, total: 0 },
   );
 
+  function handleDownload() {
+    const columns: CsvColumn<WipAgingRow>[] = [
+      { header: 'Client', accessor: (r) => r.legalName },
+      { header: '0-7 days', accessor: (r) => r.bucket0to7 },
+      { header: '8-14 days', accessor: (r) => r.bucket8to14 },
+      { header: '15-30 days', accessor: (r) => r.bucket15to30 },
+      { header: '31+ days', accessor: (r) => r.bucket31plus },
+      { header: 'Total', accessor: (r) => r.total },
+    ];
+    downloadCsv(asOfFilename('wip-aging', asOfDate), columns, rows);
+  }
+
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
@@ -61,6 +75,15 @@ export default function WipAgingPage() {
           <div className="px-6 py-4 flex items-center gap-3">
             <div className="p-2 rounded-lg bg-amber-500/10"><Clock className="h-5 w-5 text-amber-400" /></div>
             <h1 className="text-lg font-semibold text-[var(--ff-text-primary)]">WIP Aging</h1>
+            <div className="ml-auto">
+              <button
+                onClick={handleDownload}
+                disabled={rows.length === 0 && !loading}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded border bg-white hover:bg-slate-50 text-sm text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Download className="h-3.5 w-3.5" />Download CSV
+              </button>
+            </div>
           </div>
         </div>
 

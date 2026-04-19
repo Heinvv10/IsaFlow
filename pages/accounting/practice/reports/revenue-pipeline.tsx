@@ -5,10 +5,12 @@
 
 import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Loader2, AlertCircle, Layers } from 'lucide-react';
+import { Loader2, AlertCircle, Layers, Download } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import type { PipelineSummary } from '@/modules/accounting/services/practice/practiceReportsService';
 import { PeriodPicker } from '@/components/practice/PeriodPicker';
+import { downloadCsv, asOfFilename } from '@/lib/csvExport';
+import type { CsvColumn } from '@/lib/csvExport';
 
 function ErrBanner({ msg }: { msg: string }) {
   return (
@@ -56,6 +58,16 @@ export default function RevenuePipelinePage() {
       .finally(() => setLoading(false));
   }, [asOfDate]);
 
+  function handleDownload() {
+    const columns: CsvColumn<PipelineSummary>[] = [
+      { header: 'As of', accessor: (r) => r.asOfDate },
+      { header: 'Approved unbilled (ZAR)', accessor: (r) => r.totalApproved },
+      { header: 'Invoiced last 30d (ZAR)', accessor: (r) => r.totalInvoicedLast30d },
+      { header: 'Forecast 30d (ZAR)', accessor: (r) => r.forecast30d },
+    ];
+    downloadCsv(asOfFilename('revenue-pipeline', asOfDate), columns, summary ? [summary] : []);
+  }
+
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
@@ -63,6 +75,15 @@ export default function RevenuePipelinePage() {
           <div className="px-6 py-4 flex items-center gap-3">
             <div className="p-2 rounded-lg bg-blue-500/10"><Layers className="h-5 w-5 text-blue-400" /></div>
             <h1 className="text-lg font-semibold text-[var(--ff-text-primary)]">Revenue Pipeline</h1>
+            <div className="ml-auto">
+              <button
+                onClick={handleDownload}
+                disabled={summary == null && !loading}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded border bg-white hover:bg-slate-50 text-sm text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Download className="h-3.5 w-3.5" />Download CSV
+              </button>
+            </div>
           </div>
         </div>
 

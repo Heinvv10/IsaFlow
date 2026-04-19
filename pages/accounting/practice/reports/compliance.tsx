@@ -5,12 +5,14 @@
 
 import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Loader2, AlertCircle, ShieldCheck } from 'lucide-react';
+import { Loader2, AlertCircle, ShieldCheck, Download } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import type { ComplianceRow } from '@/modules/accounting/services/practice/practiceReportsService';
 import type { CompanyUserSummary } from '@/modules/accounting/services/practice/practiceUsersService';
 import { PeriodPicker } from '@/components/practice/PeriodPicker';
 import type { PeriodRange } from '@/components/practice/PeriodPicker';
+import { downloadCsv, reportFilename } from '@/lib/csvExport';
+import type { CsvColumn } from '@/lib/csvExport';
 
 function firstOfMonth() {
   const d = new Date();
@@ -79,6 +81,17 @@ export default function CompliancePage() {
 
   const userMap = new Map(users.map((u) => [u.id, u.displayName]));
 
+  function handleDownload() {
+    const columns: CsvColumn<ComplianceRow>[] = [
+      { header: 'User', accessor: (r) => userMap.get(r.userId) ?? r.userId },
+      { header: 'Expected days', accessor: (r) => r.expectedDays },
+      { header: 'Submitted days', accessor: (r) => r.submittedDays },
+      { header: 'Missing days', accessor: (r) => r.missingDays.join('; ') },
+      { header: 'Status', accessor: (r) => r.status },
+    ];
+    downloadCsv(reportFilename('compliance', period.dateFrom, period.dateTo), columns, rows);
+  }
+
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
@@ -86,6 +99,15 @@ export default function CompliancePage() {
           <div className="px-6 py-4 flex items-center gap-3">
             <div className="p-2 rounded-lg bg-green-500/10"><ShieldCheck className="h-5 w-5 text-green-400" /></div>
             <h1 className="text-lg font-semibold text-[var(--ff-text-primary)]">Compliance</h1>
+            <div className="ml-auto">
+              <button
+                onClick={handleDownload}
+                disabled={rows.length === 0 && !loading}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded border bg-white hover:bg-slate-50 text-sm text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Download className="h-3.5 w-3.5" />Download CSV
+              </button>
+            </div>
           </div>
         </div>
 
@@ -109,7 +131,7 @@ export default function CompliancePage() {
                 <table className="table-auto w-full">
                   <thead>
                     <tr className="bg-slate-50/5">
-                      <th className={TH}>User ID</th>
+                      <th className={TH}>User</th>
                       <th className={`${TH} text-right`}>Expected days</th>
                       <th className={`${TH} text-right`}>Submitted days</th>
                       <th className={TH}>Missing days</th>
