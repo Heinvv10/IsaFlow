@@ -24,6 +24,15 @@ if [ -f "$REPO_DIR/.env.local" ]; then
     [ -n "$line" ] && export "$line"
   done < <(grep -E '^SENTRY_(AUTH_TOKEN|URL|ORG|PROJECT)=' "$REPO_DIR/.env.local" || true)
 fi
+
+# NEXT_PUBLIC_* vars are inlined at build time. The workspace .env.local
+# holds dev URLs (localhost); reading NEXT_PUBLIC_APP_URL / NEXT_PUBLIC_ADMIN_URL
+# from the prod env file ensures GoTrue recovery/invite links point at prod.
+if sudo test -f /home/velo/isaflow/.env.local; then
+  export NEXT_PUBLIC_APP_URL=$(sudo grep -E '^NEXT_PUBLIC_APP_URL=' /home/velo/isaflow/.env.local | tail -1 | cut -d= -f2-)
+  export NEXT_PUBLIC_ADMIN_URL=$(sudo grep -E '^NEXT_PUBLIC_ADMIN_URL=' /home/velo/isaflow/.env.local | tail -1 | cut -d= -f2-)
+  echo "Build URL: NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL"
+fi
 export PATH="$HOME/.local/bin:$PATH"
 
 # 1. Build locally with bun
