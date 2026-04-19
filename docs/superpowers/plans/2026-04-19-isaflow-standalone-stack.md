@@ -44,32 +44,32 @@
 
 **Goal:** Create `isaflow` + `isaflow_dev` databases on the new stack, run migrations from scratch. Validates the stack before we touch production data.
 
-- [ ] 3.1. `CREATE DATABASE isaflow OWNER postgres; CREATE DATABASE isaflow_dev OWNER postgres;` on new stack
-- [ ] 3.2. Temp set `MIGRATION_ADMIN_DATABASE_URL=postgresql://postgres:$POSTGRES_PASSWORD@localhost:7772/isaflow_dev?sslmode=disable` in a scratch env file
-- [ ] 3.3. Run `bun scripts/apply-migrations.ts` against `isaflow_dev` — all 79 migrations should apply (skipping 354 manually)
-- [ ] 3.4. Rotate role passwords on new stack:
-  ```sql
-  ALTER ROLE migration_admin WITH PASSWORD '<fresh>';
-  ALTER ROLE platform_admin WITH PASSWORD '<fresh>';
-  ```
-  Record in scratch location for Task 8.
-- [ ] 3.5. Grant verification: `SELECT COUNT(*) FROM information_schema.role_table_grants WHERE grantee='platform_admin' AND table_schema='public'` → expect ~170 (matches Phase 3a count)
-- [ ] 3.6. RLS verification: `SELECT COUNT(*) FROM pg_tables WHERE schemaname='public' AND rowsecurity=true` → expect 117
-- [ ] 3.7. Repeat 3.2–3.6 against `isaflow` DB (empty but schema-complete)
+**Note:** Migrations CANNOT be applied to an empty DB from scratch. Migration 220 (multi-company scoping) references a `companies` table that isn't CREATEd until migration 236 (multi-entity). The schema is built by cumulative history + baseline dump, not by replaying migrations. **Schema lands via pg_dump restore in Task 4**, after which the migration ledger is already current and a subsequent `bun scripts/apply-migrations.ts` is a sanity-check no-op.
 
-**Verification:** migration ledger shows all rows, grants + RLS counts match Phase 3a baseline.
+- [x] 3.1. `CREATE DATABASE isaflow OWNER postgres; CREATE DATABASE isaflow_dev OWNER postgres;` on new stack
+- [ ] 3.2. Password rotation + grants/RLS verification deferred to Task 4 post-restore (can't run as roles don't exist until migrations 348/352 land, which land via dump in Task 4).
+
+**Verification:** both empty DBs exist on new stack port 7772.
 
 ## Task 4 — Dry-run cutover against isaflow_dev
 
 **Goal:** prove the end-to-end dump/restore/swap flow works on dev before touching prod.
 
 - [ ] 4.1. Dump shared `isaflow_dev`: `pg_dump -Fc -Z 9 --no-owner --no-acl` from `localhost:5437/isaflow_dev` → `/tmp/isaflow_dev.dump`
-- [ ] 4.2. Truncate new stack's `isaflow_dev` (schema-only, data empty post-migration): `psql ... -c "SELECT 'TRUNCATE TABLE ' || quote_ident(schemaname) || '.' || quote_ident(tablename) || ' CASCADE;' FROM pg_tables WHERE schemaname='public'" | psql ...`. Alternatively: `DROP DATABASE isaflow_dev; CREATE DATABASE isaflow_dev;` and restore fresh.
-- [ ] 4.3. Restore: `pg_restore -h localhost -p 7772 -U postgres --no-owner --role=postgres -d isaflow_dev /tmp/isaflow_dev.dump`
-- [ ] 4.4. Row count comparison script: list every `public.*` table, `SELECT COUNT(*)` from shared vs new. All must match.
-- [ ] 4.5. Dump + restore IsaFlow-filtered auth rows from shared `postgres.auth.*` into new stack's `postgres.auth.*` (filter by `isaflow_dev.users.id`). Verify count.
-- [ ] 4.6. Test login: `curl -X POST http://localhost:7770/auth/v1/token?grant_type=password -H "apikey: $ANON_KEY" -d '{"email":"<test>","password":"<test>"}'` → expect 200 + access_token. This proves bcrypt hashes survived the transport.
-- [ ] 4.7. Write a scratch `.env.isaflow-dev-standalone` for the dev environment and start a local Next.js pointing at new stack; verify API reads + writes work end-to-end.
+- [ ] 4.2. Restore: `pg_restore -h localhost -p 7772 -U postgres --no-owner --role=postgres -d isaflow_dev /tmp/isaflow_dev.dump`
+- [ ] 4.3. Rotate role passwords on new stack (roles now exist from dump):
+  ```sql
+  ALTER ROLE migration_admin WITH LOGIN PASSWORD '<fresh>';
+  ALTER ROLE platform_admin WITH LOGIN PASSWORD '<fresh>';
+  ```
+  Record in scratch location for Task 8.
+- [ ] 4.4. Run migrations as idempotent sanity check: `bun scripts/apply-migrations.ts` against `isaflow_dev` — expect all rows in `skipped` or no-op, 0 toApply (checksum ledger intact from dump).
+- [ ] 4.5. Grant verification: `SELECT COUNT(*) FROM information_schema.role_table_grants WHERE grantee='platform_admin' AND table_schema='public'` → expect ~170.
+- [ ] 4.6. RLS verification: `SELECT COUNT(*) FROM pg_tables WHERE schemaname='public' AND rowsecurity=true` → expect 117.
+- [ ] 4.7. Row count comparison: spot-check `companies`, `journal_entries`, `users`, `bank_transactions` — shared vs new, must match.
+- [ ] 4.8. Dump + restore IsaFlow-filtered auth rows from shared `postgres.auth.*` into new stack's `postgres.auth.*` (filter by `isaflow_dev.users.id`). Verify count.
+- [ ] 4.9. Test login: `curl -X POST http://localhost:7770/auth/v1/token?grant_type=password -H "apikey: $ANON_KEY" -d '{"email":"<test>","password":"<test>"}'` → expect 200 + access_token. Proves bcrypt hashes survived transport.
+- [ ] 4.10. Write a scratch `.env.isaflow-dev-standalone` for the dev environment and start a local Next.js pointing at new stack; verify API reads + writes work end-to-end.
 
 **Verification:** dev works against new stack. If step 4.6 fails, stop — fallback to password-reset email plan.
 
