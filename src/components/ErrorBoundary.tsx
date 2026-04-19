@@ -27,6 +27,12 @@ export class ErrorBoundary extends Component<Props, State> {
       stack: error.stack,
       componentStack: info.componentStack,
     }, 'ErrorBoundary');
+    // Mirror to the browser console so ops can see the component stack
+    // directly in DevTools without relying on Sentry ingestion.
+    if (typeof window !== 'undefined' && typeof console !== 'undefined') {
+      // eslint-disable-next-line no-console
+      console.error('[ErrorBoundary]', error, info.componentStack);
+    }
   }
 
   override render() {
