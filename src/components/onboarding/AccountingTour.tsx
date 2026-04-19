@@ -11,6 +11,7 @@ import { log } from '@/lib/logger';
 import { TOUR_STEPS, getTooltipPosition, type TargetRect } from './tourConfig';
 
 const PREF_KEY = 'onboarding_tour_completed';
+const LS_KEY = 'isaflow_tour_completed';
 const PADDING = 8;
 
 export function AccountingTour() {
@@ -24,6 +25,7 @@ export function AccountingTour() {
 
   useEffect(() => {
     if (!isMounted) return;
+    if (localStorage.getItem(LS_KEY)) return;
     const check = async () => {
       try {
         const res = await apiFetch('/api/auth/preferences');
@@ -31,6 +33,7 @@ export function AccountingTour() {
         if (!json.data?.[PREF_KEY]) setActive(true);
       } catch (err) {
         log.warn('Failed to load tour preference', { error: err }, 'AccountingTour');
+        setActive(true);
       }
     };
     void check();
@@ -63,6 +66,7 @@ export function AccountingTour() {
 
   const completeTour = useCallback(async () => {
     setActive(false);
+    localStorage.setItem(LS_KEY, 'true');
     try {
       await apiFetch('/api/auth/preferences', {
         method: 'PUT',

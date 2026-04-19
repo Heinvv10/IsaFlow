@@ -46,6 +46,7 @@ export const accountingTab: Tab = {
         { label: 'Portfolio Dashboard', href: '/accounting/loans' },
         { label: 'New Loan', href: '/accounting/loans/new' },
         { label: 'Rate Curves', href: '/accounting/loans/rate-curves' },
+        { label: 'Period Close', href: '/accounting/loans/period-close' },
       ],
     },
     {

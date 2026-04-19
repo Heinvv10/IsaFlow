@@ -1,19 +1,15 @@
-/**
- * Practice Client Detail Page
- * Tabs: Details | Contacts
- * Route: /accounting/practice/clients/[id]
- */
-
+// Practice Client Detail Page — /accounting/practice/clients/[id]
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Users, Loader2, AlertCircle, ArrowLeft, User, Phone, Mail } from 'lucide-react';
 import Link from 'next/link';
 import { apiFetch } from '@/lib/apiFetch';
+import { ClientRateOverrides } from '@/components/practice/ClientRateOverrides';
 
 type ClientStatus = 'prospect' | 'onboarding' | 'active' | 'inactive' | 'archived';
 type BillingModel = 'hourly' | 'fixed' | 'retainer';
-type ActiveTab = 'details' | 'contacts';
+type ActiveTab = 'details' | 'contacts' | 'rate-overrides';
 
 interface PracticeClient {
   id: string;
@@ -60,6 +56,7 @@ const BILLING_LABELS: Record<BillingModel, string> = {
 const TABS: { id: ActiveTab; label: string }[] = [
   { id: 'details', label: 'Details' },
   { id: 'contacts', label: 'Contacts' },
+  { id: 'rate-overrides', label: 'Rate Overrides' },
 ];
 
 function StatusBadge({ status }: { status: ClientStatus }) {
@@ -165,10 +162,8 @@ export default function PracticeClientDetailPage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
-        {/* Header */}
         <div className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
           <div className="px-6 py-4">
-            {/* Breadcrumb */}
             <nav className="flex items-center gap-1.5 text-xs text-[var(--ff-text-tertiary)] mb-3">
               <Link href="/accounting/practice/clients" className="hover:text-teal-400 transition-colors">
                 Clients
@@ -220,7 +215,6 @@ export default function PracticeClientDetailPage() {
           </div>
         </div>
 
-        {/* Tab Content */}
         <div className="px-6 py-6 max-w-3xl">
           {activeTab === 'details' && (
             <div className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] p-6">
@@ -231,6 +225,13 @@ export default function PracticeClientDetailPage() {
                 <DetailRow label="Client Group" value={client.clientGroupId ?? '—'} />
                 <DetailRow label="Status" value={<StatusBadge status={client.status} />} />
               </dl>
+            </div>
+          )}
+
+          {activeTab === 'rate-overrides' && clientId && (
+            <div className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] p-6">
+              <h2 className="text-sm font-semibold text-[var(--ff-text-primary)] mb-4">Staff Rate Overrides</h2>
+              <ClientRateOverrides clientId={clientId} />
             </div>
           )}
 
