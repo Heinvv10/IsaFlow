@@ -94,9 +94,15 @@ export default function ProfitabilityPage() {
                           <td className={`${TD} font-medium text-[var(--ff-text-primary)]`}>{r.legalName}</td>
                           <td className={`${TD} text-right tabular-nums`}>{r.hours.toFixed(2)}</td>
                           <td className={`${TD} text-right tabular-nums`}>R{r.revenue.toFixed(2)}</td>
-                          <td className={`${TD} text-right tabular-nums text-slate-500`}>{r.timeCost != null ? `R${r.timeCost.toFixed(2)}` : '—'}</td>
-                          <td className={`${TD} text-right tabular-nums text-slate-500`}>{r.margin != null ? `R${r.margin.toFixed(2)}` : '—'}</td>
-                          <td className={`${TD} text-right tabular-nums text-slate-500`}>{r.marginPct != null ? `${r.marginPct.toFixed(1)}%` : '—'}</td>
+                          <td className={`${TD} text-right tabular-nums`}>{r.timeCost != null ? `R${r.timeCost.toFixed(2)}` : '—'}</td>
+                          <td className={`${TD} text-right tabular-nums`}>{r.margin != null ? `R${r.margin.toFixed(2)}` : '—'}</td>
+                          <td className={`${TD} text-right tabular-nums ${
+                            r.marginPct == null ? 'text-slate-500'
+                              : r.marginPct >= 30 ? 'text-emerald-400'
+                              : r.marginPct >= 10 ? 'text-amber-400'
+                              : r.marginPct < 0 ? 'text-rose-400 font-bold'
+                              : 'text-rose-400'
+                          }`}>{r.marginPct != null ? `${r.marginPct.toFixed(1)}%` : '—'}</td>
                         </tr>
                       ))
                     }
