@@ -71,12 +71,22 @@ export default function TimeEntryPage() {
           apiFetch('/api/accounting/practice/job-categories?isActive=true'),
         ]);
         if (!cr.ok || !catr.ok) throw new Error('Failed to load reference data');
-        const cj = (await cr.json()) as { data?: Client[] } | Client[];
-        const catj = (await catr.json()) as { data?: Category[]; categories?: Category[] } | Category[];
-        setClients(Array.isArray(cj) ? cj : (cj.data ?? []));
-        const catArr = Array.isArray(catj) ? catj
-          : ((catj as { categories?: Category[] }).categories ?? (catj as { data?: Category[] }).data ?? []);
-        setCategories(catArr);
+        const cj = (await cr.json()) as unknown;
+        const catj = (await catr.json()) as unknown;
+        const cPayload = (cj && typeof cj === 'object' && 'data' in cj ? (cj as { data: unknown }).data : cj) as unknown;
+        const cList = Array.isArray(cPayload)
+          ? cPayload
+          : (cPayload && typeof cPayload === 'object' && Array.isArray((cPayload as { clients?: unknown }).clients))
+            ? (cPayload as { clients: Client[] }).clients
+            : [];
+        setClients(cList as Client[]);
+        const catPayload = (catj && typeof catj === 'object' && 'data' in catj ? (catj as { data: unknown }).data : catj) as unknown;
+        const catList = Array.isArray(catPayload)
+          ? catPayload
+          : (catPayload && typeof catPayload === 'object' && Array.isArray((catPayload as { categories?: unknown }).categories))
+            ? (catPayload as { categories: Category[] }).categories
+            : [];
+        setCategories(catList as Category[]);
       } catch { setInitError('Failed to load clients or categories. Please refresh.'); }
       finally { setInitLoading(false); }
     })();
