@@ -129,3 +129,16 @@ export async function adminUnenrollFactor(userId: string, factorId: string): Pro
     { Authorization: `Bearer ${key}`, apikey: key }
   );
 }
+
+// Admin enumeration: fetch the user via GoTrue's admin API to get their
+// factors array. GoTrue's auth.mfa_factors table is in the shared postgres
+// database, not per-app — the HTTP API is the only portable way to read it.
+export async function adminListUserFactors(userId: string): Promise<Factor[]> {
+  const key = serviceKey();
+  const user = await mfaFetch<{ factors?: Factor[] }>(
+    `/admin/users/${encodeURIComponent(userId)}`,
+    { method: 'GET' },
+    { Authorization: `Bearer ${key}`, apikey: key }
+  );
+  return user.factors ?? [];
+}
