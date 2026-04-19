@@ -40,13 +40,6 @@ export { getUserFromRequest, requireAuth } from './app-router';
 // ── Cookie constants ─────────────────────────────────────────────────────────
 export { ACCESS_COOKIE, REFRESH_COOKIE, ACTIVE_COMPANY_COOKIE } from './cookies';
 
-// ── Transitional exports (remove when Stage 3 rewrites register.ts) ──────────
-// register.ts still uses hashPassword/checkPasswordStrength until it is ported
-// to GoTrue's admin.createUser() flow in Stage 3.
-// adminUserActionsService.ts still uses generateResetToken until admin reset
-// is ported to GoTrue's admin.generateLink('recovery') API.
-export { hashPassword, checkPasswordStrength, generateResetToken } from './password';
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
 import type { NextApiRequest } from 'next';
 import type { CompanyAuthedRequest } from './withAuth';

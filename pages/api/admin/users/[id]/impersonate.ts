@@ -1,91 +1,114 @@
 /**
- * Admin User Impersonation API
- * POST /api/admin/users/[id]/impersonate
- *
- * Creates a 1-hour impersonation session allowing a super_admin to log in
- * as the target user in the main application.
- *
- * Guards:
- *  - Target must exist and be active.
- *  - Admin cannot impersonate another super_admin.
- *  - Rate-limited (5 per minute via withAdmin outer layer).
- *  - Every attempt is written to admin_audit_log.
+ * POST /api/admin/users/:id/impersonate
+ * Super-admin "Login as X" — swaps admin's session for target's via GoTrue
+ * magic-link. Admin's tokens are stashed so end-impersonation can restore.
  */
-
 import type { NextApiResponse } from 'next';
-import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
-import { apiResponse } from '@/lib/apiResponse';
+import type { PlatformAdminRequest } from '@/lib/auth';
+import {
+  parseCookies,
+  setAuthCookies,
+  setActiveCompanyCookie,
+  ACCESS_COOKIE,
+  REFRESH_COOKIE,
+} from '@/lib/auth/cookies';
+import { generateLink, verifyMagicLink, GotrueAdminLinkError } from '@/lib/auth/gotrue-admin-link';
+import { stashAdminTokens, validateImpersonationTarget } from '@/modules/admin/services/userImpersonationService';
+import { setImpersonationCookies } from '@/lib/auth/impersonation-cookies';
+import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { checkRateLimit } from '@/lib/rateLimit';
-import { createUserImpersonationSession } from '@/modules/admin/services/userImpersonationService';
-import { logAdminAction } from '@/modules/admin/services/auditService';
-import { getIp } from '@/utils/getIp';
 
-async function handler(
-  req: AuthenticatedNextApiRequest,
-  res: NextApiResponse
-): Promise<void> {
+async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'POST') {
-    return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
+    res.status(405).json({ success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'POST required' } });
+    return;
   }
-
-  const targetId = req.query.id as string;
-  if (!targetId) {
-    return apiResponse.badRequest(res, 'User ID is required');
-  }
-
-  // Per-admin impersonation rate limit: 5 per minute
-  if (!(await checkRateLimit(`user-impersonate:${req.user.id}`, { max: 5, windowSecs: 60 }))) {
-    res.status(429).json({
-      success: false,
-      error: {
-        code:    'RATE_LIMITED',
-        message: 'Too many impersonation attempts. Please wait a minute.',
-      },
-    });
+  const targetId = req.query.id;
+  if (typeof targetId !== 'string') {
+    res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'User id required' } });
     return;
   }
 
-  const ip = getIp(req);
-
+  let target;
   try {
-    const result = await createUserImpersonationSession(
-      req.user.id,
-      targetId,
-      ip ?? undefined
-    );
-
-    // Audit log — user.impersonate is treated as a critical action
-    await logAdminAction(
-      req.user.id,
-      'user.impersonate',
-      'user',
-      targetId,
-      { target_email: result.user.email, session_id: result.sessionId },
-      ip
-    );
-
-    return apiResponse.success(res, {
-      token: result.token,
-      user:  result.user,
-    });
+    target = await validateImpersonationTarget(targetId);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Failed to create impersonation session';
-
-    // Business-rule rejections (not found, inactive, role conflict) — 400
-    if (
-      msg === 'Target user not found' ||
-      msg === 'Cannot impersonate an inactive user' ||
-      msg === 'Cannot impersonate another super_admin'
-    ) {
-      log.warn('User impersonation rejected', { adminId: req.user.id, targetId, reason: msg }, 'admin-api');
-      return apiResponse.badRequest(res, msg);
-    }
-
-    log.error('User impersonation failed', { adminId: req.user.id, targetId, error: err }, 'admin-api');
-    return apiResponse.internalError(res, 'Failed to create impersonation session');
+    const code = err instanceof Error ? err.message : 'TARGET_INVALID';
+    const status = code === 'TARGET_NOT_FOUND' ? 404 : code === 'CANNOT_IMPERSONATE_SUPER_ADMIN' ? 403 : 400;
+    res.status(status).json({ success: false, error: { code, message: code } });
+    return;
   }
+
+  const cookies = parseCookies(req);
+  const adminAccess = cookies[ACCESS_COOKIE];
+  const adminRefresh = cookies[REFRESH_COOKIE];
+  if (!adminAccess || !adminRefresh) {
+    res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Admin session cookies required' } });
+    return;
+  }
+
+  let targetTokens;
+  try {
+    const link = await generateLink('magiclink', target.email);
+    targetTokens = await verifyMagicLink(link.token, target.email);
+  } catch (err) {
+    log.error(
+      'impersonate: gotrue flow failed',
+      { message: err instanceof Error ? err.message : String(err), status: err instanceof GotrueAdminLinkError ? err.status : undefined },
+      'Admin'
+    );
+    res.status(502).json({ success: false, error: { code: 'GOTRUE_FAILURE', message: 'Unable to start impersonation session' } });
+    return;
+  }
+
+  const stashId = await stashAdminTokens({
+    adminUserId: req.user.id,
+    adminAccessToken: adminAccess,
+    adminRefreshToken: adminRefresh,
+    targetUserId: target.userId,
+  });
+
+  // Audit-log in a try/catch: a transient DB failure here must NOT abort the
+  // impersonation (the stash row is already committed; aborting would lock
+  // the admin out of both their session and the returned stash_id for 1 hour
+  // until the TTL cleans it up). Log the failure and continue.
+  try {
+    await sql`
+      INSERT INTO admin_audit_log (admin_user_id, action, target_type, target_id, details)
+      VALUES (
+        ${req.user.id},
+        'impersonation_start',
+        'user',
+        ${target.userId},
+        ${JSON.stringify({ stash_id: stashId, target_email: target.email })}::jsonb
+      )
+    `;
+  } catch (err) {
+    log.error(
+      'impersonate: audit log insert failed — continuing with session swap',
+      { message: err instanceof Error ? err.message : String(err), stash_id: stashId, admin_user_id: req.user.id, target_user_id: target.userId },
+      'Admin'
+    );
+  }
+
+  setAuthCookies(res, {
+    accessToken: targetTokens.access_token,
+    refreshToken: targetTokens.refresh_token,
+    expiresIn: targetTokens.expires_in,
+  });
+
+  const memberships = await sql<{ company_id: string }>`
+    SELECT company_id FROM company_users
+    WHERE user_id = ${target.userId}
+    ORDER BY is_default DESC, created_at ASC
+    LIMIT 1
+  `;
+  if (memberships.length > 0) setActiveCompanyCookie(res, memberships[0]!.company_id);
+
+  setImpersonationCookies(res, stashId);
+
+  res.status(200).json({ success: true, data: { redirect: '/accounting' } });
 }
 
 export default withAdmin(handler);
