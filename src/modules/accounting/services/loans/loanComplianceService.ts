@@ -33,6 +33,20 @@ export interface NpvImpactResult {
   substantial: boolean; // deltaPct > 10
 }
 
+export interface RateShock {
+  bps: number;            // shift in basis points (e.g. +100, -200)
+  interestNext12m: number; // total interest over the next 12 months under the shock
+  interestDelta: number;  // interestNext12m − baseInterest12m
+}
+
+export interface RateSensitivityResult {
+  baseInterest12m: number;
+  minus200bp: RateShock;
+  minus100bp: RateShock;
+  plus100bp: RateShock;
+  plus200bp: RateShock;
+}
+
 export interface Assessment {
   id: string;
   companyId: string;
@@ -150,6 +164,38 @@ export function computeNpvImpact(
     newNpv: newNpv.toDecimalPlaces(2).toNumber(),
     deltaPct,
     substantial: deltaPct > 10,
+  };
+}
+
+// ── computeRateSensitivity (pure, IFRS 7) ───────────────────────────────────
+
+function shockCurve(curve: RatePoint[], bps: number): RatePoint[] {
+  // +/-100bp etc. — shift every point by bps/100 percentage points.
+  const delta = bps / 100;
+  return curve.map((p) => ({ ...p, rate: Math.max(0, p.rate + delta) }));
+}
+
+function interestOverNext12m(inputs: LoanInputs, curve: RatePoint[]): number {
+  const rows = amortise(inputs, [], curve);
+  return rows.slice(0, 12).reduce((s, r) => s + r.interest, 0);
+}
+
+export function computeRateSensitivity(
+  inputs: LoanInputs,
+  curve: RatePoint[],
+): RateSensitivityResult {
+  const base = interestOverNext12m(inputs, curve);
+  const mk = (bps: number): RateShock => {
+    const shocked = bps === 0 ? curve : shockCurve(curve, bps);
+    const interest = interestOverNext12m(inputs, shocked);
+    return { bps, interestNext12m: interest, interestDelta: interest - base };
+  };
+  return {
+    baseInterest12m: base,
+    minus200bp: mk(-200),
+    minus100bp: mk(-100),
+    plus100bp: mk(100),
+    plus200bp: mk(200),
   };
 }
 
