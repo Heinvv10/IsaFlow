@@ -8,12 +8,20 @@ const handler: NextApiHandler = async (req, res) => {
     return res.status(405).json({ success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'POST required' } });
   }
   const user = (req as UserAuthedRequest).user;
-  const { currentPassword, newPassword } = req.body ?? {};
+  // Accept legacy `oldPassword` alongside `currentPassword` — the /my-account
+  // form still uses the old field name.
+  const body = req.body ?? {};
+  const currentPassword = typeof body.currentPassword === 'string'
+    ? body.currentPassword
+    : typeof body.oldPassword === 'string' ? body.oldPassword : undefined;
+  const { newPassword } = body;
   if (typeof currentPassword !== 'string' || typeof newPassword !== 'string') {
     return res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'currentPassword and newPassword required' } });
   }
-  if (newPassword.length < 10) {
-    return res.status(400).json({ success: false, error: { code: 'WEAK_PASSWORD', message: 'Password must be at least 10 characters' } });
+  // Match the frontend /my-account form's 8-char minimum so users don't hit
+  // a silent 400 after passing client-side validation.
+  if (newPassword.length < 8) {
+    return res.status(400).json({ success: false, error: { code: 'WEAK_PASSWORD', message: 'Password must be at least 8 characters' } });
   }
   if (!user.email) {
     return res.status(400).json({ success: false, error: { code: 'NO_EMAIL', message: 'User email missing in token' } });
