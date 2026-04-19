@@ -20,7 +20,7 @@ const LOGO_PATH = (() => {
 
 // ─── Email Log ────────────────────────────────────────────────────────────────
 
-export type EmailType = 'invoice' | 'statement' | 'quote' | 'payment_receipt' | 'invite' | 'other';
+export type EmailType = 'invoice' | 'statement' | 'quote' | 'payment_receipt' | 'invite' | 'practice_digest' | 'other';
 
 interface EmailLogPayload {
   companyId: string | null;
