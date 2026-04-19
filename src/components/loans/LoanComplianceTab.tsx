@@ -50,6 +50,7 @@ export function LoanComplianceTab({ loanId }: Props) {
     setLoading(false);
   }, [loanId]);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- idiomatic data load
   useEffect(() => { load(); }, [load]);
 
   const runAssessment = async () => {
@@ -138,7 +139,7 @@ export function LoanComplianceTab({ loanId }: Props) {
         <div className="flex flex-col items-center justify-center py-12 text-[var(--ff-text-tertiary)]">
           <ShieldCheck className="h-8 w-8 mb-2" />
           <p className="text-sm">No compliance assessments yet.</p>
-          <p className="text-xs mt-1">Click "Run Assessment" to evaluate NCA and IFRS 9 status.</p>
+          <p className="text-xs mt-1">Click &ldquo;Run Assessment&rdquo; to evaluate NCA and IFRS 9 status.</p>
         </div>
       )}
 

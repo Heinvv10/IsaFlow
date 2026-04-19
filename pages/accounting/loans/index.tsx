@@ -59,6 +59,7 @@ export default function LoansIndexPage() {
     setLoading(false);
   }, []);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- idiomatic data load
   useEffect(() => { load(); }, [load]);
 
   const filtered = loans.filter(l => {
