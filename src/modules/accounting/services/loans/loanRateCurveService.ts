@@ -105,7 +105,7 @@ export async function createRateCurve(
 }
 
 export async function upsertRatePoints(
-  _companyId: string,
+  companyId: string,
   curveId: string,
   points: RatePointInput[],
 ): Promise<number> {
@@ -113,6 +113,12 @@ export async function upsertRatePoints(
   for (const p of points) {
     if (p.rate <= 0) throw new Error('rate must be positive');
   }
+
+  // Multi-tenant guard: the curve must belong to the caller's company
+  const owners = (await sql`
+    SELECT id FROM loan_rate_curves WHERE id = ${curveId} AND company_id = ${companyId}
+  `) as Row[];
+  if (owners.length === 0) throw new Error(`Rate curve ${curveId} not found`);
 
   let inserted = 0;
   for (const p of points) {

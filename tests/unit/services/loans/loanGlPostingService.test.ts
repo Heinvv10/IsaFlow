@@ -147,6 +147,26 @@ describe('buildPeriodJournalInput', () => {
     const cr = input.lines.reduce((s, l) => s + l.credit, 0);
     expect(dr).toBeCloseTo(cr, 2);
   });
+
+  it('balanced when payment is less than interest (tiny-remainder case)', () => {
+    // Last period with small balance, interest > payment (clearing to residual)
+    const row = makeRow({
+      opening: 100, interest: 50, principal: -30, payment: 20, closing: 130,
+    });
+    const input = buildPeriodJournalInput(row, ACCOUNTS, 'payment<interest');
+    const dr = input.lines.reduce((s, l) => s + l.debit, 0);
+    const cr = input.lines.reduce((s, l) => s + l.credit, 0);
+    expect(dr).toBeCloseTo(cr, 2);
+  });
+
+  it('omits interest expense line when interest is zero (already fully capped)', () => {
+    const row = makeRow({ interest: 0, principal: 4_663.84, payment: 4_663.84 });
+    const input = buildPeriodJournalInput(row, ACCOUNTS, 'No interest');
+    expect(input.lines.some((l) => l.glAccountId === ACCOUNTS.interestExpense)).toBe(false);
+    const dr = input.lines.reduce((s, l) => s + l.debit, 0);
+    const cr = input.lines.reduce((s, l) => s + l.credit, 0);
+    expect(dr).toBeCloseTo(cr, 2);
+  });
 });
 
 // ── postPeriodJournals ──────────────────────────────────────────────────────

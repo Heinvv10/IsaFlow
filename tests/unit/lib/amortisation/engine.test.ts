@@ -30,6 +30,19 @@ const NO_EVENTS: LoanEvent[] = [];
 // PMT / basic amortisation
 // ──────────────────────────────────────────────────────────────────────────────
 
+describe('amortise – zero interest rate edge case', () => {
+  it('rate=0 produces flat principal-only installments with zero total interest', () => {
+    const loan: LoanInputs = { ...FIXED_RATE_LOAN, fixedRate: 0, termMonths: 12, principal: 120_000 };
+    const curve: RatePoint[] = [{ effectiveDate: '2019-01-01', rate: 0 }];
+    const rows = amortise(loan, NO_EVENTS, curve);
+    expect(rows).toHaveLength(12);
+    const sumInterest = rows.reduce((s, r) => s + r.interest, 0);
+    expect(sumInterest).toBeCloseTo(0, 2);
+    expect(rows[0]!.installment).toBeCloseTo(10_000, 2);  // 120k / 12
+    expect(rows[11]!.closing).toBeCloseTo(0, 1);
+  });
+});
+
 describe('amortise – basic fixed-rate loan', () => {
   it('produces exactly termMonths rows', () => {
     const rows = amortise(FIXED_RATE_LOAN, NO_EVENTS, FIXED_12_CURVE);

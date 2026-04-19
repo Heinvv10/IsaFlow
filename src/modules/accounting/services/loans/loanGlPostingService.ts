@@ -53,7 +53,10 @@ export function buildPeriodJournalInput(
     lines.push({ glAccountId: accounts.interestExpense, debit: row.interest, credit: 0, description: narrative });
     lines.push({ glAccountId: accounts.interestPayable, debit: 0, credit: row.interest, description: narrative });
   } else {
-    const principalPaid = Math.max(0, row.payment - row.interest);
+    // Raw (signed) principal portion: when payment < interest, principal is negative
+    // which means the loan liability grows (Cr instead of Dr). Keeping the sign
+    // preserves the debit-credit balance across every cashflow case.
+    const principalPaid = row.payment - row.interest;
     const bankOut = row.payment + row.lump;
 
     if (row.interest > 0) {
@@ -61,6 +64,8 @@ export function buildPeriodJournalInput(
     }
     if (principalPaid > 0) {
       lines.push({ glAccountId: accounts.loanLiability, debit: principalPaid, credit: 0, description: narrative });
+    } else if (principalPaid < 0) {
+      lines.push({ glAccountId: accounts.loanLiability, debit: 0, credit: -principalPaid, description: `${narrative} – interest capitalised` });
     }
     if (row.lump > 0) {
       lines.push({ glAccountId: accounts.loanLiability, debit: row.lump, credit: 0, description: `${narrative} – lump` });

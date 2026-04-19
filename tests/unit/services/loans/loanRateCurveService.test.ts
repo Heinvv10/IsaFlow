@@ -116,8 +116,10 @@ describe('upsertRatePoints', () => {
       { effectiveDate: '2026-01-01', rate: 10.25 },
       { effectiveDate: '2026-03-01', rate: 11.00 },
     ];
-    // One sql call per point (upsert loop)
-    sqlMock.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    sqlMock
+      .mockResolvedValueOnce([{ id: CURVE_ID }])  // ownership check passes
+      .mockResolvedValueOnce([])                   // upsert point 1
+      .mockResolvedValueOnce([]);                  // upsert point 2
     const count = await upsertRatePoints(COMPANY_ID, CURVE_ID, points);
     expect(count).toBe(2);
   });
@@ -130,6 +132,13 @@ describe('upsertRatePoints', () => {
     await expect(
       upsertRatePoints(COMPANY_ID, CURVE_ID, [{ effectiveDate: '2026-01-01', rate: 0 }]),
     ).rejects.toThrow('positive');
+  });
+
+  it('throws when curve belongs to a different company (IDOR guard)', async () => {
+    sqlMock.mockResolvedValueOnce([]);  // ownership check returns empty — not our curve
+    await expect(
+      upsertRatePoints(COMPANY_ID, CURVE_ID, [{ effectiveDate: '2026-01-01', rate: 10 }]),
+    ).rejects.toThrow('not found');
   });
 });
 

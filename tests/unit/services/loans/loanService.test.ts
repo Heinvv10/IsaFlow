@@ -99,6 +99,17 @@ beforeEach(() => {
 
 // ── listLoans ─────────────────────────────────────────────────────────────────
 
+describe('listLoans — cross-tenant isolation', () => {
+  it('scopes SELECT to the caller company_id', async () => {
+    sqlMock.mockResolvedValueOnce([]);
+    await listLoans(COMPANY_ID);
+    // Capture template-literal args — companyId must appear in the SQL bindings
+    const call = sqlMock.mock.calls[0];
+    const bindings = Array.isArray(call) ? call.slice(1).flat() : [];
+    expect(bindings).toContain(COMPANY_ID);
+  });
+});
+
 describe('listLoans', () => {
   it('returns mapped loans for company', async () => {
     sqlMock.mockResolvedValueOnce([makeLoanRow()]);
