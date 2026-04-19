@@ -1,58 +1,37 @@
-/**
- * POST /api/auth/2fa-disable
- * Disable 2FA for the authenticated user (requires current code).
- */
-
-import type { NextApiRequest, NextApiResponse } from 'next';
-import { z } from 'zod';
-import { withUserAuth } from '@/lib/auth/withUserAuth';
-import type { AuthenticatedNextApiRequest } from '@/lib/auth/withUserAuth';
-import { apiResponse } from '@/lib/apiResponse';
-import { disable2FA } from '@/modules/auth/services/twoFactorService';
+// pages/api/auth/2fa-disable.ts
+// Disable 2FA: verify a current TOTP code (proves possession), then unenroll.
+import type { NextApiHandler } from 'next';
+import { parseCookies, ACCESS_COOKIE } from '@/lib/auth/cookies';
+import { challengeFactor, verifyFactor, unenrollFactor, GotrueMfaError } from '@/lib/auth/gotrue-mfa';
 import { log } from '@/lib/logger';
-import { withErrorHandler } from '@/lib/api-error-handler';
-import { checkRateLimit } from '@/lib/rateLimit';
 
-const PostBody = z.object({
-  /** TOTP code or backup code used to confirm disabling 2FA. */
-  code: z.string().min(1, 'Current 2FA code is required'),
-}).strict();
-
-async function handler(req: NextApiRequest, res: NextApiResponse) {
+const handler: NextApiHandler = async (req, res) => {
   if (req.method !== 'POST') {
-    return apiResponse.methodNotAllowed(res, req.method ?? 'unknown', ['POST']);
+    return res.status(405).json({ success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'POST required' } });
   }
-
-  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
-  if (!(await checkRateLimit(`2fa-disable:${ip}`, { max: 5, windowSecs: 15 * 60 }))) {
-    return res.status(429).json({ success: false, error: 'Too many attempts. Try again later.' });
+  const token = parseCookies(req)[ACCESS_COOKIE];
+  if (!token) {
+    return res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
   }
-
-  const parsed = PostBody.safeParse(req.body);
-  if (!parsed.success) {
-    return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
+  const { factor_id, code } = req.body ?? {};
+  if (typeof factor_id !== 'string' || typeof code !== 'string') {
+    return res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'factor_id and code required' } });
   }
-
-  const { user } = req as AuthenticatedNextApiRequest;
-  const { code } = parsed.data;
-
   try {
-    const success = await disable2FA(user.id, code.trim());
-
-    if (!success) {
-      return res.status(400).json({
+    const challengeId = await challengeFactor(factor_id, token);
+    await verifyFactor(factor_id, challengeId, code, token);
+    await unenrollFactor(factor_id, token);
+    return res.status(200).json({ success: true });
+  } catch (err) {
+    if (err instanceof GotrueMfaError) {
+      log.info('2fa-disable failed', { status: err.status }, 'Auth');
+      return res.status(err.status === 422 ? 400 : err.status).json({
         success: false,
-        error: { code: 'INVALID_CODE', message: 'Invalid authentication code' },
+        error: { code: err.status === 422 ? 'INVALID_CODE' : 'DISABLE_FAILED', message: 'Invalid verification code' },
       });
     }
-
-    log.info('2FA disabled', { userId: user.id }, 'api/auth/2fa-disable');
-
-    return apiResponse.success(res, null, '2FA has been disabled');
-  } catch (err) {
-    log.error('2fa-disable error', err instanceof Error ? { message: err.message } : { err }, 'api/auth/2fa-disable');
-    return apiResponse.internalError(res, err);
+    throw err;
   }
-}
+};
 
-export default withUserAuth(withErrorHandler(handler));
+export default handler;
