@@ -84,8 +84,14 @@ export default function ApprovalsPage() {
     try {
       const res = await apiFetch('/api/accounting/practice/clients?status=active');
       if (!res.ok) return;
-      const json = (await res.json()) as { data?: PracticeClient[] } | PracticeClient[];
-      setClients(Array.isArray(json) ? json : (json.data ?? []));
+      const json = (await res.json()) as unknown;
+      const payload = (json && typeof json === 'object' && 'data' in json ? (json as { data: unknown }).data : json) as unknown;
+      const list = Array.isArray(payload)
+        ? payload
+        : (payload && typeof payload === 'object' && Array.isArray((payload as { clients?: unknown }).clients))
+          ? (payload as { clients: PracticeClient[] }).clients
+          : [];
+      setClients(list as PracticeClient[]);
     } catch (_err) { /* non-fatal */ }
   }, []);
 
