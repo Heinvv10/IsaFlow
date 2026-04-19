@@ -3,7 +3,7 @@
 
 CREATE TABLE IF NOT EXISTS payroll_leave_types (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  company_id      UUID NOT NULL,
+  company_id      UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
   name            VARCHAR(100) NOT NULL,
   bcea_type       VARCHAR(30)
     CHECK (bcea_type IN ('annual', 'sick', 'family_responsibility', 'maternity', 'paternity', 'unpaid', 'study', 'other')),
@@ -49,3 +49,5 @@ CREATE TABLE IF NOT EXISTS payroll_leave_requests (
 );
 
 CREATE INDEX IF NOT EXISTS idx_plr_employee ON payroll_leave_requests (employee_id, status);
+CREATE INDEX IF NOT EXISTS idx_payroll_leave_requests_leave_type
+  ON payroll_leave_requests (leave_type_id);

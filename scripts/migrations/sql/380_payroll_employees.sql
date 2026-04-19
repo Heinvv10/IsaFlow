@@ -4,7 +4,7 @@
 
 CREATE TABLE IF NOT EXISTS payroll_employees (
   id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  company_id            UUID NOT NULL,
+  company_id            UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
   employee_number       VARCHAR(20) NOT NULL,
   first_name            VARCHAR(100) NOT NULL,
   last_name             VARCHAR(100) NOT NULL,
@@ -19,9 +19,9 @@ CREATE TABLE IF NOT EXISTS payroll_employees (
   uif_number            VARCHAR(30),
   uif_excluded          BOOLEAN NOT NULL DEFAULT FALSE,
   equity_race           VARCHAR(30)
-    CHECK (equity_race IN ('african', 'coloured', 'indian', 'white', 'foreign', NULL)),
+    CHECK (equity_race IS NULL OR equity_race IN ('african', 'coloured', 'indian', 'white', 'foreign')),
   equity_gender         VARCHAR(10)
-    CHECK (equity_gender IN ('male', 'female', NULL)),
+    CHECK (equity_gender IS NULL OR equity_gender IN ('male', 'female')),
   equity_disability     BOOLEAN NOT NULL DEFAULT FALSE,
   date_of_birth         DATE,
   department            VARCHAR(100),

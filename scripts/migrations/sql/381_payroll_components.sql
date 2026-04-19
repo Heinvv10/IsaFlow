@@ -3,7 +3,7 @@
 
 CREATE TABLE IF NOT EXISTS payroll_components (
   id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  company_id        UUID NOT NULL,
+  company_id        UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
   name              VARCHAR(100) NOT NULL,
   sars_source_code  VARCHAR(10) NOT NULL,
   component_type    VARCHAR(20) NOT NULL

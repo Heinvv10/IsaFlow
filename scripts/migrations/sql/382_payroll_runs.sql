@@ -3,7 +3,7 @@
 
 CREATE TABLE IF NOT EXISTS payroll_run_headers (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  company_id      UUID NOT NULL,
+  company_id      UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
   period_month    INT NOT NULL CHECK (period_month BETWEEN 1 AND 12),
   period_year     INT NOT NULL CHECK (period_year >= 2020),
   status          VARCHAR(20) NOT NULL DEFAULT 'draft'
@@ -24,11 +24,11 @@ CREATE TABLE IF NOT EXISTS payroll_run_headers (
   UNIQUE (company_id, period_year, period_month)
 );
 
-CREATE INDEX IF NOT EXISTS idx_prh_company
+CREATE INDEX IF NOT EXISTS idx_payroll_run_headers_company
   ON payroll_run_headers (company_id);
-CREATE INDEX IF NOT EXISTS idx_prh_period
+CREATE INDEX IF NOT EXISTS idx_payroll_run_headers_period
   ON payroll_run_headers (company_id, period_year, period_month);
-CREATE INDEX IF NOT EXISTS idx_prh_status
+CREATE INDEX IF NOT EXISTS idx_payroll_run_headers_status
   ON payroll_run_headers (company_id, status);
 
 CREATE TABLE IF NOT EXISTS payroll_run_lines (
@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS payroll_run_lines (
   UNIQUE (run_id, employee_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_prl_run
+CREATE INDEX IF NOT EXISTS idx_payroll_run_lines_run
   ON payroll_run_lines (run_id);
-CREATE INDEX IF NOT EXISTS idx_prl_employee
+CREATE INDEX IF NOT EXISTS idx_payroll_run_lines_employee
   ON payroll_run_lines (employee_id);
