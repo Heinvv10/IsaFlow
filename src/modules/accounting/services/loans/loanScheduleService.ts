@@ -18,7 +18,10 @@ export interface ScheduleResult {
 
 export interface PortfolioSummary {
   totalLoans: number;
+  /** Actual outstanding = original principal − sum of recorded principal payments */
   totalOutstanding: number;
+  /** Forward-looking outstanding from the latest amortisation schedule projection */
+  totalOutstandingProjected: number;
   weightedAvgRate: number;
   next12mInterest: number;
   totalCurrentPortion: number;
@@ -209,38 +212,61 @@ export async function getOrComputeSchedule(
 export async function getPortfolioSummary(companyId: string): Promise<PortfolioSummary> {
   const rows = (await sql`
     SELECT
-      COUNT(*)                                           AS total_loans,
-      SUM(l.principal)                                   AS total_outstanding,
-      AVG(CASE WHEN l.rate_mode = 'FIXED' THEN l.fixed_rate
-               ELSE NULL END)                            AS weighted_avg_rate,
-      SUM(lsr.st_liability)                              AS total_current_portion,
-      COALESCE(SUM(next12.interest_sum), 0)              AS next_12m_interest,
-      COUNT(*) FILTER (WHERE l.status = 'active')        AS active_count,
-      COUNT(*) FILTER (WHERE l.status = 'closed')        AS closed_count
+      COUNT(*)                                                                      AS total_loans,
+      COUNT(*) FILTER (WHERE l.status = 'active')                                  AS active_count,
+      COUNT(*) FILTER (WHERE l.status = 'closed')                                  AS closed_count,
+
+      -- Actuals: original principal minus recorded principal payments
+      COALESCE(SUM(l.principal - COALESCE(pp.total_principal_paid, 0))
+        FILTER (WHERE l.status = 'active'), 0)                                    AS total_outstanding,
+      -- Projection: closing balance from latest schedule run (period 1 row)
+      COALESCE(SUM(lsr.closing) FILTER (WHERE l.status = 'active'), 0)            AS total_outstanding_projected,
+      -- Weighted avg rate by actual remaining principal balance
+      COALESCE(
+        SUM(COALESCE(l.fixed_rate, 0) * (l.principal - COALESCE(pp.total_principal_paid, 0)))
+          FILTER (WHERE l.status = 'active')
+        / NULLIF(
+            SUM(l.principal - COALESCE(pp.total_principal_paid, 0))
+              FILTER (WHERE l.status = 'active'), 0),
+        0
+      )                                                                            AS weighted_avg_rate,
+      -- Current portion: st_liability from latest schedule row 1
+      COALESCE(SUM(lsr.st_liability) FILTER (WHERE l.status = 'active'), 0)       AS total_current_portion,
+      -- Next-12m interest: forecast from schedule rows dated after today
+      COALESCE(SUM(next12.interest_sum), 0)                                        AS next_12m_interest
+
     FROM loans l
+
+    -- Actual principal paid per loan
     LEFT JOIN LATERAL (
-      SELECT lsr2.st_liability, lsr2.interest
+      SELECT COALESCE(SUM(lp.principal), 0) AS total_principal_paid
+      FROM loan_payments lp
+      WHERE lp.loan_id = l.id AND lp.company_id = ${companyId}
+    ) pp ON true
+
+    -- Latest schedule run first row: closing + st_liability
+    LEFT JOIN LATERAL (
+      SELECT lsr2.closing, lsr2.st_liability
       FROM loan_schedule_rows lsr2
       WHERE lsr2.run_id = (
         SELECT r2.id FROM loan_schedule_runs r2
-        WHERE r2.loan_id = l.id
-        ORDER BY r2.computed_at DESC
-        LIMIT 1
+        WHERE r2.loan_id = l.id ORDER BY r2.computed_at DESC LIMIT 1
       )
-      ORDER BY lsr2.period ASC
-      LIMIT 1
+      ORDER BY lsr2.period ASC LIMIT 1
     ) lsr ON true
+
+    -- Future 12-month interest from latest schedule
     LEFT JOIN LATERAL (
       SELECT SUM(lsr3.interest) AS interest_sum
       FROM loan_schedule_rows lsr3
       WHERE lsr3.run_id = (
         SELECT r3.id FROM loan_schedule_runs r3
-        WHERE r3.loan_id = l.id
-        ORDER BY r3.computed_at DESC
-        LIMIT 1
+        WHERE r3.loan_id = l.id ORDER BY r3.computed_at DESC LIMIT 1
       )
-        AND lsr3.period BETWEEN 1 AND 12
+        AND lsr3.date > CURRENT_DATE
+        AND lsr3.date <= CURRENT_DATE + INTERVAL '12 months'
     ) next12 ON true
+
     WHERE l.company_id = ${companyId}
   `) as Row[];
 
@@ -248,6 +274,7 @@ export async function getPortfolioSummary(companyId: string): Promise<PortfolioS
   return {
     totalLoans: Number(r.total_loans ?? 0),
     totalOutstanding: parseFloat(String(r.total_outstanding ?? '0')),
+    totalOutstandingProjected: parseFloat(String(r.total_outstanding_projected ?? '0')),
     weightedAvgRate: parseFloat(String(r.weighted_avg_rate ?? '0')),
     next12mInterest: parseFloat(String(r.next_12m_interest ?? '0')),
     totalCurrentPortion: parseFloat(String(r.total_current_portion ?? '0')),
