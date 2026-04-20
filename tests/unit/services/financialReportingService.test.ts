@@ -369,6 +369,12 @@ describe('getBalanceSheet', () => {
 describe('getVATReturn', () => {
   beforeEach(() => vi.clearAllMocks());
 
+  // getVATReturn queries: (1) VAT lines, (2) customer_invoices subtotal, (3) supplier_invoices subtotal.
+  // Tests below mock (1); this helper stubs the two invoice base queries that follow.
+  const zeroInvoiceBases = () => {
+    mockSql.mockResolvedValueOnce([{ base: 0 }]).mockResolvedValueOnce([{ base: 0 }]);
+  };
+
   function vatLine(opts: {
     accountType:    'liability' | 'asset';
     accountSubtype: 'vat_output' | 'vat_input';
@@ -403,6 +409,7 @@ describe('getVATReturn', () => {
       vatLine({ accountType: 'liability', accountSubtype: 'vat_output', vatType: 'standard', debit: 0, credit: 15000 }),
       vatLine({ accountType: 'liability', accountSubtype: 'vat_output', vatType: 'standard', debit: 0, credit:  5000 }),
     ]);
+    zeroInvoiceBases();
 
     const report = await getVATReturn(COMPANY_ID, PERIOD_START, PERIOD_END);
     expect(report.totalOutputTax).toBe(20000);
@@ -414,6 +421,7 @@ describe('getVATReturn', () => {
       vatLine({ accountType: 'asset', accountSubtype: 'vat_input', vatType: 'standard', debit: 6000, credit: 0 }),
       vatLine({ accountType: 'asset', accountSubtype: 'vat_input', vatType: 'standard', debit: 4000, credit: 0 }),
     ]);
+    zeroInvoiceBases();
 
     const report = await getVATReturn(COMPANY_ID, PERIOD_START, PERIOD_END);
     expect(report.totalInputTax).toBe(10000);
@@ -425,6 +433,7 @@ describe('getVATReturn', () => {
       vatLine({ accountType: 'liability', accountSubtype: 'vat_output', vatType: 'standard', debit: 0,    credit: 20000 }),
       vatLine({ accountType: 'asset',     accountSubtype: 'vat_input',  vatType: 'standard', debit: 8000, credit: 0     }),
     ]);
+    zeroInvoiceBases();
 
     const report = await getVATReturn(COMPANY_ID, PERIOD_START, PERIOD_END);
     expect(report.netVAT).toBe(12000);
@@ -432,6 +441,7 @@ describe('getVATReturn', () => {
 
   it('returns zero totals and empty box lists when no VAT lines exist', async () => {
     mockSql.mockResolvedValueOnce([]);
+    zeroInvoiceBases();
 
     const report = await getVATReturn(COMPANY_ID, PERIOD_START, PERIOD_END);
     expect(report.totalOutputTax).toBe(0);
@@ -443,6 +453,7 @@ describe('getVATReturn', () => {
     mockSql.mockResolvedValueOnce([
       vatLine({ accountType: 'liability', accountSubtype: 'vat_output', vatType: null, debit: 0, credit: 7500 }),
     ]);
+    zeroInvoiceBases();
 
     const report = await getVATReturn(COMPANY_ID, PERIOD_START, PERIOD_END);
     const box1 = report.outputBoxes.find(b => b.box === '1');
@@ -454,6 +465,7 @@ describe('getVATReturn', () => {
     mockSql.mockResolvedValueOnce([
       vatLine({ accountType: 'asset', accountSubtype: 'vat_input', vatType: null, debit: 3000, credit: 0 }),
     ]);
+    zeroInvoiceBases();
 
     const report = await getVATReturn(COMPANY_ID, PERIOD_START, PERIOD_END);
     const box15 = report.inputBoxes.find(b => b.box === '15');
@@ -465,6 +477,7 @@ describe('getVATReturn', () => {
     mockSql.mockResolvedValueOnce([
       vatLine({ accountType: 'liability', accountSubtype: 'vat_output', vatType: 'standard', debit: 0, credit: 10000 }),
     ]);
+    zeroInvoiceBases();
 
     const report = await getVATReturn(COMPANY_ID, PERIOD_START, PERIOD_END);
     expect(report.outputDetails.length).toBeGreaterThan(0);
@@ -473,6 +486,7 @@ describe('getVATReturn', () => {
 
   it('attaches period metadata to the report', async () => {
     mockSql.mockResolvedValueOnce([]);
+    zeroInvoiceBases();
 
     const report = await getVATReturn(COMPANY_ID, PERIOD_START, PERIOD_END);
     expect(report.periodStart).toBe(PERIOD_START);
