@@ -54,6 +54,7 @@ export type GLEntrySource =
   | 'auto_write_off'
   | 'auto_adjustment'
   | 'auto_vat_adjustment'
+  | 'auto_vat_submission'
   | 'auto_batch_payment'
   | 'auto_recurring'
   | 'auto_purchase_order'
