@@ -47,12 +47,18 @@ export interface GenerateLinkResult {
   verification_type: LinkType;
 }
 
-export async function generateLink(type: LinkType, email: string): Promise<GenerateLinkResult> {
+export async function generateLink(
+  type: LinkType,
+  email: string,
+  redirectTo?: string,
+): Promise<GenerateLinkResult> {
   const key = serviceKey();
   interface RawResponse { action_link?: string; hashed_token?: string; verification_type?: LinkType }
+  const body: Record<string, unknown> = { type, email };
+  if (redirectTo) body.redirect_to = redirectTo;
   const raw = await doFetch<RawResponse>(
     '/admin/generate_link',
-    { method: 'POST', body: JSON.stringify({ type, email }) },
+    { method: 'POST', body: JSON.stringify(body) },
     { Authorization: `Bearer ${key}`, apikey: key }
   );
   const actionLink = raw.action_link ?? '';
