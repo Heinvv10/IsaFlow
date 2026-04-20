@@ -50,7 +50,8 @@ export async function resetPassword(userId: string): Promise<{ reset_link: strin
   if (!target) throw new Error(`User ${userId} not found`);
   if (target.role === 'super_admin') throw new Error('CANNOT_RESET_SUPER_ADMIN');
 
-  const { action_link } = await generateLink('recovery', target.email);
+  const redirectTo = `${process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.isaflow.co.za'}/reset-password`;
+  const { action_link } = await generateLink('recovery', target.email, redirectTo);
 
   log.info('resetPassword — GoTrue recovery link generated', { userId }, 'AdminUserActionsService');
   return { reset_link: action_link };
