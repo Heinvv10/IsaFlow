@@ -77,8 +77,8 @@ async function linkPracticeClients(): Promise<void> {
     if (c.link_customer_id) continue;
     const cid = randomUUID();
     await sql.query(
-      `INSERT INTO customers (id,company_id,name,registration_no,tax_number,status,created_at,updated_at)
-       VALUES ($1,$2,$3,$4,$5,'active',NOW(),NOW()) ON CONFLICT DO NOTHING`,
+      `INSERT INTO customers (id,company_id,name,registration_number,vat_number,is_active,created_at,updated_at)
+       VALUES ($1,$2,$3,$4,$5,true,NOW(),NOW()) ON CONFLICT DO NOTHING`,
       [cid, COMPANY_ID, c.legal_name, c.registration_no, c.tax_no],
     );
     await sql.query(`UPDATE practice_clients SET link_customer_id=$1,updated_at=NOW() WHERE id=$2 AND company_id=$3`,
@@ -115,9 +115,12 @@ async function runLoansClose(month: number, year: number, errors: Err[]): Promis
       if (row['sc'] == null || row['sd'] == null) continue;
       const stL = parseFloat(String(row['ssl'] ?? '0'));
       if (stL <= 0) continue;
-      const date = String(row['sd']).slice(0, 10);
+      const rawDate = row['sd'];
+      const date = rawDate instanceof Date
+        ? rawDate.toISOString().slice(0, 10)
+        : String(rawDate).slice(0, 10);
       const note = `Reclassification – loan ${String(row['reference'] ?? row['id'])} for ${period}`;
-      await createAndPostJE(date, note, 'auto', [
+      await createAndPostJE(date, note, 'manual', [
         { acct: String(row['gl_account_id']),        dr: stL, cr: 0   },
         { acct: String(row['current_portion_account_id']), dr: 0,   cr: stL },
       ]);
@@ -248,7 +251,7 @@ async function runPayrollApprove(month: number, year: number, gl: Record<string,
       if (gl['2140'] && paye > 0) lines.push({ acct: gl['2140']!, dr: 0, cr: paye });
       lines.push({ acct: gl['1110']!, dr: 0, cr: net });
     }
-    const jeId = await createAndPostJE(date, note, 'payroll', lines);
+    const jeId = await createAndPostJE(date, note, 'auto_payroll', lines);
     await sql.query(`UPDATE payroll_run_headers SET status='approved',updated_at=NOW() WHERE id=$1 AND company_id=$2`,[r.id,COMPANY_ID]);
     try { await sql.query(`UPDATE payroll_run_headers SET journal_entry_id=$1 WHERE id=$2 AND company_id=$3`,[jeId,r.id,COMPANY_ID]); } catch { /* mig 399 not applied */ }
     console.log(`  [payroll] run ${r.id} approved — JE ${jeId} gross=${fR(gross)} PAYE=${fR(paye)} net=${fR(net)}`);
