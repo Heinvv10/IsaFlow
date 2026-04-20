@@ -122,7 +122,7 @@ Q4 2026:
 
 ## PRD Tracking
 
-> Last updated: 2026-04-19
+> Last updated: 2026-04-20
 
 | PRD | Title | Phase | Status | Notes |
 |-----|-------|-------|--------|-------|
@@ -130,7 +130,7 @@ Q4 2026:
 | PRD-01 | Practice Management Suite | 2 — Time Entry & WIP | ✅ Shipped | Day/week time entry, WIP workflow, billing pipeline |
 | PRD-01 | Practice Management Suite | 3 — Jobs & Workflow | ✅ Shipped | Jobs, tasks, Kanban DnD, practice staff directory |
 | PRD-01 | Practice Management Suite | 4 — Reports | ✅ Shipped | Utilisation, WIP aging, profitability, pipeline, compliance, service mix |
-| PRD-01 | Practice Management Suite | 5A — Extras | ⚠️ Partial | CSV export done; client rate overrides + CSV import missing |
+| PRD-01 | Practice Management Suite | 5A — Extras | ✅ Shipped | Client rate overrides (mig 395), bulk CSV export + import for clients |
 | PRD-02 | Payroll SA Compliance | 1 — Payroll Engine | ✅ Shipped | Employee master, payslip engine, PAYE/UIF/SDL/ETI, runs |
 | PRD-02 | Payroll SA Compliance | 2 — EMP201 & Reporting | ✅ Shipped | EMP201 generation, payroll components config |
 | PRD-02 | Payroll SA Compliance | 3 — IRP5 / EMP501 | 🔲 Not Started | No IRP5 dashboard or EMP501 page |
