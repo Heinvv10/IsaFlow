@@ -161,7 +161,6 @@ export async function getUserDetail(
       u.phone,
       u.department,
       u.last_login,
-      u.last_login_ip,
       u.suspended_at,
       u.suspended_reason,
       COALESCE(
@@ -211,7 +210,7 @@ export async function getUserDetail(
     created_at: toIso(r.created_at) ?? '',
     phone: r.phone as string | null,
     department: r.department as string | null,
-    last_login_ip: r.last_login_ip as string | null,
+    last_login_ip: null,
     suspended_at: toIso(r.suspended_at),
     suspended_reason: r.suspended_reason as string | null,
     companies,
