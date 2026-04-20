@@ -139,7 +139,7 @@ Q4 2026:
 | PRD-03 | Loan Amortisation | 1 — Data & API | ✅ Shipped | Loans, schedules, rate curves API |
 | PRD-03 | Loan Amortisation | 2 — Frontend | ✅ Shipped | Portfolio, detail, new loan, rate curves pages |
 | PRD-03 | Loan Amortisation | 3 — GL Integration | ✅ Shipped | GL auto-posting, journal entries |
-| PRD-03 | Loan Amortisation | 4 — Period Close / IFRS 9 | ⚠️ Partial | Schedule API exists; no period close UI page |
+| PRD-03 | Loan Amortisation | 4 — Period Close / IFRS 9 | ✅ Shipped | Period close service+API+UI (interest accrual journal posting, bulk + per-loan, period-lock visualisation), NCA in-duplum enforcement, IFRS 9 ECL staging (Stage 1/2/3 + 12m/lifetime/full methods), NPV impact for modification accounting, IFRS 7 rate sensitivity, compliance assessment history tab on loan detail |
 | PRD-04 | Fixed Asset Register | 1 — Data Model & Dual Engine | ✅ Shipped | IAS 16 + SARS tax depreciation, migration 360-362 |
 | PRD-04 | Fixed Asset Register | 2 — Disposals & Journals | ✅ Shipped | Asset disposals with recoupment, GL posting |
 | PRD-04 | Fixed Asset Register | 3 — AFS Integration | ✅ Shipped | PPE movements note auto-populated in AFS |
