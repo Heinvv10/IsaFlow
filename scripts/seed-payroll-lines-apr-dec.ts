@@ -92,6 +92,16 @@ async function countLines(runId: string): Promise<number> {
  * All queries scoped to COMPANY_ID.
  */
 async function resetHeader(runId: string, journalEntryId: string | null): Promise<void> {
+  // Unlink the journal_entry_id from the header FIRST so the FK permits deletion of the JE.
+  await sql.query(
+    `UPDATE payroll_run_headers
+     SET journal_entry_id = NULL,
+         status           = 'draft',
+         updated_at       = NOW()
+     WHERE id          = $1
+       AND company_id  = $2`,
+    [runId, COMPANY_ID],
+  );
   if (journalEntryId) {
     await sql.query(
       `DELETE FROM gl_journal_lines WHERE journal_entry_id = $1`,
@@ -103,15 +113,10 @@ async function resetHeader(runId: string, journalEntryId: string | null): Promis
       [journalEntryId, COMPANY_ID],
     );
   }
-
+  // Also delete any stale run_lines
   await sql.query(
-    `UPDATE payroll_run_headers
-     SET journal_entry_id = NULL,
-         status           = 'draft',
-         updated_at       = NOW()
-     WHERE id          = $1
-       AND company_id  = $2`,
-    [runId, COMPANY_ID],
+    `DELETE FROM payroll_run_lines WHERE run_id = $1`,
+    [runId],
   );
 }
 

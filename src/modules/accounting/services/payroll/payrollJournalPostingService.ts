@@ -102,8 +102,12 @@ export async function postPayrollRunJournal(
   const totalEti   = Number(hdr.total_eti)    || 0;
   const totalNet   = Number(hdr.total_net)    || 0;
 
-  // DR 5200 = gross + combined UIF + SDL − ETI (ETI reduces labour cost directly)
-  const labourDebit = Math.round((totalGross + totalUif + totalSdl - totalEti) * 100) / 100;
+  // DR 5200 = gross + employer UIF (half of combined) + SDL − ETI.
+  // Only the employer 1% UIF is a company cost — the employee 1% is deducted
+  // from the employee's own gross to net. Both halves are remitted to SARS
+  // via CR 2150 below.
+  const employerUif = Math.round((totalUif / 2) * 100) / 100;
+  const labourDebit = Math.round((totalGross + employerUif + totalSdl - totalEti) * 100) / 100;
 
   // 5. Build journal lines
   const lines: JournalLineInput[] = [
