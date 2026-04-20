@@ -257,6 +257,41 @@ export async function activateCompany(companyId: string): Promise<void> {
   log.info('activateCompany', { companyId }, 'AdminCompanyService');
 }
 
+export async function createCompany(input: {
+  name: string;
+  trading_name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  plan_id?: string | null;
+}): Promise<{ id: string; name: string }> {
+  const rows = await sql`
+    INSERT INTO companies (
+      name, registered_name, trading_name, email, phone, country, default_currency, status
+    ) VALUES (
+      ${input.name},
+      ${input.name},
+      ${input.trading_name ?? null},
+      ${input.email ?? null},
+      ${input.phone ?? null},
+      'South Africa',
+      'ZAR',
+      'active'
+    )
+    RETURNING id, name
+  `;
+  const created = rows[0] as { id: string; name: string };
+
+  if (input.plan_id) {
+    await sql`
+      INSERT INTO subscriptions (company_id, plan_id, status, billing_cycle, current_period_start)
+      VALUES (${created.id}::uuid, ${input.plan_id}::uuid, 'trial', 'monthly', NOW())
+    `;
+  }
+
+  log.info('createCompany (admin)', { id: created.id, name: created.name, plan_id: input.plan_id ?? null }, 'AdminCompanyService');
+  return created;
+}
+
 /** Soft delete — sets status='deleted', preserves data for audit trail. */
 export async function deleteCompany(companyId: string): Promise<void> {
   await sql`

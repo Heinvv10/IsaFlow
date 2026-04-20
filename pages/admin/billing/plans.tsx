@@ -93,26 +93,35 @@ export default function PlansPage() {
 
   async function handleSave() {
     setFormError('');
-    let features: unknown, limits: unknown;
+    let features: unknown, limits: Record<string, unknown>;
     try { features = JSON.parse(form.features); } catch { setFormError('Features must be valid JSON'); return; }
-    try { limits   = JSON.parse(form.limits);   } catch { setFormError('Limits must be valid JSON'); return; }
+    try {
+      const parsed = JSON.parse(form.limits);
+      if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('object');
+      limits = parsed as Record<string, unknown>;
+    } catch { setFormError('Limits must be a valid JSON object'); return; }
 
-    const body = {
-      code:               form.code,
+    if (form.users_limit.trim() !== '') {
+      const n = parseInt(form.users_limit, 10);
+      if (!Number.isFinite(n) || n < 0) { setFormError('Users Limit must be a non-negative integer'); return; }
+      limits = { ...limits, users: n };
+    }
+
+    const commonBody = {
       name:               form.name,
       description:        form.description,
       monthly_price_cents: Math.round(parseFloat(form.monthly_price) * 100),
       annual_price_cents:  Math.round(parseFloat(form.annual_price)  * 100),
-      users_limit:        form.users_limit ? parseInt(form.users_limit) : null,
       features,
       limits,
     };
+    const body = editId ? commonBody : { code: form.code, ...commonBody };
 
     setSaving(true);
     try {
       const res  = editId
-        ? await apiFetch(`/api/admin/billing/plans/${editId}`, { method: 'PUT',  headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify(body) })
-        : await apiFetch('/api/admin/billing/plans',            { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify(body) });
+        ? await apiFetch(`/api/admin/billing/plans/${editId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify(body) })
+        : await apiFetch('/api/admin/billing/plans',           { method: 'POST',  headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify(body) });
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Save failed');
       setShowForm(false);

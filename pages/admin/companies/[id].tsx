@@ -169,8 +169,13 @@ export default function AdminCompanyDetailPage() {
     if (!id || typeof id !== 'string') return;
     setActionLoading(true); setActionError('');
     try {
-      const res = await apiFetch(`/api/admin/companies/${id}/export`);
-      if (!res.ok) { const json = await res.json(); throw new Error(json.message || 'Export failed'); }
+      const res = await apiFetch(`/api/admin/companies/${id}/export-data`);
+      if (!res.ok) {
+        const text = await res.text();
+        let message = 'Export failed';
+        try { const json = JSON.parse(text) as { message?: string; error?: { message?: string } }; message = json.message || json.error?.message || message; } catch { /* non-JSON error body — keep default */ }
+        throw new Error(message);
+      }
       const blob = await res.blob();
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement('a');
