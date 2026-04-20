@@ -6,7 +6,14 @@ import { getEmployeeComponents } from './payrollComponentService';
 import { calculatePayrollLine } from './payrollCalculator';
 import { validateEmployee, validatePayrollLine } from './validationEngine';
 import { getTaxYear } from './taxTables';
-import type { PayrollPeriod } from './payrollTypes';
+import type { EmployeeComponent, PayrollPeriod } from './payrollTypes';
+import {
+  buildTerminationComponents,
+  getTerminationDetails,
+  getAnnualLeaveBalance,
+  yearsOfService,
+  type TerminationReason,
+} from './payrollTerminationService';
 
 
 type Row = DbRow;
@@ -128,9 +135,15 @@ export async function calculatePayrollRun(
 
   for (const employee of employees) {
     const components = await getEmployeeComponents(employee.id, companyId, periodDate);
-    const line = calculatePayrollLine({
+    const componentsWithTermination = await appendTerminationIfEndingThisPeriod(
+      companyId,
       employee,
       components,
+      period,
+    );
+    const line = calculatePayrollLine({
+      employee,
+      components: componentsWithTermination,
       period,
       taxYear,
       annualPayrollEstimate,
@@ -239,6 +252,58 @@ export interface PayrollRunLine {
   sdl: number;
   eti: number;
   netPay: number;
+}
+
+/**
+ * Append synthetic termination components (leave pay-out, notice pay,
+ * severance) when the employee's end_date falls within this payroll period
+ * and a termination reason is captured on their profile. Silent no-op
+ * otherwise so non-terminating employees are unaffected.
+ */
+async function appendTerminationIfEndingThisPeriod(
+  companyId: string,
+  employee: { id: string; endDate?: Date; startDate: Date },
+  components: EmployeeComponent[],
+  period: PayrollPeriod,
+): Promise<EmployeeComponent[]> {
+  const { endDate, startDate } = employee;
+  if (!endDate) return components;
+  const endYear = endDate.getFullYear();
+  const endMonth = endDate.getMonth() + 1;
+  if (endYear !== period.year || endMonth !== period.month) return components;
+
+  const details = await getTerminationDetails(companyId, employee.id);
+  if (!details || !details.reason) return components;
+
+  const monthlySalary = components
+    .filter((c) => c.component.componentType === 'earning')
+    .reduce((sum, c) => sum + c.amount, 0);
+  if (monthlySalary <= 0) return components;
+
+  const unusedLeaveDays = details.includeLeavePayout
+    ? await getAnnualLeaveBalance(companyId, employee.id, period.year)
+    : 0;
+
+  const termination = buildTerminationComponents({
+    monthlySalary,
+    unusedLeaveDays,
+    noticePeriodDays: details.noticePeriodDays ?? 0,
+    servedNoticeDays: details.servedNoticeDays ?? 0,
+    severanceWeeksPerYear: details.severanceWeeksPerYear ?? 0,
+    yearsOfService: yearsOfService(
+      startDate.toISOString().slice(0, 10),
+      endDate.toISOString().slice(0, 10),
+    ),
+    includeLeavePayout: details.includeLeavePayout,
+    reason: details.reason as TerminationReason,
+  });
+
+  if (termination.length > 0) {
+    log.info('Termination components injected into payroll run', {
+      companyId, employeeId: employee.id, period, count: termination.length,
+    }, 'payrollRunService');
+  }
+  return [...components, ...termination];
 }
 
 export async function getPayrollRunLines(

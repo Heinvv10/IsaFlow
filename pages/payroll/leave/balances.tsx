@@ -4,7 +4,7 @@
  */
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { BarChart3, Loader2, AlertCircle, ArrowLeft } from 'lucide-react';
+import { BarChart3, Loader2, AlertCircle, ArrowLeft, Play, RotateCcw, CheckCircle2 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 
@@ -47,6 +47,9 @@ export default function LeaveBalancesPage() {
   const [leaveTypes, setLeaveTypes] = useState<string[]>([]);
   const [employees, setEmployees] = useState<EmployeeBalances[]>([]);
   const [year, setYear] = useState(new Date().getFullYear());
+  const [actionBusy, setActionBusy] = useState<'accrue' | 'rollover' | null>(null);
+  const [actionResult, setActionResult] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -90,6 +93,53 @@ export default function LeaveBalancesPage() {
   const currentYear = new Date().getFullYear();
   const yearOptions = [currentYear - 1, currentYear, currentYear + 1];
 
+  const runAccrual = async () => {
+    setActionError(null);
+    setActionResult(null);
+    setActionBusy('accrue');
+    try {
+      const now = new Date();
+      const monthForYear = year === now.getFullYear() ? now.getMonth() + 1 : 12;
+      const res = await apiFetch(`/api/payroll/leave/accrue?year=${year}&month=${monthForYear}`, { method: 'POST' });
+      const json = await res.json() as { data?: { updated: number; skipped: number }; error?: { message?: string } };
+      if (!res.ok) {
+        setActionError(json.error?.message ?? `HTTP ${res.status}`);
+        return;
+      }
+      const r = json.data ?? { updated: 0, skipped: 0 };
+      setActionResult(`Accrual to end of ${monthForYear}/${year}: ${r.updated} updated, ${r.skipped} skipped`);
+      await load();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Accrual failed');
+    } finally {
+      setActionBusy(null);
+    }
+  };
+
+  const runRollover = async () => {
+    const fromYear = year - 1;
+    const toYear = year;
+    if (!window.confirm(`Roll leave balances from ${fromYear} into ${toYear}? Carry-over caps per leave type will be applied.`)) return;
+    setActionError(null);
+    setActionResult(null);
+    setActionBusy('rollover');
+    try {
+      const res = await apiFetch(`/api/payroll/leave/rollover?fromYear=${fromYear}&toYear=${toYear}`, { method: 'POST' });
+      const json = await res.json() as { data?: { updated: number; skipped: number }; error?: { message?: string } };
+      if (!res.ok) {
+        setActionError(json.error?.message ?? `HTTP ${res.status}`);
+        return;
+      }
+      const r = json.data ?? { updated: 0, skipped: 0 };
+      setActionResult(`Rolled ${fromYear} → ${toYear}: ${r.updated} updated, ${r.skipped} skipped (already had activity)`);
+      await load();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Rollover failed');
+    } finally {
+      setActionBusy(null);
+    }
+  };
+
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
@@ -107,7 +157,27 @@ export default function LeaveBalancesPage() {
                 <p className="text-sm text-[var(--ff-text-secondary)]">Remaining leave per employee</p>
               </div>
             </div>
-            <div className="ml-auto">
+            <div className="ml-auto flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void runAccrual()}
+                disabled={actionBusy !== null}
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)] text-sm font-medium disabled:opacity-50"
+                title="Apply BCEA accrual up to the current month"
+              >
+                {actionBusy === 'accrue' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                Run Monthly Accrual
+              </button>
+              <button
+                type="button"
+                onClick={() => void runRollover()}
+                disabled={actionBusy !== null}
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)] text-sm font-medium disabled:opacity-50"
+                title={`Carry balances from ${year - 1} into ${year}`}
+              >
+                {actionBusy === 'rollover' ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                Roll Over Year
+              </button>
               <select
                 value={year}
                 onChange={e => setYear(Number(e.target.value))}
@@ -120,6 +190,18 @@ export default function LeaveBalancesPage() {
         </div>
 
         <div className="p-6 overflow-x-auto">
+          {actionResult && (
+            <div className="mb-4 rounded-lg border border-teal-500/30 bg-teal-500/5 text-sm text-teal-300 px-3 py-2 flex items-start gap-2">
+              <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />
+              <span>{actionResult}</span>
+            </div>
+          )}
+          {actionError && (
+            <div className="mb-4 rounded-lg border border-red-500/30 bg-red-500/5 text-sm text-red-300 px-3 py-2 flex items-start gap-2">
+              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+              <span>{actionError}</span>
+            </div>
+          )}
           {isLoading ? (
             <div className="flex items-center justify-center py-16">
               <Loader2 className="h-8 w-8 animate-spin text-teal-500" />

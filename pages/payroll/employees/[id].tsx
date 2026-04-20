@@ -14,6 +14,7 @@ import {
   type Component,
   type Assignment,
 } from '@/components/payroll/EmployeeComponentsCard';
+import { EmployeeTerminationCard } from '@/components/payroll/EmployeeTerminationCard';
 
 export default function EmployeeDetailPage() {
   const router = useRouter();
@@ -192,6 +193,8 @@ export default function EmployeeDetailPage() {
             onEnd={endAssignment}
             adding={addingAssignment}
           />
+
+          {employeeId && <EmployeeTerminationCard employeeId={employeeId} endDate={employee.endDate ?? null} />}
         </div>
       </div>
     </AppLayout>

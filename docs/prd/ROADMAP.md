@@ -134,7 +134,7 @@ Q4 2026:
 | PRD-02 | Payroll SA Compliance | 1 — Payroll Engine | ✅ Shipped | Employee master, payslip engine, PAYE/UIF/SDL/ETI, runs |
 | PRD-02 | Payroll SA Compliance | 2 — EMP201 & Reporting | ✅ Shipped | EMP201 generation, payroll components config |
 | PRD-02 | Payroll SA Compliance | 3 — IRP5 / EMP501 | ✅ Shipped | IRP5 dashboard, EMP501 reconciliation+CSV export, tax directives, UIF declaration, source-code validation engine, e@syFile IRP5 import (BRS v25.2, MVP), year-end guided workflow. Known e@syFile gaps: ETI codes, directives in the export, foreign nationals, fringe benefits/allowances/lump sums |
-| PRD-02 | Payroll SA Compliance | 4 — Leave Management | 🔲 Not Started | No leave module; BCEA accruals not implemented |
+| PRD-02 | Payroll SA Compliance | 4 — Leave Management | ✅ Shipped | Schema + CRUD service+API+UI, pure BCEA engine, idempotent monthly accrual job, year-end rollover with per-type carry-over caps, termination pay-out (leave 3810 + notice 3605 + severance 3901) auto-injected into payroll run when employee end date falls in period |
 | PRD-03 | Loan Amortisation | 0 — Engine | ✅ Shipped | Pure TS amortisation engine, golden-file tests |
 | PRD-03 | Loan Amortisation | 1 — Data & API | ✅ Shipped | Loans, schedules, rate curves API |
 | PRD-03 | Loan Amortisation | 2 — Frontend | ✅ Shipped | Portfolio, detail, new loan, rate curves pages |
