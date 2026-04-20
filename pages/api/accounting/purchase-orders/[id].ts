@@ -26,6 +26,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   if (!id) return apiResponse.badRequest(res, 'id is required');
 
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_RE.test(id)) return apiResponse.notFound(res, 'Purchase order', id);
+
   // ── GET ────────────────────────────────────────────────────────────────────
   if (req.method === 'GET') {
     const poRows = await sql`

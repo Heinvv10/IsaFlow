@@ -119,7 +119,7 @@ export function getBaseQuery(dataSource: string): string {
     case 'gl_transactions':
       return `FROM gl_journal_entries je
         JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id
-        JOIN gl_accounts a ON a.id = jl.account_id`;
+        JOIN gl_accounts a ON a.id = jl.gl_account_id`;
     case 'customer_invoices':
       return `FROM customer_invoices ci
         LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)`;
