@@ -41,7 +41,7 @@ export async function exportCompanyData(
 
         sql`SELECT * FROM gl_accounts
             WHERE company_id = ${companyId}
-            ORDER BY code`,
+            ORDER BY account_code`,
 
         sql`SELECT * FROM customers
             WHERE company_id = ${companyId}
@@ -51,7 +51,7 @@ export async function exportCompanyData(
             WHERE company_id = ${companyId}
             ORDER BY name`,
 
-        sql`SELECT * FROM invoices
+        sql`SELECT * FROM customer_invoices
             WHERE company_id = ${companyId}
             ORDER BY invoice_date DESC`,
 
