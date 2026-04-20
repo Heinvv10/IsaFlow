@@ -199,6 +199,34 @@ export function DetailsTab({ company, onChange, onCompanyChange, documents, onDo
         </div>
       </section>
 
+      {/* Payroll Tax Registration */}
+      <section className={SECTION_CLS}>
+        <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-1">Payroll Tax Registration</h2>
+        <p className="text-xs text-[var(--ff-text-tertiary)] mb-4">Required for IRP5/EMP501 submissions via SARS e@syFile.</p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className={LABEL_CLS}>PAYE Reference Number</label>
+            <input className={INPUT_CLS} maxLength={10} placeholder="7XXXXXXXXX" value={company.payeReferenceNumber || ''} onChange={e => onChange('payeReferenceNumber', e.target.value)} />
+            <p className="text-[10px] text-[var(--ff-text-tertiary)] mt-1">10 digits. Starts with 7 if registered for PAYE.</p>
+          </div>
+          <div>
+            <label className={LABEL_CLS}>SDL Reference Number</label>
+            <input className={INPUT_CLS} maxLength={10} placeholder="LXXXXXXXXX" value={company.sdlReferenceNumber || ''} onChange={e => onChange('sdlReferenceNumber', e.target.value)} />
+            <p className="text-[10px] text-[var(--ff-text-tertiary)] mt-1">L followed by 9 digits. Leave blank if not registered for SDL.</p>
+          </div>
+          <div>
+            <label className={LABEL_CLS}>UIF Reference Number</label>
+            <input className={INPUT_CLS} maxLength={10} placeholder="UXXXXXXXXX" value={company.uifReferenceNumber || ''} onChange={e => onChange('uifReferenceNumber', e.target.value)} />
+            <p className="text-[10px] text-[var(--ff-text-tertiary)] mt-1">SARS-issued UIF ref (starts with U). Not the UIF fund number.</p>
+          </div>
+          <div>
+            <label className={LABEL_CLS}>SIC7 Code</label>
+            <input className={INPUT_CLS} maxLength={5} placeholder="XXXXX" value={company.sic7Code || ''} onChange={e => onChange('sic7Code', e.target.value)} />
+            <p className="text-[10px] text-[var(--ff-text-tertiary)] mt-1">5-digit SIC7 industry classification code (SARS BRS Appendix C).</p>
+          </div>
+        </div>
+      </section>
+
       {/* Banking */}
       <section className={SECTION_CLS}>
         <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-4">Banking Details</h2>

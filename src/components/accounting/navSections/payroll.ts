@@ -29,6 +29,7 @@ export const payrollTab: Tab = {
     {
       section: 'Compliance',
       items: [
+        { label: 'Year-End Workflow', href: '/payroll/year-end' },
         { label: 'IRP5 Readiness', href: '/payroll/irp5' },
         { label: 'EMP501 Reconciliation', href: '/payroll/emp501' },
         { label: 'Tax Directives', href: '/payroll/tax-directives' },

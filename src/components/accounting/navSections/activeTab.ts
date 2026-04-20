@@ -100,7 +100,8 @@ export function getActiveTabId(
     pathname.startsWith('/payroll/emp501') ||
     pathname.startsWith('/payroll/irp5') ||
     pathname.startsWith('/payroll/uif') ||
-    pathname.startsWith('/payroll/tax-directives')
+    pathname.startsWith('/payroll/tax-directives') ||
+    pathname.startsWith('/payroll/year-end')
   ) {
     return 'tax';
   }

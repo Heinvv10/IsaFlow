@@ -133,7 +133,7 @@ Q4 2026:
 | PRD-01 | Practice Management Suite | 5A — Extras | ✅ Shipped | Client rate overrides (mig 395), bulk CSV export + import for clients |
 | PRD-02 | Payroll SA Compliance | 1 — Payroll Engine | ✅ Shipped | Employee master, payslip engine, PAYE/UIF/SDL/ETI, runs |
 | PRD-02 | Payroll SA Compliance | 2 — EMP201 & Reporting | ✅ Shipped | EMP201 generation, payroll components config |
-| PRD-02 | Payroll SA Compliance | 3 — IRP5 / EMP501 | 🔲 Not Started | No IRP5 dashboard or EMP501 page |
+| PRD-02 | Payroll SA Compliance | 3 — IRP5 / EMP501 | ✅ Shipped | IRP5 dashboard, EMP501 reconciliation+CSV export, tax directives, UIF declaration, source-code validation engine, e@syFile IRP5 import (BRS v25.2, MVP), year-end guided workflow. Known e@syFile gaps: ETI codes, directives in the export, foreign nationals, fringe benefits/allowances/lump sums |
 | PRD-02 | Payroll SA Compliance | 4 — Leave Management | 🔲 Not Started | No leave module; BCEA accruals not implemented |
 | PRD-03 | Loan Amortisation | 0 — Engine | ✅ Shipped | Pure TS amortisation engine, golden-file tests |
 | PRD-03 | Loan Amortisation | 1 — Data & API | ✅ Shipped | Loans, schedules, rate curves API |

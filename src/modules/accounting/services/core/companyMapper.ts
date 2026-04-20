@@ -60,6 +60,11 @@ export interface Company {
   sarsContactCapacity: string | null;
   sarsContactNumber: string | null;
   sarsContactTelephone: string | null;
+  // Payroll tax registration (for IRP5/EMP501 — SARS BRS v25.2)
+  payeReferenceNumber: string | null;
+  sdlReferenceNumber: string | null;
+  uifReferenceNumber: string | null;
+  sic7Code: string | null;
   // Branding
   logoPosition: string;
   logoOnEmails: boolean;
@@ -216,6 +221,10 @@ export function mapCompany(r: Record<string, unknown>): Company {
     sarsContactCapacity: strN(r.sars_contact_capacity),
     sarsContactNumber: strN(r.sars_contact_number),
     sarsContactTelephone: strN(r.sars_contact_telephone),
+    payeReferenceNumber: strN(r.paye_reference_number),
+    sdlReferenceNumber: strN(r.sdl_reference_number),
+    uifReferenceNumber: strN(r.uif_reference_number),
+    sic7Code: strN(r.sic7_code),
     logoPosition: r.logo_position != null ? String(r.logo_position) : 'top-left',
     logoOnEmails: bool(r.logo_on_emails, true),
     logoOnPortal: bool(r.logo_on_portal, true),
