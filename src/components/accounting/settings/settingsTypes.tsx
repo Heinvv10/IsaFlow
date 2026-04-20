@@ -46,6 +46,10 @@ export interface Company {
   sarsContactCapacity: string | null;
   sarsContactNumber: string | null;
   sarsContactTelephone: string | null;
+  payeReferenceNumber: string | null;
+  sdlReferenceNumber: string | null;
+  uifReferenceNumber: string | null;
+  sic7Code: string | null;
   logoPosition: string;
   logoOnEmails: boolean;
   logoOnPortal: boolean;

@@ -3,10 +3,18 @@
  * Route: /payroll/irp5
  */
 import { useEffect, useState, useCallback } from 'react';
-import { FileText, Loader2, AlertCircle, Download, AlertTriangle } from 'lucide-react';
+import { FileText, Loader2, AlertCircle, Download, AlertTriangle, Info } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
+
+type Severity = 'error' | 'warning' | 'info';
+interface ValidationMessage {
+  severity: Severity;
+  code: string;
+  message: string;
+  field?: string;
+}
 
 interface Irp5Employee {
   employeeId: string;
@@ -21,7 +29,7 @@ interface Irp5Employee {
   totalUif: number;
   totalSdl: number;
   status: 'ready' | 'incomplete' | 'missing';
-  flags: string[];
+  messages: ValidationMessage[];
 }
 
 interface Irp5Summary {
@@ -31,8 +39,15 @@ interface Irp5Summary {
   incomplete: number;
   missing: number;
   totalPayeSubmitted: number;
+  componentIssues: ValidationMessage[];
   employees: Irp5Employee[];
 }
+
+const SEVERITY_STYLES: Record<Severity, string> = {
+  error: 'bg-red-500/10 text-red-300 border-red-500/30',
+  warning: 'bg-yellow-500/10 text-yellow-300 border-yellow-500/30',
+  info: 'bg-blue-500/10 text-blue-300 border-blue-500/30',
+};
 
 const STATUS_STYLES: Record<string, string> = {
   ready: 'bg-teal-500/10 text-teal-400',
@@ -105,10 +120,36 @@ export default function Irp5Page() {
     URL.revokeObjectURL(url);
   };
 
+  const [easyFileError, setEasyFileError] = useState<string | null>(null);
+  const handleEasyFileExport = async () => {
+    setEasyFileError(null);
+    try {
+      const res = await apiFetch(`/api/payroll/irp5/easyfile-export?taxYear=${taxYear}`);
+      if (!res.ok) {
+        const json = await res.json().catch(() => null) as { error?: { message?: string; details?: { missing?: string[]; fix?: string } } } | null;
+        const msg = json?.error?.message ?? `HTTP ${res.status}`;
+        const missing = json?.error?.details?.missing;
+        const fix = json?.error?.details?.fix;
+        setEasyFileError([msg, missing ? `Missing: ${missing.join(', ')}` : '', fix ? `Fix here: ${fix}` : ''].filter(Boolean).join(' · '));
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `IRP5_${taxYear - 1}_${taxYear}.irp5`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setEasyFileError(err instanceof Error ? err.message : 'e@syFile export failed');
+    }
+  };
+
   const taxYearLabel = (y: number) => `${y - 1}/${y} (Mar ${y - 1} – Feb ${y})`;
   const yearOptions = [currentTaxYear, currentTaxYear + 1, currentTaxYear + 2];
 
-  const redFlags = summary?.employees.filter(e => e.flags.length > 0) ?? [];
+  const flagged = summary?.employees.filter(e => e.messages.some(m => m.severity !== 'info')) ?? [];
+  const componentIssues = summary?.componentIssues ?? [];
 
   return (
     <AppLayout>
@@ -139,11 +180,25 @@ export default function Irp5Page() {
               >
                 <Download className="h-4 w-4" /> Export CSV
               </button>
+              <button
+                onClick={() => void handleEasyFileExport()}
+                disabled={!summary || summary.employees.length === 0}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-sm text-white font-medium disabled:opacity-50"
+                title="SARS e@syFile IRP5 import file (BRS v25.2)"
+              >
+                <Download className="h-4 w-4" /> e@syFile IRP5
+              </button>
             </div>
           </div>
         </div>
 
         <div className="p-6 space-y-6">
+          {easyFileError && (
+            <div className="rounded-lg border border-red-500/30 bg-red-500/5 text-sm text-red-300 px-3 py-2 flex items-start gap-2">
+              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+              <span>{easyFileError}</span>
+            </div>
+          )}
           {isLoading ? (
             <div className="flex items-center justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-teal-500" /></div>
           ) : error ? (
@@ -158,19 +213,43 @@ export default function Irp5Page() {
                 <SummaryCard label="Total PAYE" value={formatCurrency(summary.totalPayeSubmitted)} sub="Tax year total" />
               </div>
 
-              {/* Red flags */}
-              {redFlags.length > 0 && (
+              {/* Company-wide component issues (duplicate code across components, etc.) */}
+              {componentIssues.length > 0 && (
+                <div className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Info className="h-4 w-4 text-[var(--ff-text-secondary)]" />
+                    <span className="text-sm font-medium text-[var(--ff-text-primary)]">Payroll component configuration</span>
+                  </div>
+                  <ul className="space-y-2">
+                    {componentIssues.map((m, i) => (
+                      <li key={i} className={`text-xs rounded border px-2 py-1.5 ${SEVERITY_STYLES[m.severity]}`}>
+                        {m.message}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Employee flags */}
+              {flagged.length > 0 && (
                 <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/5 p-4">
                   <div className="flex items-center gap-2 mb-3">
                     <AlertTriangle className="h-4 w-4 text-yellow-400" />
-                    <span className="text-sm font-medium text-yellow-400">{redFlags.length} employee{redFlags.length !== 1 ? 's' : ''} with issues</span>
+                    <span className="text-sm font-medium text-yellow-400">
+                      {flagged.length} employee{flagged.length !== 1 ? 's' : ''} with issues
+                    </span>
                   </div>
-                  <ul className="space-y-1">
-                    {redFlags.map(e => (
+                  <ul className="space-y-2">
+                    {flagged.map(e => (
                       <li key={e.employeeId} className="text-sm text-[var(--ff-text-secondary)]">
                         <span className="font-medium text-[var(--ff-text-primary)]">{e.firstName} {e.lastName}</span>
-                        {' — '}
-                        {e.flags.join(', ')}
+                        <ul className="mt-1 ml-4 space-y-1">
+                          {e.messages.filter(m => m.severity !== 'info').map((m, i) => (
+                            <li key={i} className={`inline-block mr-2 text-xs rounded border px-2 py-0.5 ${SEVERITY_STYLES[m.severity]}`}>
+                              {m.message}
+                            </li>
+                          ))}
+                        </ul>
                       </li>
                     ))}
                   </ul>
