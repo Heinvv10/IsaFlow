@@ -1,6 +1,8 @@
 /**
  * GET   /api/payroll/uif/[id] — get declaration detail with employee lines
- * PATCH /api/payroll/uif/[id] — mark declaration as submitted
+ * PATCH /api/payroll/uif/[id] — mark submitted OR paid
+ *   body { markSubmitted: true }               → markUifSubmitted
+ *   body { markPaid: true, paymentDate?, bankAccountId? } → markUifDeclarationPaid
  */
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
@@ -11,9 +13,17 @@ import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import {
   getUifDeclaration,
   markUifSubmitted,
+  markUifDeclarationPaid,
 } from '@/modules/accounting/services/payroll/uifDeclarationService';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+interface PatchBody {
+  markSubmitted?: boolean;
+  markPaid?: boolean;
+  paymentDate?: string;
+  bankAccountId?: string;
+}
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   const { companyId, user } = req as CompanyAuthedRequest;
@@ -28,9 +38,28 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   }
 
   if (req.method === 'PATCH') {
-    const updated = await markUifSubmitted(companyId, id, user.id);
-    if (!updated) return apiResponse.notFound(res, 'UIF declaration', id);
-    return apiResponse.success(res, updated);
+    const body = (req.body ?? {}) as PatchBody;
+
+    if (body.markPaid === true) {
+      const result = await markUifDeclarationPaid(
+        companyId,
+        id,
+        {
+          paymentDate: body.paymentDate,
+          bankAccountId: body.bankAccountId,
+        },
+        user.id,
+      );
+      return apiResponse.success(res, result);
+    }
+
+    if (body.markSubmitted === true) {
+      const updated = await markUifSubmitted(companyId, id, user.id);
+      if (!updated) return apiResponse.notFound(res, 'UIF declaration', id);
+      return apiResponse.success(res, updated);
+    }
+
+    return apiResponse.badRequest(res, 'unknown patch operation — send markSubmitted or markPaid');
   }
 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'PATCH']);
