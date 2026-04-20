@@ -8,6 +8,7 @@ import { validateEmployee, validatePayrollLine } from './validationEngine';
 import { getTaxYear } from './taxTables';
 import type { PayrollPeriod } from './payrollTypes';
 
+
 type Row = DbRow;
 
 export interface PayrollRunSummary {
@@ -25,7 +26,7 @@ export interface PayrollRunSummary {
   employeeCount: number;
 }
 
-function mapRunRow(r: Row): PayrollRunSummary {
+export function mapRunRow(r: Row): PayrollRunSummary {
   return {
     id: String(r.id),
     companyId: String(r.company_id),
