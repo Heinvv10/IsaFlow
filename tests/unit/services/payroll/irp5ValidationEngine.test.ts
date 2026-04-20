@@ -157,14 +157,10 @@ describe('validateEmployeeIrp5', () => {
     expect(has(out, 'IRP5_PAYE_WITHOUT_INCOME_CODE')).toBe(true);
   });
 
-  it('flags UIF without matching code 4141', () => {
-    const out = validateEmployeeIrp5({ ...validEmployee, componentCodes: ['3601', '4102', '4150'] });
-    expect(has(out, 'IRP5_UIF_MISSING_4141')).toBe(true);
-  });
-
-  it('flags SDL without matching code 4150', () => {
-    const out = validateEmployeeIrp5({ ...validEmployee, componentCodes: ['3601', '4102', '4141'] });
-    expect(has(out, 'IRP5_SDL_MISSING_4150')).toBe(true);
+  it('does not flag missing 4141/4150 (UIF/SDL are auto-calculated, never components)', () => {
+    const out = validateEmployeeIrp5({ ...validEmployee, componentCodes: ['3601', '4102'] });
+    expect(has(out, 'IRP5_UIF_MISSING_4141')).toBe(false);
+    expect(has(out, 'IRP5_SDL_MISSING_4150')).toBe(false);
   });
 
   it('flags unknown codes on the employee', () => {

@@ -201,23 +201,11 @@ export function validateEmployeeIrp5(input: EmployeeIrp5Input): ValidationMessag
     }
   }
 
-  // UIF submitted but no matching code 4141 on the employee
-  if (input.totalUif > 0 && !input.componentCodes.includes('4141')) {
-    msgs.push({
-      severity: 'warning',
-      code: 'IRP5_UIF_MISSING_4141',
-      message: 'UIF contribution present but code 4141 is not configured for this employee',
-    });
-  }
-
-  // SDL submitted but no matching code 4150
-  if (input.totalSdl > 0 && !input.componentCodes.includes('4150')) {
-    msgs.push({
-      severity: 'warning',
-      code: 'IRP5_SDL_MISSING_4150',
-      message: 'SDL present but code 4150 is not configured for this employee',
-    });
-  }
+  // Note: we deliberately do NOT check for component codes 4141 (UIF) or 4150 (SDL)
+  // on the employee. In this codebase UIF and SDL are auto-calculated from gross pay
+  // by uifEngine / sdlEngine and landed on IRP5 via run-line aggregation — they are
+  // never payroll_components. An earlier version of this engine flagged their
+  // "absence" as a warning, which fired for every correctly-configured employee.
 
   // Severance lump sum without an approved tax directive — payslip will over/under-tax
   // because the normal PAYE engine is applied instead of the directive rate.
