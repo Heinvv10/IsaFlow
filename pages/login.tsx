@@ -163,7 +163,7 @@ function isSafeRedirect(url: string): boolean {
 
 export default function LoginPage() {
   const router = useRouter();
-  const { error, clearError } = useAuth();
+  const { error, clearError, refreshUser } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -259,7 +259,10 @@ export default function LoginPage() {
         return; // do NOT navigate yet
       }
 
-      // No 2FA — navigate
+      // No 2FA — sync AuthContext with the new session cookie before
+      // navigating so CompanyProvider can load companies on first paint
+      // (otherwise isAuthenticated stays false until the next refresh).
+      await refreshUser();
       await router.push(await postLoginRedirect());
     } catch (err) {
       setTotpError(err instanceof Error ? err.message : 'Login failed');
@@ -292,6 +295,8 @@ export default function LoginPage() {
         setTotpError(json.error?.message ?? 'Invalid code');
         return;
       }
+      // Sync AuthContext before navigating — same reason as the no-MFA path.
+      await refreshUser();
       // Navigate using same postLoginRedirect logic as the no-MFA path
       await router.push(await postLoginRedirect());
     } catch {
