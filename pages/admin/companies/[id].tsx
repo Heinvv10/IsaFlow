@@ -14,16 +14,21 @@ import { useAdminHref } from '@/hooks/useAdminPrefix';
 import {
   ArrowLeft, AlertCircle, Loader2, Building2, ShieldOff, ShieldCheck,
   Trash2, Download, UserCog, ToggleLeft, ToggleRight, RotateCcw,
+  Pencil, Check, X,
 } from 'lucide-react';
 import Link from 'next/link';
 
 interface CompanyDetail {
   id: string;
   name: string;
+  trading_name: string | null;
   registration_number: string | null;
   vat_number: string | null;
   email: string | null;
   phone: string | null;
+  website: string | null;
+  billing_email: string | null;
+  billing_contact: string | null;
   address_line1: string | null;
   city: string | null;
   province: string | null;
@@ -33,6 +38,35 @@ interface CompanyDetail {
   status: string;
   created_at: string;
   last_active: string | null;
+}
+
+type EditableKey =
+  | 'name' | 'trading_name' | 'email' | 'phone' | 'website'
+  | 'billing_email' | 'billing_contact'
+  | 'address_line1' | 'city' | 'province' | 'postal_code';
+
+type EditForm = Record<EditableKey, string>;
+
+const EDITABLE_KEYS: EditableKey[] = [
+  'name', 'trading_name', 'email', 'phone', 'website',
+  'billing_email', 'billing_contact',
+  'address_line1', 'city', 'province', 'postal_code',
+];
+
+function toEditForm(c: CompanyDetail): EditForm {
+  return {
+    name:            c.name ?? '',
+    trading_name:    c.trading_name ?? '',
+    email:           c.email ?? '',
+    phone:           c.phone ?? '',
+    website:         c.website ?? '',
+    billing_email:   c.billing_email ?? '',
+    billing_contact: c.billing_contact ?? '',
+    address_line1:   c.address_line1 ?? '',
+    city:            c.city ?? '',
+    province:        c.province ?? '',
+    postal_code:     c.postal_code ?? '',
+  };
 }
 
 interface CompanyUser {
@@ -87,6 +121,10 @@ export default function AdminCompanyDetailPage() {
   const [suspendOpen, setSuspendOpen]     = useState(false);
   const [suspendReason, setSuspendReason] = useState('');
   const [deleteOpen, setDeleteOpen]       = useState(false);
+  const [editMode, setEditMode]           = useState(false);
+  const [editForm, setEditForm]           = useState<EditForm | null>(null);
+  const [editSaving, setEditSaving]       = useState(false);
+  const [editError, setEditError]         = useState('');
 
   const load = useCallback(async () => {
     if (!id || typeof id !== 'string') return;
@@ -163,6 +201,49 @@ export default function AdminCompanyDetailPage() {
       if (!res.ok) throw new Error(json.message || 'Failed');
       void router.push(adminHref('/admin/companies'));
     } catch (err) { setActionError(err instanceof Error ? err.message : 'Failed'); setActionLoading(false); }
+  }
+
+  function startEdit() {
+    if (!company) return;
+    setEditForm(toEditForm(company));
+    setEditError('');
+    setEditMode(true);
+  }
+
+  function cancelEdit() {
+    setEditMode(false);
+    setEditForm(null);
+    setEditError('');
+  }
+
+  async function handleEditSave() {
+    if (!id || typeof id !== 'string' || !editForm) return;
+    const name = editForm.name.trim();
+    if (!name) { setEditError('Name is required'); return; }
+
+    const body: Partial<Record<EditableKey, string>> = {};
+    for (const key of EDITABLE_KEYS) {
+      const v = editForm[key].trim();
+      if (v !== '') body[key] = v;
+    }
+
+    setEditSaving(true); setEditError('');
+    try {
+      const res  = await apiFetch(`/api/admin/companies/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error((json as { message?: string }).message || 'Save failed');
+      setCompany(json.data as CompanyDetail);
+      setEditMode(false);
+      setEditForm(null);
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'Save failed');
+    } finally {
+      setEditSaving(false);
+    }
   }
 
   async function handleExport() {
@@ -299,16 +380,84 @@ export default function AdminCompanyDetailPage() {
           {activeTab === 'info' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
               <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-5 shadow-sm">
-                <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Company Information</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <Field label="Registration #" value={company.registration_number} />
-                  <Field label="VAT Number"      value={company.vat_number} />
-                  <Field label="Email"           value={company.email} />
-                  <Field label="Phone"           value={company.phone} />
-                  <Field label="Created"         value={formatDate(company.created_at)} />
-                  <Field label="Last Active"     value={formatDate(company.last_active)} />
-                  <div className="col-span-2"><Field label="Address" value={address} /></div>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Company Information</h3>
+                  {!editMode && (
+                    <button
+                      onClick={startEdit}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                    >
+                      <Pencil className="w-3.5 h-3.5" /> Edit
+                    </button>
+                  )}
                 </div>
+
+                {editMode && editForm ? (
+                  <>
+                    {editError && (
+                      <div className="flex items-center gap-2 p-2.5 rounded-lg bg-red-500/10 text-red-400 text-xs mb-3">
+                        <AlertCircle className="w-4 h-4 flex-shrink-0" /> {editError}
+                      </div>
+                    )}
+                    <div className="grid grid-cols-2 gap-3">
+                      {([
+                        ['name',            'Name'],
+                        ['trading_name',    'Trading Name'],
+                        ['email',           'Email'],
+                        ['phone',           'Phone'],
+                        ['website',         'Website'],
+                        ['billing_email',   'Billing Email'],
+                        ['billing_contact', 'Billing Contact'],
+                        ['address_line1',   'Address Line 1'],
+                        ['city',            'City'],
+                        ['province',        'Province'],
+                        ['postal_code',     'Postal Code'],
+                      ] as const).map(([key, label]) => (
+                        <div key={key} className={key === 'address_line1' ? 'col-span-2' : ''}>
+                          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{label}</label>
+                          <input
+                            type={key === 'email' || key === 'billing_email' ? 'email' : key === 'website' ? 'url' : 'text'}
+                            value={editForm[key]}
+                            onChange={e => setEditForm(f => f ? { ...f, [key]: e.target.value } : f)}
+                            disabled={editSaving}
+                            className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-60"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex items-center justify-end gap-2 mt-4">
+                      <button
+                        onClick={cancelEdit}
+                        disabled={editSaving}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
+                      >
+                        <X className="w-3.5 h-3.5" /> Cancel
+                      </button>
+                      <button
+                        onClick={() => void handleEditSave()}
+                        disabled={editSaving}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-teal-600 hover:bg-teal-700 text-white transition-colors disabled:opacity-60"
+                      >
+                        {editSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                        Save Changes
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="grid grid-cols-2 gap-4">
+                    <Field label="Registration #"  value={company.registration_number} />
+                    <Field label="VAT Number"       value={company.vat_number} />
+                    <Field label="Trading Name"     value={company.trading_name} />
+                    <Field label="Website"          value={company.website} />
+                    <Field label="Email"            value={company.email} />
+                    <Field label="Phone"            value={company.phone} />
+                    <Field label="Billing Email"    value={company.billing_email} />
+                    <Field label="Billing Contact"  value={company.billing_contact} />
+                    <Field label="Created"          value={formatDate(company.created_at)} />
+                    <Field label="Last Active"      value={formatDate(company.last_active)} />
+                    <div className="col-span-2"><Field label="Address" value={address} /></div>
+                  </div>
+                )}
               </div>
               <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-5 shadow-sm">
                 <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Subscription</h3>

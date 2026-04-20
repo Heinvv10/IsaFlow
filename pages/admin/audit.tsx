@@ -355,17 +355,31 @@ export default function AdminAuditPage() {
           <div className="flex gap-2">
             <button
               disabled={page <= 1}
-              onClick={() => setPage(p => p - 1)}
-              className="p-1.5 rounded border border-gray-200 dark:border-gray-700 text-gray-500 hover:text-gray-900 dark:hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              onClick={() => setPage(1)}
+              className="inline-flex items-center px-2 py-1.5 text-xs font-medium rounded border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
-              <ChevronLeft className="w-4 h-4" />
+              First
+            </button>
+            <button
+              disabled={page <= 1}
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" /> Prev
             </button>
             <button
               disabled={page >= totalPages}
-              onClick={() => setPage(p => p + 1)}
-              className="p-1.5 rounded border border-gray-200 dark:border-gray-700 text-gray-500 hover:text-gray-900 dark:hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
-              <ChevronRight className="w-4 h-4" />
+              Next <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+            <button
+              disabled={page >= totalPages}
+              onClick={() => setPage(totalPages)}
+              className="inline-flex items-center px-2 py-1.5 text-xs font-medium rounded border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              Last
             </button>
           </div>
         </div>
