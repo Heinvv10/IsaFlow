@@ -115,7 +115,9 @@ async function runLoanPayments(month: number, year: number, errors: Err[]): Prom
       );
       if (!rows[0]) continue;
       const row = rows[0];
-      const paymentDate = row.date instanceof Date ? row.date.toISOString().slice(0, 10) : String(row.date).slice(0, 10);
+      const paymentDate = row.date instanceof Date
+        ? `${row.date.getFullYear()}-${pad(row.date.getMonth() + 1)}-${pad(row.date.getDate())}`
+        : String(row.date).slice(0, 10);
       try {
         const result = await recordLoanPayment(COMPANY_ID, loan.id, {
           paymentDate,
