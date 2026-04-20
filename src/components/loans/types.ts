@@ -55,7 +55,10 @@ export interface LoanEvent {
 
 export interface PortfolioSummary {
   totalLoans: number;
+  /** Actual outstanding = original principal − recorded principal payments */
   totalOutstanding: number;
+  /** Forward-looking outstanding from the amortisation schedule projection */
+  totalOutstandingProjected: number;
   weightedAvgRate: number;
   next12mInterest: number;
   totalCurrentPortion: number;

@@ -190,6 +190,7 @@ describe('getPortfolioSummary', () => {
       {
         total_loans: '5',
         total_outstanding: '1500000.00',
+        total_outstanding_projected: '1520000.00',
         weighted_avg_rate: '14.25',
         next_12m_interest: '125000.00',
         total_current_portion: '300000.00',
@@ -202,6 +203,7 @@ describe('getPortfolioSummary', () => {
     expect(summary).toMatchObject({
       totalLoans: 5,
       totalOutstanding: 1_500_000,
+      totalOutstandingProjected: 1_520_000,
       weightedAvgRate: 14.25,
       next12mInterest: 125_000,
       totalCurrentPortion: 300_000,
@@ -214,6 +216,7 @@ describe('getPortfolioSummary', () => {
     sqlMock.mockResolvedValueOnce([{
       total_loans: '0',
       total_outstanding: null,
+      total_outstanding_projected: null,
       weighted_avg_rate: null,
       next_12m_interest: null,
       total_current_portion: null,
