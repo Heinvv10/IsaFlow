@@ -4,10 +4,10 @@
  * Route: /accounting/practice/clients
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Users, Loader2, AlertCircle, Plus, Search } from 'lucide-react';
+import { Users, Loader2, AlertCircle, Plus, Search, Download, Upload, X } from 'lucide-react';
 import Link from 'next/link';
 import { apiFetch } from '@/lib/apiFetch';
 
@@ -72,6 +72,14 @@ export default function PracticeClientsPage() {
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('active');
+  const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<
+    | { created: number; skipped: number; errors: { rowNumber: number; message: string }[] }
+    | null
+  >(null);
+  const [importError, setImportError] = useState('');
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300);
@@ -105,6 +113,57 @@ export default function PracticeClientsPage() {
     void router.push(`/accounting/practice/clients/${id}`);
   }
 
+  async function handleExport() {
+    setExporting(true);
+    try {
+      const ids = clients.map((c) => c.id);
+      const res = await apiFetch('/api/accounting/practice/clients/bulk', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'export', ids }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'practice-clients-export.csv';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setError('Failed to export');
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function handleImportFile(file: File) {
+    setImporting(true);
+    setImportError('');
+    setImportResult(null);
+    try {
+      const csv = await file.text();
+      const res = await apiFetch('/api/accounting/practice/clients/bulk', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'import', csv }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setImportError(json?.error?.message ?? `HTTP ${res.status}`);
+        return;
+      }
+      const payload = json.data ?? json;
+      setImportResult(payload);
+      if (payload.created > 0) loadClients();
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : 'Import failed');
+    } finally {
+      setImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }
+
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
@@ -120,13 +179,43 @@ export default function PracticeClientsPage() {
                 <p className="text-xs text-[var(--ff-text-tertiary)]">Practice client management</p>
               </div>
             </div>
-            <Link
-              href="/accounting/practice/clients/new"
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium transition-colors"
-            >
-              <Plus className="h-4 w-4" />
-              Add Client
-            </Link>
+            <div className="flex items-center gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void handleImportFile(f);
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={importing}
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)] text-sm font-medium transition-colors disabled:opacity-50"
+              >
+                {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                Import CSV
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleExport()}
+                disabled={exporting || clients.length === 0}
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-primary)] text-sm font-medium transition-colors disabled:opacity-50"
+              >
+                {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                Export CSV
+              </button>
+              <Link
+                href="/accounting/practice/clients/new"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium transition-colors"
+              >
+                <Plus className="h-4 w-4" />
+                Add Client
+              </Link>
+            </div>
           </div>
         </div>
 
@@ -227,6 +316,61 @@ export default function PracticeClientsPage() {
           )}
         </div>
       </div>
+
+      {(importResult || importError) && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-lg rounded-lg bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-primary)] shadow-xl">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--ff-border-primary)]">
+              <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">
+                {importError ? 'Import failed' : 'Import results'}
+              </h2>
+              <button
+                type="button"
+                onClick={() => { setImportResult(null); setImportError(''); }}
+                className="text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] transition-colors"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="px-5 py-4 max-h-[60vh] overflow-y-auto text-sm">
+              {importError && (
+                <p className="text-red-400">{importError}</p>
+              )}
+              {importResult && (
+                <>
+                  <div className="grid grid-cols-3 gap-3 mb-4">
+                    <div className="rounded-md bg-[var(--ff-bg-tertiary)] p-3">
+                      <div className="text-xs text-[var(--ff-text-tertiary)] uppercase tracking-wide">Created</div>
+                      <div className="text-lg font-semibold text-teal-400">{importResult.created}</div>
+                    </div>
+                    <div className="rounded-md bg-[var(--ff-bg-tertiary)] p-3">
+                      <div className="text-xs text-[var(--ff-text-tertiary)] uppercase tracking-wide">Skipped</div>
+                      <div className="text-lg font-semibold text-yellow-400">{importResult.skipped}</div>
+                    </div>
+                    <div className="rounded-md bg-[var(--ff-bg-tertiary)] p-3">
+                      <div className="text-xs text-[var(--ff-text-tertiary)] uppercase tracking-wide">Errors</div>
+                      <div className="text-lg font-semibold text-red-400">{importResult.errors.length}</div>
+                    </div>
+                  </div>
+                  {importResult.errors.length > 0 && (
+                    <div>
+                      <div className="text-xs text-[var(--ff-text-secondary)] mb-1">Errors</div>
+                      <ul className="space-y-1 text-xs text-red-300">
+                        {importResult.errors.map((e, idx) => (
+                          <li key={idx}>
+                            {e.rowNumber > 0 ? `Row ${e.rowNumber}: ` : ''}{e.message}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </AppLayout>
   );
 }
