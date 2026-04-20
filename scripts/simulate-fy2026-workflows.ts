@@ -229,6 +229,16 @@ async function runUifPayment(month: number, year: number, errors: Err[]): Promis
       decId = gen.id;
       await markUifSubmitted(COMPANY_ID, decId, ADMIN_ID);
     }
+    // Skip payment when declaration has zero totals (no payroll lines in that month)
+    const dec = await sql.query<{tot:string}>(
+      `SELECT (total_employee_contribution + total_employer_contribution)::text AS tot
+         FROM uif_declarations WHERE id=$1 AND company_id=$2`,
+      [decId, COMPANY_ID],
+    );
+    if (Number(dec[0]?.tot ?? 0) < 0.01) {
+      console.log(`  [uif] ${year}-${pad(month)} zero-total — skip payment`);
+      return;
+    }
     const paid = await markUifDeclarationPaid(
       COMPANY_ID, decId,
       { paymentDate: lastDay(year, month) },
