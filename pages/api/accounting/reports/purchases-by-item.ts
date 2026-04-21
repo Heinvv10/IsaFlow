@@ -24,11 +24,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       SELECT
         si.id, si.item_code, si.name, si.category,
         COUNT(DISTINCT poi.purchase_order_id)::int AS po_count,
-        COALESCE(SUM(poi.quantity_ordered), 0)::numeric AS qty_ordered,
-        COALESCE(SUM(poi.quantity_ordered * poi.unit_price), 0)::numeric AS total_cost
+        COALESCE(SUM(poi.quantity), 0)::numeric AS qty_ordered,
+        COALESCE(SUM(poi.line_total), 0)::numeric AS total_cost
       FROM po_items poi
       JOIN purchase_orders po ON po.id = poi.purchase_order_id
-      JOIN stock_items si ON si.id = poi.stock_item_id
+      JOIN stock_items si ON si.id = poi.product_id
       WHERE si.company_id = ${companyId}
         AND po.order_date >= ${from}
         AND po.order_date <= ${to}

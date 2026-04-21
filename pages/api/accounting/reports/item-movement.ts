@@ -30,9 +30,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           gi.quantity_received AS qty_in, 0 AS qty_out
         FROM grn_items gi
         JOIN goods_received_notes g ON g.id = gi.grn_id
-        JOIN stock_items si ON si.id = gi.stock_item_id
+        JOIN stock_items si ON si.id = gi.product_id
         WHERE si.company_id = ${companyId}
-          AND gi.stock_item_id = ${itemId}
+          AND gi.product_id = ${itemId}
           AND g.delivery_date >= ${from} AND g.delivery_date <= ${to}
       `;
     } else {
@@ -42,7 +42,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           gi.quantity_received AS qty_in, 0 AS qty_out
         FROM grn_items gi
         JOIN goods_received_notes g ON g.id = gi.grn_id
-        JOIN stock_items si ON si.id = gi.stock_item_id
+        JOIN stock_items si ON si.id = gi.product_id
         WHERE si.company_id = ${companyId}
           AND g.delivery_date IS NOT NULL
           AND g.delivery_date >= ${from} AND g.delivery_date <= ${to}

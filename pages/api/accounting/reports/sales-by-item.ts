@@ -23,17 +23,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const rows = await sql`
       SELECT
         cii.description AS name,
-        cii.income_type AS category,
+        COALESCE(ga.account_name, '') AS category,
         COUNT(cii.id)::int AS times_sold,
         COALESCE(SUM(cii.quantity), 0)::numeric AS qty_sold,
-        COALESCE(SUM(cii.line_total), 0)::numeric AS total_revenue
+        COALESCE(SUM(cii.amount), 0)::numeric AS total_revenue
       FROM customer_invoice_items cii
       JOIN customer_invoices ci ON ci.id = cii.invoice_id
+      LEFT JOIN gl_accounts ga ON ga.id = cii.gl_account_id
       WHERE ci.company_id = ${companyId}
         AND ci.invoice_date >= ${from}
         AND ci.invoice_date <= ${to}
         AND ci.status != 'cancelled'
-      GROUP BY cii.description, cii.income_type
+      GROUP BY cii.description, ga.account_name
       ORDER BY total_revenue DESC
     `;
 
