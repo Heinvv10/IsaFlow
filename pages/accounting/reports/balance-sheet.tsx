@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, BarChart3, Loader2, AlertCircle, CheckCircle2, ChevronDown, ChevronRight, Download } from 'lucide-react';
@@ -15,7 +16,10 @@ import { apiFetch } from '@/lib/apiFetch';
 interface CostCentre { id: string; code: string; name: string }
 
 export default function BalanceSheetPage() {
-  const [asAtDate, setAsAtDate] = useState(new Date().toISOString().split('T')[0]);
+  const router = useRouter();
+  const qAsAt = typeof router.query.as_at_date === 'string' ? router.query.as_at_date : '';
+  const [asAtDate, setAsAtDate] = useState(qAsAt || new Date().toISOString().split('T')[0]);
+  useEffect(() => { if (qAsAt && qAsAt !== asAtDate) setAsAtDate(qAsAt); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [qAsAt]);
   const [report, setReport] = useState<BalanceSheetReport | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');

@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, BarChart3, Loader2, AlertCircle, ChevronDown, ChevronRight, Download } from 'lucide-react';
@@ -25,9 +26,13 @@ function getDefaultDates(): { periodStart: string; periodEnd: string } {
 }
 
 export default function IncomeStatementPage() {
+  const router = useRouter();
+  const qStart = typeof router.query.period_start === 'string' ? router.query.period_start : '';
+  const qEnd = typeof router.query.period_end === 'string' ? router.query.period_end : '';
   const defaults = getDefaultDates();
-  const [periodStart, setPeriodStart] = useState(defaults.periodStart);
-  const [periodEnd, setPeriodEnd] = useState(defaults.periodEnd);
+  const [periodStart, setPeriodStart] = useState(qStart || defaults.periodStart);
+  const [periodEnd, setPeriodEnd] = useState(qEnd || defaults.periodEnd);
+  useEffect(() => { if (qStart && qStart !== periodStart) setPeriodStart(qStart); if (qEnd && qEnd !== periodEnd) setPeriodEnd(qEnd); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [qStart, qEnd]);
   const [report, setReport] = useState<IncomeStatementReport | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
