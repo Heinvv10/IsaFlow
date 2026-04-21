@@ -102,7 +102,7 @@ export async function getVatReconciliation(
       SELECT
         TO_CHAR(ci.invoice_date, 'YYYY-MM') AS month,
         COALESCE(SUM(ci.subtotal), 0) AS invoice_revenue,
-        COALESCE(SUM(ci.vat_amount), 0) AS invoice_output_vat
+        COALESCE(SUM(ci.tax_amount), 0) AS invoice_output_vat
       FROM customer_invoices ci
       WHERE ci.company_id = ${companyId}
         AND ci.status NOT IN ('cancelled', 'void')
