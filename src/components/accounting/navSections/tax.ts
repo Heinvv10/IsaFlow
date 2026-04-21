@@ -7,6 +7,7 @@ export const taxTab: Tab = {
       section: 'VAT',
       items: [
         { label: 'VAT Return', href: '/accounting/reports/vat-return' },
+        { label: 'VAT Reconciliation', href: '/accounting/reports/vat-reconciliation' },
         { label: 'VAT Adjustments', href: '/accounting/vat-adjustments' },
         { label: 'DRC VAT', href: '/accounting/drc-vat' },
       ],

@@ -50,6 +50,20 @@ const RATIO_NAMES: Record<string, string> = {
   cashConversionCycle: 'Cash Conversion Cycle',
   freeCashFlow: 'Free Cash Flow',
   revenuePerEmployee: 'Revenue per Employee',
+  // AFS Master v15 additions
+  pbitMargin: 'PBIT Margin',
+  directMaterialMargin: 'Direct Material Margin',
+  netOperatingAssetTurnover: 'Net Operating Asset Turnover',
+  ebitdaToNetInterest: 'EBITDA / Net Interest',
+  pbtToNetInterest: 'PBT / Net Interest',
+  netProfitToNetInterest: 'Net Profit / Net Interest',
+  pbitPerEmployee: 'PBIT per Employee',
+  ebitdaPerEmployee: 'EBITDA per Employee',
+  employeeCostToRevenue: 'Employee Cost / Revenue',
+  employeeCostPerHead: 'Employee Cost per Head',
+  dividendCover: 'Dividend Cover',
+  retentionRate: 'Retention Rate',
+  effectiveTaxRate: 'Effective Tax Rate',
 };
 
 /**

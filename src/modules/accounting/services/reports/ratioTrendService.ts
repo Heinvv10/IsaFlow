@@ -28,23 +28,32 @@ const HIGHER_IS_BETTER = new Set([
   'ebitdaMargin', 'roce', 'interestCoverage', 'cashRatio',
   'operatingCashFlowRatio', 'assetTurnover', 'receivablesTurnover',
   'inventoryTurnover', 'freeCashFlow', 'revenuePerEmployee',
-  'ebitda', 'workingCapital',
+  'ebitda', 'workingCapital', 'pbitMargin', 'directMaterialMargin',
+  'netOperatingAssetTurnover', 'ebitdaToNetInterest', 'pbtToNetInterest',
+  'netProfitToNetInterest', 'pbitPerEmployee', 'ebitdaPerEmployee',
+  'dividendCover', 'retentionRate',
 ]);
 
 // Ratios where lower is better
 const LOWER_IS_BETTER = new Set([
   'debtToEquity', 'debtRatio', 'debtorDays', 'creditorDays',
   'inventoryDays', 'cashConversionCycle', 'equityMultiplier',
+  'employeeCostToRevenue',
 ]);
 
 // Key ratios to track (subset — not every ratio needs trend analysis)
 const TRACKED_RATIOS: (keyof ExtendedRatioResult)[] = [
+  // Core
   'grossProfitMargin', 'netProfitMargin', 'operatingProfitMargin',
   'currentRatio', 'quickRatio', 'debtToEquity',
   'returnOnAssets', 'returnOnEquity',
   'debtorDays', 'creditorDays', 'inventoryTurnover',
   'ebitdaMargin', 'roce', 'interestCoverage',
   'cashRatio', 'assetTurnover', 'cashConversionCycle',
+  // AFS Master v15 additions
+  'pbitMargin', 'netOperatingAssetTurnover',
+  'ebitdaToNetInterest', 'revenuePerEmployee', 'ebitdaPerEmployee',
+  'employeeCostToRevenue', 'effectiveTaxRate', 'retentionRate',
 ];
 
 /**
