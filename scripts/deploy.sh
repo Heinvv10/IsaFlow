@@ -99,7 +99,7 @@ PROD_ENV="$DEPLOY_DIR/.env.local"
 if sudo test -f "$PROD_ENV"; then
   PROD_DB=$(sudo grep "^DATABASE_URL=" "$PROD_ENV" | cut -d= -f2-)
   if [ -n "$PROD_DB" ]; then
-    DATABASE_URL="$PROD_DB" node "$REPO_DIR/scripts/run-migrations.mjs" 2>&1 | grep -E "Running:|Done|Failed|complete|==="
+    DATABASE_URL="$PROD_DB" $BUN "$REPO_DIR/scripts/apply-migrations.ts"
   else
     echo "WARNING: DATABASE_URL not found in $PROD_ENV — skipping migrations"
   fi
@@ -122,11 +122,14 @@ echo "App: https://app.isaflow.co.za"
 # 8. Finalize Sentry release (fail-open — never block a deploy).
 # SENTRY_AUTH_TOKEN was already loaded at the top of this script so the
 # webpack plugin could create the release during build.
-if [ -n "$SENTRY_AUTH_TOKEN" ] && command -v sentry-cli >/dev/null 2>&1; then
+#
+# NB: errors.isaflow.co.za runs Bugsink, which doesn't implement the
+# /api/0/organizations or /api/0/projects release endpoints — sentry-cli
+# release commands will always fail against it. Event ingestion + source
+# maps (via the webpack plugin) are what matter; release tagging is a nice-to-have
+# we skip on Bugsink. Opt-in via SENTRY_RELEASE_MGMT=true if pointed at real Sentry.
+if [ "$SENTRY_RELEASE_MGMT" = "true" ] && [ -n "$SENTRY_AUTH_TOKEN" ] && command -v sentry-cli >/dev/null 2>&1; then
   echo "Recording Sentry release $GIT_SHA..."
-  # `new` creates the release; idempotent — re-running on the same SHA is a no-op.
-  # The webpack plugin sometimes doesn't create the release reliably under
-  # the standalone build path, so we own the lifecycle here.
   sentry-cli releases new "$GIT_SHA" \
     || echo "WARN: sentry-cli new failed (non-fatal)"
   sentry-cli releases set-commits "$GIT_SHA" --auto \
@@ -136,5 +139,5 @@ if [ -n "$SENTRY_AUTH_TOKEN" ] && command -v sentry-cli >/dev/null 2>&1; then
   sentry-cli releases deploys "$GIT_SHA" new -e production \
     || echo "WARN: sentry-cli deploys failed (non-fatal)"
 else
-  echo "Skipping Sentry release finalize (SENTRY_AUTH_TOKEN=${SENTRY_AUTH_TOKEN:+set} sentry-cli=$(command -v sentry-cli || echo missing))"
+  echo "Skipping Sentry release finalize (set SENTRY_RELEASE_MGMT=true to enable; Bugsink doesn't support it)"
 fi
