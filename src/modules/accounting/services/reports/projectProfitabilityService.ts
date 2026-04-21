@@ -21,7 +21,7 @@ export async function getProjectProfitability(companyId: string,
 ): Promise<ProjectProfitabilityReport[]> {
   try {
     const projectRows = (await sql`
-      SELECT DISTINCT jl.project_id, p.project_name
+      SELECT DISTINCT jl.project_id, p.name AS project_name
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       LEFT JOIN projects p ON p.id = jl.project_id
@@ -31,7 +31,7 @@ export async function getProjectProfitability(companyId: string,
         AND je.entry_date >= ${periodStart}
         AND je.entry_date <= ${periodEnd}
         AND jl.project_id IS NOT NULL
-      ORDER BY p.project_name
+      ORDER BY p.name
     `) as DbRow[];
 
     const reports: ProjectProfitabilityReport[] = [];

@@ -21,7 +21,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     const rows = await sql`
       SELECT id, item_code, name, category, uom, qty_available,
-        COALESCE(min_stock_level, 0) AS min_stock_level
+        COALESCE(reorder_level, 0) AS reorder_level
       FROM stock_items
       WHERE company_id = ${companyId} AND is_active = true
       ORDER BY name
@@ -34,8 +34,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       category: r.category || 'uncategorized',
       uom: r.uom || '',
       qtyOnHand: Number(r.qty_available || 0),
-      minLevel: Number(r.min_stock_level || 0),
-      lowStock: Number(r.min_stock_level || 0) > 0 && Number(r.qty_available || 0) <= Number(r.min_stock_level || 0),
+      minLevel: Number(r.reorder_level || 0),
+      lowStock: Number(r.reorder_level || 0) > 0 && Number(r.qty_available || 0) <= Number(r.reorder_level || 0),
     }));
 
     if (lowStockOnly) {
