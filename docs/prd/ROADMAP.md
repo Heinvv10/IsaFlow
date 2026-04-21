@@ -42,6 +42,7 @@
 | Practice Management Suite | [PRD-01](PRD-01-practice-management.md) | P0 | 13 weeks |
 | Payroll SA Compliance Engine | [PRD-02](PRD-02-payroll-sa-compliance.md) | P1 | 14 weeks |
 | Fixed Asset Register — Enhanced FAR | [PRD-04](PRD-04-fixed-asset-register.md) | P1 | 9 weeks |
+| Autonomous Capture & Evidence-First Ledger | [PRD-05](PRD-05-autonomous-capture-evidence-ledger.md) | P0 | 18–22 weeks (5 weeks to shippable slice) |
 | Loan Amortisation Module | [PRD-03](PRD-03-loan-amortisation.md) | P2 | 14 weeks |
 
 ---
