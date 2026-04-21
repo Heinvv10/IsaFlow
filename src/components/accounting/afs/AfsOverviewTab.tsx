@@ -218,16 +218,16 @@ export function AfsOverviewTab({ documentId, periodStart, periodEnd }: Props) {
 
   return (
     <div>
-      {/* Quick links to other statements */}
+      {/* Quick links to the standalone statement pages, pre-scoped to this AFS period. */}
       <div className="flex gap-3 mb-8">
         <Link
-          href={`/accounting/afs/${documentId}/balance-sheet?${params}`}
+          href={`/accounting/reports/balance-sheet?as_at_date=${periodEnd}`}
           className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-white transition-colors"
         >
           Balance Sheet →
         </Link>
         <Link
-          href={`/accounting/afs/${documentId}/income-statement?${params}`}
+          href={`/accounting/reports/income-statement?${params}`}
           className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-white transition-colors"
         >
           Income Statement →

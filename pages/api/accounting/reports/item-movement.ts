@@ -25,7 +25,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     let grnRows;
     if (itemId) {
       grnRows = await sql`
-        SELECT g.delivery_date AS move_date, 'GRN' AS move_type,
+        SELECT g.received_date AS move_date, 'GRN' AS move_type,
           g.grn_number AS reference, si.name AS item_name, si.item_code,
           gi.quantity_received AS qty_in, 0 AS qty_out
         FROM grn_items gi
@@ -33,19 +33,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         JOIN stock_items si ON si.id = gi.product_id
         WHERE si.company_id = ${companyId}
           AND gi.product_id = ${itemId}
-          AND g.delivery_date >= ${from} AND g.delivery_date <= ${to}
+          AND g.received_date >= ${from} AND g.received_date <= ${to}
       `;
     } else {
       grnRows = await sql`
-        SELECT g.delivery_date AS move_date, 'GRN' AS move_type,
+        SELECT g.received_date AS move_date, 'GRN' AS move_type,
           g.grn_number AS reference, si.name AS item_name, si.item_code,
           gi.quantity_received AS qty_in, 0 AS qty_out
         FROM grn_items gi
         JOIN goods_received_notes g ON g.id = gi.grn_id
         JOIN stock_items si ON si.id = gi.product_id
         WHERE si.company_id = ${companyId}
-          AND g.delivery_date IS NOT NULL
-          AND g.delivery_date >= ${from} AND g.delivery_date <= ${to}
+          AND g.received_date IS NOT NULL
+          AND g.received_date >= ${from} AND g.received_date <= ${to}
       `;
     }
 
