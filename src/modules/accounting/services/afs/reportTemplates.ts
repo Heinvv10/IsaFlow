@@ -67,7 +67,6 @@ function frameworkShort(framework: ReportTemplateContext['framework']): string {
 // ── 1. Compilation Report — ISRS 4410 (Revised) ─────────────────────────────
 
 export function getCompilationReport(ctx: ReportTemplateContext): string[] {
-  const entity = entityLabel(ctx.entityType);
   const leadership = entityLeadership(ctx.entityType);
   const fw = frameworkLabel(ctx.framework);
   const fwShort = frameworkShort(ctx.framework);

@@ -261,8 +261,7 @@ export async function computePisScoreForDocument(
   }
 
   // rows.length >= 1 is guaranteed by the check above
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-  const { fiscal_year, financial_year_start } = rows[0]!;
+  const { fiscal_year, financial_year_start } = rows[0] as Record<string, unknown>;
   const fyStartMonth = (financial_year_start as number) || 3; // default March if null
   const year = fiscal_year as number;
 

@@ -283,7 +283,7 @@ export async function getMappedTrialBalance(
     ORDER BY m.afs_line_code, a.account_code`;
 
   // Get prior period balances if requested
-  let priorMap = new Map<string, number>();
+  const priorMap = new Map<string, number>();
   if (priorPeriodId) {
     const priorRows = await sql`
       SELECT
