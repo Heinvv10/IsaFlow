@@ -5,25 +5,8 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { NoteContent } from '@/modules/accounting/services/afs/afsTypes';
 import type { DbRow } from '@/types/db';
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function fmt(n: number | null | undefined): string {
-  if (n == null) return '—';
-  return new Intl.NumberFormat('en-ZA', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(n);
-}
-
-function fiscalRange(year: number): { start: string; end: string } {
-  return { start: `${year}-01-01`, end: `${year}-12-31` };
-}
-
-function toNum(v: unknown): number {
-  const n = Number(v);
-  return isNaN(n) ? 0 : n;
-}
+import { fmt, toNum, fiscalRange } from './noteHelpers';
+import { getCompanyTerminology } from '../entityTerminology';
 
 // ── Note 26 — Events After Reporting Date ────────────────────────────────────
 
@@ -80,7 +63,7 @@ export async function generateNote27GoingConcern(
 
   log.info('note27: querying going concern indicators', { companyId, fiscalYear });
 
-  const [ratioRows, profitRows] = await Promise.all([
+  const [ratioRows, profitRows, terms] = await Promise.all([
     sql`
       SELECT
         SUM(CASE WHEN ga.account_subtype IN ('bank','cash','trade_receivable','inventory')
@@ -109,6 +92,7 @@ export async function generateNote27GoingConcern(
       WHERE ga.company_id = ${companyId}
         AND ga.account_type IN ('revenue', 'expense')
     ` as Promise<DbRow[]>,
+    getCompanyTerminology(companyId),
   ]);
 
   const ratioRow = ratioRows[0] ?? {};
@@ -133,19 +117,19 @@ export async function generateNote27GoingConcern(
     },
     {
       type: 'paragraph',
-      text: 'The directors have assessed the entity\'s ability to continue as a going concern and are satisfied that the entity will be able to meet its obligations for the foreseeable future. [Accountant: complete if concerns exist]',
+      text: `The ${terms.leadership} have assessed ${terms.entityRef}'s ability to continue as a going concern and are satisfied that ${terms.entityRef} will be able to meet its obligations for the foreseeable future. [Accountant: complete if concerns exist]`,
     },
   ];
 
   if (hasConcerns) {
     blocks.push({
       type: 'paragraph',
-      text: '[Going concern concern identified: current ratio below 1.0 or net loss recorded. Accountant must assess and disclose mitigating factors and plans.]',
+      text: `[Going concern concern identified: current ratio below 1.0 or net loss recorded. ${terms.leadershipCapital} must assess and disclose mitigating factors and plans.]`,
     });
   }
 
   return {
-    dataSnapshot: { currentAssets, currentLiabilities, netResult, currentRatioStr },
+    dataSnapshot: { currentAssets, currentLiabilities, netResult, currentRatioStr, entityType: terms.entityType },
     content: { title: 'Going Concern', blocks },
   };
 }

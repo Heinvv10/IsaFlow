@@ -27,8 +27,8 @@ async function buildFinancialData(companyId: string, from: string, to: string): 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   type Row = Record<string, any>;
 
-  // Revenue, balance sheet, and employee count — parallel
-  const [[totals], [balances], [empCount]] = await Promise.all([
+  // Revenue, balance sheet, employee count, and subtype-based amounts — parallel
+  const [[totals], [balances], [empCount], [subtypeTotals]] = await Promise.all([
     sql`
       SELECT
         COALESCE(SUM(CASE WHEN ga.account_code LIKE '4%' THEN jl.credit - jl.debit ELSE 0 END), 0) as revenue,
@@ -59,6 +59,26 @@ async function buildFinancialData(companyId: string, from: string, to: string): 
         AND je.entry_date <= ${to}::date
     ` as Promise<Row[]>,
     sql`SELECT COUNT(*)::int as count FROM payroll_employees WHERE company_id = ${companyId}::uuid AND (end_date IS NULL OR end_date > NOW())` as Promise<Row[]>,
+    // AFS Master v15: interest, employee costs, tax by account subtype
+    sql`
+      SELECT
+        COALESCE(SUM(CASE WHEN ga.account_subtype IN ('interest_expense', 'finance_cost')
+          THEN jl.debit - jl.credit ELSE 0 END), 0) as interest_expense,
+        COALESCE(SUM(CASE WHEN ga.account_subtype = 'interest_income'
+          THEN jl.credit - jl.debit ELSE 0 END), 0) as interest_income,
+        COALESCE(SUM(CASE WHEN ga.account_subtype IN ('salaries', 'wages', 'uif', 'medical_aid',
+          'provident_fund', 'leave_pay', 'bonuses')
+          THEN jl.debit - jl.credit ELSE 0 END), 0) as employee_costs,
+        COALESCE(SUM(CASE WHEN ga.account_subtype IN ('income_tax_expense', 'deferred_tax_expense')
+          THEN jl.debit - jl.credit ELSE 0 END), 0) as tax_expense,
+        COALESCE(SUM(CASE WHEN ga.account_subtype = 'raw_materials'
+          THEN jl.debit - jl.credit ELSE 0 END), 0) as direct_materials
+      FROM gl_journal_lines jl
+      JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+      JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+      WHERE je.company_id = ${companyId} AND jl.company_id = ${companyId}::UUID AND je.status = 'posted'
+        AND je.entry_date >= ${from}::date AND je.entry_date <= ${to}::date
+    ` as Promise<Row[]>,
   ]);
 
   const revenue = parseFloat(totals?.revenue || '0');
@@ -82,6 +102,12 @@ async function buildFinancialData(companyId: string, from: string, to: string): 
     cash: parseFloat(balances?.cash || '0'),
     depreciation: parseFloat(totals?.depreciation || '0'),
     employeeCount: empCount?.count || 0,
+    // AFS Master v15 additions
+    interestExpense: parseFloat(subtypeTotals?.interest_expense || '0'),
+    interestIncome: parseFloat(subtypeTotals?.interest_income || '0'),
+    employeeCosts: parseFloat(subtypeTotals?.employee_costs || '0'),
+    taxExpense: parseFloat(subtypeTotals?.tax_expense || '0'),
+    directMaterialCosts: parseFloat(subtypeTotals?.direct_materials || '0'),
   };
 }
 

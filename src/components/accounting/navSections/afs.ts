@@ -9,6 +9,9 @@ export const afsTab: Tab = {
       section: 'Annual Financial Statements',
       items: [
         { label: 'All AFS Documents', href: '/accounting/afs' },
+        { label: 'Account Mapping', href: '/accounting/afs/mapping' },
+        { label: 'Report Templates', href: '/accounting/afs/report-templates' },
+        { label: 'Public Interest Score', href: '/accounting/afs/pis-score' },
       ],
     },
     {

@@ -21,9 +21,17 @@ export interface FinancialData {
   depreciation?: number;
   amortization?: number;
   interestExpense?: number;
+  interestIncome?: number;
   operatingCashFlow?: number;
   capitalExpenditure?: number;
   employeeCount?: number;
+  // AFS Master v15 additions
+  employeeCosts?: number;
+  directMaterialCosts?: number;
+  taxExpense?: number;
+  dividendsPaid?: number;
+  nonCurrentAssets?: number;
+  nonCurrentLiabilities?: number;
 }
 
 export interface RatioResult {
@@ -45,6 +53,8 @@ export interface ExtendedRatioResult extends RatioResult {
   ebitda: number;
   ebitdaMargin: number;
   roce: number; // Return on Capital Employed
+  pbitMargin: number; // Profit Before Interest & Tax margin
+  directMaterialMargin: number; // (Revenue - Direct Materials) / Revenue
   // Leverage
   interestCoverage: number;
   debtRatio: number;
@@ -59,10 +69,23 @@ export interface ExtendedRatioResult extends RatioResult {
   payablesTurnover: number;
   inventoryDays: number;
   cashConversionCycle: number;
+  netOperatingAssetTurnover: number; // Revenue / (Total Assets - Cash - Current Liabilities)
   // Cash Flow
   freeCashFlow: number;
-  // Per-Unit
+  // Coverage (AFS Master v15)
+  ebitdaToNetInterest: number;
+  pbtToNetInterest: number;
+  netProfitToNetInterest: number;
+  // Employee Productivity (AFS Master v15)
   revenuePerEmployee: number;
+  pbitPerEmployee: number;
+  ebitdaPerEmployee: number;
+  employeeCostToRevenue: number;
+  employeeCostPerHead: number;
+  // Returns
+  dividendCover: number;
+  retentionRate: number;
+  effectiveTaxRate: number;
   // DuPont Decomposition
   dupontMargin: number;
   dupontTurnover: number;
@@ -137,44 +160,71 @@ export function calculateExtendedRatios(data: FinancialData): ExtendedRatioResul
   const ebit = grossProfit - data.operatingExpenses;
   const dep = data.depreciation ?? 0;
   const amort = data.amortization ?? 0;
-  const interest = data.interestExpense ?? 0;
+  const interestExp = data.interestExpense ?? 0;
+  const interestInc = data.interestIncome ?? 0;
+  const netInterest = interestExp - interestInc;
   const opCF = data.operatingCashFlow ?? 0;
   const capex = data.capitalExpenditure ?? 0;
   const employees = data.employeeCount ?? 0;
+  const employeeCosts = data.employeeCosts ?? 0;
+  const directMaterials = data.directMaterialCosts ?? 0;
+  const taxExpense = data.taxExpense ?? 0;
+  const dividendsPaid = data.dividendsPaid ?? 0;
   const capitalEmployed = data.totalAssets - data.currentLiabilities;
 
   const ebitda = ebit + dep + amort;
+  const pbt = ebit - interestExp + interestInc; // Profit Before Tax
   const invTurnover = base.inventoryTurnover || 0;
   const inventoryDays = invTurnover > 0 ? Math.round((365 / invTurnover) * 100) / 100 : 0;
+
+  // Net operating assets = Total Assets - Cash - Current Liabilities
+  const netOperatingAssets = data.totalAssets - data.cash - data.currentLiabilities;
+
+  const r2 = (n: number) => Math.round(n * 100) / 100;
 
   return {
     ...base,
     // Profitability
-    ebitda: Math.round(ebitda * 100) / 100,
+    ebitda: r2(ebitda),
     ebitdaMargin: pct(ebitda, data.revenue),
     roce: pct(ebit, capitalEmployed),
+    pbitMargin: pct(ebit, data.revenue),
+    directMaterialMargin: directMaterials > 0 ? pct(data.revenue - directMaterials, data.revenue) : 0,
     // Leverage
-    interestCoverage: interest > 0 ? Math.round(safeDiv(ebit, interest) * 100) / 100 : 0,
-    debtRatio: Math.round(safeDiv(data.totalLiabilities, data.totalAssets) * 100) / 100,
-    equityMultiplier: Math.round(safeDiv(data.totalAssets, data.totalEquity) * 100) / 100,
+    interestCoverage: interestExp > 0 ? r2(safeDiv(ebit, interestExp)) : 0,
+    debtRatio: r2(safeDiv(data.totalLiabilities, data.totalAssets)),
+    equityMultiplier: r2(safeDiv(data.totalAssets, data.totalEquity)),
     // Liquidity
-    cashRatio: Math.round(safeDiv(data.cash, data.currentLiabilities) * 100) / 100,
-    workingCapital: Math.round((data.currentAssets - data.currentLiabilities) * 100) / 100,
-    operatingCashFlowRatio: Math.round(safeDiv(opCF, data.currentLiabilities) * 100) / 100,
+    cashRatio: r2(safeDiv(data.cash, data.currentLiabilities)),
+    workingCapital: r2(data.currentAssets - data.currentLiabilities),
+    operatingCashFlowRatio: r2(safeDiv(opCF, data.currentLiabilities)),
     // Efficiency
-    assetTurnover: Math.round(safeDiv(data.revenue, data.totalAssets) * 100) / 100,
-    receivablesTurnover: Math.round(safeDiv(data.revenue, data.accountsReceivable) * 100) / 100,
-    payablesTurnover: Math.round(safeDiv(data.costOfSales, data.accountsPayable) * 100) / 100,
+    assetTurnover: r2(safeDiv(data.revenue, data.totalAssets)),
+    receivablesTurnover: r2(safeDiv(data.revenue, data.accountsReceivable)),
+    payablesTurnover: r2(safeDiv(data.costOfSales, data.accountsPayable)),
     inventoryDays,
-    cashConversionCycle: Math.round((base.debtorDays + inventoryDays - base.creditorDays) * 100) / 100,
+    cashConversionCycle: r2(base.debtorDays + inventoryDays - base.creditorDays),
+    netOperatingAssetTurnover: netOperatingAssets > 0 ? r2(safeDiv(data.revenue, netOperatingAssets)) : 0,
     // Cash Flow
-    freeCashFlow: Math.round((opCF - capex) * 100) / 100,
-    // Per-Unit
-    revenuePerEmployee: employees > 0 ? Math.round(safeDiv(data.revenue, employees) * 100) / 100 : 0,
+    freeCashFlow: r2(opCF - capex),
+    // Coverage (AFS Master v15 — interest coverage variants)
+    ebitdaToNetInterest: netInterest > 0 ? r2(safeDiv(ebitda, netInterest)) : 0,
+    pbtToNetInterest: netInterest > 0 ? r2(safeDiv(pbt, netInterest)) : 0,
+    netProfitToNetInterest: netInterest > 0 ? r2(safeDiv(data.netProfit, netInterest)) : 0,
+    // Employee Productivity (AFS Master v15)
+    revenuePerEmployee: employees > 0 ? r2(safeDiv(data.revenue, employees)) : 0,
+    pbitPerEmployee: employees > 0 ? r2(safeDiv(ebit, employees)) : 0,
+    ebitdaPerEmployee: employees > 0 ? r2(safeDiv(ebitda, employees)) : 0,
+    employeeCostToRevenue: employeeCosts > 0 ? pct(employeeCosts, data.revenue) : 0,
+    employeeCostPerHead: employees > 0 && employeeCosts > 0 ? r2(safeDiv(employeeCosts, employees)) : 0,
+    // Returns
+    dividendCover: dividendsPaid > 0 ? r2(safeDiv(data.netProfit, dividendsPaid)) : 0,
+    retentionRate: data.netProfit !== 0 ? pct(data.netProfit - dividendsPaid, data.netProfit) : 0,
+    effectiveTaxRate: pbt !== 0 ? pct(taxExpense, pbt) : 0,
     // DuPont Decomposition
     dupontMargin: pct(data.netProfit, data.revenue),
-    dupontTurnover: Math.round(safeDiv(data.revenue, data.totalAssets) * 100) / 100,
-    dupontLeverage: Math.round(safeDiv(data.totalAssets, data.totalEquity) * 100) / 100,
+    dupontTurnover: r2(safeDiv(data.revenue, data.totalAssets)),
+    dupontLeverage: r2(safeDiv(data.totalAssets, data.totalEquity)),
   };
 }
 

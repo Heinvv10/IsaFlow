@@ -5,25 +5,8 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { NoteContent } from '@/modules/accounting/services/afs/afsTypes';
 import type { DbRow } from '@/types/db';
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function fmt(n: number | null | undefined): string {
-  if (n == null) return '—';
-  return new Intl.NumberFormat('en-ZA', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(n);
-}
-
-function fiscalRange(year: number): { start: string; end: string } {
-  return { start: `${year}-01-01`, end: `${year}-12-31` };
-}
-
-function toNum(v: unknown): number {
-  const n = Number(v);
-  return isNaN(n) ? 0 : n;
-}
+import { fmt, toNum, fiscalRange } from './noteHelpers';
+import { getCompanyTerminology } from '../entityTerminology';
 
 // ── Note 21 — Finance Costs ───────────────────────────────────────────────────
 
@@ -137,10 +120,11 @@ export async function generateNote22EmployeeBenefits(
 // ── Note 23 — Related Party Disclosures ──────────────────────────────────────
 
 export async function generateNote23RelatedParties(
-  _companyId: string,
+  companyId: string,
   _fiscalYear: number,
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
-  const dataSnapshot = { parties: [] as unknown[], suppressReason: 'table_not_implemented' };
+  const terms = await getCompanyTerminology(companyId);
+  const dataSnapshot = { parties: [] as unknown[], suppressReason: 'table_not_implemented', entityType: terms.entityType };
   const content: NoteContent = {
     title: 'Related Party Disclosures',
     blocks: [
@@ -150,7 +134,7 @@ export async function generateNote23RelatedParties(
       },
       {
         type: 'paragraph',
-        text: '[Accountant: disclose all transactions with directors, shareholders, subsidiaries, and entities under common control]',
+        text: `[Accountant: disclose all transactions with ${terms.leadership}, ${terms.owners}, subsidiaries, and entities under common control]`,
       },
     ],
   };
