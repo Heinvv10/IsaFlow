@@ -5,25 +5,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import type { NoteContent } from '@/modules/accounting/services/afs/afsTypes';
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function fmt(n: number | null | undefined): string {
-  if (n == null) return '—';
-  return new Intl.NumberFormat('en-ZA', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(n);
-}
-
-function fiscalRange(year: number): { start: string; end: string } {
-  return { start: `${year}-01-01`, end: `${year}-12-31` };
-}
-
-function toNum(v: unknown): number {
-  const n = Number(v);
-  return isNaN(n) ? 0 : n;
-}
+import { fmt, toNum, fiscalRange, getAccountingPolicies, type FrameworkType } from './noteHelpers';
 
 type NoteResult = { dataSnapshot: Record<string, unknown>; content: NoteContent };
 
@@ -32,8 +14,9 @@ type NoteResult = { dataSnapshot: Record<string, unknown>; content: NoteContent 
 export async function generateNote1AccountingPolicies(
   companyId: string,
   fiscalYear: number,
+  framework?: FrameworkType,
 ): Promise<NoteResult> {
-  log.info('Generating AFS note 1', { companyId }, 'noteGenerators');
+  log.info('Generating AFS note 1', { companyId, framework }, 'noteGenerators');
 
   const rows = (await sql`
     SELECT depreciation_method, inventory_valuation_method, default_currency, vat_system_type
@@ -45,6 +28,7 @@ export async function generateNote1AccountingPolicies(
   const invMethod = String(c.inventory_valuation_method ?? 'weighted average cost');
   const currency = String(c.default_currency ?? 'ZAR');
   const vatType = String(c.vat_system_type ?? 'invoice');
+  const fw: FrameworkType = framework ?? 'ifrs_smes';
 
   const dataSnapshot: Record<string, unknown> = {
     depreciation_method: depMethod,
@@ -52,27 +36,26 @@ export async function generateNote1AccountingPolicies(
     default_currency: currency,
     vat_system_type: vatType,
     fiscal_year: fiscalYear,
+    framework: fw,
   };
 
-  const text =
-    `These financial statements have been prepared in accordance with the International Financial ` +
-    `Reporting Standard for Small and Medium-sized Entities (IFRS for SMEs) and the Companies Act ` +
-    `71 of 2008. The financial statements are presented in ${currency} and rounded to the nearest Rand. ` +
-    `Basis of preparation: The financial statements are prepared under the historical cost convention. ` +
-    `Property, plant and equipment (PPE): PPE is measured at cost less accumulated depreciation. ` +
-    `Depreciation is calculated using the ${depMethod} method over the estimated useful lives of the assets. ` +
-    `Inventories: Inventories are measured at the lower of cost and estimated selling price less costs ` +
-    `to complete and sell. Cost is determined using the ${invMethod} method. ` +
-    `Revenue recognition: Revenue from the sale of goods is recognised when the significant risks and ` +
-    `rewards of ownership have transferred to the buyer. Revenue from services is recognised by reference ` +
-    `to the stage of completion. ` +
-    `Taxation: Current tax is measured at the amount expected to be paid to the tax authorities using ` +
-    `tax rates enacted or substantively enacted at the reporting date. The entity accounts for VAT on ` +
-    `the ${vatType} basis.`;
+  // Get framework-aware accounting policy paragraphs
+  const policyBlocks = getAccountingPolicies(fw, {
+    depMethod,
+    invMethod,
+    currency,
+    vatBasis: vatType,
+  });
+
+  const blocks: NoteContent['blocks'] = [];
+  for (const p of policyBlocks) {
+    blocks.push({ type: 'heading', text: p.heading, level: 3 });
+    blocks.push({ type: 'paragraph', text: p.text });
+  }
 
   const content: NoteContent = {
     title: 'Accounting Policies',
-    blocks: [{ type: 'paragraph', text }],
+    blocks,
   };
 
   return { dataSnapshot, content };
@@ -245,18 +228,67 @@ export async function generateNote4RightOfUseAssets(
 // ── Note 5 — Intangible Assets ────────────────────────────────────────────────
 
 export async function generateNote5IntangibleAssets(
-  _companyId: string,
-  _fiscalYear: number,
+  companyId: string,
+  fiscalYear: number,
 ): Promise<NoteResult> {
-  const dataSnapshot = { intangibles: [] as unknown[], suppressReason: 'table_not_implemented' };
+  const { end } = fiscalRange(fiscalYear);
+
+  log.info('Generating AFS note 5 — intangible assets', { companyId, fiscalYear }, 'noteGenerators');
+
+  // Query GL accounts classified as intangible assets
+  const rows = (await sql`
+    SELECT ga.account_name, ga.account_code, ga.account_subtype,
+           COALESCE(SUM(gjl.debit - gjl.credit), 0) AS balance
+    FROM gl_accounts ga
+    LEFT JOIN gl_journal_lines gjl
+      ON gjl.gl_account_id = ga.id AND gjl.company_id = ${companyId}
+    LEFT JOIN gl_journal_entries gje
+      ON gje.id = gjl.journal_entry_id
+      AND gje.entry_date <= ${end} AND gje.status = 'posted'
+    WHERE ga.company_id = ${companyId}
+      AND ga.account_subtype IN ('intangible_asset', 'goodwill', 'software', 'patent', 'trademark', 'licence')
+    GROUP BY ga.account_name, ga.account_code, ga.account_subtype
+    HAVING COALESCE(SUM(gjl.debit - gjl.credit), 0) <> 0
+    ORDER BY ga.account_subtype, ga.account_name
+  `) as DbRow[];
+
+  if (rows.length === 0) {
+    return {
+      dataSnapshot: { intangibles: [], suppressReason: 'zero_balance' },
+      content: {
+        title: 'Intangible Assets',
+        blocks: [
+          {
+            type: 'paragraph',
+            text: 'No intangible assets have been recorded for this period. [Accountant: complete this note if applicable]',
+          },
+        ],
+      },
+    };
+  }
+
+  const total = rows.reduce((acc, r) => acc + toNum(r.balance), 0);
+  const tableRows: string[][] = rows.map((r) => [
+    String(r.account_name ?? ''),
+    String(r.account_subtype ?? ''),
+    fmt(toNum(r.balance)),
+  ]);
+  tableRows.push(['Total', '', fmt(total)]);
+
   const content: NoteContent = {
     title: 'Intangible Assets',
     blocks: [
       {
         type: 'paragraph',
-        text: 'No intangible assets have been recorded. [Accountant: complete this note if applicable]',
+        text: 'Intangible assets are carried at cost less accumulated amortisation and impairment losses. Amortisation is recognised on a straight-line basis over the estimated useful life.',
+      },
+      {
+        type: 'table',
+        headers: ['Asset', 'Classification', 'Carrying Value (R)'],
+        rows: tableRows,
       },
     ],
   };
-  return { dataSnapshot, content };
+
+  return { dataSnapshot: { intangibles: rows }, content };
 }

@@ -19,6 +19,8 @@ export interface AfsRenderContext {
   companyName: string;
   registrationNumber: string;
   coverPhotoUrl?: string;
+  /** Entity type for terminology — defaults to 'pty' */
+  entityType?: 'pty' | 'cc' | 'trust';
 }
 
 // ── Font pairs ────────────────────────────────────────────────────────────────
@@ -174,7 +176,12 @@ export function renderAfsToHtml(
   context: AfsRenderContext,
   options?: RenderOptions,
 ): string {
-  const { document, sections, brandProfile, companyName, registrationNumber, coverPhotoUrl } = context;
+  const { document, sections, brandProfile, companyName, registrationNumber, coverPhotoUrl, entityType } = context;
+
+  // Entity-aware document title
+  const statementsTitle = entityType === 'trust'
+    ? 'Financial Statements'
+    : 'Annual Financial Statements';
 
   const css = buildCss(brandProfile);
   const periodEnd = resolvePeriodEnd(document);
@@ -200,7 +207,7 @@ export function renderAfsToHtml(
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Annual Financial Statements — ${escapeHtml(companyName)}</title>
+  <title>${escapeHtml(statementsTitle)} — ${escapeHtml(companyName)}</title>
   <style>
 ${css}
   </style>

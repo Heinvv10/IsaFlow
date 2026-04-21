@@ -4,24 +4,9 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { NoteContent } from '@/modules/accounting/services/afs/afsTypes';
+import { fmt, toNum, fiscalRange } from './noteHelpers';
 
 type DbRow = Record<string, unknown>;
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function fmt(n: number | null | undefined): string {
-  if (n == null) return '—';
-  return new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
-}
-
-function fiscalRange(year: number): { start: string; end: string } {
-  return { start: `${year}-01-01`, end: `${year}-12-31` };
-}
-
-function toNum(v: unknown): number {
-  const n = Number(v);
-  return isNaN(n) ? 0 : n;
-}
 
 // ── Note 16 — Trade and Other Payables ───────────────────────────────────────
 

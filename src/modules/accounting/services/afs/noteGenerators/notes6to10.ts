@@ -5,25 +5,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import type { NoteContent } from '@/modules/accounting/services/afs/afsTypes';
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function fmt(n: number | null | undefined): string {
-  if (n == null) return '—';
-  return new Intl.NumberFormat('en-ZA', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(n);
-}
-
-function fiscalRange(year: number): { start: string; end: string } {
-  return { start: `${year}-01-01`, end: `${year}-12-31` };
-}
-
-function toNum(v: unknown): number {
-  const n = Number(v);
-  return isNaN(n) ? 0 : n;
-}
+import { fmt, toNum, fiscalRange } from './noteHelpers';
 
 type NoteResult = { dataSnapshot: Record<string, unknown>; content: NoteContent };
 
@@ -128,20 +110,69 @@ export async function generateNote8FinancialAssets(
 // ── Note 9 — Inventories ──────────────────────────────────────────────────────
 
 export async function generateNote9Inventories(
-  _companyId: string,
-  _fiscalYear: number,
+  companyId: string,
+  fiscalYear: number,
 ): Promise<NoteResult> {
-  const dataSnapshot = { inventory: [] as unknown[], suppressReason: 'table_not_implemented' };
+  const { end } = fiscalRange(fiscalYear);
+
+  log.info('Generating note 9 — inventories', { companyId, fiscalYear }, 'noteGenerators');
+
+  // Query GL accounts classified as inventory
+  const rows = (await sql`
+    SELECT ga.account_name, ga.account_code, ga.account_subtype,
+           COALESCE(SUM(gjl.debit - gjl.credit), 0) AS balance
+    FROM gl_accounts ga
+    LEFT JOIN gl_journal_lines gjl
+      ON gjl.gl_account_id = ga.id AND gjl.company_id = ${companyId}
+    LEFT JOIN gl_journal_entries gje
+      ON gje.id = gjl.journal_entry_id
+      AND gje.entry_date <= ${end} AND gje.status = 'posted'
+    WHERE ga.company_id = ${companyId}
+      AND ga.account_subtype IN ('inventory', 'raw_materials', 'work_in_progress', 'finished_goods', 'consumables')
+    GROUP BY ga.account_name, ga.account_code, ga.account_subtype
+    HAVING COALESCE(SUM(gjl.debit - gjl.credit), 0) <> 0
+    ORDER BY ga.account_subtype, ga.account_name
+  `) as DbRow[];
+
+  if (rows.length === 0) {
+    return {
+      dataSnapshot: { inventory: [], suppressReason: 'zero_balance' },
+      content: {
+        title: 'Inventories',
+        blocks: [
+          {
+            type: 'paragraph',
+            text: 'No inventories have been recorded for this period. [Accountant: complete this note if applicable]',
+          },
+        ],
+      },
+    };
+  }
+
+  const total = rows.reduce((acc, r) => acc + toNum(r.balance), 0);
+  const tableRows: string[][] = rows.map((r) => [
+    String(r.account_name ?? ''),
+    String(r.account_subtype ?? '').replace(/_/g, ' '),
+    fmt(toNum(r.balance)),
+  ]);
+  tableRows.push(['Total', '', fmt(total)]);
+
   const content: NoteContent = {
     title: 'Inventories',
     blocks: [
       {
         type: 'paragraph',
-        text: 'Inventory items have not been configured in the system. [Accountant: complete this note if applicable]',
+        text: 'Inventories are measured at the lower of cost and estimated selling price less costs to complete and sell. Cost is determined using the weighted average cost method.',
+      },
+      {
+        type: 'table',
+        headers: ['Description', 'Category', 'Carrying Value (R)'],
+        rows: tableRows,
       },
     ],
   };
-  return { dataSnapshot, content };
+
+  return { dataSnapshot: { inventory: rows }, content };
 }
 
 // ── Note 10 — Trade and Other Receivables ─────────────────────────────────────

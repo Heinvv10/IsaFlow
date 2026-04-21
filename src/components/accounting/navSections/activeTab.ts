@@ -96,6 +96,7 @@ export function getActiveTabId(
     pathname.startsWith('/accounting/drc-vat') ||
     pathname.startsWith('/accounting/sars') ||
     pathname === '/accounting/reports/vat-return' ||
+    pathname === '/accounting/reports/vat-reconciliation' ||
     pathname.startsWith('/payroll/emp201') ||
     pathname.startsWith('/payroll/emp501') ||
     pathname.startsWith('/payroll/irp5') ||

@@ -4,27 +4,10 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { NoteContent } from '@/modules/accounting/services/afs/afsTypes';
+import { fmt, toNum, fiscalRange } from './noteHelpers';
+import { getCompanyTerminology } from '../entityTerminology';
 
 type DbRow = Record<string, unknown>;
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function fmt(n: number | null | undefined): string {
-  if (n == null) return '—';
-  return new Intl.NumberFormat('en-ZA', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(n);
-}
-
-function fiscalRange(year: number): { start: string; end: string } {
-  return { start: `${year}-01-01`, end: `${year}-12-31` };
-}
-
-function toNum(v: unknown): number {
-  const n = Number(v);
-  return isNaN(n) ? 0 : n;
-}
 
 // ── Note 11 — Cash and Cash Equivalents ──────────────────────────────────────
 
@@ -88,23 +71,26 @@ export async function generateNote12ShareCapital(
   const { end } = fiscalRange(fiscalYear);
   log.info('generateNote12ShareCapital', { companyId, fiscalYear }, 'AfsNote');
 
-  const rows = (await sql`
-    SELECT ga.account_name, ga.account_code, ga.account_subtype,
-           SUM(gjl.credit - gjl.debit) AS balance
-    FROM gl_accounts ga
-    JOIN gl_journal_lines gjl
-      ON gjl.gl_account_id = ga.id AND gjl.company_id = ${companyId}
-    JOIN gl_journal_entries gje
-      ON gje.id = gjl.journal_entry_id
-      AND gje.entry_date <= ${end} AND gje.status = 'posted'
-    WHERE ga.company_id = ${companyId}
-      AND ga.account_type = 'equity'
-    GROUP BY ga.account_name, ga.account_code, ga.account_subtype
-    HAVING SUM(gjl.credit - gjl.debit) <> 0
-    ORDER BY ga.account_code
-  `) as DbRow[];
+  const [rows, terms] = await Promise.all([
+    sql`
+      SELECT ga.account_name, ga.account_code, ga.account_subtype,
+             SUM(gjl.credit - gjl.debit) AS balance
+      FROM gl_accounts ga
+      JOIN gl_journal_lines gjl
+        ON gjl.gl_account_id = ga.id AND gjl.company_id = ${companyId}
+      JOIN gl_journal_entries gje
+        ON gje.id = gjl.journal_entry_id
+        AND gje.entry_date <= ${end} AND gje.status = 'posted'
+      WHERE ga.company_id = ${companyId}
+        AND ga.account_type = 'equity'
+      GROUP BY ga.account_name, ga.account_code, ga.account_subtype
+      HAVING SUM(gjl.credit - gjl.debit) <> 0
+      ORDER BY ga.account_code
+    ` as Promise<DbRow[]>,
+    getCompanyTerminology(companyId),
+  ]);
 
-  const dataSnapshot: Record<string, unknown> = { shareCapital: rows };
+  const dataSnapshot: Record<string, unknown> = { shareCapital: rows, entityType: terms.entityType };
 
   const tableRows: string[][] = rows.map((r) => [
     String(r.account_name ?? ''),
@@ -113,13 +99,21 @@ export async function generateNote12ShareCapital(
     fmt(toNum(r.balance)),
   ]);
 
+  // Entity-aware title and description
+  const title = terms.hasShareCapital
+    ? 'Share Capital and Reserves'
+    : terms.equitySectionTitle;
+
+  const description = terms.hasShareCapital
+    ? 'The authorised share capital consists of ordinary shares. All issued shares are fully paid up. [Accountant: confirm authorised share capital details and any changes during the year.]'
+    : terms.entityType === 'cc'
+      ? `The ${terms.owners}' interest comprises contributions made by ${terms.owners} and accumulated profits. [Accountant: confirm ${terms.owners}' contribution details and any changes during the year.]`
+      : `Trust capital comprises the initial contribution and accumulated funds. [Accountant: confirm trust capital details and any movements during the year.]`;
+
   const content: NoteContent = {
-    title: 'Share Capital and Reserves',
+    title,
     blocks: [
-      {
-        type: 'paragraph',
-        text: 'The authorised share capital consists of ordinary shares. All issued shares are fully paid up. [Accountant: confirm authorised share capital details and any changes during the year.]',
-      },
+      { type: 'paragraph', text: description },
       {
         type: 'table',
         headers: ['Account', 'Code', 'Subtype', 'Balance'],

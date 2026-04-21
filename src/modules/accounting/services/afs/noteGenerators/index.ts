@@ -3,6 +3,14 @@
 
 import type { NoteContent, SectionType, ReportingFramework } from '@/modules/accounting/services/afs/afsTypes';
 
+// Re-export shared helpers for use by generators and external consumers
+export { fetchBalancesByNote, fetchBalancesByCodes, applyCombineGroups } from './noteHelpers';
+export type { AfsLineBalance } from './noteHelpers';
+
+// Re-export entity terminology
+export { getTerminology, getCompanyTerminology, applyTerminology, getDisclosureRequirements } from '../entityTerminology';
+export type { EntityType, EntityTerminology, EntityDisclosureRequirements } from '../entityTerminology';
+
 export type NoteGeneratorFn = (
   companyId: string,
   fiscalYear: number,
@@ -143,7 +151,7 @@ function wrapFullIfrs(
 }
 
 export const NOTE_GENERATOR_MAP: Partial<Record<SectionType, NoteGeneratorFn>> = {
-  note_1:  wrap(generateNote1AccountingPolicies),
+  note_1:  (companyId, fiscalYear, framework) => generateNote1AccountingPolicies(companyId, fiscalYear, framework),
   note_2:  wrap(generateNote2SignificantEstimates),
   note_3:  wrap(generateNote3PropertyPlantEquipment),
   note_4:  wrapFullIfrs(generateNote4RightOfUseAssets,           'Right-of-Use Assets'),
