@@ -21,15 +21,15 @@ function fiscalRange(year: number): { start: string; end: string } {
 
 export async function noteAccountingPolicies(companyId: string, _fiscalYear: number): Promise<DisclosureNote> {
   const rows = await sql`
-    SELECT depreciation_method, inventory_valuation_method, default_currency, vat_system_type
+    SELECT default_currency, vat_system_type
     FROM companies WHERE id = ${companyId}
   ` as DbRow[];
 
   const c = rows[0] ?? {};
-  const depMethod = c.depreciation_method ?? 'straight-line';
-  const invMethod = c.inventory_valuation_method ?? 'weighted average cost';
   const currency = c.default_currency ?? 'ZAR';
   const vatType = c.vat_system_type ?? 'invoice';
+  const depMethod = 'straight-line';
+  const invMethod = 'weighted average cost';
 
   const content = [
     `Basis of preparation: The annual financial statements have been prepared on the historical cost basis and in accordance with International Financial Reporting Standards (IFRS) and the requirements of the Companies Act of South Africa. The functional and presentation currency is ${currency}.`,
@@ -54,12 +54,18 @@ export async function notePPE(companyId: string, fiscalYear: number): Promise<Di
   const rows = await sql`
     SELECT
       fa.category,
-      SUM(fa.cost) AS total_cost,
+      SUM(fa.purchase_price) AS total_cost,
       SUM(fa.accumulated_depreciation) AS total_accum_dep,
-      SUM(CASE WHEN fa.acquisition_date BETWEEN ${start} AND ${end} THEN fa.cost ELSE 0 END) AS additions,
-      SUM(CASE WHEN fa.disposal_date BETWEEN ${start} AND ${end} THEN fa.cost ELSE 0 END) AS disposals,
-      SUM(fa.depreciation_charge) AS dep_charge
-    FROM fixed_assets fa
+      SUM(CASE WHEN fa.purchase_date BETWEEN ${start} AND ${end} THEN fa.purchase_price ELSE 0 END) AS additions,
+      SUM(CASE WHEN fa.disposal_date BETWEEN ${start} AND ${end} THEN fa.purchase_price ELSE 0 END) AS disposals,
+      COALESCE(SUM(yc.year_charge), 0) AS dep_charge
+    FROM assets fa
+    LEFT JOIN (
+      SELECT ads.asset_id, SUM(ads.amount) AS year_charge
+      FROM asset_depreciation_schedule ads
+      WHERE ads.is_tax = false AND ads.period_date BETWEEN ${start} AND ${end}
+      GROUP BY ads.asset_id
+    ) yc ON yc.asset_id = fa.id
     WHERE fa.company_id = ${companyId}
       AND (fa.disposal_date IS NULL OR fa.disposal_date >= ${start})
     GROUP BY fa.category
@@ -179,9 +185,9 @@ export async function noteRevenue(companyId: string, fiscalYear: number): Promis
 
   const rows = await sql`
     SELECT ga.account_name, ga.account_code,
-      SUM(ABS(gjl.credit_amount - gjl.debit_amount)) AS net_amount
+      SUM(ABS(gjl.credit - gjl.debit)) AS net_amount
     FROM gl_journal_lines gjl
-    JOIN gl_accounts ga ON ga.id = gjl.account_id
+    JOIN gl_accounts ga ON ga.id = gjl.gl_account_id
     JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
     WHERE gjl.company_id = ${companyId}
       AND ga.account_type = 'revenue'
@@ -211,9 +217,9 @@ export async function noteCash(companyId: string, fiscalYear: number): Promise<D
 
   const rows = await sql`
     SELECT ga.account_name, ga.account_code,
-      COALESCE(SUM(gjl.debit_amount - gjl.credit_amount), 0) AS balance
+      COALESCE(SUM(gjl.debit - gjl.credit), 0) AS balance
     FROM gl_accounts ga
-    LEFT JOIN gl_journal_lines gjl ON gjl.account_id = ga.id AND gjl.company_id = ${companyId}
+    LEFT JOIN gl_journal_lines gjl ON gjl.gl_account_id = ga.id AND gjl.company_id = ${companyId}
     LEFT JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
       AND gje.entry_date <= ${end} AND gje.status = 'posted'
     WHERE ga.company_id = ${companyId}
@@ -242,10 +248,10 @@ export async function noteTaxation(companyId: string, fiscalYear: number): Promi
 
   const rows = await sql`
     SELECT
-      SUM(gjl.debit_amount) FILTER (WHERE ga.account_subtype = 'vat_input') AS vat_input,
-      SUM(gjl.credit_amount) FILTER (WHERE ga.account_subtype = 'vat_output') AS vat_output
+      SUM(gjl.debit) FILTER (WHERE ga.account_subtype = 'vat_input') AS vat_input,
+      SUM(gjl.credit) FILTER (WHERE ga.account_subtype = 'vat_output') AS vat_output
     FROM gl_journal_lines gjl
-    JOIN gl_accounts ga ON ga.id = gjl.account_id
+    JOIN gl_accounts ga ON ga.id = gjl.gl_account_id
     JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
     WHERE gjl.company_id = ${companyId}
       AND ga.account_subtype IN ('vat_input', 'vat_output')

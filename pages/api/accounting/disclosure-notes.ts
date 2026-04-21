@@ -34,10 +34,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const exportMode = req.query.export === 'true';
 
   try {
-    const [autoNotes, manualNotes] = await Promise.all([
-      generateDisclosureNotes(companyId, year),
-      getManualNotes(companyId, year),
-    ]);
+    // Serial: both run through the same ALS-bound tx client, and
+    // generateDisclosureNotes issues SAVEPOINTs internally — concurrent
+    // issuance would interleave savepoint boundaries across queries.
+    const autoNotes = await generateDisclosureNotes(companyId, year);
+    const manualNotes = await getManualNotes(companyId, year);
 
     // Merge: auto notes first, then manual notes appended
     const allNotes: DisclosureNote[] = [...autoNotes, ...manualNotes];
