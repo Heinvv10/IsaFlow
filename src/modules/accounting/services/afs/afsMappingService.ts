@@ -278,7 +278,7 @@ export async function getMappedTrialBalance(
     FROM afs_account_mappings m
     JOIN gl_accounts a ON a.id = m.gl_account_id AND a.company_id = m.company_id
     LEFT JOIN gl_account_balances b
-      ON b.account_id = m.gl_account_id AND b.fiscal_period_id = ${fiscalPeriodId}
+      ON b.gl_account_id = m.gl_account_id AND b.fiscal_period_id = ${fiscalPeriodId}
     WHERE m.company_id = ${companyId}
     ORDER BY m.afs_line_code, a.account_code`;
 
@@ -291,7 +291,7 @@ export async function getMappedTrialBalance(
         COALESCE(b.debit_total, 0) - COALESCE(b.credit_total, 0) AS balance
       FROM afs_account_mappings m
       LEFT JOIN gl_account_balances b
-        ON b.account_id = m.gl_account_id AND b.fiscal_period_id = ${priorPeriodId}
+        ON b.gl_account_id = m.gl_account_id AND b.fiscal_period_id = ${priorPeriodId}
       WHERE m.company_id = ${companyId}`;
     for (const r of priorRows) {
       priorMap.set(r.gl_account_id as string, Number(r.balance));

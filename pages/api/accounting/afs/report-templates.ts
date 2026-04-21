@@ -37,9 +37,6 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     SELECT
       c.name AS company_name,
       c.registration_number,
-      c.default_currency,
-      c.vat_system_type,
-      c.financial_year_start_month,
       c.registered_address,
       c.nature_of_business
     FROM companies c
