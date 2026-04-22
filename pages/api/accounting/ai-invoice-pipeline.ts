@@ -77,12 +77,13 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const pipelineConfidence = computePipelineConfidence(extracted, supplierMatch);
   const approvalRoute = determineApprovalRoute(pipelineConfidence, invoiceInput.totalAmount, DEFAULT_THRESHOLDS);
 
-  // Create supplier invoice
+  // Create supplier invoice (evidence columns stamped; hash backfilled by worker)
   const [invoice] = (await sql`
     INSERT INTO supplier_invoices (
       company_id, invoice_number, supplier_id, invoice_date, due_date,
       subtotal, tax_rate, tax_amount, total_amount, payment_terms,
-      reference, status, created_by
+      reference, status, created_by,
+      source_document_id, source_document_hash, extraction_confidence, posting_agent
     ) VALUES (
       ${companyId}, ${invoiceInput.invoiceNumber}, ${supplierMatch.supplierId}::uuid,
       ${invoiceInput.invoiceDate}::date, ${invoiceInput.dueDate || null}::date,
@@ -90,11 +91,34 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       ${invoiceInput.taxAmount}, ${invoiceInput.totalAmount},
       ${invoiceInput.paymentTerms || 'net30'}, ${invoiceInput.reference || null},
       ${approvalRoute === 'auto_approve' ? 'approved' : 'draft'},
-      ${userId}
+      ${userId},
+      ${documentId}::uuid, NULL, ${pipelineConfidence}, 'ai:ai-invoice-pipeline:v1'
     ) RETURNING id, invoice_number, status
   `) as Row[];
 
   if (!invoice) return apiResponse.internalError(res, null, 'Failed to create invoice');
+
+  // Insert line items — unitPrice is VAT-exclusive (subtotal = sum of line totals;
+  // vatAmount = subtotal * taxRate/100 per vlmInvoiceService validateAmounts).
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  for (const item of invoiceInput.items) {
+    if (item.quantity <= 0 || item.unitPrice < 0) {
+      log.warn('AI Invoice Pipeline: skipping invalid line item', { item, invoiceId: invoice.id }, 'ai-pipeline');
+      continue;
+    }
+    const lineTotal = round2(item.quantity * item.unitPrice);
+    const taxAmount = round2(lineTotal * item.taxRate / 100);
+    await sql`
+      INSERT INTO supplier_invoice_items (
+        supplier_invoice_id, description, quantity, unit_price,
+        tax_rate, tax_amount, line_total, company_id
+      ) VALUES (
+        ${invoice.id}::uuid, ${item.description}, ${item.quantity},
+        ${item.unitPrice}, ${item.taxRate}, ${taxAmount}, ${lineTotal},
+        ${companyId}
+      )
+    `;
+  }
 
   // Link document to invoice
   await sql`
@@ -106,6 +130,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   log.info('AI Invoice Pipeline completed', {
     documentId, invoiceId: invoice.id, supplierMatch: supplierMatch.supplierName,
     confidence: pipelineConfidence, route: approvalRoute,
+    itemCount: invoiceInput.items.length,
   }, 'ai-pipeline');
 
   return apiResponse.success(res, {

@@ -7,6 +7,7 @@ import { sql, withTransaction } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
+import type { JournalEntryMeta } from '../gl/journalEntryMeta';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { mapTxRow } from './bankTransactionQueryService';
 import type { BankTransaction } from '../../types/bank.types';
@@ -162,9 +163,37 @@ export async function allocateTransaction(
     l.glAccountId === bankAccountId ? l : { ...l, costCenterId: cc1Id || l.costCenterId, buId: buId || l.buId }
   );
 
+  // Carry forward source_document_id from the invoice when allocating against a known entity
+  let invoiceSourceDocId: string | null = null;
+  if (allocType === 'supplier' && entityId) {
+    const invRows = (await sql`
+      SELECT source_document_id FROM supplier_invoices
+      WHERE company_id = ${companyId}::UUID AND supplier_id = ${entityId}::UUID
+        AND source_document_id IS NOT NULL
+      ORDER BY created_at DESC LIMIT 1
+    `) as Row[];
+    invoiceSourceDocId = invRows.length > 0 && invRows[0]!.source_document_id
+      ? String(invRows[0]!.source_document_id) : null;
+  } else if (allocType === 'customer' && entityId) {
+    const invRows = (await sql`
+      SELECT source_document_id FROM customer_invoices
+      WHERE company_id = ${companyId}::UUID
+        AND COALESCE(client_id, customer_id) = ${entityId}::UUID
+        AND source_document_id IS NOT NULL
+      ORDER BY created_at DESC LIMIT 1
+    `) as Row[];
+    invoiceSourceDocId = invRows.length > 0 && invRows[0]!.source_document_id
+      ? String(invRows[0]!.source_document_id) : null;
+  }
+
+  const allocationMeta: JournalEntryMeta = {
+    postingAgent: 'system:bank-allocation:v1',
+    sourceDocumentId: invoiceSourceDocId,
+  };
+
   const je = await createJournalEntry(companyId, {
-    entryDate: txDate, description: entryDesc, source, sourceDocumentId: bankTxId, lines: linesWithDims,
-  }, userId);
+    entryDate: txDate, description: entryDesc, source, lines: linesWithDims,
+  }, userId, allocationMeta);
   await postJournalEntry(companyId, je.id, userId);
 
   // Resolve journal line id and optional customer payment user BEFORE opening tx (read-only lookups)
@@ -273,9 +302,10 @@ export async function splitAllocateTransaction(
     journalLines.unshift({ glAccountId: bankAccountId, debit: totalAmount, credit: 0, description: entryDesc });
   }
 
+  const splitMeta: JournalEntryMeta = { postingAgent: 'system:bank-allocation:v1' };
   const je = await createJournalEntry(companyId, {
-    entryDate: txDate, description: entryDesc, source: 'auto_bank_recon', sourceDocumentId: bankTxId, lines: journalLines,
-  }, userId);
+    entryDate: txDate, description: entryDesc, source: 'auto_bank_recon', lines: journalLines,
+  }, userId, splitMeta);
   await postJournalEntry(companyId, je.id, userId);
 
   const jeLines = (await sql`

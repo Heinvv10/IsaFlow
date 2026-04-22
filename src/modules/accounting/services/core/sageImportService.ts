@@ -89,11 +89,13 @@ export async function importLedgerTransactions(companyId: string, userId: string
         // BL-40: Added company_id to INSERT — was missing, causing NOT NULL violation
         const entry = (await sql`
           INSERT INTO gl_journal_entries (
-            entry_number, entry_date, description, source, status, created_by, company_id
+            entry_number, entry_date, description, source, status, created_by, company_id,
+            posting_agent
           ) VALUES (
             ${entryRef}, ${group.transaction_date},
             ${group.description || `Sage import: ${entryRef}`},
-            'manual', 'posted', ${userId}, ${companyId}::UUID
+            'manual', 'posted', ${userId}, ${companyId}::UUID,
+            'import:sage'
           ) RETURNING id
         `) as DbRow[];
 

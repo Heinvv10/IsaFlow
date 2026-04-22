@@ -73,7 +73,8 @@ export async function importJournalEntries(
         INSERT INTO gl_journal_entries (
           company_id, entry_date, fiscal_period_id, description,
           source, created_by, status,
-          posted_by, posted_at
+          posted_by, posted_at,
+          posting_agent
         ) VALUES (
           ${companyId}::UUID,
           ${firstRow.date}::DATE,
@@ -83,7 +84,8 @@ export async function importJournalEntries(
           ${userId}::UUID,
           ${status},
           ${postedBy}::UUID,
-          ${postImmediately ? sql`NOW()` : sql`NULL`}
+          ${postImmediately ? sql`NOW()` : sql`NULL`},
+          'import:gl-manual'
         )
         RETURNING id
       `) as Row[];
