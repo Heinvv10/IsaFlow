@@ -6,12 +6,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
-import { AlertCircle, Loader2, Mail, X, CheckCircle2, Clock, Search, FileQuestion, Zap } from 'lucide-react';
+import { AlertCircle, Loader2, Mail, MessageSquare, X, CheckCircle2, Clock, Search, FileQuestion, Zap } from 'lucide-react';
 import { MissingInvoiceModals, type ExpectedAlert } from '@/components/accounting/suppliers/MissingInvoiceModals';
 
 type StatusFilter = 'pending' | 'chased' | 'resolved' | 'dismissed';
 type Toast = { msg: string; kind: 'ok' | 'err' | 'warn' } | null;
-interface ChaseSettings { chaseAutoSendEnabled: boolean; chaseGraceDays: number; }
+interface ChaseSettings { chaseAutoSendEnabled: boolean; chaseGraceDays: number; whatsappChaseEnabled: boolean; }
 
 export const fmtZAR = (n: number | null) =>
   n == null ? '—' : 'R ' + n.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -215,11 +215,23 @@ export default function MissingInvoicesPage() {
                             <button onClick={() => a.supplierEmail ? setChaseAlert(a) : undefined}
                               disabled={!a.supplierEmail || a.status !== 'pending'}
                               className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-                              <Mail className="h-3.5 w-3.5" />Chase
+                              <Mail className="h-3.5 w-3.5" />Email
                             </button>
                             {!a.supplierEmail && (
                               <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 rounded text-xs bg-gray-900 text-gray-200 whitespace-nowrap opacity-0 group-hover/tip:opacity-100 transition-opacity z-10">
                                 No supplier email on file
+                              </span>
+                            )}
+                          </div>
+                          <div className="relative group/watip">
+                            <button onClick={() => a.supplierWhatsappNumber ? setChaseAlert(a) : undefined}
+                              disabled={!a.supplierWhatsappNumber || a.status !== 'pending'}
+                              className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-green-500/10 text-green-400 hover:bg-green-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                              <MessageSquare className="h-3.5 w-3.5" />WA
+                            </button>
+                            {!a.supplierWhatsappNumber && (
+                              <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 rounded text-xs bg-gray-900 text-gray-200 whitespace-nowrap opacity-0 group-hover/watip:opacity-100 transition-opacity z-10">
+                                No WhatsApp number on file
                               </span>
                             )}
                           </div>

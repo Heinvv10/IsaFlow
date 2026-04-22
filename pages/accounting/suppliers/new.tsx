@@ -45,6 +45,7 @@ export default function NewSupplierPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...form,
+          whatsappNumber: form.whatsapp_number.trim() || null,
           payment_terms: form.payment_terms ? Number(form.payment_terms) : 30,
           bank_name: form.bank_name.trim() || null,
           bank_account_number: form.bank_account_number.trim() || null,
