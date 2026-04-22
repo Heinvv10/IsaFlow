@@ -39,6 +39,13 @@ export const purchasesTab: Tab = {
       ],
     },
     {
+      section: 'Capture',
+      items: [
+        { label: 'Inbox', href: '/accounting/capture/inbox' },
+        { label: 'Capture Settings', href: '/accounting/capture/settings' },
+      ],
+    },
+    {
       section: 'Special',
       items: [
         { label: 'Opening Balances', href: '/accounting/opening-balances' },

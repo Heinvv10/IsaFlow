@@ -10,6 +10,8 @@ const CACHE_NAME = 'isaflow-__BUILD_ID__';
 
 const STATIC_ASSETS = [
   '/offline',
+  '/accounting/capture',
+  '/manifest.json',
 ];
 
 // Read-only API endpoints eligible for stale-while-revalidate

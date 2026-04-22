@@ -14,7 +14,7 @@ import '../styles/globals.css';
  */
 export default function App({ Component, pageProps }: AppProps) {
   useEffect(() => {
-    if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
+    if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => {
         // Service worker registration failed — non-critical
       });

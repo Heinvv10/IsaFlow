@@ -1,0 +1,195 @@
+/**
+ * Capture Inbox — right-side slide-out detail panel (PRD-05 Phase 1).
+ */
+
+import { useState } from 'react';
+import {
+  Mail, Smartphone, MessageSquare, Server, Globe,
+  Loader2, X,
+} from 'lucide-react';
+
+// ─── Shared types (re-exported for page use) ──────────────────────────────────
+
+export interface CaptureEventRow {
+  id: string;
+  received_at: string;
+  channel: 'email' | 'pwa' | 'whatsapp' | 'imap_mirror' | 'api';
+  sender: string | null;
+  subject: string | null;
+  status: 'received' | 'extracting' | 'extracted' | 'posted' | 'discarded' | 'failed';
+  captured_document_id: string | null;
+  error: string | null;
+  document_vendor: string | null;
+  document_date: string | null;
+  document_reference: string | null;
+  document_total: number | null;
+  document_type: string | null;
+  extracted_data: Record<string, unknown> | null;
+}
+
+export interface InboxAddress { id: string; address: string }
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+export function fmtDate(val: string | Date | null | undefined): string {
+  if (!val) return '—';
+  try { return new Date(val).toLocaleString('en-ZA'); } catch { return String(val); }
+}
+
+export function fmtZAR(val: number | null | undefined): string {
+  if (val == null) return '—';
+  return `R ${val.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+export const CHANNEL_ICONS: Record<CaptureEventRow['channel'], React.ReactNode> = {
+  email:       <Mail className="h-4 w-4" />,
+  pwa:         <Smartphone className="h-4 w-4" />,
+  whatsapp:    <MessageSquare className="h-4 w-4" />,
+  imap_mirror: <Server className="h-4 w-4" />,
+  api:         <Globe className="h-4 w-4" />,
+};
+
+// ─── Status Badge ─────────────────────────────────────────────────────────────
+
+export function StatusBadge({ status, error }: { status: CaptureEventRow['status']; error: string | null }) {
+  const map: Record<string, string> = {
+    received:   'bg-slate-700 text-slate-300',
+    extracting: 'bg-yellow-900/50 text-yellow-300',
+    extracted:  'bg-blue-900/50 text-blue-300',
+    posted:     'bg-green-900/50 text-green-300',
+    discarded:  'bg-slate-800 text-slate-500',
+    failed:     'bg-red-900/50 text-red-300',
+  };
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium ${map[status] ?? map.received}`}>
+      {status === 'extracting' && <Loader2 className="h-3 w-3 animate-spin" />}
+      {status.charAt(0).toUpperCase() + status.slice(1)}
+      {status === 'failed' && error && <span className="ml-1 text-red-400" title={error}>!</span>}
+    </span>
+  );
+}
+
+// ─── Row helper ───────────────────────────────────────────────────────────────
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-start gap-2">
+      <span className="w-24 shrink-0 text-slate-500">{label}</span>
+      <span className="text-slate-200 break-words">{value}</span>
+    </div>
+  );
+}
+
+// ─── Side Panel ───────────────────────────────────────────────────────────────
+
+interface SidePanelProps {
+  event: CaptureEventRow;
+  onClose: () => void;
+  onPost: (id: string) => Promise<void>;
+  onDiscard: (id: string, reason?: string) => Promise<void>;
+  posting: boolean;
+  discarding: boolean;
+}
+
+export function CaptureInboxPanel({ event, onClose, onPost, onDiscard, posting, discarding }: SidePanelProps) {
+  const [discardMode, setDiscardMode] = useState(false);
+  const [discardReason, setDiscardReason] = useState('');
+  const ed = event.extracted_data;
+  const lineItems = Array.isArray(ed?.line_items) ? (ed.line_items as Record<string, unknown>[]) : null;
+
+  return (
+    <div className="fixed inset-y-0 right-0 w-[420px] bg-[var(--ff-canvas-mid)] border-l border-[rgba(255,255,255,0.08)] shadow-2xl flex flex-col z-50">
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 py-4 border-b border-[rgba(255,255,255,0.08)]">
+        <div className="flex items-center gap-2 text-slate-300">
+          {CHANNEL_ICONS[event.channel]}
+          <span className="font-medium capitalize">{event.channel.replace('_', ' ')}</span>
+          <StatusBadge status={event.status} error={event.error} />
+        </div>
+        <button onClick={onClose} className="text-slate-500 hover:text-slate-200 transition-colors">
+          <X className="h-5 w-5" />
+        </button>
+      </div>
+
+      {/* Scrollable body */}
+      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 text-sm">
+        <div className="space-y-1.5">
+          <Row label="Received" value={fmtDate(event.received_at)} />
+          <Row label="Sender"   value={event.sender ?? '—'} />
+          <Row label="Subject"  value={event.subject ?? '—'} />
+        </div>
+
+        {(event.document_vendor || event.document_reference || event.document_total != null) && (
+          <div className="border-t border-[rgba(255,255,255,0.06)] pt-4 space-y-1.5">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Extracted Document</p>
+            <Row label="Vendor"    value={event.document_vendor ?? '—'} />
+            <Row label="Type"      value={event.document_type ?? '—'} />
+            <Row label="Reference" value={event.document_reference ?? '—'} />
+            <Row label="Date"      value={fmtDate(event.document_date)} />
+            <Row label="Total"     value={fmtZAR(event.document_total)} />
+            {ed?.subtotal != null   && <Row label="Subtotal" value={fmtZAR(ed.subtotal as number)} />}
+            {ed?.vat_amount != null && <Row label="VAT"      value={fmtZAR(ed.vat_amount as number)} />}
+          </div>
+        )}
+
+        {lineItems && lineItems.length > 0 && (
+          <div className="border-t border-[rgba(255,255,255,0.06)] pt-4">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Line Items</p>
+            <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
+              {lineItems.map((li, i) => (
+                <div key={i} className="flex items-center justify-between py-1 px-2 rounded bg-white/5 text-slate-300">
+                  <span className="truncate flex-1 mr-2">{String(li.description ?? li.item ?? `Item ${i + 1}`)}</span>
+                  <span className="shrink-0 text-slate-400">{fmtZAR(li.amount as number ?? null)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {event.status === 'failed' && event.error && (
+          <div className="border-t border-[rgba(255,255,255,0.06)] pt-4">
+            <p className="text-xs font-semibold text-red-500 uppercase tracking-wider mb-1">Error</p>
+            <p className="text-red-400 text-xs font-mono whitespace-pre-wrap break-words">{event.error}</p>
+          </div>
+        )}
+      </div>
+
+      {/* Actions */}
+      <div className="px-5 py-4 border-t border-[rgba(255,255,255,0.08)] space-y-2">
+        {discardMode ? (
+          <div className="space-y-2">
+            <input
+              value={discardReason}
+              onChange={e => setDiscardReason(e.target.value)}
+              placeholder="Reason (optional)"
+              className="w-full px-3 py-2 rounded bg-white/5 border border-[rgba(255,255,255,0.1)] text-slate-200 text-sm placeholder:text-slate-600 focus:outline-none focus:border-teal-500"
+            />
+            <div className="flex gap-2">
+              <button onClick={() => { void onDiscard(event.id, discardReason || undefined); setDiscardMode(false); }}
+                disabled={discarding}
+                className="flex-1 px-4 py-2 bg-red-700 hover:bg-red-600 disabled:opacity-50 text-white rounded text-sm font-medium">
+                {discarding ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : 'Confirm Discard'}
+              </button>
+              <button onClick={() => setDiscardMode(false)} className="px-4 py-2 rounded text-sm text-slate-400 hover:text-slate-200">Cancel</button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex gap-2">
+            <button onClick={() => void onPost(event.id)} disabled={posting || event.status !== 'extracted'}
+              className="flex-1 px-4 py-2 bg-teal-600 hover:bg-teal-500 disabled:opacity-40 text-white rounded text-sm font-medium transition-colors">
+              {posting ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : 'Post'}
+            </button>
+            <button onClick={() => setDiscardMode(true)} disabled={discarding}
+              className="px-4 py-2 bg-white/5 hover:bg-white/10 text-slate-300 rounded text-sm font-medium transition-colors">
+              Discard
+            </button>
+            <button title="Available in Phase 3" disabled
+              className="px-4 py-2 bg-white/5 opacity-40 cursor-not-allowed text-slate-400 rounded text-sm font-medium">
+              Approve
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

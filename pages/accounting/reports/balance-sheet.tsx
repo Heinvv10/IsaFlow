@@ -12,6 +12,7 @@ import type { BalanceSheetReport } from '@/modules/accounting/types/gl.types';
 import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
+import { EvidenceDrillModal } from '@/components/accounting/evidence/EvidenceDrillModal';
 
 interface CostCentre { id: string; code: string; name: string }
 
@@ -27,6 +28,7 @@ export default function BalanceSheetPage() {
   const [costCentres, setCostCentres] = useState<CostCentre[]>([]);
   const [costCentreId, setCostCentreId] = useState('');
   const [showComparative, setShowComparative] = useState(false);
+  const [evidenceTarget, setEvidenceTarget] = useState<{ accountId: string; accountName: string } | null>(null);
 
   useEffect(() => {
     apiFetch('/api/accounting/cost-centres?active_only=true', { credentials: 'include' })
@@ -160,24 +162,24 @@ export default function BalanceSheetPage() {
                   <div className="divide-y divide-[var(--ff-border-light)]">
                     {report.assets.map(a => (
                       <div key={a.accountCode}>
-                        <button onClick={() => setExpandedAccount(expandedAccount === a.accountCode ? null : a.accountCode)}
-                          className="w-full px-6 py-2 flex justify-between text-sm hover:bg-[var(--ff-bg-tertiary)] cursor-pointer">
-                          <span className="flex items-center gap-1 text-[var(--ff-text-secondary)]">
+                        <div className="w-full px-6 py-2 flex justify-between text-sm hover:bg-[var(--ff-bg-tertiary)]">
+                          <button onClick={() => setExpandedAccount(expandedAccount === a.accountCode ? null : a.accountCode)}
+                            className="flex items-center gap-1 text-[var(--ff-text-secondary)] flex-1 text-left cursor-pointer">
                             {expandedAccount === a.accountCode ? <ChevronDown className="h-3 w-3 text-[var(--ff-text-tertiary)]" /> : <ChevronRight className="h-3 w-3 text-[var(--ff-text-tertiary)]" />}
                             <span className="font-mono text-xs mr-2">{a.accountCode}</span>{a.accountName}
-                          </span>
+                          </button>
                           {showComparative && a.priorBalance !== undefined ? (
                             <span className="flex items-center gap-3">
                               <span className="font-mono text-[var(--ff-text-tertiary)] text-xs w-24 text-right">{formatCurrency(a.priorBalance)}</span>
-                              <span className="font-mono text-[var(--ff-text-primary)] w-24 text-right">{formatCurrency(a.balance)}</span>
+                              <button onClick={() => setEvidenceTarget({ accountId: a.accountCode, accountName: a.accountName })} className="font-mono text-[var(--ff-text-primary)] w-24 text-right hover:text-indigo-400">{formatCurrency(a.balance)}</button>
                               <span className={`font-mono text-xs w-20 text-right ${(a.variance ?? 0) >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
                                 {(a.variance ?? 0) >= 0 ? '+' : ''}{formatCurrency(a.variance ?? 0)}
                               </span>
                             </span>
                           ) : (
-                            <span className="font-mono text-[var(--ff-text-primary)]">{formatCurrency(a.balance)}</span>
+                            <button onClick={() => setEvidenceTarget({ accountId: a.accountCode, accountName: a.accountName })} className="font-mono text-[var(--ff-text-primary)] hover:text-indigo-400">{formatCurrency(a.balance)}</button>
                           )}
-                        </button>
+                        </div>
                         {expandedAccount === a.accountCode && (
                           <AccountDrillDown accountCode={a.accountCode} periodStart={drillDownStart} periodEnd={drillDownEnd} />
                         )}
@@ -206,24 +208,24 @@ export default function BalanceSheetPage() {
                     <div className="divide-y divide-[var(--ff-border-light)]">
                       {report.liabilities.map(l => (
                         <div key={l.accountCode}>
-                          <button onClick={() => setExpandedAccount(expandedAccount === l.accountCode ? null : l.accountCode)}
-                            className="w-full px-6 py-2 flex justify-between text-sm hover:bg-[var(--ff-bg-tertiary)] cursor-pointer">
-                            <span className="flex items-center gap-1 text-[var(--ff-text-secondary)]">
+                          <div className="w-full px-6 py-2 flex justify-between text-sm hover:bg-[var(--ff-bg-tertiary)]">
+                            <button onClick={() => setExpandedAccount(expandedAccount === l.accountCode ? null : l.accountCode)}
+                              className="flex items-center gap-1 text-[var(--ff-text-secondary)] flex-1 text-left cursor-pointer">
                               {expandedAccount === l.accountCode ? <ChevronDown className="h-3 w-3 text-[var(--ff-text-tertiary)]" /> : <ChevronRight className="h-3 w-3 text-[var(--ff-text-tertiary)]" />}
                               <span className="font-mono text-xs mr-2">{l.accountCode}</span>{l.accountName}
-                            </span>
+                            </button>
                             {showComparative && l.priorBalance !== undefined ? (
                               <span className="flex items-center gap-3">
                                 <span className="font-mono text-[var(--ff-text-tertiary)] text-xs w-24 text-right">{formatCurrency(l.priorBalance)}</span>
-                                <span className="font-mono text-[var(--ff-text-primary)] w-24 text-right">{formatCurrency(l.balance)}</span>
+                                <button onClick={() => setEvidenceTarget({ accountId: l.accountCode, accountName: l.accountName })} className="font-mono text-[var(--ff-text-primary)] w-24 text-right hover:text-indigo-400">{formatCurrency(l.balance)}</button>
                                 <span className={`font-mono text-xs w-20 text-right ${(l.variance ?? 0) >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
                                   {(l.variance ?? 0) >= 0 ? '+' : ''}{formatCurrency(l.variance ?? 0)}
                                 </span>
                               </span>
                             ) : (
-                              <span className="font-mono text-[var(--ff-text-primary)]">{formatCurrency(l.balance)}</span>
+                              <button onClick={() => setEvidenceTarget({ accountId: l.accountCode, accountName: l.accountName })} className="font-mono text-[var(--ff-text-primary)] hover:text-indigo-400">{formatCurrency(l.balance)}</button>
                             )}
-                          </button>
+                          </div>
                           {expandedAccount === l.accountCode && (
                             <AccountDrillDown accountCode={l.accountCode} periodStart={drillDownStart} periodEnd={drillDownEnd} />
                           )}
@@ -250,24 +252,24 @@ export default function BalanceSheetPage() {
                     <div className="divide-y divide-[var(--ff-border-light)]">
                       {report.equity.map(e => (
                         <div key={e.accountCode}>
-                          <button onClick={() => setExpandedAccount(expandedAccount === e.accountCode ? null : e.accountCode)}
-                            className="w-full px-6 py-2 flex justify-between text-sm hover:bg-[var(--ff-bg-tertiary)] cursor-pointer">
-                            <span className="flex items-center gap-1 text-[var(--ff-text-secondary)]">
+                          <div className="w-full px-6 py-2 flex justify-between text-sm hover:bg-[var(--ff-bg-tertiary)]">
+                            <button onClick={() => setExpandedAccount(expandedAccount === e.accountCode ? null : e.accountCode)}
+                              className="flex items-center gap-1 text-[var(--ff-text-secondary)] flex-1 text-left cursor-pointer">
                               {expandedAccount === e.accountCode ? <ChevronDown className="h-3 w-3 text-[var(--ff-text-tertiary)]" /> : <ChevronRight className="h-3 w-3 text-[var(--ff-text-tertiary)]" />}
                               <span className="font-mono text-xs mr-2">{e.accountCode}</span>{e.accountName}
-                            </span>
+                            </button>
                             {showComparative && e.priorBalance !== undefined ? (
                               <span className="flex items-center gap-3">
                                 <span className="font-mono text-[var(--ff-text-tertiary)] text-xs w-24 text-right">{formatCurrency(e.priorBalance)}</span>
-                                <span className="font-mono text-[var(--ff-text-primary)] w-24 text-right">{formatCurrency(e.balance)}</span>
+                                <button onClick={() => setEvidenceTarget({ accountId: e.accountCode, accountName: e.accountName })} className="font-mono text-[var(--ff-text-primary)] w-24 text-right hover:text-indigo-400">{formatCurrency(e.balance)}</button>
                                 <span className={`font-mono text-xs w-20 text-right ${(e.variance ?? 0) >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
                                   {(e.variance ?? 0) >= 0 ? '+' : ''}{formatCurrency(e.variance ?? 0)}
                                 </span>
                               </span>
                             ) : (
-                              <span className="font-mono text-[var(--ff-text-primary)]">{formatCurrency(e.balance)}</span>
+                              <button onClick={() => setEvidenceTarget({ accountId: e.accountCode, accountName: e.accountName })} className="font-mono text-[var(--ff-text-primary)] hover:text-indigo-400">{formatCurrency(e.balance)}</button>
                             )}
-                          </button>
+                          </div>
                           {expandedAccount === e.accountCode && (
                             <AccountDrillDown accountCode={e.accountCode} periodStart={drillDownStart} periodEnd={drillDownEnd} />
                           )}
@@ -296,6 +298,7 @@ export default function BalanceSheetPage() {
           ) : null}
         </div>
       </div>
+      {evidenceTarget && <EvidenceDrillModal accountId={evidenceTarget.accountId} accountName={evidenceTarget.accountName} periodStart={drillDownStart} periodEnd={drillDownEnd} onClose={() => setEvidenceTarget(null)} />}
     </AppLayout>
   );
 }
