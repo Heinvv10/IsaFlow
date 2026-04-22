@@ -44,6 +44,12 @@ export const suppliersTab: Tab = {
       ],
     },
     {
+      section: 'Automation',
+      items: [
+        { label: 'Coding Rules', href: '/accounting/suppliers/rules' },
+      ],
+    },
+    {
       section: 'Data Quality',
       items: [
         { label: 'Find & Merge Duplicates', href: '/accounting/suppliers/dedup' },
