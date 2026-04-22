@@ -230,6 +230,19 @@ describe('decide', () => {
     }
   });
 
+  // ── Phase 4: clean reason text ───────────────────────────────────────────
+
+  it('Phase 4: reason is exactly "PO match required — post to review" when requirePoMatch is true', async () => {
+    vi.mocked(getRule).mockResolvedValue(makeRule({ requirePoMatch: true }));
+
+    const result = await decide(BASE_OPTS);
+
+    expect(result.outcome).toBe('route_review');
+    if (result.outcome === 'route_review') {
+      expect(result.reasons).toContain('PO match required — post to review');
+    }
+  });
+
   // ── Multiple reasons accumulate ───────────────────────────────────────────
 
   it('accumulates multiple route_review reasons (low confidence + over cap + PO)', async () => {
