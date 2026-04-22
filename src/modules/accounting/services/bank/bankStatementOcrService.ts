@@ -147,7 +147,7 @@ export async function createImportFromDocument(
       ${periodStart}::date, ${periodEnd}::date,
       ${extraction.openingBalance ?? null}, ${extraction.closingBalance ?? null},
       ${rows.length}, 0, ${duplicateCount},
-      'reviewing', ${extractionSummary}::jsonb, ${userId}::uuid
+      'extracted', ${extractionSummary}::jsonb, ${userId}::uuid
     )
     RETURNING *
   `) as DbRow[];

@@ -81,7 +81,7 @@ function makeImportDbRow(overrides: Record<string, unknown> = {}): Record<string
     row_count: 3,
     imported_count: 0,
     duplicate_count: 0,
-    status: 'reviewing',
+    status: 'extracted',
     extraction_summary: { rows: [], warnings: [] },
     created_by: USER_ID,
     created_at: '2026-04-01T10:00:00.000Z',
@@ -114,7 +114,7 @@ function makeImport(overrides: Partial<{
     rowCount: overrides.rowCount ?? rows.length,
     importedCount: 0,
     duplicateCount: overrides.duplicateCount ?? 0,
-    status: overrides.status ?? 'reviewing',
+    status: overrides.status ?? 'extracted',
     rows,
     warnings: [],
     createdAt: '2026-04-01T10:00:00.000Z',
@@ -147,7 +147,7 @@ describe('createImportFromDocument', () => {
 
     expect(result.rowCount).toBe(3);
     expect(result.duplicateCount).toBe(0);
-    expect(result.status).toBe('reviewing');
+    expect(result.status).toBe('extracted');
     expect(result.id).toBe(IMPORT_ID);
   });
 
@@ -241,7 +241,7 @@ describe('commitImport', () => {
       { date: '2026-03-15', description: 'Eskom', amount: -300, isDuplicate: false, reference: null, runningBalance: null, duplicateOfBankTxId: null, duplicateMatchConfidence: 0 },
     ];
     const importRow = makeImportDbRow({
-      status: 'reviewing',
+      status: 'extracted',
       row_count: 3,
       duplicate_count: 1,
       extraction_summary: { rows, warnings: [] },
@@ -264,7 +264,7 @@ describe('commitImport', () => {
 
   it('flips status from reviewing to committed', async () => {
     const importRow = makeImportDbRow({
-      status: 'reviewing',
+      status: 'extracted',
       extraction_summary: { rows: [], warnings: [] },
     });
 
@@ -305,7 +305,7 @@ describe('commitImport', () => {
       { date: '2026-03-10', description: 'Salary', amount: 5000, isDuplicate: true, reference: null, runningBalance: null, duplicateOfBankTxId: 'tx-2', duplicateMatchConfidence: 1.0 },
     ];
     const importRow = makeImportDbRow({
-      status: 'reviewing',
+      status: 'extracted',
       row_count: 2,
       duplicate_count: 2,
       extraction_summary: { rows, warnings: [] },
@@ -326,7 +326,7 @@ describe('rollbackImport', () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
   it('flips status to rolled_back and resolves without inserting rows', async () => {
-    const importRow = makeImportDbRow({ status: 'reviewing', extraction_summary: { rows: [], warnings: [] } });
+    const importRow = makeImportDbRow({ status: 'extracted', extraction_summary: { rows: [], warnings: [] } });
     sqlMock.mockResolvedValueOnce([importRow]); // getImport
     sqlMock.mockResolvedValueOnce([]);          // UPDATE status
 
