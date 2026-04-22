@@ -6,11 +6,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
-import { AlertCircle, Loader2, Mail, X, CheckCircle2, Clock, Search, FileQuestion } from 'lucide-react';
+import { AlertCircle, Loader2, Mail, X, CheckCircle2, Clock, Search, FileQuestion, Zap } from 'lucide-react';
 import { MissingInvoiceModals, type ExpectedAlert } from '@/components/accounting/suppliers/MissingInvoiceModals';
 
 type StatusFilter = 'pending' | 'chased' | 'resolved' | 'dismissed';
 type Toast = { msg: string; kind: 'ok' | 'err' | 'warn' } | null;
+interface ChaseSettings { chaseAutoSendEnabled: boolean; chaseGraceDays: number; }
 
 export const fmtZAR = (n: number | null) =>
   n == null ? '—' : 'R ' + n.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -36,6 +37,35 @@ export default function MissingInvoicesPage() {
   const [chaseAlert, setChaseAlert] = useState<ExpectedAlert | null>(null);
   const [resolveAlert, setResolveAlert] = useState<ExpectedAlert | null>(null);
   const [dismissAlert, setDismissAlert] = useState<ExpectedAlert | null>(null);
+  const [chaseSettings, setChaseSettings] = useState<ChaseSettings | null>(null);
+  const [savingSettings, setSavingSettings] = useState(false);
+
+  const loadSettings = useCallback(async () => {
+    try {
+      const res = await apiFetch('/api/accounting/chase-settings');
+      if (!res.ok) return;
+      const json = await res.json() as { data?: ChaseSettings };
+      if (json.data) setChaseSettings(json.data);
+    } catch { /* silent — settings UI is optional */ }
+  }, []);
+
+  useEffect(() => { void loadSettings(); }, [loadSettings]);
+
+  const saveSettings = useCallback(async (patch: Partial<ChaseSettings>) => {
+    setSavingSettings(true);
+    try {
+      const res = await apiFetch('/api/accounting/chase-settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      const json = await res.json() as { data?: ChaseSettings; error?: string };
+      if (!res.ok) { setToast({ msg: json.error ?? 'Failed to save settings', kind: 'err' }); return; }
+      if (json.data) setChaseSettings(json.data);
+      setToast({ msg: 'Chase settings saved', kind: 'ok' });
+    } catch { setToast({ msg: 'Network error saving settings', kind: 'err' }); }
+    finally { setSavingSettings(false); }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -99,6 +129,36 @@ export default function MissingInvoicesPage() {
               Run gap detection now
             </button>
           </div>
+
+          {chaseSettings && (
+            <div className="mt-4 flex flex-wrap items-center gap-3 p-3 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)]/50">
+              <Zap className="h-4 w-4 text-amber-400 shrink-0" />
+              <label className="flex items-center gap-2 cursor-pointer text-sm text-[var(--ff-text-primary)]">
+                <input
+                  type="checkbox"
+                  checked={chaseSettings.chaseAutoSendEnabled}
+                  disabled={savingSettings}
+                  onChange={e => saveSettings({ chaseAutoSendEnabled: e.target.checked })}
+                  className="h-4 w-4 rounded border-[var(--ff-border-light)] accent-amber-500"
+                />
+                Auto-send chase emails for overdue alerts
+              </label>
+              <label className="flex items-center gap-2 text-sm text-[var(--ff-text-secondary)]">
+                after
+                <input
+                  type="number"
+                  min={0}
+                  max={30}
+                  value={chaseSettings.chaseGraceDays}
+                  disabled={savingSettings || !chaseSettings.chaseAutoSendEnabled}
+                  onChange={e => saveSettings({ chaseGraceDays: Number(e.target.value) })}
+                  className="w-16 px-2 py-1 rounded bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-center focus:outline-none focus:border-amber-500/50 disabled:opacity-50"
+                />
+                days overdue (daily cron)
+              </label>
+              {savingSettings && <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-400" />}
+            </div>
+          )}
         </div>
 
         <div className="px-6 py-4">

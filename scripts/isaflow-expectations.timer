@@ -1,0 +1,13 @@
+[Unit]
+Description=Daily trigger for IsaFlow supplier-expectation cron
+Requires=isaflow-expectations.service
+
+[Timer]
+# 07:00 SAST every day. Randomised 0–300s delay avoids stampede if multiple
+# tenant stacks share the same server.
+OnCalendar=*-*-* 07:00:00 Africa/Johannesburg
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target
