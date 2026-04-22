@@ -15,6 +15,7 @@ import type { SupplierInvoice, SupplierInvoiceItem } from '@/modules/accounting/
 import { AccountingDocumentPanel } from '@/modules/accounting/documents';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
+import { ThreeWayMatchPanel } from '@/components/accounting/ap/ThreeWayMatchPanel';
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -282,6 +283,9 @@ export default function SupplierInvoiceDetailPage() {
               <FileText className="h-4 w-4" /> View GL Journal Entry
             </Link>
           )}
+
+          {/* 3-Way Match */}
+          <ThreeWayMatchPanel invoiceId={invoiceId as string} />
 
           {/* Documents */}
           <AccountingDocumentPanel
