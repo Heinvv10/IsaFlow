@@ -17,6 +17,14 @@ const { sqlMock } = vi.hoisted(() => {
 });
 
 vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
+
+vi.mock('@/lib/supabaseStorage', () => ({
+  CAPTURED_DOCS_BUCKET: 'captured-documents',
+  uploadCapturedDocument: vi.fn(),
+  downloadCapturedDocument: vi.fn().mockResolvedValue(Buffer.from('%PDF-1.4 fake')),
+  removeCapturedDocument: vi.fn(),
+  signedUrlForCapturedDocument: vi.fn(),
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
@@ -28,6 +36,7 @@ vi.mock('@/modules/accounting/services/core/ocrService', () => ({
 }));
 
 import { sql } from '@/lib/neon';
+import { downloadCapturedDocument } from '@/lib/supabaseStorage';
 import { routeEvent } from '@/modules/accounting/services/capture/captureRouterService';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -51,7 +60,11 @@ function makeEventRow(overrides: Record<string, unknown> = {}) {
 // ── routeEvent ────────────────────────────────────────────────────────────────
 
 describe('routeEvent', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Restore Storage mock default after clearAllMocks wipes it.
+    vi.mocked(downloadCapturedDocument).mockResolvedValue(Buffer.from('%PDF-1.4 fake'));
+  });
 
   // ── Event not found ────────────────────────────────────────────────────────
 
@@ -154,7 +167,8 @@ describe('routeEvent', () => {
     vi.mocked(sql).mockResolvedValueOnce([makeEventRow()] as never);                            // SELECT event+doc
     vi.mocked(sql).mockResolvedValueOnce([] as never);                                           // extracting UPDATE
     vi.mocked(sql).mockResolvedValueOnce([{                                                     // fetchRawBytes SELECT
-      raw_bytes: Buffer.from('%PDF-1.4 fake'),
+      storage_bucket: 'captured-documents',
+      storage_path: 'co/doc',
       raw_bytes_sha256: 'hash',
       raw_bytes_size: 14,
       file_type: 'pdf',
