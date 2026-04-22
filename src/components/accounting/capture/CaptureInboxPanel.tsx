@@ -12,24 +12,30 @@ import { apiFetch } from '@/lib/apiFetch';
 // ─── Shared types (re-exported for page use) ──────────────────────────────────
 
 export interface CaptureEventRow {
-  id: string;
-  received_at: string;
+  eventId: string;
+  companyId?: string;
+  inboxId?: string | null;
+  receivedAt: string;
   channel: 'email' | 'pwa' | 'whatsapp' | 'imap_mirror' | 'api';
   sender: string | null;
   subject: string | null;
   status: 'received' | 'extracting' | 'extracted' | 'posted' | 'discarded' | 'failed';
-  captured_document_id: string | null;
+  capturedDocumentId: string | null;
   error: string | null;
-  document_vendor: string | null;
-  document_date: string | null;
-  document_reference: string | null;
-  document_total: number | null;
-  document_type: string | null;
-  extracted_data: Record<string, unknown> | null;
+  postedBy?: string | null;
+  postedAt?: string | null;
+  vendorName: string | null;
+  documentDate: string | null;
+  referenceNumber: string | null;
+  totalAmount: number | null;
+  fileName?: string | null;
+  fileType?: string | null;
+  documentType: string | null;
+  extractedData: Record<string, unknown> | null;
   // Phase 3 gate fields (may be absent on older rows)
-  gate_outcome?: 'auto_publish' | 'route_review' | 'duplicate_blocked' | null;
-  duplicate_hit_id?: string | null;
-  resolved_supplier_id?: string | null;
+  gateOutcome?: 'auto_publish' | 'route_review' | 'duplicate_blocked' | null;
+  duplicateHitId?: string | null;
+  resolvedSupplierId?: string | null;
 }
 
 interface SupplierRule {
@@ -110,7 +116,7 @@ function GateBadge({ gate }: { gate: GateInfo }) {
 
 function useGateInfo(event: CaptureEventRow): GateInfo {
   const [rule, setRule] = useState<SupplierRule | null | undefined>(undefined);
-  const supplierId = event.resolved_supplier_id ?? null;
+  const supplierId = event.resolvedSupplierId ?? null;
 
   useEffect(() => {
     if (!supplierId) { setRule(null); return; }
@@ -123,8 +129,8 @@ function useGateInfo(event: CaptureEventRow): GateInfo {
   }, [supplierId]);
 
   // Prefer server-supplied gate_outcome when available
-  if (event.gate_outcome === 'duplicate_blocked') {
-    return { status: 'duplicate', invoiceRef: event.duplicate_hit_id ?? undefined };
+  if (event.gateOutcome === 'duplicate_blocked') {
+    return { status: 'duplicate', invoiceRef: event.duplicateHitId ?? undefined };
   }
 
   if (event.status !== 'extracted') return { status: 'not_ready' };
@@ -134,8 +140,8 @@ function useGateInfo(event: CaptureEventRow): GateInfo {
   if (rule.requirePoMatch) return { status: 'review', reason: 'Requires PO match — post to review' };
   if (!rule.autoPublish) return { status: 'review', reason: 'Auto-publish disabled' };
 
-  const confidence = typeof event.extracted_data?.confidence === 'number'
-    ? (event.extracted_data.confidence as number)
+  const confidence = typeof event.extractedData?.confidence === 'number'
+    ? (event.extractedData.confidence as number)
     : null;
   if (confidence !== null && confidence < rule.autoPublishMinConfidence) {
     return {
@@ -143,7 +149,7 @@ function useGateInfo(event: CaptureEventRow): GateInfo {
       reason: `Confidence ${(confidence * 100).toFixed(0)}% below threshold ${Math.round(rule.autoPublishMinConfidence * 100)}%`,
     };
   }
-  const total = event.document_total ?? null;
+  const total = event.totalAmount ?? null;
   if (total !== null && rule.autoPublishMaxAmount !== null && total > rule.autoPublishMaxAmount) {
     return {
       status: 'review',
@@ -199,7 +205,7 @@ export function CaptureInboxPanel({ event, onClose, onPost, onDiscard, posting, 
   const [discardMode, setDiscardMode] = useState(false);
   const [discardReason, setDiscardReason] = useState('');
   const gate = useGateInfo(event);
-  const ed = event.extracted_data;
+  const ed = event.extractedData;
   const lineItems = Array.isArray(ed?.line_items) ? (ed.line_items as Record<string, unknown>[]) : null;
 
   return (
@@ -219,19 +225,19 @@ export function CaptureInboxPanel({ event, onClose, onPost, onDiscard, posting, 
       {/* Scrollable body */}
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 text-sm">
         <div className="space-y-1.5">
-          <Row label="Received" value={fmtDate(event.received_at)} />
+          <Row label="Received" value={fmtDate(event.receivedAt)} />
           <Row label="Sender"   value={event.sender ?? '—'} />
           <Row label="Subject"  value={event.subject ?? '—'} />
         </div>
 
-        {(event.document_vendor || event.document_reference || event.document_total != null) && (
+        {(event.vendorName || event.referenceNumber || event.totalAmount != null) && (
           <div className="border-t border-[rgba(255,255,255,0.06)] pt-4 space-y-1.5">
             <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Extracted Document</p>
-            <Row label="Vendor"    value={event.document_vendor ?? '—'} />
-            <Row label="Type"      value={event.document_type ?? '—'} />
-            <Row label="Reference" value={event.document_reference ?? '—'} />
-            <Row label="Date"      value={fmtDate(event.document_date)} />
-            <Row label="Total"     value={fmtZAR(event.document_total)} />
+            <Row label="Vendor"    value={event.vendorName ?? '—'} />
+            <Row label="Type"      value={event.documentType ?? '—'} />
+            <Row label="Reference" value={event.referenceNumber ?? '—'} />
+            <Row label="Date"      value={fmtDate(event.documentDate)} />
+            <Row label="Total"     value={fmtZAR(event.totalAmount)} />
             {ed?.subtotal != null   && <Row label="Subtotal" value={fmtZAR(ed.subtotal as number)} />}
             {ed?.vat_amount != null && <Row label="VAT"      value={fmtZAR(ed.vat_amount as number)} />}
           </div>
@@ -275,7 +281,7 @@ export function CaptureInboxPanel({ event, onClose, onPost, onDiscard, posting, 
               className="w-full px-3 py-2 rounded bg-white/5 border border-[rgba(255,255,255,0.1)] text-slate-200 text-sm placeholder:text-slate-600 focus:outline-none focus:border-teal-500"
             />
             <div className="flex gap-2">
-              <button onClick={() => { void onDiscard(event.id, discardReason || undefined); setDiscardMode(false); }}
+              <button onClick={() => { void onDiscard(event.eventId, discardReason || undefined); setDiscardMode(false); }}
                 disabled={discarding}
                 className="flex-1 px-4 py-2 bg-red-700 hover:bg-red-600 disabled:opacity-50 text-white rounded text-sm font-medium">
                 {discarding ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : 'Confirm Discard'}
@@ -291,12 +297,12 @@ export function CaptureInboxPanel({ event, onClose, onPost, onDiscard, posting, 
                 Blocked — duplicate
               </button>
             ) : gate.status === 'auto' ? (
-              <button onClick={() => void onPost(event.id)} disabled={posting || event.status !== 'extracted'}
+              <button onClick={() => void onPost(event.eventId)} disabled={posting || event.status !== 'extracted'}
                 className="flex-1 px-4 py-2 bg-teal-600 hover:bg-teal-500 disabled:opacity-40 text-white rounded text-sm font-medium transition-colors">
                 {posting ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : 'Auto-post'}
               </button>
             ) : (
-              <button onClick={() => void onPost(event.id)} disabled={posting || event.status !== 'extracted'}
+              <button onClick={() => void onPost(event.eventId)} disabled={posting || event.status !== 'extracted'}
                 className="flex-1 px-4 py-2 bg-white/10 hover:bg-white/15 disabled:opacity-40 text-slate-200 rounded text-sm font-medium transition-colors border border-[rgba(255,255,255,0.1)]">
                 {posting ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : 'Post to review'}
               </button>
