@@ -30,6 +30,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!userId) return apiResponse.badRequest(res, 'userId is required');
     if (rate === undefined || rate === null) return apiResponse.badRequest(res, 'rate is required');
     if (!effectiveFrom) return apiResponse.badRequest(res, 'effectiveFrom is required');
+    if (effectiveTo && String(effectiveTo) <= String(effectiveFrom)) {
+      return apiResponse.badRequest(res, 'effectiveTo must be after effectiveFrom');
+    }
     const staffRate = await createStaffRate(companyId, {
       userId,
       rate: Number(rate),

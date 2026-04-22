@@ -82,9 +82,14 @@ export async function updateStaffRate(
   input: { effectiveTo?: string; rate?: number },
 ): Promise<StaffRate> {
   const existing = (await sql`
-    SELECT id FROM practice_staff_rates WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
+    SELECT id, effective_from FROM practice_staff_rates
+    WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
   if (!existing.length) throw new Error('not found');
+
+  if (input.effectiveTo && String(input.effectiveTo) <= String(existing[0]!.effective_from)) {
+    throw new Error('effectiveTo must be after effectiveFrom');
+  }
 
   const rows = (await sql`
     UPDATE practice_staff_rates SET
