@@ -34,17 +34,21 @@ export async function attachEvidenceToProvisional(
   const nothing: AttachResult = { attachedJeId: null, bankTxId: null };
 
   try {
-    // Fetch source_document_hash from the captured_documents row (may be null)
+    // Fetch raw_bytes_sha256 + confidence from the captured_documents row.
+    // captured_documents stores the file hash under raw_bytes_sha256 (mig-410);
+    // extraction_confidence lives in extracted_data JSON (set by VLM service).
     const [docRow] = (await sql`
-      SELECT id, source_document_hash, extraction_confidence
+      SELECT id, raw_bytes_sha256, extracted_data
       FROM captured_documents
       WHERE id = ${capturedDocumentId}::UUID AND company_id = ${companyId}::UUID
     `) as Row[];
 
     if (!docRow) return nothing;
 
-    const docHash = docRow.source_document_hash ? String(docRow.source_document_hash) : null;
-    const docConfidence = docRow.extraction_confidence ? Number(docRow.extraction_confidence) : null;
+    const docHash = docRow.raw_bytes_sha256 ? String(docRow.raw_bytes_sha256) : null;
+    const extractedData = (docRow.extracted_data ?? {}) as Record<string, unknown>;
+    const rawConfidence = extractedData.confidence;
+    const docConfidence = typeof rawConfidence === 'number' ? rawConfidence : null;
 
     // Find matching provisional JE via linked bank_transaction
     // Matching rules:
