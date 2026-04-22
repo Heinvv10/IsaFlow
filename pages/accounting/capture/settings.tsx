@@ -25,20 +25,6 @@ function SectionCard({ children, title }: { children: React.ReactNode; title: st
   );
 }
 
-function ComingSoonCard({ icon, label }: { icon: React.ReactNode; label: string }) {
-  return (
-    <div className="flex items-center gap-3 p-4 rounded-lg bg-white/5 border border-[rgba(255,255,255,0.06)] opacity-60">
-      <span className="text-slate-500">{icon}</span>
-      <div className="flex-1">
-        <p className="text-sm font-medium text-slate-400">{label}</p>
-        <p className="text-xs text-slate-600 mt-0.5">Coming soon</p>
-      </div>
-      <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-500 border border-slate-700">
-        Coming soon
-      </span>
-    </div>
-  );
-}
 
 export default function CaptureSettingsPage() {
   const [inboxAddr, setInboxAddr] = useState<InboxAddress | null>(null);
@@ -289,7 +275,15 @@ export default function CaptureSettingsPage() {
                 </div>
                 <span className="text-xs px-2 py-0.5 rounded-full bg-teal-900/50 text-teal-400 border border-teal-800">Available</span>
               </Link>
-              <ComingSoonCard icon={<Server className="h-5 w-5" />} label="IMAP Mirror" />
+              <Link href="/accounting/capture/settings/mirror"
+                className="flex items-center gap-3 p-4 rounded-lg bg-white/5 border border-teal-800/50 hover:border-teal-600/50 transition-colors group">
+                <Server className="h-5 w-5 text-teal-500" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-slate-300 group-hover:text-slate-100">Mirror Inboxes</p>
+                  <p className="text-xs text-slate-500 mt-0.5">Connect external mailboxes (IMAP / Gmail / M365)</p>
+                </div>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-teal-900/50 text-teal-400 border border-teal-800">Available</span>
+              </Link>
             </div>
           </SectionCard>
         </div>
