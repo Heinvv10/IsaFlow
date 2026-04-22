@@ -134,7 +134,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       company_id, invoice_number, supplier_id, invoice_date, due_date,
       subtotal, tax_rate, tax_amount, total_amount, payment_terms,
       reference, status, created_by,
-      duplicate_fingerprint
+      duplicate_fingerprint, source_document_id
     ) VALUES (
       ${companyId}, ${invoiceInput.invoiceNumber}, ${supplierMatch.supplierId}::uuid,
       ${invoiceInput.invoiceDate}::date, ${invoiceInput.dueDate ?? null}::date,
@@ -146,7 +146,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         coalesce(${extracted.vendorVatNumber ?? null}, 'no-vat') || '|' ||
         coalesce(${invoiceInput.invoiceNumber ?? null}, 'no-inv') || '|' ||
         coalesce(${invoiceInput.totalAmount}::text, '0')
-      )
+      ),
+      ${documentId}::uuid
     )
     RETURNING id, invoice_number, status
   ` as Row[];
