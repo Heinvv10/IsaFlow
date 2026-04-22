@@ -183,7 +183,8 @@ export async function performThreeWayMatch(
       grnQuantityReceived: grnQtyReceived,
       invoiceQuantity: item.quantity,
       invoiceUnitPrice: item.unitPrice,
-      tolerancePercent: Math.min(qtyTolerance, priceTolerance),
+      qtyTolerancePercent: qtyTolerance,
+      priceTolerancePercent: priceTolerance,
     });
 
     const lineMatchStatus = match.status;

@@ -19,14 +19,22 @@ const DEFAULT_TOLERANCE_PERCENT = 2;
  * 3. GRN received quantity matches invoice quantity
  */
 export function validateThreeWayMatch(input: ThreeWayMatchInput): ThreeWayMatchResult {
-  const tolerance = input.tolerancePercent ?? DEFAULT_TOLERANCE_PERCENT;
+  const qtyTolerance =
+    input.qtyTolerancePercent ?? input.tolerancePercent ?? DEFAULT_TOLERANCE_PERCENT;
+  const priceTolerance =
+    input.priceTolerancePercent ?? input.tolerancePercent ?? DEFAULT_TOLERANCE_PERCENT;
   const mismatches: string[] = [];
 
-  // Check quantity match: Invoice vs PO
-  const quantityMatch = input.invoiceQuantity === input.poQuantity;
+  // Check quantity match: Invoice vs PO (within tolerance)
+  const qtyDiffPercent =
+    input.poQuantity > 0
+      ? Math.abs(input.invoiceQuantity - input.poQuantity) / input.poQuantity * 100
+      : input.invoiceQuantity > 0 ? 100 : 0;
+
+  const quantityMatch = qtyDiffPercent <= qtyTolerance;
   if (!quantityMatch) {
     mismatches.push(
-      `Invoice quantity (${input.invoiceQuantity}) does not match PO quantity (${input.poQuantity})`
+      `Invoice quantity (${input.invoiceQuantity}) differs from PO quantity (${input.poQuantity}) by ${qtyDiffPercent.toFixed(1)}%, exceeds ${qtyTolerance}% tolerance`
     );
   }
 
@@ -36,18 +44,23 @@ export function validateThreeWayMatch(input: ThreeWayMatchInput): ThreeWayMatchR
       ? Math.abs(input.invoiceUnitPrice - input.poUnitPrice) / input.poUnitPrice * 100
       : input.invoiceUnitPrice > 0 ? 100 : 0;
 
-  const priceMatch = priceDiffPercent <= tolerance;
+  const priceMatch = priceDiffPercent <= priceTolerance;
   if (!priceMatch) {
     mismatches.push(
-      `Invoice unit price (${input.invoiceUnitPrice}) differs from PO price (${input.poUnitPrice}) by ${priceDiffPercent.toFixed(1)}%, exceeds ${tolerance}% tolerance`
+      `Invoice unit price (${input.invoiceUnitPrice}) differs from PO price (${input.poUnitPrice}) by ${priceDiffPercent.toFixed(1)}%, exceeds ${priceTolerance}% tolerance`
     );
   }
 
-  // Check GRN match: GRN received vs Invoice quantity
-  const grnMatch = input.grnQuantityReceived === input.invoiceQuantity;
+  // Check GRN match: GRN received vs Invoice quantity (within qty tolerance)
+  const grnDiffPercent =
+    input.invoiceQuantity > 0
+      ? Math.abs(input.grnQuantityReceived - input.invoiceQuantity) / input.invoiceQuantity * 100
+      : input.grnQuantityReceived > 0 ? 100 : 0;
+
+  const grnMatch = grnDiffPercent <= qtyTolerance;
   if (!grnMatch) {
     mismatches.push(
-      `GRN received quantity (${input.grnQuantityReceived}) does not match invoice quantity (${input.invoiceQuantity})`
+      `GRN received quantity (${input.grnQuantityReceived}) differs from invoice quantity (${input.invoiceQuantity}) by ${grnDiffPercent.toFixed(1)}%, exceeds ${qtyTolerance}% tolerance`
     );
   }
 

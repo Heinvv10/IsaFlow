@@ -656,6 +656,39 @@ describe('validateThreeWayMatch', () => {
     expect(result.priceMatch).toBe(true);
   });
 
+  it('applies qty tolerance independently from price tolerance', () => {
+    // PO qty 10, invoice qty 10.4 → 4% variance. Qty tolerance 5% passes;
+    // price tolerance 1% with 0% price variance also passes.
+    const result = validateThreeWayMatch({
+      poQuantity: 10,
+      poUnitPrice: 500,
+      invoiceQuantity: 10.4,
+      invoiceUnitPrice: 500,
+      grnQuantityReceived: 10.4,
+      qtyTolerancePercent: 5,
+      priceTolerancePercent: 1,
+    });
+    expect(result.quantityMatch).toBe(true);
+    expect(result.priceMatch).toBe(true);
+    expect(result.grnMatch).toBe(true);
+    expect(result.status).toBe('fully_matched');
+  });
+
+  it('rejects qty outside its tolerance even when price tolerance is wide', () => {
+    // 10% qty variance, qty tolerance 5% → rejected despite generous price tolerance.
+    const result = validateThreeWayMatch({
+      poQuantity: 10,
+      poUnitPrice: 500,
+      invoiceQuantity: 11,
+      invoiceUnitPrice: 500,
+      grnQuantityReceived: 11,
+      qtyTolerancePercent: 5,
+      priceTolerancePercent: 20,
+    });
+    expect(result.quantityMatch).toBe(false);
+    expect(result.mismatches.some(m => /quantity/i.test(m))).toBe(true);
+  });
+
   it('returns po_matched when PO matches but GRN quantity does not', () => {
     const result = validateThreeWayMatch({
       poQuantity: 100,

@@ -77,9 +77,12 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       const invoiceTotal = Number(inv.total_amount);
       const outstandingBalance = invoiceTotal - currentPaid;
 
-      // Create GL entry: DR Accounts Payable, CR Bank
+      // Create GL entry: DR Accounts Payable, CR Bank. Pass candidateId so the
+      // 4-way match targets this specific invoice rather than the
+      // most-recent-unpaid heuristic.
       await allocateTransaction(
         companyId, bankTransactionId, '', userId, undefined, 'supplier', supplierId,
+        undefined, undefined, undefined, undefined, candidateId,
       );
 
       // Update invoice payment tracking
