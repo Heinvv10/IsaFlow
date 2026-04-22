@@ -41,17 +41,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, { rejected: result.rejected });
   }
 
-  const { captureEventId, companyId } = result;
+  const { captureEventIds, companyId } = result;
 
-  // Fire-and-forget VLM routing (do not await — keep webhook fast)
-  routeEvent(captureEventId, companyId).catch((err: unknown) => {
-    log.error('routeEvent background error', {
-      captureEventId,
-      error: err instanceof Error ? err.message : String(err),
-    }, 'inbound-email');
-  });
+  // Fire-and-forget VLM routing for each attachment (do not await — keep webhook fast)
+  for (const eventId of captureEventIds) {
+    routeEvent(eventId, companyId).catch((err: unknown) => {
+      log.error('routeEvent background error', {
+        captureEventId: eventId,
+        error: err instanceof Error ? err.message : String(err),
+      }, 'inbound-email');
+    });
+  }
 
-  return apiResponse.success(res, { captureEventId, companyId });
+  return apiResponse.success(res, { captureEventIds, companyId });
 }
 
 export default withErrorHandler(handler as Parameters<typeof withErrorHandler>[0]);

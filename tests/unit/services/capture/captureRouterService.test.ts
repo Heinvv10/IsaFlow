@@ -78,50 +78,95 @@ describe('routeEvent', () => {
     vi.mocked(sql).mockResolvedValueOnce([makeEventRow()] as never);
     // UPDATE status → 'extracting'
     vi.mocked(sql).mockResolvedValueOnce([] as never);
-    // UPDATE status → 'extracted' (no extracted data update because extracted===null in placeholder)
+    // fetchRawBytes SELECT → returns empty (no raw_bytes), so extraction is skipped
+    vi.mocked(sql).mockResolvedValueOnce([] as never);
+    // UPDATE status → 'extracted' (no doc UPDATE because extracted===null when bytes missing)
     vi.mocked(sql).mockResolvedValueOnce([] as never);
 
     await routeEvent(EVENT_ID, COMPANY_ID);
 
-    // Calls: 1 SELECT + 1 UPDATE extracting + 1 UPDATE extracted = 3
-    expect(vi.mocked(sql)).toHaveBeenCalledTimes(3);
-
-    // Verify call order by inspecting mock call sequence count
-    const callCount = vi.mocked(sql).mock.calls.length;
-    expect(callCount).toBe(3);
+    // Calls: SELECT + UPDATE extracting + fetchRawBytes SELECT + UPDATE extracted = 4
+    expect(vi.mocked(sql)).toHaveBeenCalledTimes(4);
   });
 
   it('transitions status received → extracting → extracted for an image/jpeg event', async () => {
     vi.mocked(sql).mockResolvedValueOnce([makeEventRow({ file_type: 'jpg' })] as never);
     vi.mocked(sql).mockResolvedValueOnce([] as never);
+    vi.mocked(sql).mockResolvedValueOnce([] as never); // fetchRawBytes SELECT (empty)
     vi.mocked(sql).mockResolvedValueOnce([] as never);
 
     await routeEvent(EVENT_ID, COMPANY_ID);
 
-    expect(vi.mocked(sql)).toHaveBeenCalledTimes(3);
+    expect(vi.mocked(sql)).toHaveBeenCalledTimes(4);
   });
 
   it('transitions status received → extracting → extracted for a png event', async () => {
     vi.mocked(sql).mockResolvedValueOnce([makeEventRow({ file_type: 'png' })] as never);
     vi.mocked(sql).mockResolvedValueOnce([] as never);
+    vi.mocked(sql).mockResolvedValueOnce([] as never); // fetchRawBytes SELECT (empty)
     vi.mocked(sql).mockResolvedValueOnce([] as never);
 
     await routeEvent(EVENT_ID, COMPANY_ID);
 
-    expect(vi.mocked(sql)).toHaveBeenCalledTimes(3);
+    expect(vi.mocked(sql)).toHaveBeenCalledTimes(4);
   });
 
   it('skips the captured_documents UPDATE when extraction returns null', async () => {
-    // Current implementation: placeholder returns null, so no doc UPDATE is issued.
-    // Only extracting UPDATE + extracted UPDATE.
+    // When fetchRawBytes returns no row, resolveExtraction returns null → no doc UPDATE.
     vi.mocked(sql).mockResolvedValueOnce([makeEventRow()] as never);
     vi.mocked(sql).mockResolvedValueOnce([] as never); // → extracting
+    vi.mocked(sql).mockResolvedValueOnce([] as never); // fetchRawBytes SELECT (empty)
     vi.mocked(sql).mockResolvedValueOnce([] as never); // → extracted
 
     await routeEvent(EVENT_ID, COMPANY_ID);
 
-    // 3 calls: SELECT + 2 UPDATEs (no doc UPDATE because extracted===null)
-    expect(vi.mocked(sql)).toHaveBeenCalledTimes(3);
+    // 4 calls: SELECT + extracting UPDATE + fetchRawBytes SELECT + extracted UPDATE (no doc UPDATE)
+    expect(vi.mocked(sql)).toHaveBeenCalledTimes(4);
+  });
+
+  it('calls extractFromPdf and UPDATEs captured_documents when raw bytes are present', async () => {
+    const { extractFromPdf } = await import('@/modules/accounting/services/core/ocrService');
+    vi.mocked(extractFromPdf).mockResolvedValueOnce({
+      documentType: 'invoice',
+      vendorName: 'Shell',
+      vendorVatNumber: null,
+      vendorAddress: null,
+      vendorBankDetails: null,
+      customerName: null,
+      customerVatNumber: null,
+      date: '2026-04-22',
+      dueDate: null,
+      paymentTerms: null,
+      referenceNumber: 'INV-001',
+      purchaseOrderRef: null,
+      currency: 'ZAR',
+      subtotal: 100,
+      vatAmount: 15,
+      vatRate: 15,
+      totalAmount: 115,
+      lineItems: [],
+      rawText: 'Shell',
+      confidence: 0.9,
+      warnings: [],
+      extractionMethod: 'vlm',
+    } as never);
+
+    vi.mocked(sql).mockResolvedValueOnce([makeEventRow()] as never);                            // SELECT event+doc
+    vi.mocked(sql).mockResolvedValueOnce([] as never);                                           // extracting UPDATE
+    vi.mocked(sql).mockResolvedValueOnce([{                                                     // fetchRawBytes SELECT
+      raw_bytes: Buffer.from('%PDF-1.4 fake'),
+      raw_bytes_sha256: 'hash',
+      raw_bytes_size: 14,
+      file_type: 'pdf',
+    }] as never);
+    vi.mocked(sql).mockResolvedValueOnce([] as never);                                           // captured_documents UPDATE (extraction non-null)
+    vi.mocked(sql).mockResolvedValueOnce([] as never);                                           // extracted UPDATE
+
+    await routeEvent(EVENT_ID, COMPANY_ID);
+
+    expect(vi.mocked(extractFromPdf)).toHaveBeenCalledTimes(1);
+    // 5 sql calls: SELECT + extracting + fetchRawBytes + doc UPDATE + extracted
+    expect(vi.mocked(sql)).toHaveBeenCalledTimes(5);
   });
 
   // ── Failure path ──────────────────────────────────────────────────────────

@@ -6,6 +6,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { fetchRawBytes } from '@/lib/documentStorage';
 import { extractFromPdf, extractFromImage } from '@/modules/accounting/services/core/ocrService';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 
@@ -25,14 +26,16 @@ function fileTypeToMime(fileType: string): string {
 }
 
 /**
- * Attempt VLM/OCR extraction for the given mime type.
- * Returns null when object storage is not yet wired or mime is unsupported.
- * TODO: replace stub with real buffer fetch from raw_payload_url.
+ * VLM/OCR extraction for the given mime type.
+ * Fetches raw bytes from captured_documents.raw_bytes, routes to the PDF or
+ * image extractor, returns null only when bytes are missing or the mime type
+ * isn't supported.
  */
 async function resolveExtraction(
+  documentId: string,
+  companyId: string,
   mimeType: string,
   captureEventId: string,
-  docNotes: string,
 ): Promise<ExtractedDocument | null> {
   const isPdf = mimeType === 'application/pdf';
   const isImage = mimeType.startsWith('image/');
@@ -44,12 +47,16 @@ async function resolveExtraction(
     return null;
   }
 
-  // TODO: fetch actual bytes from object storage (raw_payload_url), then call:
-  //   isPdf ? extractFromPdf(buffer) : extractFromImage(buffer, mimeType)
-  log.info('routeEvent: object storage not wired — skipping VLM extraction', {
-    captureEventId, mimeType, docNotesHint: docNotes.substring(0, 80),
-  }, 'capture-router');
-  return null;
+  const raw = await fetchRawBytes(documentId, companyId);
+  if (!raw) {
+    log.warn('routeEvent: no raw bytes on captured document', {
+      captureEventId, documentId,
+    }, 'capture-router');
+    return null;
+  }
+
+  if (isPdf) return extractFromPdf(raw.buffer);
+  return extractFromImage(raw.buffer, mimeType);
 }
 
 /**
@@ -89,18 +96,10 @@ export async function routeEvent(captureEventId: string, companyId: string): Pro
   `;
 
   try {
-    // TODO: wire VLM — currently we reconstruct from base64 stored in notes
-    // In production this will fetch bytes from object storage (raw_payload_url).
-    // For now: attempt extraction with a placeholder buffer for non-PDF/image.
-    const docNotes = (event.doc_notes as string) ?? '';
     const mimeType = fileTypeToMime(fileType);
 
-    // TODO: fetch actual bytes from raw_payload_url and call extractFromPdf/extractFromImage.
-    // Both paths below produce null for now (object storage not yet wired).
-    // Using an explicit helper avoids TS CFA collapsing the variable to `null` (and
-    // subsequently to `never` inside the truthiness guard).
     const extracted: ExtractedDocument | null = await resolveExtraction(
-      mimeType, captureEventId, docNotes,
+      documentId, companyId, mimeType, captureEventId,
     );
 
     if (extracted !== null) {
