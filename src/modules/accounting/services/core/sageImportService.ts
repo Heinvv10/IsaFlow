@@ -13,6 +13,7 @@ import { log } from '@/lib/logger';
 import type { MigrationRun } from './sageMigrationService';
 import { startRun, completeRun, failRun } from './sageMigrationService';
 import type { DbRow } from '@/types/db';
+import { computeFingerprint } from '../capture/duplicateDetectionService';
 
 
 // ── Ledger Transaction Import ───────────────────────────────────────────────
@@ -209,20 +210,34 @@ export async function importSupplierInvoices(companyId: string, userId: string):
         const rawObj = parseJson(inv.raw_data);
         const reference = rawObj?.Reference || null;
 
+        // Fingerprint for duplicate detection (PRD-05)
+        const [supVatRow] = (await sql`
+          SELECT vat_number FROM suppliers
+          WHERE id = ${supplierId}::UUID AND company_id = ${companyId}::UUID
+        `) as DbRow[];
+        const invNumber = inv.invoice_number || `SAGE-${inv.sage_invoice_id}`;
+        const dupFingerprint = computeFingerprint(
+          supVatRow?.vat_number ?? null,
+          invNumber,
+          totalAmount,
+        );
+
         // BL-40: Added company_id to INSERT — was missing, causing NOT NULL violation
         const newInv = (await sql`
           INSERT INTO supplier_invoices (
             company_id, invoice_number, supplier_id, purchase_order_id, project_id,
             invoice_date, due_date, subtotal, tax_rate, tax_amount, total_amount,
-            amount_paid, status, sage_invoice_id, reference, created_by
+            amount_paid, status, sage_invoice_id, reference, created_by,
+            duplicate_fingerprint
           ) VALUES (
             ${companyId}::UUID,
-            ${inv.invoice_number || `SAGE-${inv.sage_invoice_id}`},
+            ${invNumber},
             ${supplierId}, ${inv.ff_purchase_order_id || null}, ${projectId},
             ${inv.invoice_date}, ${inv.due_date || inv.invoice_date},
             ${subtotal.toFixed(2)}, ${taxRate}, ${taxAmount.toFixed(2)}, ${totalAmount},
             ${isPaid ? totalAmount : 0}, ${isPaid ? 'paid' : 'approved'},
-            ${inv.sage_invoice_id}, ${reference}, ${userId}
+            ${inv.sage_invoice_id}, ${reference}, ${userId},
+            ${dupFingerprint}
           ) RETURNING id
         `) as DbRow[];
 

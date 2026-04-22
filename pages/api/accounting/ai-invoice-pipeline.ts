@@ -6,7 +6,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { apiResponse } from '@/lib/apiResponse';
+import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
@@ -19,6 +19,11 @@ import {
   type PipelineThresholds,
 } from '@/modules/accounting/services/core/aiInvoicePipelineService';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
+import {
+  computeFingerprint,
+  findDuplicate,
+} from '@/modules/accounting/services/capture/duplicateDetectionService';
+import { recordCoding } from '@/modules/accounting/services/capture/supplierRulesService';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -77,13 +82,50 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const pipelineConfidence = computePipelineConfidence(extracted, supplierMatch);
   const approvalRoute = determineApprovalRoute(pipelineConfidence, invoiceInput.totalAmount, DEFAULT_THRESHOLDS);
 
+  // Fetch supplier VAT number (needed for fingerprint + duplicate detection)
+  const [supplierRow] = (await sql`
+    SELECT vat_number FROM suppliers
+    WHERE id = ${supplierMatch.supplierId}::uuid AND company_id = ${companyId}
+  `) as Row[];
+  const supplierVatNumber: string | null = supplierRow?.vat_number ?? null;
+
+  // Duplicate detection
+  const dupHit = await findDuplicate(
+    companyId,
+    supplierMatch.supplierId,
+    invoiceInput.invoiceNumber,
+    invoiceInput.totalAmount,
+    invoiceInput.invoiceDate,
+    supplierVatNumber,
+  );
+  if (dupHit) {
+    await sql`
+      UPDATE captured_documents
+      SET status = 'matched', matched_invoice_id = ${dupHit.supplierInvoiceId}::uuid
+      WHERE id = ${documentId}::uuid AND company_id = ${companyId}
+    `;
+    log.info('AI Invoice Pipeline: duplicate detected', {
+      documentId,
+      supplierInvoiceId: dupHit.supplierInvoiceId,
+      dupConfidence: dupHit.confidence,
+    }, 'ai-pipeline');
+    return apiResponse.error(res, ErrorCode.CONFLICT, 'Duplicate supplier invoice', {
+      hit: dupHit,
+      supplierMatch: { name: supplierMatch.supplierName, confidence: supplierMatch.confidence },
+      extractedVendor: extracted.vendorName,
+    });
+  }
+
+  const fingerprint = computeFingerprint(supplierVatNumber, invoiceInput.invoiceNumber, invoiceInput.totalAmount);
+
   // Create supplier invoice (evidence columns stamped; hash backfilled by worker)
   const [invoice] = (await sql`
     INSERT INTO supplier_invoices (
       company_id, invoice_number, supplier_id, invoice_date, due_date,
       subtotal, tax_rate, tax_amount, total_amount, payment_terms,
       reference, status, created_by,
-      source_document_id, source_document_hash, extraction_confidence, posting_agent
+      source_document_id, source_document_hash, extraction_confidence, posting_agent,
+      duplicate_fingerprint
     ) VALUES (
       ${companyId}, ${invoiceInput.invoiceNumber}, ${supplierMatch.supplierId}::uuid,
       ${invoiceInput.invoiceDate}::date, ${invoiceInput.dueDate || null}::date,
@@ -92,7 +134,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       ${invoiceInput.paymentTerms || 'net30'}, ${invoiceInput.reference || null},
       ${approvalRoute === 'auto_approve' ? 'approved' : 'draft'},
       ${userId},
-      ${documentId}::uuid, NULL, ${pipelineConfidence}, 'ai:ai-invoice-pipeline:v1'
+      ${documentId}::uuid, NULL, ${pipelineConfidence}, 'ai:ai-invoice-pipeline:v1',
+      ${fingerprint}
     ) RETURNING id, invoice_number, status
   `) as Row[];
 
@@ -124,8 +167,19 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   await sql`
     UPDATE captured_documents
     SET matched_invoice_id = ${invoice.id}::uuid, status = 'matched'
-    WHERE id = ${documentId}::uuid
+    WHERE id = ${documentId}::uuid AND company_id = ${companyId}
   `;
+
+  // Record coding for supplier learning loop (gl/vat/cc null — human review will code)
+  await recordCoding(companyId, {
+    supplierId: supplierMatch.supplierId,
+    supplierInvoiceId: invoice.id,
+    glAccountId: null,
+    vatCode: null,
+    costCentreId: null,
+    projectId: null,
+    postedBy: 'ai:ai-invoice-pipeline:v1',
+  });
 
   log.info('AI Invoice Pipeline completed', {
     documentId, invoiceId: invoice.id, supplierMatch: supplierMatch.supplierName,

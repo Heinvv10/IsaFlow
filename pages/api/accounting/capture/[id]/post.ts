@@ -6,6 +6,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { ErrorCode } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
@@ -18,6 +19,8 @@ import {
   type PipelineThresholds,
 } from '@/modules/accounting/services/core/aiInvoicePipelineService';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
+import { decide } from '@/modules/accounting/services/capture/autoPublishGateService';
+import { recordCoding } from '@/modules/accounting/services/capture/supplierRulesService';
 
 type Row = Record<string, unknown>;
 
@@ -95,22 +98,52 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   const invoiceInput = buildInvoiceFromExtraction(extracted, supplierMatch.supplierId);
   const pipelineConfidence = computePipelineConfidence(extracted, supplierMatch);
+
+  // Auto-publish gate: duplicate check + rule evaluation
+  const gateDecision = await decide({
+    companyId,
+    supplierId: supplierMatch.supplierId,
+    invoiceNumber: invoiceInput.invoiceNumber ?? null,
+    totalAmount: invoiceInput.totalAmount,
+    invoiceDate: invoiceInput.invoiceDate,
+    vatNumber: extracted.vendorVatNumber ?? null,
+    extractionConfidence: pipelineConfidence,
+  });
+
+  if (gateDecision.outcome === 'duplicate_blocked') {
+    await sql`
+      UPDATE capture_events
+      SET status = 'failed', error = 'duplicate', updated_at = NOW()
+      WHERE id = ${eventId}::uuid AND company_id = ${companyId}
+    `;
+    log.info('Capture blocked: duplicate invoice', { eventId, hit: gateDecision.hit }, 'capture-post');
+    return apiResponse.error(res, ErrorCode.CONFLICT, 'Duplicate invoice detected', { hit: gateDecision.hit });
+  }
+
   const approvalRoute = determineApprovalRoute(pipelineConfidence, invoiceInput.totalAmount, DEFAULT_THRESHOLDS);
+
+  // Override status to 'approved' when gate permits auto_publish
+  const invoiceStatus = gateDecision.outcome === 'auto_publish' ? 'approved' : (approvalRoute === 'auto_approve' ? 'approved' : 'draft');
 
   // Create supplier invoice
   const [invoice] = await sql`
     INSERT INTO supplier_invoices (
       company_id, invoice_number, supplier_id, invoice_date, due_date,
       subtotal, tax_rate, tax_amount, total_amount, payment_terms,
-      reference, status, created_by
+      reference, status, created_by,
+      duplicate_fingerprint
     ) VALUES (
       ${companyId}, ${invoiceInput.invoiceNumber}, ${supplierMatch.supplierId}::uuid,
       ${invoiceInput.invoiceDate}::date, ${invoiceInput.dueDate ?? null}::date,
       ${invoiceInput.totalAmount - invoiceInput.taxAmount}, ${invoiceInput.taxRate},
       ${invoiceInput.taxAmount}, ${invoiceInput.totalAmount},
       ${invoiceInput.paymentTerms ?? 'net30'}, ${invoiceInput.reference ?? null},
-      ${approvalRoute === 'auto_approve' ? 'approved' : 'draft'},
-      ${userId}
+      ${invoiceStatus}, ${userId},
+      lower(
+        coalesce(${extracted.vendorVatNumber ?? null}, 'no-vat') || '|' ||
+        coalesce(${invoiceInput.invoiceNumber ?? null}, 'no-inv') || '|' ||
+        coalesce(${invoiceInput.totalAmount}::text, '0')
+      )
     )
     RETURNING id, invoice_number, status
   ` as Row[];
@@ -130,9 +163,40 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     WHERE id = ${eventId}::uuid AND company_id = ${companyId}
   `;
 
+  // Record coding for the learning loop (both auto_publish and route_review paths).
+  // At this point gateDecision is guaranteed to be auto_publish | route_review
+  // (duplicate_blocked returned early above).
+  const publishedDecision = gateDecision as
+    | { outcome: 'auto_publish'; reason: string; rule: import('@/modules/accounting/services/capture/supplierRulesService').SupplierRule }
+    | { outcome: 'route_review'; reasons: string[]; rule: import('@/modules/accounting/services/capture/supplierRulesService').SupplierRule | null };
+  const codingRule = publishedDecision.rule;
+  await recordCoding(companyId, {
+    supplierId: supplierMatch.supplierId,
+    supplierInvoiceId: invoice.id as string,
+    glAccountId: codingRule?.defaultGlAccountId ?? null,
+    vatCode: codingRule?.defaultVatCode ?? extracted.vendorVatNumber ?? null,
+    costCentreId: codingRule?.defaultCostCentreId ?? null,
+    projectId: codingRule?.defaultProjectId ?? null,
+    postedBy: `human:${userId}`,
+  });
+
   log.info('Capture event posted', {
-    eventId, documentId, invoiceId: invoice.id, supplier: supplierMatch.supplierName,
+    eventId, documentId, invoiceId: invoice.id,
+    supplier: supplierMatch.supplierName,
+    gateOutcome: gateDecision.outcome,
   }, 'capture-post');
+
+  if (publishedDecision.outcome === 'route_review') {
+    return apiResponse.success(res, {
+      invoice: { id: invoice.id, invoiceNumber: invoice.invoice_number, status: invoice.status },
+      supplierMatch: { name: supplierMatch.supplierName, confidence: supplierMatch.confidence },
+      pipelineConfidence,
+      approvalRoute,
+      warnings: validation.warnings,
+      reason: 'routed for review',
+      reasons: publishedDecision.reasons,
+    });
+  }
 
   return apiResponse.success(res, {
     invoice: { id: invoice.id, invoiceNumber: invoice.invoice_number, status: invoice.status },
@@ -140,6 +204,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     pipelineConfidence,
     approvalRoute,
     warnings: validation.warnings,
+    gateOutcome: publishedDecision.outcome,
+    gateReason: publishedDecision.reason,
   });
 }
 

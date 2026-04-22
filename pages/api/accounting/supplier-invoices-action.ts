@@ -17,6 +17,13 @@ import {
   cancelSupplierInvoice,
   performThreeWayMatch,
 } from '@/modules/accounting/services/ap/supplierInvoiceService';
+// TODO(PRD-05): When a human-driven CREATE path is added to this handler
+// (or to pages/api/accounting/supplier-invoices.ts), call:
+//   recordCoding({ companyId, supplierId, supplierInvoiceId, glAccountId, vatCode,
+//                  costCentreId, projectId, postedBy: `human:${userId}` })
+// and stamp duplicate_fingerprint on the INSERT using computeFingerprint().
+// import { recordCoding } from '@/modules/accounting/services/capture/supplierRulesService';
+// import { computeFingerprint } from '@/modules/accounting/services/capture/duplicateDetectionService';
 
 const SupplierInvoiceActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('approve'), invoiceId: UUID }),
