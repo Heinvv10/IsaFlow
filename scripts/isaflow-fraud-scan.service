@@ -1,0 +1,23 @@
+[Unit]
+Description=IsaFlow — nightly cross-tenant fraud scan (PRD-05 Phase 11)
+After=network-online.target isaflow.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=velo
+Group=velo
+EnvironmentFile=/home/velo/isaflow/.env.local
+ExecStart=/usr/bin/curl --silent --show-error --fail \
+  --max-time 900 \
+  -X POST \
+  -H "X-Cron-Secret: ${CRON_SECRET}" \
+  -H "Content-Type: application/json" \
+  http://127.0.0.1:3101/api/cron/fraud-scan
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=isaflow-fraud-scan
+
+NoNewPrivileges=true
+ProtectSystem=strict

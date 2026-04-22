@@ -1,0 +1,13 @@
+[Unit]
+Description=Nightly trigger for IsaFlow cross-tenant fraud scan
+Requires=isaflow-fraud-scan.service
+
+[Timer]
+# Every night at 02:30 SAST. Randomised delay reduces stampede risk
+# on shared DB instances.
+OnCalendar=*-*-* 02:30:00 Africa/Johannesburg
+RandomizedDelaySec=600
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -44,6 +44,7 @@ export const purchasesTab: Tab = {
         { label: 'Inbox', href: '/accounting/capture/inbox' },
         { label: 'Coding Rules', href: '/accounting/suppliers/rules' },
         { label: 'Capture Settings', href: '/accounting/capture/settings' },
+        { label: 'Fraud Signals', href: '/accounting/fraud/signals' },
       ],
     },
     {
