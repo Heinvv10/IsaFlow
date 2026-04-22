@@ -412,11 +412,12 @@ export async function postClaimToGl(
   const [je] = (await sql`
     INSERT INTO gl_journal_entries (
       company_id, entry_date, description, source, reference,
-      posting_agent, extraction_confidence
+      posting_agent, extraction_confidence, created_by, status, posted_at, posted_by
     ) VALUES (
       ${companyId}::uuid, ${claim.claimDate}::date,
       ${'Expense claim ' + claim.claimNumber}, 'expense_claim',
-      ${claim.claimNumber}, ${'human:' + opts.userId}, NULL
+      ${claim.claimNumber}, ${'human:' + opts.userId}, NULL,
+      ${opts.userId}, 'posted', NOW(), ${opts.userId}
     )
     RETURNING id
   `) as Row[];
