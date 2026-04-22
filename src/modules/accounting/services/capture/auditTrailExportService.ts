@@ -419,22 +419,13 @@ export async function verifyPortalToken(
       AND revoked_at IS NULL
       AND expires_at > NOW()
   `) as Row[];
-  if (!row) {
-    log.warn('portal verify — no session row', { sessionId }, 'audit-export');
-    return null;
-  }
+  if (!row) return null;
 
   const storedHash = row.token_hash as string;
-  if (!storedHash) {
-    log.warn('portal verify — missing token_hash', { sessionId }, 'audit-export');
-    return null;
-  }
+  if (!storedHash) return null;
 
   const ok = await bcrypt.compare(token, storedHash);
-  if (!ok) {
-    log.warn('portal verify — token mismatch', { sessionId, hashPrefix: storedHash.slice(0, 10) }, 'audit-export');
-    return null;
-  }
+  if (!ok) return null;
 
   // Touch last_used_at + count
   await sql`
