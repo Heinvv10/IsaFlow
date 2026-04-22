@@ -62,5 +62,11 @@ export const reportsTab: Tab = {
         { label: 'My Reports', href: '/accounting/reports/my-reports' },
       ],
     },
+    {
+      section: 'Audit',
+      items: [
+        { label: 'Audit Trail', href: '/accounting/audit-trail' },
+      ],
+    },
   ],
 };

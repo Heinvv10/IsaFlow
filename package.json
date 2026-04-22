@@ -68,6 +68,7 @@
     "@types/nodemailer": "^7.0.11",
     "@types/papaparse": "^5.3.16",
     "@types/pdf-parse": "^1.1.5",
+    "@types/pdfkit": "^0.17.6",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.3",
     "@types/uuid": "^11.0.0",

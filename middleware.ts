@@ -39,6 +39,8 @@ const PUBLIC_PATHS = [
   '/invite',
   '/api/invite',
   '/accounting/afs/sign/',
+  '/audit-portal',
+  '/api/audit-portal',
 ];
 
 /** Hostnames that should skip the landing page and go straight to the app */
