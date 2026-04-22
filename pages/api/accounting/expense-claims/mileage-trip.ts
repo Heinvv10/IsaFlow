@@ -10,11 +10,39 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
+import { sql } from '@/lib/neon';
 import {
   getCompanyKmRate,
   computeMileageAmount,
   addLine,
 } from '@/modules/accounting/services/expense/expenseClaimService';
+
+type GlRow = { id: string };
+
+async function findDefaultMileageAccount(companyId: string): Promise<string | null> {
+  // Prefer anything named "travel" / "motor" / "mileage"; fall back to the
+  // first active expense account. Callers can override per-line.
+  const rows = (await sql`
+    SELECT id FROM gl_accounts
+    WHERE company_id = ${companyId}::uuid AND is_active = true AND account_type = 'expense'
+      AND (
+        account_name ILIKE '%travel%'
+        OR account_name ILIKE '%motor%'
+        OR account_name ILIKE '%mileage%'
+        OR account_name ILIKE '%transport%'
+      )
+    ORDER BY level DESC, display_order ASC
+    LIMIT 1
+  `) as GlRow[];
+  if (rows[0]) return rows[0].id;
+  const fallback = (await sql`
+    SELECT id FROM gl_accounts
+    WHERE company_id = ${companyId}::uuid AND is_active = true AND account_type = 'expense'
+    ORDER BY level DESC, display_order ASC
+    LIMIT 1
+  `) as GlRow[];
+  return fallback[0]?.id ?? null;
+}
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -40,6 +68,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const rate = await getCompanyKmRate(companyId);
   const amount = computeMileageAmount(body.km, rate);
   const tripDate = body.tripDate ?? new Date().toISOString().slice(0, 10);
+  const glAccountId = body.glAccountId ?? (await findDefaultMileageAccount(companyId));
 
   const linePayload = {
     lineDate: tripDate,
@@ -48,7 +77,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     amount,
     vatAmount: 0,                       // Mileage is VAT-exempt per SARS
     vatCode: 'EXEMPT',
-    glAccountId: body.glAccountId ?? null,
+    glAccountId,
     costCentreId: body.costCentreId ?? null,
     projectId: body.projectId ?? null,
     sourceDocumentId: null,
