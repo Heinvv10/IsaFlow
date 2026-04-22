@@ -17,6 +17,7 @@ export interface ExpectedAlert {
   supplierId: string;
   supplierName: string;
   supplierEmail: string | null;
+  supplierWhatsappNumber: string | null;
   expectationId: string | null;
   expectedBy: string;
   expectedAmount: number | null;
@@ -38,6 +39,11 @@ export interface ChaseTemplateInput {
   lastInvoiceDate: string | null;
 }
 
+// Re-export Phase 8 WhatsApp-chase siblings so consumers (tests + UI) can
+// import everything from one place; the implementation lives in
+// whatsAppChaseService.ts to keep this file under the 300-line budget.
+export { sendWhatsAppChase, composeChaseWhatsApp } from './whatsAppChaseService';
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function toDateString(v: Date | string | null | undefined): string | null {
@@ -58,6 +64,7 @@ function mapAlertRow(row: Row, today: string): ExpectedAlert {
     supplierId: String(row.supplier_id),
     supplierName: String(row.supplier_name ?? ''),
     supplierEmail: row.supplier_email ? String(row.supplier_email) : null,
+    supplierWhatsappNumber: row.supplier_whatsapp_number ? String(row.supplier_whatsapp_number) : null,
     expectationId: row.expectation_id ? String(row.expectation_id) : null,
     expectedBy,
     expectedAmount: row.expected_amount != null ? Number(row.expected_amount) : null,
@@ -91,7 +98,7 @@ export async function listAlerts(
   let rows: Row[];
   if (statusFilter) {
     rows = await sql`
-      SELECT a.*, s.name AS supplier_name, s.email AS supplier_email
+      SELECT a.*, s.name AS supplier_name, s.email AS supplier_email, s.whatsapp_number AS supplier_whatsapp_number
       FROM expected_invoice_alerts a
       JOIN suppliers s ON s.id = a.supplier_id
       WHERE a.company_id = ${companyId}::uuid
@@ -100,7 +107,7 @@ export async function listAlerts(
     ` as Row[];
   } else {
     rows = await sql`
-      SELECT a.*, s.name AS supplier_name, s.email AS supplier_email
+      SELECT a.*, s.name AS supplier_name, s.email AS supplier_email, s.whatsapp_number AS supplier_whatsapp_number
       FROM expected_invoice_alerts a
       JOIN suppliers s ON s.id = a.supplier_id
       WHERE a.company_id = ${companyId}::uuid
