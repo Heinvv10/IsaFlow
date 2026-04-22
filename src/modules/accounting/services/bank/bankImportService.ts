@@ -3,8 +3,9 @@
  * Bank Import Service — statement import and persistence
  */
 
-import { transaction } from '@/lib/neon';
+import { transaction, sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { autoProvisionalBatch } from '../capture/provisionalPostingService';
 import {
   detectBankFormat,
   parseFNBStatement,
@@ -76,6 +77,23 @@ export async function importBankStatement(
       batchId, format, count: parseResult.transactions.length,
     }, 'accounting');
 
+    // Auto-provisional posting for outflows (best-effort — failures are swallowed)
+    try {
+      const outflowIds = (await sql`
+        SELECT id FROM bank_transactions
+        WHERE company_id = ${companyId}::UUID
+          AND import_batch_id = ${batchId}::UUID
+          AND amount < 0
+          AND status = 'imported'
+      `) as { id: string }[];
+      if (outflowIds.length > 0) {
+        const systemUser = '00000000-0000-0000-0000-000000000000';
+        await autoProvisionalBatch(companyId, outflowIds.map((r) => String(r.id)), systemUser);
+      }
+    } catch (provErr) {
+      log.warn('autoProvisionalBatch failed after import — non-fatal', { batchId, error: provErr }, 'accounting');
+    }
+
     return {
       batchId,
       transactionCount: parseResult.transactions.length,
@@ -122,6 +140,23 @@ export async function importParsedTransactions(
       count: parseResult.transactions.length,
       statementDate,
     }, 'accounting');
+
+    // Auto-provisional posting for outflows (best-effort)
+    try {
+      const outflowIds = (await sql`
+        SELECT id FROM bank_transactions
+        WHERE company_id = ${companyId}::UUID
+          AND import_batch_id = ${batchId}::UUID
+          AND amount < 0
+          AND status = 'imported'
+      `) as { id: string }[];
+      if (outflowIds.length > 0) {
+        const systemUser = '00000000-0000-0000-0000-000000000000';
+        await autoProvisionalBatch(companyId, outflowIds.map((r) => String(r.id)), systemUser);
+      }
+    } catch (provErr) {
+      log.warn('autoProvisionalBatch failed after parsed import — non-fatal', { batchId, error: provErr }, 'accounting');
+    }
 
     return {
       batchId,
