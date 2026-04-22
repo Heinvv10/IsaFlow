@@ -1,12 +1,13 @@
 /**
- * Capture Inbox — right-side slide-out detail panel (PRD-05 Phase 1).
+ * Capture Inbox — right-side slide-out detail panel (PRD-05 Phase 1 + Phase 3).
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Mail, Smartphone, MessageSquare, Server, Globe,
-  Loader2, X,
+  Loader2, X, CheckCircle2, Clock, AlertOctagon,
 } from 'lucide-react';
+import { apiFetch } from '@/lib/apiFetch';
 
 // ─── Shared types (re-exported for page use) ──────────────────────────────────
 
@@ -25,6 +26,24 @@ export interface CaptureEventRow {
   document_total: number | null;
   document_type: string | null;
   extracted_data: Record<string, unknown> | null;
+  // Phase 3 gate fields (may be absent on older rows)
+  gate_outcome?: 'auto_publish' | 'route_review' | 'duplicate_blocked' | null;
+  duplicate_hit_id?: string | null;
+  resolved_supplier_id?: string | null;
+}
+
+interface SupplierRule {
+  autoPublish: boolean;
+  autoPublishMaxAmount: number | null;
+  autoPublishMinConfidence: number;
+}
+
+type GateStatus = 'auto' | 'review' | 'duplicate' | 'no_rule' | 'not_ready';
+
+interface GateInfo {
+  status: GateStatus;
+  reason?: string;
+  invoiceRef?: string;
 }
 
 export interface InboxAddress { id: string; address: string }
@@ -48,6 +67,89 @@ export const CHANNEL_ICONS: Record<CaptureEventRow['channel'], React.ReactNode> 
   imap_mirror: <Server className="h-4 w-4" />,
   api:         <Globe className="h-4 w-4" />,
 };
+
+// ─── Gate Badge ───────────────────────────────────────────────────────────────
+
+function GateBadge({ gate }: { gate: GateInfo }) {
+  if (gate.status === 'not_ready') return null;
+  if (gate.status === 'no_rule') {
+    return (
+      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 text-slate-400 text-xs">
+        <Clock className="h-3.5 w-3.5 shrink-0" />
+        No rule configured for this supplier
+      </div>
+    );
+  }
+  if (gate.status === 'duplicate') {
+    return (
+      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-900/40 text-red-400 text-xs">
+        <AlertOctagon className="h-3.5 w-3.5 shrink-0" />
+        Duplicate of invoice {gate.invoiceRef ?? gate.reason ?? 'existing record'}
+      </div>
+    );
+  }
+  if (gate.status === 'review') {
+    return (
+      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-900/30 text-amber-400 text-xs">
+        <Clock className="h-3.5 w-3.5 shrink-0" />
+        Routed for review — {gate.reason}
+      </div>
+    );
+  }
+  // auto
+  return (
+    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-teal-900/30 text-teal-400 text-xs">
+      <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+      Auto-publish eligible
+    </div>
+  );
+}
+
+// ─── Gate hook ────────────────────────────────────────────────────────────────
+
+function useGateInfo(event: CaptureEventRow): GateInfo {
+  const [rule, setRule] = useState<SupplierRule | null | undefined>(undefined);
+  const supplierId = event.resolved_supplier_id ?? null;
+
+  useEffect(() => {
+    if (!supplierId) { setRule(null); return; }
+    let cancelled = false;
+    apiFetch(`/api/accounting/supplier-rules/${supplierId}`)
+      .then(r => r.status === 404 ? null : r.json() as Promise<{ data?: SupplierRule }>)
+      .then(json => { if (!cancelled) setRule(json?.data ?? null); })
+      .catch(() => { if (!cancelled) setRule(null); });
+    return () => { cancelled = true; };
+  }, [supplierId]);
+
+  // Prefer server-supplied gate_outcome when available
+  if (event.gate_outcome === 'duplicate_blocked') {
+    return { status: 'duplicate', invoiceRef: event.duplicate_hit_id ?? undefined };
+  }
+
+  if (event.status !== 'extracted') return { status: 'not_ready' };
+  if (!supplierId) return { status: 'no_rule' };
+  if (rule === undefined) return { status: 'not_ready' }; // loading
+  if (!rule) return { status: 'no_rule' };
+  if (!rule.autoPublish) return { status: 'review', reason: 'Auto-publish disabled' };
+
+  const confidence = typeof event.extracted_data?.confidence === 'number'
+    ? (event.extracted_data.confidence as number)
+    : null;
+  if (confidence !== null && confidence < rule.autoPublishMinConfidence) {
+    return {
+      status: 'review',
+      reason: `Confidence ${(confidence * 100).toFixed(0)}% below threshold ${Math.round(rule.autoPublishMinConfidence * 100)}%`,
+    };
+  }
+  const total = event.document_total ?? null;
+  if (total !== null && rule.autoPublishMaxAmount !== null && total > rule.autoPublishMaxAmount) {
+    return {
+      status: 'review',
+      reason: `Amount ${fmtZAR(total)} over cap ${fmtZAR(rule.autoPublishMaxAmount)}`,
+    };
+  }
+  return { status: 'auto' };
+}
 
 // ─── Status Badge ─────────────────────────────────────────────────────────────
 
@@ -94,6 +196,7 @@ interface SidePanelProps {
 export function CaptureInboxPanel({ event, onClose, onPost, onDiscard, posting, discarding }: SidePanelProps) {
   const [discardMode, setDiscardMode] = useState(false);
   const [discardReason, setDiscardReason] = useState('');
+  const gate = useGateInfo(event);
   const ed = event.extracted_data;
   const lineItems = Array.isArray(ed?.line_items) ? (ed.line_items as Record<string, unknown>[]) : null;
 
@@ -156,6 +259,11 @@ export function CaptureInboxPanel({ event, onClose, onPost, onDiscard, posting, 
 
       {/* Actions */}
       <div className="px-5 py-4 border-t border-[rgba(255,255,255,0.08)] space-y-2">
+        {/* Gate badge — shown above buttons when event is extracted */}
+        {event.status === 'extracted' && gate.status !== 'not_ready' && (
+          <GateBadge gate={gate} />
+        )}
+
         {discardMode ? (
           <div className="space-y-2">
             <input
@@ -175,17 +283,25 @@ export function CaptureInboxPanel({ event, onClose, onPost, onDiscard, posting, 
           </div>
         ) : (
           <div className="flex gap-2">
-            <button onClick={() => void onPost(event.id)} disabled={posting || event.status !== 'extracted'}
-              className="flex-1 px-4 py-2 bg-teal-600 hover:bg-teal-500 disabled:opacity-40 text-white rounded text-sm font-medium transition-colors">
-              {posting ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : 'Post'}
-            </button>
+            {gate.status === 'duplicate' ? (
+              <button disabled title={`Duplicate of ${gate.invoiceRef ?? 'existing record'}`}
+                className="flex-1 px-4 py-2 bg-red-900/30 opacity-60 cursor-not-allowed text-red-400 rounded text-sm font-medium">
+                Blocked — duplicate
+              </button>
+            ) : gate.status === 'auto' ? (
+              <button onClick={() => void onPost(event.id)} disabled={posting || event.status !== 'extracted'}
+                className="flex-1 px-4 py-2 bg-teal-600 hover:bg-teal-500 disabled:opacity-40 text-white rounded text-sm font-medium transition-colors">
+                {posting ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : 'Auto-post'}
+              </button>
+            ) : (
+              <button onClick={() => void onPost(event.id)} disabled={posting || event.status !== 'extracted'}
+                className="flex-1 px-4 py-2 bg-white/10 hover:bg-white/15 disabled:opacity-40 text-slate-200 rounded text-sm font-medium transition-colors border border-[rgba(255,255,255,0.1)]">
+                {posting ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : 'Post to review'}
+              </button>
+            )}
             <button onClick={() => setDiscardMode(true)} disabled={discarding}
               className="px-4 py-2 bg-white/5 hover:bg-white/10 text-slate-300 rounded text-sm font-medium transition-colors">
               Discard
-            </button>
-            <button title="Available in Phase 3" disabled
-              className="px-4 py-2 bg-white/5 opacity-40 cursor-not-allowed text-slate-400 rounded text-sm font-medium">
-              Approve
             </button>
           </div>
         )}

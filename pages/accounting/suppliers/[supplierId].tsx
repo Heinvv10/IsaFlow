@@ -26,7 +26,7 @@ interface Supplier {
   created_at: string;
 }
 
-type Tab = 'overview' | 'contacts' | 'activity';
+type Tab = 'overview' | 'contacts' | 'activity' | 'rules';
 
 export default function SupplierDetailPage() {
   const router = useRouter();
@@ -94,6 +94,7 @@ export default function SupplierDetailPage() {
     { id: 'overview',  label: 'Overview'  },
     { id: 'contacts',  label: 'Contacts'  },
     { id: 'activity',  label: 'Activity'  },
+    { id: 'rules',     label: 'Coding Rules' },
   ];
 
   return (
@@ -175,6 +176,20 @@ export default function SupplierDetailPage() {
 
           {activeTab === 'activity' && (
             <ActivityTab supplierId={supplier.id} />
+          )}
+
+          {activeTab === 'rules' && typeof supplierId === 'string' && (
+            <div className="flex flex-col items-start gap-3">
+              <p className="text-sm text-[var(--ff-text-secondary)]">
+                Configure default GL account, VAT code, and auto-publish settings for this supplier.
+              </p>
+              <Link
+                href={`/accounting/suppliers/${supplierId}/rules`}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors"
+              >
+                Open Coding Rules
+              </Link>
+            </div>
           )}
         </div>
       </div>

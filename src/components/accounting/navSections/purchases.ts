@@ -42,6 +42,7 @@ export const purchasesTab: Tab = {
       section: 'Capture',
       items: [
         { label: 'Inbox', href: '/accounting/capture/inbox' },
+        { label: 'Coding Rules', href: '/accounting/suppliers/rules' },
         { label: 'Capture Settings', href: '/accounting/capture/settings' },
       ],
     },
