@@ -39,9 +39,9 @@ export default function CaptureInboxPage() {
     try {
       const qs = showProcessed ? '' : '?status=received,extracting,extracted,failed';
       const res = await apiFetch(`/api/accounting/capture/inbox${qs}`);
-      const json = await res.json() as { data?: CaptureEventRow[]; error?: string };
+      const json = await res.json() as { data?: { events?: CaptureEventRow[] }; error?: string };
       if (!res.ok) { setError(json.error ?? 'Failed to load inbox'); return; }
-      setEvents(json.data ?? []);
+      setEvents(json.data?.events ?? []);
       setError('');
     } catch {
       setError('Network error loading inbox');
@@ -54,8 +54,8 @@ export default function CaptureInboxPage() {
     try {
       const res = await apiFetch('/api/accounting/capture/inbox-address');
       if (res.ok) {
-        const json = await res.json() as { data?: InboxAddress };
-        setInboxAddr(json.data ?? null);
+        const json = await res.json() as { data?: { inbox?: InboxAddress } };
+        setInboxAddr(json.data?.inbox ?? null);
       }
     } catch { /* non-critical */ }
   }, []);
