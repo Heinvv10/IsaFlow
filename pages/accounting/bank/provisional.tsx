@@ -57,9 +57,9 @@ export default function ProvisionalEntriesPage() {
     setLoading(true); setError('');
     try {
       const res = await apiFetch('/api/accounting/provisional/outstanding');
-      const json = await res.json() as { data?: ProvisionalEntry[]; error?: string };
+      const json = await res.json() as { data?: { outstanding?: ProvisionalEntry[] }; error?: string };
       if (!res.ok) { setError(json.error ?? 'Failed to load provisional entries'); return; }
-      setEntries(json.data ?? []);
+      setEntries(json.data?.outstanding ?? []);
     } catch { setError('Network error loading provisional entries'); }
     finally { setLoading(false); }
   }, []);
