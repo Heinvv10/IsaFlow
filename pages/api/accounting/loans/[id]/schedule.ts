@@ -12,10 +12,12 @@ import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { getOrComputeSchedule, previewSchedule } from '@/modules/accounting/services/loans/loanScheduleService';
 import type { LoanEvent } from '@/lib/amortisation/types';
+import { isValidUUID } from '@/lib/validation';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
-  const loanId = String(req.query.id);
+  const loanId = String(req.query.id ?? '');
+  if (!isValidUUID(loanId)) return apiResponse.notFound(res, 'Loan', loanId);
 
   if (req.method === 'GET') {
     const result = await getOrComputeSchedule(companyId, loanId);

@@ -46,7 +46,6 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       COALESCE(c.ias16_group, 'OA')         AS ias16_group,
       COALESCE(c.tax_code, c.code)          AS tax_code,
       COALESCE(a.tax_useful_life_years,
-               a.tax_life_years,
                c.tax_life_years)            AS tax_life_years,
       COALESCE(a.useful_life_years,
                c.useful_life_years)         AS policy_life_years,

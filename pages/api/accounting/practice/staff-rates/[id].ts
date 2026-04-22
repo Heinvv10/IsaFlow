@@ -16,8 +16,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { id } = req.query;
 
   if (req.method === 'PUT') {
-    const updated = await updateStaffRate(companyId, id as string, req.body);
-    return apiResponse.success(res, updated);
+    try {
+      const updated = await updateStaffRate(companyId, id as string, req.body);
+      return apiResponse.success(res, updated);
+    } catch (err) {
+      if (err instanceof Error && err.message === 'effectiveTo must be after effectiveFrom') {
+        return apiResponse.badRequest(res, err.message);
+      }
+      throw err;
+    }
   }
 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['PUT']);
