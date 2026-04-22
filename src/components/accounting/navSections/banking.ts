@@ -23,6 +23,7 @@ export const bankingTab: Tab = {
       items: [
         { label: 'Mapping Rules', href: '/accounting/bank-reconciliation/rules' },
         { label: 'Bank Feeds', href: '/accounting/bank-feeds' },
+        { label: 'Provisional', href: '/accounting/bank/provisional' },
       ],
     },
     {

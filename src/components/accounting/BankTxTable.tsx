@@ -6,7 +6,8 @@
  */
 
 import { useState, useRef, useEffect } from 'react';
-import { Check, X, Undo2, Search, Scissors, SearchCheck, RotateCcw, Paperclip, BookmarkPlus, Plus } from 'lucide-react';
+import Link from 'next/link';
+import { Check, X, Undo2, Search, Scissors, SearchCheck, RotateCcw, Paperclip, BookmarkPlus, Plus, Clock } from 'lucide-react';
 
 export type AllocType = 'account' | 'supplier' | 'customer';
 export type VatCode = 'none' | 'standard' | 'zero_rated' | 'exempt';
@@ -52,6 +53,10 @@ export interface BankTx {
   /** Allocation tracking — populated for matched/reconciled transactions */
   allocationType?: AllocType;
   allocatedEntityName?: string;
+  /** PRD-05 Phase 5: provisional journal entry id (status = 'provisional') */
+  provisionalJeId?: string | null;
+  /** PRD-05 Phase 5: true when the provisional JE has no attached evidence yet */
+  needsEvidence?: boolean;
 }
 
 export interface SelectOption {
@@ -290,6 +295,18 @@ export function BankTxTable(props: Props) {
                 </td>
                 <td className="py-2 px-2 text-[var(--ff-text-primary)]">
                   <span className="line-clamp-1 text-xs">{tx.description || '—'}</span>
+                  {tx.status === 'provisional' && (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-900/40 text-amber-300 ml-1"
+                      title="Posted by AI — needs evidence">
+                      <Clock className="h-2.5 w-2.5" /> Provisional
+                    </span>
+                  )}
+                  {tx.needsEvidence && tx.provisionalJeId && (
+                    <Link href={`/accounting/bank/provisional#${tx.id}`}
+                      className="ml-1 text-[10px] text-teal-400 hover:underline">
+                      Attach slip
+                    </Link>
+                  )}
                 </td>
                 {/* Notes — inline editable */}
                 <td className="py-2 px-2">
