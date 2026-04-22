@@ -36,11 +36,12 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     const inv = invRows[0]!;
 
     const itemRows = (await sql`
-      SELECT id, description, quantity, unit_price,
-             line_match_status, qty_variance_pct, price_variance_pct, match_computed_at
-      FROM supplier_invoice_items
-      WHERE supplier_invoice_id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
-      ORDER BY id
+      SELECT sii.id, sii.description, sii.quantity, sii.unit_price,
+             sii.line_match_status, sii.qty_variance_pct, sii.price_variance_pct, sii.match_computed_at
+      FROM supplier_invoice_items sii
+      JOIN supplier_invoices si ON si.id = sii.supplier_invoice_id
+      WHERE sii.supplier_invoice_id = ${invoiceId}::UUID AND si.company_id = ${companyId}::UUID
+      ORDER BY sii.id
     `) as Row[];
 
     const itemResults = itemRows.map((r: Row) => ({
