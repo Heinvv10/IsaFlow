@@ -412,15 +412,29 @@ export async function verifyPortalToken(
   token: string,
 ): Promise<{ companyId: string; exportId: string; auditorEmail: string } | null> {
   const [row] = (await sql`
-    SELECT * FROM audit_portal_sessions
+    SELECT id, company_id, export_id, auditor_email, token_hash,
+           expires_at, revoked_at
+    FROM audit_portal_sessions
     WHERE id = ${sessionId}::uuid
       AND revoked_at IS NULL
       AND expires_at > NOW()
   `) as Row[];
-  if (!row) return null;
+  if (!row) {
+    log.warn('portal verify — no session row', { sessionId }, 'audit-export');
+    return null;
+  }
 
-  const ok = await bcrypt.compare(token, row.token_hash as string);
-  if (!ok) return null;
+  const storedHash = row.token_hash as string;
+  if (!storedHash) {
+    log.warn('portal verify — missing token_hash', { sessionId }, 'audit-export');
+    return null;
+  }
+
+  const ok = await bcrypt.compare(token, storedHash);
+  if (!ok) {
+    log.warn('portal verify — token mismatch', { sessionId, hashPrefix: storedHash.slice(0, 10) }, 'audit-export');
+    return null;
+  }
 
   // Touch last_used_at + count
   await sql`
