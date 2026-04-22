@@ -415,7 +415,7 @@ export async function postClaimToGl(
       posting_agent, extraction_confidence, created_by, status, posted_at, posted_by
     ) VALUES (
       ${companyId}::uuid, ${claim.claimDate}::date,
-      ${'Expense claim ' + claim.claimNumber}, 'expense_claim',
+      ${'Expense claim ' + claim.claimNumber}, 'auto_expense_claim',
       ${claim.claimNumber}, ${'human:' + opts.userId}, NULL,
       ${opts.userId}, 'posted', NOW(), ${opts.userId}
     )
