@@ -16,6 +16,16 @@ const nextConfig = {
 
   experimental: {
     optimizePackageImports: ['lucide-react', 'recharts'],
+    // Sharp is loaded at runtime by Next.js for image optimization but is
+    // not detected by the standalone build's static trace. Force-include
+    // its native binaries so /home/velo/isaflow/node_modules/sharp exists
+    // after rsync and image routes stop logging "sharp-missing" errors.
+    outputFileTracingIncludes: {
+      '/**/*': [
+        './node_modules/sharp/**/*',
+        './node_modules/@img/**/*',
+      ],
+    },
   },
 
   // Proxy GoTrue's /auth/v1/* through the app. GoTrue recovery emails link
