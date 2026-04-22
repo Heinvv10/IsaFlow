@@ -83,7 +83,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, `Upload parse error: ${msg}`);
   }
 
-  const fileField = files.file ?? files.files;
+  const fileField = files.file ?? files.files ?? (files as Record<string, formidable.File[] | undefined>)['files[]'];
   const fileList = Array.isArray(fileField) ? fileField : fileField ? [fileField] : [];
 
   if (fileList.length === 0) {
