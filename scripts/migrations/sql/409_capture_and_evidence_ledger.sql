@@ -62,6 +62,16 @@ ALTER TABLE gl_journal_entries
   ADD COLUMN IF NOT EXISTS extraction_confidence NUMERIC(5,4),
   ADD COLUMN IF NOT EXISTS posting_agent TEXT;
 
+-- Pre-null orphan source_document_id values that predate captured_documents
+-- existing as an enforceable reference. Equivalent to what the new
+-- ON DELETE SET NULL would have done had the FK been there all along.
+UPDATE gl_journal_entries
+SET source_document_id = NULL
+WHERE source_document_id IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM captured_documents cd WHERE cd.id = gl_journal_entries.source_document_id
+  );
+
 -- Retrofit the FK on source_document_id → captured_documents(id).
 -- Guard with EXECUTE to make it idempotent across reruns.
 DO $$
@@ -117,6 +127,14 @@ ALTER TABLE supplier_invoices
   ADD COLUMN IF NOT EXISTS source_document_hash TEXT,
   ADD COLUMN IF NOT EXISTS extraction_confidence NUMERIC(5,4),
   ADD COLUMN IF NOT EXISTS posting_agent TEXT;
+
+-- Same orphan pre-null pattern on supplier_invoices before FK add.
+UPDATE supplier_invoices
+SET source_document_id = NULL
+WHERE source_document_id IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM captured_documents cd WHERE cd.id = supplier_invoices.source_document_id
+  );
 
 DO $$
 BEGIN
