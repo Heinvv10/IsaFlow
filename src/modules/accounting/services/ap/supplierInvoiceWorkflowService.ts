@@ -191,13 +191,17 @@ export async function performThreeWayMatch(
 
     // Persist per-line match state — log failures but keep processing other lines
     try {
+      // supplier_invoice_items has no company_id; scope via parent invoice
       await sql`
-        UPDATE supplier_invoice_items
+        UPDATE supplier_invoice_items sii
         SET line_match_status = ${lineMatchStatus},
             qty_variance_pct   = ${qtyVariancePct},
             price_variance_pct = ${priceVariancePct},
             match_computed_at  = NOW()
-        WHERE id = ${item.id}::UUID AND company_id = ${companyId}::UUID
+        FROM supplier_invoices si
+        WHERE sii.id = ${item.id}::UUID
+          AND si.id = sii.supplier_invoice_id
+          AND si.company_id = ${companyId}::UUID
       `;
     } catch (updateErr) {
       log.error('Failed to persist line match status', { itemId: item.id, error: updateErr }, 'accounting');
