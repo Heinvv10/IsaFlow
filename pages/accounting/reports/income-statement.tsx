@@ -13,6 +13,7 @@ import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
 
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
+import { EvidenceDrillModal } from '@/components/accounting/evidence/EvidenceDrillModal';
 
 interface CostCentre { id: string; code: string; name: string }
 
@@ -40,6 +41,7 @@ export default function IncomeStatementPage() {
   const [costCentres, setCostCentres] = useState<CostCentre[]>([]);
   const [costCentreId, setCostCentreId] = useState('');
   const [showComparative, setShowComparative] = useState(false);
+  const [evidenceTarget, setEvidenceTarget] = useState<{ accountId: string; accountName: string } | null>(null);
 
   useEffect(() => {
     apiFetch('/api/accounting/cost-centres?active_only=true', { credentials: 'include' })
@@ -160,13 +162,15 @@ export default function IncomeStatementPage() {
                 {/* Revenue */}
                 <Section label="Revenue" items={report.revenue} total={report.totalRevenue} color="teal"
                   periodStart={periodStart} periodEnd={periodEnd} expandedAccount={expandedAccount}
-                  onToggleAccount={toggleAccount} showComparative={showComparative} />
+                  onToggleAccount={toggleAccount} showComparative={showComparative}
+                  onEvidence={(id, name) => setEvidenceTarget({ accountId: id, accountName: name })} />
 
                 {/* Cost of Sales */}
                 {report.costOfSales.length > 0 && (
                   <Section label="Cost of Sales" items={report.costOfSales} total={report.totalCostOfSales} color="orange"
                     periodStart={periodStart} periodEnd={periodEnd} expandedAccount={expandedAccount}
-                    onToggleAccount={toggleAccount} showComparative={showComparative} />
+                    onToggleAccount={toggleAccount} showComparative={showComparative}
+                    onEvidence={(id, name) => setEvidenceTarget({ accountId: id, accountName: name })} />
                 )}
 
                 {/* Gross Profit */}
@@ -185,7 +189,8 @@ export default function IncomeStatementPage() {
                 {/* Operating Expenses */}
                 <Section label="Operating Expenses" items={report.operatingExpenses} total={report.totalOperatingExpenses} color="red"
                   periodStart={periodStart} periodEnd={periodEnd} expandedAccount={expandedAccount}
-                  onToggleAccount={toggleAccount} showComparative={showComparative} />
+                  onToggleAccount={toggleAccount} showComparative={showComparative}
+                  onEvidence={(id, name) => setEvidenceTarget({ accountId: id, accountName: name })} />
 
                 {/* Net Profit */}
                 <div className="px-6 py-4 flex justify-between bg-[var(--ff-bg-primary)]">
@@ -204,11 +209,20 @@ export default function IncomeStatementPage() {
           ) : null}
         </div>
       </div>
+      {evidenceTarget && (
+        <EvidenceDrillModal
+          accountId={evidenceTarget.accountId}
+          accountName={evidenceTarget.accountName}
+          periodStart={periodStart}
+          periodEnd={periodEnd}
+          onClose={() => setEvidenceTarget(null)}
+        />
+      )}
     </AppLayout>
   );
 }
 
-function Section({ label, items, total, color, periodStart, periodEnd, expandedAccount, onToggleAccount, showComparative }: {
+function Section({ label, items, total, color, periodStart, periodEnd, expandedAccount, onToggleAccount, showComparative, onEvidence }: {
   label: string;
   items: IncomeStatementLineItem[];
   total: number;
@@ -218,6 +232,7 @@ function Section({ label, items, total, color, periodStart, periodEnd, expandedA
   expandedAccount: string | null;
   onToggleAccount: (code: string) => void;
   showComparative: boolean;
+  onEvidence: (accountId: string, accountName: string) => void;
 }) {
   return (
     <div>
@@ -237,30 +252,32 @@ function Section({ label, items, total, color, periodStart, periodEnd, expandedA
         const isExpanded = expandedAccount === item.accountCode;
         return (
           <div key={item.accountCode}>
-            <button
-              type="button"
-              onClick={() => onToggleAccount(item.accountCode)}
-              className="w-full px-6 py-2 flex justify-between items-center text-sm hover:bg-[var(--ff-bg-tertiary)] cursor-pointer text-left"
-            >
-              <span className="flex items-center gap-1 text-[var(--ff-text-secondary)] flex-1">
+            <div className="w-full px-6 py-2 flex justify-between items-center text-sm hover:bg-[var(--ff-bg-tertiary)]">
+              <button
+                type="button"
+                onClick={() => onToggleAccount(item.accountCode)}
+                className="flex items-center gap-1 text-[var(--ff-text-secondary)] flex-1 text-left"
+              >
                 {isExpanded
                   ? <ChevronDown className="h-3 w-3 shrink-0 text-[var(--ff-text-tertiary)]" />
                   : <ChevronRight className="h-3 w-3 shrink-0 text-[var(--ff-text-tertiary)]" />}
                 <span className="font-mono text-xs mr-1">{item.accountCode}</span>
                 {item.accountName}
+              </button>
+              <span className="flex items-center gap-3">
+                {showComparative && item.priorAmount !== undefined ? (
+                  <>
+                    <span className="font-mono text-[var(--ff-text-tertiary)] w-28 text-right text-xs">{formatCurrency(item.priorAmount)}</span>
+                    <button onClick={() => onEvidence(item.accountCode, item.accountName)} className="font-mono text-[var(--ff-text-primary)] w-28 text-right hover:text-indigo-400 cursor-pointer">{formatCurrency(item.amount)}</button>
+                    <span className={`font-mono w-20 text-right text-xs ${(item.variance ?? 0) >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
+                      {(item.variance ?? 0) >= 0 ? '+' : ''}{formatCurrency(item.variance ?? 0)}
+                    </span>
+                  </>
+                ) : (
+                  <button onClick={() => onEvidence(item.accountCode, item.accountName)} className="font-mono text-[var(--ff-text-primary)] hover:text-indigo-400 cursor-pointer">{formatCurrency(item.amount)}</button>
+                )}
               </span>
-              {showComparative && item.priorAmount !== undefined ? (
-                <span className="flex items-center gap-4">
-                  <span className="font-mono text-[var(--ff-text-tertiary)] w-28 text-right text-xs">{formatCurrency(item.priorAmount)}</span>
-                  <span className="font-mono text-[var(--ff-text-primary)] w-28 text-right">{formatCurrency(item.amount)}</span>
-                  <span className={`font-mono w-20 text-right text-xs ${(item.variance ?? 0) >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
-                    {(item.variance ?? 0) >= 0 ? '+' : ''}{formatCurrency(item.variance ?? 0)}
-                  </span>
-                </span>
-              ) : (
-                <span className="font-mono text-[var(--ff-text-primary)]">{formatCurrency(item.amount)}</span>
-              )}
-            </button>
+            </div>
             {isExpanded && (
               <div className="px-6 pb-3">
                 <AccountDrillDown accountCode={item.accountCode} periodStart={periodStart} periodEnd={periodEnd} />

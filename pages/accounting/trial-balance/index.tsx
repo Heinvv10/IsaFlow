@@ -8,6 +8,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Scale, Loader2, AlertCircle, Download, ChevronDown, ChevronRight, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
+import { EvidenceDrillModal } from '@/components/accounting/evidence/EvidenceDrillModal';
 import { apiFetch } from '@/lib/apiFetch';
 
 interface TBRow {
@@ -31,6 +32,8 @@ const TYPE_PILL: Record<string, string> = {
 };
 const NEUTRAL_PILL = 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300';
 
+interface EvidenceTarget { accountId: string; accountName: string }
+
 export default function TrialBalancePage() {
   const [rows, setRows] = useState<TBRow[]>([]);
   const [periods, setPeriods] = useState<FiscalPeriod[]>([]);
@@ -43,6 +46,7 @@ export default function TrialBalancePage() {
   const [costCentres, setCostCentres] = useState<CostCentre[]>([]);
   const [costCentreId, setCostCentreId] = useState('');
   const [comparePeriodId, setComparePeriodId] = useState('');
+  const [evidenceTarget, setEvidenceTarget] = useState<EvidenceTarget | null>(null);
 
   // Load cost centres
   useEffect(() => {
@@ -193,6 +197,7 @@ export default function TrialBalancePage() {
                         <th className="px-4 py-3 text-right text-[var(--ff-text-tertiary)]">Prior Cr</th>
                       </>
                     )}
+                    <th className="px-4 py-3 text-center text-[var(--ff-text-tertiary)]">Evidence</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -224,6 +229,14 @@ export default function TrialBalancePage() {
                             </td>
                           </>
                         )}
+                        <td className="px-4 py-3 text-center" onClick={e => e.stopPropagation()}>
+                          <button
+                            onClick={() => setEvidenceTarget({ accountId: r.accountCode, accountName: r.accountName })}
+                            className="px-2 py-1 rounded text-xs bg-indigo-500/15 text-indigo-400 hover:bg-indigo-500/25 whitespace-nowrap"
+                          >
+                            Evidence
+                          </button>
+                        </td>
                       </tr>
                       {expandedAccount === r.accountCode && (
                         <AccountDrillDown
@@ -252,6 +265,7 @@ export default function TrialBalancePage() {
                         </td>
                       </>
                     )}
+                    <td />
                   </tr>
                 </tfoot>
               </table>
@@ -259,6 +273,15 @@ export default function TrialBalancePage() {
           )}
         </div>
       </div>
+      {evidenceTarget && (
+        <EvidenceDrillModal
+          accountId={evidenceTarget.accountId}
+          accountName={evidenceTarget.accountName}
+          periodStart={drillDownStart}
+          periodEnd={drillDownEnd}
+          onClose={() => setEvidenceTarget(null)}
+        />
+      )}
     </AppLayout>
   );
 }
