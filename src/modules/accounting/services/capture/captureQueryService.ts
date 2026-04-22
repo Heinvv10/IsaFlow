@@ -69,82 +69,56 @@ function mapEvent(row: Row): CaptureEventRow {
 // Queries
 // ---------------------------------------------------------------------------
 
-const PENDING_STATUSES = ['received', 'extracting', 'extracted'] as const;
+const PENDING_STATUSES = ['received', 'extracting', 'extracted', 'failed'] as const;
+const ALL_STATUSES = ['received', 'extracting', 'extracted', 'failed', 'discarded', 'posted'] as const;
 
 /**
- * List pending events (received / extracting / extracted) with joined document data.
- * Pass `status` to filter to a single status value.
+ * List pending events with joined document data.
+ * `status` may be a single value or comma-separated list; empty / undefined defaults
+ * to the PENDING_STATUSES set (anything awaiting human action).
  */
 export async function listPendingEvents(
   companyId: string,
   limit = 50,
   status?: string,
 ): Promise<CaptureEventRow[]> {
-  let rows: Row[];
+  const requested = status
+    ? status.split(',').map(s => s.trim()).filter(Boolean)
+    : [];
+  const filter = requested.length
+    ? requested.filter(s => (ALL_STATUSES as readonly string[]).includes(s))
+    : (PENDING_STATUSES as readonly string[]);
 
-  if (status) {
-    rows = await sql`
-      SELECT
-        ce.id          AS event_id,
-        ce.company_id,
-        ce.inbox_id,
-        ce.received_at,
-        ce.channel,
-        ce.sender,
-        ce.subject,
-        ce.status,
-        ce.error,
-        ce.posted_by,
-        ce.posted_at,
-        ce.captured_document_id,
-        cd.vendor_name,
-        cd.document_date,
-        cd.reference_number,
-        cd.total_amount,
-        cd.extracted_data,
-        cd.file_name,
-        cd.file_type,
-        cd.document_type
-      FROM capture_events ce
-      LEFT JOIN captured_documents cd
-        ON cd.id = ce.captured_document_id AND cd.company_id = ${companyId}
-      WHERE ce.company_id = ${companyId}
-        AND ce.status = ${status}
-      ORDER BY ce.received_at DESC
-      LIMIT ${limit}
-    ` as Row[];
-  } else {
-    rows = await sql`
-      SELECT
-        ce.id          AS event_id,
-        ce.company_id,
-        ce.inbox_id,
-        ce.received_at,
-        ce.channel,
-        ce.sender,
-        ce.subject,
-        ce.status,
-        ce.error,
-        ce.posted_by,
-        ce.posted_at,
-        ce.captured_document_id,
-        cd.vendor_name,
-        cd.document_date,
-        cd.reference_number,
-        cd.total_amount,
-        cd.extracted_data,
-        cd.file_name,
-        cd.file_type,
-        cd.document_type
-      FROM capture_events ce
-      LEFT JOIN captured_documents cd
-        ON cd.id = ce.captured_document_id AND cd.company_id = ${companyId}
-      WHERE ce.company_id = ${companyId}
-        AND ce.status = ANY(${PENDING_STATUSES as unknown as string[]})
-      ORDER BY ce.received_at DESC
-      LIMIT ${limit}
-    ` as Row[];
-  }
+  const rows = await sql`
+    SELECT
+      ce.id          AS event_id,
+      ce.company_id,
+      ce.inbox_id,
+      ce.received_at,
+      ce.channel,
+      ce.sender,
+      ce.subject,
+      ce.status,
+      ce.error,
+      ce.posted_by,
+      ce.posted_at,
+      ce.captured_document_id,
+      cd.vendor_name,
+      cd.document_date,
+      cd.reference_number,
+      cd.total_amount,
+      cd.extracted_data,
+      cd.file_name,
+      cd.file_type,
+      cd.document_type
+    FROM capture_events ce
+    LEFT JOIN captured_documents cd
+      ON cd.id = ce.captured_document_id AND cd.company_id = ${companyId}
+    WHERE ce.company_id = ${companyId}
+      AND ce.status = ANY(${filter as unknown as string[]})
+    ORDER BY ce.received_at DESC
+    LIMIT ${limit}
+  ` as Row[];
 
   return rows.map(mapEvent);
 }
