@@ -49,6 +49,7 @@ export const suppliersTab: Tab = {
         { label: 'Coding Rules', href: '/accounting/suppliers/rules' },
         { label: 'Expectations', href: '/accounting/suppliers/expectations' },
         { label: 'Missing Invoices', href: '/accounting/suppliers/missing-invoices' },
+        { label: 'Statement Reconciliation', href: '/accounting/ap/supplier-statements' },
       ],
     },
     {
