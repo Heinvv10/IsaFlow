@@ -17,7 +17,9 @@ import {
 } from '@/modules/accounting/services/capture/auditTrailExportService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method ?? '', ['GET']);
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    return apiResponse.methodNotAllowed(res, req.method ?? '', ['GET', 'HEAD']);
+  }
   const sessionId = req.query.sessionId as string | undefined;
   const token = req.query.token as string | undefined;
   if (!sessionId || !token) return apiResponse.badRequest(res, 'sessionId and token are required');
@@ -30,14 +32,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.notFound(res, 'Audit export', verified.exportId);
   }
 
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="audit-pack-${ex.id}.pdf"`);
+  res.setHeader('X-Content-SHA256', ex.pdfSha256 ?? '');
+
+  // HEAD — validate access + surface headers without hitting object storage
+  if (req.method === 'HEAD') {
+    res.status(200).end();
+    return;
+  }
+
   const bucket = (ex as unknown as { pdfStorageBucket?: string }).pdfStorageBucket
     ?? process.env.SUPABASE_CAPTURED_DOCS_BUCKET
     ?? 'captured-documents';
   const pdf = await downloadCapturedDocument(bucket, ex.pdfStoragePath);
-
-  res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `inline; filename="audit-pack-${ex.id}.pdf"`);
-  res.setHeader('X-Content-SHA256', ex.pdfSha256 ?? '');
   res.status(200).send(pdf);
 }
 
