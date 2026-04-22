@@ -8,7 +8,7 @@
  *   2. Rule existence   → route_review ('no rule' | 'auto_publish disabled')
  *   3. Confidence gate  → route_review ('confidence too low')
  *   4. Amount cap       → route_review ('over amount cap')
- *   5. PO match flag    → route_review ('PO match required — Phase 4 wiring pending')
+ *   5. PO match flag    → route_review ('PO match required — post to review')
  *   6. All clear        → auto_publish
  */
 
@@ -105,9 +105,9 @@ export async function decide(opts: GateOptions): Promise<GateDecision> {
     );
   }
 
-  // Step 5: PO match required
+  // Step 5: PO match required — route to review; actual 3-way match runs post-creation
   if (rule.requirePoMatch) {
-    routeReasons.push('PO match required — Phase 4 wiring pending');
+    routeReasons.push('PO match required — post to review');
   }
 
   if (routeReasons.length > 0) {

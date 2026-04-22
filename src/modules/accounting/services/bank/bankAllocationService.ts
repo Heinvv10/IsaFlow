@@ -12,6 +12,7 @@ import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { mapTxRow } from './bankTransactionQueryService';
 import type { BankTransaction } from '../../types/bank.types';
 import type { JournalLineInput } from '../../types/gl.types';
+import { recordPaymentMatch } from '../capture/fourWayMatchService';
 
 type Row = DbRow;
 
@@ -240,6 +241,26 @@ export async function allocateTransaction(
         )`;
     }
   });
+
+  // 4-way match: when a supplier payment is allocated, check if the invoice is now fully paid
+  if (allocType === 'supplier' && entityId) {
+    try {
+      const unpaidRows = (await sql`
+        SELECT id FROM supplier_invoices
+        WHERE company_id = ${companyId}::UUID
+          AND supplier_id = ${entityId}::UUID
+          AND payment_matched = false
+          AND status NOT IN ('cancelled', 'paid')
+        ORDER BY created_at DESC
+        LIMIT 1
+      `) as Row[];
+      if (unpaidRows.length > 0 && unpaidRows[0]!.id) {
+        await recordPaymentMatch(companyId, String(unpaidRows[0]!.id), totalAmount);
+      }
+    } catch (matchErr) {
+      log.error('4-way match check failed — allocation still recorded', { bankTxId, entityId, error: matchErr }, 'accounting');
+    }
+  }
 
   log.info('Allocated bank transaction', { bankTxId, journalEntryId: je.id, allocType, entityId, contraAccountId }, 'accounting');
   const updated = (await sql`SELECT * FROM bank_transactions WHERE id = ${bankTxId}::UUID`) as Row[];
