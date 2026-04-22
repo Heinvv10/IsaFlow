@@ -26,6 +26,7 @@ import {
 import { recordCoding } from '@/modules/accounting/services/capture/supplierRulesService';
 import { performThreeWayMatch } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { attachEvidenceToProvisional } from '@/modules/accounting/services/capture/evidenceAttachmentService';
+import { resolvePendingAlertForInvoice } from '@/modules/accounting/services/capture/alertResolutionService';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -204,6 +205,16 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   } catch (attachErr) {
     log.warn('Evidence attach to provisional JE failed — continuing', { documentId, error: attachErr }, 'ai-pipeline');
   }
+
+  // Best-effort alert resolution — non-blocking
+  resolvePendingAlertForInvoice(
+    companyId,
+    supplierMatch.supplierId,
+    invoice.id as string,
+    invoiceInput.invoiceDate,
+  ).catch((err: unknown) => {
+    log.warn('resolvePendingAlertForInvoice failed (non-blocking)', { invoiceId: invoice.id, error: err }, 'ai-pipeline');
+  });
 
   log.info('AI Invoice Pipeline completed', {
     documentId, invoiceId: invoice.id, supplierMatch: supplierMatch.supplierName,
