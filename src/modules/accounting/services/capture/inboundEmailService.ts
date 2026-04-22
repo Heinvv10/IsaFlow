@@ -5,6 +5,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { sha256 } from '@/lib/documentStorage';
 
 // ---------------------------------------------------------------------------
 // Postmark inbound payload shape
@@ -56,7 +57,7 @@ type InboxRow = Record<string, unknown>;
 // ---------------------------------------------------------------------------
 
 export type IngestResult =
-  | { captureEventId: string; companyId: string }
+  | { captureEventId: string; captureEventIds: string[]; companyId: string }
   | { rejected: string };
 
 /**
@@ -116,38 +117,41 @@ export async function ingestPostmarkPayload(
     return { rejected: 'no attachments' };
   }
 
-  let firstEventId: string | null = null;
+  const eventIds: string[] = [];
 
   for (const attachment of invoiceAttachments) {
     const mimeType = attachment.ContentType.toLowerCase().split(';')[0]!.trim();
     const fileExt = mimeType === 'application/pdf' ? 'pdf' : mimeType.split('/')[1] ?? 'bin';
     const fileName = attachment.Name || `email_attachment_${Date.now()}.${fileExt}`;
 
-    // TODO: stream to object storage, set raw_payload_url
-    // For now: store base64 byte count + name in notes
-    const notes = `email-ingest: base64_size=${attachment.Content.length}, name=${attachment.Name}, from=${payload.From}`;
+    const buffer = Buffer.from(attachment.Content, 'base64');
+    const hash = sha256(buffer);
+    const size = buffer.length;
+    const notes = `email-ingest: from=${payload.From}`;
 
-    // Insert captured_document
     const docRows = await sql`
       INSERT INTO captured_documents (
         company_id, file_name, file_type, file_size,
-        document_type, status, notes, uploaded_by
+        document_type, status, notes, uploaded_by,
+        raw_bytes, raw_bytes_sha256, raw_bytes_size
       ) VALUES (
         ${companyId},
         ${fileName},
         ${fileExt},
-        ${attachment.ContentLength ?? null},
+        ${size},
         'invoice',
         'pending',
         ${notes},
-        null
+        null,
+        ${buffer}::bytea,
+        ${hash},
+        ${size}
       )
       RETURNING id
     ` as InboxRow[];
 
     const documentId = docRows[0]!.id as string;
 
-    // Insert capture_event
     const eventRows = await sql`
       INSERT INTO capture_events (
         company_id, inbox_id, channel, sender, subject,
@@ -166,13 +170,16 @@ export async function ingestPostmarkPayload(
     ` as InboxRow[];
 
     const eventId = eventRows[0]!.id as string;
-
-    if (!firstEventId) firstEventId = eventId;
+    eventIds.push(eventId);
 
     log.info('Inbound email: capture event created', {
-      companyId, inboxId, documentId, eventId, fileName,
+      companyId, inboxId, documentId, eventId, fileName, size, hash,
     }, 'inbound-email');
   }
 
-  return { captureEventId: firstEventId!, companyId };
+  return {
+    captureEventId: eventIds[0]!,
+    captureEventIds: eventIds,
+    companyId,
+  };
 }

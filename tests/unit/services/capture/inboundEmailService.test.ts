@@ -204,7 +204,11 @@ describe('ingestPostmarkPayload', () => {
 
     const result = await ingestPostmarkPayload(makePayload());
 
-    expect(result).toEqual({ captureEventId: EVENT_ID, companyId: COMPANY_ID });
+    expect(result).toEqual({
+      captureEventId: EVENT_ID,
+      captureEventIds: [EVENT_ID],
+      companyId: COMPANY_ID,
+    });
   });
 
   it('accepts an image/jpeg attachment', async () => {
@@ -244,7 +248,11 @@ describe('ingestPostmarkPayload', () => {
 
     const result = await ingestPostmarkPayload(makePayload({ Attachments: [pdfAttachment, att2] }));
 
-    expect(result).toEqual({ captureEventId: 'event-first', companyId: COMPANY_ID });
+    expect(result).toEqual({
+      captureEventId: 'event-first',
+      captureEventIds: ['event-first', 'event-second'],
+      companyId: COMPANY_ID,
+    });
   });
 
   it('skips non-invoice attachments and only processes PDF/image ones', async () => {
@@ -257,7 +265,11 @@ describe('ingestPostmarkPayload', () => {
       makePayload({ Attachments: [nonInvoiceAttachment, pdfAttachment] }),
     );
 
-    expect(result).toEqual({ captureEventId: EVENT_ID, companyId: COMPANY_ID });
+    expect(result).toEqual({
+      captureEventId: EVENT_ID,
+      captureEventIds: [EVENT_ID],
+      companyId: COMPANY_ID,
+    });
     // 1 inbox + 1 doc + 1 event (text skipped)
     expect(vi.mocked(sql)).toHaveBeenCalledTimes(3);
   });

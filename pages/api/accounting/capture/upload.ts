@@ -11,6 +11,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
+import { sha256 } from '@/lib/documentStorage';
 import { routeEvent } from '@/modules/accounting/services/capture/captureRouterService';
 
 export const config = { api: { bodyParser: false } };
@@ -106,15 +107,17 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     }
 
     const fileName = file.originalFilename || `upload_${Date.now()}.${fileTypeKey}`;
+    const hash = sha256(buffer);
 
-    // TODO: stream buffer to object storage, set raw_payload_url
     const docRows = await sql`
       INSERT INTO captured_documents (
         company_id, file_name, file_type, file_size,
-        document_type, status, uploaded_by
+        document_type, status, uploaded_by,
+        raw_bytes, raw_bytes_sha256, raw_bytes_size
       ) VALUES (
         ${companyId}, ${fileName}, ${fileTypeKey}, ${file.size},
-        'invoice', 'pending', ${userId}
+        'invoice', 'pending', ${userId},
+        ${buffer}::bytea, ${hash}, ${buffer.length}
       )
       RETURNING id
     ` as Row[];
