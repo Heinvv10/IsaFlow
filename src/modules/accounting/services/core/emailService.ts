@@ -138,11 +138,6 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
         user: config.user,
         pass: config.pass,
       },
-      tls: {
-        // mail.isaflow.co.za uses a wildcard cert for *.jnb1.host-h.net (shared hosting)
-        // so hostname validation must be disabled
-        rejectUnauthorized: false,
-      },
     });
 
     // Build inline logo attachment (CID) — embedded so recipients see it without downloading
