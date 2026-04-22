@@ -67,11 +67,22 @@ export interface ExpenseClaim {
   lines?: ExpenseClaimLine[];
 }
 
+function toISODate(v: unknown): string {
+  if (!v) return '';
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  const s = String(v);
+  // Already YYYY-MM-DD or ISO-like
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  // JS Date.toString() format — convert
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? s : d.toISOString().slice(0, 10);
+}
+
 function mapLine(row: Row): ExpenseClaimLine {
   return {
     id: row.id as string,
     claimId: row.claim_id as string,
-    lineDate: row.line_date ? String(row.line_date).split('T')[0]! : '',
+    lineDate: toISODate(row.line_date),
     description: (row.description as string) ?? null,
     merchant: (row.merchant as string) ?? null,
     amount: Number(row.amount ?? 0),
@@ -94,7 +105,7 @@ function mapClaim(row: Row): ExpenseClaim {
     companyId: row.company_id as string,
     employeeId: row.employee_id as string,
     claimNumber: row.claim_number as string,
-    claimDate: row.claim_date ? String(row.claim_date).split('T')[0]! : '',
+    claimDate: toISODate(row.claim_date),
     title: (row.title as string) ?? null,
     description: (row.description as string) ?? null,
     status: row.status as ExpenseClaim['status'],
