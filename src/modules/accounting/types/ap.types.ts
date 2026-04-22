@@ -113,7 +113,10 @@ export interface ThreeWayMatchInput {
   grnQuantityReceived: number;
   invoiceQuantity: number;
   invoiceUnitPrice: number;
+  /** @deprecated Use qtyTolerancePercent + priceTolerancePercent. Kept for backward-compat — applied to both checks when set. */
   tolerancePercent?: number;
+  qtyTolerancePercent?: number;
+  priceTolerancePercent?: number;
 }
 
 export interface ThreeWayMatchResult {

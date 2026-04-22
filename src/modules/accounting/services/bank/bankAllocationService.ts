@@ -77,6 +77,7 @@ export async function allocateTransaction(
   companyId: string, bankTxId: string, contraAccountId: string | null, userId: string,
   description?: string, allocType: AllocationType = 'account', entityId?: string,
   vatCode?: string, cc1Id?: string, cc2Id?: string, buId?: string,
+  invoiceId?: string,
 ): Promise<{ journalEntryId: string; bankTransaction: BankTransaction }> {
   const txRows = (await sql`SELECT * FROM bank_transactions WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
   if (txRows.length === 0) throw new Error(`Bank transaction ${bankTxId} not found`);
@@ -242,23 +243,32 @@ export async function allocateTransaction(
     }
   });
 
-  // 4-way match: when a supplier payment is allocated, check if the invoice is now fully paid
+  // 4-way match: prefer the explicit invoiceId (from bankMatchCandidates), fall
+  // back to the most-recent unpaid invoice for the supplier. The explicit path
+  // is correct when multiple invoices are outstanding; the fallback keeps older
+  // call sites functional without requiring them to know the invoice.
   if (allocType === 'supplier' && entityId) {
     try {
-      const unpaidRows = (await sql`
-        SELECT id FROM supplier_invoices
-        WHERE company_id = ${companyId}::UUID
-          AND supplier_id = ${entityId}::UUID
-          AND payment_matched = false
-          AND status NOT IN ('cancelled', 'paid')
-        ORDER BY created_at DESC
-        LIMIT 1
-      `) as Row[];
-      if (unpaidRows.length > 0 && unpaidRows[0]!.id) {
-        await recordPaymentMatch(companyId, String(unpaidRows[0]!.id), totalAmount);
+      let targetInvoiceId: string | null = invoiceId ?? null;
+      if (!targetInvoiceId) {
+        const unpaidRows = (await sql`
+          SELECT id FROM supplier_invoices
+          WHERE company_id = ${companyId}::UUID
+            AND supplier_id = ${entityId}::UUID
+            AND payment_matched = false
+            AND status NOT IN ('cancelled', 'paid')
+          ORDER BY created_at DESC
+          LIMIT 1
+        `) as Row[];
+        if (unpaidRows.length > 0 && unpaidRows[0]!.id) {
+          targetInvoiceId = String(unpaidRows[0]!.id);
+        }
+      }
+      if (targetInvoiceId) {
+        await recordPaymentMatch(companyId, targetInvoiceId, totalAmount);
       }
     } catch (matchErr) {
-      log.error('4-way match check failed — allocation still recorded', { bankTxId, entityId, error: matchErr }, 'accounting');
+      log.error('4-way match check failed — allocation still recorded', { bankTxId, entityId, invoiceId, error: matchErr }, 'accounting');
     }
   }
 
