@@ -182,3 +182,102 @@ describe('Pipeline Confidence Computation', () => {
     expect(c).toBe(0);
   });
 });
+
+// ── buildInvoiceFromExtraction — line item coverage (PRD-05 Phase 2) ─────────
+
+describe('Invoice Building — line items (PRD-05 Phase 2)', () => {
+  it('items.length equals extracted.lineItems.length when lineItems non-empty', () => {
+    const extracted = makeExtracted({
+      lineItems: [
+        { description: 'Widget A', quantity: 5, unitPrice: 100, total: 500, vatAmount: null, vatClassification: null, glAccountSuggestion: null },
+        { description: 'Widget B', quantity: 2, unitPrice: 250, total: 500, vatAmount: null, vatClassification: null, glAccountSuggestion: null },
+        { description: 'Delivery fee', quantity: 1, unitPrice: 50, total: 50, vatAmount: null, vatClassification: null, glAccountSuggestion: null },
+      ],
+    });
+
+    const inv = buildInvoiceFromExtraction(extracted, 'sup-001');
+
+    expect(inv.items.length).toBe(extracted.lineItems.length);
+    expect(inv.items.length).toBe(3);
+  });
+
+  it('maps each line item description, quantity, and unitPrice from extraction', () => {
+    const extracted = makeExtracted({
+      lineItems: [
+        { description: 'Laptop stand', quantity: 3, unitPrice: 499.99, total: 1499.97, vatAmount: null, vatClassification: null, glAccountSuggestion: null },
+      ],
+    });
+
+    const inv = buildInvoiceFromExtraction(extracted, 'sup-001');
+
+    expect(inv.items[0]!.description).toBe('Laptop stand');
+    expect(inv.items[0]!.quantity).toBe(3);
+    expect(inv.items[0]!.unitPrice).toBeCloseTo(499.99, 2);
+  });
+
+  it('with empty lineItems returns exactly one fallback "As per invoice" item', () => {
+    const extracted = makeExtracted({ lineItems: [] });
+
+    const inv = buildInvoiceFromExtraction(extracted, 'sup-001');
+
+    expect(inv.items).toHaveLength(1);
+    expect(inv.items[0]!.description).toBe('As per invoice');
+    expect(inv.items[0]!.quantity).toBe(1);
+  });
+
+  it('fallback item unitPrice equals subtotal when provided', () => {
+    const extracted = makeExtracted({ lineItems: [], subtotal: 8695.65 });
+
+    const inv = buildInvoiceFromExtraction(extracted, 'sup-001');
+
+    expect(inv.items[0]!.unitPrice).toBeCloseTo(8695.65, 2);
+  });
+
+  it('fallback item unitPrice falls back to totalAmount when subtotal is null', () => {
+    const extracted = makeExtracted({ lineItems: [], subtotal: null as unknown as number, totalAmount: 10000 });
+
+    const inv = buildInvoiceFromExtraction(extracted, 'sup-001');
+
+    expect(inv.items[0]!.unitPrice).toBeCloseTo(10000, 2);
+  });
+
+  it('each item carries the invoice-level taxRate', () => {
+    const extracted = makeExtracted({
+      vatRate: 15,
+      lineItems: [
+        { description: 'Item', quantity: 1, unitPrice: 100, total: 100, vatAmount: null, vatClassification: null, glAccountSuggestion: null },
+        { description: 'Item 2', quantity: 2, unitPrice: 50, total: 100, vatAmount: null, vatClassification: null, glAccountSuggestion: null },
+      ],
+    });
+
+    const inv = buildInvoiceFromExtraction(extracted, 'sup-001');
+
+    for (const item of inv.items) {
+      expect(item.taxRate).toBe(15);
+    }
+  });
+
+  it('defaults missing quantity on a line item to 1', () => {
+    const extracted = makeExtracted({
+      lineItems: [
+        { description: 'Bulk item', quantity: null as unknown as number, unitPrice: 200, total: 200, vatAmount: null, vatClassification: null, glAccountSuggestion: null },
+      ],
+    });
+
+    const inv = buildInvoiceFromExtraction(extracted, 'sup-001');
+
+    expect(inv.items[0]!.quantity).toBe(1);
+  });
+
+  it('uses line total as unitPrice when unitPrice is null on a line item', () => {
+    const extracted = makeExtracted({
+      lineItems: [
+        { description: 'Lump sum', quantity: 1, unitPrice: null as unknown as number, total: 750, vatAmount: null, vatClassification: null, glAccountSuggestion: null },
+      ],
+    });
+
+    const inv = buildInvoiceFromExtraction(extracted, 'sup-001');
+
+    expect(inv.items[0]!.unitPrice).toBeCloseTo(750, 2);
+  });
+});
