@@ -8,7 +8,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
-import { ArrowLeft, Loader2, AlertCircle, Check, X, Info } from 'lucide-react';
+import { ArrowLeft, Loader2, AlertCircle, Check, X } from 'lucide-react';
 
 interface Supplier { id: string; name: string; company_name: string | null }
 interface GlAccount { id: string; account_code: string; account_name: string }
@@ -26,6 +26,8 @@ interface SupplierRule {
   autoPublishMaxAmount: number | null;
   autoPublishMinConfidence: number;
   requirePoMatch: boolean;
+  qtyTolerancePct: number;
+  priceTolerancePct: number;
   learnedSampleCount: number;
   learnedFromLastCorrectionAt: string | null;
   updatedBy: string | null;
@@ -63,6 +65,9 @@ export default function SupplierRulesPage() {
   const [autoPublish, setAutoPublish]         = useState(false);
   const [maxAmount, setMaxAmount]             = useState('');
   const [minConfidence, setMinConfidence]     = useState(95);
+  const [requirePoMatch, setRequirePoMatch]   = useState(false);
+  const [qtyTolerance, setQtyTolerance]       = useState('2.00');
+  const [priceTolerance, setPriceTolerance]   = useState('2.00');
   const [glSearch, setGlSearch]               = useState('');
   const [isDirty, setIsDirty]                 = useState(false);
 
@@ -99,6 +104,9 @@ export default function SupplierRulesPage() {
           setAutoPublish(r.autoPublish);
           setMaxAmount(r.autoPublishMaxAmount != null ? String(r.autoPublishMaxAmount) : '');
           setMinConfidence(Math.round(r.autoPublishMinConfidence * 100));
+          setRequirePoMatch(r.requirePoMatch);
+          setQtyTolerance(String(r.qtyTolerancePct ?? 2));
+          setPriceTolerance(String(r.priceTolerancePct ?? 2));
         }
       }
 
@@ -133,7 +141,9 @@ export default function SupplierRulesPage() {
         autoPublish,
         autoPublishMaxAmount: maxAmount ? parseFloat(maxAmount) : null,
         autoPublishMinConfidence: minConfidence / 100,
-        requirePoMatch: rule?.requirePoMatch ?? false,
+        requirePoMatch,
+        qtyTolerancePct: parseFloat(qtyTolerance) || 2,
+        priceTolerancePct: parseFloat(priceTolerance) || 2,
       };
       const isNew = !rule;
       const res = await apiFetch(
@@ -306,12 +316,41 @@ export default function SupplierRulesPage() {
               </div>
             </div>
 
-            <label className="flex items-center gap-3 cursor-not-allowed opacity-50" title="Enabled in Phase 4">
-              <input type="checkbox" disabled className="w-4 h-4" />
-              <span className="text-sm text-[var(--ff-text-secondary)]">Require PO match</span>
-              <Info className="h-3.5 w-3.5 text-slate-500" />
-              <span className="text-xs text-slate-500">Enabled in Phase 4</span>
-            </label>
+            <div className="border-t border-[var(--ff-border-light)] pt-4 space-y-4">
+              <h3 className="text-sm font-semibold text-[var(--ff-text-primary)]">PO Match Tolerances</h3>
+
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input type="checkbox" checked={requirePoMatch}
+                  onChange={e => { setRequirePoMatch(e.target.checked); markDirty(); }}
+                  className="w-4 h-4 accent-blue-500" />
+                <span className="text-sm text-[var(--ff-text-primary)]">Require PO match before auto-publish</span>
+              </label>
+
+              <div className={`grid grid-cols-2 gap-4 ${!requirePoMatch ? 'opacity-40 pointer-events-none' : ''}`}>
+                <div>
+                  <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">
+                    Qty tolerance (%)
+                  </label>
+                  <input
+                    type="number" min="0" max="50" step="0.25"
+                    value={qtyTolerance}
+                    onChange={e => { setQtyTolerance(e.target.value); markDirty(); }}
+                    className="w-full px-3 py-2 rounded bg-white/5 border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-[var(--ff-text-secondary)] mb-1">
+                    Price tolerance (%)
+                  </label>
+                  <input
+                    type="number" min="0" max="50" step="0.25"
+                    value={priceTolerance}
+                    onChange={e => { setPriceTolerance(e.target.value); markDirty(); }}
+                    className="w-full px-3 py-2 rounded bg-white/5 border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+            </div>
           </section>
 
           {/* Learning stats */}

@@ -36,6 +36,7 @@ interface SupplierRule {
   autoPublish: boolean;
   autoPublishMaxAmount: number | null;
   autoPublishMinConfidence: number;
+  requirePoMatch: boolean;
 }
 
 type GateStatus = 'auto' | 'review' | 'duplicate' | 'no_rule' | 'not_ready';
@@ -130,6 +131,7 @@ function useGateInfo(event: CaptureEventRow): GateInfo {
   if (!supplierId) return { status: 'no_rule' };
   if (rule === undefined) return { status: 'not_ready' }; // loading
   if (!rule) return { status: 'no_rule' };
+  if (rule.requirePoMatch) return { status: 'review', reason: 'Requires PO match — post to review' };
   if (!rule.autoPublish) return { status: 'review', reason: 'Auto-publish disabled' };
 
   const confidence = typeof event.extracted_data?.confidence === 'number'
