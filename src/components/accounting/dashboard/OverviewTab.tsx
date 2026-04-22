@@ -8,7 +8,7 @@ import dynamic from 'next/dynamic';
 import {
   Plus, BarChart3, Landmark, FileText, CreditCard, TrendingUp,
   BookOpen, FileSpreadsheet, Calculator, Calendar, Loader2, ArrowRight, DollarSign,
-  ArrowDown,
+  ArrowDown, Clock,
 } from 'lucide-react';
 import { Users, Upload } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
@@ -65,6 +65,7 @@ function fmtCompact(n: number): string {
 export function OverviewTab() {
   const [data, setData] = useState<KPIData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [provisionalCount, setProvisionalCount] = useState<number | null>(null);
   const [quickActions, setQuickActions] = useState<PageMeta[]>(
     DEFAULT_QUICK_ACTIONS.map(p => PAGE_REGISTRY[p]).filter((p): p is PageMeta => !!p)
   );
@@ -72,7 +73,10 @@ export function OverviewTab() {
   useEffect(() => {
     loadKPIData();
     loadQuickActions();
-   
+    apiFetch('/api/accounting/provisional/outstanding')
+      .then(r => r.json())
+      .then((json: { data?: unknown[] }) => setProvisionalCount((json.data ?? []).length))
+      .catch(() => { /* non-critical */ });
   }, []);
 
   const loadKPIData = async () => {
@@ -144,6 +148,21 @@ export function OverviewTab() {
           );
         })}
       </div>
+
+      {/* Provisional entries alert card */}
+      {provisionalCount !== null && provisionalCount > 0 && (
+        <Link href="/accounting/bank/provisional"
+          className="flex items-center gap-4 p-4 bg-amber-900/20 border border-amber-500/30 rounded-lg hover:border-amber-500/60 hover:shadow-md transition-all no-underline group">
+          <div className="p-2 rounded-lg bg-amber-500/10 shrink-0">
+            <Clock className="h-5 w-5 text-amber-400" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-amber-300">Provisional entries awaiting evidence: {provisionalCount}</p>
+            <p className="text-xs text-amber-400/70">Bank-first AI posts without slips — attach documents to confirm</p>
+          </div>
+          <ArrowRight className="h-4 w-4 text-amber-400/60 group-hover:text-amber-400 transition-colors shrink-0" />
+        </Link>
+      )}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
