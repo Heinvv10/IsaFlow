@@ -47,6 +47,13 @@ export const purchasesTab: Tab = {
       ],
     },
     {
+      section: 'Expenses',
+      items: [
+        { label: 'Expense Claims', href: '/accounting/expenses' },
+        { label: 'New Claim', href: '/accounting/expenses/new' },
+      ],
+    },
+    {
       section: 'Special',
       items: [
         { label: 'Opening Balances', href: '/accounting/opening-balances' },
