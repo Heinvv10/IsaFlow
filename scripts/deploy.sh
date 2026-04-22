@@ -42,7 +42,26 @@ $BUN install
 echo "Building production bundle..."
 NODE_ENV=production $BUN run build
 
-# 2. Deploy standalone output (includes all deps, no npm install needed)
+# 2. Run database migrations against production DB
+# Migrations run BEFORE rsync so that a failing migration leaves both the
+# on-disk standalone and the running service untouched (consistent rollback
+# state). Once the script aborts here, /home/velo/isaflow/ still matches the
+# previously-deployed code and DB schema. .env.local is owned by velo:velo
+# (0600) so we read it with sudo.
+echo "Running database migrations..."
+PROD_ENV="$DEPLOY_DIR/.env.local"
+if sudo test -f "$PROD_ENV"; then
+  PROD_DB=$(sudo grep "^DATABASE_URL=" "$PROD_ENV" | cut -d= -f2-)
+  if [ -n "$PROD_DB" ]; then
+    DATABASE_URL="$PROD_DB" $BUN "$REPO_DIR/scripts/apply-migrations.ts"
+  else
+    echo "WARNING: DATABASE_URL not found in $PROD_ENV — skipping migrations"
+  fi
+else
+  echo "WARNING: $PROD_ENV not found — skipping migrations"
+fi
+
+# 3. Deploy standalone output (includes all deps, no npm install needed)
 echo "Syncing standalone build..."
 sudo -u velo bash -c "mkdir -p $DEPLOY_DIR"
 
@@ -65,6 +84,17 @@ sudo rsync -a --delete \
 sudo rsync -a --delete \
   "$REPO_DIR/public/" "$DEPLOY_DIR/public/"
 
+# Sharp belt-and-braces: outputFileTracingIncludes in next.config.js should
+# already pull sharp into .next/standalone/node_modules, but the trace has
+# historically missed native binaries. Copy the resolved tree directly so
+# image optimization never logs "sharp-missing in production" again.
+if [ -d "$REPO_DIR/node_modules/sharp" ]; then
+  sudo rsync -a "$REPO_DIR/node_modules/sharp/" "$DEPLOY_DIR/node_modules/sharp/"
+fi
+if [ -d "$REPO_DIR/node_modules/@img" ]; then
+  sudo rsync -a "$REPO_DIR/node_modules/@img/" "$DEPLOY_DIR/node_modules/@img/"
+fi
+
 # Inject BUILD_ID into sw.js so stale caches are evicted on every deploy
 BUILD_ID=$(cat "$REPO_DIR/.next/BUILD_ID")
 sudo sed -i "s/__BUILD_ID__/$BUILD_ID/g" "$DEPLOY_DIR/public/sw.js"
@@ -72,19 +102,19 @@ sudo sed -i "s/__BUILD_ID__/$BUILD_ID/g" "$DEPLOY_DIR/public/sw.js"
 # Fix ownership
 sudo chown -R velo:velo "$DEPLOY_DIR"
 
-# 3. Copy env file if not exists
+# 4. Copy env file if not exists
 if [ ! -f "$DEPLOY_DIR/.env.local" ]; then
   echo "Creating .env.local..."
   sudo -u velo cp "$REPO_DIR/.env.local" "$DEPLOY_DIR/.env.local"
 fi
 
-# 4. Install/update systemd service
+# 5. Install/update systemd service
 echo "Updating systemd service..."
 sudo cp "$REPO_DIR/scripts/${SERVICE_NAME}.service" /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable $SERVICE_NAME
 
-# 5. Install nginx config if not exists
+# 6. Install nginx config if not exists
 if [ ! -f /etc/nginx/sites-available/app-isaflow ]; then
   echo "Installing nginx config..."
   sudo cp "$REPO_DIR/scripts/nginx-app-isaflow" /etc/nginx/sites-available/app-isaflow
@@ -92,26 +122,11 @@ if [ ! -f /etc/nginx/sites-available/app-isaflow ]; then
   sudo nginx -t && sudo systemctl reload nginx
 fi
 
-# 6. Run database migrations against production DB
-# .env.local is owned by velo:velo (0600) so we read it with sudo.
-echo "Running database migrations..."
-PROD_ENV="$DEPLOY_DIR/.env.local"
-if sudo test -f "$PROD_ENV"; then
-  PROD_DB=$(sudo grep "^DATABASE_URL=" "$PROD_ENV" | cut -d= -f2-)
-  if [ -n "$PROD_DB" ]; then
-    DATABASE_URL="$PROD_DB" $BUN "$REPO_DIR/scripts/apply-migrations.ts"
-  else
-    echo "WARNING: DATABASE_URL not found in $PROD_ENV — skipping migrations"
-  fi
-else
-  echo "WARNING: $PROD_ENV not found — skipping migrations"
-fi
-
 # 7. Restart service
 echo "Restarting service..."
 sudo systemctl restart $SERVICE_NAME
 
-# 7. Check status
+# 7b. Check status
 sleep 2
 sudo systemctl status $SERVICE_NAME --no-pager | head -15
 

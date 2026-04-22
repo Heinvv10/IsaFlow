@@ -47,6 +47,6 @@ BEGIN
 
   ALTER TABLE bank_transactions
     ADD CONSTRAINT bank_transactions_status_check
-    CHECK (status IN ('imported', 'provisional', 'matched', 'reconciled', 'excluded'));
+    CHECK (status IN ('imported', 'provisional', 'allocated', 'matched', 'reconciled', 'excluded'));
 END
 $$;
