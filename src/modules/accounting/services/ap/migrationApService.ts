@@ -10,6 +10,7 @@ import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService'
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { updateSession, type ImportResult, type MigrationError } from '../core/migrationService';
 import { matchContact } from '../core/migrationImportService';
+import { computeFingerprint } from '../capture/duplicateDetectionService';
 type Row = DbRow;
 
 
@@ -42,7 +43,7 @@ export async function importAPInvoices(
   const vatInputId       = await getSystemAccountId('vat_input', companyId);
 
   const supRows = (await sql`
-    SELECT id, COALESCE(company_name, name) AS name FROM suppliers
+    SELECT id, COALESCE(company_name, name) AS name, vat_number FROM suppliers
     WHERE company_id = ${companyId}::UUID
   `) as Row[];
 
@@ -59,17 +60,26 @@ export async function importAPInvoices(
       const balance = inv.totalAmount - (inv.amountPaid ?? 0);
       const status  = balance <= 0 ? 'paid' : inv.amountPaid > 0 ? 'partially_paid' : 'approved';
 
+      const matchedSupplier = supRows.find(s => String(s.id) === supplierId);
+      const migFingerprint = computeFingerprint(
+        matchedSupplier?.vat_number ?? null,
+        inv.invoiceNumber,
+        inv.totalAmount,
+      );
+
       const invRows = (await sql`
         INSERT INTO supplier_invoices (
           company_id, supplier_id, invoice_number, invoice_date, due_date,
           subtotal, tax_amount, total_amount, amount_paid, balance_due,
-          status, reference, created_by
+          status, reference, created_by,
+          duplicate_fingerprint
         ) VALUES (
           ${companyId}::UUID, ${supplierId}::UUID, ${inv.invoiceNumber},
           ${inv.invoiceDate}::DATE, ${inv.dueDate}::DATE,
           ${inv.subtotal}, ${inv.taxAmount}, ${inv.totalAmount},
           ${inv.amountPaid ?? 0}, ${balance}, ${status},
-          ${inv.reference ?? null}, ${userId}::UUID
+          ${inv.reference ?? null}, ${userId}::UUID,
+          ${migFingerprint}
         )
         ON CONFLICT DO NOTHING
         RETURNING id

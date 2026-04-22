@@ -6,6 +6,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
+import { computeFingerprint } from '../capture/duplicateDetectionService';
 
 
 export interface RecurringTemplate {
@@ -198,23 +199,39 @@ export async function executeRecurring(
     const slugSI = template.name.replace(/[^A-Za-z0-9]/g, '-').toUpperCase().slice(0, 20);
     const periodSI = new Date().toISOString().slice(0, 7).replace('-', '');
     const invoiceNumberSI = `RSINV-${slugSI}-${periodSI}`;
+    const recSupplierId = String(data.supplierId || '');
+    const recTotal = Number(data.totalAmount || 0);
+
+    // Fetch supplier vat_number for fingerprint
+    let recVatNumber: string | null = null;
+    if (recSupplierId) {
+      const [recSupRow] = (await sql`
+        SELECT vat_number FROM suppliers
+        WHERE id = ${recSupplierId}::UUID AND company_id = ${companyId}::UUID
+      `) as DbRow[];
+      recVatNumber = recSupRow?.vat_number ?? null;
+    }
+    const recFingerprint = computeFingerprint(recVatNumber, invoiceNumberSI, recTotal);
+
     const siRows = (await sql`
       INSERT INTO supplier_invoices (
         company_id, invoice_number, supplier_id, invoice_date, due_date,
-        reference, notes, subtotal, tax_amount, total_amount, status, created_by
+        reference, notes, subtotal, tax_amount, total_amount, status, created_by,
+        duplicate_fingerprint
       ) VALUES (
         ${companyId}::UUID,
         ${invoiceNumberSI},
-        ${String(data.supplierId || '')},
+        ${recSupplierId},
         CURRENT_DATE,
         CURRENT_DATE::DATE + INTERVAL '30 days',
         ${String(data.reference || 'AUTO-REC')},
         ${String(data.notes || data.description || template.name)},
         ${Number(data.subtotal || 0)},
         ${Number(data.vatAmount || 0)},
-        ${Number(data.totalAmount || 0)},
+        ${recTotal},
         'draft',
-        ${userId}::UUID
+        ${userId}::UUID,
+        ${recFingerprint}
       ) RETURNING id
     `) as DbRow[];
     entityId = String(siRows[0]?.id);

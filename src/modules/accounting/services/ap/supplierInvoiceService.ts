@@ -14,6 +14,7 @@ import type {
   InvoiceMatchStatus,
 } from '../../types/ap.types';
 import type { VatType } from '../../types/gl.types';
+import { computeFingerprint } from '../capture/duplicateDetectionService';
 type Row = DbRow;
 
 
@@ -195,6 +196,14 @@ export async function createSupplierInvoice(companyId: string,
       ? input.exchangeRate : 1.0;
     const functionalTotal = Math.round(totalAmount * exchangeRate * 100) / 100;
 
+    // Fetch supplier VAT number for duplicate fingerprint
+    const [supplierVatRow] = (await sql`
+      SELECT vat_number FROM suppliers
+      WHERE id = ${input.supplierId}::UUID AND company_id = ${companyId}::UUID
+    `) as Row[];
+    const supplierVatNumber: string | null = supplierVatRow?.vat_number ?? null;
+    const fingerprint = computeFingerprint(supplierVatNumber, input.invoiceNumber, totalAmount);
+
     const invoiceRow = await withTransaction(async (tx) => {
       const rows = (await tx`
         INSERT INTO supplier_invoices (
@@ -202,7 +211,8 @@ export async function createSupplierInvoice(companyId: string,
           invoice_date, due_date, subtotal, tax_rate, tax_amount,
           total_amount, payment_terms, reference, project_id,
           cost_center_id, notes, created_by,
-          currency_code, exchange_rate, functional_total
+          currency_code, exchange_rate, functional_total,
+          duplicate_fingerprint
         ) VALUES (
           ${companyId}::UUID, ${input.invoiceNumber}, ${input.supplierId},
           ${input.purchaseOrderId || null}, ${input.grnId || null},
@@ -211,7 +221,8 @@ export async function createSupplierInvoice(companyId: string,
           ${input.paymentTerms || null}, ${input.reference || null},
           ${input.projectId || null}, ${input.costCenterId || null},
           ${input.notes || null}, ${userId}::UUID,
-          ${currencyCode}, ${exchangeRate}, ${functionalTotal}
+          ${currencyCode}, ${exchangeRate}, ${functionalTotal},
+          ${fingerprint}
         ) RETURNING *
       `) as Row[];
 
