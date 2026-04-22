@@ -24,6 +24,7 @@ import {
   findDuplicate,
 } from '@/modules/accounting/services/capture/duplicateDetectionService';
 import { recordCoding } from '@/modules/accounting/services/capture/supplierRulesService';
+import { performThreeWayMatch } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -181,10 +182,19 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     postedBy: 'ai:ai-invoice-pipeline:v1',
   });
 
+  // Run 3-way match if the invoice has a linked PO; non-blocking on error
+  let threeWayMatch: Awaited<ReturnType<typeof performThreeWayMatch>> | null = null;
+  try {
+    threeWayMatch = await performThreeWayMatch(companyId, invoice.id as string);
+  } catch (matchErr) {
+    log.error('3-way match failed post-pipeline — continuing', { invoiceId: invoice.id, error: matchErr }, 'ai-pipeline');
+  }
+
   log.info('AI Invoice Pipeline completed', {
     documentId, invoiceId: invoice.id, supplierMatch: supplierMatch.supplierName,
     confidence: pipelineConfidence, route: approvalRoute,
     itemCount: invoiceInput.items.length,
+    matchStatus: threeWayMatch?.matchStatus ?? 'skipped',
   }, 'ai-pipeline');
 
   return apiResponse.success(res, {
@@ -193,6 +203,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     pipelineConfidence,
     approvalRoute,
     warnings: validation.warnings,
+    threeWayMatch,
   });
 }
 

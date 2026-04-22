@@ -21,6 +21,7 @@ import {
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { decide } from '@/modules/accounting/services/capture/autoPublishGateService';
 import { recordCoding } from '@/modules/accounting/services/capture/supplierRulesService';
+import { performThreeWayMatch } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 
 type Row = Record<string, unknown>;
 
@@ -186,6 +187,14 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     gateOutcome: gateDecision.outcome,
   }, 'capture-post');
 
+  // Run 3-way match if the invoice has a linked PO; non-blocking on error
+  let threeWayMatch: Awaited<ReturnType<typeof performThreeWayMatch>> | null = null;
+  try {
+    threeWayMatch = await performThreeWayMatch(companyId, invoice.id as string);
+  } catch (matchErr) {
+    log.error('3-way match failed post-capture-post — continuing', { invoiceId: invoice.id, error: matchErr }, 'capture-post');
+  }
+
   if (publishedDecision.outcome === 'route_review') {
     return apiResponse.success(res, {
       invoice: { id: invoice.id, invoiceNumber: invoice.invoice_number, status: invoice.status },
@@ -195,6 +204,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       warnings: validation.warnings,
       reason: 'routed for review',
       reasons: publishedDecision.reasons,
+      threeWayMatch,
     });
   }
 
@@ -206,6 +216,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     warnings: validation.warnings,
     gateOutcome: publishedDecision.outcome,
     gateReason: publishedDecision.reason,
+    threeWayMatch,
   });
 }
 

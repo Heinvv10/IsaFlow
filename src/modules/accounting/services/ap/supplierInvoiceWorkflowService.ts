@@ -111,52 +111,124 @@ export async function cancelSupplierInvoice(
   }
 }
 
-export async function performThreeWayMatch(companyId: string, invoiceId: string) {
-  try {
-    const invoice = await getSupplierInvoiceById(companyId, invoiceId);
-    if (!invoice) throw new Error(`Invoice ${invoiceId} not found`);
-    if (!invoice.purchaseOrderId) throw new Error('Invoice has no linked PO');
+const DEFAULT_TOLERANCE_PERCENT = 2;
 
-    const poItems = (await sql`
-      SELECT * FROM po_items WHERE purchase_order_id = ${invoice.purchaseOrderId}
-    `) as Row[];
+export interface ThreeWayMatchItemResult {
+  itemId: string;
+  itemDescription: string;
+  lineMatchStatus: 'unmatched' | 'po_matched' | 'grn_matched' | 'fully_matched';
+  qtyVariancePct: number;
+  priceVariancePct: number;
+  match: ReturnType<typeof validateThreeWayMatch>;
+}
 
-    const grnItems = invoice.grnId
-      ? ((await sql`SELECT * FROM grn_items WHERE grn_id = ${invoice.grnId}`) as Row[])
-      : [];
+export async function performThreeWayMatch(
+  companyId: string,
+  invoiceId: string,
+): Promise<{
+  invoiceId: string;
+  matchStatus: 'unmatched' | 'po_matched' | 'grn_matched' | 'fully_matched';
+  itemResults: ThreeWayMatchItemResult[];
+}> {
+  const invoice = await getSupplierInvoiceById(companyId, invoiceId);
+  if (!invoice) throw new Error(`Invoice ${invoiceId} not found`);
 
-    const results = invoice.items.map(item => {
-      const poItem = item.poItemId ? poItems.find((p: Row) => String(p.id) === item.poItemId) : null;
-      const grnItem = poItem ? grnItems.find((g: Row) => String(g.po_item_id) === String(poItem.id)) : null;
+  if (!invoice.purchaseOrderId) {
+    log.info('performThreeWayMatch: invoice has no linked PO — returning unmatched', { invoiceId }, 'accounting');
+    return { invoiceId, matchStatus: 'unmatched', itemResults: [] };
+  }
 
-      return {
-        itemDescription: item.description,
-        match: validateThreeWayMatch({
-          poQuantity: poItem ? Number(poItem.quantity_ordered) : 0,
-          poUnitPrice: poItem ? Number(poItem.unit_price) : 0,
-          grnQuantityReceived: grnItem ? Number(grnItem.quantity_received) : 0,
-          invoiceQuantity: item.quantity,
-          invoiceUnitPrice: item.unitPrice,
-        }),
-      };
+  // Load tolerance from supplier_coding_rules; fall back to 2%
+  const ruleRows = (await sql`
+    SELECT qty_tolerance_pct, price_tolerance_pct
+    FROM supplier_coding_rules
+    WHERE company_id = ${companyId}::UUID AND supplier_id = ${invoice.supplierId}::UUID
+    LIMIT 1
+  `) as Row[];
+  const qtyTolerance = ruleRows.length > 0 && ruleRows[0]!.qty_tolerance_pct != null
+    ? Number(ruleRows[0]!.qty_tolerance_pct) : DEFAULT_TOLERANCE_PERCENT;
+  const priceTolerance = ruleRows.length > 0 && ruleRows[0]!.price_tolerance_pct != null
+    ? Number(ruleRows[0]!.price_tolerance_pct) : DEFAULT_TOLERANCE_PERCENT;
+
+  const poItems = (await sql`
+    SELECT * FROM po_items
+    WHERE purchase_order_id = ${invoice.purchaseOrderId}::UUID AND company_id = ${companyId}::UUID
+  `) as Row[];
+
+  const grnItems = invoice.grnId
+    ? ((await sql`
+        SELECT * FROM grn_items
+        WHERE grn_id = ${invoice.grnId}::UUID AND company_id = ${companyId}::UUID
+      `) as Row[])
+    : [];
+
+  const itemResults: ThreeWayMatchItemResult[] = [];
+
+  for (const item of (invoice.items ?? [])) {
+    const poItem = item.poItemId ? poItems.find((p: Row) => String(p.id) === item.poItemId) : null;
+    const grnItem = poItem
+      ? grnItems.find((g: Row) => String(g.po_item_id) === String(poItem.id))
+      : null;
+
+    const poQty = poItem ? Number(poItem.quantity) : 0;
+    const poPrice = poItem ? Number(poItem.unit_price) : 0;
+    const grnQtyReceived = grnItem ? Number(grnItem.quantity_received) : 0;
+
+    const qtyVariancePct = (item.quantity - poQty) / Math.max(poQty, 1) * 100;
+    const priceVariancePct = (item.unitPrice - poPrice) / Math.max(poPrice, 1) * 100;
+
+    const match = validateThreeWayMatch({
+      poQuantity: poQty,
+      poUnitPrice: poPrice,
+      grnQuantityReceived: grnQtyReceived,
+      invoiceQuantity: item.quantity,
+      invoiceUnitPrice: item.unitPrice,
+      tolerancePercent: Math.min(qtyTolerance, priceTolerance),
     });
 
-    const overallStatus = results.every(r => r.match.status === 'fully_matched')
-      ? 'fully_matched'
-      : results.some(r => r.match.status === 'po_matched') ? 'po_matched'
-      : results.some(r => r.match.status === 'grn_matched') ? 'grn_matched'
-      : 'unmatched';
+    const lineMatchStatus = match.status;
 
-    await sql`
-      UPDATE supplier_invoices SET match_status = ${overallStatus}
-      WHERE id = ${invoiceId} AND company_id = ${companyId}::UUID
-    `;
+    // Persist per-line match state — log failures but keep processing other lines
+    try {
+      await sql`
+        UPDATE supplier_invoice_items
+        SET line_match_status = ${lineMatchStatus},
+            qty_variance_pct   = ${qtyVariancePct},
+            price_variance_pct = ${priceVariancePct},
+            match_computed_at  = NOW()
+        WHERE id = ${item.id}::UUID AND company_id = ${companyId}::UUID
+      `;
+    } catch (updateErr) {
+      log.error('Failed to persist line match status', { itemId: item.id, error: updateErr }, 'accounting');
+    }
 
-    return { invoiceId, matchStatus: overallStatus, itemResults: results };
-  } catch (err) {
-    log.error('Failed to perform 3-way match', { invoiceId, error: err }, 'accounting');
-    throw err;
+    itemResults.push({
+      itemId: item.id,
+      itemDescription: item.description,
+      lineMatchStatus,
+      qtyVariancePct,
+      priceVariancePct,
+      match,
+    });
   }
+
+  const overallStatus = itemResults.length === 0
+    ? 'unmatched'
+    : itemResults.every(r => r.lineMatchStatus === 'fully_matched')
+      ? 'fully_matched'
+      : itemResults.some(r => r.lineMatchStatus === 'po_matched')
+        ? 'po_matched'
+        : itemResults.some(r => r.lineMatchStatus === 'grn_matched')
+          ? 'grn_matched'
+          : 'unmatched';
+
+  await sql`
+    UPDATE supplier_invoices SET match_status = ${overallStatus}
+    WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
+  `;
+
+  log.info('3-way match completed', { invoiceId, matchStatus: overallStatus, lineCount: itemResults.length }, 'accounting');
+  return { invoiceId, matchStatus: overallStatus, itemResults };
 }
 
 // ── Private mapper (duplicated from supplierInvoiceService to avoid circular import) ──
