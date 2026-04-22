@@ -75,10 +75,18 @@ export default function CaptureInboxPage() {
     setPosting(true);
     try {
       const res = await apiFetch(`/api/accounting/capture/${id}/post`, { method: 'POST', body: '{}' });
-      const json = await res.json() as { data?: { invoice_number?: string; invoiceNumber?: string }; error?: string };
-      if (!res.ok) { showToast(json.error ?? 'Post failed', false); return; }
-      const inv = json.data?.invoice_number ?? json.data?.invoiceNumber ?? '';
-      showToast(inv ? `Invoice ${inv} created` : 'Posted successfully', true);
+      const json = await res.json() as {
+        data?: { invoice?: { invoiceNumber?: string }; reason?: string };
+        error?: { message?: string } | string;
+      };
+      if (!res.ok) {
+        const msg = typeof json.error === 'string' ? json.error : json.error?.message ?? 'Post failed';
+        showToast(msg, false); return;
+      }
+      const inv = json.data?.invoice?.invoiceNumber ?? '';
+      const reason = json.data?.reason;
+      const note = inv ? `Invoice ${inv} created` : (reason ? `Routed to review: ${reason}` : 'Posted successfully');
+      showToast(note, true);
       setSelected(null);
       void loadEvents();
     } catch { showToast('Network error', false); }
@@ -90,8 +98,11 @@ export default function CaptureInboxPage() {
     try {
       const body = reason ? JSON.stringify({ reason }) : '{}';
       const res = await apiFetch(`/api/accounting/capture/${id}/discard`, { method: 'POST', body });
-      const json = await res.json() as { error?: string };
-      if (!res.ok) { showToast(json.error ?? 'Discard failed', false); return; }
+      const json = await res.json() as { error?: { message?: string } | string };
+      if (!res.ok) {
+        const msg = typeof json.error === 'string' ? json.error : json.error?.message ?? 'Discard failed';
+        showToast(msg, false); return;
+      }
       showToast('Discarded', true);
       setSelected(null);
       void loadEvents();
