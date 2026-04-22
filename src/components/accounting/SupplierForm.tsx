@@ -9,6 +9,7 @@ export interface SupplierFormData {
   name: string;
   company_name: string;
   email: string;
+  whatsapp_number: string;
   phone: string;
   vat_number: string;
   registration_number: string;
@@ -31,6 +32,7 @@ export const INITIAL_SUPPLIER_FORM: SupplierFormData = {
   name: '',
   company_name: '',
   email: '',
+  whatsapp_number: '',
   phone: '',
   vat_number: '',
   registration_number: '',
@@ -146,6 +148,16 @@ export function SupplierForm({ form, onChange, fieldErrors = {} }: Props) {
               value={form.email}
               onChange={(e) => set('email', e.target.value)}
               placeholder="accounts@supplier.com"
+              className={inputClass}
+            />
+          </Field>
+          <Field label="WhatsApp number (for chase)" hint="Used to send invoice chase messages via WhatsApp">
+            <input
+              type="tel"
+              inputMode="tel"
+              value={form.whatsapp_number}
+              onChange={(e) => set('whatsapp_number', e.target.value)}
+              placeholder="+27821234567"
               className={inputClass}
             />
           </Field>
@@ -267,47 +279,24 @@ export function SupplierForm({ form, onChange, fieldErrors = {} }: Props) {
       {/* Bank Details */}
       <Card>
         <SectionTitle>Bank Details</SectionTitle>
-        <p className="text-xs text-[var(--ff-text-tertiary)] -mt-2 mb-4">
-          Required for EFT payments and batch payment runs
-        </p>
+        <p className="text-xs text-[var(--ff-text-tertiary)] -mt-2 mb-4">Required for EFT payments and batch payment runs</p>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Bank Name">
-            <input
-              type="text"
-              value={form.bank_name}
-              onChange={(e) => set('bank_name', e.target.value)}
-              placeholder="e.g. First National Bank"
-              className={inputClass}
-            />
+            <input type="text" value={form.bank_name} onChange={(e) => set('bank_name', e.target.value)}
+              placeholder="e.g. First National Bank" className={inputClass} />
           </Field>
           <Field label="Account Type">
-            <select
-              value={form.bank_account_type}
-              onChange={(e) => set('bank_account_type', e.target.value)}
-              className={selectClass}
-            >
-              {ACCOUNT_TYPES.map((t) => (
-                <option key={t.value} value={t.value}>{t.label}</option>
-              ))}
+            <select value={form.bank_account_type} onChange={(e) => set('bank_account_type', e.target.value)} className={selectClass}>
+              {ACCOUNT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
             </select>
           </Field>
           <Field label="Account Number">
-            <input
-              type="text"
-              value={form.bank_account_number}
-              onChange={(e) => set('bank_account_number', e.target.value)}
-              placeholder="62012345678"
-              className={inputClass}
-            />
+            <input type="text" value={form.bank_account_number} onChange={(e) => set('bank_account_number', e.target.value)}
+              placeholder="62012345678" className={inputClass} />
           </Field>
           <Field label="Branch Code">
-            <input
-              type="text"
-              value={form.bank_branch_code}
-              onChange={(e) => set('bank_branch_code', e.target.value)}
-              placeholder="250655"
-              className={inputClass}
-            />
+            <input type="text" value={form.bank_branch_code} onChange={(e) => set('bank_branch_code', e.target.value)}
+              placeholder="250655" className={inputClass} />
           </Field>
         </div>
       </Card>
