@@ -1,22 +1,24 @@
 // RED phase — written before implementation
 /**
- * Unit tests for missingInvoiceChaseService.ts — PRD-05 Phase 6
+ * Unit tests for missingInvoiceChaseService.ts — PRD-05 Phase 6 + Phase 8
  *
  * Covers: composeChaseEmail (pure function — subject/html/text content),
  * detectGaps (gap detection, fulfilled window skip, idempotency),
  * sendEmailChase (no-email guard, happy path), dismissAlert.
+ * Phase 8: sendWhatsAppChase, composeChaseWhatsApp.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ── Hoisted mocks ─────────────────────────────────────────────────────────────
 
-const { sqlMock, sendEmailMock } = vi.hoisted(() => {
+const { sqlMock, sendEmailMock, sendWhatsAppMock } = vi.hoisted(() => {
   const sqlMock = Object.assign(vi.fn(), {
     unsafe: vi.fn().mockReturnValue(''),
   });
   const sendEmailMock = vi.fn().mockResolvedValue({ success: true, messageId: 'msg-001' });
-  return { sqlMock, sendEmailMock };
+  const sendWhatsAppMock = vi.fn().mockResolvedValue({ sent: true });
+  return { sqlMock, sendEmailMock, sendWhatsAppMock };
 });
 
 vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
@@ -26,12 +28,17 @@ vi.mock('@/lib/logger', () => ({
 vi.mock('@/modules/accounting/services/core/emailService', () => ({
   sendEmail: sendEmailMock,
 }));
+vi.mock('@/modules/accounting/services/capture/whatsAppReplyService', () => ({
+  sendWhatsAppMessage: sendWhatsAppMock,
+}));
 
 import {
   composeChaseEmail,
   detectGaps,
   sendEmailChase,
   dismissAlert,
+  sendWhatsAppChase,
+  composeChaseWhatsApp,
 } from '@/modules/accounting/services/capture/missingInvoiceChaseService';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -288,5 +295,116 @@ describe('dismissAlert', () => {
     await dismissAlert(COMPANY_ID, ALERT_ID, 'already processed', USER_ID);
 
     expect(vi.mocked(sqlMock)).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── sendWhatsAppChase — Phase 8 ───────────────────────────────────────────────
+
+describe('sendWhatsAppChase', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sendWhatsAppMock.mockResolvedValue({ sent: true });
+  });
+
+  // The real service joins on suppliers for supplier_wa, then separately
+  // fetches companies for whatsapp_chase_enabled + name. Mock both calls.
+
+  it('returns {sent: false, reason: "no supplier whatsapp number"} when supplier number is null', async () => {
+    // No supplier wa → short-circuits before the companies SELECT.
+    vi.mocked(sqlMock).mockResolvedValueOnce([
+      makeAlertRow({ supplier_wa: null }),
+    ] as never);
+
+    const result = await sendWhatsAppChase(COMPANY_ID, ALERT_ID, USER_ID);
+
+    expect(result.sent).toBe(false);
+    expect(result.reason).toBe('no supplier whatsapp number');
+    expect(sendWhatsAppMock).not.toHaveBeenCalled();
+  });
+
+  it('returns {sent: false, reason: "whatsapp chase disabled"} when company flag is off', async () => {
+    vi.mocked(sqlMock)
+      .mockResolvedValueOnce([makeAlertRow({ supplier_wa: '+27611111111' })] as never)
+      .mockResolvedValueOnce([makeCompanyRow({ whatsapp_chase_enabled: false })] as never);
+
+    const result = await sendWhatsAppChase(COMPANY_ID, ALERT_ID, USER_ID);
+
+    expect(result.sent).toBe(false);
+    expect(result.reason).toBe('whatsapp chase disabled');
+    expect(sendWhatsAppMock).not.toHaveBeenCalled();
+  });
+
+  it('happy path: calls sendWhatsAppMessage once and returns {sent: true}', async () => {
+    vi.mocked(sqlMock)
+      .mockResolvedValueOnce([makeAlertRow({ supplier_wa: '+27611111111' })] as never)
+      .mockResolvedValueOnce([makeCompanyRow({ whatsapp_chase_enabled: true })] as never)
+      .mockResolvedValueOnce([] as never);
+
+    const result = await sendWhatsAppChase(COMPANY_ID, ALERT_ID, USER_ID);
+
+    expect(result.sent).toBe(true);
+    expect(sendWhatsAppMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('happy path: UPDATE sets chase_method=whatsapp (3 SQL calls total)', async () => {
+    vi.mocked(sqlMock)
+      .mockResolvedValueOnce([makeAlertRow({ supplier_wa: '+27611111111' })] as never)
+      .mockResolvedValueOnce([makeCompanyRow({ whatsapp_chase_enabled: true })] as never)
+      .mockResolvedValueOnce([] as never);
+
+    await sendWhatsAppChase(COMPANY_ID, ALERT_ID, USER_ID);
+
+    expect(vi.mocked(sqlMock)).toHaveBeenCalledTimes(3);
+  });
+});
+
+// ── composeChaseWhatsApp — Phase 8 ────────────────────────────────────────────
+
+describe('composeChaseWhatsApp', () => {
+  const baseInput = {
+    supplierName: 'Acme Supplies',
+    companyName: 'Brightsphere Ltd',
+    expectedBy: '2026-04-15',
+    expectedAmount: 1000,
+    lastInvoiceDate: '2026-03-15',
+  };
+
+  it('returns an object with a body string', () => {
+    const result = composeChaseWhatsApp(baseInput);
+    expect(typeof result.body).toBe('string');
+    expect(result.body.length).toBeGreaterThan(0);
+  });
+
+  it('body is under 400 characters', () => {
+    const result = composeChaseWhatsApp(baseInput);
+    expect(result.body.length).toBeLessThan(400);
+  });
+
+  it('body contains supplier name', () => {
+    const result = composeChaseWhatsApp(baseInput);
+    expect(result.body).toContain('Acme Supplies');
+  });
+
+  it('body contains expected date', () => {
+    const result = composeChaseWhatsApp(baseInput);
+    expect(result.body).toMatch(/15|April|2026/);
+  });
+
+  it('body contains amount in R format', () => {
+    const result = composeChaseWhatsApp(baseInput);
+    expect(result.body).toMatch(/R1[\s,]?000|R1000/);
+  });
+
+  it('body contains a greeting and a sign-off', () => {
+    const result = composeChaseWhatsApp(baseInput);
+    // Short greeting at start
+    expect(result.body.toLowerCase()).toMatch(/^hi|^hello|^dear/);
+    // Sign-off contains company name or "regards"
+    expect(result.body).toMatch(/regards|Brightsphere/i);
+  });
+
+  it('omits amount line when expectedAmount is null', () => {
+    const result = composeChaseWhatsApp({ ...baseInput, expectedAmount: null });
+    expect(result.body).not.toMatch(/R\d/);
   });
 });
