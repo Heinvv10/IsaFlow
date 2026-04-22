@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import Head from 'next/head';
+import { LandingJsonLd } from '@/components/seo/LandingJsonLd';
 import { LandingNavbar } from '@/components/landing/LandingNavbar';
 import { LandingHero } from '@/components/landing/LandingHero';
 import { LandingFeaturesGrid, LandingDetailedFeatures } from '@/components/landing/LandingFeatures';
@@ -34,6 +35,8 @@ export default function LandingPage() {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="icon" href="/favicon.ico" />
       </Head>
+
+      <LandingJsonLd />
 
       <div className="min-h-screen bg-white text-gray-900">
         <LandingNavbar
