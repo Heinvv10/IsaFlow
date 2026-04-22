@@ -52,6 +52,30 @@ export interface FAQItem {
 
 export const APP_URL = 'https://app.isaflow.co.za';
 
+export const BRAND = {
+  name: 'ISAFlow',
+  legalName: 'ISAFlow',
+  url: 'https://isaflow.co.za',
+  logo: 'https://isaflow.co.za/logo.png',
+  description:
+    'Cloud accounting software for South African businesses — invoicing, bank reconciliation, VAT and payroll compliance, and payroll, in one platform.',
+  countryCode: 'ZA',
+  applicationCategory: 'FinanceApplication',
+  operatingSystem: 'Web',
+  freeTrialDays: 14,
+} as const;
+
+// External profiles linked from Organization.sameAs to help AI engines and
+// search bots triangulate on the correct entity. Populate as each profile
+// goes live — leaving stale/fake URLs here makes disambiguation worse.
+export const BRAND_SAME_AS: string[] = [
+  // 'https://www.linkedin.com/company/isaflow/',
+  // 'https://www.wikidata.org/wiki/Q...',
+  // 'https://www.capterra.co.za/software/.../isaflow',
+  // 'https://www.g2.com/products/isaflow',
+  // 'https://x.com/isaflow',
+];
+
 export const TRUST_COMPANIES = [
   'TechBridge Solutions',
   'VDM Construction',
