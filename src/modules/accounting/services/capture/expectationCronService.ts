@@ -17,6 +17,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { recomputeAllForCompany } from './expectationEngineService';
 import { detectGaps, sendEmailChase } from './missingInvoiceChaseService';
+import { sendWhatsAppChase } from './whatsAppChaseService';
 
 type Row = Record<string, unknown>;
 
@@ -48,7 +49,7 @@ export async function runDailyExpectationCron(): Promise<CronRunResult> {
   let totalChasesSent = 0;
 
   const companyRows = (await sql`
-    SELECT id, chase_auto_send_enabled, chase_grace_days
+    SELECT id, chase_auto_send_enabled, chase_grace_days, whatsapp_chase_enabled
     FROM companies
     WHERE is_active = TRUE OR is_active IS NULL
   `) as Row[];
@@ -57,6 +58,7 @@ export async function runDailyExpectationCron(): Promise<CronRunResult> {
     const companyId = String(company.id);
     const autoSend = Boolean(company.chase_auto_send_enabled);
     const graceDays = Number(company.chase_grace_days ?? 3);
+    const waChaseEnabled = Boolean(company.whatsapp_chase_enabled);
 
     const result: CompanyCronResult = {
       companyId,
@@ -77,7 +79,7 @@ export async function runDailyExpectationCron(): Promise<CronRunResult> {
       totalGapsCreated += gaps.created;
 
       if (autoSend) {
-        const chaseResult = await autoChaseOverdue(companyId, graceDays);
+        const chaseResult = await autoChaseOverdue(companyId, graceDays, waChaseEnabled);
         result.chasesSent = chaseResult.sent;
         result.chasesSkipped = chaseResult.skipped;
         totalChasesSent += chaseResult.sent;
@@ -109,23 +111,25 @@ export async function runDailyExpectationCron(): Promise<CronRunResult> {
 }
 
 /**
- * Fires email chases for pending alerts that are older than graceDays AND
- * belong to suppliers that have an email address AND haven't opted out of
- * auto-chase. Returns counts; swallows per-alert failures with a warn log.
+ * Fires chases for pending alerts older than graceDays.
+ * When whatsapp_chase_enabled is true AND the supplier has a whatsapp_number,
+ * tries WhatsApp first; falls back to email on failure or missing number.
+ * Suppliers without both email and WA number are skipped.
  */
 async function autoChaseOverdue(
   companyId: string,
   graceDays: number,
+  waChaseEnabled: boolean,
 ): Promise<{ sent: number; skipped: number }> {
   const alertRows = (await sql`
-    SELECT a.id AS alert_id
+    SELECT a.id AS alert_id, s.whatsapp_number AS supplier_wa
     FROM expected_invoice_alerts a
     JOIN suppliers s ON s.id = a.supplier_id
     WHERE a.company_id = ${companyId}::uuid
       AND a.status = 'pending'
       AND a.expected_by <= (CURRENT_DATE - (${graceDays}::int || ' days')::interval)
-      AND s.email IS NOT NULL
       AND s.chase_opted_out = FALSE
+      AND (s.email IS NOT NULL OR s.whatsapp_number IS NOT NULL)
   `) as Row[];
 
   let sent = 0;
@@ -133,8 +137,21 @@ async function autoChaseOverdue(
 
   for (const row of alertRows) {
     const alertId = String(row.alert_id);
+    const hasWa = Boolean(row.supplier_wa);
+
     try {
-      const result = await sendEmailChase(companyId, alertId, SYSTEM_USER_ID);
+      let result: { sent: boolean; reason?: string } = { sent: false, reason: 'not attempted' };
+
+      // Prefer WhatsApp when company opt-in and supplier has WA number
+      if (waChaseEnabled && hasWa) {
+        result = await sendWhatsAppChase(companyId, alertId, SYSTEM_USER_ID);
+      }
+
+      // Fall back to email when WA not enabled, no WA number, or WA send failed
+      if (!result.sent) {
+        result = await sendEmailChase(companyId, alertId, SYSTEM_USER_ID);
+      }
+
       if (result.sent) sent += 1;
       else skipped += 1;
     } catch (err) {
