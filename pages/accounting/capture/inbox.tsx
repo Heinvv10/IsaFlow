@@ -184,19 +184,19 @@ export default function CaptureInboxPage() {
                 </thead>
                 <tbody className="divide-y divide-[rgba(255,255,255,0.04)]">
                   {visible.map(ev => (
-                    <tr key={ev.id} onClick={() => setSelected(ev)}
+                    <tr key={ev.eventId} onClick={() => setSelected(ev)}
                       className="cursor-pointer hover:bg-white/5 transition-colors group">
                       <td className="px-4 py-3 text-slate-400">{CHANNEL_ICONS[ev.channel]}</td>
-                      <td className="px-4 py-3 text-slate-300 whitespace-nowrap">{fmtDate(ev.received_at)}</td>
+                      <td className="px-4 py-3 text-slate-300 whitespace-nowrap">{fmtDate(ev.receivedAt)}</td>
                       <td className="px-4 py-3 text-slate-400 max-w-[160px] truncate">{ev.sender ?? '—'}</td>
-                      <td className="px-4 py-3 text-slate-300 font-medium">{ev.document_vendor ?? '—'}</td>
-                      <td className="px-4 py-3 text-slate-400 font-mono text-xs">{ev.document_reference ?? '—'}</td>
-                      <td className="px-4 py-3 text-right text-slate-300">{fmtZAR(ev.document_total)}</td>
+                      <td className="px-4 py-3 text-slate-300 font-medium">{ev.vendorName ?? '—'}</td>
+                      <td className="px-4 py-3 text-slate-400 font-mono text-xs">{ev.referenceNumber ?? '—'}</td>
+                      <td className="px-4 py-3 text-right text-slate-300">{fmtZAR(ev.totalAmount)}</td>
                       <td className="px-4 py-3"><StatusBadge status={ev.status} error={ev.error} /></td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           {ev.status === 'extracted' && (
-                            <button onClick={e => { e.stopPropagation(); void handlePost(ev.id); }}
+                            <button onClick={e => { e.stopPropagation(); void handlePost(ev.eventId); }}
                               className="px-2.5 py-1 bg-teal-700 hover:bg-teal-600 text-white rounded text-xs font-medium">
                               Post
                             </button>
