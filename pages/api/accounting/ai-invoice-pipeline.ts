@@ -25,6 +25,7 @@ import {
 } from '@/modules/accounting/services/capture/duplicateDetectionService';
 import { recordCoding } from '@/modules/accounting/services/capture/supplierRulesService';
 import { performThreeWayMatch } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
+import { attachEvidenceToProvisional } from '@/modules/accounting/services/capture/evidenceAttachmentService';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -190,11 +191,26 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     log.error('3-way match failed post-pipeline — continuing', { invoiceId: invoice.id, error: matchErr }, 'ai-pipeline');
   }
 
+  // Attempt to attach evidence to a matching provisional JE (best-effort, non-blocking)
+  let provisionalAttach: { attachedJeId: string | null; bankTxId: string | null } = { attachedJeId: null, bankTxId: null };
+  try {
+    provisionalAttach = await attachEvidenceToProvisional(
+      companyId,
+      documentId,
+      supplierMatch.supplierId,
+      invoiceInput.totalAmount,
+      invoiceInput.invoiceDate,
+    );
+  } catch (attachErr) {
+    log.warn('Evidence attach to provisional JE failed — continuing', { documentId, error: attachErr }, 'ai-pipeline');
+  }
+
   log.info('AI Invoice Pipeline completed', {
     documentId, invoiceId: invoice.id, supplierMatch: supplierMatch.supplierName,
     confidence: pipelineConfidence, route: approvalRoute,
     itemCount: invoiceInput.items.length,
     matchStatus: threeWayMatch?.matchStatus ?? 'skipped',
+    provisionalAttach,
   }, 'ai-pipeline');
 
   return apiResponse.success(res, {
@@ -204,6 +220,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     approvalRoute,
     warnings: validation.warnings,
     threeWayMatch,
+    provisionalAttach,
   });
 }
 

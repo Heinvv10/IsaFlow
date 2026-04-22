@@ -22,6 +22,7 @@ import type { ExtractedDocument } from '@/modules/accounting/types/documentCaptu
 import { decide } from '@/modules/accounting/services/capture/autoPublishGateService';
 import { recordCoding } from '@/modules/accounting/services/capture/supplierRulesService';
 import { performThreeWayMatch } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
+import { attachEvidenceToProvisional } from '@/modules/accounting/services/capture/evidenceAttachmentService';
 
 type Row = Record<string, unknown>;
 
@@ -187,6 +188,20 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     gateOutcome: gateDecision.outcome,
   }, 'capture-post');
 
+  // Attempt to attach evidence to a matching provisional JE (best-effort, non-blocking)
+  let provisionalAttach: { attachedJeId: string | null; bankTxId: string | null } = { attachedJeId: null, bankTxId: null };
+  try {
+    provisionalAttach = await attachEvidenceToProvisional(
+      companyId,
+      documentId,
+      supplierMatch.supplierId,
+      invoiceInput.totalAmount,
+      invoiceInput.invoiceDate,
+    );
+  } catch (attachErr) {
+    log.warn('Evidence attach to provisional JE failed — continuing', { eventId, error: attachErr }, 'capture-post');
+  }
+
   // Run 3-way match if the invoice has a linked PO; non-blocking on error
   let threeWayMatch: Awaited<ReturnType<typeof performThreeWayMatch>> | null = null;
   try {
@@ -205,6 +220,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       reason: 'routed for review',
       reasons: publishedDecision.reasons,
       threeWayMatch,
+      provisionalAttach,
     });
   }
 
@@ -217,6 +233,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     gateOutcome: publishedDecision.outcome,
     gateReason: publishedDecision.reason,
     threeWayMatch,
+    provisionalAttach,
   });
 }
 
