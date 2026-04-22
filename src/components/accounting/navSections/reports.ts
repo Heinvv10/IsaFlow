@@ -65,7 +65,7 @@ export const reportsTab: Tab = {
     {
       section: 'Audit',
       items: [
-        { label: 'Audit Trail', href: '/accounting/audit-trail' },
+        { label: 'Evidence Packs', href: '/accounting/audit-packs' },
       ],
     },
   ],
