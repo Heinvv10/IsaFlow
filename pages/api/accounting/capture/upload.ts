@@ -11,7 +11,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
-import { sha256 } from '@/lib/documentStorage';
+import { sha256, storeCapturedBytes } from '@/lib/documentStorage';
 import { routeEvent } from '@/modules/accounting/services/capture/captureRouterService';
 
 export const config = { api: { bodyParser: false } };
@@ -113,16 +113,25 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       INSERT INTO captured_documents (
         company_id, file_name, file_type, file_size,
         document_type, status, uploaded_by,
-        raw_bytes, raw_bytes_sha256, raw_bytes_size
+        raw_bytes_sha256, raw_bytes_size
       ) VALUES (
         ${companyId}, ${fileName}, ${fileTypeKey}, ${file.size},
         'invoice', 'pending', ${userId},
-        ${buffer}::bytea, ${hash}, ${buffer.length}
+        ${hash}, ${buffer.length}
       )
       RETURNING id
     ` as Row[];
 
     const documentId = docRows[0]!.id as string;
+    const stored = await storeCapturedBytes(companyId, documentId, buffer, mimeType);
+
+    await sql`
+      UPDATE captured_documents
+      SET storage_bucket = ${stored.bucket},
+          storage_path   = ${stored.path}
+      WHERE id = ${documentId}::uuid
+        AND company_id = ${companyId}
+    `;
 
     const eventRows = await sql`
       INSERT INTO capture_events (

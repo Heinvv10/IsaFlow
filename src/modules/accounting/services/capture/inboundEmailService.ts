@@ -5,7 +5,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { sha256 } from '@/lib/documentStorage';
+import { sha256, storeCapturedBytes } from '@/lib/documentStorage';
 
 // ---------------------------------------------------------------------------
 // Postmark inbound payload shape
@@ -129,11 +129,12 @@ export async function ingestPostmarkPayload(
     const size = buffer.length;
     const notes = `email-ingest: from=${payload.From}`;
 
+    // 1. Insert the DB row first to mint an id we can namespace the Storage path under.
     const docRows = await sql`
       INSERT INTO captured_documents (
         company_id, file_name, file_type, file_size,
         document_type, status, notes, uploaded_by,
-        raw_bytes, raw_bytes_sha256, raw_bytes_size
+        raw_bytes_sha256, raw_bytes_size
       ) VALUES (
         ${companyId},
         ${fileName},
@@ -143,7 +144,6 @@ export async function ingestPostmarkPayload(
         'pending',
         ${notes},
         null,
-        ${buffer}::bytea,
         ${hash},
         ${size}
       )
@@ -151,6 +151,18 @@ export async function ingestPostmarkPayload(
     ` as InboxRow[];
 
     const documentId = docRows[0]!.id as string;
+
+    // 2. Upload bytes to Supabase Storage under <companyId>/<documentId>.
+    const stored = await storeCapturedBytes(companyId, documentId, buffer, mimeType);
+
+    // 3. Record the Storage pointer on the row.
+    await sql`
+      UPDATE captured_documents
+      SET storage_bucket = ${stored.bucket},
+          storage_path   = ${stored.path}
+      WHERE id = ${documentId}::uuid
+        AND company_id = ${companyId}
+    `;
 
     const eventRows = await sql`
       INSERT INTO capture_events (

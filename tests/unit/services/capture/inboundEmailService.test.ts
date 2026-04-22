@@ -17,11 +17,24 @@ const { sqlMock } = vi.hoisted(() => {
 });
 
 vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
+
+// Storage SDK is mocked — ingress tests don't actually upload to Supabase.
+vi.mock('@/lib/supabaseStorage', () => ({
+  CAPTURED_DOCS_BUCKET: 'captured-documents',
+  uploadCapturedDocument: vi.fn().mockResolvedValue({
+    bucket: 'captured-documents',
+    path: 'test-company/test-doc',
+  }),
+  downloadCapturedDocument: vi.fn(),
+  removeCapturedDocument: vi.fn(),
+  signedUrlForCapturedDocument: vi.fn(),
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
 
 import { sql } from '@/lib/neon';
+import { uploadCapturedDocument } from '@/lib/supabaseStorage';
 import {
   ingestPostmarkPayload,
   type PostmarkInboundPayload,
@@ -77,21 +90,28 @@ function makeInboxRow(overrides: Record<string, unknown> = {}) {
 }
 
 // ── Helpers for multi-call mocking ────────────────────────────────────────────
-// Each test sets up sql call sequence: [inboxLookup, docInsert, eventInsert]
+// Each test sets up sql call sequence:
+// [inboxLookup, (docInsert, storagePointerUpdate, eventInsert) * N]
 function mockHappyPath(attachmentCount = 1) {
-  // Inbox lookup
   vi.mocked(sql).mockResolvedValueOnce([makeInboxRow()] as never);
-  // One doc + event pair per attachment
   for (let i = 0; i < attachmentCount; i++) {
-    vi.mocked(sql).mockResolvedValueOnce([{ id: DOC_ID }] as never);
-    vi.mocked(sql).mockResolvedValueOnce([{ id: EVENT_ID }] as never);
+    vi.mocked(sql).mockResolvedValueOnce([{ id: DOC_ID }] as never);  // INSERT captured_documents
+    vi.mocked(sql).mockResolvedValueOnce([] as never);                 // UPDATE storage_bucket/path
+    vi.mocked(sql).mockResolvedValueOnce([{ id: EVENT_ID }] as never); // INSERT capture_events
   }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('ingestPostmarkPayload', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Restore Storage mock default after clearAllMocks wipes it.
+    vi.mocked(uploadCapturedDocument).mockResolvedValue({
+      bucket: 'captured-documents',
+      path: 'test-company/test-doc',
+    });
+  });
 
   // ── Rejection: no matching inbox ───────────────────────────────────────────
 
@@ -114,9 +134,7 @@ describe('ingestPostmarkPayload', () => {
   });
 
   it('resolves address from ToFull[0].Email when To is absent', async () => {
-    vi.mocked(sql).mockResolvedValueOnce([makeInboxRow()] as never);
-    vi.mocked(sql).mockResolvedValueOnce([{ id: DOC_ID }] as never);
-    vi.mocked(sql).mockResolvedValueOnce([{ id: EVENT_ID }] as never);
+    mockHappyPath(1);
 
     const result = await ingestPostmarkPayload(
       makePayload({ To: undefined, ToFull: [{ Email: TO_ADDRESS, Name: 'Inbox' }] }),
@@ -145,8 +163,9 @@ describe('ingestPostmarkPayload', () => {
     vi.mocked(sql).mockResolvedValueOnce([
       makeInboxRow({ allowed_sender_domains: ['acmecorp.co.za'] }),
     ] as never);
-    vi.mocked(sql).mockResolvedValueOnce([{ id: DOC_ID }] as never);
-    vi.mocked(sql).mockResolvedValueOnce([{ id: EVENT_ID }] as never);
+    vi.mocked(sql).mockResolvedValueOnce([{ id: DOC_ID }] as never);   // doc INSERT
+    vi.mocked(sql).mockResolvedValueOnce([] as never);                  // storage pointer UPDATE
+    vi.mocked(sql).mockResolvedValueOnce([{ id: EVENT_ID }] as never);  // event INSERT
 
     const result = await ingestPostmarkPayload(
       makePayload({ From: 'supplier@acmecorp.co.za' }),
@@ -158,6 +177,7 @@ describe('ingestPostmarkPayload', () => {
   it('accepts any sender when allowed_sender_domains is null (open inbox)', async () => {
     vi.mocked(sql).mockResolvedValueOnce([makeInboxRow({ allowed_sender_domains: null })] as never);
     vi.mocked(sql).mockResolvedValueOnce([{ id: DOC_ID }] as never);
+    vi.mocked(sql).mockResolvedValueOnce([] as never);                  // storage pointer UPDATE
     vi.mocked(sql).mockResolvedValueOnce([{ id: EVENT_ID }] as never);
 
     const result = await ingestPostmarkPayload(
@@ -212,9 +232,7 @@ describe('ingestPostmarkPayload', () => {
   });
 
   it('accepts an image/jpeg attachment', async () => {
-    vi.mocked(sql).mockResolvedValueOnce([makeInboxRow()] as never);
-    vi.mocked(sql).mockResolvedValueOnce([{ id: DOC_ID }] as never);
-    vi.mocked(sql).mockResolvedValueOnce([{ id: EVENT_ID }] as never);
+    mockHappyPath(1);
 
     const result = await ingestPostmarkPayload(
       makePayload({ Attachments: [imageAttachment] }),
@@ -228,22 +246,26 @@ describe('ingestPostmarkPayload', () => {
     const att2: PostmarkAttachment = { ...pdfAttachment, Name: 'invoice2.pdf' };
     vi.mocked(sql).mockResolvedValueOnce([makeInboxRow()] as never);
     vi.mocked(sql).mockResolvedValueOnce([{ id: DOC_ID }] as never);
+    vi.mocked(sql).mockResolvedValueOnce([] as never);                    // storage UPDATE
     vi.mocked(sql).mockResolvedValueOnce([{ id: EVENT_ID }] as never);
     vi.mocked(sql).mockResolvedValueOnce([{ id: 'doc-id-2' }] as never);
+    vi.mocked(sql).mockResolvedValueOnce([] as never);                    // storage UPDATE
     vi.mocked(sql).mockResolvedValueOnce([{ id: 'event-id-2' }] as never);
 
     await ingestPostmarkPayload(makePayload({ Attachments: [pdfAttachment, att2] }));
 
-    // 1 inbox lookup + 2×(doc insert + event insert) = 5 sql calls
-    expect(vi.mocked(sql)).toHaveBeenCalledTimes(5);
+    // 1 inbox lookup + 2×(doc insert + storage UPDATE + event insert) = 7 sql calls
+    expect(vi.mocked(sql)).toHaveBeenCalledTimes(7);
   });
 
   it('returns the first captureEventId when multiple attachments are present', async () => {
     const att2: PostmarkAttachment = { ...pdfAttachment, Name: 'invoice2.pdf' };
     vi.mocked(sql).mockResolvedValueOnce([makeInboxRow()] as never);
     vi.mocked(sql).mockResolvedValueOnce([{ id: 'doc-1' }] as never);
+    vi.mocked(sql).mockResolvedValueOnce([] as never);                    // storage UPDATE
     vi.mocked(sql).mockResolvedValueOnce([{ id: 'event-first' }] as never);
     vi.mocked(sql).mockResolvedValueOnce([{ id: 'doc-2' }] as never);
+    vi.mocked(sql).mockResolvedValueOnce([] as never);                    // storage UPDATE
     vi.mocked(sql).mockResolvedValueOnce([{ id: 'event-second' }] as never);
 
     const result = await ingestPostmarkPayload(makePayload({ Attachments: [pdfAttachment, att2] }));
@@ -259,6 +281,7 @@ describe('ingestPostmarkPayload', () => {
     // One text + one PDF — only PDF should be processed
     vi.mocked(sql).mockResolvedValueOnce([makeInboxRow()] as never);
     vi.mocked(sql).mockResolvedValueOnce([{ id: DOC_ID }] as never);
+    vi.mocked(sql).mockResolvedValueOnce([] as never);                    // storage UPDATE
     vi.mocked(sql).mockResolvedValueOnce([{ id: EVENT_ID }] as never);
 
     const result = await ingestPostmarkPayload(
@@ -270,7 +293,7 @@ describe('ingestPostmarkPayload', () => {
       captureEventIds: [EVENT_ID],
       companyId: COMPANY_ID,
     });
-    // 1 inbox + 1 doc + 1 event (text skipped)
-    expect(vi.mocked(sql)).toHaveBeenCalledTimes(3);
+    // 1 inbox + 1 doc + 1 storage UPDATE + 1 event (text skipped)
+    expect(vi.mocked(sql)).toHaveBeenCalledTimes(4);
   });
 });
