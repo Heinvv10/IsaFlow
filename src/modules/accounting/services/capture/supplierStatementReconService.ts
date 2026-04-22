@@ -148,23 +148,47 @@ export async function getReconciliation(
   return fetchFullReconciliation(companyId, reconciliationId);
 }
 
+/**
+ * List view: single JOIN query, no per-reconciliation round-trips.
+ * `lines` and `missingInvoices` are returned empty — the list UI only renders
+ * header fields + counts. Callers that need per-line data must call
+ * getReconciliation(id) on click-through.
+ */
 export async function listReconciliations(
   companyId: string,
   supplierId?: string,
 ): Promise<SupplierStatementReconciliation[]> {
   const rows = (await sql`
-    SELECT id FROM supplier_statement_reconciliations
-    WHERE company_id = ${companyId}
-      AND (${supplierId ?? null}::uuid IS NULL OR supplier_id = ${supplierId ?? null}::uuid)
-    ORDER BY statement_date DESC, created_at DESC
+    SELECT ssr.*, s.name AS supplier_name
+    FROM supplier_statement_reconciliations ssr
+    JOIN suppliers s ON s.id = ssr.supplier_id
+    WHERE ssr.company_id = ${companyId}
+      AND (${supplierId ?? null}::uuid IS NULL OR ssr.supplier_id = ${supplierId ?? null}::uuid)
+    ORDER BY ssr.statement_date DESC, ssr.created_at DESC
     LIMIT 200
   `) as DbRow[];
-  const results: SupplierStatementReconciliation[] = [];
-  for (const row of rows) {
-    const full = await fetchFullReconciliation(companyId, row.id as string);
-    if (full) results.push(full);
-  }
-  return results;
+
+  return rows.map((r): SupplierStatementReconciliation => ({
+    id: r.id as string,
+    companyId: r.company_id as string,
+    supplierId: r.supplier_id as string,
+    supplierName: String(r.supplier_name ?? ''),
+    sourceDocumentId: r.source_document_id as string,
+    statementDate: toDateStr(r.statement_date) ?? '',
+    periodStart: toDateStr(r.period_start),
+    periodEnd: toDateStr(r.period_end),
+    supplierBalance: toNum(r.supplier_balance),
+    isaflowBalance: toNum(r.isaflow_balance),
+    variance: toNum(r.variance),
+    status: (r.status as SupplierStatementReconciliation['status']) ?? 'unreconciled',
+    missingInIsaflowCount: toNum(r.missing_in_isaflow_count),
+    missingInStatementCount: toNum(r.missing_in_statement_count),
+    amountDiffCount: toNum(r.amount_diff_count),
+    lines: [],
+    missingInvoices: [],
+    createdAt: String(r.created_at ?? ''),
+    reconciledAt: r.reconciled_at ? String(r.reconciled_at) : null,
+  }));
 }
 
 export async function rematchLines(
