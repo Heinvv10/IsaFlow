@@ -23,6 +23,7 @@ import { decide } from '@/modules/accounting/services/capture/autoPublishGateSer
 import { recordCoding } from '@/modules/accounting/services/capture/supplierRulesService';
 import { performThreeWayMatch } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { attachEvidenceToProvisional } from '@/modules/accounting/services/capture/evidenceAttachmentService';
+import { resolvePendingAlertForInvoice } from '@/modules/accounting/services/capture/alertResolutionService';
 
 type Row = Record<string, unknown>;
 
@@ -201,6 +202,16 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   } catch (attachErr) {
     log.warn('Evidence attach to provisional JE failed — continuing', { eventId, error: attachErr }, 'capture-post');
   }
+
+  // Best-effort alert resolution — non-blocking
+  resolvePendingAlertForInvoice(
+    companyId,
+    supplierMatch.supplierId,
+    invoice.id as string,
+    invoiceInput.invoiceDate,
+  ).catch((err: unknown) => {
+    log.warn('resolvePendingAlertForInvoice failed (non-blocking)', { invoiceId: invoice.id, error: err }, 'capture-post');
+  });
 
   // Run 3-way match if the invoice has a linked PO; non-blocking on error
   let threeWayMatch: Awaited<ReturnType<typeof performThreeWayMatch>> | null = null;

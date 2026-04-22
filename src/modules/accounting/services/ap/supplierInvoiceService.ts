@@ -15,6 +15,7 @@ import type {
 } from '../../types/ap.types';
 import type { VatType } from '../../types/gl.types';
 import { computeFingerprint } from '../capture/duplicateDetectionService';
+import { resolvePendingAlertForInvoice } from '../capture/alertResolutionService';
 type Row = DbRow;
 
 
@@ -249,6 +250,17 @@ export async function createSupplierInvoice(companyId: string,
     });
 
     log.info('Created supplier invoice', { invoiceId: String(invoiceRow.id), invoiceNumber: input.invoiceNumber }, 'accounting');
+
+    // Best-effort alert resolution — non-blocking
+    resolvePendingAlertForInvoice(
+      companyId,
+      input.supplierId,
+      String(invoiceRow.id),
+      input.invoiceDate,
+    ).catch((err: unknown) => {
+      log.warn('resolvePendingAlertForInvoice failed (non-blocking)', { error: err }, 'accounting');
+    });
+
     return mapInvoiceRow(invoiceRow);
   } catch (err) {
     log.error('Failed to create supplier invoice', { error: err }, 'accounting');
