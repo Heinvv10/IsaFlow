@@ -45,11 +45,13 @@ export async function postAssetDepreciationToGL(
 
     const entry = (await sql`
       INSERT INTO gl_journal_entries (
-        company_id, entry_number, entry_date, description, source, status, created_by
+        company_id, entry_number, entry_date, description, source, status, created_by,
+        posting_agent
       ) VALUES (
         ${companyId}, ${`DEP-${assetNumber}-${new Date().toISOString().slice(0, 7)}`}, CURRENT_DATE,
         ${`Depreciation: ${assetName} (${assetNumber})`},
-        'auto_depreciation', 'posted', ${userId}
+        'auto_depreciation', 'posted', ${userId},
+        'system:asset-depreciation:v1'
       ) RETURNING id
     `) as DbRow[];
 
@@ -220,13 +222,15 @@ export async function postAssetDisposalToGL(
 
     const entry = (await sql`
       INSERT INTO gl_journal_entries (
-        company_id, entry_number, entry_date, description, source, status, created_by
+        company_id, entry_number, entry_date, description, source, status, created_by,
+        posting_agent
       ) VALUES (
         ${companyId}::UUID,
         ${`DIS-${assetNumber}-${input.disposalDate.slice(0, 7)}`},
         ${input.disposalDate}::DATE,
         ${`Disposal: ${tag}${input.notes ? ` — ${input.notes}` : ''}`},
-        'asset_disposal', 'posted', ${userId}
+        'asset_disposal', 'posted', ${userId},
+        'system:asset-disposal:v1'
       ) RETURNING id
     `) as DbRow[];
 
@@ -328,13 +332,15 @@ export async function postCapitalizationExpenseToGL(
 
     const entry = (await sql`
       INSERT INTO gl_journal_entries (
-        company_id, entry_number, entry_date, description, source, status, created_by
+        company_id, entry_number, entry_date, description, source, status, created_by,
+        posting_agent
       ) VALUES (
         ${companyId}::UUID,
         ${`EXP-${assetNumber}-${new Date().toISOString().slice(0, 10)}`},
         CURRENT_DATE,
         ${`Below-threshold expense: ${tag}`},
-        'asset_expense', 'posted', ${userId}
+        'asset_expense', 'posted', ${userId},
+        'system:asset-expense:v1'
       ) RETURNING id
     `) as DbRow[];
 

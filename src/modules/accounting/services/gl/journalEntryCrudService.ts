@@ -10,6 +10,8 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { validateJournalEntry } from '../../utils/doubleEntry';
 import type { JournalEntry, JournalLine, JournalEntryCreateInput, GLEntryStatus, GLEntrySource, VatType } from '../../types/gl.types';
+import { defaultHumanMeta } from './journalEntryMeta';
+import type { JournalEntryMeta } from './journalEntryMeta';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -174,9 +176,11 @@ export async function getJournalEntryById(companyId: string,
   }
 }
 
-export async function createJournalEntry(companyId: string,
+export async function createJournalEntry(
+  companyId: string,
   input: JournalEntryCreateInput,
   userId: string,
+  meta?: JournalEntryMeta,
 ): Promise<JournalEntry> {
   try {
     const validation = validateJournalEntry(input.lines);
@@ -194,6 +198,7 @@ export async function createJournalEntry(companyId: string,
     }
 
     const safeUserId = await resolveUserUuid(userId);
+    const resolvedMeta = meta ?? defaultHumanMeta(userId);
 
     // Generate the entry UUID client-side so we can reference it in line inserts
     // without needing a sequential transaction (the direct Neon endpoint may be unreachable).
@@ -205,11 +210,15 @@ export async function createJournalEntry(companyId: string,
       sql`
         INSERT INTO gl_journal_entries (
           id, company_id, entry_date, fiscal_period_id, description, source,
-          source_document_id, created_by
+          source_document_id, created_by,
+          posting_agent, source_document_hash, extraction_confidence
         ) VALUES (
           ${entryId}::UUID, ${companyId}::UUID, ${input.entryDate}, ${fiscalPeriodId || null},
           ${input.description || null}, ${input.source || 'manual'},
-          ${input.sourceDocumentId || null}, ${safeUserId}::UUID
+          ${input.sourceDocumentId || null}, ${safeUserId}::UUID,
+          ${resolvedMeta.postingAgent},
+          ${resolvedMeta.sourceDocumentHash ?? null},
+          ${resolvedMeta.extractionConfidence ?? null}
         )
         RETURNING *
       `,

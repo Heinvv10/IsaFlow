@@ -4,6 +4,9 @@
  * for backward compatibility.
  */
 
+export type { JournalEntryMeta } from './journalEntryMeta';
+export { defaultHumanMeta } from './journalEntryMeta';
+
 export type { JournalEntryFilters } from './journalEntryCrudService';
 export {
   getJournalEntries,

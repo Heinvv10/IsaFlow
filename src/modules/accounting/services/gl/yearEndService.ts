@@ -185,7 +185,8 @@ export async function closeFiscalYear(
     const closingRows = await tx`
       INSERT INTO gl_journal_entries (
         id, company_id, entry_number, entry_date, description,
-        source, status, total_debit, total_credit, created_by, created_at
+        source, status, total_debit, total_credit, created_by, created_at,
+        posting_agent
       ) VALUES (
         gen_random_uuid(),
         ${companyId},
@@ -194,7 +195,8 @@ export async function closeFiscalYear(
         ${'Year-End Closing: ' + yearLabel},
         'year_end', 'posted',
         ${totalDebit}, ${totalCredit},
-        ${userId}, NOW()
+        ${userId}, NOW(),
+        'system:year-end-close'
       )
       RETURNING *
     `;

@@ -110,14 +110,16 @@ export async function executeMigration(
         await withTransaction(async (tx) => {
           const jeRows = (await tx`
             INSERT INTO gl_journal_entries (
-              company_id, entry_date, reference, description, status, created_by
+              company_id, entry_date, reference, description, status, created_by,
+              posting_agent
             ) VALUES (
               ${companyId}::UUID,
               CURRENT_DATE,
               ${'OB-' + source.toUpperCase()},
               ${'Opening balances imported from ' + source},
               'posted',
-              ${userId}::UUID
+              ${userId}::UUID,
+              ${'system:migration:' + source}
             ) RETURNING id
           `) as DbRow[];
 

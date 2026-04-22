@@ -14,6 +14,7 @@ import {
   resolveUserUuid,
   mapEntryRow,
 } from './journalEntryCrudService';
+import { defaultHumanMeta } from './journalEntryMeta';
 
 type Row = DbRow;
 
@@ -79,7 +80,7 @@ export async function reverseJournalEntry(companyId: string, id: string, userId:
       source: entry.source,
       fiscalPeriodId: entry.fiscalPeriodId,
       lines: reversalLines,
-    }, userId);
+    }, userId, defaultHumanMeta(userId));
 
     await postJournalEntry(companyId, reversalEntry.id, userId);
 
