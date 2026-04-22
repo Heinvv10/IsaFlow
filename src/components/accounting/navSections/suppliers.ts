@@ -47,6 +47,8 @@ export const suppliersTab: Tab = {
       section: 'Automation',
       items: [
         { label: 'Coding Rules', href: '/accounting/suppliers/rules' },
+        { label: 'Expectations', href: '/accounting/suppliers/expectations' },
+        { label: 'Missing Invoices', href: '/accounting/suppliers/missing-invoices' },
       ],
     },
     {

@@ -8,7 +8,7 @@ import dynamic from 'next/dynamic';
 import {
   Plus, BarChart3, Landmark, FileText, CreditCard, TrendingUp,
   BookOpen, FileSpreadsheet, Calculator, Calendar, Loader2, ArrowRight, DollarSign,
-  ArrowDown, Clock,
+  ArrowDown, Clock, AlertCircle,
 } from 'lucide-react';
 import { Users, Upload } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
@@ -66,6 +66,7 @@ export function OverviewTab() {
   const [data, setData] = useState<KPIData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [provisionalCount, setProvisionalCount] = useState<number | null>(null);
+  const [missingInvoiceCount, setMissingInvoiceCount] = useState<number | null>(null);
   const [quickActions, setQuickActions] = useState<PageMeta[]>(
     DEFAULT_QUICK_ACTIONS.map(p => PAGE_REGISTRY[p]).filter((p): p is PageMeta => !!p)
   );
@@ -76,6 +77,10 @@ export function OverviewTab() {
     apiFetch('/api/accounting/provisional/outstanding')
       .then(r => r.json())
       .then((json: { data?: unknown[] }) => setProvisionalCount((json.data ?? []).length))
+      .catch(() => { /* non-critical */ });
+    apiFetch('/api/accounting/expected-invoice-alerts?status=pending')
+      .then(r => r.json())
+      .then((json: { data?: unknown[] }) => setMissingInvoiceCount((json.data ?? []).length))
       .catch(() => { /* non-critical */ });
   }, []);
 
@@ -161,6 +166,25 @@ export function OverviewTab() {
             <p className="text-xs text-amber-400/70">Bank-first AI posts without slips — attach documents to confirm</p>
           </div>
           <ArrowRight className="h-4 w-4 text-amber-400/60 group-hover:text-amber-400 transition-colors shrink-0" />
+        </Link>
+      )}
+
+      {/* Missing invoices alert card */}
+      {missingInvoiceCount !== null && missingInvoiceCount > 0 && (
+        <Link href="/accounting/suppliers/missing-invoices"
+          className={`flex items-center gap-4 p-4 rounded-lg hover:shadow-md transition-all no-underline group border ${missingInvoiceCount >= 3 ? 'bg-red-900/20 border-red-500/30 hover:border-red-500/60' : 'bg-amber-900/20 border-amber-500/30 hover:border-amber-500/60'}`}>
+          <div className={`p-2 rounded-lg shrink-0 ${missingInvoiceCount >= 3 ? 'bg-red-500/10' : 'bg-amber-500/10'}`}>
+            <AlertCircle className={`h-5 w-5 ${missingInvoiceCount >= 3 ? 'text-red-400' : 'text-amber-400'}`} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className={`font-semibold ${missingInvoiceCount >= 3 ? 'text-red-300' : 'text-amber-300'}`}>
+              Missing invoices overdue: {missingInvoiceCount}
+            </p>
+            <p className={`text-xs ${missingInvoiceCount >= 3 ? 'text-red-400/70' : 'text-amber-400/70'}`}>
+              Supplier invoices expected but not yet received — chase or resolve
+            </p>
+          </div>
+          <ArrowRight className={`h-4 w-4 transition-colors shrink-0 ${missingInvoiceCount >= 3 ? 'text-red-400/60 group-hover:text-red-400' : 'text-amber-400/60 group-hover:text-amber-400'}`} />
         </Link>
       )}
 
