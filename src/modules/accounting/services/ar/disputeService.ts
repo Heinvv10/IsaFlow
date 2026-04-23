@@ -324,7 +324,7 @@ export async function resolveDispute(
         resolution_note = ${input.note ?? null},
         credit_note_id = ${creditNoteId},
         resolved_at = NOW(),
-        resolved_by = ${userId}::uuid
+        resolved_by = ${userId}
     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
     RETURNING *
   `) as DbRow[];
@@ -363,7 +363,7 @@ export async function withdrawDispute(
         resolution_mode = 'withdrawn',
         resolution_note = ${note ?? null},
         resolved_at = NOW(),
-        resolved_by = ${userId}::uuid
+        resolved_by = ${userId}
     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
     RETURNING *
   `) as DbRow[];
