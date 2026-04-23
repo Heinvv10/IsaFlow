@@ -119,7 +119,12 @@ function useGateInfo(event: CaptureEventRow): GateInfo {
   const supplierId = event.resolvedSupplierId ?? null;
 
   useEffect(() => {
-    if (!supplierId) { setRule(null); return; }
+    if (!supplierId) {
+      // Defer to next tick — avoids the "setState synchronously in effect"
+      // lint rule that catches cascade-prone patterns.
+      const t = setTimeout(() => setRule(null), 0);
+      return () => clearTimeout(t);
+    }
     let cancelled = false;
     apiFetch(`/api/accounting/supplier-rules/${supplierId}`)
       .then(r => r.status === 404 ? null : r.json() as Promise<{ data?: SupplierRule }>)

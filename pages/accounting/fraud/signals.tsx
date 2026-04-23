@@ -109,7 +109,7 @@ export default function FraudSignalsPage() {
               <Shield className="h-5 w-5 text-teal-400" /> Fraud Signals
             </h1>
             <p className="text-sm text-[var(--ff-text-secondary)] mt-0.5">
-              Cross-tenant supplier-fraud alerts. Advisory only — dismiss signals that aren't relevant to your setup.
+              Cross-tenant supplier-fraud alerts. Advisory only — dismiss signals that aren&rsquo;t relevant to your setup.
             </p>
           </div>
           <div className="flex items-center gap-2">
