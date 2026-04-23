@@ -27,6 +27,7 @@ export const salesTab: Tab = {
         { label: 'Credit Notes', href: '/accounting/credit-notes' },
         { label: 'Write-Offs', href: '/accounting/write-offs' },
         { label: 'Allocate Receipts', href: '/accounting/customer-allocations' },
+        { label: 'Receipt Auto-Match', href: '/accounting/ar/receipt-match' },
         { label: 'Adjustments', href: '/accounting/adjustments?type=customer' },
       ],
     },
