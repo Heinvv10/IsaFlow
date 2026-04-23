@@ -15,6 +15,7 @@ export interface SupplierExpectation {
   id: string;
   companyId: string;
   supplierId: string;
+  supplierName?: string | null;
   cadence: 'monthly' | 'quarterly' | 'annual' | 'irregular';
   expectedDayOfMonth: number | null;
   expectedAmount: number | null;
@@ -109,6 +110,7 @@ function mapRow(row: Row): SupplierExpectation {
     id: String(row.id),
     companyId: String(row.company_id),
     supplierId: String(row.supplier_id),
+    supplierName: row.supplier_name ? String(row.supplier_name) : null,
     cadence: row.cadence as SupplierExpectation['cadence'],
     expectedDayOfMonth: row.expected_day_of_month != null ? Number(row.expected_day_of_month) : null,
     expectedAmount: row.expected_amount != null ? Number(row.expected_amount) : null,
@@ -127,9 +129,11 @@ function mapRow(row: Row): SupplierExpectation {
 
 export async function listExpectations(companyId: string): Promise<SupplierExpectation[]> {
   const rows = await sql`
-    SELECT * FROM supplier_expectations
-    WHERE company_id = ${companyId}::uuid
-    ORDER BY created_at DESC
+    SELECT e.*, s.name AS supplier_name
+    FROM supplier_expectations e
+    JOIN suppliers s ON s.id = e.supplier_id AND s.company_id = ${companyId}::uuid
+    WHERE e.company_id = ${companyId}::uuid
+    ORDER BY e.created_at DESC
   ` as Row[];
   return rows.map(mapRow);
 }
