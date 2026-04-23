@@ -256,7 +256,7 @@ export default function PortalInvoicePage({ invoice, token, isOverdue }: PortalI
               </button>
             )}
             <a
-              href={`/api/accounting/invoice-pdf?invoiceId=${token}`}
+              href={`/api/portal/invoice/${token}/pdf`}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 px-5 py-2.5 border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium text-sm rounded-xl transition-colors"
