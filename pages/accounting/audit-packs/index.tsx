@@ -318,7 +318,7 @@ export default function AuditTrailPage() {
 
                 {inviteResult && (
                   <div className="bg-teal-900/20 border border-teal-700/40 rounded-lg p-3 space-y-2">
-                    <p className="text-xs text-teal-300 font-semibold">Copy this now — it won't be shown again</p>
+                    <p className="text-xs text-teal-300 font-semibold">Copy this now — it won&rsquo;t be shown again</p>
                     <div className="flex items-center gap-2">
                       <input readOnly value={inviteResult.portalUrl}
                         className="flex-1 px-2 py-1 rounded bg-black/40 border border-[rgba(255,255,255,0.1)] text-slate-200 font-mono text-xs" />
