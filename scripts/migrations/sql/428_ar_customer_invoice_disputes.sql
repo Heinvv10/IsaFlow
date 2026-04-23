@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS customer_invoice_disputes (
   status TEXT NOT NULL DEFAULT 'open'
     CHECK (status IN ('open','resolved','withdrawn','rejected')),
   resolved_at TIMESTAMPTZ,
-  resolved_by UUID REFERENCES users(id),
+  resolved_by VARCHAR(255) REFERENCES users(id),
   resolution_note TEXT,
   resolution_mode TEXT
     CHECK (resolution_mode IS NULL
