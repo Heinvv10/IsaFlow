@@ -62,3 +62,4 @@ scripts/run-sql.mjs
 .claude/worktrees/
 .playwright-mcp/
 .worktrees/
+scripts/.venv/

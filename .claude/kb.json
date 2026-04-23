@@ -18,5 +18,9 @@
       "group_by": "pages/api/accounting/",
       "template": ".claude/templates/api-group-claude-md.template"
     }
-  ]
+  ],
+  "ingest": {
+    "script": "scripts/ingest-qdrant.py",
+    "venv": "scripts/.venv"
+  }
 }
