@@ -1,0 +1,15 @@
+[Unit]
+Description=Nightly trigger for IsaFlow AR views materialised view refresh
+Requires=isaflow-ar-matview-refresh.service
+
+[Timer]
+# Every night at 02:00 SAST — before fraud-scan (02:30) so view-count
+# data is fresh for any morning reports. REFRESH MATERIALIZED VIEW
+# CONCURRENTLY is bounded by the size of customer_invoice_views, which
+# is small (one row per invoice view). Randomised delay spreads load.
+OnCalendar=*-*-* 02:00:00 Africa/Johannesburg
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target
