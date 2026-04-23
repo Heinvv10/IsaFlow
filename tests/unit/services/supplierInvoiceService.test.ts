@@ -244,6 +244,10 @@ describe('createSupplierInvoice — line-item arithmetic', () => {
   beforeEach(() => vi.clearAllMocks());
 
   function setupSuccessfulCreate(overrideRow?: Partial<typeof sampleInvoiceRow>) {
+    // createSupplierInvoice now performs a pre-transaction `SELECT vat_number`
+    // on the suppliers table for duplicate-fingerprint computation. Mock it
+    // outside the withTransaction helper so the destructure succeeds.
+    mockSql.mockResolvedValueOnce([{ vat_number: '4000123456' }]);
     mockWithTransaction.mockImplementation(async (fn) => {
       const returnedRow = { ...sampleInvoiceRow, ...overrideRow };
       const fakeTx = vi.fn().mockResolvedValue([returnedRow]) as unknown as typeof sql;
@@ -358,6 +362,7 @@ describe('createSupplierInvoice — edge cases', () => {
       items: [{ description: 'Ghost line', quantity: 0, unitPrice: 100, taxRate: 15 }],
     };
 
+    mockSql.mockResolvedValueOnce([{ vat_number: '4000123456' }]);
     mockWithTransaction.mockImplementation(async (fn) => {
       const row = { ...sampleInvoiceRow, subtotal: '0.00', tax_amount: '0.00', total_amount: '0.00' };
       const fakeTx = vi.fn().mockResolvedValue([row]) as unknown as typeof sql;
@@ -376,7 +381,8 @@ describe('createSupplierInvoice — edge cases', () => {
       items: [{ description: 'Zero-rated supply', quantity: 1, unitPrice: 200, taxRate: 0 }],
     };
 
-    let capturedTxCalls: unknown[][] = [];
+    const capturedTxCalls: unknown[][] = [];
+    mockSql.mockResolvedValueOnce([{ vat_number: '4000123456' }]);
     mockWithTransaction.mockImplementation(async (fn) => {
       const fakeTx = vi.fn().mockImplementation((...args: unknown[]) => {
         capturedTxCalls.push(args);
@@ -391,6 +397,7 @@ describe('createSupplierInvoice — edge cases', () => {
   });
 
   it('propagates db errors from withTransaction', async () => {
+    mockSql.mockResolvedValueOnce([{ vat_number: '4000123456' }]);
     mockWithTransaction.mockRejectedValueOnce(new Error('unique constraint violation'));
 
     await expect(createSupplierInvoice(COMPANY_ID, validInput, USER_ID))
@@ -398,6 +405,7 @@ describe('createSupplierInvoice — edge cases', () => {
   });
 
   it('preserves invoiceNumber exactly as provided', async () => {
+    mockSql.mockResolvedValueOnce([{ vat_number: '4000123456' }]);
     mockWithTransaction.mockImplementation(async (fn) => {
       const row = { ...sampleInvoiceRow, invoice_number: 'ACME/2026/00042' };
       const fakeTx = vi.fn().mockResolvedValue([row]) as unknown as typeof sql;
@@ -426,6 +434,7 @@ describe('Due date calculation via paymentTerms', () => {
   });
 
   async function getDueDate(paymentTerms: string, dueDateInRow: string): Promise<string | undefined> {
+    mockSql.mockResolvedValueOnce([{ vat_number: '4000123456' }]);
     mockWithTransaction.mockImplementation(async (fn) => {
       const row = { ...sampleInvoiceRow, due_date: dueDateInRow };
       const fakeTx = vi.fn().mockResolvedValue([row]) as unknown as typeof sql;

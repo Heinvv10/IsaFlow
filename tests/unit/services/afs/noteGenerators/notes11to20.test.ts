@@ -5,6 +5,16 @@ vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
+// Note generators call getCompanyTerminology which issues its own SELECT.
+// Stub it so the test's mockSql.mockResolvedValueOnce chains are not
+// consumed by the terminology lookup.
+vi.mock('@/modules/accounting/services/afs/entityTerminology', async (orig) => {
+  const actual = await orig<typeof import('@/modules/accounting/services/afs/entityTerminology')>();
+  return {
+    ...actual,
+    getCompanyTerminology: vi.fn().mockResolvedValue(actual.getTerminology('pty')),
+  };
+});
 
 import { sql } from '@/lib/neon';
 import {
