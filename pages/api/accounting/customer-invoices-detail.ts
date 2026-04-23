@@ -15,6 +15,7 @@ import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { UUID, ISODate } from '@/lib/schemas/common';
 import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerPaymentService';
+import { snapshotInvoicePdf } from '@/modules/accounting/services/ar/invoicePdfSnapshotService';
 type Row = Record<string, unknown>;
 
 const GetQuerySchema = z.object({ id: UUID });
@@ -129,8 +130,24 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
     }
 
+    // PRD-06 Phase 1: seal the rendered PDF as evidence on approve/send.
+    // Non-blocking: if storage is flaky the status transition still succeeds;
+    // a later admin can re-trigger via POST /ar/invoice/[id]/pdf.
+    let evidenceDocumentId: string | null = null;
+    if (action === 'approve' || action === 'send') {
+      try {
+        const snapshot = await snapshotInvoicePdf(companyId, id);
+        evidenceDocumentId = snapshot.documentId;
+        log.info('Customer invoice PDF snapshot sealed', {
+          id, documentId: snapshot.documentId, wasExisting: snapshot.wasExisting,
+        });
+      } catch (snapErr) {
+        log.error('PDF snapshot failed (invoice still transitioned)', { id, error: snapErr });
+      }
+    }
+
     log.info('Customer invoice action', { id, action, newStatus });
-    return apiResponse.success(res, { id, status: newStatus, glJournalEntryId });
+    return apiResponse.success(res, { id, status: newStatus, glJournalEntryId, evidenceDocumentId });
   }
 
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'PUT', 'POST']);

@@ -116,6 +116,20 @@ describe('resolveAccountEvidence', () => {
     expect(row.postingAgent).toBe('ai:ai-invoice-pipeline:v1');
     expect(row.sourceDocumentId).toBe(DOC_ID);
     expect(row.documentVendor).toBe('Makro SA');
+    // PRD-06: when the JE is not AR-backed, both AR fields stay null.
+    expect(row.customerInvoiceId).toBeNull();
+    expect(row.sealedPdfUrl).toBeNull();
+  });
+
+  it('surfaces sealedPdfUrl when the JE is backed by a customer invoice', async () => {
+    const CI_ID = 'cccccccc-0000-0000-0000-0000deadbeef';
+    vi.mocked(sql).mockResolvedValueOnce([
+      makeEvidenceRow({ customer_invoice_id: CI_ID, customer_invoice_number: 'INV-2026-0001' }),
+    ] as never);
+
+    const [row] = await resolveAccountEvidence(COMPANY_ID, GL_ACCOUNT_ID);
+    expect(row!.customerInvoiceId).toBe(CI_ID);
+    expect(row!.sealedPdfUrl).toBe(`/api/accounting/ar/invoice/${CI_ID}/pdf`);
   });
 
   it('passes fromDate and toDate opts — sql is called once (params embedded in template)', async () => {
@@ -234,6 +248,7 @@ describe('resolveJournalEntryEvidence', () => {
   it('returns JeEvidenceDetail with je, lines, and document on full match', async () => {
     vi.mocked(sql).mockResolvedValueOnce([makeJeRow()] as never);          // je query
     vi.mocked(sql).mockResolvedValueOnce([makeLineRow()] as never);        // lines query
+    vi.mocked(sql).mockResolvedValueOnce([] as never);                     // arLink (no AR invoice)
     vi.mocked(sql).mockResolvedValueOnce([makeDocRow()] as never);         // document query
 
     const detail = await resolveJournalEntryEvidence(COMPANY_ID, JE_ID);
@@ -253,19 +268,21 @@ describe('resolveJournalEntryEvidence', () => {
   it('returns document=null when source_document_id is null on the JE (legacy rows)', async () => {
     vi.mocked(sql).mockResolvedValueOnce([makeJeRow({ source_document_id: null })] as never);
     vi.mocked(sql).mockResolvedValueOnce([makeLineRow()] as never);
-    // No third sql call — document query is skipped when source_document_id is null
+    vi.mocked(sql).mockResolvedValueOnce([] as never); // arLink miss too
+    // No fourth sql call — document query is skipped when effectiveDocId is null
 
     const detail = await resolveJournalEntryEvidence(COMPANY_ID, JE_ID);
 
     expect(detail).not.toBeNull();
     expect(detail!.document).toBeNull();
-    // Only 2 sql calls: je + lines (no doc lookup)
-    expect(vi.mocked(sql)).toHaveBeenCalledTimes(2);
+    // Only 3 sql calls: je + lines + arLink (no doc lookup)
+    expect(vi.mocked(sql)).toHaveBeenCalledTimes(3);
   });
 
   it('returns document=null when source_document_id set but document row not found', async () => {
     vi.mocked(sql).mockResolvedValueOnce([makeJeRow()] as never);
     vi.mocked(sql).mockResolvedValueOnce([makeLineRow()] as never);
+    vi.mocked(sql).mockResolvedValueOnce([] as never); // arLink miss
     vi.mocked(sql).mockResolvedValueOnce([] as never); // doc query returns empty
 
     const detail = await resolveJournalEntryEvidence(COMPANY_ID, JE_ID);
@@ -276,6 +293,7 @@ describe('resolveJournalEntryEvidence', () => {
   it('maps line debit and credit as numbers', async () => {
     vi.mocked(sql).mockResolvedValueOnce([makeJeRow()] as never);
     vi.mocked(sql).mockResolvedValueOnce([makeLineRow({ debit: '5000', credit: '0' })] as never);
+    vi.mocked(sql).mockResolvedValueOnce([] as never); // arLink miss
     vi.mocked(sql).mockResolvedValueOnce([makeDocRow()] as never);
 
     const detail = await resolveJournalEntryEvidence(COMPANY_ID, JE_ID);
@@ -286,6 +304,7 @@ describe('resolveJournalEntryEvidence', () => {
   it('maps document totalAmount and vatAmount as numbers', async () => {
     vi.mocked(sql).mockResolvedValueOnce([makeJeRow()] as never);
     vi.mocked(sql).mockResolvedValueOnce([makeLineRow()] as never);
+    vi.mocked(sql).mockResolvedValueOnce([] as never); // arLink miss
     vi.mocked(sql).mockResolvedValueOnce([makeDocRow({ total_amount: '10000', vat_amount: '1304.35' })] as never);
 
     const detail = await resolveJournalEntryEvidence(COMPANY_ID, JE_ID);
@@ -299,6 +318,7 @@ describe('resolveJournalEntryEvidence', () => {
       makeJeRow({ description: null, posting_agent: null, extraction_confidence: null, source_document_hash: null }),
     ] as never);
     vi.mocked(sql).mockResolvedValueOnce([makeLineRow()] as never);
+    vi.mocked(sql).mockResolvedValueOnce([] as never); // arLink miss
     vi.mocked(sql).mockResolvedValueOnce([makeDocRow()] as never);
 
     const detail = await resolveJournalEntryEvidence(COMPANY_ID, JE_ID);
@@ -311,10 +331,41 @@ describe('resolveJournalEntryEvidence', () => {
   it('returns empty lines array when JE has no journal lines', async () => {
     vi.mocked(sql).mockResolvedValueOnce([makeJeRow()] as never);
     vi.mocked(sql).mockResolvedValueOnce([] as never); // no lines
+    vi.mocked(sql).mockResolvedValueOnce([] as never); // arLink miss
     vi.mocked(sql).mockResolvedValueOnce([makeDocRow()] as never);
 
     const detail = await resolveJournalEntryEvidence(COMPANY_ID, JE_ID);
     expect(detail!.lines).toHaveLength(0);
+  });
+
+  // ── PRD-06 Phase 1: AR snapshot drill-through ─────────────────────────────
+  it('prefers the AR customer_invoice snapshot over the JE source_document_id', async () => {
+    const CI_ID = 'cccccccc-0000-0000-0000-000000001234';
+    const AR_DOC_ID = 'dddddddd-0000-0000-0000-00000000abcd';
+
+    vi.mocked(sql).mockResolvedValueOnce([makeJeRow()] as never);   // je
+    vi.mocked(sql).mockResolvedValueOnce([makeLineRow()] as never); // lines
+    vi.mocked(sql).mockResolvedValueOnce([
+      { id: CI_ID, source_document_id: AR_DOC_ID },
+    ] as never); // arLink hit with sealed snapshot
+    vi.mocked(sql).mockResolvedValueOnce([makeDocRow({ id: AR_DOC_ID })] as never);
+
+    const detail = await resolveJournalEntryEvidence(COMPANY_ID, JE_ID);
+
+    expect(detail!.customerInvoiceId).toBe(CI_ID);
+    expect(detail!.sealedPdfUrl).toBe(`/api/accounting/ar/invoice/${CI_ID}/pdf`);
+    expect(detail!.document!.id).toBe(AR_DOC_ID);
+  });
+
+  it('leaves customerInvoiceId and sealedPdfUrl null for non-AR JEs', async () => {
+    vi.mocked(sql).mockResolvedValueOnce([makeJeRow()] as never);
+    vi.mocked(sql).mockResolvedValueOnce([makeLineRow()] as never);
+    vi.mocked(sql).mockResolvedValueOnce([] as never); // arLink miss
+    vi.mocked(sql).mockResolvedValueOnce([makeDocRow()] as never);
+
+    const detail = await resolveJournalEntryEvidence(COMPANY_ID, JE_ID);
+    expect(detail!.customerInvoiceId).toBeNull();
+    expect(detail!.sealedPdfUrl).toBeNull();
   });
 
   it('propagates sql errors to caller', async () => {

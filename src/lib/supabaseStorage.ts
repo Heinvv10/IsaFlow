@@ -39,9 +39,30 @@ export function getStorageClient(): StorageClient {
 export const CAPTURED_DOCS_BUCKET =
   process.env.SUPABASE_CAPTURED_DOCS_BUCKET ?? 'captured-documents';
 
+export const CUSTOMER_INVOICES_BUCKET =
+  process.env.SUPABASE_CUSTOMER_INVOICES_BUCKET ?? 'customer-invoices';
+
 export interface UploadResult {
   bucket: string;
   path: string;
+}
+
+async function uploadToBucket(
+  bucket: string,
+  path: string,
+  buffer: Buffer,
+  contentType: string,
+): Promise<UploadResult> {
+  const { error } = await getStorageClient()
+    .from(bucket)
+    .upload(path, buffer, { contentType, upsert: false });
+
+  if (error) {
+    log.error('Storage upload failed', { bucket, path, error: error.message }, 'supabase-storage');
+    throw new Error(`Storage upload failed: ${error.message}`);
+  }
+
+  return { bucket, path };
 }
 
 export async function uploadCapturedDocument(
@@ -50,20 +71,47 @@ export async function uploadCapturedDocument(
   buffer: Buffer,
   contentType: string,
 ): Promise<UploadResult> {
-  const path = `${companyId}/${documentId}`;
-  const { error } = await getStorageClient()
-    .from(CAPTURED_DOCS_BUCKET)
-    .upload(path, buffer, {
-      contentType,
-      upsert: false,
-    });
+  return uploadToBucket(CAPTURED_DOCS_BUCKET, `${companyId}/${documentId}`, buffer, contentType);
+}
 
-  if (error) {
-    log.error('Storage upload failed', { bucket: CAPTURED_DOCS_BUCKET, path, error: error.message }, 'supabase-storage');
-    throw new Error(`Storage upload failed: ${error.message}`);
+/**
+ * Upload a sealed customer invoice PDF snapshot. The path is
+ * `${companyId}/${documentId}.pdf` so bucket listing stays tenant-scoped and
+ * the file extension is preserved for Supabase's content-type negotiation.
+ */
+export async function uploadCustomerInvoicePdf(
+  companyId: string,
+  documentId: string,
+  buffer: Buffer,
+): Promise<UploadResult> {
+  await ensureCustomerInvoicesBucket();
+  return uploadToBucket(
+    CUSTOMER_INVOICES_BUCKET,
+    `${companyId}/${documentId}.pdf`,
+    buffer,
+    'application/pdf',
+  );
+}
+
+let customerInvoicesBucketChecked = false;
+
+/**
+ * Lazy bucket provisioner. Supabase's createBucket is idempotent via the
+ * "already exists" error code, which we swallow. First call per process does
+ * the network round-trip; subsequent calls are no-ops.
+ */
+export async function ensureCustomerInvoicesBucket(): Promise<void> {
+  if (customerInvoicesBucketChecked) return;
+
+  const { error } = await getStorageClient().createBucket(CUSTOMER_INVOICES_BUCKET, {
+    public: false,
+  });
+
+  if (error && !/already exists/i.test(error.message)) {
+    log.warn('Customer invoices bucket create failed', { error: error.message }, 'supabase-storage');
   }
 
-  return { bucket: CAPTURED_DOCS_BUCKET, path };
+  customerInvoicesBucketChecked = true;
 }
 
 export async function downloadCapturedDocument(
