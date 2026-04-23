@@ -66,9 +66,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           ci.currency_code,
           ci.exchange_rate,
           ci.functional_total,
-          c.name AS client_name
+          c.name AS client_name,
+          vs.last_viewed_at,
+          COALESCE(vs.view_count, 0) AS view_count
         FROM customer_invoices ci
         LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
+        LEFT JOIN customer_invoice_view_summary vs
+          ON vs.customer_invoice_id = ci.id AND vs.company_id = ci.company_id
         WHERE ci.company_id = ${companyId}::UUID
           AND ci.deleted_at IS NULL
           AND (${statusValues}::text[] IS NULL OR ci.status = ANY(${statusValues}::text[]))

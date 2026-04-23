@@ -11,6 +11,15 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import crypto from 'crypto';
+import { hashSessionToken } from '@/modules/accounting/services/ar/portalTokenService';
+import { logCustomerInvoiceView } from '@/modules/accounting/services/ar/readReceiptService';
+
+function clientIp(req: NextApiRequest): string | null {
+  const xf = req.headers['x-forwarded-for'];
+  if (typeof xf === 'string' && xf.length) return xf.split(',')[0]!.trim();
+  if (Array.isArray(xf) && xf[0]) return xf[0]!.split(',')[0]!.trim();
+  return req.socket.remoteAddress ?? null;
+}
 
 type Row = Record<string, unknown>;
 
@@ -50,9 +59,11 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.notFound(res, 'Invoice');
   }
 
+  const started = Date.now();
   const rows = (await sql`
     SELECT
       ci.id,
+      ci.company_id,
       ci.invoice_number,
       ci.invoice_date,
       ci.due_date,
@@ -86,8 +97,8 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
 
   const inv = rows[0];
   const invoiceId = String(inv.id);
+  const companyId = String(inv.company_id);
 
-  // Mark first view
   if (!inv.portal_viewed_at) {
     await sql`
       UPDATE customer_invoices
@@ -96,6 +107,18 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     `;
     log.info('Portal invoice first view', { invoiceId }, 'Portal');
   }
+
+  // PRD-06 Phase 2 — per-view log. IP is recorded for fraud screening in a later
+  // phase; we never reject on change (decision: log-only).
+  await logCustomerInvoiceView({
+    invoiceId,
+    companyId,
+    viewSource: 'portal',
+    sessionTokenHash: hashSessionToken(token),
+    ipAddress: clientIp(req),
+    userAgent: typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : null,
+    responseTimeMs: Date.now() - started,
+  });
 
   // Fetch line items
   const itemRows = (await sql`

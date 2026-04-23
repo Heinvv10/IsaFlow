@@ -7,7 +7,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { FileText, Loader2, AlertCircle, Plus, AlertTriangle, CheckCircle, CircleDollarSign } from 'lucide-react';
+import { FileText, Loader2, AlertCircle, Plus, AlertTriangle, CheckCircle, CircleDollarSign, Eye } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { StatusPill, KpiStrip } from '@/components/ui';
 import Link from 'next/link';
@@ -28,6 +28,23 @@ interface Invoice {
   reference?: string;
   invoice_date: string;
   due_date?: string;
+  last_viewed_at?: string | null;
+  view_count?: number;
+}
+
+function relativeTimeSince(iso: string): string {
+  const now = Date.now();
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return '—';
+  const diffSec = Math.max(0, Math.floor((now - then) / 1000));
+  if (diffSec < 60) return 'just now';
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
+  const days = Math.floor(diffSec / 86400);
+  if (days < 30) return `${days}d ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months}mo ago`;
+  return `${Math.floor(months / 12)}y ago`;
 }
 
 const LIMIT = 25;
@@ -184,6 +201,7 @@ export default function CustomerInvoicesPage() {
                     <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Date</th>
                     <th className="text-right py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Amount</th>
                     <th className="text-right py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Outstanding</th>
+                    <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Last Viewed</th>
                     <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Status</th>
                   </tr>
                 </thead>
@@ -203,6 +221,19 @@ export default function CustomerInvoicesPage() {
                         <td className="py-3 px-4 text-right font-mono tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(Number(inv.total_amount))}</td>
                         <td className={`py-3 px-4 text-right font-mono tabular-nums ${outstanding > 0 ? 'text-amber-400' : 'text-teal-400'}`}>
                           {formatCurrency(outstanding)}
+                        </td>
+                        <td className="py-3 px-4 whitespace-nowrap">
+                          {inv.last_viewed_at ? (
+                            <span
+                              className="inline-flex items-center gap-1.5 text-xs text-[var(--ff-text-secondary)]"
+                              title={`${inv.view_count ?? 0} view${inv.view_count === 1 ? '' : 's'} · ${new Date(inv.last_viewed_at).toLocaleString('en-ZA')}`}
+                            >
+                              <Eye className="h-3.5 w-3.5 text-teal-400" />
+                              {relativeTimeSince(inv.last_viewed_at)}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-[var(--ff-text-tertiary)]">—</span>
+                          )}
                         </td>
                         <td className="py-3 px-4">
                           <StatusPill status={inv.status} />
