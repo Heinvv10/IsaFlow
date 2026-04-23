@@ -44,6 +44,10 @@
 | Fixed Asset Register — Enhanced FAR | [PRD-04](PRD-04-fixed-asset-register.md) | P1 | 9 weeks |
 | Autonomous Capture & Evidence-First Ledger | [PRD-05](PRD-05-autonomous-capture-evidence-ledger.md) | P0 | 18–22 weeks (5 weeks to shippable slice) |
 | Loan Amortisation Module | [PRD-03](PRD-03-loan-amortisation.md) | P2 | 14 weeks |
+| AR Evidence Capture | [PRD-06](PRD-06-ar-evidence-capture.md) | P0 | 13–15 weeks (4.5 weeks to P0 core) |
+| Audit Chain of Custody | [PRD-07](PRD-07-audit-chain-of-custody.md) | P1 | 7–9 weeks (2 weeks to P0) |
+| Autonomous Close Agent | [PRD-08](PRD-08-autonomous-close-agent.md) | P0 | 13–15 weeks (6 weeks to supervised close) |
+| SARS Ecosystem Integration | [PRD-09](PRD-09-sars-ecosystem-integration.md) | P0 | 18–20 weeks (6 weeks to VAT/PAYE filing) |
 
 ---
 
@@ -123,7 +127,7 @@ Q4 2026:
 
 ## PRD Tracking
 
-> Last updated: 2026-04-20
+> Last updated: 2026-04-23
 
 | PRD | Title | Phase | Status | Notes |
 |-----|-------|-------|--------|-------|
@@ -145,6 +149,11 @@ Q4 2026:
 | PRD-04 | Fixed Asset Register | 2 — Disposals & Journals | ✅ Shipped | Asset disposals with recoupment, GL posting |
 | PRD-04 | Fixed Asset Register | 3 — AFS Integration | ✅ Shipped | PPE movements note auto-populated in AFS |
 | PRD-04 | Fixed Asset Register | 4 — UI & Reporting | ✅ Shipped | Asset register, categories, depreciation schedule pages |
+| PRD-05 | Autonomous Capture & Evidence-First Ledger | 1-12 (all 12 phases) | ✅ Shipped | All phases live: capture channels, evidence ledger, supplier rules, 3/4-way match, bank-first, expectation engine, statement recon, WhatsApp, mirror inbox, expense claims, cross-tenant fraud graph, audit-trail-as-a-product |
+| PRD-06 | AR Evidence Capture | — | 📝 DRAFT | 13–15w; invoice PDF snapshots, portal access log, dispute workflow, receipt auto-match, dunning, sent-mirror, payment rail |
+| PRD-07 | Audit Chain of Custody | — | 📝 DRAFT | 7–9w; per-JE content hash, Merkle trees, OpenTimestamps / RFC3161 anchoring, auditor verifier |
+| PRD-08 | Autonomous Close Agent | — | 📝 DRAFT | 13–15w; orchestrator, step runners, reasoning log, rollback bundles, escalation queue, supervised → autonomous modes |
+| PRD-09 | SARS Ecosystem Integration | — | 📝 DRAFT | 18–20w; close e@syFile gaps, practitioner + delegations, VAT/EMP/EMP501/IRP5/IRP6/ITR14 submission, statement recon, tax-year rollover |
 
 ---
 
