@@ -38,6 +38,7 @@ export const salesTab: Tab = {
         { label: 'Statements', href: '/accounting/customer-statements' },
         { label: 'Generate Statement', href: '/accounting/customers/statement' },
         { label: 'Unallocated Receipts', href: '/accounting/reports/unallocated-receipts' },
+        { label: 'Disputes', href: '/accounting/disputes' },
       ],
     },
     {

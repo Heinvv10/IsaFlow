@@ -48,6 +48,8 @@ export function calculateAgingBuckets(
   const grouped = new Map<string, AgingBucket>();
 
   for (const inv of outstanding) {
+    const disputed = Math.min(Math.max(inv.disputedAmount ?? 0, 0), inv.balance);
+    const nonDisputedBalance = inv.balance - disputed;
     const bucket = getAgingBucket(new Date(inv.dueDate), asAtDate);
 
     if (!grouped.has(inv.entityId)) {
@@ -59,13 +61,15 @@ export function calculateAgingBuckets(
         days60: 0,
         days90: 0,
         days120Plus: 0,
+        disputed: 0,
         total: 0,
       });
     }
 
     const entry = grouped.get(inv.entityId)!;
-    entry[bucket] += inv.balance;
-    entry.total += inv.balance;
+    entry[bucket] += nonDisputedBalance;
+    entry.disputed = (entry.disputed ?? 0) + disputed;
+    entry.total += nonDisputedBalance;
   }
 
   // Sort by total descending
