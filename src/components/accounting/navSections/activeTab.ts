@@ -50,6 +50,7 @@ export function getActiveTabId(
     pathname.startsWith('/accounting/statement-run') ||
     pathname.startsWith('/accounting/statements') ||
     pathname.startsWith('/accounting/dunning') ||
+    pathname.startsWith('/accounting/ar/') ||
     pathname === '/accounting/reports/sales-by-customer' ||
     pathname === '/accounting/reports/unallocated-receipts' ||
     (pathname.startsWith('/accounting/adjustments') && query.type === 'customer')
