@@ -24,6 +24,7 @@ function clientIp(req: NextApiRequest): string | null {
 type Row = Record<string, unknown>;
 
 interface PortalInvoiceLineItem {
+  id: string;
   description: string;
   quantity: number;
   unit_price: number;
@@ -122,13 +123,14 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
 
   // Fetch line items
   const itemRows = (await sql`
-    SELECT description, quantity, unit_price, tax_rate, amount
+    SELECT id, description, quantity, unit_price, tax_rate, amount
     FROM customer_invoice_items
     WHERE invoice_id = ${invoiceId}::UUID
     ORDER BY created_at ASC
   `) as Row[];
 
   const items: PortalInvoiceLineItem[] = itemRows.map(r => ({
+    id: String(r.id),
     description: String(r.description ?? ''),
     quantity: Number(r.quantity),
     unit_price: Number(r.unit_price),

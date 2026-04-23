@@ -9,6 +9,7 @@ import { log } from '@/lib/logger';
 import { calculateAgingBuckets } from '../../utils/aging';
 import type { AgingBucket, AgingInvoice } from '../../types/ap.types';
 import { AR_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
+import { getOpenDisputeTotals } from './disputeService';
 type Row = DbRow;
 
 
@@ -29,6 +30,9 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
       ORDER BY ci.due_date
     `) as Row[];
 
+    const invoiceIds = rows.map((r: Row) => String(r.id));
+    const disputedTotals = await getOpenDisputeTotals(companyId, invoiceIds);
+
     const invoices: AgingInvoice[] = rows.map((r: Row) => ({
       id: String(r.id),
       entityId: String(r.entity_id),
@@ -37,6 +41,7 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
       totalAmount: Number(r.total_amount),
       amountPaid: Number(r.amount_paid),
       balance: Number(r.balance),
+      disputedAmount: disputedTotals.get(String(r.id)) ?? 0,
     }));
 
     // Include unallocated credit notes as negative balances
@@ -94,6 +99,9 @@ export async function getARAgingDetail(companyId: string,
       ORDER BY ci.due_date
     `) as Row[];
 
+    const invoiceIds = rows.map((r: Row) => String(r.id));
+    const disputedTotals = await getOpenDisputeTotals(companyId, invoiceIds);
+
     const invoices: AgingInvoice[] = rows.map((r: Row) => ({
       id: String(r.id),
       entityId: String(r.entity_id),
@@ -102,6 +110,7 @@ export async function getARAgingDetail(companyId: string,
       totalAmount: Number(r.total_amount),
       amountPaid: Number(r.amount_paid),
       balance: Number(r.balance),
+      disputedAmount: disputedTotals.get(String(r.id)) ?? 0,
     }));
 
     const buckets = calculateAgingBuckets(invoices, asAt);

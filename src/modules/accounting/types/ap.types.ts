@@ -201,6 +201,13 @@ export interface AgingBucket {
   days60: number;
   days90: number;
   days120Plus: number;
+  /**
+   * Sum of open dispute amounts for this entity's invoices. Populated by AR
+   * aging only; AP leaves it undefined. When present, the current/days30…
+   * buckets have already had this amount subtracted, so `total` is the
+   * "outstanding excluding disputed" figure that collections owns.
+   */
+  disputed?: number;
   total: number;
 }
 
@@ -212,6 +219,8 @@ export interface AgingInvoice {
   totalAmount: number;
   amountPaid: number;
   balance: number;
+  /** Open-dispute amount for this invoice (AR only). Subtracted from balance before bucketing. */
+  disputedAmount?: number;
 }
 
 // ── Supplier Batch Payments ──────────────────────────────────────────────────

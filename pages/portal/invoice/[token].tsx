@@ -6,12 +6,13 @@
 
 import type { GetServerSideProps } from 'next';
 import Head from 'next/head';
-import { useState } from 'react';
-import { FileText, Download, CreditCard, CheckCircle2, AlertTriangle, Clock, XCircle } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { FileText, Download, CreditCard, CheckCircle2, AlertTriangle, Clock, XCircle, MessageSquareWarning, Loader2 } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface LineItem {
+  id: string;
   description: string;
   quantity: number;
   unit_price: number;
@@ -102,12 +103,15 @@ function PayModal({ onClose, paymentInstructions, accentColor }: {
 
 export default function PortalInvoicePage({ invoice, token, isOverdue }: PortalInvoiceProps) {
   const [showPayModal, setShowPayModal] = useState(false);
+  const [showDisputeModal, setShowDisputeModal] = useState(false);
+  const [disputeSubmitted, setDisputeSubmitted] = useState(false);
 
   const displayStatus = isOverdue && invoice.status === 'sent' ? 'overdue' : invoice.status;
   const statusMeta = STATUS_META[displayStatus] ?? STATUS_META['sent']!;
   const balance = invoice.total_amount - invoice.amount_paid;
   const isPaid = invoice.status === 'paid' || balance <= 0;
   const canPay = !isPaid && !['draft', 'cancelled'].includes(invoice.status) && invoice.portal_allow_payments;
+  const canDispute = !isPaid && ['sent', 'approved', 'partially_paid', 'overdue'].includes(invoice.status);
 
   const headerName = invoice.portal_display_name ?? invoice.company_name;
   const accentColor = invoice.portal_primary_color ?? '#0d9488';
@@ -264,7 +268,22 @@ export default function PortalInvoicePage({ invoice, token, isOverdue }: PortalI
               <Download className="h-4 w-4" />
               Download PDF
             </a>
+            {canDispute && (
+              <button
+                onClick={() => setShowDisputeModal(true)}
+                className="inline-flex items-center gap-2 px-5 py-2.5 border border-amber-300 hover:bg-amber-50 text-amber-700 font-medium text-sm rounded-xl transition-colors"
+              >
+                <MessageSquareWarning className="h-4 w-4" />
+                Dispute this invoice
+              </button>
+            )}
           </div>
+
+          {disputeSubmitted && (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-800 px-4 py-3 text-sm">
+              Dispute received. Our team will review and get back to you.
+            </div>
+          )}
 
           {/* Footer */}
           <p className="text-center text-xs text-gray-600 dark:text-gray-400 pb-8">
@@ -280,7 +299,214 @@ export default function PortalInvoicePage({ invoice, token, isOverdue }: PortalI
           accentColor={accentColor}
         />
       )}
+
+      {showDisputeModal && (
+        <DisputeModal
+          token={token}
+          invoice={invoice}
+          balance={balance}
+          onClose={() => setShowDisputeModal(false)}
+          onSubmitted={() => {
+            setShowDisputeModal(false);
+            setDisputeSubmitted(true);
+          }}
+        />
+      )}
     </>
+  );
+}
+
+// ── Dispute Modal ─────────────────────────────────────────────────────────────
+
+function DisputeModal({
+  token,
+  invoice,
+  balance,
+  onClose,
+  onSubmitted,
+}: {
+  token: string;
+  invoice: PortalInvoiceProps['invoice'];
+  balance: number;
+  onClose: () => void;
+  onSubmitted: () => void;
+}) {
+  const [selectedLineIds, setSelectedLineIds] = useState<Set<string>>(new Set());
+  const [reason, setReason] = useState('');
+  const [amountOverride, setAmountOverride] = useState<string>('');
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const linesMode = selectedLineIds.size > 0;
+
+  const computedAmount = useMemo(() => {
+    if (!linesMode) return balance;
+    let sum = 0;
+    for (const item of invoice.items) {
+      if (selectedLineIds.has(item.id)) sum += Number(item.amount);
+    }
+    return Math.min(sum, balance);
+  }, [selectedLineIds, invoice.items, balance, linesMode]);
+
+  const finalAmount = amountOverride.trim().length > 0 ? Number(amountOverride) : computedAmount;
+
+  function toggle(id: string) {
+    setSelectedLineIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function submit() {
+    try {
+      setSubmitting(true);
+      setErr(null);
+
+      if (!reason.trim()) {
+        setErr('Please tell us why you are disputing.');
+        return;
+      }
+      if (!Number.isFinite(finalAmount) || finalAmount <= 0) {
+        setErr('Disputed amount must be greater than zero.');
+        return;
+      }
+
+      const lineIds = Array.from(selectedLineIds);
+      const body = {
+        reason: reason.trim(),
+        disputedAmount: finalAmount,
+        customerInvoiceLineId: lineIds.length === 1 ? lineIds[0] : null,
+      };
+
+      const res = await fetch(`/api/portal/invoice/${token}/dispute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const json = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+        throw new Error(json?.error?.message ?? `Request failed (${res.status})`);
+      }
+
+      onSubmitted();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not submit dispute');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-2xl shadow-2xl max-w-lg w-full"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-6 py-5 border-b border-gray-100">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-amber-50 flex items-center justify-center">
+              <MessageSquareWarning className="h-5 w-5 text-amber-600" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Dispute invoice</h2>
+              <p className="text-xs text-gray-500 mt-0.5">
+                {invoice.invoice_number} &middot; Balance {fmt(balance, invoice.currency_code)}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="px-6 py-5 space-y-4">
+          <div>
+            <p className="text-xs font-medium text-gray-600 mb-2">
+              Optional — pick the line(s) you're disputing. Leave blank to dispute the whole invoice.
+            </p>
+            <div className="max-h-48 overflow-y-auto border border-gray-100 rounded-lg divide-y divide-gray-50">
+              {invoice.items.map((item) => (
+                <label
+                  key={item.id}
+                  className="flex items-start gap-3 px-3 py-2 text-sm hover:bg-gray-50 cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedLineIds.has(item.id)}
+                    onChange={() => toggle(item.id)}
+                    className="mt-0.5"
+                  />
+                  <span className="flex-1 text-gray-800">{item.description || '—'}</span>
+                  <span className="text-gray-500 tabular-nums">
+                    {fmt(item.amount, invoice.currency_code)}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <label className="block">
+            <span className="text-sm font-medium text-gray-700">Why are you disputing?</span>
+            <textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              rows={4}
+              maxLength={2000}
+              className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
+              placeholder="Briefly describe the issue (e.g. item not delivered, wrong amount)…"
+            />
+          </label>
+
+          <label className="block">
+            <span className="text-sm font-medium text-gray-700">
+              Amount disputed ({invoice.currency_code})
+            </span>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={
+                amountOverride.length > 0
+                  ? amountOverride
+                  : computedAmount.toFixed(2)
+              }
+              onChange={(e) => setAmountOverride(e.target.value)}
+              className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
+            />
+            <span className="text-xs text-gray-500 mt-1 block">
+              Defaults to the selected lines, or the full balance. Editable.
+            </span>
+          </label>
+
+          {err && (
+            <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              {err}
+            </div>
+          )}
+        </div>
+
+        <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            disabled={submitting}
+            className="px-4 py-2 text-sm rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => void submit()}
+            disabled={submitting}
+            className="px-4 py-2 text-sm rounded-lg bg-amber-600 text-white hover:bg-amber-700 flex items-center gap-2"
+          >
+            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+            Submit dispute
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
