@@ -18,7 +18,10 @@ export interface SupplierRule {
   id: string;
   companyId: string;
   supplierId: string;
+  supplierName?: string | null;
   defaultGlAccountId: string | null;
+  defaultGlAccountCode?: string | null;
+  defaultGlAccountName?: string | null;
   defaultVatCode: string | null;
   defaultCostCentreId: string | null;
   defaultProjectId: string | null;
@@ -52,7 +55,10 @@ function mapRow(row: Row): SupplierRule {
     id: String(row.id),
     companyId: String(row.company_id),
     supplierId: String(row.supplier_id),
+    supplierName: row.supplier_name ? String(row.supplier_name) : null,
     defaultGlAccountId: row.default_gl_account_id ? String(row.default_gl_account_id) : null,
+    defaultGlAccountCode: row.default_gl_account_code ? String(row.default_gl_account_code) : null,
+    defaultGlAccountName: row.default_gl_account_name ? String(row.default_gl_account_name) : null,
     defaultVatCode: row.default_vat_code ? String(row.default_vat_code) : null,
     defaultCostCentreId: row.default_cost_centre_id ? String(row.default_cost_centre_id) : null,
     defaultProjectId: row.default_project_id ? String(row.default_project_id) : null,
@@ -74,9 +80,15 @@ function mapRow(row: Row): SupplierRule {
 
 export async function listRules(companyId: string): Promise<SupplierRule[]> {
   const rows = (await sql`
-    SELECT * FROM supplier_coding_rules
-    WHERE company_id = ${companyId}::uuid
-    ORDER BY updated_at DESC
+    SELECT r.*,
+           s.name        AS supplier_name,
+           ga.account_code AS default_gl_account_code,
+           ga.account_name AS default_gl_account_name
+    FROM supplier_coding_rules r
+    JOIN suppliers s       ON s.id = r.supplier_id AND s.company_id = ${companyId}::uuid
+    LEFT JOIN gl_accounts ga ON ga.id = r.default_gl_account_id
+    WHERE r.company_id = ${companyId}::uuid
+    ORDER BY r.updated_at DESC
   `) as Row[];
   return rows.map(mapRow);
 }
@@ -86,9 +98,15 @@ export async function getRule(
   supplierId: string,
 ): Promise<SupplierRule | null> {
   const rows = (await sql`
-    SELECT * FROM supplier_coding_rules
-    WHERE company_id = ${companyId}::uuid
-      AND supplier_id = ${supplierId}::uuid
+    SELECT r.*,
+           s.name        AS supplier_name,
+           ga.account_code AS default_gl_account_code,
+           ga.account_name AS default_gl_account_name
+    FROM supplier_coding_rules r
+    JOIN suppliers s       ON s.id = r.supplier_id AND s.company_id = ${companyId}::uuid
+    LEFT JOIN gl_accounts ga ON ga.id = r.default_gl_account_id
+    WHERE r.company_id = ${companyId}::uuid
+      AND r.supplier_id = ${supplierId}::uuid
     LIMIT 1
   `) as Row[];
   return rows[0] ? mapRow(rows[0]) : null;

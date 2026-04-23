@@ -268,13 +268,13 @@ export default function AuditTrailPage() {
               <h3 className="text-base font-semibold text-[var(--ff-text-primary)] mb-4">New audit pack</h3>
               <div className="space-y-3 text-sm">
                 <div>
-                  <label className="text-xs text-slate-400 mb-1 block">Period start</label>
-                  <input type="date" value={periodStart} onChange={e => setPeriodStart(e.target.value)}
+                  <label htmlFor="audit-pack-period-start" className="text-xs text-slate-400 mb-1 block">Period start</label>
+                  <input id="audit-pack-period-start" type="date" value={periodStart} onChange={e => setPeriodStart(e.target.value)}
                     className="w-full px-3 py-2 rounded bg-white/5 border border-[rgba(255,255,255,0.1)] text-slate-200" />
                 </div>
                 <div>
-                  <label className="text-xs text-slate-400 mb-1 block">Period end</label>
-                  <input type="date" value={periodEnd} onChange={e => setPeriodEnd(e.target.value)}
+                  <label htmlFor="audit-pack-period-end" className="text-xs text-slate-400 mb-1 block">Period end</label>
+                  <input id="audit-pack-period-end" type="date" value={periodEnd} onChange={e => setPeriodEnd(e.target.value)}
                     className="w-full px-3 py-2 rounded bg-white/5 border border-[rgba(255,255,255,0.1)] text-slate-200" />
                 </div>
                 <p className="text-xs text-slate-500">Includes all posted journal entries in the range, sealed with a SHA-256 hash.</p>
