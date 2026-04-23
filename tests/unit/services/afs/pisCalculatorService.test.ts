@@ -20,7 +20,8 @@ describe('pisCalculatorService', () => {
   it('computes PIS correctly from GL data', async () => {
     mockSql
       .mockResolvedValueOnce([{ total_revenue: '5000000' }])
-      .mockResolvedValueOnce([{ total_liabilities: '2000000' }]);
+      .mockResolvedValueOnce([{ total_liabilities: '2000000' }])
+      .mockResolvedValueOnce([{ emp_begin: 0, emp_end: 0, sh_count: 0, all_dirs: false }]);
 
     const result = await computePisScore(COMPANY, '2025-03-01', '2026-02-28');
 
@@ -39,7 +40,8 @@ describe('pisCalculatorService', () => {
     // 200M revenue + 150M liabilities = 350 PIS
     mockSql
       .mockResolvedValueOnce([{ total_revenue: '200000000' }])
-      .mockResolvedValueOnce([{ total_liabilities: '150000000' }]);
+      .mockResolvedValueOnce([{ total_liabilities: '150000000' }])
+      .mockResolvedValueOnce([{ emp_begin: 0, emp_end: 0, sh_count: 0, all_dirs: false }]);
 
     const result = await computePisScore(COMPANY, '2025-03-01', '2026-02-28');
 
@@ -53,7 +55,8 @@ describe('pisCalculatorService', () => {
     // 50M revenue + 10M liabilities = 60 PIS
     mockSql
       .mockResolvedValueOnce([{ total_revenue: '50000000' }])
-      .mockResolvedValueOnce([{ total_liabilities: '10000000' }]);
+      .mockResolvedValueOnce([{ total_liabilities: '10000000' }])
+      .mockResolvedValueOnce([{ emp_begin: 0, emp_end: 0, sh_count: 0, all_dirs: false }]);
 
     const result = await computePisScore(COMPANY, '2025-03-01', '2026-02-28');
 
@@ -67,7 +70,8 @@ describe('pisCalculatorService', () => {
     // 1_500_500 / 1_000_000 = 1.5005 → rounds to 1.5
     mockSql
       .mockResolvedValueOnce([{ total_revenue: '1500500' }])
-      .mockResolvedValueOnce([{ total_liabilities: '0' }]);
+      .mockResolvedValueOnce([{ total_liabilities: '0' }])
+      .mockResolvedValueOnce([{ emp_begin: 0, emp_end: 0, sh_count: 0, all_dirs: false }]);
 
     const result = await computePisScore(COMPANY, '2025-03-01', '2026-02-28');
 
@@ -77,7 +81,8 @@ describe('pisCalculatorService', () => {
   it('returns zero points when GL is empty', async () => {
     mockSql
       .mockResolvedValueOnce([{ total_revenue: '0' }])
-      .mockResolvedValueOnce([{ total_liabilities: '0' }]);
+      .mockResolvedValueOnce([{ total_liabilities: '0' }])
+      .mockResolvedValueOnce([{ emp_begin: 0, emp_end: 0, sh_count: 0, all_dirs: false }]);
 
     const result = await computePisScore(COMPANY, '2025-03-01', '2026-02-28');
 
@@ -89,7 +94,8 @@ describe('pisCalculatorService', () => {
   it('dataUnavailable always includes stubbed fields', async () => {
     mockSql
       .mockResolvedValueOnce([{ total_revenue: '0' }])
-      .mockResolvedValueOnce([{ total_liabilities: '0' }]);
+      .mockResolvedValueOnce([{ total_liabilities: '0' }])
+      .mockResolvedValueOnce([{ emp_begin: 0, emp_end: 0, sh_count: 0, all_dirs: false }]);
 
     const result = await computePisScore(COMPANY, '2025-03-01', '2026-02-28');
 

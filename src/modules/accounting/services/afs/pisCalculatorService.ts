@@ -141,6 +141,7 @@ export async function computePisScore(
   // Track which fields are still at defaults (potential data unavailable)
   const dataUnavailable: string[] = [];
   if (empBegin === 0 && empEnd === 0) dataUnavailable.push('employee_count');
+  if (!company || shCount === 0) dataUnavailable.push('shareholder_count');
 
   log.info('pisCalculatorService: PIS computed', { companyId, total, requiredFramework, requiredAudit });
 

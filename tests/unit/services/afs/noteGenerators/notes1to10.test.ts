@@ -62,9 +62,12 @@ describe('notes1to10 generators', () => {
         },
       ]);
       const { content } = await generateNote1AccountingPolicies(COMPANY_ID, FISCAL_YEAR);
-      const paragraph = content.blocks.find((b) => b.type === 'paragraph');
-      expect(paragraph).toBeDefined();
-      expect((paragraph as { type: 'paragraph'; text: string }).text).toContain('straight-line');
+      // Accounting policies renders a sequence of paragraphs — basis of
+      // preparation first, then individual policies. Verify at least one
+      // carries the characteristic "straight-line" depreciation text.
+      const paragraphs = content.blocks.filter((b) => b.type === 'paragraph') as Array<{ type: 'paragraph'; text: string }>;
+      expect(paragraphs.length).toBeGreaterThan(0);
+      expect(paragraphs.some(p => /straight-line/i.test(p.text))).toBe(true);
     });
 
     it('uses defaults when company row is missing', async () => {
@@ -195,11 +198,12 @@ describe('notes1to10 generators', () => {
   // ── Note 5 ────────────────────────────────────────────────────────────────
 
   describe('generateNote5IntangibleAssets', () => {
-    it('returns placeholder without DB call', async () => {
+    it('suppresses with zero_balance when no intangible asset rows exist', async () => {
+      mockSql.mockResolvedValueOnce([]);
       const result = await generateNote5IntangibleAssets(COMPANY_ID, FISCAL_YEAR);
-      expect(result.dataSnapshot).toHaveProperty('suppressReason', 'table_not_implemented');
+      expect(result.dataSnapshot).toHaveProperty('suppressReason', 'zero_balance');
       expect(result.content.title).toBe('Intangible Assets');
-      expect(mockSql).not.toHaveBeenCalled();
+      expect(mockSql).toHaveBeenCalled();
     });
   });
 
@@ -259,11 +263,12 @@ describe('notes1to10 generators', () => {
   // ── Note 9 ────────────────────────────────────────────────────────────────
 
   describe('generateNote9Inventories', () => {
-    it('returns placeholder without DB call', async () => {
+    it('suppresses with zero_balance when no inventory rows exist', async () => {
+      mockSql.mockResolvedValueOnce([]);
       const result = await generateNote9Inventories(COMPANY_ID, FISCAL_YEAR);
-      expect(result.dataSnapshot).toHaveProperty('suppressReason', 'table_not_implemented');
+      expect(result.dataSnapshot).toHaveProperty('suppressReason', 'zero_balance');
       expect(result.content.title).toBe('Inventories');
-      expect(mockSql).not.toHaveBeenCalled();
+      expect(mockSql).toHaveBeenCalled();
     });
   });
 
