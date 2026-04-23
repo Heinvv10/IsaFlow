@@ -444,7 +444,9 @@ export default function LoginPage() {
           </div>
         )}
 
-        {/* Footer link — only on credentials screen */}
+        {/* Footer link — only on credentials screen. Pre-launch, public
+            signups land on the waitlist form; invite flows keep the real
+            "create account" wording. */}
         {!showTotpStep && (
           <p className="text-center text-sm text-slate-500 dark:text-gray-500 mt-6">
             Don&apos;t have an account?{' '}
@@ -452,7 +454,7 @@ export default function LoginPage() {
               href={inviteToken ? `/register?invite=${inviteToken}` : '/register'}
               className="text-teal-400 hover:text-teal-300 transition-colors"
             >
-              Create one
+              {inviteToken ? 'Create one' : 'Join the waitlist'}
             </Link>
           </p>
         )}
