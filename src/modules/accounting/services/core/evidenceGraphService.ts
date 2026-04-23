@@ -28,6 +28,11 @@ export interface AccountEvidenceRow {
   documentReference: string | null;
   documentDate: string | null;
   documentThumbnailUrl: string | null;
+  // PRD-06 Phase 1: AR-side drill-through. When the JE is backed by a
+  // customer_invoice with a sealed PDF snapshot, surface the invoice id so the
+  // client can fetch the exact bytes via GET /ar/invoice/[id]/pdf.
+  customerInvoiceId: string | null;
+  sealedPdfUrl: string | null;
 }
 
 export interface JeLineDetail {
@@ -64,6 +69,9 @@ export interface JeEvidenceDetail {
   };
   lines: JeLineDetail[];
   document: CapturedDocumentRow | null;
+  // PRD-06 Phase 1: AR sealed-snapshot pointer, if the JE came from an invoice.
+  customerInvoiceId: string | null;
+  sealedPdfUrl: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -90,16 +98,26 @@ export async function resolveAccountEvidence(
         COALESCE(jl.credit, 0)      AS credit,
         je.posting_agent            AS posting_agent,
         je.extraction_confidence    AS extraction_confidence,
-        je.source_document_id       AS source_document_id,
-        cd.vendor_name              AS document_vendor,
-        cd.reference_number         AS document_reference,
-        cd.document_date            AS document_date,
+        -- Prefer the AR snapshot when this JE is backed by a customer invoice
+        -- that has a sealed PDF; otherwise fall back to the JE's own link.
+        COALESCE(ci.source_document_id, je.source_document_id) AS source_document_id,
+        COALESCE(cd_ar.vendor_name,       cd.vendor_name)      AS document_vendor,
+        COALESCE(cd_ar.reference_number,  cd.reference_number) AS document_reference,
+        COALESCE(cd_ar.document_date,     cd.document_date)    AS document_date,
+        ci.id                       AS customer_invoice_id,
+        ci.invoice_number           AS customer_invoice_number,
         NULL::TEXT                  AS document_thumbnail_url
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       LEFT JOIN captured_documents cd
              ON cd.id = je.source_document_id
             AND cd.company_id = ${companyId}::uuid
+      LEFT JOIN customer_invoices ci
+             ON ci.gl_journal_entry_id = je.id
+            AND ci.company_id = ${companyId}::uuid
+      LEFT JOIN captured_documents cd_ar
+             ON cd_ar.id = ci.source_document_id
+            AND cd_ar.company_id = ${companyId}::uuid
       WHERE jl.company_id  = ${companyId}::uuid
         AND je.company_id  = ${companyId}::uuid
         AND jl.gl_account_id = ${glAccountId}::uuid
@@ -110,21 +128,32 @@ export async function resolveAccountEvidence(
       LIMIT ${limit}
     `) as Row[];
 
-    return rows.map(r => ({
-      jeId:                  String(r.je_id),
-      entryDate:             String(r.entry_date),
-      entryNumber:           String(r.entry_number),
-      description:           r.description != null ? String(r.description) : null,
-      debit:                 Number(r.debit),
-      credit:                Number(r.credit),
-      postingAgent:          r.posting_agent != null ? String(r.posting_agent) : null,
-      extractionConfidence:  r.extraction_confidence != null ? Number(r.extraction_confidence) : null,
-      sourceDocumentId:      r.source_document_id != null ? String(r.source_document_id) : null,
-      documentVendor:        r.document_vendor != null ? String(r.document_vendor) : null,
-      documentReference:     r.document_reference != null ? String(r.document_reference) : null,
-      documentDate:          r.document_date != null ? String(r.document_date) : null,
-      documentThumbnailUrl:  null,
-    }));
+    return rows.map(r => {
+      const customerInvoiceId = r.customer_invoice_id != null ? String(r.customer_invoice_id) : null;
+      // The sealed PDF is always served via the AR endpoint, which handles
+      // auth + falls back to on-demand render for legacy invoices.
+      const sealedPdfUrl = customerInvoiceId
+        ? `/api/accounting/ar/invoice/${customerInvoiceId}/pdf`
+        : null;
+
+      return {
+        jeId:                  String(r.je_id),
+        entryDate:             String(r.entry_date),
+        entryNumber:           String(r.entry_number),
+        description:           r.description != null ? String(r.description) : null,
+        debit:                 Number(r.debit),
+        credit:                Number(r.credit),
+        postingAgent:          r.posting_agent != null ? String(r.posting_agent) : null,
+        extractionConfidence:  r.extraction_confidence != null ? Number(r.extraction_confidence) : null,
+        sourceDocumentId:      r.source_document_id != null ? String(r.source_document_id) : null,
+        documentVendor:        r.document_vendor != null ? String(r.document_vendor) : null,
+        documentReference:     r.document_reference != null ? String(r.document_reference) : null,
+        documentDate:          r.document_date != null ? String(r.document_date) : null,
+        documentThumbnailUrl:  null,
+        customerInvoiceId,
+        sealedPdfUrl,
+      };
+    });
   } catch (err) {
     log.error('resolveAccountEvidence failed', { companyId, glAccountId, err }, 'evidence-graph');
     throw err;
@@ -168,13 +197,30 @@ export async function resolveJournalEntryEvidence(
       ORDER BY jl.id
     `) as Row[];
 
+    // Look for a customer_invoice that points to this JE — gives us the AR
+    // snapshot pointer, which we prefer over je.source_document_id.
+    const [arLink] = (await sql`
+      SELECT ci.id, ci.source_document_id
+      FROM customer_invoices ci
+      WHERE ci.gl_journal_entry_id = ${jeId}::uuid
+        AND ci.company_id = ${companyId}::uuid
+      LIMIT 1
+    `) as Row[];
+
+    const customerInvoiceId = arLink?.id ? String(arLink.id) : null;
+    const effectiveDocId = arLink?.source_document_id
+      ? String(arLink.source_document_id)
+      : jeRow.source_document_id
+        ? String(jeRow.source_document_id)
+        : null;
+
     let document: CapturedDocumentRow | null = null;
-    if (jeRow.source_document_id) {
+    if (effectiveDocId) {
       const [docRow] = (await sql`
         SELECT id, vendor_name, document_date, reference_number,
                total_amount, vat_amount, status
         FROM captured_documents
-        WHERE id = ${jeRow.source_document_id}::uuid
+        WHERE id = ${effectiveDocId}::uuid
           AND company_id = ${companyId}::uuid
       `) as Row[];
 
@@ -190,6 +236,10 @@ export async function resolveJournalEntryEvidence(
         };
       }
     }
+
+    const sealedPdfUrl = customerInvoiceId
+      ? `/api/accounting/ar/invoice/${customerInvoiceId}/pdf`
+      : null;
 
     return {
       je: {
@@ -213,6 +263,8 @@ export async function resolveJournalEntryEvidence(
         sourceDocumentLineId: r.source_document_line_id != null ? String(r.source_document_line_id) : null,
       })),
       document,
+      customerInvoiceId,
+      sealedPdfUrl,
     };
   } catch (err) {
     log.error('resolveJournalEntryEvidence failed', { companyId, jeId, err }, 'evidence-graph');
