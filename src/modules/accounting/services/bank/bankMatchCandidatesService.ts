@@ -13,6 +13,7 @@ import {
   fetchPurchaseOrderCandidates,
   fetchJournalLineCandidates,
 } from './bankMatchDbQueries';
+import { getReceiptMatchCandidates } from '@/modules/accounting/services/ar/receiptMatchService';
 
 // ── Re-export fetchBankTransaction for the API route ─────────────────────────
 export { fetchBankTransaction } from './bankMatchDbQueries';
@@ -168,14 +169,28 @@ export async function getMatchCandidates(
 
   const args = [companyId, absAmount, txAmount, txDate, txDesc, extractedEntity, invoiceRefs] as const;
 
+  // For receipts we prefer receiptMatchService's scored shortlist (PRD-06 Phase 4):
+  // exact-reference > partial-reference + portal-view > amount + date, with
+  // trigram-indexed invoice_number lookups. Falls back to the legacy
+  // fetchCustomerInvoiceCandidates only if the receipt-match service returns
+  // nothing (e.g., every candidate failed similarity thresholds and had no
+  // amount/date signal).
+  let arCandidates: MatchCandidate[] = [];
+  if (isReceipt) {
+    const arResult = await getReceiptMatchCandidates(bankTransactionId, companyId);
+    arCandidates = arResult.candidates;
+    if (arCandidates.length === 0) {
+      arCandidates = await fetchCustomerInvoiceCandidates(...args);
+    }
+  }
+
   const candidateSets = await Promise.all([
     isReceipt ? [] : fetchSupplierInvoiceCandidates(...args),
-    isReceipt ? fetchCustomerInvoiceCandidates(...args) : [],
     isReceipt ? [] : fetchPurchaseOrderCandidates(...args),
     fetchJournalLineCandidates(companyId, txAmount, txDate, txDesc),
   ]);
 
-  const candidates = candidateSets.flat().sort((a, b) => b.score - a.score);
+  const candidates = [...arCandidates, ...candidateSets.flat()].sort((a, b) => b.score - a.score);
 
   log.info('Fetched bank match candidates', {
     bankTransactionId,
