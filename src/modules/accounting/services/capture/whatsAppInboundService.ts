@@ -244,5 +244,36 @@ export async function ingestTwilioPayload(
   const parsedCommand =
     payload.Body ? parseExpenseCommand(payload.Body) : null;
 
+  // 4. When we have a parsed command and no media-derived event, materialise a
+  //    text-only capture_event so the inbox shows the intent for human review
+  //    (the user promotes to a provisional JE from there). We deliberately do
+  //    NOT auto-post — PRD §9 bans auto-publish of unverified GL data.
+  if (parsedCommand && eventIds.length === 0) {
+    const subject = payload.Body
+      ? `text: ${payload.Body.slice(0, 120)}`
+      : `text: (command: ${parsedCommand.action})`;
+    const eventRows = (await sql`
+      INSERT INTO capture_events (
+        company_id, inbox_id, channel, sender, subject, status, received_at,
+        error
+      ) VALUES (
+        ${companyId},
+        ${inboxId}::uuid,
+        'whatsapp',
+        ${payload.From},
+        ${subject},
+        'extracted',
+        NOW(),
+        ${'wa-text-command: R' + parsedCommand.amount + ' / ' + (parsedCommand.supplierHint ?? '?')}
+      )
+      RETURNING id
+    `) as Row[];
+    const eventId = String(eventRows[0]!.id);
+    eventIds.push(eventId);
+    log.info('whatsAppInbound: text-command capture event created', {
+      companyId, inboxId, eventId, parsedCommand,
+    }, 'whatsapp-inbound');
+  }
+
   return { captureEventIds: eventIds, companyId, parsedCommand };
 }

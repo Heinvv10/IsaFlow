@@ -129,8 +129,10 @@ describe('ingestTwilioPayload', () => {
 
   // ── Text-only (NumMedia=0) ────────────────────────────────────────────────────
 
-  it('text-only with parseable expense body → parsedCommand set, captureEventIds empty', async () => {
-    vi.mocked(sqlMock).mockResolvedValueOnce([makeInboxRow()] as never);
+  it('text-only with parseable expense body → parsedCommand set + 1 text-command capture_event', async () => {
+    vi.mocked(sqlMock)
+      .mockResolvedValueOnce([makeInboxRow()] as never)   // inbox lookup
+      .mockResolvedValueOnce([{ id: 'evt-1' }] as never); // text-command event INSERT
 
     const result = await ingestTwilioPayload(
       makePayload({ Body: 'paid R850 at Shell', NumMedia: '0' }),
@@ -138,7 +140,7 @@ describe('ingestTwilioPayload', () => {
 
     expect('rejected' in result).toBe(false);
     if ('captureEventIds' in result) {
-      expect(result.captureEventIds).toHaveLength(0);
+      expect(result.captureEventIds).toEqual(['evt-1']);
       expect(result.parsedCommand).not.toBeNull();
       expect(result.parsedCommand?.amount).toBe(850);
       expect(result.companyId).toBe(COMPANY_ID);
