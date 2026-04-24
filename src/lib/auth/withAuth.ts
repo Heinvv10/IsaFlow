@@ -75,6 +75,14 @@ function getAuthPool(): pg.Pool {
 
 export function withAuth(handler: Handler): NextApiHandler {
   return async (req, res) => {
+    // Every authenticated response is tenant-scoped. Browsers cache by URL,
+    // and our Vary header previously didn't include Cookie — meaning a
+    // company switch could be served stale data from a different tenant's
+    // cached response. no-store + Vary: Cookie guarantees tenant isolation
+    // survives HTTP caching.
+    res.setHeader('Cache-Control', 'private, no-store, must-revalidate');
+    res.setHeader('Vary', 'Cookie');
+
     const cookies = parseCookies(req);
     const token = cookies[ACCESS_COOKIE];
     const activeCompanyId = cookies[ACTIVE_COMPANY_COOKIE];
