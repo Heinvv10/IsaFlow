@@ -27,6 +27,15 @@ const nextConfig = {
       '/**/*': [
         './node_modules/sharp/**/*',
         './node_modules/@img/**/*',
+        // pdf-parse is loaded via runtime require() inside a try/catch
+        // (src/modules/accounting/utils/bankPdfParser.ts), so the
+        // standalone-build static tracer doesn't pick it up. Force-include
+        // the package and its native pdfjs-dist + canvas dependencies so
+        // bank statement PDF imports work in production.
+        './node_modules/pdf-parse/**/*',
+        './node_modules/pdfjs-dist/**/*',
+        './node_modules/@napi-rs/canvas/**/*',
+        './node_modules/@napi-rs/canvas-*/**/*',
       ],
     },
   },
