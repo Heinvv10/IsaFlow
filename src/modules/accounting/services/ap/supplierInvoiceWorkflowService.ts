@@ -64,11 +64,13 @@ export async function approveSupplierInvoice(
       description: `AP: ${invoice.invoiceNumber}`,
     });
 
+    // sourceDocumentId FKs to captured_documents(id) — not supplier_invoices.
+    // The invoice↔JE link is maintained via supplier_invoices.gl_journal_entry_id
+    // below.
     const journalEntry = await createJournalEntry(companyId, {
       entryDate: invoice.invoiceDate,
       description: `Supplier invoice ${invoice.invoiceNumber}`,
       source: 'auto_supplier_invoice',
-      sourceDocumentId: id,
       lines,
     }, userId);
 

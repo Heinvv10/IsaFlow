@@ -175,11 +175,13 @@ export async function postCustomerInvoiceToGL(
     const entryDate = inv.invoice_date instanceof Date
       ? inv.invoice_date.toISOString().slice(0, 10)
       : String(inv.invoice_date).slice(0, 10);
+    // sourceDocumentId FKs to captured_documents(id) — not customer_invoices.
+    // The invoice↔JE link is maintained via customer_invoices.gl_journal_entry_id
+    // below.
     const je = await createJournalEntry(companyId, {
       entryDate,
       description: `Customer invoice ${inv.invoice_number}`,
       source: 'auto_invoice',
-      sourceDocumentId: invoiceId,
       lines,
     }, userId);
 
