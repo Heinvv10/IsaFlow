@@ -43,7 +43,7 @@ export default function AdminStitchMandateReturn() {
     (async () => {
       try {
         const res = await apiFetch(
-          `/api/admin/billing/stitch/mandate/verify?ref=${encodeURIComponent(ref)}`,
+          `/api/billing/stitch/mandate/verify?ref=${encodeURIComponent(ref)}`,
         );
         if (!res.ok) throw new Error(`Verification failed (${res.status})`);
         const json = (await res.json()) as { data: MandateVerifyResponse };

@@ -14,6 +14,7 @@ import type { DbRow } from '@/types/db';
 export interface PortalUser {
   id: string;
   clientId: string;
+  companyId: string;
   email: string;
   name: string;
   isActive: boolean;
@@ -66,8 +67,14 @@ export async function createPortalUser(input: {
 }
 
 export async function authenticatePortalUser(email: string, password: string): Promise<PortalUser | null> {
+  // Join customers to bind the portal session to a specific company — pentest H2
+  // fixed the missing company_id scope in downstream queries; the token now
+  // carries companyId so it's verified against a single tenant.
   const rows = (await sql`
-    SELECT * FROM portal_access WHERE email = ${email} AND is_active = true
+    SELECT pa.*, c.company_id AS customer_company_id
+    FROM portal_access pa
+    JOIN customers c ON c.id = pa.client_id
+    WHERE pa.email = ${email} AND pa.is_active = true
   `) as DbRow[];
   if (!rows[0]) return null;
 
@@ -80,21 +87,34 @@ export async function authenticatePortalUser(email: string, password: string): P
 
 export async function listPortalUsers(clientId?: string): Promise<PortalUser[]> {
   const rows = clientId
-    ? (await sql`SELECT * FROM portal_access WHERE client_id = ${clientId}::UUID ORDER BY name`) as DbRow[]
-    : (await sql`SELECT * FROM portal_access ORDER BY name`) as DbRow[];
+    ? (await sql`
+        SELECT pa.*, c.company_id AS customer_company_id
+        FROM portal_access pa
+        JOIN customers c ON c.id = pa.client_id
+        WHERE pa.client_id = ${clientId}::UUID
+        ORDER BY pa.name
+      `) as DbRow[]
+    : (await sql`
+        SELECT pa.*, c.company_id AS customer_company_id
+        FROM portal_access pa
+        JOIN customers c ON c.id = pa.client_id
+        ORDER BY pa.name
+      `) as DbRow[];
   return rows.map(mapPortalUser);
 }
 
 // ── Portal Data ──────────────────────────────────────────────────────────────
 
-export async function getClientInvoices(clientId: string): Promise<PortalInvoice[]> {
+export async function getClientInvoices(clientId: string, companyId: string): Promise<PortalInvoice[]> {
+  // COALESCE(client_id, customer_id) — both columns historically exist (see CLAUDE.md).
   const rows = (await sql`
     SELECT id, invoice_number, invoice_date, due_date, total,
            COALESCE(amount_paid, 0) AS amount_paid,
            (total - COALESCE(amount_paid, 0)) AS balance,
            status
     FROM customer_invoices
-    WHERE client_id = ${clientId}::UUID
+    WHERE COALESCE(client_id, customer_id) = ${clientId}::UUID
+      AND company_id = ${companyId}::UUID
       AND status NOT IN ('draft', 'cancelled')
     ORDER BY invoice_date DESC
   `) as DbRow[];
@@ -111,9 +131,12 @@ export async function getClientInvoices(clientId: string): Promise<PortalInvoice
   }));
 }
 
-export async function getClientStatement(clientId: string, asOfDate: string): Promise<PortalStatement> {
-  // Get client info
-  const clients = (await sql`SELECT name, email FROM customers WHERE id = ${clientId}::UUID`) as DbRow[];
+export async function getClientStatement(clientId: string, companyId: string, asOfDate: string): Promise<PortalStatement> {
+  // Get client info — scoped to company_id to prevent cross-tenant disclosure.
+  const clients = (await sql`
+    SELECT name, email FROM customers
+    WHERE id = ${clientId}::UUID AND company_id = ${companyId}::UUID
+  `) as DbRow[];
   const client = clients[0] || { name: 'Unknown', email: '' };
 
   // Get all transactions for this client
@@ -121,13 +144,17 @@ export async function getClientStatement(clientId: string, asOfDate: string): Pr
     SELECT invoice_date AS date, invoice_number AS reference,
            'Invoice' AS description, total AS debit, 0 AS credit
     FROM customer_invoices
-    WHERE client_id = ${clientId}::UUID AND status NOT IN ('draft', 'cancelled')
+    WHERE COALESCE(client_id, customer_id) = ${clientId}::UUID
+      AND company_id = ${companyId}::UUID
+      AND status NOT IN ('draft', 'cancelled')
       AND invoice_date <= ${asOfDate}::DATE
     UNION ALL
     SELECT payment_date AS date, reference AS reference,
            'Payment' AS description, 0 AS debit, amount AS credit
     FROM customer_payments
-    WHERE client_id = ${clientId}::UUID AND status = 'posted'
+    WHERE COALESCE(client_id, customer_id) = ${clientId}::UUID
+      AND company_id = ${companyId}::UUID
+      AND status = 'posted'
       AND payment_date <= ${asOfDate}::DATE
     ORDER BY date ASC
   `) as DbRow[];
@@ -201,6 +228,7 @@ function mapPortalUser(r: DbRow): PortalUser {
   return {
     id: String(r.id),
     clientId: String(r.client_id),
+    companyId: String(r.customer_company_id ?? ''),
     email: String(r.email),
     name: String(r.name),
     isActive: Boolean(r.is_active),

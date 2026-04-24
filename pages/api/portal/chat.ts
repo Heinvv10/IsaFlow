@@ -8,36 +8,28 @@ import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { classifyClientQuery, buildClientChatPrompt, parseClientChatResponse, sanitizeClientResponse, type ClientContext } from '@/modules/accounting/services/ar/portalChatbotService';
-import { jwtVerify } from 'jose';
+import { verifyArPortalToken } from '@/lib/auth/arPortalJwt';
 import cookie from 'cookie';
-import { checkRateLimit } from '@/lib/rateLimit';
-
-const PORTAL_SECRET = new TextEncoder().encode(
-  (() => { if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET is required'); return process.env.JWT_SECRET + '-portal'; })()
-);
+import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 
 type Row = Record<string, unknown>;
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
 
-  // Authenticate portal session
   const cookies = cookie.parse(req.headers.cookie || '');
   const token = cookies.portal_session;
   if (!token) return res.status(401).json({ success: false, error: { message: 'Not authenticated' } });
-  let sessionClientId: string;
-  try {
-    const { payload } = await jwtVerify(token, PORTAL_SECRET);
-    sessionClientId = payload.clientId as string;
-  } catch {
+  const session = await verifyArPortalToken(token);
+  if (!session) {
     return res.status(401).json({ success: false, error: { message: 'Invalid session' } });
   }
+  const sessionClientId = session.clientId;
+  const sessionCompanyId = session.companyId;
 
   // Rate limit: 20 requests per 15 minutes (calls Claude API)
-  const rawIp = Array.isArray(req.headers['x-forwarded-for'])
-    ? req.headers['x-forwarded-for'][0]
-    : req.headers['x-forwarded-for'] ?? req.socket.remoteAddress;
-  if (!(await checkRateLimit(`portal-chat:${rawIp ?? 'unknown'}`, { max: 20, windowSecs: 15 * 60 }))) {
+  const ip = getClientIp(req);
+  if (!(await checkRateLimit(`portal-chat:${ip}`, { max: 20, windowSecs: 15 * 60 }))) {
     return res.status(429).json({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many requests. Please try again later.' } });
   }
 
@@ -48,13 +40,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const queryType = classifyClientQuery(question);
 
-  // Build client context from DB — parallel queries
+  // Build client context from DB — all queries scoped to session company_id.
   const [clients, balanceRows, overdueRows, invoiceCount, lastPay] = await Promise.all([
-    sql`SELECT name FROM customers WHERE id = ${clientId} LIMIT 1` as Promise<Row[]>,
-    sql`SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) as outstanding FROM customer_invoices WHERE customer_id = ${clientId} AND status NOT IN ('cancelled', 'draft', 'paid')` as Promise<Row[]>,
-    sql`SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) as overdue FROM customer_invoices WHERE customer_id = ${clientId} AND status NOT IN ('cancelled', 'draft', 'paid') AND due_date < CURRENT_DATE` as Promise<Row[]>,
-    sql`SELECT COUNT(*) as cnt FROM customer_invoices WHERE customer_id = ${clientId} AND status NOT IN ('cancelled', 'draft', 'paid')` as Promise<Row[]>,
-    sql`SELECT amount, payment_date FROM customer_payments WHERE customer_id = ${clientId} ORDER BY payment_date DESC LIMIT 1` as Promise<Row[]>,
+    sql`SELECT name FROM customers WHERE id = ${clientId} AND company_id = ${sessionCompanyId}::UUID LIMIT 1` as Promise<Row[]>,
+    sql`SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) as outstanding FROM customer_invoices WHERE COALESCE(client_id, customer_id) = ${clientId} AND company_id = ${sessionCompanyId}::UUID AND status NOT IN ('cancelled', 'draft', 'paid')` as Promise<Row[]>,
+    sql`SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) as overdue FROM customer_invoices WHERE COALESCE(client_id, customer_id) = ${clientId} AND company_id = ${sessionCompanyId}::UUID AND status NOT IN ('cancelled', 'draft', 'paid') AND due_date < CURRENT_DATE` as Promise<Row[]>,
+    sql`SELECT COUNT(*) as cnt FROM customer_invoices WHERE COALESCE(client_id, customer_id) = ${clientId} AND company_id = ${sessionCompanyId}::UUID AND status NOT IN ('cancelled', 'draft', 'paid')` as Promise<Row[]>,
+    sql`SELECT amount, payment_date FROM customer_payments WHERE COALESCE(client_id, customer_id) = ${clientId} AND company_id = ${sessionCompanyId}::UUID ORDER BY payment_date DESC LIMIT 1` as Promise<Row[]>,
   ]);
   const clientName = String(clients[0]?.name || 'Client');
 

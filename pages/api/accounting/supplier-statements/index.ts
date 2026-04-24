@@ -33,7 +33,16 @@ const ALLOWED_MIME_TYPES = [
 
 function parseForm(req: NextApiRequest): Promise<{ fields: formidable.Fields; files: formidable.Files }> {
   return new Promise((resolve, reject) => {
-    const form = formidable({ maxFileSize: MAX_FILE_SIZE, keepExtensions: true });
+    // Pentest H14: formidable was configured without a MIME filter, so disguised
+    // binaries were written to temp files before the post-parse check rejected.
+    const form = formidable({
+      maxFileSize: MAX_FILE_SIZE,
+      keepExtensions: true,
+      filter: (part) => {
+        const mime = part.mimetype ?? '';
+        return !!mime && ALLOWED_MIME_TYPES.includes(mime);
+      },
+    });
     form.parse(req, (err, fields, files) => {
       if (err) reject(err);
       else resolve({ fields, files });

@@ -1,6 +1,7 @@
 // pages/api/auth/do-reset-password.ts
 import type { NextApiHandler } from 'next';
 import { verifyToken, adminUpdateUser } from '@/lib/auth/gotrue';
+import { withRateLimit } from '@/lib/rateLimit';
 import { log } from '@/lib/logger';
 
 const handler: NextApiHandler = async (req, res) => {
@@ -24,4 +25,4 @@ const handler: NextApiHandler = async (req, res) => {
   }
 };
 
-export default handler;
+export default withRateLimit(handler, { max: 10, windowSecs: 900 });

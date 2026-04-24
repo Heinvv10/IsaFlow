@@ -27,6 +27,7 @@ export interface AuditLogFilters {
 const CRITICAL_ACTIONS = new Set([
   'user.suspend', 'user.reset_password', 'user.update', 'user.force_logout',
   'user.impersonate',
+  'impersonation_start',
   'company.suspend', 'company.delete', 'company.impersonate',
   'company.activate', 'company.export_data',
   'subscription.cancel', 'subscription.update',

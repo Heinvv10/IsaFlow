@@ -69,28 +69,19 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise
     targetUserId: target.userId,
   });
 
-  // Audit-log in a try/catch: a transient DB failure here must NOT abort the
-  // impersonation (the stash row is already committed; aborting would lock
-  // the admin out of both their session and the returned stash_id for 1 hour
-  // until the TTL cleans it up). Log the failure and continue.
-  try {
-    await sql`
-      INSERT INTO admin_audit_log (admin_user_id, action, target_type, target_id, details)
-      VALUES (
-        ${req.user.id},
-        'impersonation_start',
-        'user',
-        ${target.userId},
-        ${JSON.stringify({ stash_id: stashId, target_email: target.email })}::jsonb
-      )
-    `;
-  } catch (err) {
-    log.error(
-      'impersonate: audit log insert failed — continuing with session swap',
-      { message: err instanceof Error ? err.message : String(err), stash_id: stashId, admin_user_id: req.user.id, target_user_id: target.userId },
-      'Admin'
-    );
-  }
+  // Pentest H11: impersonation_start is a CRITICAL_ACTION — audit failure
+  // rolls back the whole request (withAuth holds the tx open until the handler
+  // returns). Audit-silent impersonation is not allowed.
+  await sql`
+    INSERT INTO admin_audit_log (admin_user_id, action, target_type, target_id, details)
+    VALUES (
+      ${req.user.id},
+      'impersonation_start',
+      'user',
+      ${target.userId},
+      ${JSON.stringify({ stash_id: stashId, target_email: target.email })}::jsonb
+    )
+  `;
 
   setAuthCookies(res, {
     accessToken: targetTokens.access_token,

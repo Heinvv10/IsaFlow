@@ -1,6 +1,7 @@
 // pages/api/auth/forgot-password.ts
 import type { NextApiHandler } from 'next';
 import { recoverPassword } from '@/lib/auth/gotrue';
+import { checkRateLimit, getClientIp, withRateLimit } from '@/lib/rateLimit';
 import { log } from '@/lib/logger';
 
 const handler: NextApiHandler = async (req, res) => {
@@ -11,6 +12,16 @@ const handler: NextApiHandler = async (req, res) => {
   if (typeof email !== 'string' || email.length < 3) {
     return res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'email required' } });
   }
+
+  const cleanEmail = email.toLowerCase().trim();
+  // Per-email limit stops attackers from spamming a single inbox from many IPs.
+  const emailAllowed = await checkRateLimit(`forgot:email:${cleanEmail}`, { max: 3, windowSecs: 900 });
+  if (!emailAllowed) {
+    log.warn('forgot-password rate limit (email)', { email: cleanEmail, ip: getClientIp(req) }, 'Auth');
+    // Still return 200 to avoid enumeration.
+    return res.status(200).json({ success: true, data: null });
+  }
+
   // The page lives at /reset-password (not /auth/reset-password). Keep in
   // sync with GOTRUE_URI_ALLOW_LIST — GoTrue refuses redirect_to values
   // that aren't in the allow-list and falls back to SITE_URL, which then
@@ -18,7 +29,7 @@ const handler: NextApiHandler = async (req, res) => {
   const redirectTo =
     (process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000') + '/reset-password';
   try {
-    await recoverPassword(email.toLowerCase().trim(), redirectTo);
+    await recoverPassword(cleanEmail, redirectTo);
   } catch (err) {
     log.info('gotrue recover non-fatal', { message: err instanceof Error ? err.message : String(err) }, 'Auth');
   }
@@ -26,4 +37,4 @@ const handler: NextApiHandler = async (req, res) => {
   return res.status(200).json({ success: true, data: null });
 };
 
-export default handler;
+export default withRateLimit(handler, { max: 10, windowSecs: 900 });

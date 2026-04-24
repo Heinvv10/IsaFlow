@@ -4,23 +4,40 @@
  * Split from email-templates.ts to stay within the 300-line limit.
  */
 
+import sanitizeHtml from 'sanitize-html';
+
 // ─── Signature Helper ─────────────────────────────────────────────────────────
+
+// Pentest H12: signatures are user-entered HTML stored in company settings.
+// A tenant admin could inject a <script> tag or malicious handler that is then
+// delivered to every customer/supplier recipient. Sanitise with a narrow
+// allowlist before interpolating into email HTML.
+const SIGNATURE_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
+  allowedTags: ['b', 'strong', 'i', 'em', 'u', 'a', 'br', 'p', 'span', 'div'],
+  allowedAttributes: {
+    a: ['href', 'title'],
+  },
+  allowedSchemes: ['http', 'https', 'mailto'],
+  disallowedTagsMode: 'discard',
+};
 
 /**
  * Appends a per-document-type HTML signature block below the email body.
  * Injected just before </body> so it sits outside the card layout.
- * The signature is stored as user-entered HTML in company settings.
+ * The signature is sanitised against a narrow tag allowlist before interpolation.
  * Returns html unchanged when signature is null/empty.
  */
 export function appendSignatureToHtml(html: string, signature: string | null | undefined): string {
   if (!signature || !signature.trim()) return html;
+  const safeSignature = sanitizeHtml(signature, SIGNATURE_SANITIZE_OPTIONS);
+  if (!safeSignature.trim()) return html;
   const signatureBlock = `
 <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation"
        style="max-width:600px; margin:16px auto 0; padding:0 16px;">
   <tr>
     <td style="font-family:Arial,Helvetica,sans-serif; font-size:13px; color:#64748b;
                line-height:1.6; padding:12px 0; border-top:1px solid #e2e8f0;">
-      ${signature}
+      ${safeSignature}
     </td>
   </tr>
 </table>`;

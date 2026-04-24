@@ -131,6 +131,32 @@ export class ApiResponseHelper {
   }
 
   /**
+   * Send a bad-request error derived from a caught exception.
+   * Logs the original error message + stack internally, but only surfaces
+   * `publicMessage` to the client. Prevents ORM constraint names / internal
+   * detail from leaking via raw `err.message` in production (pentest H16).
+   *
+   * In development, the response body includes the original error for
+   * debugging; in production, only `publicMessage` is returned.
+   */
+  static badRequestFromError(
+    res: NextApiResponse,
+    error: Error | unknown,
+    publicMessage: string
+  ): void {
+    log.warn(
+      'Bad request',
+      error instanceof Error ? { message: error.message, stack: error.stack } : { error },
+      'ApiResponse',
+    );
+    const isDevelopment = process.env.NODE_ENV === 'development';
+    const details = isDevelopment && error instanceof Error
+      ? { originalMessage: error.message }
+      : undefined;
+    this.error(res, ErrorCode.BAD_REQUEST, publicMessage, details);
+  }
+
+  /**
    * Send validation error response
    */
   static validationError(
@@ -292,6 +318,7 @@ export const apiResponse = {
   paginated: ApiResponseHelper.paginated.bind(ApiResponseHelper),
   error: ApiResponseHelper.error.bind(ApiResponseHelper),
   badRequest: ApiResponseHelper.badRequest.bind(ApiResponseHelper),
+  badRequestFromError: ApiResponseHelper.badRequestFromError.bind(ApiResponseHelper),
   validationError: ApiResponseHelper.validationError.bind(ApiResponseHelper),
   notFound: ApiResponseHelper.notFound.bind(ApiResponseHelper),
   unauthorized: ApiResponseHelper.unauthorized.bind(ApiResponseHelper),

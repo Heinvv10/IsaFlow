@@ -73,7 +73,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, updated);
     } catch (err) {
       log.error('Admin: failed to update webhook', { id, error: err }, 'admin-webhooks-id-api');
-      return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Update failed');
+      return apiResponse.badRequestFromError(res, err, 'Update failed');
     }
   }
 
@@ -95,7 +95,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, { deleted: true });
     } catch (err) {
       log.error('Admin: failed to delete webhook', { id, error: err }, 'admin-webhooks-id-api');
-      return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Delete failed');
+      return apiResponse.badRequestFromError(res, err, 'Delete failed');
     }
   }
 

@@ -54,7 +54,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       const batch = await createBatch({ companyId, userId: user.id, ...parsed.data });
       return apiResponse.created(res, batch);
     } catch (err) {
-      return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Create failed');
+      return apiResponse.badRequestFromError(res, err, 'Create failed');
     }
   }
 

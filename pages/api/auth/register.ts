@@ -3,6 +3,7 @@ import type { NextApiHandler } from 'next';
 import pg from 'pg';
 import { adminCreateUser, signIn } from '@/lib/auth/gotrue';
 import { setAuthCookies, setActiveCompanyCookie } from '@/lib/auth/cookies';
+import { withRateLimit } from '@/lib/rateLimit';
 import { log } from '@/lib/logger';
 
 function adminPool(): pg.Pool {
@@ -91,4 +92,4 @@ const handler: NextApiHandler = async (req, res) => {
   });
 };
 
-export default handler;
+export default withRateLimit(handler, { max: 5, windowSecs: 3600 });

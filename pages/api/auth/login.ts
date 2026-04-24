@@ -3,6 +3,7 @@ import type { NextApiHandler } from 'next';
 import { signIn } from '@/lib/auth/gotrue';
 import { listFactors, GotrueMfaError } from '@/lib/auth/gotrue-mfa';
 import { setAuthCookies, setActiveCompanyCookie } from '@/lib/auth/cookies';
+import { checkRateLimit, getClientIp, withRateLimit } from '@/lib/rateLimit';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
@@ -15,9 +16,16 @@ const handler: NextApiHandler = async (req, res) => {
     return res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'email and password required' } });
   }
 
+  const cleanEmail = email.toLowerCase().trim();
+  const emailAllowed = await checkRateLimit(`login:email:${cleanEmail}`, { max: 10, windowSecs: 900 });
+  if (!emailAllowed) {
+    log.warn('login rate limit (email)', { email: cleanEmail, ip: getClientIp(req) }, 'Auth');
+    return res.status(429).json({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many attempts. Please try again later.' } });
+  }
+
   let token;
   try {
-    token = await signIn(email.toLowerCase().trim(), password);
+    token = await signIn(cleanEmail, password);
   } catch (err) {
     log.info('login failed', { email, message: err instanceof Error ? err.message : 'unknown' }, 'Auth');
     return res.status(401).json({ success: false, error: { code: 'INVALID_CREDENTIALS', message: 'Invalid email or password' } });
@@ -73,4 +81,4 @@ const handler: NextApiHandler = async (req, res) => {
   });
 };
 
-export default handler;
+export default withRateLimit(handler, { max: 20, windowSecs: 900 });
