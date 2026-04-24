@@ -11,7 +11,7 @@ import { useState, useEffect, useRef, FormEvent } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Eye, EyeOff, Building2, ShieldCheck } from 'lucide-react';
+import { Eye, EyeOff, Building2, ShieldCheck, Lock } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 
@@ -43,6 +43,31 @@ function getDeviceFingerprint(): string {
     hash = ((hash << 5) + hash) ^ raw.charCodeAt(i);
   }
   return (hash >>> 0).toString(16);
+}
+
+// ── Lockout helpers ───────────────────────────────────────────────────────────
+
+// Pentest PR-3 / M24: /api/auth/login and /api/auth/2fa-challenge return 423
+// ACCOUNT_LOCKED after 10 consecutive failures per (email, ip). The server sets
+// Retry-After; we turn it into a live countdown so the user isn't left guessing.
+function formatLockoutRemaining(seconds: number): string {
+  if (seconds >= 120) return `${Math.ceil(seconds / 60)} minutes`;
+  if (seconds >= 60) return '1 minute';
+  return seconds === 1 ? '1 second' : `${seconds} seconds`;
+}
+
+function LockoutBanner({ secondsRemaining }: { secondsRemaining: number }) {
+  return (
+    <div className="mb-4 px-4 py-3 bg-amber-500/10 border border-amber-500/40 rounded-lg flex items-start gap-3">
+      <Lock className="h-5 w-5 text-amber-400 mt-0.5 flex-shrink-0" />
+      <div className="flex-1">
+        <p className="text-sm font-medium text-amber-300">Sign-in temporarily locked</p>
+        <p className="text-sm text-amber-200/80 mt-0.5">
+          Too many failed attempts from this device. Please try again in {formatLockoutRemaining(secondsRemaining)}.
+        </p>
+      </div>
+    </div>
+  );
 }
 
 // ── 2FA Screen ────────────────────────────────────────────────────────────────
@@ -176,6 +201,28 @@ export default function LoginPage() {
   const [pendingFactor, setPendingFactor] = useState<{ factor_id: string; pending_token: string } | null>(null);
   const [totpError, setTotpError] = useState<string | null>(null);
 
+  // Account lockout state — populated when the API returns 423 ACCOUNT_LOCKED.
+  // `expiresAt` is absolute ms; the countdown re-renders once per second.
+  const [lockoutExpiresAt, setLockoutExpiresAt] = useState<number | null>(null);
+  const [lockoutSecondsRemaining, setLockoutSecondsRemaining] = useState(0);
+
+  useEffect(() => {
+    if (lockoutExpiresAt === null) {
+      setLockoutSecondsRemaining(0);
+      return;
+    }
+    const tick = () => {
+      const remaining = Math.max(0, Math.ceil((lockoutExpiresAt - Date.now()) / 1000));
+      setLockoutSecondsRemaining(remaining);
+      if (remaining === 0) setLockoutExpiresAt(null);
+    };
+    tick();
+    const iv = setInterval(tick, 1000);
+    return () => clearInterval(iv);
+  }, [lockoutExpiresAt]);
+
+  const isLocked = lockoutExpiresAt !== null && lockoutSecondsRemaining > 0;
+
   const inviteToken =
     typeof router.query.invite === 'string' ? router.query.invite : null;
 
@@ -232,6 +279,15 @@ export default function LoginPage() {
         credentials: 'include',
       });
 
+      if (res.status === 423) {
+        const retryAfter = Number(res.headers.get('Retry-After') ?? '1800');
+        setLockoutExpiresAt(Date.now() + retryAfter * 1000);
+        return;
+      }
+      // Non-423 means this (email, ip) is not locked — clear any stale banner
+      // from a prior attempt that may have been against a different account.
+      setLockoutExpiresAt(null);
+
       const json = await res.json() as {
         success: boolean;
         data?: {
@@ -287,6 +343,19 @@ export default function LoginPage() {
           code,
         }),
       });
+
+      if (res.status === 423) {
+        const retryAfter = Number(res.headers.get('Retry-After') ?? '1800');
+        setLockoutExpiresAt(Date.now() + retryAfter * 1000);
+        // Drop back to the credentials screen so the lockout banner replaces
+        // the TOTP form — leaving the 2FA screen visible would be misleading.
+        setStep('credentials');
+        setPendingFactor(null);
+        setTotpError(null);
+        return;
+      }
+      setLockoutExpiresAt(null);
+
       const json = await res.json() as {
         success: boolean;
         data?: { user?: { id: string }; activeCompanyId?: string | null };
@@ -315,6 +384,9 @@ export default function LoginPage() {
 
   const isBusy = submitting;
   const showTotpStep = step === 'totp';
+  // While locked, suppress any stale credential error so the amber lockout
+  // banner is the only thing the user sees.
+  const visibleError = isLocked ? null : (error ?? totpError);
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-gray-950 flex items-center justify-center px-4">
@@ -419,14 +491,19 @@ export default function LoginPage() {
                 </div>
               </div>
 
+              {/* Lockout banner trumps the credential error */}
+              {isLocked && <LockoutBanner secondsRemaining={lockoutSecondsRemaining} />}
+
               {/* Error message (AuthContext error or local fetch error) */}
-              {(error ?? totpError) && (
+              {visibleError && (
                 <div className="mb-4 px-3 py-2.5 bg-red-500/10 border border-red-500/30 rounded-lg">
-                  <p className="text-sm text-red-400">{error ?? totpError}</p>
+                  <p className="text-sm text-red-400">{visibleError}</p>
                 </div>
               )}
 
-              {/* Submit */}
+              {/* Submit — kept enabled during lockout so the user can try a
+                  different email without waiting. The server still enforces
+                  the lock on the locked (email, ip) pair. */}
               <button
                 type="submit"
                 disabled={isBusy || !email || !password}
