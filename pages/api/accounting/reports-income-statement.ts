@@ -9,6 +9,8 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
+import { withFlowMeter } from '@/lib/billing/withFlowMeter';
+import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
 import { getIncomeStatement } from '@/modules/accounting/services/reports/financialReportingService';
 
@@ -46,4 +48,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
  
-export default withAuth(withErrorHandler(withWriteAccess(handler)));
+export default withAuth(
+  withErrorHandler(
+    withWriteAccess(
+      withFlowMeter('report.pnl', getFlowCost('report.pnl'))(handler),
+    ),
+  ),
+);

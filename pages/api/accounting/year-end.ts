@@ -10,65 +10,69 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withRole, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { withFlowMeter } from '@/lib/billing/withFlowMeter';
+import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
 import { listFiscalYears, closeFiscalYear } from '@/modules/accounting/services/gl/yearEndService';
 
-async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function getHandler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
+  try {
+    const years = await listFiscalYears(companyId);
+    return apiResponse.success(res, { years });
+  } catch (err) {
+    log.error('Failed to fetch fiscal years', { error: err, module: 'accounting' });
+    return apiResponse.databaseError(res, err, 'Failed to fetch fiscal years');
+  }
+}
 
-  // ── GET ───────────────────────────────────────────────────────────────────
-  if (req.method === 'GET') {
-    try {
-      const years = await listFiscalYears(companyId);
-      return apiResponse.success(res, { years });
-    } catch (err) {
-      log.error('Failed to fetch fiscal years', { error: err, module: 'accounting' });
-      return apiResponse.databaseError(res, err, 'Failed to fetch fiscal years');
-    }
+async function postHandler(req: NextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyAuthedRequest;
+  const userId = (req as AuthenticatedNextApiRequest).user.id;
+  const { yearLabel, action } = req.body;
+
+  if (action !== 'close') {
+    return apiResponse.badRequest(res, 'Only "close" action is supported');
   }
 
-  // ── POST ──────────────────────────────────────────────────────────────────
-  if (req.method === 'POST') {
-    const userId = (req as AuthenticatedNextApiRequest).user.id;
-    const { yearLabel, action } = req.body;
+  if (!yearLabel) {
+    return apiResponse.validationError(res, { yearLabel: 'Fiscal year label required' });
+  }
 
-    if (action !== 'close') {
-      return apiResponse.badRequest(res, 'Only "close" action is supported');
-    }
+  try {
+    const result = await closeFiscalYear(companyId, String(yearLabel), userId);
 
-    if (!yearLabel) {
-      return apiResponse.validationError(res, { yearLabel: 'Fiscal year label required' });
-    }
-
-    try {
-      const result = await closeFiscalYear(companyId, String(yearLabel), userId);
-
-      if ('error' in result) {
-        switch (result.error) {
-          case 'open_periods':
-            return apiResponse.badRequest(
-              res,
-              `${result.count} periods still open. Close all periods first.`
-            );
-          case 'year_not_found':
-            return apiResponse.notFound(res, 'Fiscal year');
-          case 'no_retained_earnings':
-            return apiResponse.badRequest(
-              res,
-              `Retained Earnings account not found (${result.accountCode}). Create the account or set 'retained_earnings_account' in app_settings.`
-            );
-        }
+    if ('error' in result) {
+      switch (result.error) {
+        case 'open_periods':
+          return apiResponse.badRequest(
+            res,
+            `${result.count} periods still open. Close all periods first.`
+          );
+        case 'year_not_found':
+          return apiResponse.notFound(res, 'Fiscal year');
+        case 'no_retained_earnings':
+          return apiResponse.badRequest(
+            res,
+            `Retained Earnings account not found (${result.accountCode}). Create the account or set 'retained_earnings_account' in app_settings.`
+          );
       }
-
-      return apiResponse.success(res, result);
-    } catch (err) {
-      log.error('Failed to process year-end', { error: err, yearLabel, module: 'accounting' });
-      return apiResponse.databaseError(res, err, 'Failed to process year-end');
     }
-  }
 
+    return apiResponse.success(res, result);
+  } catch (err) {
+    log.error('Failed to process year-end', { error: err, yearLabel, module: 'accounting' });
+    return apiResponse.databaseError(res, err, 'Failed to process year-end');
+  }
+}
+
+const meteredPost = withFlowMeter('yearend.close', getFlowCost('yearend.close'))(postHandler);
+
+async function mux(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method === 'GET') return getHandler(req, res);
+  if (req.method === 'POST') return meteredPost(req, res);
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'POST']);
 }
 
- 
-export default withAuth(withRole('admin')(withErrorHandler(withCsrf(handler))));
+
+export default withAuth(withRole('admin')(withErrorHandler(withCsrf(mux))));

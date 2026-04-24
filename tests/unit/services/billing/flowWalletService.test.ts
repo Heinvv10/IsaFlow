@@ -28,6 +28,10 @@ import * as neonMod from '@/lib/neon';
 import {
   getWallet,
   purchaseBundle,
+  startBundlePurchase,
+  completeBundlePurchase,
+  failBundlePurchase,
+  getPurchaseStatus,
   deductFlows,
   refundFlows,
   adminAdjust,
@@ -97,19 +101,31 @@ describe('getWallet', () => {
   });
 });
 
-describe('purchaseBundle', () => {
-  it('inserts purchase, credits wallet, writes ledger — atomically', async () => {
+describe('purchaseBundle (start + complete synchronous wrapper)', () => {
+  it('inserts pending purchase then credits wallet + writes ledger', async () => {
+    // ── startBundlePurchase transaction ───────────────────────────────
     // Bundle lookup
     tx.mockResolvedValueOnce([{
-      id: 'bundle-1', flows: 100, price_cents: 1000, is_active: true,
+      id: 'bundle-1', name: 'Micro', flows: 100, price_cents: 1000, is_active: true,
     }]);
-    // ensureWalletRow INSERT ... ON CONFLICT — no return value
+    // ensureWalletRow
     tx.mockResolvedValueOnce([]);
-    // lockWallet SELECT FOR UPDATE
-    tx.mockResolvedValueOnce([{ balance_flows: 50, month_flows_used: 0 }]);
     // INSERT flow_purchases RETURNING id
     tx.mockResolvedValueOnce([{ id: 'purchase-1' }]);
+
+    // ── completeBundlePurchase transaction ────────────────────────────
+    // SELECT flow_purchases FOR UPDATE
+    tx.mockResolvedValueOnce([{
+      id: 'purchase-1', company_id: 'co-1', bundle_id: 'bundle-1',
+      flows: 100, status: 'pending',
+    }]);
+    // ensureWalletRow
+    tx.mockResolvedValueOnce([]);
+    // lockWallet
+    tx.mockResolvedValueOnce([{ balance_flows: 50, month_flows_used: 0 }]);
     // UPDATE flow_wallet
+    tx.mockResolvedValueOnce([]);
+    // UPDATE flow_purchases SET status='succeeded'
     tx.mockResolvedValueOnce([]);
     // INSERT flow_ledger
     tx.mockResolvedValueOnce([]);
@@ -117,12 +133,11 @@ describe('purchaseBundle', () => {
     const result = await purchaseBundle('co-1', 'bundle-1');
 
     expect(result).toEqual({ purchaseId: 'purchase-1', balanceAfter: 150 });
-    expect(tx).toHaveBeenCalledTimes(6);
   });
 
   it('throws when bundle is inactive', async () => {
     tx.mockResolvedValueOnce([{
-      id: 'bundle-x', flows: 100, price_cents: 1000, is_active: false,
+      id: 'bundle-x', name: 'Bad', flows: 100, price_cents: 1000, is_active: false,
     }]);
     await expect(purchaseBundle('co-1', 'bundle-x')).rejects.toThrow(/not found or inactive/);
   });
@@ -130,6 +145,111 @@ describe('purchaseBundle', () => {
   it('throws when bundle is missing', async () => {
     tx.mockResolvedValueOnce([]);
     await expect(purchaseBundle('co-1', 'missing')).rejects.toThrow(/not found or inactive/);
+  });
+});
+
+describe('startBundlePurchase', () => {
+  it('creates a pending flow_purchases row without mutating the wallet', async () => {
+    tx.mockResolvedValueOnce([{
+      id: 'bundle-1', name: 'Micro', flows: 100, price_cents: 1000, is_active: true,
+    }]);
+    tx.mockResolvedValueOnce([]);                             // ensureWalletRow
+    tx.mockResolvedValueOnce([{ id: 'purchase-pending-1' }]); // INSERT flow_purchases
+
+    const result = await startBundlePurchase('co-1', 'bundle-1', {
+      paymentMethod: 'stitch_payment_link',
+    });
+
+    expect(result.purchaseId).toBe('purchase-pending-1');
+    expect(result.bundle).toEqual({
+      id: 'bundle-1', name: 'Micro', flows: 100, priceCents: 1000,
+    });
+    // Three tx calls — bundle lookup + ensureWallet + insert.  No UPDATE wallet,
+    // no ledger row.
+    expect(tx).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('completeBundlePurchase', () => {
+  it('credits wallet, marks succeeded, writes ledger for a pending row', async () => {
+    // SELECT flow_purchases FOR UPDATE
+    tx.mockResolvedValueOnce([{
+      id: 'p-1', company_id: 'co-1', bundle_id: 'b-1', flows: 100, status: 'pending',
+    }]);
+    // ensureWalletRow
+    tx.mockResolvedValueOnce([]);
+    // lockWallet
+    tx.mockResolvedValueOnce([{ balance_flows: 20, month_flows_used: 0 }]);
+    // UPDATE flow_wallet
+    tx.mockResolvedValueOnce([]);
+    // UPDATE flow_purchases SET status
+    tx.mockResolvedValueOnce([]);
+    // INSERT flow_ledger
+    tx.mockResolvedValueOnce([]);
+
+    const result = await completeBundlePurchase('p-1');
+    expect(result).toEqual({ purchaseId: 'p-1', balanceAfter: 120 });
+  });
+
+  it('is idempotent — already-succeeded row is a no-op returning current balance', async () => {
+    // SELECT flow_purchases FOR UPDATE → status='succeeded'
+    tx.mockResolvedValueOnce([{
+      id: 'p-1', company_id: 'co-1', bundle_id: 'b-1', flows: 100, status: 'succeeded',
+    }]);
+    // SELECT balance_flows
+    tx.mockResolvedValueOnce([{ balance_flows: 250 }]);
+
+    const result = await completeBundlePurchase('p-1');
+    expect(result).toEqual({ purchaseId: 'p-1', balanceAfter: 250 });
+    // No UPDATE / INSERT — just the two reads.
+    expect(tx).toHaveBeenCalledTimes(2);
+  });
+
+  it('refuses to credit a row that was already marked failed', async () => {
+    tx.mockResolvedValueOnce([{
+      id: 'p-1', company_id: 'co-1', bundle_id: 'b-1', flows: 100, status: 'failed',
+    }]);
+    await expect(completeBundlePurchase('p-1')).rejects.toThrow(/already failed/);
+  });
+
+  it('throws when the purchase id does not exist', async () => {
+    tx.mockResolvedValueOnce([]);
+    await expect(completeBundlePurchase('p-missing')).rejects.toThrow(/not found/);
+  });
+});
+
+describe('failBundlePurchase', () => {
+  it('marks a pending row failed (idempotent — only affects status=pending)', async () => {
+    sql.mockResolvedValueOnce([{ id: 'p-1' }]);
+    await failBundlePurchase('p-1', 'cancelled');
+    expect(sql).toHaveBeenCalledOnce();
+  });
+
+  it('no-ops when the row is already settled (no rows returned)', async () => {
+    sql.mockResolvedValueOnce([]);
+    await failBundlePurchase('p-1', 'cancelled');
+    // Still only one query; no throw.
+    expect(sql).toHaveBeenCalledOnce();
+  });
+});
+
+describe('getPurchaseStatus', () => {
+  it('returns mapped status when the purchase belongs to the company', async () => {
+    sql.mockResolvedValueOnce([{
+      id: 'p-1', status: 'succeeded', flows: 100,
+      price_cents: 1000, payment_method: 'stitch_payment_link',
+    }]);
+    const result = await getPurchaseStatus('co-1', 'p-1');
+    expect(result).toEqual({
+      purchaseId: 'p-1', status: 'succeeded', flows: 100,
+      priceCents: 1000, paymentMethod: 'stitch_payment_link',
+    });
+  });
+
+  it('returns null when the row is missing or belongs to another tenant', async () => {
+    sql.mockResolvedValueOnce([]);
+    const result = await getPurchaseStatus('co-1', 'p-missing');
+    expect(result).toBeNull();
   });
 });
 
