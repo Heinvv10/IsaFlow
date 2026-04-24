@@ -30,6 +30,7 @@ import {
   Activity,
   Webhook,
   Receipt,
+  UserPlus,
 } from 'lucide-react';
 
 interface NavDef {
@@ -79,6 +80,7 @@ const NAV_DEFS: NavDef[] = [
       { label: 'SARS Codes', path: '/payroll/sars-codes', icon: Receipt },
     ],
   },
+  { label: 'Waitlist',    path: '/waitlist',   icon: UserPlus },
   { label: 'Trials',      path: '/trials',     icon: Clock },
   { label: 'Features',    path: '/features',   icon: ToggleRight },
   { label: 'Job Queue',   path: '/job-queue',  icon: Zap },
