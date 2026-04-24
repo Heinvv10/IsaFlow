@@ -155,15 +155,21 @@ export default function OnboardingWizard() {
       const compData = await compRes.json();
       const companyId = compData.data?.id;
 
-      // 2. Seed Chart of Accounts from chosen template (non-blocking but important)
-      if (companyId) {
-        try {
-          await apiFetch('/api/accounting/coa-seed', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-Company-Id': companyId },
-            body: JSON.stringify({ template: d.coaTemplate }),
-          });
-        } catch { /* non-critical — user can add accounts manually */ }
+      // 2. Seed Chart of Accounts from chosen template. This used to be
+      // best-effort wrapped in a silent catch; in practice a silent failure
+      // here left users with an empty COA and no way to recover from the UI.
+      // Now we surface the error and block completion — the user can retry
+      // or pick 'blank' to proceed without seeding.
+      if (companyId && d.coaTemplate !== 'blank') {
+        const coaRes = await apiFetch('/api/accounting/coa-seed', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Company-Id': companyId },
+          body: JSON.stringify({ template: d.coaTemplate }),
+        });
+        if (!coaRes.ok) {
+          const body = await coaRes.json().catch(() => ({}));
+          throw new Error(body.error?.message || 'Failed to seed chart of accounts');
+        }
       }
 
       // 3. Save directors (non-blocking)

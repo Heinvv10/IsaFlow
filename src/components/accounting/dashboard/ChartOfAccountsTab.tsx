@@ -13,6 +13,7 @@ import {
 } from '@/components/accounting/AccountCategorySidebar';
 import type { GLAccount, GLAccountType } from '@/modules/accounting/types/gl.types';
 import { AccountRow } from './AccountRow';
+import { CoaSeedEmptyState } from './CoaSeedEmptyState';
 
 const SUBTYPES_BY_TYPE: Record<string, { value: string; label: string }[]> = {
   asset: [
@@ -126,6 +127,10 @@ export function ChartOfAccountsTab() {
   const filteredAccounts = filterAccounts(baseFiltered, sidebarType, sidebarPrefix);
   const subtypes = SUBTYPES_BY_TYPE[addForm.accountType] || [];
   const parentOptions = accounts.filter(a => a.isActive);
+
+  if (!isLoading && accounts.length === 0) {
+    return <CoaSeedEmptyState onSeeded={loadAccounts} />;
+  }
 
   return (
     <div className="flex gap-5">
