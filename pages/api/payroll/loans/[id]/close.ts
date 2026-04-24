@@ -2,7 +2,7 @@
  * POST /api/payroll/loans/:id/close
  * Body: { status: 'settled' | 'written_off' | 'cancelled' }
  * Transitions an active loan to a closed status. Not reopenable — create a
- * new loan if needed. Admin/manager only.
+ * new loan if needed. Gated by withWriteAccess (owner/admin/manager).
  */
 
 import type { NextApiResponse } from 'next';
@@ -29,10 +29,6 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
   const { companyId, user } = req as CompanyAuthedRequest;
-  const role = String((user as { role?: string }).role ?? '');
-  if (!['super_admin', 'admin', 'manager'].includes(role)) {
-    return apiResponse.forbidden(res, 'Only admins and managers can close a loan');
-  }
   const id = String(req.query.id ?? '');
   if (!id) return apiResponse.badRequest(res, 'Missing loan id');
 

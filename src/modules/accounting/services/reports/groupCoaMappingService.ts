@@ -220,12 +220,8 @@ export async function setCoaMapping(
   return mapCoaMapping(rows[0]!);
 }
 
-export async function removeCoaMapping(mappingId: string, groupId?: string): Promise<void> {
-  if (groupId) {
-    await sql`DELETE FROM group_coa_mappings WHERE id = ${mappingId}::UUID AND group_id = ${groupId}::UUID`;
-  } else {
-    await sql`DELETE FROM group_coa_mappings WHERE id = ${mappingId}::UUID`;
-  }
+export async function removeCoaMapping(mappingId: string, groupId: string): Promise<void> {
+  await sql`DELETE FROM group_coa_mappings WHERE id = ${mappingId}::UUID AND group_id = ${groupId}::UUID`;
 }
 
 export async function autoMapAccounts(groupId: string, companyId: string): Promise<number> {

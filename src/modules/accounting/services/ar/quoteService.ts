@@ -189,6 +189,7 @@ export async function updateQuote(companyId: string, id: string, input: QuoteInp
       notes = ${input.notes || null}, terms = ${input.terms || null}, updated_at = NOW()
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID AND status = 'draft'
   `;
+  // Parent-verified: getQuote(companyId, id) at the top of this function early-returns null for cross-tenant ids, so this quote_id is tenant-owned.
   await sql`DELETE FROM customer_quote_lines WHERE quote_id = ${id}::UUID`;
   for (let i = 0; i < input.lines.length; i++) {
     const l = input.lines[i];

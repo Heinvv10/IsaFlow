@@ -267,6 +267,7 @@ export async function updateSalesOrder(
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID AND status = 'draft'
   `;
 
+  // Parent-verified: getSalesOrder(companyId, id) at the top of this function early-returns null for cross-tenant ids, so this sales_order_id is tenant-owned.
   await sql`DELETE FROM customer_sales_order_items WHERE sales_order_id = ${id}::UUID`;
   for (let i = 0; i < input.items.length; i++) {
     const item = input.items[i];
