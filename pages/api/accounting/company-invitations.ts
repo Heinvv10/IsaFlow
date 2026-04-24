@@ -102,7 +102,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
       return apiResponse.success(res, { ...result, emailSent });
     } catch (err) {
-      return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Invite failed.');
+      return apiResponse.badRequestFromError(res, err, 'Invite failed.');
     }
   }
 

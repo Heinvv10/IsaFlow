@@ -111,7 +111,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, { rows: invoiceRows, summary, as_at_date: asAtStr });
   } catch (err) {
     log.error('Failed to get AR aging report', { error: err }, 'accounting-api');
-    return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Failed to get AR aging report');
+    return apiResponse.badRequestFromError(res, err, 'Failed to get AR aging report');
   }
 }
 

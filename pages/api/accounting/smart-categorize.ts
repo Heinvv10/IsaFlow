@@ -53,7 +53,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       });
     } catch (err) {
       log.error('Smart categorize GET failed', { txId, error: err }, 'accounting-api');
-      return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Failed');
+      return apiResponse.badRequestFromError(res, err, 'Failed');
     }
   }
 
@@ -90,7 +90,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
     } catch (err) {
       log.error('Smart categorize POST failed', { action, error: err }, 'accounting-api');
-      return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Action failed');
+      return apiResponse.badRequestFromError(res, err, 'Action failed');
     }
   }
 

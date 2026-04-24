@@ -93,7 +93,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       if (!claim) return apiResponse.notFound(res, 'Expense claim', body.claimId);
       return apiResponse.success(res, { claim, line: linePayload, rate });
     } catch (err) {
-      return apiResponse.badRequest(res, err instanceof Error ? err.message : String(err));
+      return apiResponse.badRequestFromError(res, err, 'Request failed');
     }
   }
 

@@ -34,7 +34,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, `Unknown action: ${action}`);
   } catch (err) {
     log.error('Business unit action failed', { action, id, error: err }, 'accounting-api');
-    return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Failed');
+    return apiResponse.badRequestFromError(res, err, 'Failed');
   }
 }
 

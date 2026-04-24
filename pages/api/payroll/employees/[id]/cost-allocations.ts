@@ -56,7 +56,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     } catch (err) {
       if (err instanceof AllocationSumError) return apiResponse.badRequest(res, err.message);
       if (err instanceof DuplicateCostCentreError) return apiResponse.badRequest(res, err.message);
-      return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Save failed');
+      return apiResponse.badRequestFromError(res, err, 'Save failed');
     }
   }
 

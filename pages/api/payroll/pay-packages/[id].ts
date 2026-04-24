@@ -77,7 +77,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       return apiResponse.success(res, { updated: true });
     } catch (err) {
       if (err instanceof PayPackageNotFoundError) return apiResponse.notFound(res, err.message);
-      return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Save failed');
+      return apiResponse.badRequestFromError(res, err, 'Save failed');
     }
   }
 

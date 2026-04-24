@@ -30,7 +30,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, bu);
     } catch (err) {
       log.error('Failed to create business unit', { error: err }, 'accounting-api');
-      return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Failed');
+      return apiResponse.badRequestFromError(res, err, 'Failed');
     }
   }
 

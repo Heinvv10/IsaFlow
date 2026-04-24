@@ -19,16 +19,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? '', ['POST']);
   }
 
-  // Token verification
+  // Pentest M1: fail-closed token verification. Previously, a missing env var
+  // silently skipped the check — any caller could POST arbitrary payloads and
+  // trigger VLM routing. Now we reject if the secret isn't configured.
   const expectedToken = process.env.POSTMARK_INBOUND_TOKEN;
-  if (expectedToken) {
-    const provided = req.headers['x-postmark-token'];
-    if (provided !== expectedToken) {
-      log.warn('Postmark webhook: invalid token', { provided }, 'inbound-email');
-      return res.status(401).json({ success: false, error: 'Invalid webhook token' });
-    }
-  } else {
-    log.warn('POSTMARK_INBOUND_TOKEN not set — skipping webhook token verification', undefined, 'inbound-email');
+  if (!expectedToken) {
+    log.error('POSTMARK_INBOUND_TOKEN not set — rejecting webhook', undefined, 'inbound-email');
+    return res.status(503).json({ success: false, error: 'Webhook misconfigured' });
+  }
+  const provided = req.headers['x-postmark-token'];
+  if (provided !== expectedToken) {
+    log.warn('Postmark webhook: invalid token', undefined, 'inbound-email');
+    return res.status(401).json({ success: false, error: 'Invalid webhook token' });
   }
 
   const payload = req.body as PostmarkInboundPayload;

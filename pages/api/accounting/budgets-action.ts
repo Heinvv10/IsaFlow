@@ -34,7 +34,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
   } catch (err) {
     log.error('Budget action failed', { action, error: err }, 'accounting-api');
-    return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Action failed');
+    return apiResponse.badRequestFromError(res, err, 'Action failed');
   }
 }
 

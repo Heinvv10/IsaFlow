@@ -57,7 +57,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, result, 'Delivery queued for retry');
   } catch (err) {
     log.error('Admin: redeliver webhook failed', { webhookId, deliveryId, error: err }, 'admin-webhooks-redeliver-api');
-    return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Redeliver failed');
+    return apiResponse.badRequestFromError(res, err, 'Redeliver failed');
   }
 }
 

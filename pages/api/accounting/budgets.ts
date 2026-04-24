@@ -36,7 +36,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, entry);
     } catch (err) {
       log.error('Failed to upsert budget', { error: err }, 'accounting-api');
-      return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Failed');
+      return apiResponse.badRequestFromError(res, err, 'Failed');
     }
   }
 

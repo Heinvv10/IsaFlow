@@ -33,7 +33,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       await upsertCostCentreGlMapping(companyId, id, parsed.data.expenseAccountId, user.id);
       return apiResponse.success(res, { updated: true });
     } catch (err) {
-      return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Save failed');
+      return apiResponse.badRequestFromError(res, err, 'Save failed');
     }
   }
 

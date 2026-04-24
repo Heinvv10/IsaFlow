@@ -77,6 +77,18 @@ export async function middleware(request: NextRequest) {
 
   const isAdminHost = ADMIN_HOSTS.includes(host);
 
+  // ── /api/admin/* host gate (pentest M20) ─────────────────────────────────────
+  // Defence-in-depth behind per-handler `withAdmin` wrappers: block any
+  // admin API call that comes in on a non-admin host. Prevents a future
+  // admin handler shipped without the wrapper from being reachable via
+  // app.isaflow.co.za. Localhost (dev) is allowed through.
+  if (pathname.startsWith('/api/admin/') && !isAdminHost && host !== 'localhost') {
+    return new NextResponse(
+      JSON.stringify({ success: false, error: { code: 'FORBIDDEN', message: 'Admin API only available on admin host' } }),
+      { status: 403, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
+
   // ── Admin subdomain handling ─────────────────────────────────────────────────
   if (isAdminHost) {
     // Always passthrough for static assets, login page, and API routes

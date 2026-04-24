@@ -74,7 +74,7 @@ function getHandler(): (req: AuthenticatedNextApiRequest, res: NextApiResponse) 
         });
         return apiResponse.created(res, evt);
       } catch (err) {
-        return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Create failed');
+        return apiResponse.badRequestFromError(res, err, 'Create failed');
       }
     }
 

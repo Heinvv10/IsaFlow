@@ -40,7 +40,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const users = await listCompanyUsers(companyId);
       return apiResponse.success(res, users);
     } catch (err) {
-      return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Update failed.');
+      return apiResponse.badRequestFromError(res, err, 'Update failed.');
     }
   }
 
@@ -65,7 +65,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const users = await listCompanyUsers(companyId);
       return apiResponse.success(res, users);
     } catch (err) {
-      return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Remove failed.');
+      return apiResponse.badRequestFromError(res, err, 'Remove failed.');
     }
   }
 

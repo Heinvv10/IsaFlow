@@ -143,7 +143,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, result);
   } catch (err) {
     log.error('SARS codes import failed', { error: err, taxYear, brsVersion }, 'admin-api');
-    return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Import failed');
+    return apiResponse.badRequestFromError(res, err, 'Import failed');
   }
 }
 

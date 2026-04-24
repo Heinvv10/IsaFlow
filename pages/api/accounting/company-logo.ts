@@ -12,9 +12,16 @@ import { sql } from '@/lib/neon';
 import { UUID } from '@/lib/schemas/common';
 type Row = Record<string, unknown>;
 
+// Pentest M14: accept only safe raster formats. Excludes data:image/svg+xml
+// (can embed <script>), data:image/xml, and arbitrary "image/*" subtypes.
+const LOGO_DATA_URL_RE = /^data:image\/(jpeg|png|gif|webp);base64,[A-Za-z0-9+/=\s]+$/;
+
 const CompanyLogoSchema = z.object({
   companyId: UUID,
-  logoData: z.string().min(1).startsWith('data:image/').max(6_800_000, 'Logo must be smaller than 5MB'),
+  logoData: z.string()
+    .min(1)
+    .max(6_800_000, 'Logo must be smaller than 5MB')
+    .regex(LOGO_DATA_URL_RE, 'Logo must be a base64 PNG, JPEG, GIF, or WebP data URL'),
 });
 
 

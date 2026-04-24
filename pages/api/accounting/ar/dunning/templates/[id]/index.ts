@@ -86,7 +86,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
       }
       apiResponse.success(res, updated);
     } catch (err) {
-      apiResponse.badRequest(res, err instanceof Error ? err.message : String(err));
+      apiResponse.badRequestFromError(res, err, 'Request failed');
     }
     return;
   }

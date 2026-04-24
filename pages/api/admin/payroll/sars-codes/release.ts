@@ -43,7 +43,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, { taxYear: parsed.data.taxYear, isCurrent: true });
   } catch (err) {
     log.error('Failed to set current SARS release', { error: err }, 'admin-api');
-    return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Failed');
+    return apiResponse.badRequestFromError(res, err, 'Failed');
   }
 }
 

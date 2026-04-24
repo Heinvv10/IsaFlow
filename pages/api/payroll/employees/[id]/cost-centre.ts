@@ -37,7 +37,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     return apiResponse.success(res, { updated: true });
   } catch (err) {
     if (err instanceof CostCentreNotFoundError) return apiResponse.notFound(res, err.message);
-    return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Assign failed');
+    return apiResponse.badRequestFromError(res, err, 'Assign failed');
   }
 }
 

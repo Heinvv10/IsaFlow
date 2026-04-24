@@ -62,7 +62,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     }, 'payroll-api');
     return apiResponse.success(res, result);
   } catch (err) {
-    return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Reopen failed');
+    return apiResponse.badRequestFromError(res, err, 'Reopen failed');
   }
 }
 

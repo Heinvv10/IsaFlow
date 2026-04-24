@@ -60,7 +60,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, { code, taxYear, status: parsed.data.status });
   } catch (err) {
     log.error('Failed to update SARS code status', { error: err, code, taxYear }, 'admin-api');
-    return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Failed');
+    return apiResponse.badRequestFromError(res, err, 'Failed');
   }
 }
 

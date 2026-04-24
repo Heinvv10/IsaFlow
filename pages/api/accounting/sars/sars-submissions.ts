@@ -47,7 +47,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         return apiResponse.success(res, submission, 'Submission marked as submitted');
       } catch (err) {
         log.error('Failed to mark submission', { error: err }, 'sars-api');
-        return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Failed');
+        return apiResponse.badRequestFromError(res, err, 'Failed');
       }
     }
 
