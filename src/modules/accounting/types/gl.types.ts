@@ -60,7 +60,8 @@ export type GLEntrySource =
   | 'auto_purchase_order'
   | 'auto_depreciation'
   | 'auto_payroll'
-  | 'auto_migration';
+  | 'auto_migration'
+  | 'auto_bank_transfer';
 
 // ── Recurring Journals ────────────────────────────────────────────────────────
 
@@ -151,6 +152,8 @@ export interface GLAccount {
   // Tree display
   children?: GLAccount[];
   balance?: number;
+  /** True when at least one journal line references this account — code edit locked. */
+  hasTransactions?: boolean;
 }
 
 // ── Fiscal Periods ───────────────────────────────────────────────────────────

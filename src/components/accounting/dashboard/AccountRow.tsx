@@ -5,6 +5,8 @@
 import { useState } from 'react';
 import { Loader2, Pencil, Trash2, Save, X, Lock } from 'lucide-react';
 import type { GLAccount } from '@/modules/accounting/types/gl.types';
+import { apiFetch } from '@/lib/apiFetch';
+import { notify } from '@/utils/toast';
 
 export function accountTypeColor(type: string): string {
   switch (type) {
@@ -20,19 +22,36 @@ export function accountTypeColor(type: string): string {
 const VAT_LABELS: Record<string, string> = { standard: '15%', zero_rated: 'Zero Rated', exempt: 'Exempt' };
 
 export function AccountRow({
-  account, level, viewMode, onUpdate, onDelete,
+  account, level, viewMode, onUpdate, onDelete, onCodeChanged,
 }: {
   account: GLAccount;
   level: number;
   viewMode: string;
   onUpdate: (id: string, data: { accountName: string; description: string; defaultVatCode: string }) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  onCodeChanged?: () => Promise<void> | void;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(account.accountName);
   const [editDesc, setEditDesc] = useState(account.description || '');
   const [editVatCode, setEditVatCode] = useState<string>(account.defaultVatCode || 'none');
   const [isSaving, setIsSaving] = useState(false);
+
+  const [isEditingCode, setIsEditingCode] = useState(false);
+  const [editCode, setEditCode] = useState(account.accountCode);
+  const [isSavingCode, setIsSavingCode] = useState(false);
+
+  // Code is locked once anything has posted to the account, for system
+  // accounts, and when the row is inactive (deactivated accounts are
+  // audit-trail only — changing the code would confuse historical reports).
+  const codeLocked = account.isSystemAccount || account.hasTransactions === true || !account.isActive;
+  const codeLockReason = account.isSystemAccount
+    ? 'System account — code is locked'
+    : account.hasTransactions
+      ? 'Locked — transactions have been posted to this account'
+      : !account.isActive
+        ? 'Account is inactive'
+        : '';
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -48,13 +67,80 @@ export function AccountRow({
     setIsEditing(false);
   };
 
+  const handleSaveCode = async () => {
+    const trimmed = editCode.trim();
+    if (!trimmed) { notify.error('Account code is required'); return; }
+    if (trimmed === account.accountCode) { setIsEditingCode(false); return; }
+    setIsSavingCode(true);
+    try {
+      const res = await apiFetch('/api/accounting/chart-of-accounts-detail', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ id: account.id, accountCode: trimmed }),
+      });
+      const json = await res.json();
+      if (!res.ok || json?.success === false) {
+        notify.error(json?.error?.message || 'Failed to change code');
+        return;
+      }
+      notify.success(`Code changed to ${trimmed}`);
+      setIsEditingCode(false);
+      await onCodeChanged?.();
+    } catch {
+      notify.error('Failed to change code');
+    } finally {
+      setIsSavingCode(false);
+    }
+  };
+
+  const handleCancelCode = () => {
+    setEditCode(account.accountCode);
+    setIsEditingCode(false);
+  };
+
   const indent = viewMode === 'tree' ? `${level * 1.5}rem` : '0';
 
   return (
     <>
-      <tr className={`border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-tertiary)] transition-colors ${!account.isActive ? 'opacity-50' : ''}`}>
+      <tr className={`group border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-tertiary)] transition-colors ${!account.isActive ? 'opacity-50' : ''}`}>
         <td className="px-6 py-3 text-sm font-mono font-medium text-[var(--ff-text-primary)]">
-          <span style={{ paddingLeft: indent }}>{account.accountCode}</span>
+          <div className="flex items-center gap-2" style={{ paddingLeft: indent }}>
+            {isEditingCode ? (
+              <>
+                <input
+                  type="text"
+                  value={editCode}
+                  onChange={e => setEditCode(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') handleSaveCode(); if (e.key === 'Escape') handleCancelCode(); }}
+                  className="ff-input w-24 text-sm font-mono"
+                  autoFocus
+                />
+                <button onClick={handleSaveCode} disabled={isSavingCode} className="p-1 rounded text-teal-400 hover:bg-teal-500/10 transition-colors disabled:opacity-50" title="Save code">
+                  {isSavingCode ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                </button>
+                <button onClick={handleCancelCode} className="p-1 rounded text-[var(--ff-text-tertiary)] hover:bg-[var(--ff-bg-tertiary)] transition-colors" title="Cancel">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </>
+            ) : (
+              <>
+                <span>{account.accountCode}</span>
+                {!codeLocked && (
+                  <button
+                    onClick={() => { setEditCode(account.accountCode); setIsEditingCode(true); }}
+                    className="p-0.5 rounded text-[var(--ff-text-tertiary)] hover:text-blue-400 hover:bg-blue-500/10 opacity-0 group-hover:opacity-100 transition-all"
+                    title="Change code"
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                )}
+                {codeLocked && account.hasTransactions === true && (
+                  <Lock className="h-3 w-3 text-[var(--ff-text-tertiary)]" aria-label={codeLockReason} />
+                )}
+              </>
+            )}
+          </div>
         </td>
         <td className="px-6 py-3 text-sm text-[var(--ff-text-primary)]">
           {isEditing ? (
@@ -111,7 +197,7 @@ export function AccountRow({
         </td>
       </tr>
       {viewMode === 'tree' && account.children?.map(child => (
-        <AccountRow key={child.id} account={child} level={level + 1} viewMode={viewMode} onUpdate={onUpdate} onDelete={onDelete} />
+        <AccountRow key={child.id} account={child} level={level + 1} viewMode={viewMode} onUpdate={onUpdate} onDelete={onDelete} onCodeChanged={onCodeChanged} />
       ))}
     </>
   );

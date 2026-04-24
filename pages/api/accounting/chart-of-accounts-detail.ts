@@ -2,12 +2,14 @@
  * Chart of Accounts Detail API
  * GET    /api/accounting/chart-of-accounts-detail?id=... - Get single account
  * PUT    /api/accounting/chart-of-accounts-detail - Update account
+ * PATCH  /api/accounting/chart-of-accounts-detail - Rename account code (allowed only while no postings)
  * DELETE /api/accounting/chart-of-accounts-detail - Delete (deactivate) account
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { ErrorCode } from '@/lib/apiResponse.types';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
@@ -15,6 +17,7 @@ import {
   getAccountById,
   updateAccount,
   deleteAccount,
+  renameAccountCode,
 } from '@/modules/accounting/services/gl/chartOfAccountsService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -46,6 +49,26 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
   }
 
+  if (req.method === 'PATCH') {
+    if (!id) return apiResponse.badRequest(res, 'id is required');
+    try {
+      const { accountCode } = req.body || {};
+      if (!accountCode || typeof accountCode !== 'string') {
+        return apiResponse.badRequest(res, 'accountCode is required');
+      }
+      const account = await renameAccountCode(companyId, id, accountCode);
+      return apiResponse.success(res, account);
+    } catch (err) {
+      const code = (err as Error & { code?: string }).code;
+      const message = err instanceof Error ? err.message : 'Failed to rename account code';
+      log.error('Failed to rename account code', { id, error: err }, 'accounting-api');
+      if (code === 'HAS_TRANSACTIONS') {
+        return apiResponse.error(res, ErrorCode.CONFLICT, message, { reason: 'HAS_TRANSACTIONS' });
+      }
+      return apiResponse.badRequest(res, message);
+    }
+  }
+
   if (req.method === 'DELETE') {
     if (!id) return apiResponse.badRequest(res, 'id is required');
     try {
@@ -58,7 +81,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
   }
 
-  return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'PUT', 'DELETE']);
+  return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'PUT', 'PATCH', 'DELETE']);
 }
 
  

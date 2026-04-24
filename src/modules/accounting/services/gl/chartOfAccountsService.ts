@@ -44,7 +44,10 @@ export async function getChartOfAccounts(companyId: string, includeInactive = fa
         rows = await sql`
           SELECT a.*,
             p.account_code AS parent_code,
-            p.account_name AS parent_name
+            p.account_name AS parent_name,
+            EXISTS (
+              SELECT 1 FROM gl_journal_lines jl WHERE jl.gl_account_id = a.id
+            ) AS has_transactions
           FROM gl_accounts a
           LEFT JOIN gl_accounts p ON p.id = a.parent_account_id
           WHERE a.company_id = ${companyId}
@@ -54,7 +57,10 @@ export async function getChartOfAccounts(companyId: string, includeInactive = fa
         rows = await sql`
           SELECT a.*,
             p.account_code AS parent_code,
-            p.account_name AS parent_name
+            p.account_name AS parent_name,
+            EXISTS (
+              SELECT 1 FROM gl_journal_lines jl WHERE jl.gl_account_id = a.id
+            ) AS has_transactions
           FROM gl_accounts a
           LEFT JOIN gl_accounts p ON p.id = a.parent_account_id
           WHERE a.company_id = ${companyId}
@@ -116,6 +122,96 @@ export async function getAccountByCode(companyId: string, code: string): Promise
   }
 }
 
+const TYPE_RANGES: Record<GLAccountType, { start: number; end: number }> = {
+  asset: { start: 1000, end: 1999 },
+  liability: { start: 2000, end: 2999 },
+  equity: { start: 3000, end: 3999 },
+  revenue: { start: 4000, end: 4999 },
+  expense: { start: 5000, end: 5999 },
+};
+
+export interface SuggestNextCodeInput {
+  accountType: GLAccountType;
+  accountSubtype?: string;
+  parentAccountId?: string;
+}
+
+/**
+ * Suggest the next numeric account code for a new GL account.
+ *
+ * Strategy (in order):
+ *  1. If parentAccountId is given, pick MAX(siblings' code)+1, clamped to
+ *     the range "<parentCode>00"-"<parentCode>99" when the parent code is
+ *     itself numeric. Falls back to parent-code + "1" if no siblings yet.
+ *  2. Otherwise pick MAX(code)+1 across all accounts of the same type,
+ *     within the standard range (1000s asset, 2000s liab, etc.).
+ *  3. Non-numeric siblings are ignored for the MAX calc.
+ */
+export async function suggestNextAccountCode(
+  companyId: string,
+  input: SuggestNextCodeInput,
+): Promise<string> {
+  const { accountType, accountSubtype, parentAccountId } = input;
+
+  if (parentAccountId) {
+    const parentRows = await sql`
+      SELECT account_code FROM gl_accounts
+      WHERE id = ${parentAccountId} AND company_id = ${companyId}
+      LIMIT 1
+    ` as { account_code: string }[];
+    if (parentRows.length === 0) {
+      throw new Error('Parent account not found');
+    }
+    const parentCode = parentRows[0]!.account_code;
+
+    const siblingRows = await sql`
+      SELECT account_code FROM gl_accounts
+      WHERE company_id = ${companyId}
+        AND parent_account_id = ${parentAccountId}
+        AND account_code ~ '^[0-9]+$'
+    ` as { account_code: string }[];
+
+    const siblingNums = siblingRows
+      .map(r => Number(r.account_code))
+      .filter(n => Number.isFinite(n));
+
+    if (/^\d+$/.test(parentCode)) {
+      const parentNum = Number(parentCode);
+      const blockStart = parentNum + 1;
+      const blockEnd = parentNum + 99;
+      const inBlock = siblingNums.filter(n => n >= blockStart && n <= blockEnd);
+      const next = inBlock.length > 0 ? Math.max(...inBlock) + 1 : blockStart;
+      if (next <= blockEnd) return String(next);
+    }
+
+    if (siblingNums.length > 0) {
+      return String(Math.max(...siblingNums) + 1);
+    }
+    if (/^\d+$/.test(parentCode)) {
+      return String(Number(parentCode) + 1);
+    }
+  }
+
+  const range = TYPE_RANGES[accountType];
+  const whereSubtype = accountSubtype
+    ? sql`AND account_subtype = ${accountSubtype}`
+    : sql``;
+  const typeRows = await sql`
+    SELECT account_code FROM gl_accounts
+    WHERE company_id = ${companyId}
+      AND account_type = ${accountType}
+      ${whereSubtype}
+      AND account_code ~ '^[0-9]+$'
+      AND (account_code)::int BETWEEN ${range.start} AND ${range.end}
+  ` as { account_code: string }[];
+
+  const nums = typeRows
+    .map(r => Number(r.account_code))
+    .filter(n => Number.isFinite(n));
+  const next = nums.length > 0 ? Math.max(...nums) + 1 : range.start;
+  return String(Math.min(next, range.end));
+}
+
 export async function createAccount(companyId: string, input: CreateAccountInput): Promise<GLAccount> {
   try {
     const existing = await sql`
@@ -153,6 +249,62 @@ export async function createAccount(companyId: string, input: CreateAccountInput
     log.error('Failed to create account', { error: err }, 'accounting');
     throw err;
   }
+}
+
+/**
+ * Rename an account's code. Allowed only while the account has no posted
+ * journal lines — once money has moved through it, changing the code would
+ * rewrite history (audit reports, trial balance snapshots, etc.).
+ *
+ * Throws with a structured reason so the API layer can return a 409 and the
+ * UI can show "locked — transactions posted".
+ */
+export async function renameAccountCode(
+  companyId: string,
+  id: string,
+  newCode: string,
+): Promise<GLAccount> {
+  const trimmed = newCode.trim();
+  if (!trimmed) throw new Error('newCode is required');
+
+  const acct = await sql`
+    SELECT id, account_code FROM gl_accounts
+    WHERE id = ${id} AND company_id = ${companyId}
+    LIMIT 1
+  ` as { id: string; account_code: string }[];
+  if (acct.length === 0) throw new Error('Account not found');
+  if (acct[0]!.account_code === trimmed) {
+    // No-op — return the existing row.
+    return (await getAccountById(companyId, id))!;
+  }
+
+  const posted = await sql`
+    SELECT 1 FROM gl_journal_lines
+    WHERE gl_account_id = ${id} AND company_id = ${companyId}::UUID
+    LIMIT 1
+  ` as unknown[];
+  if (posted.length > 0) {
+    const err = new Error('Cannot change code — transactions have been posted to this account');
+    (err as Error & { code?: string }).code = 'HAS_TRANSACTIONS';
+    throw err;
+  }
+
+  const clash = await sql`
+    SELECT 1 FROM gl_accounts
+    WHERE company_id = ${companyId} AND account_code = ${trimmed} AND id <> ${id}
+    LIMIT 1
+  ` as unknown[];
+  if (clash.length > 0) {
+    throw new Error(`Account code ${trimmed} already exists`);
+  }
+
+  const rows = await sql`
+    UPDATE gl_accounts SET account_code = ${trimmed}
+    WHERE id = ${id} AND company_id = ${companyId}
+    RETURNING *
+  ` as { [key: string]: unknown }[];
+  cache.invalidatePrefix(`${companyId}:gl-accounts`);
+  return mapRow(rows[0]);
 }
 
 export async function updateAccount(companyId: string, id: string, input: UpdateAccountInput): Promise<GLAccount> {
@@ -289,5 +441,6 @@ function mapRow(row: any): GLAccount {
     defaultVatCode: (row.default_vat_code || 'none') as GLAccount['defaultVatCode'],
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
+    hasTransactions: row.has_transactions !== undefined ? Boolean(row.has_transactions) : undefined,
   };
 }
