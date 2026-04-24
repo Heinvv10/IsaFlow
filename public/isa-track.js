@@ -52,11 +52,24 @@
 
   function trackPageview() { send('pageview'); }
 
-  window.isaTrack = function (name, data) { send('custom', name, data); };
+  var track = function (name, data) { send('custom', name, data); };
+  track.pageview = trackPageview;
+  track.event = function (name, data) { send('custom', name, data); };
+  window.isaTrack = track;
 
+  // Patch history methods for any vanilla SPA that uses them directly.
+  // Note: if a framework (e.g. Next.js) captures history.pushState before
+  // this script loads, it will bypass the patch — that's why we also
+  // expose window.isaTrack.pageview() for the framework layer to call.
   var pushState = history.pushState;
   history.pushState = function () {
     var ret = pushState.apply(this, arguments);
+    setTimeout(trackPageview, 0);
+    return ret;
+  };
+  var replaceState = history.replaceState;
+  history.replaceState = function () {
+    var ret = replaceState.apply(this, arguments);
     setTimeout(trackPageview, 0);
     return ret;
   };
