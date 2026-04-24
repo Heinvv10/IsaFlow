@@ -12,6 +12,8 @@
  * Company-scoped. Never leaks data across tenants.
  */
 
+import crypto from 'node:crypto';
+
 import { sql, withTransaction } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -294,10 +296,37 @@ export async function sendDunning(input: SendDunningInput): Promise<SendResult> 
     },
   });
 
+  // Seal a captured_documents row so every dunning send is a first-class
+  // evidence row per PRD §4.6. Bytes-only — no storage upload, since the
+  // authoritative copy lives in dunning_sends.rendered_{subject,body}.
+  const evidenceBytes = Buffer.from(`${rendered.subject}\n\n${bodyWithToken}`, 'utf8');
+  const evidenceHash = crypto.createHash('sha256').update(evidenceBytes).digest('hex');
+  const [evidenceDoc] = (await sql`
+    INSERT INTO captured_documents (
+      company_id, file_name, file_type, file_size,
+      document_type, status,
+      raw_bytes_sha256, raw_bytes_size,
+      notes
+    ) VALUES (
+      ${input.companyId}::uuid,
+      ${`dunning-${messageToken}.txt`},
+      'text/plain',
+      ${evidenceBytes.length},
+      'dunning',
+      'matched',
+      ${evidenceHash},
+      ${evidenceBytes.length},
+      ${`Dunning · invoice ${ctx.invoice_number} · to ${ctx.customer_email}`}
+    )
+    RETURNING id
+  `) as DbRow[];
+  const evidenceDocId = String(evidenceDoc!.id);
+
   await sql`
     UPDATE dunning_sends
     SET email_status = ${result.success ? 'sent' : 'failed'},
-        email_error  = ${result.success ? null : (result.error ?? 'unknown')}
+        email_error  = ${result.success ? null : (result.error ?? 'unknown')},
+        source_document_id = ${evidenceDocId}::uuid
     WHERE id = ${sendId}::uuid AND company_id = ${input.companyId}::uuid
   `;
 
