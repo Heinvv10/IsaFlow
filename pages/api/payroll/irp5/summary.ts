@@ -141,16 +141,16 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     componentType: String(r.component_type) as ComponentConfig['componentType'],
     isActive: Boolean(r.is_active),
   }));
-  const componentIssues = validateCompanyComponents(components);
+  const componentIssues = await validateCompanyComponents(components, taxYear);
 
-  const employees: Irp5EmployeeRow[] = empRows.map((emp) => {
+  const employees: Irp5EmployeeRow[] = await Promise.all(empRows.map(async (emp) => {
     const agg = aggMap.get(String(emp.id));
     const totalGross = agg ? Number(agg.total_gross) : 0;
     const totalPaye = agg ? Number(agg.total_paye) : 0;
     const totalUif = agg ? Number(agg.total_uif) : 0;
     const totalSdl = agg ? Number(agg.total_sdl) : 0;
 
-    const messages = validateEmployeeIrp5({
+    const messages = await validateEmployeeIrp5({
       taxNumber: emp.tax_number ? String(emp.tax_number) : null,
       idNumber: emp.id_number ? String(emp.id_number) : null,
       totalGross,
@@ -159,7 +159,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       totalSdl,
       componentCodes: codesByEmployee.get(String(emp.id)) ?? [],
       hasApprovedSeveranceDirective: employeesWithSeveranceDirective.has(String(emp.id)),
-    });
+    }, taxYear);
 
     return {
       employeeId: String(emp.id),
@@ -179,7 +179,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       status: deriveStatus(messages, totalGross),
       messages,
     };
-  });
+  }));
 
   const summary = {
     taxYear,

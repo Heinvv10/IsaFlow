@@ -8,7 +8,7 @@ import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
-import { CalendarDays, ArrowLeft, Loader2, AlertCircle, Calculator, CheckCircle2 } from 'lucide-react';
+import { CalendarDays, ArrowLeft, Loader2, AlertCircle, Calculator, CheckCircle2, Lock, Unlock, GitCompare } from 'lucide-react';
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
@@ -42,17 +42,20 @@ interface RunDetail {
   lines: Line[];
 }
 
+const LOCKED_STATUSES = new Set(['approved', 'paid', 'cancelled']);
+const isLocked = (status: string) => LOCKED_STATUSES.has(status);
+
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
     draft: 'bg-yellow-500/10 text-yellow-400',
     calculated: 'bg-blue-500/10 text-blue-400',
     approved: 'bg-teal-500/10 text-teal-400',
-    posted: 'bg-emerald-500/10 text-emerald-400',
+    paid: 'bg-emerald-500/10 text-emerald-400',
     cancelled: 'bg-red-500/10 text-red-400',
   };
   return (
-    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${colors[status] ?? 'bg-gray-500/10 text-gray-400'}`}>
-      {status}
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${colors[status] ?? 'bg-gray-500/10 text-gray-400'}`}>
+      {isLocked(status) && <Lock className="h-3 w-3" />} {status}
     </span>
   );
 }
@@ -66,6 +69,7 @@ export default function PayrollRunDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [calculating, setCalculating] = useState(false);
+  const [reopening, setReopening] = useState(false);
 
   const load = useCallback(async () => {
     if (!runId) return;
@@ -93,13 +97,43 @@ export default function PayrollRunDetailPage() {
       const res = await apiFetch(`/api/payroll/runs/${runId}/calculate`, { method: 'POST' });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        throw new Error((j as { error?: string }).error || `HTTP ${res.status}`);
+        throw new Error((j as { error?: { message?: string }; message?: string }).error?.message || (j as { message?: string }).message || `HTTP ${res.status}`);
       }
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Calculate failed');
     } finally {
       setCalculating(false);
+    }
+  };
+
+  const reopen = async () => {
+    if (!runId) return;
+    const reason = window.prompt(
+      'Reopening will move the run back to "calculated" so it can be edited and re-approved.\n\n' +
+      'Note: the GL journal posted at approval is NOT automatically reversed — reverse it manually if the period also needs that.\n\n' +
+      'Reason (≥ 5 characters):'
+    );
+    if (!reason || reason.trim().length < 5) {
+      if (reason !== null) alert('Reason must be at least 5 characters');
+      return;
+    }
+    setReopening(true);
+    setError('');
+    try {
+      const res = await apiFetch(`/api/payroll/runs/${runId}/reopen`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: reason.trim() }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error((j as { error?: { message?: string }; message?: string }).error?.message || (j as { message?: string }).message || `HTTP ${res.status}`);
+      }
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Reopen failed');
+    } finally {
+      setReopening(false);
     }
   };
 
@@ -126,7 +160,9 @@ export default function PayrollRunDetailPage() {
   if (!run) return null;
 
   const period = `${MONTHS[run.periodMonth - 1]} ${run.periodYear}`;
-  const canCalculate = run.status === 'draft' || run.status === 'calculated';
+  const locked = isLocked(run.status);
+  const canCalculate = !locked && (run.status === 'draft' || run.status === 'calculated');
+  const canReopen = run.status === 'approved';
 
   return (
     <AppLayout>
@@ -145,11 +181,27 @@ export default function PayrollRunDetailPage() {
                 <div className="flex items-center gap-2 mt-1"><StatusBadge status={run.status} /></div>
               </div>
             </div>
-            <button onClick={calculate} disabled={calculating || !canCalculate}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-medium">
-              {calculating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Calculator className="h-4 w-4" />}
-              {run.status === 'draft' ? 'Calculate' : 'Recalculate'}
-            </button>
+            <div className="flex items-center gap-2">
+              <Link href={`/payroll/runs/${runId}/variance`}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg border border-[var(--ff-border-primary)] hover:bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-secondary)] text-sm font-medium"
+                title="Compare to the prior run — spot ≥20% swings before approving">
+                <GitCompare className="h-4 w-4" /> Variance
+              </Link>
+              {canReopen && (
+                <button onClick={reopen} disabled={reopening}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg border border-amber-400 text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-500/10 disabled:opacity-50 text-sm font-medium"
+                  title="Move the run back to 'calculated' so it can be edited and re-approved">
+                  {reopening ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unlock className="h-4 w-4" />}
+                  Reopen Period
+                </button>
+              )}
+              <button onClick={calculate} disabled={calculating || !canCalculate}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-medium"
+                title={locked ? 'Run is locked — reopen first to edit' : ''}>
+                {calculating ? <Loader2 className="h-4 w-4 animate-spin" /> : locked ? <Lock className="h-4 w-4" /> : <Calculator className="h-4 w-4" />}
+                {locked ? 'Locked' : run.status === 'draft' ? 'Calculate' : 'Recalculate'}
+              </button>
+            </div>
           </div>
         </div>
 

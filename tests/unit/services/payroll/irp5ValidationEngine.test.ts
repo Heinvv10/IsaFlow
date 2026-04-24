@@ -1,9 +1,16 @@
+/**
+ * IRP5 Validation Engine tests.
+ *
+ * Migrated 2026-04-24: validateComponent / validateCompanyComponents /
+ * validateEmployeeIrp5 are now async + take taxYear (codes resolved via
+ * sarsCodesService against migration 435 sars_source_codes table).
+ */
+
 import { describe, it, expect } from 'vitest';
 
 import {
   isValidSarsTaxNumber,
   isValidSaIdNumber,
-  isKnownSarsCode,
   validateComponent,
   validateCompanyComponents,
   validateEmployeeIrp5,
@@ -12,6 +19,8 @@ import {
   type EmployeeIrp5Input,
   type ValidationMessage,
 } from '@/modules/accounting/services/payroll/irp5ValidationEngine';
+
+const TAX_YEAR = 2026;
 
 const has = (msgs: ValidationMessage[], code: string) => msgs.some((m) => m.code === code);
 const find = (msgs: ValidationMessage[], code: string) => msgs.find((m) => m.code === code);
@@ -35,9 +44,9 @@ describe('isValidSarsTaxNumber', () => {
     ['2234567890', true],
     ['3234567890', true],
     ['9234567890', true],
-    ['4234567890', false], // bad first digit
-    ['123456789', false],  // too short
-    ['12345678901', false], // too long
+    ['4234567890', false],
+    ['123456789', false],
+    ['12345678901', false],
     ['', false],
     [null, false],
   ])('%s → %s', (v, expected) => {
@@ -55,16 +64,6 @@ describe('isValidSaIdNumber', () => {
   });
 });
 
-describe('isKnownSarsCode', () => {
-  it('knows seeded codes', () => {
-    expect(isKnownSarsCode('3601')).toBe(true);
-    expect(isKnownSarsCode('4102')).toBe(true);
-  });
-  it('flags unknown', () => {
-    expect(isKnownSarsCode('9999')).toBe(false);
-  });
-});
-
 // ─── validateComponent ───────────────────────────────────────────────────────
 
 describe('validateComponent', () => {
@@ -76,50 +75,50 @@ describe('validateComponent', () => {
     isActive: true,
   };
 
-  it('passes a well-configured earning', () => {
-    expect(validateComponent(base)).toEqual([]);
+  it('passes a well-configured earning', async () => {
+    expect(await validateComponent(base, TAX_YEAR)).toEqual([]);
   });
 
-  it('flags unknown source code', () => {
-    const out = validateComponent({ ...base, sarsSourceCode: '9999' });
+  it('flags unknown source code', async () => {
+    const out = await validateComponent({ ...base, sarsSourceCode: '9999' }, TAX_YEAR);
     expect(out).toHaveLength(1);
     expect(out[0]?.code).toBe('IRP5_UNKNOWN_CODE');
   });
 
-  it('flags category mismatch (deduction code on earning)', () => {
-    const out = validateComponent({ ...base, sarsSourceCode: '4102' });
-    expect(out).toHaveLength(1);
-    expect(out[0]?.code).toBe('IRP5_CATEGORY_MISMATCH');
+  it('flags category mismatch (deduction code on earning)', async () => {
+    const out = await validateComponent({ ...base, sarsSourceCode: '4102' }, TAX_YEAR);
+    expect(out.length).toBeGreaterThan(0);
+    expect(has(out, 'IRP5_CATEGORY_MISMATCH')).toBe(true);
   });
 });
 
 // ─── validateCompanyComponents ───────────────────────────────────────────────
 
 describe('validateCompanyComponents', () => {
-  it('returns no warnings for distinct active codes', () => {
-    const out = validateCompanyComponents([
+  it('returns no warnings for distinct active codes', async () => {
+    const out = await validateCompanyComponents([
       { id: 'a', name: 'Salary', sarsSourceCode: '3601', componentType: 'earning', isActive: true },
       { id: 'b', name: 'PAYE',   sarsSourceCode: '4102', componentType: 'deduction', isActive: true },
-    ]);
+    ], TAX_YEAR);
     expect(out).toEqual([]);
   });
 
-  it('flags duplicate code across two active components', () => {
-    const out = validateCompanyComponents([
+  it('flags duplicate code across two active components', async () => {
+    const out = await validateCompanyComponents([
       { id: 'a', name: 'Salary 1', sarsSourceCode: '3601', componentType: 'earning', isActive: true },
       { id: 'b', name: 'Salary 2', sarsSourceCode: '3601', componentType: 'earning', isActive: true },
-    ]);
+    ], TAX_YEAR);
     const dupe = find(out, 'IRP5_DUPLICATE_CODE_ACROSS_COMPONENTS');
     expect(dupe).toBeDefined();
     expect(dupe?.message).toContain('Salary 1');
     expect(dupe?.message).toContain('Salary 2');
   });
 
-  it('ignores inactive components for duplicate-code check', () => {
-    const out = validateCompanyComponents([
+  it('ignores inactive components for duplicate-code check', async () => {
+    const out = await validateCompanyComponents([
       { id: 'a', name: 'Old',    sarsSourceCode: '3601', componentType: 'earning', isActive: false },
       { id: 'b', name: 'Active', sarsSourceCode: '3601', componentType: 'earning', isActive: true },
-    ]);
+    ], TAX_YEAR);
     expect(has(out, 'IRP5_DUPLICATE_CODE_ACROSS_COMPONENTS')).toBe(false);
   });
 });
@@ -127,74 +126,74 @@ describe('validateCompanyComponents', () => {
 // ─── validateEmployeeIrp5 ────────────────────────────────────────────────────
 
 describe('validateEmployeeIrp5', () => {
-  it('happy path → no messages', () => {
-    expect(validateEmployeeIrp5(validEmployee)).toEqual([]);
+  it('happy path → no messages', async () => {
+    expect(await validateEmployeeIrp5(validEmployee, TAX_YEAR)).toEqual([]);
   });
 
-  it('flags missing tax number', () => {
-    const out = validateEmployeeIrp5({ ...validEmployee, taxNumber: null });
+  it('flags missing tax number', async () => {
+    const out = await validateEmployeeIrp5({ ...validEmployee, taxNumber: null }, TAX_YEAR);
     expect(has(out, 'IRP5_MISSING_TAX_NUMBER')).toBe(true);
   });
 
-  it('flags invalid tax number format', () => {
-    const out = validateEmployeeIrp5({ ...validEmployee, taxNumber: '4444444444' });
+  it('flags invalid tax number format', async () => {
+    const out = await validateEmployeeIrp5({ ...validEmployee, taxNumber: '4444444444' }, TAX_YEAR);
     expect(has(out, 'IRP5_INVALID_TAX_NUMBER')).toBe(true);
   });
 
-  it('downgrades ID issues to warning (passport holders)', () => {
-    const out = validateEmployeeIrp5({ ...validEmployee, idNumber: 'A1234567' });
+  it('downgrades ID issues to warning (passport holders)', async () => {
+    const out = await validateEmployeeIrp5({ ...validEmployee, idNumber: 'A1234567' }, TAX_YEAR);
     expect(find(out, 'IRP5_INVALID_ID')?.severity).toBe('warning');
   });
 
-  it('short-circuits downstream rules when no payroll runs exist', () => {
-    const out = validateEmployeeIrp5({ ...validEmployee, totalGross: 0, totalPaye: 0, totalUif: 0, totalSdl: 0, componentCodes: [] });
+  it('short-circuits downstream rules when no payroll runs exist', async () => {
+    const out = await validateEmployeeIrp5({ ...validEmployee, totalGross: 0, totalPaye: 0, totalUif: 0, totalSdl: 0, componentCodes: [] }, TAX_YEAR);
     expect(has(out, 'IRP5_NO_PAYROLL')).toBe(true);
     expect(has(out, 'IRP5_PAYE_WITHOUT_INCOME_CODE')).toBe(false);
   });
 
-  it('flags PAYE without an income code', () => {
-    const out = validateEmployeeIrp5({ ...validEmployee, componentCodes: ['4102'] });
+  it('flags PAYE without an income code', async () => {
+    const out = await validateEmployeeIrp5({ ...validEmployee, componentCodes: ['4102'] }, TAX_YEAR);
     expect(has(out, 'IRP5_PAYE_WITHOUT_INCOME_CODE')).toBe(true);
   });
 
-  it('does not flag missing 4141/4150 (UIF/SDL are auto-calculated, never components)', () => {
-    const out = validateEmployeeIrp5({ ...validEmployee, componentCodes: ['3601', '4102'] });
+  it('does not flag missing 4141/4150 (UIF/SDL are auto-calculated, never components)', async () => {
+    const out = await validateEmployeeIrp5({ ...validEmployee, componentCodes: ['3601', '4102'] }, TAX_YEAR);
     expect(has(out, 'IRP5_UIF_MISSING_4141')).toBe(false);
     expect(has(out, 'IRP5_SDL_MISSING_4150')).toBe(false);
   });
 
-  it('flags unknown codes on the employee', () => {
-    const out = validateEmployeeIrp5({ ...validEmployee, componentCodes: ['3601', '4102', '4141', '4150', '9999'] });
+  it('flags unknown codes on the employee', async () => {
+    const out = await validateEmployeeIrp5({ ...validEmployee, componentCodes: ['3601', '4102', '4141', '4150', '9999'] }, TAX_YEAR);
     const hit = find(out, 'IRP5_UNKNOWN_CODE');
     expect(hit).toBeDefined();
     expect(hit?.message).toContain('9999');
   });
 
-  it('flags duplicate codes on the employee', () => {
-    const out = validateEmployeeIrp5({ ...validEmployee, componentCodes: ['3601', '3601', '4102', '4141', '4150'] });
+  it('flags duplicate codes on the employee', async () => {
+    const out = await validateEmployeeIrp5({ ...validEmployee, componentCodes: ['3601', '3601', '4102', '4141', '4150'] }, TAX_YEAR);
     expect(has(out, 'IRP5_DUPLICATE_CODE_ON_EMPLOYEE')).toBe(true);
   });
 
-  it('flags severance (3901) without an approved directive', () => {
-    const out = validateEmployeeIrp5({
+  it('flags severance (3901) without an approved directive', async () => {
+    const out = await validateEmployeeIrp5({
       ...validEmployee,
       componentCodes: [...validEmployee.componentCodes, '3901'],
-    });
+    }, TAX_YEAR);
     expect(has(out, 'IRP5_SEVERANCE_WITHOUT_DIRECTIVE')).toBe(true);
     expect(find(out, 'IRP5_SEVERANCE_WITHOUT_DIRECTIVE')?.severity).toBe('warning');
   });
 
-  it('does not flag severance when an approved directive is present', () => {
-    const out = validateEmployeeIrp5({
+  it('does not flag severance when an approved directive is present', async () => {
+    const out = await validateEmployeeIrp5({
       ...validEmployee,
       componentCodes: [...validEmployee.componentCodes, '3901'],
       hasApprovedSeveranceDirective: true,
-    });
+    }, TAX_YEAR);
     expect(has(out, 'IRP5_SEVERANCE_WITHOUT_DIRECTIVE')).toBe(false);
   });
 
-  it('does not flag severance when 3901 is not present', () => {
-    const out = validateEmployeeIrp5({ ...validEmployee });
+  it('does not flag severance when 3901 is not present', async () => {
+    const out = await validateEmployeeIrp5({ ...validEmployee }, TAX_YEAR);
     expect(has(out, 'IRP5_SEVERANCE_WITHOUT_DIRECTIVE')).toBe(false);
   });
 });

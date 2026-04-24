@@ -1,6 +1,10 @@
 /**
- * TDD: IRP5/IT3(a) Certificate Generation Tests
- * RED phase — written before implementation.
+ * IRP5/IT3(a) Certificate Generation Tests.
+ *
+ * Migrated 2026-04-24: SARS_SOURCE_CODES hardcoded map was removed in favour
+ * of DB-backed sarsCodesService. These tests now read year-effective codes
+ * from sars_source_codes (migration 435) — DATABASE_URL must point at a DB
+ * with the 2026 codes seeded (see scripts/import-sars-codes.ts).
  */
 
 import { describe, it, expect } from 'vitest';
@@ -10,53 +14,56 @@ import {
   buildEMP501Summary,
   validateIRP5Data,
   formatSARSAmount,
-  SARS_SOURCE_CODES,
   type IRP5EmployeeData,
-  type IRP5Certificate,
-  type EMP501Summary,
+  type SourceCodeEntry,
 } from '@/modules/accounting/services/reports/irp5Service';
+import { getSarsCode } from '@/modules/accounting/services/payroll/sarsCodesService';
+
+const TAX_YEAR = 2026;
 
 // ═══════════════════════════════════════════════════════════════════════════
-// SARS SOURCE CODES
+// SARS SOURCE CODES (now DB-backed via sarsCodesService)
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe('SARS Source Codes', () => {
-  it('has code 3601 for gross salary', () => {
-    expect(SARS_SOURCE_CODES['3601']).toBeDefined();
-    expect(SARS_SOURCE_CODES['3601'].description).toContain('salary');
+describe('SARS Source Codes (DB-backed lookup)', () => {
+  it('has code 3601 for gross salary', async () => {
+    const c = await getSarsCode('3601', TAX_YEAR);
+    expect(c).not.toBeNull();
+    expect(c?.description.toLowerCase()).toMatch(/income|salary|remuneration/);
   });
 
-  it('has code 3701 for commission', () => {
-    expect(SARS_SOURCE_CODES['3701']).toBeDefined();
+  it('has code 3701 for travel allowance', async () => {
+    expect(await getSarsCode('3701', TAX_YEAR)).not.toBeNull();
   });
 
-  it('has code 3801 for overtime', () => {
-    expect(SARS_SOURCE_CODES['3801']).toBeDefined();
+  it('has code 3801 for general fringe benefit', async () => {
+    expect(await getSarsCode('3801', TAX_YEAR)).not.toBeNull();
   });
 
-  it('has code 4001 for pension fund contributions', () => {
-    expect(SARS_SOURCE_CODES['4001']).toBeDefined();
+  it('has code 4001 for pension fund contributions', async () => {
+    expect(await getSarsCode('4001', TAX_YEAR)).not.toBeNull();
   });
 
-  it('has code 4003 for medical aid', () => {
-    expect(SARS_SOURCE_CODES['4003']).toBeDefined();
+  it('has code 4003 for medical aid', async () => {
+    expect(await getSarsCode('4003', TAX_YEAR)).not.toBeNull();
   });
 
-  it('has code 4102 for PAYE', () => {
-    expect(SARS_SOURCE_CODES['4102']).toBeDefined();
-    expect(SARS_SOURCE_CODES['4102'].description).toContain('PAYE');
+  it('has code 4102 for PAYE', async () => {
+    const c = await getSarsCode('4102', TAX_YEAR);
+    expect(c).not.toBeNull();
+    expect(c?.description.toUpperCase()).toContain('PAYE');
   });
 
-  it('has code 4141 for UIF employee', () => {
-    expect(SARS_SOURCE_CODES['4141']).toBeDefined();
+  it('has code 4141 for UIF employee', async () => {
+    expect(await getSarsCode('4141', TAX_YEAR)).not.toBeNull();
   });
 
-  it('has code 4142 for UIF employer', () => {
-    expect(SARS_SOURCE_CODES['4142']).toBeDefined();
+  it('has code 4142 for UIF employer', async () => {
+    expect(await getSarsCode('4142', TAX_YEAR)).not.toBeNull();
   });
 
-  it('has code 4150 for SDL', () => {
-    expect(SARS_SOURCE_CODES['4150']).toBeDefined();
+  it('has code 4150 for SDL', async () => {
+    expect(await getSarsCode('4150', TAX_YEAR)).not.toBeNull();
   });
 });
 
@@ -66,74 +73,73 @@ describe('SARS Source Codes', () => {
 
 describe('IRP5 Source Code Calculation', () => {
   const sampleEmployee: IRP5EmployeeData = {
-    grossSalary: 360000, // R30k/month * 12
+    grossSalary: 360000,
     commission: 0,
     overtime: 12000,
     bonus: 30000,
     travelAllowance: 24000,
-    pensionContribEmployee: 21600, // 6% of gross
+    pensionContribEmployee: 21600,
     medicalAidEmployee: 18000,
     retirementAnnuity: 0,
     paye: 72000,
-    uifEmployee: 2136.12, // 1% of R17,811.84 * 12
+    uifEmployee: 2136.12,
     uifEmployer: 2136.12,
-    sdl: 4260, // 1% of total remuneration
+    sdl: 4260,
   };
 
-  it('maps gross salary to code 3601', () => {
-    const codes = calculateIRP5SourceCodes(sampleEmployee);
-    expect(codes.find(c => c.code === '3601')?.amount).toBe(360000);
+  it('maps gross salary to code 3601', async () => {
+    const codes = await calculateIRP5SourceCodes(sampleEmployee, TAX_YEAR);
+    expect(codes.find((c: SourceCodeEntry) => c.code === '3601')?.amount).toBe(360000);
   });
 
-  it('maps overtime to code 3801', () => {
-    const codes = calculateIRP5SourceCodes(sampleEmployee);
-    expect(codes.find(c => c.code === '3801')?.amount).toBe(12000);
+  it('maps overtime to code 3801', async () => {
+    const codes = await calculateIRP5SourceCodes(sampleEmployee, TAX_YEAR);
+    expect(codes.find((c: SourceCodeEntry) => c.code === '3801')?.amount).toBe(12000);
   });
 
-  it('maps bonus to code 3605', () => {
-    const codes = calculateIRP5SourceCodes(sampleEmployee);
-    expect(codes.find(c => c.code === '3605')?.amount).toBe(30000);
+  it('maps bonus to code 3605', async () => {
+    const codes = await calculateIRP5SourceCodes(sampleEmployee, TAX_YEAR);
+    expect(codes.find((c: SourceCodeEntry) => c.code === '3605')?.amount).toBe(30000);
   });
 
-  it('maps travel allowance to code 3702', () => {
-    const codes = calculateIRP5SourceCodes(sampleEmployee);
-    expect(codes.find(c => c.code === '3702')?.amount).toBe(24000);
+  it('maps travel allowance to code 3702', async () => {
+    const codes = await calculateIRP5SourceCodes(sampleEmployee, TAX_YEAR);
+    expect(codes.find((c: SourceCodeEntry) => c.code === '3702')?.amount).toBe(24000);
   });
 
-  it('maps pension contribution to code 4001', () => {
-    const codes = calculateIRP5SourceCodes(sampleEmployee);
-    expect(codes.find(c => c.code === '4001')?.amount).toBe(21600);
+  it('maps pension contribution to code 4001', async () => {
+    const codes = await calculateIRP5SourceCodes(sampleEmployee, TAX_YEAR);
+    expect(codes.find((c: SourceCodeEntry) => c.code === '4001')?.amount).toBe(21600);
   });
 
-  it('maps medical aid to code 4003', () => {
-    const codes = calculateIRP5SourceCodes(sampleEmployee);
-    expect(codes.find(c => c.code === '4003')?.amount).toBe(18000);
+  it('maps medical aid to code 4003', async () => {
+    const codes = await calculateIRP5SourceCodes(sampleEmployee, TAX_YEAR);
+    expect(codes.find((c: SourceCodeEntry) => c.code === '4003')?.amount).toBe(18000);
   });
 
-  it('maps PAYE to code 4102', () => {
-    const codes = calculateIRP5SourceCodes(sampleEmployee);
-    expect(codes.find(c => c.code === '4102')?.amount).toBe(72000);
+  it('maps PAYE to code 4102', async () => {
+    const codes = await calculateIRP5SourceCodes(sampleEmployee, TAX_YEAR);
+    expect(codes.find((c: SourceCodeEntry) => c.code === '4102')?.amount).toBe(72000);
   });
 
-  it('maps UIF employee to code 4141', () => {
-    const codes = calculateIRP5SourceCodes(sampleEmployee);
-    expect(codes.find(c => c.code === '4141')?.amount).toBe(2136.12);
+  it('maps UIF employee to code 4141', async () => {
+    const codes = await calculateIRP5SourceCodes(sampleEmployee, TAX_YEAR);
+    expect(codes.find((c: SourceCodeEntry) => c.code === '4141')?.amount).toBe(2136.12);
   });
 
-  it('maps UIF employer to code 4142', () => {
-    const codes = calculateIRP5SourceCodes(sampleEmployee);
-    expect(codes.find(c => c.code === '4142')?.amount).toBe(2136.12);
+  it('maps UIF employer to code 4142', async () => {
+    const codes = await calculateIRP5SourceCodes(sampleEmployee, TAX_YEAR);
+    expect(codes.find((c: SourceCodeEntry) => c.code === '4142')?.amount).toBe(2136.12);
   });
 
-  it('maps SDL to code 4150', () => {
-    const codes = calculateIRP5SourceCodes(sampleEmployee);
-    expect(codes.find(c => c.code === '4150')?.amount).toBe(4260);
+  it('maps SDL to code 4150', async () => {
+    const codes = await calculateIRP5SourceCodes(sampleEmployee, TAX_YEAR);
+    expect(codes.find((c: SourceCodeEntry) => c.code === '4150')?.amount).toBe(4260);
   });
 
-  it('omits zero-value codes', () => {
-    const codes = calculateIRP5SourceCodes(sampleEmployee);
-    const commissionCode = codes.find(c => c.code === '3701');
-    expect(commissionCode).toBeUndefined(); // commission is 0
+  it('omits zero-value codes', async () => {
+    const codes = await calculateIRP5SourceCodes(sampleEmployee, TAX_YEAR);
+    expect(codes.find((c: SourceCodeEntry) => c.code === '3701')).toBeUndefined();
   });
 });
 
@@ -157,66 +163,38 @@ describe('IRP5 Certificate Building', () => {
     sdl: 3000,
   };
 
-  it('builds certificate with employee details', () => {
-    const cert = buildIRP5Certificate({
-      employeeData: sampleData,
-      employeeName: 'John Smith',
-      idNumber: '8501015009081',
-      taxNumber: '1234567890',
-      employerName: 'IsaFlow Pty Ltd',
-      employerPayeRef: '7001234567',
-      taxYear: 2026,
-      periodStart: '2025-03-01',
-      periodEnd: '2026-02-28',
-    });
+  const baseInput = {
+    employeeData: sampleData,
+    employeeName: 'John Smith',
+    idNumber: '8501015009081',
+    taxNumber: '1234567890',
+    employerName: 'IsaFlow Pty Ltd',
+    employerPayeRef: '7001234567',
+    taxYear: TAX_YEAR,
+    periodStart: '2025-03-01',
+    periodEnd: '2026-02-28',
+  };
+
+  it('builds certificate with employee details', async () => {
+    const cert = await buildIRP5Certificate(baseInput);
     expect(cert.employeeName).toBe('John Smith');
     expect(cert.idNumber).toBe('8501015009081');
-    expect(cert.taxYear).toBe(2026);
+    expect(cert.taxYear).toBe(TAX_YEAR);
   });
 
-  it('includes all non-zero source codes', () => {
-    const cert = buildIRP5Certificate({
-      employeeData: sampleData,
-      employeeName: 'Test',
-      idNumber: '8501015009081',
-      taxNumber: '1234567890',
-      employerName: 'Test Co',
-      employerPayeRef: '7001234567',
-      taxYear: 2026,
-      periodStart: '2025-03-01',
-      periodEnd: '2026-02-28',
-    });
+  it('includes all non-zero source codes', async () => {
+    const cert = await buildIRP5Certificate(baseInput);
     expect(cert.sourceCodes.length).toBeGreaterThan(0);
-    expect(cert.sourceCodes.every(sc => sc.amount > 0)).toBe(true);
+    expect(cert.sourceCodes.every((sc: SourceCodeEntry) => sc.amount > 0)).toBe(true);
   });
 
-  it('calculates total gross income', () => {
-    const cert = buildIRP5Certificate({
-      employeeData: sampleData,
-      employeeName: 'Test',
-      idNumber: '8501015009081',
-      taxNumber: '1234567890',
-      employerName: 'Test Co',
-      employerPayeRef: '7001234567',
-      taxYear: 2026,
-      periodStart: '2025-03-01',
-      periodEnd: '2026-02-28',
-    });
+  it('calculates total gross income', async () => {
+    const cert = await buildIRP5Certificate(baseInput);
     expect(cert.totalGrossIncome).toBe(300000);
   });
 
-  it('calculates total deductions', () => {
-    const cert = buildIRP5Certificate({
-      employeeData: sampleData,
-      employeeName: 'Test',
-      idNumber: '8501015009081',
-      taxNumber: '1234567890',
-      employerName: 'Test Co',
-      employerPayeRef: '7001234567',
-      taxYear: 2026,
-      periodStart: '2025-03-01',
-      periodEnd: '2026-02-28',
-    });
+  it('calculates total deductions', async () => {
+    const cert = await buildIRP5Certificate(baseInput);
     // PAYE + UIF employee + pension + medical = 55000 + 2136.12 + 18000 + 12000
     expect(cert.totalDeductions).toBeGreaterThan(80000);
   });
@@ -235,21 +213,21 @@ describe('EMP501 Summary', () => {
       sdl: 350,
       totalEmployees: 5,
     }));
-    const summary = buildEMP501Summary(monthly, 2026);
-    expect(summary.totalPaye).toBe(72000); // 6000 * 12
-    expect(summary.totalUif).toBe(4272); // 356 * 12
-    expect(summary.totalSdl).toBe(4200); // 350 * 12
-    expect(summary.taxYear).toBe(2026);
+    const summary = buildEMP501Summary(monthly, TAX_YEAR);
+    expect(summary.totalPaye).toBe(72000);
+    expect(summary.totalUif).toBe(4272);
+    expect(summary.totalSdl).toBe(4200);
+    expect(summary.taxYear).toBe(TAX_YEAR);
   });
 
   it('calculates total liability', () => {
     const monthly = [{ month: 1, paye: 10000, uif: 500, sdl: 300, totalEmployees: 3 }];
-    const summary = buildEMP501Summary(monthly, 2026);
-    expect(summary.totalLiability).toBe(10800); // 10000 + 500 + 300
+    const summary = buildEMP501Summary(monthly, TAX_YEAR);
+    expect(summary.totalLiability).toBe(10800);
   });
 
   it('handles empty months', () => {
-    const summary = buildEMP501Summary([], 2026);
+    const summary = buildEMP501Summary([], TAX_YEAR);
     expect(summary.totalPaye).toBe(0);
     expect(summary.totalLiability).toBe(0);
   });

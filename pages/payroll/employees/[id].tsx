@@ -31,6 +31,7 @@ export default function EmployeeDetailPage() {
   const [newComponentId, setNewComponentId] = useState('');
   const [newAmount, setNewAmount] = useState('');
   const [newFrom, setNewFrom] = useState(new Date().toISOString().slice(0, 10));
+  const [newIsRecurring, setNewIsRecurring] = useState(true);
   const [addingAssignment, setAddingAssignment] = useState(false);
 
   const loadAll = useCallback(async () => {
@@ -98,6 +99,7 @@ export default function EmployeeDetailPage() {
           componentId: newComponentId,
           amount: Number(newAmount),
           effectiveFrom: newFrom,
+          isRecurring: newIsRecurring,
         }),
       });
       if (!res.ok) {
@@ -186,9 +188,11 @@ export default function EmployeeDetailPage() {
             newComponentId={newComponentId}
             newAmount={newAmount}
             newFrom={newFrom}
+            newIsRecurring={newIsRecurring}
             onNewComponentId={setNewComponentId}
             onNewAmount={setNewAmount}
             onNewFrom={setNewFrom}
+            onNewIsRecurring={setNewIsRecurring}
             onAssign={assignComponent}
             onEnd={endAssignment}
             adding={addingAssignment}

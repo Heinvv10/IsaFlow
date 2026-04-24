@@ -1,20 +1,25 @@
 /**
- * IRP5 Validation Engine — pure TS rules for SARS source-code compliance.
+ * IRP5 Validation Engine — year-aware SARS source-code compliance rules.
  *
- * Consumers (e.g. /api/payroll/irp5/summary) assemble inputs from the DB
- * and call these functions. No DB access here — keeps rules easy to test
- * and deterministic.
+ * Looks up codes via sarsCodesService (DB-backed, year-effective). All
+ * functions take an explicit taxYear so historical IRP5 regeneration
+ * uses the codes valid at the time, not today's set.
  */
 
-import { SARS_SOURCE_CODES } from '@/modules/accounting/services/reports/irp5Service';
+import {
+  getSarsCode,
+  isKnownSarsCode,
+  listSarsCodes,
+  categoryToComponentType,
+} from '@/modules/accounting/services/payroll/sarsCodesService';
 
 export type ValidationSeverity = 'error' | 'warning' | 'info';
 
 export interface ValidationMessage {
   severity: ValidationSeverity;
-  code: string;            // stable rule id, e.g. 'IRP5_UNKNOWN_CODE'
-  message: string;         // plain-English text shown in the UI
-  field?: string;          // optional deep-link hint (e.g. 'tax_number')
+  code: string;
+  message: string;
+  field?: string;
 }
 
 export interface ComponentConfig {
@@ -32,28 +37,16 @@ export interface EmployeeIrp5Input {
   totalPaye: number;
   totalUif: number;
   totalSdl: number;
-  /** SARS source codes used by this employee's active components, from payroll_components.sars_source_code */
   componentCodes: string[];
-  /** True when an approved severance tax directive exists for this employee in the current tax year. */
   hasApprovedSeveranceDirective?: boolean;
 }
 
-// Category → component_type expected pairing.
 const COMPONENT_TYPE_TO_CATEGORY: Record<ComponentConfig['componentType'], 'income' | 'deduction' | 'employer'> = {
   earning: 'income',
   deduction: 'deduction',
   employer_contribution: 'employer',
 };
 
-// Known income codes — used to check "PAYE without any income code".
-const INCOME_CODES = Object.entries(SARS_SOURCE_CODES)
-  .filter(([, v]) => v.category === 'income')
-  .map(([code]) => code);
-
-/**
- * SA SARS tax reference number: 10 digits, starts with 0/1/2/3/9.
- * https://www.sars.gov.za — income tax reference format.
- */
 export function isValidSarsTaxNumber(value: string | null | undefined): boolean {
   if (!value) return false;
   return /^[01239]\d{9}$/.test(value.trim());
@@ -64,51 +57,55 @@ export function isValidSaIdNumber(value: string | null | undefined): boolean {
   return /^\d{13}$/.test(value.trim());
 }
 
-export function isKnownSarsCode(code: string): boolean {
-  return Object.prototype.hasOwnProperty.call(SARS_SOURCE_CODES, code);
-}
-
-/**
- * Validate a single payroll_components row's SARS code + category alignment.
- */
-export function validateComponent(component: ComponentConfig): ValidationMessage[] {
+export async function validateComponent(
+  component: ComponentConfig,
+  taxYear: number
+): Promise<ValidationMessage[]> {
   const msgs: ValidationMessage[] = [];
   const code = component.sarsSourceCode.trim();
 
-  if (!isKnownSarsCode(code)) {
+  const sarsCode = await getSarsCode(code, taxYear);
+  if (!sarsCode) {
     msgs.push({
       severity: 'error',
       code: 'IRP5_UNKNOWN_CODE',
-      message: `Component "${component.name}" uses unknown SARS source code ${code}`,
+      message: `Component "${component.name}" uses unknown SARS source code ${code} for tax year ${taxYear}`,
       field: `payroll_components.${component.id}.sars_source_code`,
     });
-    return msgs; // can't evaluate category without a known code
+    return msgs;
+  }
+
+  if (sarsCode.status === 'deprecated') {
+    msgs.push({
+      severity: 'error',
+      code: 'IRP5_DEPRECATED_CODE',
+      message: `Component "${component.name}" uses deprecated SARS source code ${code} for tax year ${taxYear}`,
+      field: `payroll_components.${component.id}.sars_source_code`,
+    });
   }
 
   const expectedCategory = COMPONENT_TYPE_TO_CATEGORY[component.componentType];
-  const actualCategory = SARS_SOURCE_CODES[code]?.category;
-  if (actualCategory && actualCategory !== expectedCategory) {
+  const actualCoarse = categoryToComponentType(sarsCode.category);
+  if (actualCoarse !== expectedCategory) {
     msgs.push({
       severity: 'error',
       code: 'IRP5_CATEGORY_MISMATCH',
-      message: `Component "${component.name}" is a ${component.componentType} but code ${code} is categorised as ${actualCategory}`,
+      message: `Component "${component.name}" is a ${component.componentType} but code ${code} is categorised as ${sarsCode.category}`,
       field: `payroll_components.${component.id}.sars_source_code`,
     });
   }
   return msgs;
 }
 
-/**
- * Validate the full list of company components. Catches duplicate codes
- * configured across multiple active components (a common reconciliation
- * trap — two earnings rolling up to the same IRP5 line).
- */
-export function validateCompanyComponents(components: ComponentConfig[]): ValidationMessage[] {
+export async function validateCompanyComponents(
+  components: ComponentConfig[],
+  taxYear: number
+): Promise<ValidationMessage[]> {
   const msgs: ValidationMessage[] = [];
 
   for (const c of components) {
     if (!c.isActive) continue;
-    msgs.push(...validateComponent(c));
+    msgs.push(...(await validateComponent(c, taxYear)));
   }
 
   const codeCounts = new Map<string, string[]>();
@@ -131,10 +128,10 @@ export function validateCompanyComponents(components: ComponentConfig[]): Valida
   return msgs;
 }
 
-/**
- * Per-employee IRP5 readiness rules. Returns one message per issue.
- */
-export function validateEmployeeIrp5(input: EmployeeIrp5Input): ValidationMessage[] {
+export async function validateEmployeeIrp5(
+  input: EmployeeIrp5Input,
+  taxYear: number
+): Promise<ValidationMessage[]> {
   const msgs: ValidationMessage[] = [];
 
   if (!input.taxNumber) {
@@ -161,7 +158,6 @@ export function validateEmployeeIrp5(input: EmployeeIrp5Input): ValidationMessag
       field: 'id_number',
     });
   } else if (!isValidSaIdNumber(input.idNumber)) {
-    // Foreign nationals have passports, which are shorter — treat as warning.
     msgs.push({
       severity: 'warning',
       code: 'IRP5_INVALID_ID',
@@ -176,22 +172,24 @@ export function validateEmployeeIrp5(input: EmployeeIrp5Input): ValidationMessag
       code: 'IRP5_NO_PAYROLL',
       message: 'No payroll runs in this tax year',
     });
-    return msgs; // downstream rules don't apply without payroll
+    return msgs;
   }
 
-  // Unknown codes in the employee's component set
-  const unknown = input.componentCodes.filter((c) => !isKnownSarsCode(c));
-  for (const c of unknown) {
-    msgs.push({
-      severity: 'error',
-      code: 'IRP5_UNKNOWN_CODE',
-      message: `Employee uses unknown SARS source code ${c}`,
-    });
+  for (const c of input.componentCodes) {
+    if (!(await isKnownSarsCode(c, taxYear))) {
+      msgs.push({
+        severity: 'error',
+        code: 'IRP5_UNKNOWN_CODE',
+        message: `Employee uses unknown SARS source code ${c} for tax year ${taxYear}`,
+      });
+    }
   }
 
-  // PAYE present but no income code used
   if (input.totalPaye > 0) {
-    const hasIncomeCode = input.componentCodes.some((c) => INCOME_CODES.includes(c));
+    const incomeCodes = (await listSarsCodes(taxYear, { excludeDeprecated: true }))
+      .filter((c) => categoryToComponentType(c.category) === 'income')
+      .map((c) => c.code);
+    const hasIncomeCode = input.componentCodes.some((c) => incomeCodes.includes(c));
     if (!hasIncomeCode) {
       msgs.push({
         severity: 'error',
@@ -201,14 +199,10 @@ export function validateEmployeeIrp5(input: EmployeeIrp5Input): ValidationMessag
     }
   }
 
-  // Note: we deliberately do NOT check for component codes 4141 (UIF) or 4150 (SDL)
-  // on the employee. In this codebase UIF and SDL are auto-calculated from gross pay
-  // by uifEngine / sdlEngine and landed on IRP5 via run-line aggregation — they are
-  // never payroll_components. An earlier version of this engine flagged their
-  // "absence" as a warning, which fired for every correctly-configured employee.
+  // UIF (4141) and SDL (4150) are auto-calculated from gross pay by uifEngine /
+  // sdlEngine — they are never payroll_components, so we do NOT flag their
+  // absence on the employee.
 
-  // Severance lump sum without an approved tax directive — payslip will over/under-tax
-  // because the normal PAYE engine is applied instead of the directive rate.
   if (input.componentCodes.includes('3901') && input.hasApprovedSeveranceDirective !== true) {
     msgs.push({
       severity: 'warning',
@@ -217,7 +211,6 @@ export function validateEmployeeIrp5(input: EmployeeIrp5Input): ValidationMessag
     });
   }
 
-  // Duplicate codes within the same employee's component list
   const seen = new Map<string, number>();
   for (const c of input.componentCodes) {
     seen.set(c, (seen.get(c) ?? 0) + 1);
@@ -235,7 +228,6 @@ export function validateEmployeeIrp5(input: EmployeeIrp5Input): ValidationMessag
   return msgs;
 }
 
-/** Convenience — top severity across a list of messages. */
 export function highestSeverity(msgs: ValidationMessage[]): ValidationSeverity | null {
   if (msgs.some((m) => m.severity === 'error')) return 'error';
   if (msgs.some((m) => m.severity === 'warning')) return 'warning';

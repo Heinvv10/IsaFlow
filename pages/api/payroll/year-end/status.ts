@@ -192,7 +192,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     componentType: String(r.component_type) as ComponentConfig['componentType'],
     isActive: Boolean(r.is_active),
   }));
-  const componentIssues = validateCompanyComponents(components);
+  const componentIssues = await validateCompanyComponents(components, taxYear);
 
   let readinessErrors = 0;
   let readinessWarnings = 0;
@@ -204,7 +204,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     const totalGross = agg ? Number(agg.total_gross) : 0;
     if (totalGross > 0) empWithPayroll += 1;
 
-    const msgs = validateEmployeeIrp5({
+    const msgs = await validateEmployeeIrp5({
       taxNumber: emp.tax_number ? String(emp.tax_number) : null,
       idNumber: emp.id_number ? String(emp.id_number) : null,
       totalGross,
@@ -213,7 +213,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       totalSdl: agg ? Number(agg.total_sdl) : 0,
       componentCodes: codesByEmployee.get(String(emp.id)) ?? [],
       hasApprovedSeveranceDirective: employeesWithSeveranceDirective.has(String(emp.id)),
-    });
+    }, taxYear);
     readinessErrors += countSeverity(msgs, 'error');
     readinessWarnings += countSeverity(msgs, 'warning');
     if (totalGross > 0 && countSeverity(msgs, 'error') === 0 && countSeverity(msgs, 'warning') === 0) {

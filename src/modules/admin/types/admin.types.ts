@@ -60,6 +60,14 @@ export interface AdminUserDetail extends AdminUserListItem {
   suspended_at: string | null;
   suspended_reason: string | null;
   companies: AdminUserCompany[];
+  account_type: 'direct' | 'bureau_owner' | 'bureau_member';
+  bureaus: AdminUserBureau[];
+}
+
+export interface AdminUserBureau {
+  bureau_id: string;
+  bureau_name: string;
+  role: 'owner' | 'accountant' | 'viewer';
 }
 
 export interface AdminUserCompany {
