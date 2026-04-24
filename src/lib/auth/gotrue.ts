@@ -136,6 +136,30 @@ export async function adminGetUserByEmail(email: string): Promise<GoTrueUser> {
   return user;
 }
 
+/**
+ * User-level self-update via GoTrue. Unlike adminUpdateUser, a PUT /user
+ * call with a new `email` does NOT change the address immediately — GoTrue
+ * starts an email-change flow and sends a confirmation link to the new
+ * address. The email only switches over when the user clicks that link.
+ *
+ * Caller must pass the user's own access token (not the service role key).
+ */
+export async function userUpdateSelf(
+  accessToken: string,
+  patch: { email?: string; password?: string; data?: Record<string, unknown> }
+): Promise<GoTrueUser> {
+  const res = await gotrueFetch(
+    '/user',
+    { method: 'PUT', body: JSON.stringify(patch) },
+    { Authorization: `Bearer ${accessToken}`, apikey: getEnv('SUPABASE_ANON_KEY') }
+  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`gotrue userUpdateSelf failed: ${res.status} ${body}`);
+  }
+  return res.json() as Promise<GoTrueUser>;
+}
+
 export async function adminUpdateUser(
   userId: string,
   patch: { email?: string; password?: string; user_metadata?: Record<string, unknown> }

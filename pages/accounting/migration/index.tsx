@@ -212,14 +212,14 @@ function SourceSelection({ onSelect, selecting, isSuperAdmin }: { onSelect: (s: 
             <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-400">Admin</span>
           </div>
           <p className="text-sm text-[var(--ff-text-secondary)] mb-3">
-            Already on Sage Business Cloud? Skip the CSV files — pull your data directly from your Sage account.
+            Sage auto-import is now a staff tool. Open the admin console to run it for any tenant.
           </p>
-          <Link
-            href="/accounting/migration/sage-auto"
+          <a
+            href={process.env.NEXT_PUBLIC_ADMIN_URL ? `${process.env.NEXT_PUBLIC_ADMIN_URL}/admin/tools/sage-import` : '/admin/tools/sage-import'}
             className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-500 text-sm font-medium"
           >
-            Auto-Import from Sage →
-          </Link>
+            Open Admin Sage Import →
+          </a>
         </div>
       )}
     </div>
