@@ -45,7 +45,7 @@ export async function recordEmployeeChange(input: RecordChangeInput): Promise<vo
       ${input.fieldName},
       ${input.oldValue},
       ${input.newValue},
-      ${input.effectiveFrom ?? null}::date,
+      COALESCE(${input.effectiveFrom ?? null}::date, CURRENT_DATE),
       ${input.changeReason ?? null},
       ${input.userId}
     )
