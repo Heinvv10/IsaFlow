@@ -4,6 +4,9 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 export const ACCESS_COOKIE = 'sb-access-token';
 export const REFRESH_COOKIE = 'sb-refresh-token';
 export const ACTIVE_COMPANY_COOKIE = 'active_company_id';
+// Pentest H6: holds the AAL1 GoTrue token between /login and /2fa-challenge.
+// HttpOnly + short TTL (5 min) — never exposed to JS or returned in response bodies.
+export const PENDING_MFA_COOKIE = 'sb-pending-mfa';
 
 function isSecure(): boolean {
   return process.env.NODE_ENV === 'production';
@@ -75,6 +78,15 @@ export function setActiveCompanyCookie(res: NextApiResponse, companyId: string):
   );
 }
 
+export function setPendingMfaCookie(res: NextApiResponse, pendingToken: string): void {
+  // 5-minute TTL — just long enough for the user to type a TOTP code.
+  appendSetCookie(res, `${PENDING_MFA_COOKIE}=${pendingToken}; ${cookieFlags(300, cookieDomain())}`);
+}
+
+export function clearPendingMfaCookie(res: NextApiResponse): void {
+  appendSetCookie(res, `${PENDING_MFA_COOKIE}=; ${cookieFlags(0, cookieDomain())}`);
+}
+
 /**
  * Clears auth cookies. During the COOKIE_DOMAIN transition we emit clears for
  * BOTH host-scoped (pre-transition) and domain-scoped (post-transition)
@@ -87,7 +99,7 @@ export function setActiveCompanyCookie(res: NextApiResponse, companyId: string):
  */
 export function clearAuthCookies(res: NextApiResponse): void {
   const domain = cookieDomain();
-  for (const name of [ACCESS_COOKIE, REFRESH_COOKIE, ACTIVE_COMPANY_COOKIE]) {
+  for (const name of [ACCESS_COOKIE, REFRESH_COOKIE, ACTIVE_COMPANY_COOKIE, PENDING_MFA_COOKIE]) {
     appendSetCookie(res, `${name}=; ${cookieFlags(0)}`);
     if (domain) {
       appendSetCookie(res, `${name}=; ${cookieFlags(0, domain)}`);

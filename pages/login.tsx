@@ -237,7 +237,6 @@ export default function LoginPage() {
         data?: {
           requires_2fa?: boolean;
           factor_id?: string;
-          pending_token?: string;
           user?: unknown;
         };
         error?: { message: string };
@@ -249,14 +248,16 @@ export default function LoginPage() {
         throw new Error(json.error?.message ?? json.message ?? 'Login failed');
       }
 
-      // GoTrue 2FA gate — show TOTP step
+      // GoTrue 2FA gate — show TOTP step.
+      // pending_token is now held in an HttpOnly cookie set by /api/auth/login;
+      // the 2fa-challenge endpoint reads it from cookies (pentest H6).
       if (json.data?.requires_2fa) {
         setPendingFactor({
           factor_id: json.data.factor_id as string,
-          pending_token: json.data.pending_token as string,
+          pending_token: '',
         });
         setStep('totp');
-        return; // do NOT navigate yet
+        return;
       }
 
       // No 2FA — sync AuthContext with the new session cookie before
@@ -280,10 +281,10 @@ export default function LoginPage() {
       const res = await fetch('/api/auth/2fa-challenge', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
+        credentials: 'include', // send sb-pending-mfa cookie
         body: JSON.stringify({
           factor_id: pendingFactor.factor_id,
           code,
-          pending_token: pendingFactor.pending_token,
         }),
       });
       const json = await res.json() as {

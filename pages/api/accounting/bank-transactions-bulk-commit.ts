@@ -118,6 +118,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!filename) return apiResponse.badRequest(res, 'filename is required');
   if (!statementDate) return apiResponse.badRequest(res, 'statementDate is required');
 
+  // Pentest M16: cap decoded base64 size before decoding.
+  if (pdfBase64 && Buffer.byteLength(pdfBase64, 'base64') > 15 * 1024 * 1024) {
+    return apiResponse.badRequest(res, 'PDF file exceeds 15MB limit');
+  }
+
   // 1. Verify the chosen bank account belongs to this company.
   const accountRows = (await sql`
     SELECT bank_account_number

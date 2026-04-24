@@ -3,7 +3,13 @@
 // Completes the GoTrue challenge using the short-lived pending_token, then
 // sets the real sb-access-token / sb-refresh-token cookies.
 import type { NextApiHandler } from 'next';
-import { setAuthCookies, setActiveCompanyCookie } from '@/lib/auth/cookies';
+import {
+  setAuthCookies,
+  setActiveCompanyCookie,
+  clearPendingMfaCookie,
+  parseCookies,
+  PENDING_MFA_COOKIE,
+} from '@/lib/auth/cookies';
 import { challengeFactor, verifyFactor, GotrueMfaError } from '@/lib/auth/gotrue-mfa';
 import { verifyToken } from '@/lib/auth/gotrue';
 import { checkRateLimit, getClientIp, withRateLimit } from '@/lib/rateLimit';
@@ -14,9 +20,20 @@ const handler: NextApiHandler = async (req, res) => {
   if (req.method !== 'POST') {
     return res.status(405).json({ success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'POST required' } });
   }
-  const { factor_id, code, pending_token } = req.body ?? {};
-  if (typeof factor_id !== 'string' || typeof code !== 'string' || typeof pending_token !== 'string') {
-    return res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'factor_id, code, pending_token required' } });
+  const { factor_id, code } = req.body ?? {};
+  if (typeof factor_id !== 'string' || typeof code !== 'string') {
+    return res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'factor_id and code required' } });
+  }
+
+  // Pentest H6: pending_token is now read from the HttpOnly cookie set by
+  // /api/auth/login. Body-provided tokens (old client) are still tolerated
+  // for the current release so clients can be rolled out gradually; remove
+  // the body fallback after the frontend lands the cookie-based flow.
+  const cookiePendingToken = parseCookies(req)[PENDING_MFA_COOKIE];
+  const bodyPendingToken = typeof req.body?.pending_token === 'string' ? req.body.pending_token : '';
+  const pending_token = cookiePendingToken || bodyPendingToken;
+  if (!pending_token) {
+    return res.status(401).json({ success: false, error: { code: 'NO_PENDING_TOKEN', message: 'Pending session missing' } });
   }
 
   // Per-factor brute-force guard — 5 attempts / 15 min per factor_id beats
@@ -55,6 +72,7 @@ const handler: NextApiHandler = async (req, res) => {
       expiresIn: aal2.expires_in,
     });
     if (memberships.length > 0) setActiveCompanyCookie(res, memberships[0]!.company_id);
+    clearPendingMfaCookie(res);
 
     return res.status(200).json({
       success: true,

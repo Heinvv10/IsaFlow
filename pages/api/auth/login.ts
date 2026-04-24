@@ -2,7 +2,7 @@
 import type { NextApiHandler } from 'next';
 import { signIn } from '@/lib/auth/gotrue';
 import { listFactors, GotrueMfaError } from '@/lib/auth/gotrue-mfa';
-import { setAuthCookies, setActiveCompanyCookie } from '@/lib/auth/cookies';
+import { setAuthCookies, setActiveCompanyCookie, setPendingMfaCookie } from '@/lib/auth/cookies';
 import { checkRateLimit, getClientIp, withRateLimit } from '@/lib/rateLimit';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -46,12 +46,14 @@ const handler: NextApiHandler = async (req, res) => {
   }
 
   if (verified.length > 0) {
+    // Pentest H6: pending_token is now a short-lived HttpOnly cookie.
+    // Returning it in the response body exposes it to XSS / extensions.
+    setPendingMfaCookie(res, token.access_token);
     return res.status(200).json({
       success: true,
       data: {
         requires_2fa: true,
         factor_id: verified[0]!.id,
-        pending_token: token.access_token,
       },
     });
   }
