@@ -9,7 +9,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Loader2, Mail, Calendar, ArrowRight, Settings } from 'lucide-react';
+import { Loader2, Mail, Calendar, ArrowRight, Settings, Pencil, Trash2, X, Save } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 
 interface DunningTemplate {
@@ -37,12 +37,75 @@ const TONE_STYLES: Record<DunningTemplate['tone'], string> = {
   legal: 'bg-red-100 text-red-900 border-red-300',
 };
 
+type EditDraft = Pick<
+  DunningTemplate,
+  'name' | 'subject_template' | 'body_template' | 'days_overdue_min' | 'days_overdue_max' | 'send_weekdays_only'
+>;
+
 export default function DunningTemplatesPage() {
   const [templates, setTemplates] = useState<DunningTemplate[]>([]);
   const [settings, setSettings] = useState<DunningSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [updatingSettings, setUpdatingSettings] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<EditDraft | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const startEdit = useCallback((t: DunningTemplate) => {
+    setEditingId(t.id);
+    setDraft({
+      name: t.name,
+      subject_template: t.subject_template,
+      body_template: t.body_template,
+      days_overdue_min: t.days_overdue_min,
+      days_overdue_max: t.days_overdue_max,
+      send_weekdays_only: t.send_weekdays_only,
+    });
+  }, []);
+
+  const cancelEdit = useCallback(() => {
+    setEditingId(null);
+    setDraft(null);
+  }, []);
+
+  const saveEdit = useCallback(async () => {
+    if (!editingId || !draft) return;
+    try {
+      setSaving(true);
+      const res = await apiFetch(`/api/accounting/ar/dunning/templates/${editingId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(draft),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j?.error?.message ?? `PUT failed: ${res.status}`);
+      }
+      const json = await res.json();
+      const updated = json?.data as DunningTemplate | undefined;
+      if (updated) {
+        setTemplates((prev) => prev.map((t) => (t.id === editingId ? updated : t)));
+      }
+      cancelEdit();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  }, [editingId, draft, cancelEdit]);
+
+  const deactivateTemplate = useCallback(async (id: string, name: string) => {
+    // eslint-disable-next-line no-alert
+    if (!confirm(`Deactivate "${name}"? The template stays in history but the cron will skip it.`)) return;
+    try {
+      const res = await apiFetch(`/api/accounting/ar/dunning/templates/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(`DELETE failed: ${res.status}`);
+      setTemplates((prev) => prev.map((t) => (t.id === id ? { ...t, active: false } : t)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Deactivate failed');
+    }
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -154,7 +217,7 @@ export default function DunningTemplatesPage() {
           {templates.map((t) => (
             <div
               key={t.id}
-              className={`border rounded-lg p-4 ${TONE_STYLES[t.tone]}`}
+              className={`border rounded-lg p-4 ${TONE_STYLES[t.tone]} ${!t.active ? 'opacity-50' : ''}`}
             >
               <div className="flex items-center justify-between gap-4">
                 <div>
@@ -166,6 +229,11 @@ export default function DunningTemplatesPage() {
                     <span className="text-xs text-gray-700">
                       escalation #{t.escalation_order}
                     </span>
+                    {!t.active && (
+                      <span className="text-xs px-2 py-0.5 bg-gray-200 text-gray-700 rounded">
+                        inactive
+                      </span>
+                    )}
                   </div>
                   <div className="text-xs text-gray-700 mt-1 flex items-center gap-2">
                     <Calendar className="w-3 h-3" />
@@ -173,19 +241,125 @@ export default function DunningTemplatesPage() {
                     {t.send_weekdays_only && <span>• weekdays only</span>}
                   </div>
                 </div>
+                {editingId !== t.id && (
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => startEdit(t)}
+                      className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-white/80 hover:bg-white rounded border border-current"
+                      aria-label={`Edit ${t.name}`}
+                    >
+                      <Pencil className="w-3 h-3" /> Edit
+                    </button>
+                    {t.active && (
+                      <button
+                        type="button"
+                        onClick={() => deactivateTemplate(t.id, t.name)}
+                        className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-white/80 hover:bg-red-50 rounded border border-current text-red-800"
+                        aria-label={`Deactivate ${t.name}`}
+                      >
+                        <Trash2 className="w-3 h-3" /> Deactivate
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
-              <div className="mt-3 text-sm">
-                <div className="font-medium">Subject</div>
-                <div className="font-mono text-xs bg-white/70 rounded p-2 mt-1">
-                  {t.subject_template}
+
+              {editingId === t.id && draft ? (
+                <div className="mt-3 space-y-2 bg-white/70 rounded p-3">
+                  <label className="block text-xs">
+                    <span className="font-medium">Name</span>
+                    <input
+                      type="text"
+                      className="mt-1 w-full border rounded px-2 py-1 text-sm"
+                      value={draft.name}
+                      onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                    />
+                  </label>
+                  <div className="grid grid-cols-3 gap-2 text-xs">
+                    <label>
+                      <span className="font-medium">Days min</span>
+                      <input
+                        type="number" min={0}
+                        className="mt-1 w-full border rounded px-2 py-1 text-sm"
+                        value={draft.days_overdue_min}
+                        onChange={(e) => setDraft({ ...draft, days_overdue_min: Number(e.target.value) })}
+                      />
+                    </label>
+                    <label>
+                      <span className="font-medium">Days max (blank = ∞)</span>
+                      <input
+                        type="number" min={0}
+                        className="mt-1 w-full border rounded px-2 py-1 text-sm"
+                        value={draft.days_overdue_max ?? ''}
+                        onChange={(e) => setDraft({
+                          ...draft,
+                          days_overdue_max: e.target.value === '' ? null : Number(e.target.value),
+                        })}
+                      />
+                    </label>
+                    <label className="flex items-end gap-1">
+                      <input
+                        type="checkbox"
+                        checked={draft.send_weekdays_only}
+                        onChange={(e) => setDraft({ ...draft, send_weekdays_only: e.target.checked })}
+                      />
+                      <span className="font-medium">Weekdays only</span>
+                    </label>
+                  </div>
+                  <label className="block text-xs">
+                    <span className="font-medium">Subject</span>
+                    <input
+                      type="text"
+                      className="mt-1 w-full border rounded px-2 py-1 font-mono text-xs"
+                      value={draft.subject_template}
+                      onChange={(e) => setDraft({ ...draft, subject_template: e.target.value })}
+                    />
+                  </label>
+                  <label className="block text-xs">
+                    <span className="font-medium">Body</span>
+                    <textarea
+                      rows={8}
+                      className="mt-1 w-full border rounded px-2 py-1 font-mono text-xs"
+                      value={draft.body_template}
+                      onChange={(e) => setDraft({ ...draft, body_template: e.target.value })}
+                    />
+                  </label>
+                  <div className="flex gap-2 justify-end">
+                    <button
+                      type="button"
+                      onClick={cancelEdit}
+                      disabled={saving}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 text-sm bg-gray-200 hover:bg-gray-300 rounded"
+                    >
+                      <X className="w-3 h-3" /> Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={saveEdit}
+                      disabled={saving}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded disabled:opacity-50"
+                    >
+                      <Save className="w-3 h-3" /> {saving ? 'Saving…' : 'Save'}
+                    </button>
+                  </div>
                 </div>
-              </div>
-              <details className="mt-2 text-sm">
-                <summary className="cursor-pointer text-gray-800">Body template</summary>
-                <pre className="mt-2 whitespace-pre-wrap text-xs bg-white/70 rounded p-2">
-                  {t.body_template}
-                </pre>
-              </details>
+              ) : (
+                <>
+                  <div className="mt-3 text-sm">
+                    <div className="font-medium">Subject</div>
+                    <div className="font-mono text-xs bg-white/70 rounded p-2 mt-1">
+                      {t.subject_template}
+                    </div>
+                  </div>
+                  <details className="mt-2 text-sm">
+                    <summary className="cursor-pointer text-gray-800">Body template</summary>
+                    <pre className="mt-2 whitespace-pre-wrap text-xs bg-white/70 rounded p-2">
+                      {t.body_template}
+                    </pre>
+                  </details>
+                </>
+              )}
             </div>
           ))}
           {templates.length === 0 && (

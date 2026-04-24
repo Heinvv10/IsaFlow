@@ -101,6 +101,7 @@ export async function runDunningCron(options: {
         SELECT ci.id AS invoice_id,
                ci.invoice_number,
                ci.company_id,
+               cust.id AS customer_id,
                (ci.total_amount - COALESCE(ci.amount_paid, 0)) AS outstanding,
                GREATEST(0, (CURRENT_DATE - ci.due_date))::int AS days_overdue,
                cust.email AS customer_email
@@ -108,18 +109,32 @@ export async function runDunningCron(options: {
           JOIN customers cust
             ON cust.id = COALESCE(ci.client_id, ci.customer_id)
            AND cust.company_id = ci.company_id
+          LEFT JOIN customer_dunning_overrides cdo
+            ON cdo.company_id = ci.company_id AND cdo.customer_id = cust.id
          WHERE ci.company_id = ${companyId}::uuid
            AND ci.status NOT IN ('cancelled', 'paid')
            AND ci.due_date IS NOT NULL
            AND ci.due_date < CURRENT_DATE
            AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) >= ${minOutstanding}
+           AND COALESCE(cdo.suppress_dunning, false) = false
       ),
       matched AS (
         SELECT oi.*,
-               dt.id AS template_id,
-               dt.send_weekdays_only AS template_send_weekdays_only,
-               dt.escalation_order
+               COALESCE(ovr.id, dt.id) AS template_id,
+               COALESCE(ovr.send_weekdays_only, dt.send_weekdays_only)
+                 AS template_send_weekdays_only,
+               COALESCE(ovr.escalation_order, dt.escalation_order) AS escalation_order
           FROM overdue_invoices oi
+          LEFT JOIN LATERAL (
+              SELECT ovr.id, ovr.send_weekdays_only, ovr.escalation_order
+                FROM customer_dunning_overrides cdo
+                JOIN dunning_templates ovr
+                  ON ovr.id = cdo.template_id_override AND ovr.active = true
+               WHERE cdo.company_id = oi.company_id
+                 AND cdo.customer_id = oi.customer_id
+                 AND cdo.template_id_override IS NOT NULL
+               LIMIT 1
+          ) ovr ON true
           LEFT JOIN LATERAL (
               SELECT dt.id, dt.send_weekdays_only, dt.escalation_order
                 FROM dunning_templates dt
@@ -129,7 +144,7 @@ export async function runDunningCron(options: {
                  AND (dt.days_overdue_max IS NULL OR oi.days_overdue <= dt.days_overdue_max)
                ORDER BY dt.escalation_order DESC
                LIMIT 1
-          ) dt ON true
+          ) dt ON ovr.id IS NULL
       )
       SELECT m.invoice_id, m.invoice_number, m.company_id, m.outstanding,
              m.days_overdue, m.customer_email,
