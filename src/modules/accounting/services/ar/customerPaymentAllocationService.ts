@@ -185,24 +185,23 @@ export async function postCustomerInvoiceToGL(
       lines,
     }, userId);
 
-    // Resolve user UUID outside the transaction (read-only).
     const safeUserId = await resolveUserUuid(userId);
 
-    // Posting the GL entry and linking it back to the invoice must be atomic.
-    // If the link UPDATE were to fail after a successful posting UPDATE, the
-    // invoice would have no gl_journal_entry_id and would be re-posted on the
-    // next call, creating a duplicate GL entry.
-    await withTransaction(async (tx) => {
-      await tx`
-        UPDATE gl_journal_entries
-        SET status = 'posted', posted_by = ${safeUserId}::UUID, posted_at = NOW()
-        WHERE id = ${je.id}::UUID AND company_id = ${companyId}
-      `;
-      await tx`
-        UPDATE customer_invoices SET gl_journal_entry_id = ${je.id}::UUID
-        WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
-      `;
-    });
+    // Use the ALS-bound connection (plain `sql`) rather than withTransaction.
+    // withTransaction gets a fresh pool connection that can't see the invoice
+    // INSERT when we're nested inside an outer request transaction (e.g. the
+    // admin Sage commit handler), so the link-back UPDATE silently matched
+    // 0 rows. Same-connection queries participate in the outer tx and see
+    // the invoice row.
+    await sql`
+      UPDATE gl_journal_entries
+      SET status = 'posted', posted_by = ${safeUserId}::UUID, posted_at = NOW()
+      WHERE id = ${je.id}::UUID AND company_id = ${companyId}
+    `;
+    await sql`
+      UPDATE customer_invoices SET gl_journal_entry_id = ${je.id}::UUID
+      WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
+    `;
 
     log.info('Posted customer invoice to GL', { invoiceId, journalEntryId: je.id }, 'accounting');
     return je.id;
