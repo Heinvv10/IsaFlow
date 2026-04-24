@@ -4,6 +4,13 @@ export interface ParsedUA {
   os: string;
 }
 
+const BOT_RE = /bot|crawler|spider|crawling|slurp|mediapartners|facebookexternalhit|linkedinbot|twitterbot|discordbot|telegrambot|whatsapp|baiduspider|yandex|duckduckbot|applebot|pingdom|uptimerobot|headlesschrome|phantomjs|puppeteer|playwright|lighthouse|chrome-lighthouse|gtmetrix/i;
+
+export function isBot(ua: string | null | undefined): boolean {
+  if (!ua) return true;
+  return BOT_RE.test(ua);
+}
+
 export function parseUserAgent(ua: string): ParsedUA {
   const s = ua || '';
   const lower = s.toLowerCase();

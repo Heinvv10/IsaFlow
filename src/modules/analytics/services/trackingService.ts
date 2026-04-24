@@ -2,7 +2,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { visitorHash, sessionHash } from '../utils/fingerprint';
-import { parseUserAgent, parseReferrer, parseUtm } from '../utils/userAgent';
+import { parseUserAgent, parseReferrer, parseUtm, isBot } from '../utils/userAgent';
 
 export interface IngestEventInput {
   trackingId: string;
@@ -11,6 +11,7 @@ export interface IngestEventInput {
   referrer?: string | null;
   screen?: string | null;
   lang?: string | null;
+  pageTitle?: string | null;
   eventType?: 'pageview' | 'custom';
   eventName?: string | null;
   eventData?: Record<string, unknown> | null;
@@ -42,12 +43,15 @@ export async function ingestEvent(input: IngestEventInput): Promise<IngestResult
   const { device, browser, os } = parseUserAgent(input.userAgent);
   const { domain: refDomain, path: refPath } = parseReferrer(input.referrer);
   const utm = parseUtm(input.urlQuery);
+  const bot = isBot(input.userAgent);
+  const entryPath = input.eventType === 'pageview' ? input.urlPath : null;
 
   const upserted = await sql`
     INSERT INTO analytics_sessions (
       website_id, session_hash, visitor_hash, user_id,
       country, device, browser, os, screen, lang,
       utm_source, utm_medium, utm_campaign, utm_term, utm_content,
+      is_bot, entry_path,
       first_seen, last_seen
     )
     VALUES (
@@ -55,6 +59,7 @@ export async function ingestEvent(input: IngestEventInput): Promise<IngestResult
       ${input.country ?? null}, ${device}, ${browser}, ${os},
       ${input.screen ?? null}, ${input.lang ?? null},
       ${utm.source}, ${utm.medium}, ${utm.campaign}, ${utm.term}, ${utm.content},
+      ${bot}, ${entryPath},
       NOW(), NOW()
     )
     ON CONFLICT (website_id, session_hash) DO UPDATE
@@ -64,7 +69,8 @@ export async function ingestEvent(input: IngestEventInput): Promise<IngestResult
           utm_medium   = COALESCE(analytics_sessions.utm_medium,   EXCLUDED.utm_medium),
           utm_campaign = COALESCE(analytics_sessions.utm_campaign, EXCLUDED.utm_campaign),
           utm_term     = COALESCE(analytics_sessions.utm_term,     EXCLUDED.utm_term),
-          utm_content  = COALESCE(analytics_sessions.utm_content,  EXCLUDED.utm_content)
+          utm_content  = COALESCE(analytics_sessions.utm_content,  EXCLUDED.utm_content),
+          entry_path   = COALESCE(analytics_sessions.entry_path,   EXCLUDED.entry_path)
     RETURNING id
   `;
   const sessionRow = upserted[0] as DbRow | undefined;
@@ -75,12 +81,13 @@ export async function ingestEvent(input: IngestEventInput): Promise<IngestResult
     INSERT INTO analytics_events (
       website_id, session_id, event_type,
       url_path, url_query, referrer_domain, referrer_path,
-      event_name, event_data
+      event_name, event_data, page_title
     )
     VALUES (
       ${websiteId}, ${sessionId}, ${input.eventType ?? 'pageview'},
       ${input.urlPath}, ${input.urlQuery ?? null}, ${refDomain}, ${refPath},
-      ${input.eventName ?? null}, ${input.eventData ? JSON.stringify(input.eventData) : null}
+      ${input.eventName ?? null}, ${input.eventData ? JSON.stringify(input.eventData) : null},
+      ${input.pageTitle ?? null}
     )
   `;
 

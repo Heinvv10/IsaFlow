@@ -18,6 +18,7 @@ export interface TimeseriesPoint {
 interface Props {
   data: TimeseriesPoint[];
   range: '24h' | '7d' | '30d' | '90d';
+  metric?: 'pageviews' | 'sessions' | 'visitors';
 }
 
 function fmtLabel(iso: string, range: Props['range']) {
@@ -27,7 +28,7 @@ function fmtLabel(iso: string, range: Props['range']) {
   return d.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' });
 }
 
-export function TrafficTimeseriesChart({ data, range }: Props) {
+export function TrafficTimeseriesChart({ data, range, metric = 'pageviews' }: Props) {
   if (data.length === 0) {
     return (
       <div className="flex items-center justify-center h-48 text-gray-600 dark:text-gray-400 text-sm">
@@ -36,17 +37,19 @@ export function TrafficTimeseriesChart({ data, range }: Props) {
     );
   }
 
+  const labels: Record<NonNullable<Props['metric']>, string> = {
+    pageviews: 'Pageviews',
+    sessions:  'Sessions',
+    visitors:  'Visitors',
+  };
+
   return (
     <ResponsiveContainer width="100%" height={280}>
       <AreaChart data={data} margin={{ top: 4, right: 16, left: 8, bottom: 0 }}>
         <defs>
-          <linearGradient id="pvGradient" x1="0" y1="0" x2="0" y2="1">
+          <linearGradient id="metricGradient" x1="0" y1="0" x2="0" y2="1">
             <stop offset="5%"  stopColor="#14b8a6" stopOpacity={0.35} />
             <stop offset="95%" stopColor="#14b8a6" stopOpacity={0} />
-          </linearGradient>
-          <linearGradient id="vsGradient" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%"  stopColor="#f59e0b" stopOpacity={0.25} />
-            <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
           </linearGradient>
         </defs>
         <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
@@ -70,8 +73,15 @@ export function TrafficTimeseriesChart({ data, range }: Props) {
           labelStyle={{ color: '#e5e7eb', marginBottom: 4 }}
           labelFormatter={(label: unknown) => fmtLabel(String(label ?? ''), range)}
         />
-        <Area type="monotone" dataKey="pageviews" stroke="#14b8a6" strokeWidth={2} fill="url(#pvGradient)" dot={false} name="Pageviews" />
-        <Area type="monotone" dataKey="visitors"  stroke="#f59e0b" strokeWidth={2} fill="url(#vsGradient)" dot={false} name="Visitors" />
+        <Area
+          type="monotone"
+          dataKey={metric}
+          stroke="#14b8a6"
+          strokeWidth={2}
+          fill="url(#metricGradient)"
+          dot={false}
+          name={labels[metric]}
+        />
       </AreaChart>
     </ResponsiveContainer>
   );
