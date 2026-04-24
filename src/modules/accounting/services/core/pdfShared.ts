@@ -3,7 +3,7 @@
  * Used by all PDF builders: invoice, credit note, quote, statement.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 
@@ -79,18 +79,28 @@ const COMPANY_SETTINGS_KEYS = [
   'bank_account_number', 'bank_branch_code',
 ] as const;
 
+const FALLBACK_COMPANY_DETAILS: CompanyDetails = {
+  name: 'Company Name Not Set',
+  address: '', phone: '', email: '', vatNumber: '',
+  bankName: '', bankAccountName: '', bankAccountNumber: '',
+  bankBranchCode: '', bankReference: '',
+  logoData: null, primaryColor: '#0d9488',
+  invoiceLayout: 'classic', quoteLayout: 'classic', statementLayout: 'classic',
+};
+
 async function getCompanyDetailsFromSettings(): Promise<CompanyDetails> {
   try {
-    const rows = await sql`
+    const rows = await withSavepoint('pdf_company_settings', () => sql`
       SELECT key, value FROM app_settings
       WHERE key = ANY(${COMPANY_SETTINGS_KEYS as unknown as string[]})
-    `;
+    `);
     const settings: Record<string, string> = {};
     for (const row of rows) {
       settings[row.key as string] = String(row.value ?? '');
     }
     return {
-      name: settings.company_name || 'Company Name Not Set',
+      ...FALLBACK_COMPANY_DETAILS,
+      name: settings.company_name || FALLBACK_COMPANY_DETAILS.name,
       address: settings.company_address || '',
       phone: settings.company_phone || '',
       email: settings.company_email || '',
@@ -99,62 +109,61 @@ async function getCompanyDetailsFromSettings(): Promise<CompanyDetails> {
       bankAccountName: settings.bank_account_name || '',
       bankAccountNumber: settings.bank_account_number || '',
       bankBranchCode: settings.bank_branch_code || '',
-      bankReference: '',
-      logoData: null,
-      primaryColor: '#0d9488',
-      invoiceLayout: 'classic',
-      quoteLayout: 'classic',
-      statementLayout: 'classic',
     };
-  } catch {
-    log.warn('Failed to load company settings for PDF, using fallbacks', {}, 'pdfShared');
-    return {
-      name: 'Company Name Not Set',
-      address: '', phone: '', email: '', vatNumber: '',
-      bankName: '', bankAccountName: '', bankAccountNumber: '',
-      bankBranchCode: '', bankReference: '',
-      logoData: null, primaryColor: '#0d9488',
-      invoiceLayout: 'classic', quoteLayout: 'classic', statementLayout: 'classic',
-    };
+  } catch (err) {
+    log.warn(
+      'Failed to load company settings for PDF, using fallbacks',
+      { error: err instanceof Error ? err.message : String(err) },
+      'pdfShared',
+    );
+    return FALLBACK_COMPANY_DETAILS;
   }
 }
 
 export async function getCompanyDetailsFromCompany(companyId: string): Promise<CompanyDetails> {
+  let rows: DbRow[] = [];
   try {
-    const rows = await sql`
+    rows = await withSavepoint('pdf_company_lookup', () => sql`
       SELECT name, address_line1, address_line2, city, province, postal_code,
              phone, email, vat_number,
              bank_name, bank_account_number, bank_branch_code,
              logo_data, primary_color,
              invoice_layout, quote_layout, statement_layout
       FROM companies WHERE id = ${companyId}::UUID
-    `;
-    if (rows.length > 0) {
-      const c = rows[0] as DbRow;
-      const addressParts = [c.address_line1, c.address_line2, c.city, c.province, c.postal_code]
-        .filter(Boolean).map(String);
-      return {
-        name: c.name ? String(c.name) : 'Company Name Not Set',
-        address: addressParts.join(', '),
-        phone: c.phone ? String(c.phone) : '',
-        email: c.email ? String(c.email) : '',
-        vatNumber: c.vat_number ? String(c.vat_number) : '',
-        bankName: c.bank_name ? String(c.bank_name) : '',
-        bankAccountName: c.name ? String(c.name) : '',
-        bankAccountNumber: c.bank_account_number ? String(c.bank_account_number) : '',
-        bankBranchCode: c.bank_branch_code ? String(c.bank_branch_code) : '',
-        bankReference: '',
-        logoData: c.logo_data ? String(c.logo_data) : null,
-        primaryColor: c.primary_color ? String(c.primary_color) : '#0d9488',
-        invoiceLayout: (c.invoice_layout ? String(c.invoice_layout) : 'classic') as DocumentLayout,
-        quoteLayout: (c.quote_layout ? String(c.quote_layout) : 'classic') as DocumentLayout,
-        statementLayout: (c.statement_layout ? String(c.statement_layout) : 'classic') as DocumentLayout,
-      };
-    }
-  } catch {
-    log.warn('Failed to load company from companies table, trying app_settings', {}, 'pdfShared');
+    `);
+  } catch (err) {
+    log.warn(
+      'Failed to load company from companies table, trying app_settings',
+      { companyId, error: err instanceof Error ? err.message : String(err) },
+      'pdfShared',
+    );
+    return getCompanyDetailsFromSettings();
   }
-  return getCompanyDetailsFromSettings();
+
+  if (rows.length === 0) {
+    return getCompanyDetailsFromSettings();
+  }
+
+  const c = rows[0] as DbRow;
+  const addressParts = [c.address_line1, c.address_line2, c.city, c.province, c.postal_code]
+    .filter(Boolean).map(String);
+  return {
+    name: c.name ? String(c.name) : 'Company Name Not Set',
+    address: addressParts.join(', '),
+    phone: c.phone ? String(c.phone) : '',
+    email: c.email ? String(c.email) : '',
+    vatNumber: c.vat_number ? String(c.vat_number) : '',
+    bankName: c.bank_name ? String(c.bank_name) : '',
+    bankAccountName: c.name ? String(c.name) : '',
+    bankAccountNumber: c.bank_account_number ? String(c.bank_account_number) : '',
+    bankBranchCode: c.bank_branch_code ? String(c.bank_branch_code) : '',
+    bankReference: '',
+    logoData: c.logo_data ? String(c.logo_data) : null,
+    primaryColor: c.primary_color ? String(c.primary_color) : '#0d9488',
+    invoiceLayout: (c.invoice_layout ? String(c.invoice_layout) : 'classic') as DocumentLayout,
+    quoteLayout: (c.quote_layout ? String(c.quote_layout) : 'classic') as DocumentLayout,
+    statementLayout: (c.statement_layout ? String(c.statement_layout) : 'classic') as DocumentLayout,
+  };
 }
 
 // ── Color helpers ─────────────────────────────────────────────────────────────

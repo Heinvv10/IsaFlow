@@ -1,0 +1,33 @@
+# Known-drift allowlist for scripts/audit-schema-drift.ts
+#
+# Format: one entry per line
+#   table_name              # whole table (rarely needed)
+#   table_name:column_name  # single column
+#
+# Entries here are DECLARED in an old migration but the live DB and all
+# call sites have moved on. Keeping them here documents the decision
+# instead of silently passing the audit. Pair each entry with a reason.
+
+# accounting_settings — older schema had setting_key/setting_value/updated_by.
+# The live table uses key/value/updated_at; no code references the old names.
+accounting_settings:setting_key
+accounting_settings:setting_value
+accounting_settings:updated_by
+
+# app_settings — view over accounting_settings; inherits the same drift for the old names.
+app_settings:setting_key
+app_settings:setting_value
+app_settings:updated_by
+
+# customer_invoices.currency — declared once pre-cutover, no code references.
+# If multi-currency support is rebuilt, add it with a real migration.
+customer_invoices:currency
+
+# payroll_employee_components.is_recurring — superseded by the payroll
+# rewrite in migration 381. The new component model uses a different
+# per-run attachment mechanism.
+payroll_employee_components:is_recurring
+
+# supplier_payment_allocations.amount — declared in an old stub; live
+# schema uses allocation_amount which all call sites reference.
+supplier_payment_allocations:amount

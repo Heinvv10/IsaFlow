@@ -13,7 +13,8 @@
     "test:e2e": "playwright test --config playwright-test.config.ts",
     "test:coverage": "vitest run --coverage",
     "test": "vitest run && playwright test --config playwright-test.config.ts",
-    "db:migrate": "bun scripts/apply-migrations.ts"
+    "db:migrate": "bun scripts/apply-migrations.ts",
+    "db:audit-drift": "bun scripts/audit-schema-drift.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.89.0",

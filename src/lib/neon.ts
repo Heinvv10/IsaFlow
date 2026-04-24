@@ -280,6 +280,55 @@ export async function withTransaction<T>(
 }
 
 /**
+ * Run `fn` inside a SAVEPOINT on the current request-scoped transaction.
+ *
+ * Why this exists: `withAuth` wraps every request in a single BEGIN/COMMIT
+ * so RLS GUCs persist for the whole handler. A single failed query then
+ * poisons the whole transaction ("current transaction is aborted …") and
+ * every subsequent query in the same request returns a 500 — even when the
+ * caller caught the error and wanted to continue with a fallback.
+ *
+ * `withSavepoint` is the safe way to write defensive reads:
+ *
+ *   const details = await withSavepoint('company_lookup', async () => {
+ *     const rows = await sql`SELECT * FROM companies WHERE …`;
+ *     return rows[0];
+ *   }).catch(() => null);   // savepoint rolled back cleanly; outer tx fine
+ *
+ * Outside of a request tx (e.g. cron code), this degrades to a plain
+ * `fn()` call — no savepoint needed because each bare `sql\`…\`` opens its
+ * own connection.
+ */
+export async function withSavepoint<T>(
+  name: string,
+  fn: () => Promise<T>
+): Promise<T> {
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]{0,30}$/.test(name)) {
+    throw new Error(`withSavepoint: invalid savepoint name ${name}`);
+  }
+  const ctxClient = (await import('@/lib/als')).als.getStore()?.client;
+  if (!ctxClient) {
+    // No outer tx — just run; errors propagate as usual.
+    return fn();
+  }
+  await ctxClient.query(`SAVEPOINT ${name}`);
+  try {
+    const result = await fn();
+    await ctxClient.query(`RELEASE SAVEPOINT ${name}`);
+    return result;
+  } catch (err) {
+    try {
+      await ctxClient.query(`ROLLBACK TO SAVEPOINT ${name}`);
+      await ctxClient.query(`RELEASE SAVEPOINT ${name}`);
+    } catch {
+      // If the rollback itself fails the outer tx is already doomed — let
+      // the original error bubble up so the request returns a real 500.
+    }
+    throw err;
+  }
+}
+
+/**
  * Format a value from a DB date column as YYYY-MM-DD, robust to Date
  * objects and strings. Unchanged from the Neon implementation — the pg
  * driver also returns `date` columns as JavaScript Date.

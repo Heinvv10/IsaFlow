@@ -47,7 +47,6 @@ export const salesTab: Tab = {
       items: [
         { label: 'Statement Run', href: '/accounting/statement-run' },
         { label: 'Send Statements', href: '/accounting/statements' },
-        { label: 'Dunning', href: '/accounting/dunning' },
         { label: 'Dunning Templates', href: '/accounting/ar/dunning' },
         { label: 'Dunning Runs', href: '/accounting/ar/dunning/runs' },
         { label: 'Sent-folder Mirror', href: '/accounting/ar/settings/sent-mirror' },

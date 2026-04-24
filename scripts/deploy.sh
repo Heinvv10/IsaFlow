@@ -54,6 +54,9 @@ if sudo test -f "$PROD_ENV"; then
   PROD_DB=$(sudo grep "^DATABASE_URL=" "$PROD_ENV" | cut -d= -f2-)
   if [ -n "$PROD_DB" ]; then
     DATABASE_URL="$PROD_DB" $BUN "$REPO_DIR/scripts/apply-migrations.ts"
+
+    echo "Running schema-drift audit..."
+    DATABASE_URL="$PROD_DB" $BUN "$REPO_DIR/scripts/audit-schema-drift.ts"
   else
     echo "WARNING: DATABASE_URL not found in $PROD_ENV — skipping migrations"
   fi
