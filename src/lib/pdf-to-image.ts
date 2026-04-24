@@ -1,7 +1,6 @@
 /**
- * Server-side utility: convert a PDF data URL to a PNG data URL.
- * Uses pdftoppm (poppler-utils) to render only the first page at 300 DPI.
- * Safe to call from any Next.js API route — never import this on the client.
+ * Server-side utility: convert a PDF data URL to PNG data URLs via pdftoppm
+ * (poppler-utils) at 300 DPI. Safe only on the server.
  */
 
 import { promises as fs } from 'fs';
@@ -15,6 +14,9 @@ const execFile = promisify(execFileCb);
 
 const PDFTOPPM_BIN = '/usr/bin/pdftoppm';
 const TMP_DIR      = '/tmp';
+
+// Hard cap so a maliciously-large PDF can't fan out into hundreds of VLM images.
+const DEFAULT_MAX_PAGES = 8;
 
 /**
  * Convert the first page of a PDF (supplied as a base64 data URL) to a PNG
@@ -70,5 +72,76 @@ export async function pdfToImage(pdfDataUrl: string): Promise<string> {
     // Always clean up temp files — ignore errors during cleanup
     await fs.unlink(inputPath).catch(() => undefined);
     await fs.unlink(outputPath).catch(() => undefined);
+  }
+}
+
+/**
+ * Convert every page of a PDF (up to `maxPages`) to PNG base64 data URLs.
+ * Used by multi-page extraction (e.g. CIPC COR39 where directors are on page 3).
+ */
+export async function pdfToImages(
+  pdfDataUrl: string,
+  maxPages: number = DEFAULT_MAX_PAGES,
+): Promise<string[]> {
+  const base64Content = pdfDataUrl.replace(/^data:application\/pdf;base64,/, '');
+  const pdfBuffer     = Buffer.from(base64Content, 'base64');
+
+  const id         = crypto.randomUUID();
+  const inputPath  = path.join(TMP_DIR, `isaflow-pdf-${id}.pdf`);
+  const outputStem = path.join(TMP_DIR, `isaflow-pdf-${id}-out`);
+
+  log.info('PDF to images conversion starting', { id, maxPages }, 'pdf-to-image');
+
+  const createdFiles: string[] = [];
+
+  try {
+    await fs.writeFile(inputPath, pdfBuffer);
+
+    // Render pages 1..maxPages; pdftoppm silently stops at the last real page.
+    // Output files are named <stem>-1.png, <stem>-2.png, ... (or <stem>-01.png
+    // when total page count has 2 digits — we glob the dir to find them).
+    await execFile(PDFTOPPM_BIN, [
+      '-png',
+      '-f', '1',
+      '-l', String(maxPages),
+      '-r', '300',
+      inputPath,
+      outputStem,
+    ]);
+
+    const dirEntries = await fs.readdir(TMP_DIR);
+    const stemBase   = path.basename(outputStem);
+    const pageFiles  = dirEntries
+      .filter(n => n.startsWith(`${stemBase}-`) && n.endsWith('.png'))
+      .sort(); // lexical sort aligns with zero-padded page numbers
+
+    if (pageFiles.length === 0) {
+      throw new Error('pdftoppm did not produce any page output files');
+    }
+
+    const dataUrls: string[] = [];
+    for (const name of pageFiles) {
+      const fullPath = path.join(TMP_DIR, name);
+      createdFiles.push(fullPath);
+      const buf = await fs.readFile(fullPath);
+      dataUrls.push(`data:image/png;base64,${buf.toString('base64')}`);
+    }
+
+    log.info(
+      'PDF to images conversion complete',
+      { id, pages: dataUrls.length, totalBytes: dataUrls.reduce((n, u) => n + u.length, 0) },
+      'pdf-to-image',
+    );
+
+    return dataUrls;
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error('PDF to images conversion failed', { id, message }, 'pdf-to-image');
+    throw new Error(`Failed to convert PDF to images: ${message}`);
+  } finally {
+    await fs.unlink(inputPath).catch(() => undefined);
+    for (const f of createdFiles) {
+      await fs.unlink(f).catch(() => undefined);
+    }
   }
 }

@@ -10,17 +10,11 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { pdfToImage } from '@/lib/pdf-to-image';
+import { callVlmChat, getVlmConfig } from '@/modules/accounting/services/bank/vlmCore';
 
 export const config = {
   api: { bodyParser: { sizeLimit: '20mb' } },
 };
-
-const VLM_BASE_URL = process.env.VLLM_BASE_URL;
-if (!VLM_BASE_URL) throw new Error('VLLM_BASE_URL environment variable is required');
-const VLM_MODEL    = process.env.VLM_MODEL ?? process.env.VLLM_MODEL;
-if (!VLM_MODEL) throw new Error('VLM_MODEL environment variable is required');
-const VLM_API_KEY  = process.env.VLLM_API_KEY  ?? 'EMPTY';
-const VLM_TIMEOUT  = parseInt(process.env.VLLM_TIMEOUT ?? '120000', 10);
 
 const SYSTEM_PROMPT = `You are a document data extraction assistant specialised in South African identity documents \
 (ID cards, smart ID cards, passports, driver's licenses). \
@@ -72,52 +66,31 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
   }
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), VLM_TIMEOUT);
-
-  try {
-    const vlmRes = await fetch(`${VLM_BASE_URL}/chat/completions`, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${VLM_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: VLM_MODEL,
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: [
-            { type: 'text', text: USER_PROMPT },
-            { type: 'image_url', image_url: { url: imageForVlm } },
-          ]},
-        ],
-        max_tokens: 500,
-        temperature: 0.1,
-      }),
-    });
-
-    clearTimeout(timer);
-
-    if (!vlmRes.ok) {
-      return apiResponse.error(res, 'SERVICE_UNAVAILABLE' as never, 'AI extraction unavailable.');
-    }
-
-    const vlmBody = await vlmRes.json() as { choices?: Array<{ message?: { content?: string } }> };
-    const text = vlmBody.choices?.[0]?.message?.content ?? '';
-
-    if (!text) {
-      return apiResponse.badRequest(res, 'VLM returned empty response');
-    }
-
-    const extracted = parseResponse(text);
-    log.info('ID extract success', { name: extracted.name }, 'onboarding/extract-id');
-    return apiResponse.success(res, extracted);
-  } catch (err) {
-    clearTimeout(timer);
-    log.error('ID extract error', { err }, 'onboarding/extract-id');
+  const vlmConfig = getVlmConfig();
+  if (!vlmConfig) {
+    log.error('VLM not configured (VLLM_BASE_URL missing)', {}, 'onboarding/extract-id');
     return apiResponse.error(res, 'SERVICE_UNAVAILABLE' as never, 'AI extraction unavailable.');
   }
+
+  const userContent: Array<Record<string, unknown>> = [
+    { type: 'text', text: USER_PROMPT },
+    { type: 'image_url', image_url: { url: imageForVlm } },
+  ];
+
+  const text = await callVlmChat(vlmConfig, SYSTEM_PROMPT, userContent, 500);
+  if (!text) {
+    return apiResponse.error(res, 'SERVICE_UNAVAILABLE' as never, 'AI extraction unavailable.');
+  }
+
+  let extracted: { name: string; idNumber: string };
+  try {
+    extracted = parseResponse(text);
+  } catch (err) {
+    log.error('ID extract parse error', { err, text }, 'onboarding/extract-id');
+    return apiResponse.badRequest(res, 'AI extraction returned an unexpected format.');
+  }
+  log.info('ID extract success', { name: extracted.name }, 'onboarding/extract-id');
+  return apiResponse.success(res, extracted);
 }
 
  
