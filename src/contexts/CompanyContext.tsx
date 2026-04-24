@@ -234,9 +234,12 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
       log.warn('Failed to persist default company switch', { error: e }, 'context');
     }
 
-    // Cookie is live — reload so every page re-fetches under the new tenant
-    // scope. Safer than chasing every stale hook/cache across the app.
+    // Cookie is live — mirror it into localStorage so the post-reload hydration
+    // reads the new company immediately (otherwise the header flashes the old
+    // tenant's name while every API call uses the new cookie = mismatched UI).
     if (typeof window !== 'undefined') {
+      const newName = match?.companyName ?? '';
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ id: companyId, name: newName }));
       window.location.reload();
       return;
     }
