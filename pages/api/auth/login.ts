@@ -3,6 +3,7 @@ import type { NextApiHandler } from 'next';
 import { signIn } from '@/lib/auth/gotrue';
 import { listFactors, GotrueMfaError } from '@/lib/auth/gotrue-mfa';
 import { setAuthCookies, setActiveCompanyCookie, setPendingMfaCookie } from '@/lib/auth/cookies';
+import { checkLockout, recordFailure, clearLockout } from '@/lib/auth/accountLockout';
 import { checkRateLimit, getClientIp, withRateLimit } from '@/lib/rateLimit';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -17,9 +18,21 @@ const handler: NextApiHandler = async (req, res) => {
   }
 
   const cleanEmail = email.toLowerCase().trim();
+  const ip = getClientIp(req);
+
+  const lockout = await checkLockout(cleanEmail, ip);
+  if (lockout.locked) {
+    res.setHeader('Retry-After', String(lockout.retryAfterSecs));
+    log.warn('login blocked by lockout', { email: cleanEmail, ip, retryAfter: lockout.retryAfterSecs }, 'Auth');
+    return res.status(423).json({
+      success: false,
+      error: { code: 'ACCOUNT_LOCKED', message: 'Too many failed attempts. Try again later.' },
+    });
+  }
+
   const emailAllowed = await checkRateLimit(`login:email:${cleanEmail}`, { max: 10, windowSecs: 900 });
   if (!emailAllowed) {
-    log.warn('login rate limit (email)', { email: cleanEmail, ip: getClientIp(req) }, 'Auth');
+    log.warn('login rate limit (email)', { email: cleanEmail, ip }, 'Auth');
     return res.status(429).json({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many attempts. Please try again later.' } });
   }
 
@@ -27,7 +40,16 @@ const handler: NextApiHandler = async (req, res) => {
   try {
     token = await signIn(cleanEmail, password);
   } catch (err) {
-    log.info('login failed', { email, message: err instanceof Error ? err.message : 'unknown' }, 'Auth');
+    const failure = await recordFailure(cleanEmail, ip);
+    log.info('login failed', { email, message: err instanceof Error ? err.message : 'unknown', locked: failure.locked }, 'Auth');
+    if (failure.locked) {
+      res.setHeader('Retry-After', String(failure.retryAfterSecs));
+      log.warn('account locked', { email: cleanEmail, ip, retryAfter: failure.retryAfterSecs }, 'Auth');
+      return res.status(423).json({
+        success: false,
+        error: { code: 'ACCOUNT_LOCKED', message: 'Too many failed attempts. Try again later.' },
+      });
+    }
     return res.status(401).json({ success: false, error: { code: 'INVALID_CREDENTIALS', message: 'Invalid email or password' } });
   }
 
@@ -59,6 +81,7 @@ const handler: NextApiHandler = async (req, res) => {
   }
 
   // No MFA — set cookies and sign in directly.
+  await clearLockout(cleanEmail, ip);
   const memberships = await sql<{ company_id: string; is_default: boolean; created_at: Date }>`
     SELECT company_id, is_default, created_at
     FROM company_users
