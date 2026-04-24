@@ -39,11 +39,17 @@ export function isVlmAvailable(): boolean {
 // HTTP helper
 // ---------------------------------------------------------------------------
 
+/**
+ * Default cap applied when a caller does not pass `maxTokens`. Override via the
+ * `VLM_MAX_TOKENS` env var when you need a repo-wide knob.
+ */
+const DEFAULT_MAX_TOKENS = parseInt(process.env.VLM_MAX_TOKENS ?? '4096', 10);
+
 export async function callVlmChat(
   config: VlmConfig,
   systemPrompt: string,
   userContent: Array<Record<string, unknown>>,
-  maxTokens = 4096,
+  maxTokens: number = DEFAULT_MAX_TOKENS,
 ): Promise<string | null> {
   const body = {
     model: config.model,

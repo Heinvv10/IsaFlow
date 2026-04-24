@@ -11,6 +11,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
+import { callVlmChat, getVlmConfig } from '@/modules/accounting/services/bank/vlmCore';
 import {
   parseContractExtractionResponse,
   mapContractToRecurringInput,
@@ -88,32 +89,15 @@ const CONTRACT_PROMPT = `Extract the following fields from this contract text an
 Return ONLY valid JSON, no markdown.`;
 
 async function callLlmForContractExtraction(text: string): Promise<string> {
-  const baseUrl = process.env.VLLM_BASE_URL;
-  if (!baseUrl) throw new Error('VLLM_BASE_URL not configured');
+  const vlmConfig = getVlmConfig();
+  if (!vlmConfig) throw new Error('VLLM_BASE_URL not configured');
 
-  const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${process.env.VLLM_API_KEY || 'EMPTY'}`,
-    },
-    body: JSON.stringify({
-      model: process.env.VLM_MODEL || process.env.VLLM_MODEL || (() => { throw new Error('VLM_MODEL environment variable is required'); })(),
-      messages: [
-        { role: 'system', content: CONTRACT_PROMPT },
-        { role: 'user', content: text.substring(0, 8000) },
-      ],
-      max_tokens: 1024,
-      temperature: 0.1,
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`VLM request failed: ${response.status} ${response.statusText}`);
-  }
-
-  const data = await response.json() as { choices: Array<{ message: { content: string } }> };
-  return data.choices[0]?.message?.content || '';
+  const userContent: Array<Record<string, unknown>> = [
+    { type: 'text', text: text.substring(0, 8000) },
+  ];
+  const content = await callVlmChat(vlmConfig, CONTRACT_PROMPT, userContent, 1024);
+  if (!content) throw new Error('VLM request failed or returned empty content');
+  return content;
 }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {

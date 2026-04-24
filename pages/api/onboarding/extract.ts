@@ -9,22 +9,14 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth } from '@/lib/auth';
 import { log } from '@/lib/logger';
-import { pdfToImage } from '@/lib/pdf-to-image';
+import { pdfToImages } from '@/lib/pdf-to-image';
+import { callVlmChat, getVlmConfig } from '@/modules/accounting/services/bank/vlmCore';
 import { normaliseAddressFields } from '@/modules/onboarding/services/addressNormaliser';
 import { normaliseRegistrationNumber } from '@/modules/onboarding/services/registrationNumberNormaliser';
 
 export const config = {
   api: { bodyParser: { sizeLimit: '20mb' } },
 };
-
-// ── VLM config ────────────────────────────────────────────────────────────────
-
-const VLM_BASE_URL  = process.env.VLLM_BASE_URL;
-if (!VLM_BASE_URL) throw new Error('VLLM_BASE_URL environment variable is required');
-const VLM_MODEL     = process.env.VLM_MODEL ?? process.env.VLLM_MODEL;
-if (!VLM_MODEL) throw new Error('VLM_MODEL environment variable is required');
-const VLM_API_KEY   = process.env.VLLM_API_KEY    ?? 'EMPTY';
-const VLM_TIMEOUT   = parseInt(process.env.VLLM_TIMEOUT ?? '120000', 10);
 
 const SYSTEM_PROMPT = `You are a document data extraction assistant specialised in South African business \
 documents (CIPC certificates, letterheads, company registrations, VAT certificates). \
@@ -57,7 +49,14 @@ name, tradingName, registrationNumber, vatNumber, taxNumber, \
 addressLine1, addressLine2, city, province, postalCode, country, \
 phone, email, website, directors. \
 The "directors" field must be an array of objects with keys: name, idNumber, role. \
-Extract all directors/members listed on the document. If none are listed, return an empty array.`;
+Extract all directors/members listed on the document. If none are listed, return an empty array. \
+\
+MULTI-PAGE DOCUMENTS (important for CIPC COR39 and similar): \
+The document may be supplied as several images — one per page. Treat them as a single \
+document and merge information across pages. For directors specifically, prefer the \
+"ACTIVE DIRECTORS/MEMBERS" table (usually on a later page) over any cover-letter \
+amendment notice that only mentions the director being changed. Deduplicate directors \
+by ID/passport number.`;
 
 const USER_PROMPT = `Extract all company details from this document. \
 CRITICAL: The "name" field must be the official REGISTERED NAME (legal entity name) as shown on the document, \
@@ -199,13 +198,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   log.info('VLM extract request received', { size: image.length }, 'onboarding/extract');
 
   // ── PDF → PNG conversion ──────────────────────────────────────────────────
-  let imageForVlm: string = image;
+  // CIPC documents like COR39 often span multiple pages where critical data
+  // (e.g. the active directors table) lives past page 1 — render all pages.
+  let imagesForVlm: string[] = [image];
 
   if (image.startsWith('data:application/pdf')) {
-    log.info('PDF detected — converting first page to PNG', {}, 'onboarding/extract');
+    log.info('PDF detected — converting all pages to PNG', {}, 'onboarding/extract');
     try {
-      imageForVlm = await pdfToImage(image);
-      log.info('PDF converted to PNG', { size: imageForVlm.length }, 'onboarding/extract');
+      imagesForVlm = await pdfToImages(image);
+      log.info(
+        'PDF converted to PNGs',
+        { pages: imagesForVlm.length },
+        'onboarding/extract',
+      );
     } catch (pdfErr: unknown) {
       const msg = pdfErr instanceof Error ? pdfErr.message : String(pdfErr);
       log.error('PDF conversion failed', { msg }, 'onboarding/extract');
@@ -217,67 +222,27 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
   }
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), VLM_TIMEOUT);
-
-  let vlmText: string;
-
-  try {
-    const vlmRes = await fetch(`${VLM_BASE_URL}/chat/completions`, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${VLM_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: VLM_MODEL,
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          {
-            role: 'user',
-            content: [
-              { type: 'text',      text: USER_PROMPT },
-              { type: 'image_url', image_url: { url: imageForVlm } },
-            ],
-          },
-        ],
-        max_tokens: 2000,
-        temperature: 0.1,
-      }),
-    });
-
-    clearTimeout(timer);
-
-    if (!vlmRes.ok) {
-      const body = await vlmRes.text();
-      log.error('VLM request failed', { status: vlmRes.status, body }, 'onboarding/extract');
-      return apiResponse.error(
-        res,
-        'SERVICE_UNAVAILABLE' as never,
-        'AI extraction is currently unavailable. Please enter details manually.',
-      );
-    }
-
-    const vlmBody = await vlmRes.json() as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-
-    vlmText = vlmBody.choices?.[0]?.message?.content ?? '';
-
-    if (!vlmText) {
-      return apiResponse.badRequest(res, 'VLM returned an empty response');
-    }
-  } catch (err: unknown) {
-    clearTimeout(timer);
-    const isAbort = err instanceof Error && err.name === 'AbortError';
-    log.error('VLM fetch error', { err }, 'onboarding/extract');
+  const vlmConfig = getVlmConfig();
+  if (!vlmConfig) {
+    log.error('VLM not configured (VLLM_BASE_URL missing)', {}, 'onboarding/extract');
     return apiResponse.error(
       res,
       'SERVICE_UNAVAILABLE' as never,
-      isAbort
-        ? 'AI extraction timed out. Please try again or enter details manually.'
-        : 'AI extraction is currently unavailable. Please enter details manually.',
+      'AI extraction is currently unavailable. Please enter details manually.',
+    );
+  }
+
+  const userContent: Array<Record<string, unknown>> = [
+    { type: 'text', text: USER_PROMPT },
+    ...imagesForVlm.map(url => ({ type: 'image_url' as const, image_url: { url } })),
+  ];
+
+  const vlmText = await callVlmChat(vlmConfig, SYSTEM_PROMPT, userContent);
+  if (!vlmText) {
+    return apiResponse.error(
+      res,
+      'SERVICE_UNAVAILABLE' as never,
+      'AI extraction is currently unavailable. Please enter details manually.',
     );
   }
 
