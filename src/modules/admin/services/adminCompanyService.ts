@@ -263,10 +263,13 @@ export async function createCompany(input: {
   email?: string | null;
   phone?: string | null;
   plan_id?: string | null;
+  annual_turnover_cents?: number | null;
+  payg_eligible?: boolean;
 }): Promise<{ id: string; name: string }> {
   const rows = await sql`
     INSERT INTO companies (
-      name, registered_name, trading_name, email, phone, country, default_currency, status
+      name, registered_name, trading_name, email, phone, country, default_currency, status,
+      annual_turnover_cents, payg_eligible
     ) VALUES (
       ${input.name},
       ${input.name},
@@ -275,7 +278,9 @@ export async function createCompany(input: {
       ${input.phone ?? null},
       'South Africa',
       'ZAR',
-      'active'
+      'active',
+      ${input.annual_turnover_cents ?? null},
+      ${input.payg_eligible ?? false}
     )
     RETURNING id, name
   `;
