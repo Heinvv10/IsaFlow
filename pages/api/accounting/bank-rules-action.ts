@@ -71,7 +71,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
   } catch (err) {
     log.error('Bank rules action failed', { action: body.action, error: err }, 'accounting-api');
-    return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Action failed');
+    return apiResponse.badRequestFromError(res, err, 'Action failed');
   }
 }
 

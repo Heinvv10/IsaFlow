@@ -21,7 +21,10 @@ import { getIp } from '@/utils/getIp';
 const PatchBody = z.object({
   first_name: z.string().min(1).max(100).optional(),
   last_name:  z.string().min(1).max(100).optional(),
-  role:       z.string().min(1).max(50).optional(),
+  // Pentest M21: tighten to enum so the schema can't drift away from the
+  // service-layer allowlist in adminUserService.ts:238. super_admin is
+  // deliberately absent — no path to self-promote via this endpoint.
+  role:       z.enum(['admin', 'manager', 'storeman', 'technician', 'viewer']).optional(),
   phone:      z.string().max(30).optional(),
 }).strict();
 
@@ -89,7 +92,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, { deleted: true });
     } catch (err) {
       log.error('Failed to delete user', { userId, error: err }, 'admin-api');
-      return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Failed to delete user');
+      return apiResponse.badRequestFromError(res, err, 'Failed to delete user');
     }
   }
 

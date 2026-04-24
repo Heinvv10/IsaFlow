@@ -48,7 +48,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   } catch (err) {
     if (err instanceof PayScaleNotFoundError) return apiResponse.notFound(res, err.message);
     if (err instanceof InvalidSalaryBandError) return apiResponse.badRequest(res, err.message);
-    return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Update failed');
+    return apiResponse.badRequestFromError(res, err, 'Update failed');
   }
 }
 

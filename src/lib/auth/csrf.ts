@@ -1,4 +1,5 @@
 import type { NextApiRequest } from 'next';
+import { timingSafeEqual } from 'crypto';
 
 export const CSRF_COOKIE = 'isaflow_csrf';
 export const CSRF_HEADER = 'x-csrf-token';
@@ -16,5 +17,8 @@ export function verifyCsrf(req: NextApiRequest): boolean {
   const header = Array.isArray(headerVal) ? headerVal[0] : headerVal;
   if (!cookie || !header) return false;
   if (cookie.length < 32 || header.length < 32) return false;
-  return cookie === header;
+  // Pentest M6: constant-time comparison prevents timing-oracle attacks.
+  // Length equality is required before timingSafeEqual (throws otherwise).
+  if (cookie.length !== header.length) return false;
+  return timingSafeEqual(Buffer.from(cookie), Buffer.from(header));
 }

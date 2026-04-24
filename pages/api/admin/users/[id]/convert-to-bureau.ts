@@ -58,7 +58,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     });
   } catch (err) {
     log.error('Failed to convert user to bureau', { userId, error: err }, 'admin-api');
-    return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Failed');
+    return apiResponse.badRequestFromError(res, err, 'Failed');
   }
 }
 

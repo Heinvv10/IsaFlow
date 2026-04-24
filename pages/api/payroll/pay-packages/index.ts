@@ -48,7 +48,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       });
       return apiResponse.created(res, pkg);
     } catch (err) {
-      return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Create failed');
+      return apiResponse.badRequestFromError(res, err, 'Create failed');
     }
   }
 

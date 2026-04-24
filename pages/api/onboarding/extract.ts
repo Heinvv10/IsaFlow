@@ -191,8 +191,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const { image } = req.body as { image?: unknown };
 
-  if (typeof image !== 'string' || !image.startsWith('data:')) {
-    return apiResponse.badRequest(res, 'image must be a base64 data URL string');
+  // Pentest M15: restrict to image/* and application/pdf. Previous
+  // startsWith('data:') accepted data:text/html and data:application/javascript,
+  // which then flowed into the VLM pipeline.
+  if (typeof image !== 'string' || !/^data:(image\/(jpeg|png|gif|webp)|application\/pdf);base64,/.test(image)) {
+    return apiResponse.badRequest(res, 'image must be a base64 image or PDF data URL');
   }
 
   log.info('VLM extract request received', { size: image.length }, 'onboarding/extract');

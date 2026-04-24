@@ -31,7 +31,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     await assignEmployeeOccupationalLevel(companyId, id, parsed.data.occupationalLevelId, user.id);
     return apiResponse.success(res, { updated: true });
   } catch (err) {
-    return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Assign failed');
+    return apiResponse.badRequestFromError(res, err, 'Assign failed');
   }
 }
 

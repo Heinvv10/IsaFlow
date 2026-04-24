@@ -64,7 +64,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, { items });
     } catch (err) {
       log.error('Failed to create company relationship', { companyId, childCompanyId, error: err }, 'consolidation-api');
-      return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Failed to create relationship');
+      return apiResponse.badRequestFromError(res, err, 'Failed to create relationship');
     }
   }
 

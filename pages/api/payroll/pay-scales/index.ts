@@ -60,7 +60,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       return apiResponse.created(res, scale);
     } catch (err) {
       if (err instanceof InvalidSalaryBandError) return apiResponse.badRequest(res, err.message);
-      return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Create failed');
+      return apiResponse.badRequestFromError(res, err, 'Create failed');
     }
   }
 

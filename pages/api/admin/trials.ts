@@ -93,7 +93,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, 'Provide company_id or company_ids[]');
     } catch (err) {
       log.error('Failed to extend trial', { error: err }, 'admin-trials-api');
-      return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Failed to extend trial');
+      return apiResponse.badRequestFromError(res, err, 'Failed to extend trial');
     }
   }
 

@@ -36,7 +36,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, vat201);
     } catch (err) {
       log.error('Failed to generate VAT201', { error: err }, 'sars-api');
-      return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Failed to generate VAT201');
+      return apiResponse.badRequestFromError(res, err, 'Failed to generate VAT201');
     }
   }
 
@@ -63,7 +63,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.created(res, submission, 'VAT201 draft saved');
     } catch (err) {
       log.error('Failed to save VAT201 draft', { error: err }, 'sars-api');
-      return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Failed to save draft');
+      return apiResponse.badRequestFromError(res, err, 'Failed to save draft');
     }
   }
 

@@ -17,13 +17,23 @@ export const config = {
 };
 
 const SYSTEM_PROMPT = `You are a document data extraction assistant specialised in South African identity documents \
-(ID cards, smart ID cards, passports, driver's licenses). \
-Extract the person's full name and identity/passport number from the provided document image. \
-Return ONLY a valid JSON object with exactly these keys: name, idNumber. \
-If a field cannot be found, return an empty string. No markdown, no prose.`;
+(ID cards, smart ID cards, passports, driver's licenses).
 
-const USER_PROMPT = `Extract the full name and ID/passport number from this identity document. \
-Respond with only the JSON object: {"name": "...", "idNumber": "..."}`;
+On SA smart ID cards and green ID books, the name is split across two labelled fields:
+  "Surname:" — the family name (e.g. VAN NIEKERK)
+  "Names:"   — the given name(s) (e.g. HANDRE)
+
+Rules:
+- Copy the text VERBATIM from the "Surname:" and "Names:" labels. Do not merge, expand, or infer letters.
+- If a letter is unclear, prefer the plainest reading; never invent extra letters.
+- For passports, use the "Surname" and "Given names" fields in the MRZ / visual zone.
+- Return ONLY a valid JSON object with exactly these keys: surname, givenNames, idNumber.
+- If a field cannot be read with confidence, return an empty string for that field.
+- No markdown, no prose, no commentary.`;
+
+const USER_PROMPT = `Extract the surname, given names, and ID/passport number from this identity document. \
+Read each field letter-by-letter from the labelled zones. \
+Respond with only the JSON object: {"surname": "...", "givenNames": "...", "idNumber": "..."}`;
 
 function titleCase(s: string): string {
   if (!s) return s;
@@ -37,9 +47,13 @@ function titleCase(s: string): string {
 function parseResponse(raw: string): { name: string; idNumber: string } {
   const stripped = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
   const parsed = JSON.parse(stripped) as Record<string, unknown>;
+  const surname    = typeof parsed.surname    === 'string' ? parsed.surname.trim()    : '';
+  const givenNames = typeof parsed.givenNames === 'string' ? parsed.givenNames.trim() : '';
+  const legacyName = typeof parsed.name       === 'string' ? parsed.name.trim()       : '';
+  const composed   = [surname, givenNames].filter(Boolean).join(' ') || legacyName;
   return {
-    name:     titleCase(typeof parsed.name === 'string' ? parsed.name : ''),
-    idNumber: typeof parsed.idNumber === 'string' ? parsed.idNumber : '',
+    name:     titleCase(composed),
+    idNumber: typeof parsed.idNumber === 'string' ? parsed.idNumber.trim() : '',
   };
 }
 
@@ -49,8 +63,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const { image } = req.body as { image?: unknown };
-  if (typeof image !== 'string' || !image.startsWith('data:')) {
-    return apiResponse.badRequest(res, 'image must be a base64 data URL string');
+  // Pentest M15: ID docs are always images — restrict to JPEG/PNG/WebP.
+  if (typeof image !== 'string' || !/^data:image\/(jpeg|png|webp);base64,/.test(image)) {
+    return apiResponse.badRequest(res, 'image must be a base64 JPEG, PNG, or WebP data URL');
   }
 
   log.info('ID extract request', { size: image.length }, 'onboarding/extract-id');

@@ -91,19 +91,23 @@ export function encryptToken(plaintext: string): string {
   return encrypt(plaintext);
 }
 
-/** Decrypt token if it looks encrypted, otherwise return as-is (plaintext fallback). */
+/**
+ * Decrypt token if it looks encrypted, otherwise return as-is (plaintext fallback).
+ *
+ * Pentest L4: a GCM tag-mismatch means the ciphertext was tampered with or
+ * the wrong key was used. Previously the catch silently returned the raw
+ * ciphertext string — callers treated it as valid plaintext. Now we rethrow
+ * so callers have to explicitly handle the failure.
+ *
+ * The split-length fast-path still short-circuits legitimate plaintext
+ * (pre-encryption-key migration rows) without touching the crypto primitive.
+ */
 export function decryptToken(value: string): string {
   if (!value) return value;
-  // Encrypted format: hex:hex:hex (iv:tag:ciphertext)
   const parts = value.split(':');
   if (parts.length !== 3) {
     // Stored as plaintext — likely pre-encryption-key migration
     return value;
   }
-  try {
-    return decrypt(value);
-  } catch {
-    log.warn('Failed to decrypt token — returning as-is', {}, 'encryption');
-    return value;
-  }
+  return decrypt(value);
 }

@@ -36,7 +36,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, emp201);
     } catch (err) {
       log.error('Failed to generate EMP201', { error: err }, 'sars-api');
-      return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Failed to generate EMP201');
+      return apiResponse.badRequestFromError(res, err, 'Failed to generate EMP201');
     }
   }
 
@@ -63,7 +63,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.created(res, submission, 'EMP201 draft saved');
     } catch (err) {
       log.error('Failed to save EMP201 draft', { error: err }, 'sars-api');
-      return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Failed to save draft');
+      return apiResponse.badRequestFromError(res, err, 'Failed to save draft');
     }
   }
 
