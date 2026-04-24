@@ -16,6 +16,7 @@ import {
 } from '@/components/payroll/EmployeeComponentsCard';
 import { EmployeeTerminationCard } from '@/components/payroll/EmployeeTerminationCard';
 import { CostCentreAssignmentCard } from '@/components/payroll/CostCentreAssignmentCard';
+import { EmployeeHistoryCard } from '@/components/payroll/EmployeeHistoryCard';
 
 export default function EmployeeDetailPage() {
   const router = useRouter();
@@ -208,6 +209,8 @@ export default function EmployeeDetailPage() {
           )}
 
           {employeeId && <EmployeeTerminationCard employeeId={employeeId} endDate={employee.endDate ?? null} />}
+
+          {employeeId && <EmployeeHistoryCard employeeId={employeeId} />}
         </div>
       </div>
     </AppLayout>

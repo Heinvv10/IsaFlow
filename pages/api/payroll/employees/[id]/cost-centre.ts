@@ -25,7 +25,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   if (req.method !== 'PATCH') {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['PATCH']);
   }
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, user } = req as CompanyAuthedRequest;
   const id = String(req.query.id ?? '');
   if (!id) return apiResponse.badRequest(res, 'Missing employee id');
 
@@ -33,7 +33,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   if (!parsed.success) return apiResponse.badRequest(res, 'costCentreId required (string | null)');
 
   try {
-    await assignEmployeeCostCentre(companyId, id, parsed.data.costCentreId);
+    await assignEmployeeCostCentre(companyId, id, parsed.data.costCentreId, user.id);
     return apiResponse.success(res, { updated: true });
   } catch (err) {
     if (err instanceof CostCentreNotFoundError) return apiResponse.notFound(res, err.message);

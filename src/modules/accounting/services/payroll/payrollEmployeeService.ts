@@ -2,6 +2,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { PayrollEmployee } from './payrollTypes';
+import { recordEmployeeChange } from './payrollEmployeeHistoryService';
 
 type Row = DbRow;
 
@@ -73,8 +74,17 @@ export async function updatePayrollEmployee(
   id: string,
   companyId: string,
   data: Partial<Omit<PayrollEmployee, 'id' | 'companyId'>>,
+  userId?: string,
 ): Promise<PayrollEmployee | null> {
   log.info('Updating payroll employee', { id, companyId }, 'payrollEmployeeService');
+
+  const beforeRows = (await sql`
+    SELECT employment_type FROM payroll_employees
+     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
+     LIMIT 1
+  `) as Row[];
+  const before = beforeRows[0];
+
   const rows = (await sql`
     UPDATE payroll_employees SET
       first_name                   = COALESCE(${data.firstName ?? null}, first_name),
@@ -89,7 +99,21 @@ export async function updatePayrollEmployee(
     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
     RETURNING *
   `) as Row[];
-  return rows.length > 0 && rows[0] ? mapRow(rows[0]) : null;
+
+  const updated = rows.length > 0 && rows[0] ? mapRow(rows[0]) : null;
+
+  if (userId && before && updated && data.employmentType !== undefined) {
+    await recordEmployeeChange({
+      companyId,
+      employeeId: id,
+      fieldName: 'employment_type',
+      oldValue: before.employment_type == null ? null : String(before.employment_type),
+      newValue: updated.employmentType,
+      userId,
+    });
+  }
+
+  return updated;
 }
 
 export async function listTaxNumbersForCompany(

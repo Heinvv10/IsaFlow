@@ -22,7 +22,7 @@ async function handler(
   req: AuthenticatedNextApiRequest,
   res: NextApiResponse
 ): Promise<void> {
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, user } = req as CompanyAuthedRequest;
   const { id } = req.query;
 
   if (typeof id !== 'string') {
@@ -36,7 +36,7 @@ async function handler(
   }
 
   if (req.method === 'PATCH') {
-    const updated = await updatePayrollEmployee(id, companyId, req.body as Record<string, unknown>);
+    const updated = await updatePayrollEmployee(id, companyId, req.body as Record<string, unknown>, user.id);
     if (!updated) return apiResponse.notFound(res, 'PayrollEmployee', id);
     return apiResponse.success(res, updated);
   }

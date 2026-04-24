@@ -30,6 +30,7 @@ export const payrollTab: Tab = {
       items: [
         { label: 'Employees',           href: '/payroll/employees' },
         { label: 'Add Employee',        href: '/payroll/employees/new' },
+        { label: 'Bulk Update',         href: '/payroll/employees/bulk-update' },
         { label: 'Employee Duplicates', href: '/payroll/duplicates' },
       ],
     },
