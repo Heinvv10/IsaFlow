@@ -311,7 +311,7 @@ export async function runMonthlyAccrual(
     SELECT id, start_date, end_date
     FROM   payroll_employees
     WHERE  company_id = ${companyId}::uuid
-      AND  is_active = TRUE
+      AND  status = 'active'
   `) as DbRow[];
 
   const leaveTypes = (await sql`

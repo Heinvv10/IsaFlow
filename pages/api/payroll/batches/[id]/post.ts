@@ -28,10 +28,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
 
-  const { companyId, user } = req as CompanyAuthedRequest;
-  const role = String((user as { role?: string }).role ?? '');
-  if (!['super_admin', 'admin', 'manager'].includes(role)) {
-    return apiResponse.forbidden(res, 'Only admins and managers can post payroll batches');
+  const { companyId, companyRole, user } = req as CompanyAuthedRequest;
+  if (!['owner', 'admin', 'manager'].includes(companyRole)) {
+    return apiResponse.forbidden(res, 'Only owners, admins, and managers can post payroll batches');
   }
 
   const id = String(req.query.id ?? '');
