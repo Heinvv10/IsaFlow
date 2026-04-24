@@ -360,9 +360,9 @@ export async function runMonthlyAccrual(
 
       await sql`
         INSERT INTO payroll_leave_balances
-          (employee_id, leave_type_id, balance_year, accrued, taken, pending)
+          (company_id, employee_id, leave_type_id, balance_year, accrued, taken, pending)
         VALUES
-          (${emp.id as string}::uuid, ${lt.id as string}::uuid, ${year}, ${expected}, 0, 0)
+          (${companyId}::uuid, ${emp.id as string}::uuid, ${lt.id as string}::uuid, ${year}, ${expected}, 0, 0)
         ON CONFLICT (employee_id, leave_type_id, balance_year) DO UPDATE
           SET accrued = GREATEST(payroll_leave_balances.accrued, EXCLUDED.accrued),
               updated_at = NOW()
@@ -426,9 +426,9 @@ export async function rolloverLeaveYear(
 
     await sql`
       INSERT INTO payroll_leave_balances
-        (employee_id, leave_type_id, balance_year, accrued, taken, pending)
+        (company_id, employee_id, leave_type_id, balance_year, accrued, taken, pending)
       VALUES
-        (${row.employee_id as string}::uuid, ${row.leave_type_id as string}::uuid, ${toYear}, ${carry}, 0, 0)
+        (${companyId}::uuid, ${row.employee_id as string}::uuid, ${row.leave_type_id as string}::uuid, ${toYear}, ${carry}, 0, 0)
       ON CONFLICT (employee_id, leave_type_id, balance_year) DO UPDATE
         SET accrued = EXCLUDED.accrued,
             updated_at = NOW()
