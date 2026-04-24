@@ -3,6 +3,7 @@ import type { NextApiHandler } from 'next';
 import crypto from 'node:crypto';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth/withAuth';
 import { adminCreateUser } from '@/lib/auth/gotrue';
+import { checkRateLimit } from '@/lib/rateLimit';
 import { sql } from '@/lib/neon';
 import { sendEmail } from '@/modules/accounting/services/core/emailService';
 import { log } from '@/lib/logger';
@@ -25,6 +26,13 @@ const createInvitation: NextApiHandler = async (req, res) => {
   if (!['owner', 'admin'].includes(companyRole)) {
     return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Only owners and admins can invite' } });
   }
+
+  // Pentest M25: owner/admin can loop this endpoint to exhaust SMTP budget
+  // and trigger expensive GoTrue adminCreateUser calls. Cap per tenant.
+  if (!(await checkRateLimit(`invitations:company:${companyId}`, { max: 20, windowSecs: 3600 }))) {
+    return res.status(429).json({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many invitations. Try again later.' } });
+  }
+
   const { email, role } = req.body ?? {};
   if (typeof email !== 'string' || typeof role !== 'string' || !['admin', 'manager', 'viewer', 'storeman', 'technician'].includes(role)) {
     return res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'email and role required' } });

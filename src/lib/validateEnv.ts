@@ -1,6 +1,13 @@
 // ENCRYPTION_KEY is required — the app must not start without encryption configured.
 // All fields encrypted at rest (tokens, secrets) depend on this key being present.
-const REQUIRED_VARS = ['DATABASE_URL', 'JWT_SECRET', 'ENCRYPTION_KEY'] as const;
+// PORTAL_JWT_SECRET added (pentest L3) — used by both AFS portal and legacy AR
+// portal (post-H1 migration) for session token signing.
+const REQUIRED_VARS = [
+  'DATABASE_URL',
+  'JWT_SECRET',
+  'ENCRYPTION_KEY',
+  'PORTAL_JWT_SECRET',
+] as const;
 const RECOMMENDED_VARS = ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASS'] as const;
 
 export function validateEnv(): void {

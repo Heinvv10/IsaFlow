@@ -82,6 +82,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'filename is required for bulk preview');
   }
 
+  // Pentest M16: cap decoded base64 size before decoding. 30 MB body allows
+  // ~22 MB decoded, buffered entirely in RAM by parseStatement. Bound the
+  // decoded size to 15 MB so a single request can't pin a worker.
+  if (pdfBase64 && Buffer.byteLength(pdfBase64, 'base64') > 15 * 1024 * 1024) {
+    return apiResponse.badRequest(res, 'PDF file exceeds 15MB limit');
+  }
+
   const resolvedFileType: StatementFileType = fileType ?? (pdfBase64 ? 'pdf' : 'csv');
 
   // 1. Verify the chosen bank account exists in this company and grab
