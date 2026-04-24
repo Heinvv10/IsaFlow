@@ -30,7 +30,9 @@ export default function ChartOfAccountsPage() {
   const subtitle =
     accountCount === null
       ? 'Manage your general ledger accounts'
-      : `${accountCount} account${accountCount !== 1 ? 's' : ''} in your general ledger`;
+      : accountCount === 0
+        ? 'Pick a template to set up your general ledger'
+        : `${accountCount} account${accountCount !== 1 ? 's' : ''} in your general ledger`;
 
   return (
     <AppLayout>
