@@ -11,6 +11,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { recordEmployeeChange } from './payrollEmployeeHistoryService';
 
 type Row = DbRow;
 
@@ -164,11 +165,20 @@ export async function assignEmployeeCostCentre(
   companyId: string,
   employeeId: string,
   costCentreId: string | null,
+  userId?: string,
 ): Promise<void> {
   await assertEmployeeInCompany(companyId, employeeId);
   if (costCentreId !== null) {
     await assertCostCentreInCompany(companyId, costCentreId);
   }
+
+  const beforeRows = (await sql`
+    SELECT cost_centre_id FROM payroll_employees
+     WHERE id = ${employeeId}::uuid AND company_id = ${companyId}::uuid
+     LIMIT 1
+  `) as Row[];
+  const oldValue = beforeRows[0]?.cost_centre_id == null ? null : String(beforeRows[0]!.cost_centre_id);
+
   await sql`
     UPDATE payroll_employees
        SET cost_centre_id = ${costCentreId}::uuid,
@@ -176,6 +186,17 @@ export async function assignEmployeeCostCentre(
      WHERE id = ${employeeId}::uuid AND company_id = ${companyId}::uuid
   `;
   log.info('Employee cost centre reassigned', { companyId, employeeId, costCentreId }, 'costCentreService');
+
+  if (userId) {
+    await recordEmployeeChange({
+      companyId,
+      employeeId,
+      fieldName: 'cost_centre_id',
+      oldValue,
+      newValue: costCentreId,
+      userId,
+    });
+  }
 }
 
 export interface CostCentreSummaryRow {
