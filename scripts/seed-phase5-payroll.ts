@@ -29,11 +29,21 @@ if (!DATABASE_URL) {
 const sql = createSql(DATABASE_URL);
 
 const COMPANY_ID = '00000000-0000-0000-0000-000000000001';
-const ADMIN_ID = 'admin-001';
+const ADMIN_EMAIL = 'admin@isaflow.co.za';
 
 async function main(): Promise<void> {
   console.log('=== Phase 5 Payroll Seeder ===');
-  console.log(`Company: ${COMPANY_ID}\n`);
+  console.log(`Company: ${COMPANY_ID}`);
+
+  const adminRows = (await sql`
+    SELECT id FROM users WHERE email = ${ADMIN_EMAIL} LIMIT 1
+  `) as Array<{ id: string }>;
+  if (adminRows.length === 0) {
+    console.error(`Admin user ${ADMIN_EMAIL} not found`);
+    process.exit(1);
+  }
+  const ADMIN_ID = adminRows[0]!.id;
+  console.log(`Admin: ${ADMIN_EMAIL} (${ADMIN_ID})\n`);
 
   // ── Clean any prior Phase 5 rows ──────────────────────────────────────
   await sql`DELETE FROM payroll_employee_cost_allocations WHERE company_id = ${COMPANY_ID}::uuid`;
