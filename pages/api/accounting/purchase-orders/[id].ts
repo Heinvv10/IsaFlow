@@ -136,6 +136,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     // Replace line items if provided
     if (Array.isArray(items) && items.length > 0) {
+      // Parent-verified: the UPDATE above scopes to company_id and early-returns 404 when no row matches, so this id is tenant-owned.
       await sql`DELETE FROM po_items WHERE purchase_order_id = ${id}::UUID`;
       for (let i = 0; i < items.length; i++) {
         const item = items[i]!;
