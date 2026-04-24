@@ -345,7 +345,20 @@ export async function runMonthlyAccrual(
         accrualDays: Number(lt.accrual_days),
       });
 
-      const result = await sql`
+      // Two-step to keep portability: read prior balance, then upsert. The
+      // previous version referenced EXCLUDED in a RETURNING subquery, which
+      // Postgres rejects ("invalid reference to FROM-clause entry for table
+      // excluded") — EXCLUDED is only visible in the DO UPDATE SET clause.
+      const priorRows = await sql`
+        SELECT accrued FROM payroll_leave_balances
+         WHERE employee_id = ${emp.id as string}::uuid
+           AND leave_type_id = ${lt.id as string}::uuid
+           AND balance_year = ${year}
+         LIMIT 1
+      ` as DbRow[];
+      const priorAccrued = priorRows[0]?.accrued == null ? null : Number(priorRows[0]!.accrued);
+
+      await sql`
         INSERT INTO payroll_leave_balances
           (employee_id, leave_type_id, balance_year, accrued, taken, pending)
         VALUES
@@ -353,17 +366,9 @@ export async function runMonthlyAccrual(
         ON CONFLICT (employee_id, leave_type_id, balance_year) DO UPDATE
           SET accrued = GREATEST(payroll_leave_balances.accrued, EXCLUDED.accrued),
               updated_at = NOW()
-        RETURNING (xmax = 0) AS inserted,
-                  (accrued > (
-                    SELECT COALESCE(b2.accrued, 0)
-                    FROM payroll_leave_balances b2
-                    WHERE b2.employee_id = EXCLUDED.employee_id
-                      AND b2.leave_type_id = EXCLUDED.leave_type_id
-                      AND b2.balance_year = EXCLUDED.balance_year
-                  )) AS changed
-      ` as DbRow[];
+      `;
 
-      if (result[0]?.inserted || result[0]?.changed) updated += 1;
+      if (priorAccrued === null || expected > priorAccrued) updated += 1;
       else skipped += 1;
     }
   }
