@@ -19,6 +19,7 @@ import { CostCentreAssignmentCard } from '@/components/payroll/CostCentreAssignm
 import { EmployeeHistoryCard } from '@/components/payroll/EmployeeHistoryCard';
 import { PayScaleCard } from '@/components/payroll/PayScaleCard';
 import { ApplyPackageCard } from '@/components/payroll/ApplyPackageCard';
+import { OccupationalLevelCard } from '@/components/payroll/OccupationalLevelCard';
 
 export default function EmployeeDetailPage() {
   const router = useRouter();
@@ -219,6 +220,14 @@ export default function EmployeeDetailPage() {
           )}
 
           {employeeId && <ApplyPackageCard employeeId={employeeId} />}
+
+          {employeeId && (
+            <OccupationalLevelCard
+              employeeId={employeeId}
+              currentLevelId={employee.occupationalLevelId ?? null}
+              onChange={(id) => setEmployee({ ...employee, occupationalLevelId: id })}
+            />
+          )}
 
           {employeeId && <EmployeeTerminationCard employeeId={employeeId} endDate={employee.endDate ?? null} />}
 
