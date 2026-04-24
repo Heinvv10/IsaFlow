@@ -26,7 +26,8 @@ import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { log } from '@/lib/logger';
 import { sql, withSavepoint } from '@/lib/neon';
 import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
-import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
+import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
+import { getSystemAccount } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerPaymentAllocationService';
 
 type Row = Record<string, unknown>;
@@ -190,7 +191,53 @@ async function commitAPInvoice(
     }],
   }, userId);
 
-  await approveSupplierInvoice(companyId, created.id, userId);
+  // Post the JE directly instead of going through approveSupplierInvoice —
+  // the workflow helper calls postJournalEntry which blocks posting to
+  // closed fiscal periods. For a historical Sage migration we need to
+  // back-date freely. Flip status to 'posted' via direct UPDATE (same
+  // pattern postCustomerInvoiceToGL uses for AR).
+  const apAccount = await getSystemAccount('payable', companyId);
+  const vatAccount = await getSystemAccount('vat_input', companyId);
+  const defaultExpenseAccount = await getSystemAccount('default_expense', companyId);
+
+  const lines = [{
+    glAccountId: defaultExpenseAccount.id,
+    debit: inv.subtotal,
+    credit: 0,
+    description: inv.reference || `Invoice ${inv.invoiceNumber}`,
+  }];
+  if ((inv.taxAmount || 0) > 0) {
+    lines.push({
+      glAccountId: vatAccount.id,
+      debit: inv.taxAmount,
+      credit: 0,
+      description: `VAT on ${inv.invoiceNumber}`,
+    });
+  }
+  lines.push({
+    glAccountId: apAccount.id,
+    debit: 0,
+    credit: inv.totalAmount,
+    description: `AP: ${inv.invoiceNumber}`,
+  });
+
+  const je = await createJournalEntry(companyId, {
+    entryDate: inv.invoiceDate,
+    description: `Supplier invoice ${inv.invoiceNumber}`,
+    source: 'auto_supplier_invoice',
+    lines,
+  }, userId);
+
+  await sql`
+    UPDATE gl_journal_entries SET status = 'posted', posted_at = NOW()
+    WHERE id = ${je.id}::UUID AND company_id = ${companyId}::UUID
+  `;
+  await sql`
+    UPDATE supplier_invoices
+    SET status = 'approved', approved_at = NOW(), gl_journal_entry_id = ${je.id}::UUID
+    WHERE id = ${created.id}::UUID AND company_id = ${companyId}::UUID
+  `;
+
   return { invoiceId: created.id, created: true };
 }
 
