@@ -77,6 +77,26 @@ export const DOC_SLOTS = [
 ];
 const DIRECTOR_ROLES = ['Director', 'Managing Director', 'Member', 'Chairperson', 'Secretary'];
 
+function levenshtein(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  let prev: number[] = Array.from({ length: b.length + 1 }, (_, i) => i);
+  let curr: number[] = Array.from({ length: b.length + 1 }, () => 0);
+  for (let i = 1; i <= a.length; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? 0 : 1;
+      const del = (prev[j] ?? 0) + 1;
+      const ins = (curr[j - 1] ?? 0) + 1;
+      const sub = (prev[j - 1] ?? 0) + cost;
+      curr[j] = Math.min(del, ins, sub);
+    }
+    [prev, curr] = [curr, prev];
+  }
+  return prev[b.length] ?? 0;
+}
+
 // ── Shared UI ───────────────────────────────────────────────────────────────
 
 const inputCls = 'w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition';
@@ -185,6 +205,11 @@ export function Step1({ d, set }: { d: WizardData; set: SetFn }) {
             let verification: Director['idVerification'] = 'updated';
             let msg = '';
 
+            // Final values to commit — may diverge from the raw extraction
+            // if we detect a likely OCR misread of an already-correct name.
+            let finalName = extractedName || existing?.name || '';
+            const finalId = extractedId || existing?.idNumber || '';
+
             if (hadName && hadId && extractedName && extractedId) {
               // Both existed — check if they match
               const nameNorm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
@@ -193,7 +218,18 @@ export function Step1({ d, set }: { d: WizardData; set: SetFn }) {
                              || nameNorm(extractedName).includes(nameNorm(hadName).split(' ').pop() ?? '');
               const idMatch = idNorm(hadId) === idNorm(extractedId);
 
-              if (nameMatch && idMatch) {
+              // Guard: if the ID number confirms we're looking at the same person
+              // AND the extracted name is only a character or two different from
+              // the existing one, the VLM almost certainly misread a letter —
+              // keep the user's value rather than regressing a good name.
+              const nameDrift = levenshtein(nameNorm(hadName), nameNorm(extractedName));
+              const isLikelyOcrDrift = idMatch && !nameMatch && nameDrift > 0 && nameDrift <= 2;
+
+              if (isLikelyOcrDrift) {
+                finalName = hadName;
+                verification = 'verified';
+                msg = `ID verified — kept "${hadName}" (document read as "${extractedName}", treated as OCR noise).`;
+              } else if (nameMatch && idMatch) {
                 verification = 'verified';
                 msg = `ID verified — ${extractedName} matches the uploaded document.`;
               } else if (!nameMatch && !idMatch) {
@@ -212,8 +248,8 @@ export function Step1({ d, set }: { d: WizardData; set: SetFn }) {
             }
 
             updateDirector(i, {
-              name: extractedName || existing?.name || '',
-              idNumber: extractedId || existing?.idNumber || '',
+              name: finalName,
+              idNumber: finalId,
               idDocument: doc, extracting: false,
               idVerification: verification, idVerificationMsg: msg,
             });
