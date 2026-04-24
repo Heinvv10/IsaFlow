@@ -192,6 +192,11 @@ export default function PayrollRunDetailPage() {
                 title="Totals per cost centre">
                 Cost centres
               </Link>
+              <Link href={`/payroll/runs/${runId}/cash-register`}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg border border-[var(--ff-border-primary)] hover:bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-secondary)] text-sm font-medium"
+                title="ZAR denomination breakdown for cash-paid employees">
+                Cash register
+              </Link>
               {canReopen && (
                 <button onClick={reopen} disabled={reopening}
                   className="flex items-center gap-2 px-4 py-2 rounded-lg border border-amber-400 text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-500/10 disabled:opacity-50 text-sm font-medium"

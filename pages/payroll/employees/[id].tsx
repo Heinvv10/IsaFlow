@@ -17,6 +17,8 @@ import {
 import { EmployeeTerminationCard } from '@/components/payroll/EmployeeTerminationCard';
 import { CostCentreAssignmentCard } from '@/components/payroll/CostCentreAssignmentCard';
 import { EmployeeHistoryCard } from '@/components/payroll/EmployeeHistoryCard';
+import { PayScaleCard } from '@/components/payroll/PayScaleCard';
+import { ApplyPackageCard } from '@/components/payroll/ApplyPackageCard';
 
 export default function EmployeeDetailPage() {
   const router = useRouter();
@@ -207,6 +209,16 @@ export default function EmployeeDetailPage() {
               onChange={(id) => setEmployee({ ...employee, costCentreId: id })}
             />
           )}
+
+          {employeeId && (
+            <PayScaleCard
+              employeeId={employeeId}
+              currentPayScaleId={employee.payScaleId ?? null}
+              onChange={(id) => setEmployee({ ...employee, payScaleId: id })}
+            />
+          )}
+
+          {employeeId && <ApplyPackageCard employeeId={employeeId} />}
 
           {employeeId && <EmployeeTerminationCard employeeId={employeeId} endDate={employee.endDate ?? null} />}
 
