@@ -9,19 +9,44 @@
 -- the FK is authoritative. UI writes to both until the free-text field
 -- is removed in a later migration.
 
+-- Note: cost_centres was created earlier by migration 211 with a different
+-- shape (code UNIQUE globally, no company_id). Phase 4 of VIP parity
+-- evolved it in-place via ALTER. This migration completes that evolution
+-- idempotently: add any missing columns + the (company_id, code) unique
+-- constraint required by the backfill ON CONFLICT target below.
+
 CREATE TABLE IF NOT EXISTS cost_centres (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  code VARCHAR(20) NOT NULL,
+  name VARCHAR(255) NOT NULL,
   company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
-  code TEXT NOT NULL,
-  name TEXT NOT NULL,
-  parent_id UUID REFERENCES cost_centres(id) ON DELETE SET NULL,
   is_active BOOLEAN NOT NULL DEFAULT true,
-  notes TEXT,
-  created_by VARCHAR(255) REFERENCES users(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE (company_id, code)
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE cost_centres
+  ADD COLUMN IF NOT EXISTS parent_id UUID REFERENCES cost_centres(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS notes TEXT,
+  ADD COLUMN IF NOT EXISTS created_by VARCHAR(255) REFERENCES users(id) ON DELETE SET NULL;
+
+-- Ensure the (company_id, code) unique constraint exists — the backfill
+-- ON CONFLICT clause below targets exactly this pair. The legacy schema
+-- from mig 211 only had `code` globally UNIQUE, which doesn't match.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'cost_centres_company_id_code_key'
+      AND conrelid = 'public.cost_centres'::regclass
+  ) THEN
+    -- Drop the legacy global UNIQUE on code if it exists — it blocks
+    -- multi-tenant operation and is superseded by (company_id, code).
+    ALTER TABLE cost_centres DROP CONSTRAINT IF EXISTS cost_centres_code_key;
+    ALTER TABLE cost_centres
+      ADD CONSTRAINT cost_centres_company_id_code_key UNIQUE (company_id, code);
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_cost_centres_company_active
   ON cost_centres(company_id, is_active);
