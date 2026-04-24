@@ -57,7 +57,7 @@ export default function PayScalesPage() {
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        setError(j.message ?? j.error ?? 'Create failed');
+        setError(j.error?.message ?? j.message ?? 'Create failed');
         return;
       }
       setForm({ code: '', name: '', gradeLevel: 1, minSalary: 0, midSalary: 0, maxSalary: 0 });

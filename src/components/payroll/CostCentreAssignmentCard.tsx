@@ -94,7 +94,7 @@ export function CostCentreAssignmentCard({ employeeId, currentCostCentreId, onCh
         });
         if (!r.ok) {
           const j = await r.json().catch(() => ({}));
-          setError(j.message ?? j.error ?? 'Could not clear allocations');
+          setError(j.error?.message ?? j.message ?? 'Could not clear allocations');
           return;
         }
         setBaseline([]);
@@ -108,7 +108,7 @@ export function CostCentreAssignmentCard({ employeeId, currentCostCentreId, onCh
       });
       if (!res.ok) {
         const json = await res.json().catch(() => ({}));
-        setError(json.message ?? json.error ?? 'Save failed');
+        setError(json.error?.message ?? json.message ?? 'Save failed');
         return;
       }
       onChange(costCentreId);
@@ -130,7 +130,7 @@ export function CostCentreAssignmentCard({ employeeId, currentCostCentreId, onCh
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        setError(j.message ?? j.error ?? 'Save failed');
+        setError(j.error?.message ?? j.message ?? 'Save failed');
         return;
       }
       const json = await res.json();

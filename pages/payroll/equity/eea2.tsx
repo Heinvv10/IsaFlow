@@ -41,7 +41,7 @@ export default function EEA2Page() {
       const res = await apiFetch(`/api/payroll/equity/eea2?asOf=${asOf}`);
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        setError(j.message ?? j.error ?? `HTTP ${res.status}`);
+        setError(j.error?.message ?? j.message ?? `HTTP ${res.status}`);
         return;
       }
       const json = await res.json();

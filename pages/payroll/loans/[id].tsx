@@ -97,7 +97,7 @@ export default function LoanDetailPage() {
       });
       if (!res.ok) {
         const json = await res.json().catch(() => ({}));
-        setError(json.message ?? json.error ?? 'Close failed');
+        setError(json.error?.message ?? json.message ?? 'Close failed');
         return;
       }
       await load();

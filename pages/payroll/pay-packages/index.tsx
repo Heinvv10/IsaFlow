@@ -50,7 +50,7 @@ export default function PayPackagesPage() {
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        setError(j.message ?? j.error ?? 'Create failed');
+        setError(j.error?.message ?? j.message ?? 'Create failed');
         return;
       }
       setForm({ code: '', name: '', description: '' });

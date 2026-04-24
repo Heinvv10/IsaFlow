@@ -109,7 +109,7 @@ export default function TrainingPage() {
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        setError(j.message ?? j.error ?? 'Create failed');
+        setError(j.error?.message ?? j.message ?? 'Create failed');
         return;
       }
       setShowForm(false);

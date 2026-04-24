@@ -49,7 +49,7 @@ export function ApplyPackageCard({ employeeId }: Props) {
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        setError(j.message ?? j.error ?? 'Apply failed');
+        setError(j.error?.message ?? j.message ?? 'Apply failed');
         return;
       }
       const json = await res.json();
