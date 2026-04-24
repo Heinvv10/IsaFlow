@@ -2,7 +2,7 @@
 //
 // Signer / verifier for the legacy AR customer portal session cookie.
 // Uses PORTAL_JWT_SECRET — completely separate from staff JWT_SECRET.
-// Replaces the `JWT_SECRET + '-portal'` derivation flagged in pentest H1.
+// Replaces the derived-from-staff-secret pattern flagged in pentest H1.
 //
 // This is distinct from `portalJwt.ts` (AFS portal) which has a different
 // claim shape (contactId/role/expiresAt). The AR portal authenticates against

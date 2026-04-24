@@ -12,7 +12,7 @@ Singleton `ioredis` client factory that returns `null` when `REDIS_URL` is unset
 - `@/lib/logger` — logs connection errors as warnings
 
 ## Critical notes
-- **Optional by design**: `REDIS_URL` is not in `validateEnv`'s required list. All callers must handle the `null` case and fall back to the in-process `cache.ts` / `rateLimiter.ts`.
+- **Optional by design**: `REDIS_URL` is not in `validateEnv`'s required list. All callers must handle the `null` case and fall back to the in-process `cache.ts` or the Neon-backed `rateLimit.ts`.
 - **`lazyConnect: true`**: no TCP connection is made at import time. The connection is established on first command. If the server is unreachable, commands fail with an error (not a hang).
 - **`enableOfflineQueue: false`**: commands issued while disconnected throw immediately rather than queueing. This prevents stalled requests when Redis is temporarily unavailable.
 - **`maxRetriesPerRequest: 1`**: limits retry storms; combined with `connectTimeout: 2000` this means a Redis failure adds at most ~2 s latency before a command errors.
