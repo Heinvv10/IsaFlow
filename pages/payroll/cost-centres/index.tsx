@@ -16,8 +16,24 @@ interface CostCentre {
   notes: string | null;
 }
 
+interface Mapping {
+  costCentreId: string;
+  expenseAccountId: string;
+  accountCode: string;
+  accountName: string;
+}
+
+interface GlAccount {
+  id: string;
+  accountCode: string;
+  accountName: string;
+  accountType: string;
+}
+
 export default function CostCentresPage() {
   const [rows, setRows] = useState<CostCentre[]>([]);
+  const [mappings, setMappings] = useState<Mapping[]>([]);
+  const [accounts, setAccounts] = useState<GlAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -34,16 +50,51 @@ export default function CostCentresPage() {
     setError('');
     try {
       const qs = showInactive ? '' : '?activeOnly=1';
-      const res = await apiFetch(`/api/payroll/cost-centres${qs}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      setRows((json.data ?? json) as CostCentre[]);
+      const [ccRes, mapRes, acctRes] = await Promise.all([
+        apiFetch(`/api/payroll/cost-centres${qs}`),
+        apiFetch('/api/payroll/cost-centres/gl-mappings'),
+        apiFetch('/api/accounting/chart-of-accounts'),
+      ]);
+      if (!ccRes.ok) throw new Error(`HTTP ${ccRes.status}`);
+      const ccJson = await ccRes.json();
+      setRows((ccJson.data ?? ccJson) as CostCentre[]);
+      if (mapRes.ok) {
+        const j = await mapRes.json();
+        setMappings(((j.data ?? j) as Mapping[]) ?? []);
+      }
+      if (acctRes.ok) {
+        const j = await acctRes.json();
+        const all = ((j.data ?? j) as GlAccount[]) ?? [];
+        setAccounts(all.filter(a => a.accountType === 'expense'));
+      }
     } catch {
       setError('Failed to load cost centres');
     } finally {
       setLoading(false);
     }
   }, [showInactive]);
+
+  async function setMapping(costCentreId: string, expenseAccountId: string | ''): Promise<void> {
+    setBusy(true);
+    setError('');
+    try {
+      const res = expenseAccountId === ''
+        ? await apiFetch(`/api/payroll/cost-centres/${costCentreId}/gl-mapping`, { method: 'DELETE' })
+        : await apiFetch(`/api/payroll/cost-centres/${costCentreId}/gl-mapping`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ expenseAccountId }),
+          });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        setError(j.message ?? j.error ?? 'GL mapping save failed');
+        return;
+      }
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  }
 
   useEffect(() => { load(); }, [load]);
 
@@ -134,7 +185,7 @@ export default function CostCentresPage() {
           </label>
         </div>
 
-        <div className="p-6 space-y-4 max-w-3xl">
+        <div className="p-6 space-y-4 max-w-5xl">
           {error && <div className="flex items-center gap-2 text-sm text-red-400 bg-red-500/10 rounded-lg p-3"><AlertCircle className="h-4 w-4" />{error}</div>}
 
           <div className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-4">
@@ -165,6 +216,7 @@ export default function CostCentresPage() {
                   <tr className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] text-left">
                     <th className="py-2 px-3 font-medium text-[var(--ff-text-secondary)]">Code</th>
                     <th className="py-2 px-3 font-medium text-[var(--ff-text-secondary)]">Name</th>
+                    <th className="py-2 px-3 font-medium text-[var(--ff-text-secondary)]">GL expense account</th>
                     <th className="py-2 px-3 font-medium text-[var(--ff-text-secondary)]">Status</th>
                     <th />
                   </tr>
@@ -185,6 +237,19 @@ export default function CostCentresPage() {
                             <input value={editName} onChange={e => setEditName(e.target.value)}
                               className="rounded bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-sm px-2 py-1 w-full" />
                           ) : cc.name}
+                        </td>
+                        <td className="py-2 px-3 text-[var(--ff-text-primary)]">
+                          <select
+                            value={mappings.find(m => m.costCentreId === cc.id)?.expenseAccountId ?? ''}
+                            onChange={e => setMapping(cc.id, e.target.value)}
+                            disabled={busy || accounts.length === 0}
+                            className="rounded bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] text-xs px-2 py-1 text-[var(--ff-text-primary)] min-w-[14rem]"
+                          >
+                            <option value="">(fallback — default)</option>
+                            {accounts.map(a => (
+                              <option key={a.id} value={a.id}>{a.accountCode} — {a.accountName}</option>
+                            ))}
+                          </select>
                         </td>
                         <td className="py-2 px-3">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${cc.isActive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-gray-500/10 text-gray-400'}`}>

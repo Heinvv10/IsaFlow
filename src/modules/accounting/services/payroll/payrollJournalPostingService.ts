@@ -22,6 +22,12 @@ import { log } from '@/lib/logger';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postJournalEntry, reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import type { JournalEntryCreateInput, JournalLineInput } from '@/modules/accounting/types/gl.types';
+import { getMappingLookup } from './costCentreGlMappingService';
+import {
+  buildLabourDebitLines,
+  type RunLabourLine,
+  type AllocationShare,
+} from './payrollJournalSplitBuilder';
 
 type Row = DbRow;
 
@@ -110,8 +116,17 @@ export async function postPayrollRunJournal(
   const labourDebit = Math.round((totalGross + employerUif + totalSdl - totalEti) * 100) / 100;
 
   // 5. Build journal lines
+  //    The labour debit is split across per-cost-centre GL expense accounts
+  //    when mappings exist (mig 458). Unmapped centres + employees with no
+  //    centre all collapse into the default 5200 Labour Costs account. The
+  //    statutory-credit + bank-credit sides stay single lines because SARS
+  //    is paid one cheque per company regardless of cost centre.
+  const labourLines = await buildLabourDebitLinesForRun(
+    companyId, runId, labourDebit, totalGross, accts['5200'],
+  );
+
   const lines: JournalLineInput[] = [
-    { glAccountId: accts['5200'], debit: labourDebit, credit: 0, description: 'Labour costs — gross pay + statutory employer contributions − ETI' },
+    ...labourLines,
     { glAccountId: accts['2140'], debit: 0, credit: Math.round(totalPaye * 100) / 100, description: 'PAYE payable' },
     { glAccountId: accts['2150'], debit: 0, credit: Math.round(totalUif  * 100) / 100, description: 'UIF payable (employee + employer)' },
     { glAccountId: accts['2160'], debit: 0, credit: Math.round(totalSdl  * 100) / 100, description: 'SDL payable' },
@@ -155,6 +170,89 @@ export async function postPayrollRunJournal(
 
   log.info('Payroll journal posted', { companyId, runId, journalId: entry.id, entryDate, reference }, 'payrollJournal');
   return entry.id;
+}
+
+/**
+ * Builds the labour-debit portion of the journal. Pulls each run line's
+ * contribution, scales it to the full labour debit (which includes
+ * employer UIF + SDL − ETI — statutory loads that the run-line totals
+ * don't carry by themselves), then delegates to the pure split builder.
+ *
+ * The run-line gross_pay already sums to the header's total_gross, so we
+ * apportion labourDebit strictly in proportion to each employee's gross
+ * share. This keeps the builder pure + easily testable.
+ */
+async function buildLabourDebitLinesForRun(
+  companyId: string,
+  runId: string,
+  labourDebit: number,
+  totalGross: number,
+  defaultAccountId: string,
+): Promise<JournalLineInput[]> {
+  if (labourDebit === 0 || totalGross === 0) {
+    return [{
+      glAccountId: defaultAccountId,
+      debit: labourDebit,
+      credit: 0,
+      description: 'Labour costs — gross pay + statutory employer contributions − ETI',
+    }];
+  }
+
+  const lineRows = (await sql`
+    SELECT prl.employee_id,
+           prl.gross_pay,
+           e.cost_centre_id
+      FROM payroll_run_lines prl
+      JOIN payroll_employees e ON e.id = prl.employee_id
+     WHERE prl.run_id = ${runId}::uuid
+  `) as Row[];
+
+  if (lineRows.length === 0) {
+    return [{
+      glAccountId: defaultAccountId,
+      debit: labourDebit,
+      credit: 0,
+      description: 'Labour costs — gross pay + statutory employer contributions − ETI',
+    }];
+  }
+
+  const allocRows = (await sql`
+    SELECT a.employee_id, a.cost_centre_id, a.percentage
+      FROM payroll_employee_cost_allocations a
+      JOIN payroll_run_lines prl ON prl.employee_id = a.employee_id
+     WHERE prl.run_id = ${runId}::uuid
+       AND a.company_id = ${companyId}::uuid
+  `) as Row[];
+
+  const mappings = await getMappingLookup(companyId);
+
+  const employeeCostCentre: Record<string, string | null> = {};
+  const runLines: RunLabourLine[] = [];
+  for (const r of lineRows) {
+    const employeeId = String(r.employee_id);
+    const grossShare = Number(r.gross_pay) || 0;
+    const scaled = Math.round(((grossShare / totalGross) * labourDebit) * 100) / 100;
+    employeeCostCentre[employeeId] = r.cost_centre_id == null ? null : String(r.cost_centre_id);
+    runLines.push({ employeeId, labourAmount: scaled });
+  }
+
+  const employeeAllocations: Record<string, AllocationShare[]> = {};
+  for (const r of allocRows) {
+    const employeeId = String(r.employee_id);
+    if (!employeeAllocations[employeeId]) employeeAllocations[employeeId] = [];
+    employeeAllocations[employeeId]!.push({
+      costCentreId: String(r.cost_centre_id),
+      percentage: Number(r.percentage) || 0,
+    });
+  }
+
+  return buildLabourDebitLines({
+    runLines,
+    employeeCostCentre,
+    employeeAllocations,
+    mappings,
+    defaultAccountId,
+  });
 }
 
 // ── reversePayrollRunJournal ─────────────────────────────────────────────────
