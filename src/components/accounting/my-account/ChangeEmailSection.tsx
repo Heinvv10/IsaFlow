@@ -7,7 +7,7 @@ export function ChangeEmailSection({ currentEmail }: { currentEmail: string }) {
   const [newEmail, setNewEmail] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
   const [saving, setSaving] = useState(false);
-  const [pending, setPending] = useState<string | null>(null);
+  const [changedTo, setChangedTo] = useState<string | null>(null);
 
   async function submit() {
     const trimmed = newEmail.trim().toLowerCase();
@@ -27,15 +27,15 @@ export function ChangeEmailSection({ currentEmail }: { currentEmail: string }) {
       });
       const json = await res.json();
       if (!res.ok) {
-        toast.error(json.error?.message ?? 'Failed to start email change');
+        toast.error(json.error?.message ?? 'Failed to change email');
         return;
       }
-      setPending(trimmed);
+      setChangedTo(trimmed);
       setNewEmail('');
       setCurrentPassword('');
-      toast.success(`Confirmation sent to ${trimmed}`);
+      toast.success(`Email changed to ${trimmed}`);
     } catch {
-      toast.error('Failed to start email change');
+      toast.error('Failed to change email');
     } finally {
       setSaving(false);
     }
@@ -49,12 +49,12 @@ export function ChangeEmailSection({ currentEmail }: { currentEmail: string }) {
       </div>
       <p className="text-sm text-[var(--ff-text-secondary)]">
         Your current email is <span className="font-mono text-[var(--ff-text-primary)]">{currentEmail}</span>.
-        A confirmation link will be sent to the new address — your current email stays active until you click it.
+        Enter a new address and your current password — the change takes effect immediately and you&apos;ll use the new email to sign in next time.
       </p>
 
-      {pending && (
-        <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 px-4 py-3 text-sm text-amber-200">
-          Confirmation sent to <span className="font-mono">{pending}</span>. Click the link in that email to complete the switch.
+      {changedTo && (
+        <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/30 px-4 py-3 text-sm text-emerald-200">
+          Email changed to <span className="font-mono">{changedTo}</span>. Use it next time you sign in.
         </div>
       )}
 
@@ -90,7 +90,7 @@ export function ChangeEmailSection({ currentEmail }: { currentEmail: string }) {
           disabled={saving || !newEmail || !currentPassword}
           className="px-4 py-2 bg-teal-600 hover:bg-teal-500 disabled:bg-teal-800 disabled:text-teal-300 text-white rounded-lg text-sm font-medium transition-colors"
         >
-          {saving ? 'Sending confirmation…' : 'Send confirmation'}
+          {saving ? 'Changing…' : 'Change email'}
         </button>
       </div>
     </div>

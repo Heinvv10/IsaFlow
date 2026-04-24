@@ -3,21 +3,27 @@
  *
  * Body: { newEmail, currentPassword }
  *
- * Starts a self-service email change. We re-auth with the current password
- * first (belt-and-braces: a stolen session cookie alone can't pivot a
- * user's login email), then PUT /user on GoTrue with the new address.
+ * Changes the user's login email immediately after re-authenticating with
+ * the current password. We use the GoTrue admin endpoint with
+ * `email_confirm: true` to skip the secure-email-change double-confirm:
+ * requiring clicks from both the old and new address was causing users
+ * to get locked out (they'd click the new-address link only, leaving
+ * the old address as the still-active login email).
  *
- * GoTrue does not swap the email immediately — it sends a confirmation
- * link to the NEW address. The change only takes effect when the user
- * clicks that link. The old email continues to work until then.
+ * The password re-auth is the security gate — a stolen session cookie
+ * alone can't pivot the login email because the attacker doesn't have
+ * the password. Belt-and-braces: rate-limited 5/15min per user.
+ *
+ * public.users.email is kept in sync in the same request so downstream
+ * queries (invoices, audit logs, admin UI) don't drift.
  */
 
 import type { NextApiHandler } from 'next';
 import { z } from 'zod';
 import { withUserAuth, type UserAuthedRequest } from '@/lib/auth/withUserAuth';
-import { signIn, userUpdateSelf } from '@/lib/auth/gotrue';
-import { parseCookies, ACCESS_COOKIE } from '@/lib/auth/cookies';
+import { signIn, adminUpdateUser } from '@/lib/auth/gotrue';
 import { withRateLimit } from '@/lib/rateLimit';
+import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
 const Body = z.object({
@@ -52,7 +58,6 @@ const handler: NextApiHandler = async (req, res) => {
     });
   }
 
-  // Re-auth with the current password.
   try {
     await signIn(user.email, currentPassword);
   } catch {
@@ -62,20 +67,12 @@ const handler: NextApiHandler = async (req, res) => {
     });
   }
 
-  // Need the user's own access token to call GoTrue PUT /user (it's a
-  // user-level endpoint, not admin).
-  const token = parseCookies(req)[ACCESS_COOKIE];
-  if (!token) {
-    return res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Access token missing' } });
-  }
-
   try {
-    await userUpdateSelf(token, { email: normalisedNew });
+    await adminUpdateUser(user.id, { email: normalisedNew, email_confirm: true });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.warn('change-email: gotrue rejected', { userId: user.id, message: msg }, 'Auth');
-    // Common GoTrue 4xx: email already in use.
-    if (/422|already|exists/i.test(msg)) {
+    if (/422|already|exists|duplicate/i.test(msg)) {
       return res.status(409).json({
         success: false,
         error: { code: 'EMAIL_TAKEN', message: 'That email address is already in use' },
@@ -83,14 +80,30 @@ const handler: NextApiHandler = async (req, res) => {
     }
     return res.status(502).json({
       success: false,
-      error: { code: 'GOTRUE_ERROR', message: 'Could not start email change. Please try again.' },
+      error: { code: 'GOTRUE_ERROR', message: 'Could not change email. Please try again.' },
     });
   }
 
-  log.info('change-email: confirmation sent', { userId: user.id, newEmail: normalisedNew }, 'Auth');
+  // Mirror to public.users. GoTrue is now the source of truth for login —
+  // if this UPDATE fails, the login email has still changed, so we log and
+  // continue rather than rolling back (which we can't do cleanly anyway).
+  try {
+    await sql`
+      UPDATE users SET email = ${normalisedNew}, updated_at = NOW()
+      WHERE id = ${user.id}
+    `;
+  } catch (err) {
+    log.error('change-email: public.users mirror failed — drift', {
+      userId: user.id,
+      newEmail: normalisedNew,
+      message: err instanceof Error ? err.message : 'unknown',
+    }, 'Auth');
+  }
+
+  log.info('change-email: swapped', { userId: user.id, from: user.email.toLowerCase(), to: normalisedNew }, 'Auth');
   return res.status(200).json({
     success: true,
-    data: { message: `Confirmation link sent to ${normalisedNew}. Click it to complete the change. Your current email stays active until then.` },
+    data: { email: normalisedNew, message: 'Email changed. Use your new email address next time you sign in.' },
   });
 };
 

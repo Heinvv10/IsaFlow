@@ -24,7 +24,7 @@ for sel in default mail smtp cpanel k1 selector1 selector2; do
 done
 ```
 
-As captured on 2026-04-24:
+Initial state (captured 2026-04-24):
 
 | Record | Value | Verdict |
 |---|---|---|
@@ -32,20 +32,37 @@ As captured on 2026-04-24:
 | DMARC | *(missing)* | **Critical** — root cause of spam-folder drops at Gmail/Outlook. |
 | DKIM  | *(no selector resolves)* | **Critical** — outbound mail is unsigned. |
 
+## Applied state (2026-04-24 via Cloudflare API)
+
+DNS is hosted on Cloudflare (zone `584265adbf74478796c252230421dc8e`,
+nameservers `danica.ns.cloudflare.com` / `nico.ns.cloudflare.com`).
+Steps 1 and 2 below were applied directly via the CF API on 2026-04-24:
+
+| Record | Value | Applied |
+|---|---|---|
+| SPF (`isaflow.co.za`) | `v=spf1 mx a include:spf.host-h.net ~all` | ✅ 2026-04-24 |
+| DMARC (`_dmarc.isaflow.co.za`) | `v=DMARC1; p=none; fo=1; adkim=r; aspf=r` | ✅ 2026-04-24 |
+| DKIM | *(still needs host-h ticket — see Step 3)* | ⏳ blocked on host-h |
+
+DMARC was published **without** `rua=` / `ruf=` so reports aren't mailed to
+an address that would bounce. Add `rua=mailto:dmarc@isaflow.co.za` once that
+mailbox (or alias) is created at host-h.
+
 ## Fix plan — in order
 
-### Step 1 — DMARC record (unblocks spam folders immediately)
+### Step 1 — DMARC record (APPLIED 2026-04-24)
 
-At the DNS registrar for `isaflow.co.za`, add a **TXT** record:
+The following TXT record is now published on `isaflow.co.za` via Cloudflare:
 
 | Name | Type | Value | TTL |
 |---|---|---|---|
-| `_dmarc.isaflow.co.za` | TXT | `v=DMARC1; p=none; rua=mailto:dmarc@isaflow.co.za; ruf=mailto:dmarc@isaflow.co.za; fo=1; adkim=r; aspf=r` | 3600 |
+| `_dmarc.isaflow.co.za` | TXT | `v=DMARC1; p=none; fo=1; adkim=r; aspf=r` | 3600 |
 
 - `p=none` means "monitor only, don't reject" — safe first step.
-- `rua` / `ruf` collect aggregate + failure reports. Create `dmarc@isaflow.co.za`
-  as a mailbox or alias before publishing.
 - `adkim=r` / `aspf=r` = relaxed alignment (matches subdomains too).
+- **Follow-on:** create `dmarc@isaflow.co.za` (mailbox or alias), then PATCH
+  the record to append `rua=mailto:dmarc@isaflow.co.za; ruf=mailto:dmarc@isaflow.co.za`
+  so aggregate/failure reports start flowing in.
 
 Verify after DNS propagation:
 
@@ -54,16 +71,13 @@ dig +short TXT _dmarc.isaflow.co.za
 # Expect: "v=DMARC1; p=none; ..."
 ```
 
-### Step 2 — Fix SPF `?all` → `~all`
+### Step 2 — Fix SPF `?all` → `~all` (APPLIED 2026-04-24)
 
-Replace the existing SPF record on `isaflow.co.za`:
+The SPF record on `isaflow.co.za` has been updated via Cloudflare:
 
 | Before | After |
 |---|---|
 | `v=spf1 mx a include:spf.host-h.net ?all` | `v=spf1 mx a include:spf.host-h.net ~all` |
-
-Keep the same TXT name (root, `isaflow.co.za`). Do **not** add a second SPF —
-the RFC allows only one per domain.
 
 Verify:
 
