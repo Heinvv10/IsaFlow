@@ -97,9 +97,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, pairs);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('does not exist')) {
-      return apiResponse.success(res, []);
-    }
     log.error('customer-duplicates GET failed', { error: message, module: 'accounting' });
     return apiResponse.internalError(res, err, 'Failed to find duplicate customers');
   }

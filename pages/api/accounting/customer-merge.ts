@@ -81,21 +81,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           AND company_id = ${companyId}
       `;
 
-      // 6. Re-parent customer_activities (table may not exist — swallow gracefully)
-      try {
-        await tx`
-          UPDATE customer_activities
-          SET customer_id = ${target_id}
-          WHERE customer_id = ${source_id}
-            AND company_id = ${companyId}
-        `;
-      } catch (actErr: unknown) {
-        const msg = actErr instanceof Error ? actErr.message : String(actErr);
-        if (!msg.includes('does not exist')) throw actErr;
-        log.info('customer_activities table not found — skipping re-parent', {
-          module: 'accounting',
-        });
-      }
+      // 6. Re-parent customer_activities
+      await tx`
+        UPDATE customer_activities
+        SET customer_id = ${target_id}
+        WHERE customer_id = ${source_id}
+          AND company_id = ${companyId}
+      `;
 
       // 7. Soft-delete the source customer
       await tx`

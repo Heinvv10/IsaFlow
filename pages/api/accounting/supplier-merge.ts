@@ -73,21 +73,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           AND company_id = ${companyId}
       `;
 
-      // 5. Re-parent supplier_credit_notes (table may not exist — swallow gracefully)
-      try {
-        await tx`
-          UPDATE supplier_credit_notes
-          SET supplier_id = ${target_id}
-          WHERE supplier_id = ${source_id}
-            AND company_id = ${companyId}
-        `;
-      } catch (scnErr: unknown) {
-        const msg = scnErr instanceof Error ? scnErr.message : String(scnErr);
-        if (!msg.includes('does not exist')) throw scnErr;
-        log.info('supplier_credit_notes table not found — skipping re-parent', {
-          module: 'accounting',
-        });
-      }
+      // Note: unified credit_notes table covers both customer and supplier
+      // credit notes; no separate supplier_credit_notes table exists.
 
       // 6. Soft-delete the source supplier
       await tx`

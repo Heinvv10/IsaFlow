@@ -69,9 +69,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'POST', 'PUT', 'DELETE']);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('does not exist')) {
-      return apiResponse.success(res, []);
-    }
     log.error('customer-categories API error', { error: message });
     return apiResponse.internalError(res, err, 'Failed to process request');
   }

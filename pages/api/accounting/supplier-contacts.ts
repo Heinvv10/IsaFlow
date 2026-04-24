@@ -46,7 +46,6 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       return apiResponse.success(res, rows);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      if (message.includes('does not exist')) return apiResponse.success(res, []);
       log.error('supplier-contacts GET failed', { error: message, module: 'accounting' });
       return apiResponse.internalError(res, err, 'Failed to fetch contacts');
     }

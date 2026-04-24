@@ -120,10 +120,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, rows);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      // Return empty list if table does not yet exist
-      if (message.includes('does not exist')) {
-        return apiResponse.success(res, []);
-      }
       log.error('customers GET failed', { error: message, module: 'accounting' });
       return apiResponse.internalError(res, err, 'Failed to fetch customers');
     }
