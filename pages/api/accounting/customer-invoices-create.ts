@@ -8,6 +8,8 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { withFlowMeter } from '@/lib/billing/withFlowMeter';
+import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 type Row = Record<string, unknown>;
@@ -118,4 +120,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 }
 
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(
+  withErrorHandler(
+    withCsrf(
+      withWriteAccess(
+        withFlowMeter('invoice.create', getFlowCost('invoice.create'))(handler),
+      ),
+    ),
+  ),
+);
