@@ -5,12 +5,15 @@
 // PLATFORM_ADMIN_DATABASE_URL added (pentest L5) — the admin pool connects as
 // a BYPASSRLS role, so a misconfigured URL must fail at boot, not lazy-throw
 // the first time an admin request lands.
+// IMPERSONATION_JWT_SECRET added (pentest L1) — dedicated secret for
+// short-lived admin-to-tenant impersonation tokens, separate from JWT_SECRET.
 const REQUIRED_VARS = [
   'DATABASE_URL',
   'JWT_SECRET',
   'ENCRYPTION_KEY',
   'PORTAL_JWT_SECRET',
   'PLATFORM_ADMIN_DATABASE_URL',
+  'IMPERSONATION_JWT_SECRET',
 ] as const;
 const RECOMMENDED_VARS = ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASS'] as const;
 

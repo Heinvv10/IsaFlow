@@ -36,6 +36,7 @@ if sudo test -f /home/velo/isaflow/.env.local; then
   export ENCRYPTION_KEY=$(sudo grep -E '^ENCRYPTION_KEY=' /home/velo/isaflow/.env.local | tail -1 | cut -d= -f2-)
   export PORTAL_JWT_SECRET=$(sudo grep -E '^PORTAL_JWT_SECRET=' /home/velo/isaflow/.env.local | tail -1 | cut -d= -f2-)
   export PLATFORM_ADMIN_DATABASE_URL=$(sudo grep -E '^PLATFORM_ADMIN_DATABASE_URL=' /home/velo/isaflow/.env.local | tail -1 | cut -d= -f2-)
+  export IMPERSONATION_JWT_SECRET=$(sudo grep -E '^IMPERSONATION_JWT_SECRET=' /home/velo/isaflow/.env.local | tail -1 | cut -d= -f2-)
   echo "Build URL: NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL"
 fi
 export PATH="$HOME/.local/bin:$PATH"

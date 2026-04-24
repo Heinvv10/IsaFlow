@@ -1,7 +1,10 @@
 /**
  * Impersonation Service
  * Short-lived JWT tokens allowing super_admin to view the app as a specific company.
- * Uses the same jose library and JWT_SECRET as the main auth layer.
+ *
+ * Pentest L1: signs with a dedicated IMPERSONATION_JWT_SECRET, not the shared
+ * JWT_SECRET. 30 min TTL means a straight rotation is safe — any in-flight
+ * token expires within the deploy window; worst case, an admin re-impersonates.
  */
 
 import { SignJWT, jwtVerify } from 'jose';
@@ -10,8 +13,8 @@ import { log } from '@/lib/logger';
 const IMPERSONATION_EXPIRY_MINUTES = 30;
 
 function getSecret(): Uint8Array {
-  const secret = process.env.JWT_SECRET;
-  if (!secret) throw new Error('JWT_SECRET environment variable is not set');
+  const secret = process.env.IMPERSONATION_JWT_SECRET;
+  if (!secret) throw new Error('IMPERSONATION_JWT_SECRET environment variable is not set');
   return new TextEncoder().encode(secret);
 }
 
