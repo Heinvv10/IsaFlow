@@ -50,6 +50,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       referrer: str(body.r, 1000),
       screen: str(body.s, 32),
       lang: str(body.l, 16),
+      pageTitle: str(body.ti, 200),
       eventType,
       eventName: eventType === 'custom' ? str(body.n, 100) : null,
       eventData: (body.d && typeof body.d === 'object') ? body.d as Record<string, unknown> : null,

@@ -8,7 +8,7 @@ import { AdminLayout } from '@/components/admin/AdminLayout';
 import { StatsCard } from '@/components/admin/StatsCard';
 import { TrafficTimeseriesChart, type TimeseriesPoint } from '@/components/admin/charts/TrafficTimeseriesChart';
 import { apiFetch } from '@/lib/apiFetch';
-import { Activity, Loader2, Globe } from 'lucide-react';
+import { Activity, Loader2, Globe, Download, Bot } from 'lucide-react';
 
 type Range = '24h' | '7d' | '30d' | '90d';
 
@@ -28,18 +28,27 @@ interface Overview {
   visitors: number;
   bounce_rate_percent: number;
   avg_session_secs: number;
+  views_per_session: number;
 }
 
 interface Summary {
   overview: Overview;
   timeseries: TimeseriesPoint[];
-  top_pages: Array<{ path: string; views: number; sessions: number }>;
+  top_pages: Array<{ path: string; title: string | null; views: number; sessions: number }>;
   top_referrers: Array<{ domain: string; views: number; sessions: number }>;
   traffic_sources: Array<{ source: string; medium: string | null; campaign: string | null; sessions: number }>;
+  channels: Array<{ channel: string; sessions: number }>;
+  entry_pages: Array<{ path: string; title: string | null; sessions: number }>;
+  exit_pages: Array<{ path: string; title: string | null; sessions: number }>;
+  custom_events: Array<{ event_name: string; events: number; sessions: number }>;
   countries: Array<{ label: string; sessions: number }>;
   devices: Array<{ label: string; sessions: number }>;
   browsers: Array<{ label: string; sessions: number }>;
+  operating_systems: Array<{ label: string; sessions: number }>;
+  languages: Array<{ label: string; sessions: number }>;
 }
+
+type Metric = 'pageviews' | 'sessions' | 'visitors';
 
 interface Realtime {
   active_users_5m: number;
@@ -104,6 +113,8 @@ export default function AdminWebAnalytics() {
   const [websites, setWebsites] = useState<Website[]>([]);
   const [websiteId, setWebsiteId] = useState<string>('');
   const [range, setRange] = useState<Range>('7d');
+  const [metric, setMetric] = useState<Metric>('pageviews');
+  const [includeBots, setIncludeBots] = useState(false);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [realtime, setRealtime] = useState<Realtime | null>(null);
   const [loading, setLoading] = useState(true);
@@ -128,7 +139,8 @@ export default function AdminWebAnalytics() {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiFetch(`/api/admin/analytics/web/summary?website_id=${websiteId}&range=${range}`);
+      const bots = includeBots ? '&include_bots=1' : '';
+      const res = await apiFetch(`/api/admin/analytics/web/summary?website_id=${websiteId}&range=${range}${bots}`);
       const json = await res.json();
       if (!res.ok || !json.success) {
         setError(json?.error?.message || 'Failed to load summary');
@@ -141,6 +153,11 @@ export default function AdminWebAnalytics() {
     } finally {
       setLoading(false);
     }
+  }, [websiteId, range, includeBots]);
+
+  const downloadCsv = useCallback(() => {
+    if (!websiteId) return;
+    window.location.href = `/api/admin/analytics/web/export?website_id=${websiteId}&range=${range}`;
   }, [websiteId, range]);
 
   const loadRealtime = useCallback(async () => {
@@ -190,21 +207,44 @@ export default function AdminWebAnalytics() {
             </select>
           </div>
 
-          <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-lg">
-            {RANGES.map((r) => (
-              <button
-                key={r.id}
-                onClick={() => setRange(r.id)}
-                className={[
-                  'px-3 py-1 text-sm rounded-md transition-colors',
-                  range === r.id
-                    ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
-                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white',
-                ].join(' ')}
-              >
-                {r.label}
-              </button>
-            ))}
+          <div className="flex gap-2 items-center">
+            <button
+              onClick={() => setIncludeBots((v) => !v)}
+              className={[
+                'flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border transition-colors',
+                includeBots
+                  ? 'bg-orange-500/10 border-orange-500/40 text-orange-600 dark:text-orange-400'
+                  : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800',
+              ].join(' ')}
+              title="Toggle crawler/bot traffic"
+            >
+              <Bot className="w-3.5 h-3.5" />
+              {includeBots ? 'Bots included' : 'Bots excluded'}
+            </button>
+            <button
+              onClick={downloadCsv}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+              title="Download raw events as CSV"
+            >
+              <Download className="w-3.5 h-3.5" />
+              CSV
+            </button>
+            <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-lg">
+              {RANGES.map((r) => (
+                <button
+                  key={r.id}
+                  onClick={() => setRange(r.id)}
+                  className={[
+                    'px-3 py-1 text-sm rounded-md transition-colors',
+                    range === r.id
+                      ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
+                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white',
+                  ].join(' ')}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -246,16 +286,33 @@ export default function AdminWebAnalytics() {
 
         {summary && (
           <>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-              <StatsCard title="Pageviews" value={summary.overview.pageviews.toLocaleString('en-ZA')} />
-              <StatsCard title="Sessions"  value={summary.overview.sessions.toLocaleString('en-ZA')} />
-              <StatsCard title="Visitors"  value={summary.overview.visitors.toLocaleString('en-ZA')} />
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+              <StatsCard title="Pageviews"  value={summary.overview.pageviews.toLocaleString('en-ZA')} />
+              <StatsCard title="Sessions"   value={summary.overview.sessions.toLocaleString('en-ZA')} />
+              <StatsCard title="Visitors"   value={summary.overview.visitors.toLocaleString('en-ZA')} />
+              <StatsCard title="Views/visit" value={summary.overview.views_per_session.toFixed(2)} />
               <StatsCard title="Bounce rate" value={`${summary.overview.bounce_rate_percent}%`} />
               <StatsCard title="Avg session" value={fmtDuration(summary.overview.avg_session_secs)} />
             </div>
 
             <Panel title="Traffic over time">
-              <TrafficTimeseriesChart data={summary.timeseries} range={range} />
+              <div className="flex gap-1 mb-3">
+                {(['pageviews', 'sessions', 'visitors'] as Metric[]).map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => setMetric(m)}
+                    className={[
+                      'px-3 py-1 text-xs rounded-md capitalize transition-colors',
+                      metric === m
+                        ? 'bg-teal-500/15 text-teal-600 dark:text-teal-400 font-medium'
+                        : 'text-gray-500 hover:text-gray-800 dark:hover:text-white',
+                    ].join(' ')}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+              <TrafficTimeseriesChart data={summary.timeseries} range={range} metric={metric} />
             </Panel>
 
             <Panel title="Traffic sources (first-touch attribution — UTM + referrer)">
@@ -288,19 +345,52 @@ export default function AdminWebAnalytics() {
             </Panel>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Panel title="Top pages">
+              <Panel title="Channels">
                 <Table
-                  rows={summary.top_pages.map((p) => ({ label: p.path, value: p.views }))}
-                  labelCol="Path" valueCol="Views"
+                  rows={summary.channels.map((c) => ({ label: c.channel, value: c.sessions }))}
+                  labelCol="Channel" valueCol="Sessions"
                 />
               </Panel>
-              <Panel title="Top referrers (raw document.referrer)">
+              <Panel title="Top referrers (raw)">
                 <Table
                   rows={summary.top_referrers.map((r) => ({ label: r.domain, value: r.views }))}
                   labelCol="Source" valueCol="Views"
                 />
               </Panel>
             </div>
+
+            <Panel title="Top pages">
+              <Table
+                rows={summary.top_pages.map((p) => ({ label: p.title || p.path, value: p.views }))}
+                labelCol="Page" valueCol="Views"
+              />
+            </Panel>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Panel title="Entry pages (where visits start)">
+                <Table
+                  rows={summary.entry_pages.map((p) => ({ label: p.title || p.path, value: p.sessions }))}
+                  labelCol="Page" valueCol="Sessions"
+                />
+              </Panel>
+              <Panel title="Exit pages (where visits end)">
+                <Table
+                  rows={summary.exit_pages.map((p) => ({ label: p.title || p.path, value: p.sessions }))}
+                  labelCol="Page" valueCol="Sessions"
+                />
+              </Panel>
+            </div>
+
+            <Panel title="Custom events (outbound clicks, downloads, custom tracking)">
+              {summary.custom_events.length === 0 ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400">No custom events captured yet. Fire them with <code className="text-xs bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">window.isaTrack.event('name', &#123;...&#125;)</code> or let the tracker auto-capture outbound links and downloads.</p>
+              ) : (
+                <Table
+                  rows={summary.custom_events.map((e) => ({ label: e.event_name, value: e.events }))}
+                  labelCol="Event" valueCol="Count"
+                />
+              )}
+            </Panel>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <Panel title="Countries">
@@ -319,6 +409,18 @@ export default function AdminWebAnalytics() {
                 <Table
                   rows={summary.browsers.map((b) => ({ label: b.label, value: b.sessions }))}
                   labelCol="Browser" valueCol="Sessions"
+                />
+              </Panel>
+              <Panel title="Operating systems">
+                <Table
+                  rows={summary.operating_systems.map((o) => ({ label: o.label, value: o.sessions }))}
+                  labelCol="OS" valueCol="Sessions"
+                />
+              </Panel>
+              <Panel title="Languages">
+                <Table
+                  rows={summary.languages.map((l) => ({ label: l.label, value: l.sessions }))}
+                  labelCol="Language" valueCol="Sessions"
                 />
               </Panel>
             </div>

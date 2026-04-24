@@ -19,7 +19,7 @@
   function send(eventType, name, data) {
     var path = location.pathname;
     if (eventType === 'pageview' && path === lastPath) return;
-    lastPath = path;
+    if (eventType === 'pageview') lastPath = path;
 
     var body = {
       t: trackingId,
@@ -28,6 +28,7 @@
       r: document.referrer || null,
       s: screen.width + 'x' + screen.height,
       l: navigator.language || null,
+      ti: (document.title || '').slice(0, 200),
       e: eventType,
       u: userId || null
     };
@@ -74,6 +75,31 @@
     return ret;
   };
   window.addEventListener('popstate', function () { setTimeout(trackPageview, 0); });
+
+  // Auto-track outbound link clicks and file downloads.
+  var DOWNLOAD_RE = /\.(pdf|zip|tar|gz|rar|7z|csv|xlsx?|docx?|pptx?|dmg|exe|apk|mp3|mp4|mov|wav|svg|png|jpe?g|gif)(\?.*)?$/i;
+
+  function onClick(ev) {
+    try {
+      var a = ev.target;
+      while (a && a.nodeType === 1 && a.tagName !== 'A') a = a.parentNode;
+      if (!a || a.tagName !== 'A') return;
+      var href = a.getAttribute('href');
+      if (!href) return;
+      var isDownload = DOWNLOAD_RE.test(href);
+      var isOutbound = false;
+      try {
+        var u = new URL(href, location.href);
+        isOutbound = u.hostname && u.hostname !== location.hostname;
+      } catch (_) { /* relative href, skip */ }
+      if (isDownload) {
+        send('custom', 'download', { href: href.slice(0, 500) });
+      } else if (isOutbound) {
+        send('custom', 'outbound', { href: href.slice(0, 500), target: a.hostname });
+      }
+    } catch (_) { /* swallow */ }
+  }
+  document.addEventListener('click', onClick, true);
 
   if (document.readyState === 'complete' || document.readyState === 'interactive') {
     trackPageview();
