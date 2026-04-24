@@ -132,92 +132,72 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    // Super admins: prefer localStorage (impersonation / manual selection),
-    // but fall through to the regular user-companies fetch when nothing is stored.
-    // This handles super_admins who also have company_users rows of their own.
-    if (userRole === 'super_admin') {
-      try {
-        const stored = localStorage.getItem(STORAGE_KEY);
-        if (stored) {
-          const { id } = JSON.parse(stored);
-          if (id) {
-            setCompanyRole('owner');
-            await loadCompanyDetails(id);
-            setLoading(false);
-            return;
-          }
-        }
-      } catch (e) {
-        log.warn('Failed to load super_admin company from localStorage', { error: e }, 'context');
-      }
-      // No localStorage entry — fall through to regular user-companies fetch below
-    }
-
+    // Always fetch the user's actual memberships so the switcher has options,
+    // even for super_admins. The previous short-circuit that trusted localStorage
+    // for super_admins without loading memberships left the switcher empty and
+    // could pin the UI to a stale/impersonated company the user couldn't leave.
+    let list: CompanyUser[] = [];
     try {
       const res = await apiFetch('/api/accounting/companies?action=user-companies');
-
-      if (!res.ok) {
-        setLoading(false);
-        return;
+      if (res.ok) {
+        const data = await res.json();
+        const raw = data.data?.items ?? data.data ?? [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        list = (Array.isArray(raw) ? raw : []).map((c: any) => ({
+          companyId: (c.companyId || c.company_id) as string,
+          companyName: (c.companyName || c.company_name) as string,
+          role: c.role as string,
+          isDefault: Boolean(c.isDefault ?? c.is_default ?? false),
+        }));
       }
-
-      const data = await res.json();
-      const raw = data.data?.items ?? data.data ?? [];
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const list: CompanyUser[] = (Array.isArray(raw) ? raw : []).map((c: any) => ({
-        companyId: (c.companyId || c.company_id) as string,
-        companyName: (c.companyName || c.company_name) as string,
-        role: c.role as string,
-        isDefault: Boolean(c.isDefault ?? c.is_default ?? false),
-      }));
-
-      setCompanies(list);
-
-      if (list.length === 0) {
-        // User has no companies — clear any stale localStorage
-        localStorage.removeItem(STORAGE_KEY);
-        setActiveCompany(null);
-        setLoading(false);
-        return;
-      }
-
-      // Determine which company to activate
-      let targetId: string | null = null;
-
-      // 1. Check localStorage
-      try {
-        const stored = localStorage.getItem(STORAGE_KEY);
-        if (stored) {
-          const { id } = JSON.parse(stored);
-          if (id && list.some((c: CompanyUser) => c.companyId === id)) {
-            targetId = id;
-          }
-        }
-      } catch (e) {
-        log.warn('Failed to parse stored company data', { error: e }, 'context');
-      }
-
-      // 2. Fall back to default company
-      if (!targetId) {
-        const defaultCompany = list.find((c: CompanyUser) => c.isDefault) ?? list[0];
-        targetId = defaultCompany?.companyId ?? null;
-      }
-
-      if (!targetId) {
-        setLoading(false);
-        return;
-      }
-
-      // Set the role
-      const match = list.find((c: CompanyUser) => c.companyId === targetId);
-      if (match) setCompanyRole(match.role);
-
-      await loadCompanyDetails(targetId);
     } catch (e) {
       log.warn('Failed to load user companies', { error: e }, 'context');
-    } finally {
-      setLoading(false);
     }
+
+    setCompanies(list);
+
+    let storedId: string | null = null;
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored) as { id?: string };
+        if (parsed?.id) storedId = parsed.id;
+      }
+    } catch (e) {
+      log.warn('Failed to parse stored company data', { error: e }, 'context');
+    }
+
+    // Determine which company to activate.
+    // Regular users: localStorage id must be in their membership list.
+    // Super admins: localStorage id is honored even if not a member (impersonation).
+    let targetId: string | null = null;
+    const storedIsMember = storedId !== null && list.some(c => c.companyId === storedId);
+
+    if (storedIsMember) {
+      targetId = storedId;
+    } else if (userRole === 'super_admin' && storedId) {
+      targetId = storedId;
+    } else if (list.length > 0) {
+      const defaultCompany = list.find(c => c.isDefault) ?? list[0];
+      targetId = defaultCompany?.companyId ?? null;
+    }
+
+    if (!targetId) {
+      localStorage.removeItem(STORAGE_KEY);
+      setActiveCompany(null);
+      setLoading(false);
+      return;
+    }
+
+    const match = list.find(c => c.companyId === targetId);
+    if (match) {
+      setCompanyRole(match.role);
+    } else if (userRole === 'super_admin') {
+      setCompanyRole('owner');
+    }
+
+    await loadCompanyDetails(targetId);
+    setLoading(false);
   }, [isAuthenticated, userRole, loadCompanyDetails]);
 
   useEffect(() => {
@@ -228,10 +208,22 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     const match = companies.find(c => c.companyId === companyId);
     if (match) setCompanyRole(match.role);
-    await loadCompanyDetails(companyId);
-    setLoading(false);
 
-    // Set as default on the server
+    // Flip the HTTP-only active_company_id cookie — withAuth on the server reads
+    // the cookie, not the X-Company-Id header. Without this every tenant sees
+    // the first company's data because the cookie is frozen at login.
+    const switchRes = await apiFetch('/api/auth/switch-company', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ companyId }),
+    });
+    if (!switchRes.ok) {
+      log.warn('switch-company failed', { status: switchRes.status }, 'context');
+      setLoading(false);
+      return;
+    }
+
+    // Best-effort: persist as user's default company for next login.
     try {
       await apiFetch('/api/accounting/companies', {
         method: 'POST',
@@ -241,6 +233,16 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
     } catch (e) {
       log.warn('Failed to persist default company switch', { error: e }, 'context');
     }
+
+    // Cookie is live — reload so every page re-fetches under the new tenant
+    // scope. Safer than chasing every stale hook/cache across the app.
+    if (typeof window !== 'undefined') {
+      window.location.reload();
+      return;
+    }
+
+    await loadCompanyDetails(companyId);
+    setLoading(false);
   }, [companies, loadCompanyDetails]);
 
   const value = useMemo<CompanyContextType>(
