@@ -21,6 +21,7 @@ export const payrollTab: Tab = {
       items: [
         { label: 'Payroll Runs',        href: '/payroll/runs' },
         { label: 'Batch Transactions',  href: '/payroll/batches' },
+        { label: 'Employee Loans',      href: '/payroll/loans' },
         { label: 'Leave Capture',       href: '/payroll/leave/new' },
       ],
     },

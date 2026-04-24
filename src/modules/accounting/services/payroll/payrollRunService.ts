@@ -7,7 +7,7 @@ import { calculatePayrollLine } from './payrollCalculator';
 import { validateEmployee, validatePayrollLine } from './validationEngine';
 import { getTaxYear } from './taxTables';
 import { isPayrollRunLocked, PayrollRunLockedError } from './payrollRunLock';
-import type { EmployeeComponent, PayrollPeriod } from './payrollTypes';
+import type { EmployeeComponent, PayrollComponent, PayrollPeriod } from './payrollTypes';
 import {
   buildTerminationComponents,
   getTerminationDetails,
@@ -15,6 +15,11 @@ import {
   yearsOfService,
   type TerminationReason,
 } from './payrollTerminationService';
+import {
+  applyLoanToRun,
+  listActiveLoansForRun,
+  type ApplyLoanResult,
+} from './payrollLoanService';
 
 
 type Row = DbRow;
@@ -137,6 +142,15 @@ export async function calculatePayrollRun(
 
   const lineInserts: LineInsert[] = [];
 
+  const activeLoans = await listActiveLoansForRun(companyId, period.year, period.month);
+  const loansByEmployee = new Map<string, string[]>();
+  for (const row of activeLoans) {
+    const list = loansByEmployee.get(row.employeeId) ?? [];
+    list.push(row.loanId);
+    loansByEmployee.set(row.employeeId, list);
+  }
+  const officialRate = Number(process.env.SARS_OFFICIAL_RATE ?? 0.085);
+
   for (const employee of employees) {
     const components = await getEmployeeComponents(employee.id, companyId, periodDate);
     const componentsWithTermination = await appendTerminationIfEndingThisPeriod(
@@ -145,9 +159,29 @@ export async function calculatePayrollRun(
       components,
       period,
     );
+
+    const loanIds = loansByEmployee.get(employee.id) ?? [];
+    const loanApplications: ApplyLoanResult[] = [];
+    for (const loanId of loanIds) {
+      const applied = await applyLoanToRun({
+        loanId,
+        companyId,
+        runId,
+        periodYear: period.year,
+        periodMonth: period.month,
+        officialRate,
+      });
+      if (applied) loanApplications.push(applied);
+    }
+    const componentsWithLoans = await appendLoanComponents(
+      companyId,
+      componentsWithTermination,
+      loanApplications,
+    );
+
     const line = calculatePayrollLine({
       employee,
-      components: componentsWithTermination,
+      components: componentsWithLoans,
       period,
       taxYear,
       annualPayrollEstimate,
@@ -308,6 +342,76 @@ async function appendTerminationIfEndingThisPeriod(
     }, 'payrollRunService');
   }
   return [...components, ...termination];
+}
+
+/**
+ * Resolves the SARS-coded payroll components used to represent loan impact
+ * on a payslip:
+ *   - code 'LOAN'  : earner-facing deduction for principal + interest.
+ *   - code '3801'  : taxable fringe benefit (low-interest loan).
+ * Callers pre-seed these components under Setup → Pay Components. Loans
+ * silently skip the row if the component doesn't exist (the payment is
+ * still recorded on payroll_loan_payments, just not shown on payslip
+ * until the admin adds the component).
+ */
+async function loadLoanComponents(companyId: string): Promise<{
+  deduction: PayrollComponent | null;
+  fringe: PayrollComponent | null;
+}> {
+  const rows = (await sql`
+    SELECT id, name, sars_source_code, component_type,
+           is_taxable, is_uif_applicable, is_sdl_applicable
+      FROM payroll_components
+     WHERE company_id = ${companyId}::uuid
+       AND is_active = true
+       AND sars_source_code IN ('LOAN', '3801')
+  `) as Row[];
+
+  let deduction: PayrollComponent | null = null;
+  let fringe: PayrollComponent | null = null;
+  for (const r of rows) {
+    const component: PayrollComponent = {
+      id: String(r.id),
+      name: String(r.name),
+      sarsSourceCode: String(r.sars_source_code),
+      componentType: r.component_type as PayrollComponent['componentType'],
+      isTaxable: r.is_taxable === true,
+      isUifApplicable: r.is_uif_applicable === true,
+      isSdlApplicable: r.is_sdl_applicable === true,
+    };
+    if (component.sarsSourceCode === 'LOAN') deduction = component;
+    if (component.sarsSourceCode === '3801') fringe = component;
+  }
+  return { deduction, fringe };
+}
+
+async function appendLoanComponents(
+  companyId: string,
+  components: EmployeeComponent[],
+  loanApplications: ApplyLoanResult[],
+): Promise<EmployeeComponent[]> {
+  if (loanApplications.length === 0) return components;
+
+  const { deduction, fringe } = await loadLoanComponents(companyId);
+  const injected: EmployeeComponent[] = [];
+
+  for (const app of loanApplications) {
+    const repayment = app.interest + app.principal;
+    if (repayment > 0 && deduction) {
+      injected.push({ component: deduction, amount: repayment });
+    }
+    if (app.fringeBenefit > 0 && fringe) {
+      injected.push({ component: fringe, amount: app.fringeBenefit });
+    }
+  }
+
+  if (injected.length > 0) {
+    log.info('Loan components injected into payroll run', {
+      companyId, count: injected.length,
+    }, 'payrollRunService');
+  }
+
+  return [...components, ...injected];
 }
 
 export async function getPayrollRunLines(
