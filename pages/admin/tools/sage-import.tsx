@@ -50,6 +50,13 @@ export default function AdminSageImportPage() {
   const [steps, setSteps]       = useState<PullStep[]>(INITIAL_STEPS);
   const [connected, setConnected] = useState(false);
   const [pulling, setPulling]   = useState(false);
+  const [committing, setCommitting] = useState(false);
+  const [commitSummary, setCommitSummary] = useState<null | {
+    customers:  { created: number; skipped: number; failed: string[] };
+    suppliers:  { created: number; skipped: number; failed: string[] };
+    arInvoices: { created: number; skipped: number; failed: string[] };
+    apInvoices: { created: number; skipped: number; failed: string[] };
+  }>(null);
   const [error, setError]       = useState('');
   const [sageWindow, setSageWindow] = useState<Window | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -139,6 +146,31 @@ export default function AdminSageImportPage() {
 
   const allDone  = steps.every(s => s.status === 'done');
   const anyError = steps.some(s => s.status === 'error');
+  const anyPulled = steps.some(s => s.status === 'done');
+
+  const commitToIsaflow = useCallback(async () => {
+    if (!selectedCompanyId) return;
+    setCommitting(true);
+    setError('');
+    setCommitSummary(null);
+    try {
+      const res = await apiFetch('/api/admin/migration/sage-commit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyId: selectedCompanyId,
+          pulled: pulledData.current,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error?.message ?? json.message ?? 'Commit failed');
+      setCommitSummary(json.data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Commit failed');
+    } finally {
+      setCommitting(false);
+    }
+  }, [selectedCompanyId]);
 
   return (
     <AdminLayout title="Sage Auto-Import">
@@ -273,23 +305,65 @@ export default function AdminSageImportPage() {
           </div>
         </div>
 
-        {/* Step 3: Confirm */}
-        {(allDone || anyError) && (
-          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6">
-            <div className="flex items-center gap-3 mb-4">
+        {/* Step 3: Commit */}
+        {(allDone || anyPulled) && (
+          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6 space-y-4">
+            <div className="flex items-center gap-3">
               <ShieldCheck className="h-5 w-5 text-teal-500" />
-              <h2 className="font-semibold text-gray-900 dark:text-white">Step 3: Review &amp; Import</h2>
+              <h2 className="font-semibold text-gray-900 dark:text-white">Step 3: Commit to ISAFlow</h2>
             </div>
-            {allDone ? (
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                All data pulled successfully. Navigate to the target company&apos;s Migration
-                Wizard in the customer app to complete the import.
-              </p>
-            ) : (
+            {anyError && !allDone && (
               <p className="text-sm text-amber-600 dark:text-amber-400">
-                Some steps failed. You can retry the pull or continue with partial data.
+                Some steps failed. You can commit partial data — failed steps will be skipped.
               </p>
             )}
+            {!commitSummary && (
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Inserts customers/suppliers and approved invoices (posting journal entries) into the target company.
+                Safe to re-run: existing customers/suppliers are matched by name, duplicate invoice numbers are skipped.
+              </p>
+            )}
+
+            {commitSummary && (
+              <div className="space-y-2 text-sm">
+                {(['customers','suppliers','arInvoices','apInvoices'] as const).map(k => (
+                  <div key={k} className="flex items-center justify-between gap-4 px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-900/40">
+                    <span className="font-medium text-gray-900 dark:text-white capitalize">{k.replace('Invoices',' Invoices')}</span>
+                    <span className="text-gray-600 dark:text-gray-400">
+                      <span className="text-teal-600 dark:text-teal-400">{commitSummary[k].created} created</span>
+                      {' · '}
+                      <span>{commitSummary[k].skipped} skipped</span>
+                      {commitSummary[k].failed.length > 0 && (
+                        <>
+                          {' · '}
+                          <span className="text-red-600 dark:text-red-400">{commitSummary[k].failed.length} failed</span>
+                        </>
+                      )}
+                    </span>
+                  </div>
+                ))}
+                {(['customers','suppliers','arInvoices','apInvoices'] as const).some(k => commitSummary[k].failed.length > 0) && (
+                  <details className="pt-2">
+                    <summary className="cursor-pointer text-xs text-red-600 dark:text-red-400">Show failures</summary>
+                    <pre className="text-xs mt-2 p-3 rounded bg-red-500/5 text-red-700 dark:text-red-300 max-h-64 overflow-auto whitespace-pre-wrap">
+{(['customers','suppliers','arInvoices','apInvoices'] as const)
+  .flatMap(k => commitSummary[k].failed.map(f => `[${k}] ${f}`))
+  .join('\n')}
+                    </pre>
+                  </details>
+                )}
+              </div>
+            )}
+
+            <button
+              onClick={() => void commitToIsaflow()}
+              disabled={committing || !anyPulled}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-500 disabled:bg-teal-800 disabled:text-teal-300 text-white rounded-lg text-sm font-medium transition-colors"
+            >
+              {committing ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> Committing…</>
+              ) : commitSummary ? 'Commit again' : 'Commit to ISAFlow'}
+            </button>
           </div>
         )}
 
