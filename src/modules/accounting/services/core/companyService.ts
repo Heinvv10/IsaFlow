@@ -46,42 +46,47 @@ export async function createCompany(input: {
   vatPeriod?: string;
   vatPeriodAlignment?: 'odd' | 'even';
   defaultCurrency?: string;
-}, userId: string): Promise<Company> {
+}, _userId: string): Promise<Company> {
+  // Delegates to the public.create_company_with_owner SECURITY DEFINER helper
+  // (mig 459). The helper runs the two INSERTs atomically while bypassing the
+  // RLS policies on companies/company_users — raw INSERTs from app_user are
+  // blocked by design to avoid privilege-escalation holes. The owner user is
+  // taken from auth.uid() inside the function, so _userId is unused.
+  const payload = JSON.stringify({
+    name: input.name,
+    tradingName: input.tradingName ?? null,
+    registrationNumber: input.registrationNumber ?? null,
+    vatNumber: input.vatNumber ?? null,
+    taxNumber: input.taxNumber ?? null,
+    email: input.email ?? null,
+    phone: input.phone ?? null,
+    website: input.website ?? null,
+    addressLine1: input.addressLine1 ?? null,
+    addressLine2: input.addressLine2 ?? null,
+    city: input.city ?? null,
+    province: input.province ?? null,
+    postalCode: input.postalCode ?? null,
+    country: input.country ?? null,
+    logoData: input.logoData ?? null,
+    bankName: input.bankName ?? null,
+    bankAccountNumber: input.bankAccountNumber ?? null,
+    bankBranchCode: input.bankBranchCode ?? null,
+    bankAccountType: input.bankAccountType ?? null,
+    financialYearStart: input.financialYearStart ?? null,
+    vatPeriod: input.vatPeriod ?? null,
+    vatPeriodAlignment: input.vatPeriodAlignment ?? null,
+    defaultCurrency: input.defaultCurrency ?? null,
+  });
+
   const rows = (await sql`
-    INSERT INTO companies (
-      name, registered_name, trading_name, registration_number, vat_number, tax_number,
-      email, phone, website,
-      address_line1, address_line2, city, province, postal_code, country,
-      logo_data,
-      bank_name, bank_account_number, bank_branch_code, bank_account_type,
-      financial_year_start, vat_period, vat_period_alignment, default_currency
-    ) VALUES (
-      ${input.name}, ${input.name}, ${input.tradingName || null}, ${input.registrationNumber || null},
-      ${input.vatNumber || null}, ${input.taxNumber || null}, ${input.email || null}, ${input.phone || null},
-      ${input.website || null},
-      ${input.addressLine1 || null}, ${input.addressLine2 || null}, ${input.city || null},
-      ${input.province || null}, ${input.postalCode || null}, ${input.country || 'South Africa'},
-      ${input.logoData || null},
-      ${input.bankName || null}, ${input.bankAccountNumber || null}, ${input.bankBranchCode || null},
-      ${input.bankAccountType || 'current'},
-      ${input.financialYearStart ?? 3}, ${input.vatPeriod || 'bi-monthly'}, ${input.vatPeriodAlignment || 'odd'}, ${input.defaultCurrency || 'ZAR'}
-    ) RETURNING *
+    SELECT * FROM public.create_company_with_owner(${payload}::jsonb)
   `) as Record<string, unknown>[];
 
-  // Auto-assign creator as owner. If this is the user's first company,
-  // mark it as default so CompanyContext auto-selects it on next load.
-  const existingCountRows = (await sql`
-    SELECT COUNT(*)::int AS count FROM company_users WHERE user_id = ${userId}
-  `) as Array<{ count: number }>;
-  const isFirstCompany = (existingCountRows[0]?.count ?? 0) === 0;
+  const created = rows[0];
+  if (!created) throw new Error('create_company_with_owner returned no row');
 
-  await sql`
-    INSERT INTO company_users (company_id, user_id, role, is_default)
-    VALUES (${rows[0]!.id}::UUID, ${userId}, 'owner', ${isFirstCompany})
-  `;
-
-  log.info('Company created', { id: rows[0]!.id, name: input.name, isFirstCompany }, 'accounting');
-  return mapCompany(rows[0]!);
+  log.info('Company created', { id: created.id, name: input.name }, 'accounting');
+  return mapCompany(created);
 }
 
 export async function updateCompany(id: string, input: Partial<Record<string, unknown>>): Promise<Company> {
