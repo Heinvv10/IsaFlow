@@ -40,7 +40,7 @@ const ALLOWED_TABLES = new Set([
   'customer_quotes', 'customer_quote_lines',
   'customer_sales_orders', 'customer_sales_order_items',
   'customer_write_offs', 'customer_categories', 'credit_notes',
-  'recurring_invoices', 'dunning_communications',
+  'recurring_invoices', 'dunning_templates', 'dunning_sends',
   'suppliers', 'supplier_invoices', 'supplier_invoice_items',
   'supplier_payments', 'supplier_payment_allocations', 'supplier_payment_batches',
   'supplier_purchase_orders', 'supplier_purchase_order_items',

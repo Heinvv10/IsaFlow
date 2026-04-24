@@ -43,7 +43,6 @@ export const customersTab: Tab = {
       items: [
         { label: 'Statement Run', href: '/accounting/statement-run' },
         { label: 'Send Statements', href: '/accounting/statements' },
-        { label: 'Dunning', href: '/accounting/dunning' },
         { label: 'Opening Balances', href: '/accounting/opening-balances' },
       ],
     },
