@@ -10,6 +10,8 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { withFlowMeter } from '@/lib/billing/withFlowMeter';
+import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
 import { UUID, ISODate } from '@/lib/schemas/common';
 import {
@@ -34,70 +36,74 @@ const CreateCustomerPaymentSchema = z.object({
   })).min(1).max(200),
 });
 
-async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
+async function getHandler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
+  try {
+    const { id, status, client_id, limit, offset } = req.query;
 
-  if (req.method === 'GET') {
-    try {
-      const { id, status, client_id, limit, offset } = req.query;
-
-      // Single payment by ID
-      if (id) {
-        const payment = await getCustomerPaymentById(companyId, String(id));
-        if (!payment) return apiResponse.notFound(res, 'Payment', String(id));
-        return apiResponse.success(res, payment);
-      }
-
-      const result = await getCustomerPayments(companyId, {
-        status: status as CustomerPaymentStatus | undefined,
-        clientId: client_id ? String(client_id) : undefined,
-        limit: limit ? Number(limit) : undefined,
-        offset: offset ? Number(offset) : undefined,
-      });
-      return apiResponse.success(res, result);
-    } catch (err) {
-      log.error('Failed to get customer payments', { error: err }, 'accounting-api');
-      return apiResponse.badRequest(res, 'Failed to get customer payments');
+    // Single payment by ID
+    if (id) {
+      const payment = await getCustomerPaymentById(companyId, String(id));
+      if (!payment) return apiResponse.notFound(res, 'Payment', String(id));
+      return apiResponse.success(res, payment);
     }
+
+    const result = await getCustomerPayments(companyId, {
+      status: status as CustomerPaymentStatus | undefined,
+      clientId: client_id ? String(client_id) : undefined,
+      limit: limit ? Number(limit) : undefined,
+      offset: offset ? Number(offset) : undefined,
+    });
+    return apiResponse.success(res, result);
+  } catch (err) {
+    log.error('Failed to get customer payments', { error: err }, 'accounting-api');
+    return apiResponse.badRequest(res, 'Failed to get customer payments');
   }
+}
 
-  if (req.method === 'POST') {
-    const postParsed = CreateCustomerPaymentSchema.safeParse(req.body);
-    if (!postParsed.success) {
-      return apiResponse.validationError(res, postParsed.error.flatten().fieldErrors as Record<string, string[]>);
-    }
-    try {
-      const { clientId, paymentDate, totalAmount, paymentMethod, bankReference,
-        bankAccountId, description, projectId, allocations } = postParsed.data;
-
-      // User identity comes from JWT (req.user), never from client request body
-      const userId = req.user.id;
-
-      const payment = await createCustomerPayment(companyId, {
-        clientId,
-        paymentDate,
-        totalAmount,
-        paymentMethod: paymentMethod || 'eft',
-        bankReference: bankReference || undefined,
-        bankAccountId: bankAccountId || undefined,
-        description: description || undefined,
-        projectId: projectId || undefined,
-        allocations: allocations.map((a: { invoiceId: string; amount: number }) => ({
-          invoiceId: a.invoiceId,
-          amount: a.amount,
-        })),
-      }, userId);
-
-      return apiResponse.created(res, payment);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to create customer payment';
-      log.error('Failed to create customer payment', { error: err }, 'accounting-api');
-      return apiResponse.badRequest(res, message);
-    }
+async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyAuthedRequest;
+  const postParsed = CreateCustomerPaymentSchema.safeParse(req.body);
+  if (!postParsed.success) {
+    return apiResponse.validationError(res, postParsed.error.flatten().fieldErrors as Record<string, string[]>);
   }
+  try {
+    const { clientId, paymentDate, totalAmount, paymentMethod, bankReference,
+      bankAccountId, description, projectId, allocations } = postParsed.data;
 
+    // User identity comes from JWT (req.user), never from client request body
+    const userId = req.user.id;
+
+    const payment = await createCustomerPayment(companyId, {
+      clientId,
+      paymentDate,
+      totalAmount,
+      paymentMethod: paymentMethod || 'eft',
+      bankReference: bankReference || undefined,
+      bankAccountId: bankAccountId || undefined,
+      description: description || undefined,
+      projectId: projectId || undefined,
+      allocations: allocations.map((a: { invoiceId: string; amount: number }) => ({
+        invoiceId: a.invoiceId,
+        amount: a.amount,
+      })),
+    }, userId);
+
+    return apiResponse.created(res, payment);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to create customer payment';
+    log.error('Failed to create customer payment', { error: err }, 'accounting-api');
+    return apiResponse.badRequest(res, message);
+  }
+}
+
+const meteredPost = withFlowMeter('payment.record', getFlowCost('payment.record'))(postHandler);
+
+async function mux(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
+  if (req.method === 'GET') return getHandler(req, res);
+  if (req.method === 'POST') return meteredPost(req, res);
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'POST']);
 }
 
- 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(mux))));

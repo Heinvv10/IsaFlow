@@ -17,11 +17,16 @@ interface ApiEnvelope {
   error?: { message?: string };
 }
 
+type SignupType = 'direct' | 'accountant';
+
 export function WaitlistForm() {
+  const [signupType, setSignupType] = useState<SignupType>('direct');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [companyName, setCompanyName] = useState('');
+  const [practiceName, setPracticeName] = useState('');
   const [phone, setPhone] = useState('');
+  const [annualTurnover, setAnnualTurnover] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
@@ -41,7 +46,11 @@ export function WaitlistForm() {
           name: name.trim(),
           email: email.trim().toLowerCase(),
           companyName: companyName.trim(),
+          practiceName: practiceName.trim(),
           phone: phone.trim(),
+          signupType,
+          // whole ZAR — the API converts to cents
+          annualTurnover: annualTurnover.trim() ? Number(annualTurnover.replace(/[,\s]/g, '')) : undefined,
         }),
       });
 
@@ -111,6 +120,39 @@ export function WaitlistForm() {
           <form onSubmit={(e) => void handleSubmit(e)} noValidate>
 
             <div className="mb-4">
+              <span className="block text-xs font-medium text-slate-500 dark:text-gray-400 mb-1.5">
+                I&apos;m signing up for
+              </span>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSignupType('direct')}
+                  disabled={submitting}
+                  className={`px-3 py-2.5 rounded-lg border text-sm transition ${signupType === 'direct'
+                    ? 'border-teal-500 bg-teal-500/10 text-teal-700 dark:text-teal-300'
+                    : 'border-slate-300 dark:border-gray-600 bg-slate-50 dark:bg-gray-800 text-slate-600 dark:text-gray-300 hover:border-teal-400'}`}
+                >
+                  My own business
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSignupType('accountant')}
+                  disabled={submitting}
+                  className={`px-3 py-2.5 rounded-lg border text-sm transition ${signupType === 'accountant'
+                    ? 'border-teal-500 bg-teal-500/10 text-teal-700 dark:text-teal-300'
+                    : 'border-slate-300 dark:border-gray-600 bg-slate-50 dark:bg-gray-800 text-slate-600 dark:text-gray-300 hover:border-teal-400'}`}
+                >
+                  I&apos;m an accountant
+                </button>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-gray-500 mt-1.5">
+                {signupType === 'accountant'
+                  ? 'You manage payroll/accounting for multiple client companies — get the bureau dashboard.'
+                  : 'You run your own books for a single business.'}
+              </p>
+            </div>
+
+            <div className="mb-4">
               <label htmlFor="name" className="block text-xs font-medium text-slate-500 dark:text-gray-400 mb-1.5">
                 Your name
               </label>
@@ -143,23 +185,41 @@ export function WaitlistForm() {
               />
             </div>
 
-            <div className="mb-4">
-              <label htmlFor="companyName" className="block text-xs font-medium text-slate-500 dark:text-gray-400 mb-1.5">
-                Company name
-              </label>
-              <input
-                id="companyName"
-                type="text"
-                autoComplete="organization"
-                value={companyName}
-                onChange={(e) => { setError(''); setCompanyName(e.target.value); }}
-                disabled={submitting}
-                className="w-full bg-slate-50 dark:bg-gray-800 border border-slate-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition"
-                placeholder="Acme (Pty) Ltd"
-              />
-            </div>
+            {signupType === 'accountant' ? (
+              <div className="mb-4">
+                <label htmlFor="practiceName" className="block text-xs font-medium text-slate-500 dark:text-gray-400 mb-1.5">
+                  Practice name
+                </label>
+                <input
+                  id="practiceName"
+                  type="text"
+                  autoComplete="organization"
+                  value={practiceName}
+                  onChange={(e) => { setError(''); setPracticeName(e.target.value); }}
+                  disabled={submitting}
+                  className="w-full bg-slate-50 dark:bg-gray-800 border border-slate-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition"
+                  placeholder="Smith & Associates"
+                />
+              </div>
+            ) : (
+              <div className="mb-4">
+                <label htmlFor="companyName" className="block text-xs font-medium text-slate-500 dark:text-gray-400 mb-1.5">
+                  Company name
+                </label>
+                <input
+                  id="companyName"
+                  type="text"
+                  autoComplete="organization"
+                  value={companyName}
+                  onChange={(e) => { setError(''); setCompanyName(e.target.value); }}
+                  disabled={submitting}
+                  className="w-full bg-slate-50 dark:bg-gray-800 border border-slate-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition"
+                  placeholder="Acme (Pty) Ltd"
+                />
+              </div>
+            )}
 
-            <div className="mb-6">
+            <div className="mb-4">
               <label htmlFor="phone" className="block text-xs font-medium text-slate-500 dark:text-gray-400 mb-1.5">
                 Phone number
               </label>
@@ -174,6 +234,36 @@ export function WaitlistForm() {
                 placeholder="+27 82 000 0000"
               />
             </div>
+
+            {signupType === 'direct' && (
+              <div className="mb-6">
+                <label htmlFor="annualTurnover" className="block text-xs font-medium text-slate-500 dark:text-gray-400 mb-1.5">
+                  Annual turnover (ZAR) <span className="text-slate-400 dark:text-gray-500">— optional</span>
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400 dark:text-gray-500">R</span>
+                  <input
+                    id="annualTurnover"
+                    type="text"
+                    inputMode="numeric"
+                    value={annualTurnover}
+                    onChange={(e) => { setError(''); setAnnualTurnover(e.target.value.replace(/[^0-9,\s]/g, '')); }}
+                    disabled={submitting}
+                    className="w-full bg-slate-50 dark:bg-gray-800 border border-slate-300 dark:border-gray-600 rounded-lg pl-7 pr-3 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition"
+                    placeholder="500 000"
+                  />
+                </div>
+                {annualTurnover && Number(annualTurnover.replace(/[,\s]/g, '')) > 0 && Number(annualTurnover.replace(/[,\s]/g, '')) < 1_000_000 ? (
+                  <p className="text-xs text-teal-600 dark:text-teal-400 mt-1.5">
+                    Under R1M — you&apos;ll qualify for our Pay-As-You-Go plan (pay only for what you use).
+                  </p>
+                ) : (
+                  <p className="text-xs text-slate-500 dark:text-gray-500 mt-1.5">
+                    Helps us suggest the best plan when we open doors.
+                  </p>
+                )}
+              </div>
+            )}
 
             {error && (
               <div className="mb-4 px-3 py-2.5 bg-red-500/10 border border-red-500/30 rounded-lg">

@@ -10,6 +10,8 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { withFlowMeter } from '@/lib/billing/withFlowMeter';
+import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
 import { UUID, ISODate } from '@/lib/schemas/common';
 import {
@@ -33,60 +35,64 @@ const CreateSupplierPaymentSchema = z.object({
   })).min(1).max(200),
 });
 
-async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
+async function getHandler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
+  try {
+    const { id, status, supplier_id, limit, offset } = req.query;
 
-  if (req.method === 'GET') {
-    try {
-      const { id, status, supplier_id, limit, offset } = req.query;
-
-      // Single payment by ID
-      if (id) {
-        const payment = await getSupplierPaymentById(companyId, id as string);
-        if (!payment) return apiResponse.notFound(res, 'Payment', id as string);
-        return apiResponse.success(res, payment);
-      }
-
-      const result = await getSupplierPayments(companyId, {
-        status: status as PaymentStatus | undefined,
-        supplierId: supplier_id ? String(supplier_id) : undefined,
-        limit: limit ? Number(limit) : undefined,
-        offset: offset ? Number(offset) : undefined,
-      });
-      return apiResponse.success(res, result);
-    } catch (err) {
-      log.error('Failed to get supplier payments', { error: err }, 'accounting-api');
-      return apiResponse.internalError(res, err, 'Failed to get supplier payments');
+    // Single payment by ID
+    if (id) {
+      const payment = await getSupplierPaymentById(companyId, id as string);
+      if (!payment) return apiResponse.notFound(res, 'Payment', id as string);
+      return apiResponse.success(res, payment);
     }
+
+    const result = await getSupplierPayments(companyId, {
+      status: status as PaymentStatus | undefined,
+      supplierId: supplier_id ? String(supplier_id) : undefined,
+      limit: limit ? Number(limit) : undefined,
+      offset: offset ? Number(offset) : undefined,
+    });
+    return apiResponse.success(res, result);
+  } catch (err) {
+    log.error('Failed to get supplier payments', { error: err }, 'accounting-api');
+    return apiResponse.internalError(res, err, 'Failed to get supplier payments');
   }
+}
 
-  if (req.method === 'POST') {
-    const postParsed = CreateSupplierPaymentSchema.safeParse(req.body);
-    if (!postParsed.success) {
-      return apiResponse.validationError(res, postParsed.error.flatten().fieldErrors as Record<string, string[]>);
-    }
-    try {
-      const { supplierId, paymentDate, totalAmount, paymentMethod,
-        bankAccountId, reference, description, allocations } = postParsed.data;
-
-      // User identity comes from JWT (req.user), never from client request body
-      const userId = req.user.id;
-
-      const payment = await createSupplierPayment(companyId, {
-        supplierId, paymentDate, totalAmount,
-        paymentMethod, bankAccountId, reference, description,
-        allocations,
-      }, userId);
-
-      return apiResponse.created(res, payment);
-    } catch (err) {
-      log.error('Failed to create supplier payment', { error: err }, 'accounting-api');
-      return apiResponse.internalError(res, err, 'Failed to create payment');
-    }
+async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
+  const { companyId } = req as CompanyAuthedRequest;
+  const postParsed = CreateSupplierPaymentSchema.safeParse(req.body);
+  if (!postParsed.success) {
+    return apiResponse.validationError(res, postParsed.error.flatten().fieldErrors as Record<string, string[]>);
   }
+  try {
+    const { supplierId, paymentDate, totalAmount, paymentMethod,
+      bankAccountId, reference, description, allocations } = postParsed.data;
 
+    // User identity comes from JWT (req.user), never from client request body
+    const userId = req.user.id;
+
+    const payment = await createSupplierPayment(companyId, {
+      supplierId, paymentDate, totalAmount,
+      paymentMethod, bankAccountId, reference, description,
+      allocations,
+    }, userId);
+
+    return apiResponse.created(res, payment);
+  } catch (err) {
+    log.error('Failed to create supplier payment', { error: err }, 'accounting-api');
+    return apiResponse.internalError(res, err, 'Failed to create payment');
+  }
+}
+
+const meteredPost = withFlowMeter('payment.record', getFlowCost('payment.record'))(postHandler);
+
+async function mux(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
+  if (req.method === 'GET') return getHandler(req, res);
+  if (req.method === 'POST') return meteredPost(req, res);
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'POST']);
 }
 
- 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(mux))));

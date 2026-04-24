@@ -10,6 +10,8 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
+import { withFlowMeter } from '@/lib/billing/withFlowMeter';
+import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 
@@ -113,4 +115,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(withErrorHandler(handler));
+export default withAuth(
+  withErrorHandler(
+    withFlowMeter('report.age', getFlowCost('report.age'))(handler),
+  ),
+);
