@@ -216,23 +216,61 @@ export async function costCentreSummaryForRun(
   `) as Row[];
   if (runRows.length === 0) throw new Error(`Payroll run ${runId} not found in company`);
 
+  // Per-employee cost allocations (mig 451) override the single-centre FK
+  // when present. The CTE below produces one row per (run-line × centre),
+  // weighted by allocation percentage, with a fallback row for employees
+  // that have no allocations.
   const rows = (await sql`
+    WITH line_splits AS (
+      SELECT prl.employee_id,
+             prl.gross_pay,
+             prl.paye,
+             prl.uif_employee,
+             prl.uif_employer,
+             prl.sdl,
+             prl.eti,
+             prl.net_pay,
+             a.cost_centre_id        AS allocated_cost_centre_id,
+             (a.percentage / 100.0)  AS weight
+        FROM payroll_run_lines prl
+        JOIN payroll_employee_cost_allocations a
+          ON a.company_id = ${companyId}::uuid
+         AND a.employee_id = prl.employee_id
+       WHERE prl.run_id = ${runId}::uuid
+      UNION ALL
+      SELECT prl.employee_id,
+             prl.gross_pay,
+             prl.paye,
+             prl.uif_employee,
+             prl.uif_employer,
+             prl.sdl,
+             prl.eti,
+             prl.net_pay,
+             e.cost_centre_id        AS allocated_cost_centre_id,
+             1.0                     AS weight
+        FROM payroll_run_lines prl
+        JOIN payroll_employees e ON e.id = prl.employee_id
+       WHERE prl.run_id = ${runId}::uuid
+         AND NOT EXISTS (
+           SELECT 1 FROM payroll_employee_cost_allocations a2
+            WHERE a2.company_id = ${companyId}::uuid
+              AND a2.employee_id = prl.employee_id
+         )
+    )
     SELECT
-      e.cost_centre_id                                                AS cost_centre_id,
+      ls.allocated_cost_centre_id                                     AS cost_centre_id,
       cc.code                                                         AS cost_centre_code,
       cc.name                                                         AS cost_centre_name,
-      COUNT(DISTINCT prl.employee_id)::int                            AS employee_count,
-      COALESCE(SUM(prl.gross_pay), 0)                                 AS total_gross,
-      COALESCE(SUM(prl.paye), 0)                                      AS total_paye,
-      COALESCE(SUM(prl.uif_employee + prl.uif_employer), 0)           AS total_uif,
-      COALESCE(SUM(prl.sdl), 0)                                       AS total_sdl,
-      COALESCE(SUM(prl.eti), 0)                                       AS total_eti,
-      COALESCE(SUM(prl.net_pay), 0)                                   AS total_net
-    FROM payroll_run_lines prl
-    JOIN payroll_employees e ON e.id = prl.employee_id
-    LEFT JOIN cost_centres cc ON cc.id = e.cost_centre_id
-    WHERE prl.run_id = ${runId}::uuid
-    GROUP BY e.cost_centre_id, cc.code, cc.name
+      COUNT(DISTINCT ls.employee_id)::int                             AS employee_count,
+      COALESCE(SUM(ls.gross_pay * ls.weight), 0)                      AS total_gross,
+      COALESCE(SUM(ls.paye * ls.weight), 0)                           AS total_paye,
+      COALESCE(SUM((ls.uif_employee + ls.uif_employer) * ls.weight), 0) AS total_uif,
+      COALESCE(SUM(ls.sdl * ls.weight), 0)                            AS total_sdl,
+      COALESCE(SUM(ls.eti * ls.weight), 0)                            AS total_eti,
+      COALESCE(SUM(ls.net_pay * ls.weight), 0)                        AS total_net
+    FROM line_splits ls
+    LEFT JOIN cost_centres cc ON cc.id = ls.allocated_cost_centre_id
+    GROUP BY ls.allocated_cost_centre_id, cc.code, cc.name
     ORDER BY COALESCE(cc.code, 'zzz')
   `) as Row[];
 
