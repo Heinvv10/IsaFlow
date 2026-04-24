@@ -1,6 +1,7 @@
 import { chromium } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
+import { getE2ECredentials } from './_creds';
 
 const SCREENSHOTS_DIR = '/home/hein/Workspace/IsaFlow/tests/e2e/screenshots/pdf-qa';
 const BASE_URL = 'https://app.isaflow.co.za';
@@ -16,8 +17,9 @@ async function login(page: any) {
     return;
   }
 
-  await page.fill('input[type="email"]', 'admin@isaflow.co.za');
-  await page.fill('input[type="password"]', 'admin123');
+  const { email: _e2eEmail, password: _e2ePwd } = getE2ECredentials();
+  await page.fill('input[type="email"]', _e2eEmail);
+  await page.fill('input[type="password"]', _e2ePwd);
   await page.click('button[type="submit"]');
   await page.waitForTimeout(4000);
   console.log('Logged in, URL:', page.url());

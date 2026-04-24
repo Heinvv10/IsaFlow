@@ -148,11 +148,14 @@ export async function postPayrollRunJournal(
   const description = `Payroll run ${periodYear}-${mm}`;
   const reference   = `PAY-${periodYear}-${mm}`;
 
+  // sourceDocumentId is the FK to captured_documents (OCR source). A payroll
+  // run isn't a captured document — the reverse link is payroll_run_headers
+  // .journal_entry_id, which we set below. Passing runId here violates the
+  // gl_journal_entries → captured_documents FK on every approve.
   const input: JournalEntryCreateInput = {
     entryDate,
     description,
     source: 'auto_payroll',
-    sourceDocumentId: runId,
     lines,
   };
 

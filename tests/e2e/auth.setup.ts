@@ -2,19 +2,18 @@
  * Auth setup for E2E tests — logs in via page navigation to get proper cookies
  */
 import { test as setup, expect } from '@playwright/test';
+import { getE2ECredentials } from './_creds';
 
 const AUTH_FILE = 'tests/e2e/.auth/session.json';
 
 setup('authenticate', async ({ browser }) => {
+  const { email, password } = getE2ECredentials();
   const context = await browser.newContext();
   const page = await context.newPage();
 
   // Call login API directly and capture the Set-Cookie response
   const response = await page.request.post('/api/auth/login', {
-    data: {
-      email: 'admin@isaflow.co.za',
-      password: 'admin123',
-    },
+    data: { email, password },
   });
 
   expect(response.status()).toBe(200);

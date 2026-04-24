@@ -5,8 +5,11 @@
 import { test as setup } from '@playwright/test';
 
 const PROD_SESSION = 'tests/e2e/.auth/prod-session.json';
-const EMAIL = process.env.PROD_TEST_EMAIL ?? 'admin@isaflow.co.za';
-const PASSWORD = process.env.PROD_TEST_PASSWORD ?? 'admin123';
+const EMAIL = process.env.PROD_TEST_EMAIL;
+const PASSWORD = process.env.PROD_TEST_PASSWORD;
+if (!EMAIL || !PASSWORD) {
+  throw new Error('PROD_TEST_EMAIL and PROD_TEST_PASSWORD must be set in the environment.');
+}
 
 setup('refresh prod admin session', async ({ browser }) => {
   const context = await browser.newContext();
