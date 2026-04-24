@@ -8,6 +8,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { handleITN } from '@/modules/accounting/services/core/paymentGatewayService';
+import { getClientIp } from '@/lib/rateLimit';
 import { log } from '@/lib/logger';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -19,10 +20,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   try {
-    // Get source IP from request (may be behind proxy)
-    const sourceIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
-      || req.socket.remoteAddress
-      || '';
+    const sourceIp = getClientIp(req);
 
     log.info('ITN received', { sourceIp, body: req.body }, 'PaymentGateway');
 

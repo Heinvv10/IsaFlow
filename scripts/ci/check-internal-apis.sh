@@ -36,3 +36,29 @@ if [[ -n "$VIOLATIONS" ]]; then
   exit 1
 fi
 echo "OK: gl_journal_lines usage is tenant-scoped."
+
+echo
+echo "=== Pentest H7: client IP must come from getClientIp(), never x-forwarded-for[0] ==="
+# The first entry in X-Forwarded-For is client-supplied and therefore spoofable.
+# getClientIp() in src/lib/rateLimit.ts takes the last (proxy-appended) entry.
+IP_OFFENDERS=$(grep -rnE "x-forwarded-for['\"]?\s*\]\s*(as string\s*)?\)?\s*\??\.\s*split" src/ pages/ --include='*.ts' 2>/dev/null || true)
+if [[ -n "$IP_OFFENDERS" ]]; then
+  echo "ERROR: raw x-forwarded-for split detected. Use getClientIp() from @/lib/rateLimit instead."
+  echo "$IP_OFFENDERS"
+  exit 1
+fi
+echo "OK: client-IP extraction goes through getClientIp()."
+
+echo
+echo "=== Pentest H1: portal / impersonation JWT secrets must not be derived from JWT_SECRET ==="
+# Match expressions like `JWT_SECRET + '-portal'` that concatenate the staff
+# secret with a suffix to fake a per-purpose secret. Comments are excluded
+# (lines starting with // or *).
+SECRET_OFFENDERS=$(grep -rnE "JWT_SECRET\s*\+\s*['\"]" src/ pages/ --include='*.ts' 2>/dev/null \
+  | grep -vE ':\s*//|:\s*\*' || true)
+if [[ -n "$SECRET_OFFENDERS" ]]; then
+  echo "ERROR: JWT_SECRET concatenation detected. Add a dedicated *_JWT_SECRET env var instead."
+  echo "$SECRET_OFFENDERS"
+  exit 1
+fi
+echo "OK: no JWT_SECRET derivations."

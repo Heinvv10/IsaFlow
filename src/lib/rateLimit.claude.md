@@ -17,7 +17,7 @@ Neon-backed (DB-persisted) rate limiter with a 5-second LRU short-circuit — sh
 - `@/lib/logger` — warns on 429
 
 ## Critical notes
-- **Replaces `rateLimiter.ts`** for cross-pod deployments (BL-21 / S-005). If the app is single-instance and DB overhead is unwanted, use `rateLimiter.ts` instead (pure in-memory).
+- **Replaced the legacy `rateLimiter.ts`** (BL-21 / S-005); that file has been deleted. Always use `checkRateLimit` from this module for any rate-limiting need.
 - **IP extraction gotcha** (BL-20): the FIRST entry in `X-Forwarded-For` is client-supplied and spoofable. This file correctly uses the LAST entry. Do not change this logic.
 - **`rate_limit_counters` table** must exist (migration 331) — the `INSERT … ON CONFLICT` will throw without it.
 - **Window reset**: uses Postgres `make_interval(secs => N)` — the window resets per key, not globally. Each key is independent.
