@@ -17,6 +17,7 @@ export interface PayrollEmployee {
   medicalAidDependantsCount: number;
   costCentreId?: string | null;
   payScaleId?: string | null;
+  occupationalLevelId?: string | null;
 }
 
 export interface PayrollComponent {
