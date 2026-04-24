@@ -1,0 +1,23 @@
+[Unit]
+Description=IsaFlow — monthly reset of PAYG Flow counters (first of each month)
+After=network-online.target isaflow.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=velo
+Group=velo
+EnvironmentFile=/home/velo/isaflow/.env.local
+ExecStart=/usr/bin/curl --silent --show-error --fail \
+  --max-time 60 \
+  -X POST \
+  -H "X-Cron-Secret: ${CRON_SECRET}" \
+  -H "Content-Type: application/json" \
+  http://127.0.0.1:3101/api/cron/reset-flow-month
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=isaflow-flow-month-reset
+
+NoNewPrivileges=true
+ProtectSystem=strict

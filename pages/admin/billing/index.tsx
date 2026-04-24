@@ -9,7 +9,7 @@ import { StatsCard } from '@/components/admin/StatsCard';
 import { apiFetch } from '@/lib/apiFetch';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
-import { AlertCircle, Loader2, ArrowRight, CreditCard, List, FileText } from 'lucide-react';
+import { AlertCircle, Loader2, ArrowRight, CreditCard, List, FileText, Zap, Package } from 'lucide-react';
 import Link from 'next/link';
 
 interface BillingOverview {
@@ -120,6 +120,18 @@ export default function BillingOverviewPage() {
               className="inline-flex items-center gap-2 px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-600 text-slate-900 dark:text-white text-sm font-medium rounded-lg transition-colors"
             >
               <FileText className="w-4 h-4" /> View Invoices <ArrowRight className="w-4 h-4" />
+            </Link>
+            <Link
+              href={adminHref('/admin/billing/payg')}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-600 text-slate-900 dark:text-white text-sm font-medium rounded-lg transition-colors"
+            >
+              <Zap className="w-4 h-4" /> PAYG Tenants <ArrowRight className="w-4 h-4" />
+            </Link>
+            <Link
+              href={adminHref('/admin/billing/flow-bundles')}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-600 text-slate-900 dark:text-white text-sm font-medium rounded-lg transition-colors"
+            >
+              <Package className="w-4 h-4" /> Flow Bundles <ArrowRight className="w-4 h-4" />
             </Link>
           </div>
 

@@ -177,6 +177,19 @@ export class ApiResponseHelper {
   }
 
   /**
+   * Send payment-required error response (402).
+   * Used by the PAYG Flow metering middleware when a tenant's wallet balance
+   * is below the cost of the requested operation.
+   */
+  static paymentRequired(
+    res: NextApiResponse,
+    details: { balance: number; required: number; operationCode?: string },
+    message = 'Insufficient Flows — top up your wallet to continue'
+  ): void {
+    this.error(res, ErrorCode.PAYMENT_REQUIRED, message, { reason: 'insufficient_flows', ...details });
+  }
+
+  /**
    * Send method not allowed error response
    */
   static methodNotAllowed(
@@ -283,6 +296,7 @@ export const apiResponse = {
   notFound: ApiResponseHelper.notFound.bind(ApiResponseHelper),
   unauthorized: ApiResponseHelper.unauthorized.bind(ApiResponseHelper),
   forbidden: ApiResponseHelper.forbidden.bind(ApiResponseHelper),
+  paymentRequired: ApiResponseHelper.paymentRequired.bind(ApiResponseHelper),
   methodNotAllowed: ApiResponseHelper.methodNotAllowed.bind(ApiResponseHelper),
   internalError: ApiResponseHelper.internalError.bind(ApiResponseHelper),
   tooManyRequests: ApiResponseHelper.tooManyRequests.bind(ApiResponseHelper),
