@@ -24,7 +24,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { log } from '@/lib/logger';
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerPaymentAllocationService';
@@ -215,54 +215,77 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     apInvoices: { created: 0, skipped: 0, failed: [] as string[] },
   };
 
+  // Each per-record operation runs in a SAVEPOINT so a single failure
+  // doesn't poison the outer withAdmin transaction. Without this, the
+  // first invoice error would abort the tx and every subsequent query
+  // would return "current transaction is aborted".
+  const sp = (name: string, fn: () => Promise<void>) =>
+    withSavepoint(name, fn).catch(() => { /* swallowed: per-record handler below records the failure */ });
+
   const customers = pulled.customers?.records ?? [];
+  let i = 0;
   for (const c of customers) {
-    try {
-      const existed = (await sql`
-        SELECT 1 FROM customers WHERE company_id = ${companyId}::UUID AND LOWER(name) = LOWER(${c.name}) LIMIT 1
-      `) as Row[];
-      await upsertCustomer(companyId, c);
-      if (existed.length) summary.customers.skipped += 1;
-      else summary.customers.created += 1;
-    } catch (err) {
-      summary.customers.failed.push(`${c.name}: ${err instanceof Error ? err.message : String(err)}`);
-    }
+    await sp(`cust_${i++}`, async () => {
+      try {
+        const existed = (await sql`
+          SELECT 1 FROM customers WHERE company_id = ${companyId}::UUID AND LOWER(name) = LOWER(${c.name}) LIMIT 1
+        `) as Row[];
+        await upsertCustomer(companyId, c);
+        if (existed.length) summary.customers.skipped += 1;
+        else summary.customers.created += 1;
+      } catch (err) {
+        summary.customers.failed.push(`${c.name}: ${err instanceof Error ? err.message : String(err)}`);
+        throw err;
+      }
+    });
   }
 
   const suppliers = pulled.suppliers?.records ?? [];
+  i = 0;
   for (const s of suppliers) {
-    try {
-      const existed = (await sql`
-        SELECT 1 FROM suppliers WHERE company_id = ${companyId}::UUID AND LOWER(name) = LOWER(${s.name}) LIMIT 1
-      `) as Row[];
-      await upsertSupplier(companyId, s);
-      if (existed.length) summary.suppliers.skipped += 1;
-      else summary.suppliers.created += 1;
-    } catch (err) {
-      summary.suppliers.failed.push(`${s.name}: ${err instanceof Error ? err.message : String(err)}`);
-    }
+    await sp(`supp_${i++}`, async () => {
+      try {
+        const existed = (await sql`
+          SELECT 1 FROM suppliers WHERE company_id = ${companyId}::UUID AND LOWER(name) = LOWER(${s.name}) LIMIT 1
+        `) as Row[];
+        await upsertSupplier(companyId, s);
+        if (existed.length) summary.suppliers.skipped += 1;
+        else summary.suppliers.created += 1;
+      } catch (err) {
+        summary.suppliers.failed.push(`${s.name}: ${err instanceof Error ? err.message : String(err)}`);
+        throw err;
+      }
+    });
   }
 
   const arInvoices = pulled.arInvoices?.records ?? [];
+  i = 0;
   for (const inv of arInvoices) {
-    try {
-      const r = await commitARInvoice(companyId, userId, inv);
-      if (r.created) summary.arInvoices.created += 1;
-      else summary.arInvoices.skipped += 1;
-    } catch (err) {
-      summary.arInvoices.failed.push(`${inv.invoiceNumber}: ${err instanceof Error ? err.message : String(err)}`);
-    }
+    await sp(`ar_${i++}`, async () => {
+      try {
+        const r = await commitARInvoice(companyId, userId, inv);
+        if (r.created) summary.arInvoices.created += 1;
+        else summary.arInvoices.skipped += 1;
+      } catch (err) {
+        summary.arInvoices.failed.push(`${inv.invoiceNumber}: ${err instanceof Error ? err.message : String(err)}`);
+        throw err;
+      }
+    });
   }
 
   const apInvoices = pulled.apInvoices?.records ?? [];
+  i = 0;
   for (const inv of apInvoices) {
-    try {
-      const r = await commitAPInvoice(companyId, userId, inv);
-      if (r.created) summary.apInvoices.created += 1;
-      else summary.apInvoices.skipped += 1;
-    } catch (err) {
-      summary.apInvoices.failed.push(`${inv.invoiceNumber}: ${err instanceof Error ? err.message : String(err)}`);
-    }
+    await sp(`ap_${i++}`, async () => {
+      try {
+        const r = await commitAPInvoice(companyId, userId, inv);
+        if (r.created) summary.apInvoices.created += 1;
+        else summary.apInvoices.skipped += 1;
+      } catch (err) {
+        summary.apInvoices.failed.push(`${inv.invoiceNumber}: ${err instanceof Error ? err.message : String(err)}`);
+        throw err;
+      }
+    });
   }
 
   log.info('Sage commit complete', { companyId, summary }, 'migration');

@@ -169,8 +169,14 @@ export async function postCustomerInvoiceToGL(
       });
     }
 
+    // Neon returns DATE columns as JS Date objects. Naive String(date) produces
+    // "Fri Mar 24 2023 00:00:00 GMT+0200" which postgres rejects. Normalise to
+    // ISO YYYY-MM-DD regardless of shape.
+    const entryDate = inv.invoice_date instanceof Date
+      ? inv.invoice_date.toISOString().slice(0, 10)
+      : String(inv.invoice_date).slice(0, 10);
     const je = await createJournalEntry(companyId, {
-      entryDate: String(inv.invoice_date),
+      entryDate,
       description: `Customer invoice ${inv.invoice_number}`,
       source: 'auto_invoice',
       sourceDocumentId: invoiceId,
