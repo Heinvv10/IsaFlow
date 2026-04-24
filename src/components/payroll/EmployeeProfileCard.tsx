@@ -19,6 +19,7 @@ export interface Employee {
   medicalAidMainMember: boolean;
   medicalAidDependantsCount: number;
   costCentreId?: string | null;
+  payScaleId?: string | null;
 }
 
 interface Props {
