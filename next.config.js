@@ -19,12 +19,6 @@ const nextConfig = {
 
   experimental: {
     optimizePackageImports: ['lucide-react', 'recharts'],
-    // pdf-parse + pdfjs-dist must NOT be bundled by webpack — pdf-parse
-    // uses dynamic ESM imports (pdfjs-dist worker) and ships native
-    // canvas bindings that break when packed through webpack. Marking
-    // them external means the production build emits a real runtime
-    // `require()` that loads them from node_modules.
-    serverComponentsExternalPackages: ['pdf-parse', 'pdfjs-dist', '@napi-rs/canvas'],
     // Sharp is loaded at runtime by Next.js for image optimization but is
     // not detected by the standalone build's static trace. Force-include
     // its native binaries so /home/velo/isaflow/node_modules/sharp exists
@@ -114,6 +108,16 @@ const nextConfig = {
         crypto: false,
         async_hooks: false,
       };
+    } else {
+      // pdf-parse uses dynamic ESM imports of pdfjs-dist (ships its own
+      // worker via import()), which webpack can't bundle correctly —
+      // the resulting chunk throws at runtime. Mark these as externals
+      // so the server build emits a real `require()` that resolves
+      // from node_modules at run time.
+      config.externals = config.externals || [];
+      const list = Array.isArray(config.externals) ? config.externals : [config.externals];
+      list.push('pdf-parse', 'pdfjs-dist', '@napi-rs/canvas');
+      config.externals = list;
     }
     return config;
   },
