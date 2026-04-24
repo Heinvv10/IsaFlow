@@ -58,8 +58,37 @@ export function ChartOfAccountsTab() {
     accountCode: '', accountName: '', accountType: 'asset' as GLAccountType,
     accountSubtype: '', parentAccountId: '', description: '',
   });
+  // Tracks whether the Code field currently holds a server suggestion. We only
+  // overwrite the code when it's either empty or a prior suggestion we placed —
+  // never a value the user typed themselves.
+  const [suggestedCode, setSuggestedCode] = useState('');
 
   useEffect(() => { loadAccounts(); }, [viewMode, showInactive]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!showAddForm) return;
+    // Don't overwrite user-typed codes.
+    if (addForm.accountCode && addForm.accountCode !== suggestedCode) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const qs = new URLSearchParams({ accountType: addForm.accountType });
+        if (addForm.accountSubtype) qs.set('accountSubtype', addForm.accountSubtype);
+        if (addForm.parentAccountId) qs.set('parentAccountId', addForm.parentAccountId);
+        const res = await apiFetch(`/api/accounting/chart-of-accounts-next-code?${qs}`);
+        const json = await res.json();
+        const code = json?.data?.code ?? json?.code;
+        if (!cancelled && code) {
+          setAddForm(f => ({ ...f, accountCode: String(code) }));
+          setSuggestedCode(String(code));
+        }
+      } catch {
+        // Suggestion is a convenience — silent on failure.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [showAddForm, addForm.accountType, addForm.accountSubtype, addForm.parentAccountId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadAccounts = async () => {
     setIsLoading(true);
@@ -91,6 +120,7 @@ export function ChartOfAccountsTab() {
       if (!res.ok) { const errData = await res.json(); throw new Error(errData.message || 'Failed to create account'); }
       setShowAddForm(false);
       setAddForm({ accountCode: '', accountName: '', accountType: 'asset', accountSubtype: '', parentAccountId: '', description: '' });
+      setSuggestedCode('');
       await loadAccounts();
     } catch (err) {
       log.error('Failed to create account', { error: err }, 'accounting-ui');
@@ -212,7 +242,7 @@ export function ChartOfAccountsTab() {
             <div className="flex items-center justify-between">
               <p className="text-xs text-[var(--ff-text-tertiary)]">Normal balance: <span className="font-medium">{addForm.accountType === 'asset' || addForm.accountType === 'expense' ? 'Debit' : 'Credit'}</span> (auto-set from type)</p>
               <div className="flex items-center gap-2">
-                <button onClick={() => setShowAddForm(false)} className="px-3 py-2 text-sm font-medium text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] transition-colors">Cancel</button>
+                <button onClick={() => { setShowAddForm(false); setSuggestedCode(''); }} className="px-3 py-2 text-sm font-medium text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] transition-colors">Cancel</button>
                 <button onClick={handleAddAccount} disabled={isSaving || !addForm.accountCode || !addForm.accountName} className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium disabled:opacity-50">
                   {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
                   {isSaving ? 'Creating...' : 'Create Account'}
@@ -238,7 +268,7 @@ export function ChartOfAccountsTab() {
                 </thead>
                 <tbody>
                   {filteredAccounts.map(account => (
-                    <AccountRow key={account.id} account={account} level={0} viewMode={viewMode} onUpdate={handleUpdateAccount} onDelete={handleDeleteAccount} />
+                    <AccountRow key={account.id} account={account} level={0} viewMode={viewMode} onUpdate={handleUpdateAccount} onDelete={handleDeleteAccount} onCodeChanged={loadAccounts} />
                   ))}
                 </tbody>
               </table>

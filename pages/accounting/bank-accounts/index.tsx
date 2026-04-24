@@ -67,6 +67,26 @@ export default function BankAccountsPage() {
 
   useEffect(() => { loadAccounts(); }, [loadAccounts]);
 
+  const BANK_PARENT_ID = 'bf801b3b-de70-4c10-8d8f-689de8b8a9ad';
+
+  const openAddModal = useCallback(async () => {
+    setForm({ accountCode: '', accountName: '', description: '', bankAccountNumber: '' });
+    setShowAddModal(true);
+    try {
+      const qs = new URLSearchParams({
+        accountType: 'asset',
+        accountSubtype: 'bank',
+        parentAccountId: BANK_PARENT_ID,
+      });
+      const res = await apiFetch(`/api/accounting/chart-of-accounts-next-code?${qs}`);
+      const json = await res.json();
+      const code = json?.data?.code ?? json?.code;
+      if (code) setForm(f => ({ ...f, accountCode: String(code) }));
+    } catch {
+      // Suggestion is a convenience — leave blank on failure, user can still type.
+    }
+  }, []);
+
   const handleAdd = async () => {
     if (!form.accountCode || !form.accountName) {
       notify.error('Account code and name are required');
@@ -83,7 +103,7 @@ export default function BankAccountsPage() {
           accountName: form.accountName,
           accountType: 'asset',
           accountSubtype: 'bank',
-          parentAccountId: 'bf801b3b-de70-4c10-8d8f-689de8b8a9ad',
+          parentAccountId: BANK_PARENT_ID,
           description: form.description || form.accountName,
           normalBalance: 'debit',
         }),
@@ -185,7 +205,7 @@ export default function BankAccountsPage() {
                 </div>
               </div>
               <button
-                onClick={() => setShowAddModal(true)}
+                onClick={openAddModal}
                 className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg flex items-center gap-2 text-sm"
               >
                 <Plus className="h-4 w-4" />
