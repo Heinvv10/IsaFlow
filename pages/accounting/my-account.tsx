@@ -20,6 +20,7 @@ import {
   type Preferences,
 } from '@/components/accounting/my-account/AccountTabs';
 import { TwoFactorSection } from '@/components/accounting/my-account/TwoFactorSection';
+import { ChangeEmailSection } from '@/components/accounting/my-account/ChangeEmailSection';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -232,6 +233,7 @@ export default function MyAccountPage() {
                 showOld={showOld} showNew={showNew} showConfirm={showConfirm}
                 setShowOld={setShowOld} setShowNew={setShowNew} setShowConfirm={setShowConfirm}
                 onChange={setPwForm} onSave={() => void handlePasswordChange()} />
+              <ChangeEmailSection currentEmail={profile.email} />
               <TwoFactorSection />
             </div>
           )}

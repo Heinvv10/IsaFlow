@@ -99,7 +99,7 @@ export default function AdminSageImportPage() {
     setError('');
 
     try {
-      const scriptsRes  = await apiFetch(`/api/accounting/migration/sage-pull?companyId=${selectedCompanyId}`);
+      const scriptsRes  = await apiFetch(`/api/admin/migration/sage-pull?companyId=${selectedCompanyId}`);
       const scriptsJson = await scriptsRes.json();
       if (!scriptsRes.ok) throw new Error('Failed to load pull scripts');
       const scripts = scriptsJson.data.scripts as Record<string, string>;
@@ -110,7 +110,7 @@ export default function AdminSageImportPage() {
           const rawData = await runScriptInSage(scripts[step.id] || '');
 
           const mapRes  = await apiFetch(
-            `/api/accounting/migration/sage-pull?companyId=${selectedCompanyId}`,
+            `/api/admin/migration/sage-pull?companyId=${selectedCompanyId}`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
