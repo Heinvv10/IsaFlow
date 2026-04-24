@@ -2,8 +2,13 @@
  * User Impersonation — stash helpers.
  * Stores the admin's tokens so "Return to my session" can restore them.
  * All session-minting is handled by GoTrue (admin/generate_link + verify).
+ *
+ * Pentest L16 / PR-5: admin_access_token and admin_refresh_token are AES-256-GCM
+ * encrypted at rest via src/lib/encryption.ts. A DB dump or BYPASSRLS query
+ * yields ciphertext, not live GoTrue bearer tokens.
  */
 import { sql } from '@/lib/neon';
+import { encryptToken, decryptToken } from '@/lib/encryption';
 
 const IMPERSONATION_TTL_HOURS = 1;
 
@@ -29,7 +34,9 @@ export async function stashAdminTokens(input: StashInput): Promise<string> {
     INSERT INTO admin_impersonation_stash (
       admin_user_id, admin_access_token, admin_refresh_token, target_user_id, expires_at
     ) VALUES (
-      ${input.adminUserId}, ${input.adminAccessToken}, ${input.adminRefreshToken},
+      ${input.adminUserId},
+      ${encryptToken(input.adminAccessToken)},
+      ${encryptToken(input.adminRefreshToken)},
       ${input.targetUserId}, ${expiresAt.toISOString()}
     )
     RETURNING stash_id
@@ -45,7 +52,13 @@ export async function loadStash(stashId: string): Promise<StashRow | null> {
       AND expires_at > NOW()
     LIMIT 1
   `;
-  return rows[0] ?? null;
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    ...row,
+    admin_access_token: decryptToken(row.admin_access_token),
+    admin_refresh_token: decryptToken(row.admin_refresh_token),
+  };
 }
 
 export async function deleteStash(stashId: string): Promise<void> {
