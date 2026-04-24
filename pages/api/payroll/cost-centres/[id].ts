@@ -24,7 +24,7 @@ const PatchBody = z
   .object({
     code: z.string().min(1).max(30).optional(),
     name: z.string().min(1).max(120).optional(),
-    parentId: z.string().uuid().nullable().optional(),
+    parentId: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, { message: "Invalid UUID" }).nullable().optional(),
     notes: z.string().max(1000).nullable().optional(),
     isActive: z.boolean().optional(),
   })

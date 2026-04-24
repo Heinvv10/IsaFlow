@@ -37,7 +37,7 @@ const PutBody = z
     components: z
       .array(
         z.object({
-          componentId: z.string().uuid(),
+          componentId: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, { message: "Invalid UUID" }),
           amount: z.number().nonnegative(),
           isRecurring: z.boolean(),
         }),

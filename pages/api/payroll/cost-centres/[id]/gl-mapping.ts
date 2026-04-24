@@ -19,7 +19,7 @@ import {
   deleteCostCentreGlMapping,
 } from '@/modules/accounting/services/payroll/costCentreGlMappingService';
 
-const PutBody = z.object({ expenseAccountId: z.string().uuid() }).strict();
+const PutBody = z.object({ expenseAccountId: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, { message: "Invalid UUID" }) }).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   const { companyId, user } = req as CompanyAuthedRequest;
