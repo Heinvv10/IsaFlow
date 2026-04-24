@@ -1,0 +1,23 @@
+[Unit]
+Description=IsaFlow — daily dunning ladder walker (PRD-06 Phase 5)
+After=network-online.target isaflow.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=velo
+Group=velo
+EnvironmentFile=/home/velo/isaflow/.env.local
+ExecStart=/usr/bin/curl --silent --show-error --fail \
+  --max-time 600 \
+  -X POST \
+  -H "X-Cron-Secret: ${CRON_SECRET}" \
+  -H "Content-Type: application/json" \
+  http://127.0.0.1:3101/api/cron/dunning-send
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=isaflow-dunning-send
+
+NoNewPrivileges=true
+ProtectSystem=strict

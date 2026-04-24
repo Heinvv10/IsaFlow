@@ -1,0 +1,15 @@
+[Unit]
+Description=Weekday trigger for IsaFlow dunning ladder walker
+Requires=isaflow-dunning-send.service
+
+[Timer]
+# Weekdays (Mon–Fri) at 07:30 SAST. Invoice-paid flips from overnight
+# reconciliation have had 90 minutes to settle; customer inboxes see the
+# reminder before they start their workday. The walker itself is idempotent
+# (cool-off + already-sent dedup) so a retry on timer jitter is safe.
+OnCalendar=Mon..Fri *-*-* 07:30:00 Africa/Johannesburg
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target

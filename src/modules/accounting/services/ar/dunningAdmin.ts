@@ -93,6 +93,74 @@ export async function createTemplate(
   return rows[0] as unknown as DunningTemplate;
 }
 
+export interface UpdateTemplateInput {
+  name?: string;
+  tone?: CreateTemplateInput['tone'];
+  escalation_order?: number;
+  days_overdue_min?: number;
+  days_overdue_max?: number | null;
+  subject_template?: string;
+  body_template?: string;
+  send_weekdays_only?: boolean;
+  active?: boolean;
+}
+
+/**
+ * Partial update of a template. Only mutates the fields present in `input`.
+ * Returns null when the template doesn't belong to this company.
+ */
+export async function updateTemplate(
+  companyId: string,
+  templateId: string,
+  input: UpdateTemplateInput,
+): Promise<DunningTemplate | null> {
+  if (
+    input.days_overdue_min !== undefined && input.days_overdue_min < 0
+  ) throw new Error('days_overdue_min must be ≥ 0');
+  if (
+    input.days_overdue_max != null &&
+    input.days_overdue_min !== undefined &&
+    input.days_overdue_max < input.days_overdue_min
+  ) throw new Error('days_overdue_max must be ≥ days_overdue_min');
+
+  const rows = (await sql`
+    UPDATE dunning_templates SET
+      name               = COALESCE(${input.name ?? null},               name),
+      tone               = COALESCE(${input.tone ?? null},               tone),
+      escalation_order   = COALESCE(${input.escalation_order ?? null},   escalation_order),
+      days_overdue_min   = COALESCE(${input.days_overdue_min ?? null},   days_overdue_min),
+      days_overdue_max   = CASE
+                             WHEN ${input.days_overdue_max !== undefined}::boolean
+                             THEN ${input.days_overdue_max ?? null}::int
+                             ELSE days_overdue_max
+                           END,
+      subject_template   = COALESCE(${input.subject_template ?? null},   subject_template),
+      body_template      = COALESCE(${input.body_template ?? null},      body_template),
+      send_weekdays_only = COALESCE(${input.send_weekdays_only ?? null}, send_weekdays_only),
+      active             = COALESCE(${input.active ?? null},             active),
+      updated_at         = NOW()
+    WHERE id = ${templateId}::uuid AND company_id = ${companyId}::uuid
+    RETURNING id, name, tone, escalation_order, days_overdue_min, days_overdue_max,
+              subject_template, body_template, send_weekdays_only, active,
+              created_at, updated_at
+  `) as DbRow[];
+  return (rows[0] as unknown as DunningTemplate) ?? null;
+}
+
+/** Soft-delete: marks inactive so the cron walker skips it but audit rows remain intact. */
+export async function deactivateTemplate(
+  companyId: string,
+  templateId: string,
+): Promise<boolean> {
+  const rows = (await sql`
+    UPDATE dunning_templates
+    SET active = false, updated_at = NOW()
+    WHERE id = ${templateId}::uuid AND company_id = ${companyId}::uuid
+    RETURNING id
+  `) as DbRow[];
+  return rows.length > 0;
+}
+
 // ─── Sends query + response ────────────────────────────────────────────────
 
 export interface ListSendsFilters {
