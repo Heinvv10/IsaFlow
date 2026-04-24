@@ -285,6 +285,22 @@ export async function scanSentConnection(conn: SentMirrorConnection): Promise<Se
     const lock = await client.getMailboxLock(conn.sentFolder);
     try {
       const cursorUid = Number(conn.scanCursor[conn.sentFolder] ?? 0);
+      // Clean exit when the mailbox has nothing past the cursor — IMAP
+      // "fetch 2:*" on an empty/stale range throws "Command failed" on some
+      // servers (cPanel/dovecot). Guard with mailbox.uidNext.
+      const mbox = client.mailbox;
+      const uidNext = typeof mbox === 'object' && mbox && 'uidNext' in mbox
+        ? Number((mbox as { uidNext?: number }).uidNext ?? 0)
+        : 0;
+      if (uidNext > 0 && cursorUid + 1 >= uidNext) {
+        // No new messages — just bump last_scan_at and return.
+        await sql`
+          UPDATE sent_mirror_connections
+          SET last_scan_at = NOW(), last_success_at = NOW()
+          WHERE id = ${conn.id}::uuid
+        `;
+        return result;
+      }
       const searchRange = cursorUid > 0 ? `${cursorUid + 1}:*` : '1:*';
 
       const metas: FetchMessageObject[] = [];
