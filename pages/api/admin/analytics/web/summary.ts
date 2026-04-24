@@ -6,6 +6,7 @@ import {
   getPageviewsTimeseries,
   getTopPages,
   getTopReferrers,
+  getTrafficSources,
   getBreakdown,
   type Range,
   type BreakdownDimension,
@@ -23,11 +24,12 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
   if (!websiteId) return apiResponse.badRequest(res, 'website_id required');
   if (!VALID_RANGES.includes(range)) return apiResponse.badRequest(res, 'invalid range');
 
-  const [overview, timeseries, topPages, topReferrers, countries, devices, browsers] = await Promise.all([
+  const [overview, timeseries, topPages, topReferrers, trafficSources, countries, devices, browsers] = await Promise.all([
     getOverview(websiteId, range),
     getPageviewsTimeseries(websiteId, range),
     getTopPages(websiteId, range, null, 15),
     getTopReferrers(websiteId, range, null, 15),
+    getTrafficSources(websiteId, range, null, 15),
     getBreakdown(websiteId, 'country' as BreakdownDimension, range),
     getBreakdown(websiteId, 'device' as BreakdownDimension, range),
     getBreakdown(websiteId, 'browser' as BreakdownDimension, range),
@@ -40,6 +42,7 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
     timeseries: timeseries ?? [],
     top_pages: topPages ?? [],
     top_referrers: topReferrers ?? [],
+    traffic_sources: trafficSources ?? [],
     countries: countries ?? [],
     devices: devices ?? [],
     browsers: browsers ?? [],

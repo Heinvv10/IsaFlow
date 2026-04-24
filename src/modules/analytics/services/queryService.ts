@@ -181,6 +181,53 @@ export async function getTopPages(
   return rows as TopPageRow[];
 }
 
+export interface TrafficSourceRow {
+  source: string;
+  medium: string | null;
+  campaign: string | null;
+  sessions: number;
+}
+
+export async function getTrafficSources(
+  websiteId: string,
+  range: Range,
+  companyId?: string | null,
+  limit = 20
+): Promise<TrafficSourceRow[] | null> {
+  const w = await requireWebsite(websiteId, companyId);
+  if (!w) return null;
+
+  const interval = RANGE_INTERVAL[range];
+  // Source priority: utm_source > referrer_domain > '(direct)'.
+  // utm_source is captured at first-touch so the same session carries it across pageviews.
+  const rows = await sql`
+    WITH first_events AS (
+      SELECT DISTINCT ON (s.id)
+        s.id                      AS session_id,
+        s.utm_source,
+        s.utm_medium,
+        s.utm_campaign,
+        e.referrer_domain
+      FROM analytics_sessions s
+      LEFT JOIN analytics_events e
+        ON e.session_id = s.id
+      WHERE s.website_id = ${websiteId}
+        AND s.first_seen >= NOW() - (${interval})::interval
+      ORDER BY s.id, e.created_at ASC
+    )
+    SELECT
+      COALESCE(utm_source, referrer_domain, '(direct)') AS source,
+      utm_medium                                        AS medium,
+      utm_campaign                                      AS campaign,
+      COUNT(*)::int                                     AS sessions
+    FROM first_events
+    GROUP BY 1, 2, 3
+    ORDER BY sessions DESC
+    LIMIT ${limit}
+  `;
+  return rows as TrafficSourceRow[];
+}
+
 export interface TopReferrerRow {
   domain: string;
   views: number;
