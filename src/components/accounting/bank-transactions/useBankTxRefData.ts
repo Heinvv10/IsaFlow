@@ -28,12 +28,13 @@ type Setters = {
   setCc2Options: (v: SelectOption[]) => void;
   setBuOptions: (v: SelectOption[]) => void;
   setSelectedBank: (fn: (prev: string) => string) => void;
+  setRefDataLoaded?: (v: boolean) => void;
 };
 
 export function useBankTxRefData(setters: Setters): { refreshBankAccounts: () => void } {
   const {
     setBankAccounts, setGlAccounts, setSuppliers, setCustomers,
-    setCc1Options, setCc2Options, setBuOptions, setSelectedBank,
+    setCc1Options, setCc2Options, setBuOptions, setSelectedBank, setRefDataLoaded,
   } = setters;
 
   const refreshBankAccounts = useCallback(() => {
@@ -84,7 +85,9 @@ export function useBankTxRefData(setters: Setters): { refreshBankAccounts: () =>
       setBuOptions(deptList
         .filter((d: { is_active?: boolean; isActive?: boolean }) => d.is_active !== false && d.isActive !== false)
         .map((d: { id: string; name: string; code?: string }) => ({ id: d.id, name: d.name, code: d.code })));
-    }).catch(() => { /* non-critical: UI handles empty lists */ });
+    })
+      .catch(() => { /* non-critical: UI handles empty lists */ })
+      .finally(() => { setRefDataLoaded?.(true); });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
