@@ -35,14 +35,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
 
-  const { companyId, user } = req as CompanyAuthedRequest;
+  const { companyId, companyRole, user } = req as CompanyAuthedRequest;
   const id = String(req.query.id ?? '');
   if (!id) return apiResponse.badRequest(res, 'Missing run id');
 
-  // Only admins / managers can reopen — same gate as approve.
-  const role = String((user as { role?: string }).role ?? '');
-  if (!['super_admin', 'admin', 'manager'].includes(role)) {
-    return apiResponse.forbidden(res, 'Only admins and managers can reopen a payroll run');
+  // Only owners / admins / managers can reopen — same gate as approve.
+  // withAuth sets the per-company role on req.companyRole (not on user);
+  // the original user.role check left this permanently stuck at forbidden.
+  if (!['owner', 'admin', 'manager'].includes(companyRole)) {
+    return apiResponse.forbidden(res, 'Only owners, admins, and managers can reopen a payroll run');
   }
 
   const parsed = Body.safeParse(req.body);
