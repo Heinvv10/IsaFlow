@@ -8,6 +8,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/lib/neon';
 import { sendEmail } from '@/modules/accounting/services/core/emailService';
+import { BRAND, emailLayout } from '@/lib/email-templates';
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports
 import type { SystemHealthResponse } from '../../../../pages/api/admin/health';
 
@@ -106,19 +107,35 @@ async function sendEmailAlert(
   const statusLabel = health.overall_status.toUpperCase();
   const subject = `[ISAFlow] System Health ${statusLabel} — ${health.checked_at}`;
 
-  const html = `
-    <h2 style="color:${health.overall_status === 'critical' ? '#dc2626' : '#d97706'}">
-      ISAFlow System Health: ${statusLabel}
-    </h2>
-    <table style="border-collapse:collapse;width:100%;max-width:500px;font-family:sans-serif;font-size:14px">
-      <tr><th style="text-align:left;padding:6px 12px;background:#f3f4f6">Metric</th><th style="text-align:left;padding:6px 12px;background:#f3f4f6">Value</th></tr>
-      <tr><td style="padding:6px 12px;border-top:1px solid #e5e7eb">DB Status</td><td style="padding:6px 12px;border-top:1px solid #e5e7eb">${health.db.status} (${health.db.latency_ms}ms)</td></tr>
-      <tr><td style="padding:6px 12px;border-top:1px solid #e5e7eb">Failed Jobs</td><td style="padding:6px 12px;border-top:1px solid #e5e7eb">${health.job_queue.failed}</td></tr>
-      <tr><td style="padding:6px 12px;border-top:1px solid #e5e7eb">Email Success Rate</td><td style="padding:6px 12px;border-top:1px solid #e5e7eb">${health.email.success_rate_percent}%</td></tr>
-      <tr><td style="padding:6px 12px;border-top:1px solid #e5e7eb">Checked At</td><td style="padding:6px 12px;border-top:1px solid #e5e7eb">${health.checked_at}</td></tr>
-    </table>
-    <p style="font-size:12px;color:#6b7280;margin-top:16px">This is an automated alert from ISAFlow admin health monitoring.</p>
-  `;
+  const statusColor = health.overall_status === 'critical' ? '#dc2626' : '#d97706';
+  const rowStyle = `padding:8px 12px; border-top:1px solid ${BRAND.borderColor}; font-family:${BRAND.fontStack}; font-size:13px; color:${BRAND.textBody};`;
+  const html = emailLayout(`
+    <tr>
+      <td style="padding:36px 32px 28px;">
+        <p style="margin:0 0 6px; font-family:${BRAND.fontStack}; font-size:12px;
+                  color:${BRAND.textMuted}; text-transform:uppercase; letter-spacing:0.05em;">
+          Admin Health Alert
+        </p>
+        <h1 style="margin:0 0 16px; font-family:${BRAND.fontStack}; font-size:22px;
+                   font-weight:bold; color:${statusColor};">
+          System Health: ${statusLabel}
+        </h1>
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation"
+               style="border:1px solid ${BRAND.borderColor}; border-radius:6px; border-collapse:collapse;">
+          <tr style="background:${BRAND.outerBg};">
+            <th style="text-align:left; padding:8px 12px; font-family:${BRAND.fontStack}; font-size:11px; color:${BRAND.textMuted}; text-transform:uppercase; letter-spacing:0.05em;">Metric</th>
+            <th style="text-align:left; padding:8px 12px; font-family:${BRAND.fontStack}; font-size:11px; color:${BRAND.textMuted}; text-transform:uppercase; letter-spacing:0.05em;">Value</th>
+          </tr>
+          <tr><td style="${rowStyle}">DB Status</td><td style="${rowStyle}">${health.db.status} (${health.db.latency_ms}ms)</td></tr>
+          <tr><td style="${rowStyle}">Failed Jobs</td><td style="${rowStyle}">${health.job_queue.failed}</td></tr>
+          <tr><td style="${rowStyle}">Email Success Rate</td><td style="${rowStyle}">${health.email.success_rate_percent}%</td></tr>
+          <tr><td style="${rowStyle}">Checked At</td><td style="${rowStyle}">${health.checked_at}</td></tr>
+        </table>
+        <p style="margin:20px 0 0; font-family:${BRAND.fontStack}; font-size:12px; color:${BRAND.textMuted};">
+          This is an automated alert from ISAFlow admin health monitoring.
+        </p>
+      </td>
+    </tr>`);
 
   const result = await sendEmail({
     to: alertEmail,
