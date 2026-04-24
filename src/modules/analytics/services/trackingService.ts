@@ -2,7 +2,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { visitorHash, sessionHash } from '../utils/fingerprint';
-import { parseUserAgent, parseReferrer } from '../utils/userAgent';
+import { parseUserAgent, parseReferrer, parseUtm } from '../utils/userAgent';
 
 export interface IngestEventInput {
   trackingId: string;
@@ -41,22 +41,30 @@ export async function ingestEvent(input: IngestEventInput): Promise<IngestResult
   const vHash = visitorHash(input.ip, input.userAgent);
   const { device, browser, os } = parseUserAgent(input.userAgent);
   const { domain: refDomain, path: refPath } = parseReferrer(input.referrer);
+  const utm = parseUtm(input.urlQuery);
 
   const upserted = await sql`
     INSERT INTO analytics_sessions (
       website_id, session_hash, visitor_hash, user_id,
       country, device, browser, os, screen, lang,
+      utm_source, utm_medium, utm_campaign, utm_term, utm_content,
       first_seen, last_seen
     )
     VALUES (
       ${websiteId}, ${sHash}, ${vHash}, ${input.userId ?? null},
       ${input.country ?? null}, ${device}, ${browser}, ${os},
       ${input.screen ?? null}, ${input.lang ?? null},
+      ${utm.source}, ${utm.medium}, ${utm.campaign}, ${utm.term}, ${utm.content},
       NOW(), NOW()
     )
     ON CONFLICT (website_id, session_hash) DO UPDATE
-      SET last_seen = NOW(),
-          user_id   = COALESCE(analytics_sessions.user_id, EXCLUDED.user_id)
+      SET last_seen    = NOW(),
+          user_id      = COALESCE(analytics_sessions.user_id,      EXCLUDED.user_id),
+          utm_source   = COALESCE(analytics_sessions.utm_source,   EXCLUDED.utm_source),
+          utm_medium   = COALESCE(analytics_sessions.utm_medium,   EXCLUDED.utm_medium),
+          utm_campaign = COALESCE(analytics_sessions.utm_campaign, EXCLUDED.utm_campaign),
+          utm_term     = COALESCE(analytics_sessions.utm_term,     EXCLUDED.utm_term),
+          utm_content  = COALESCE(analytics_sessions.utm_content,  EXCLUDED.utm_content)
     RETURNING id
   `;
   const sessionRow = upserted[0] as DbRow | undefined;

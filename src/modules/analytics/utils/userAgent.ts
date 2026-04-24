@@ -42,3 +42,34 @@ export function parseReferrer(ref: string | null | undefined): { domain: string 
     return { domain: null, path: null };
   }
 }
+
+export interface ParsedUtm {
+  source: string | null;
+  medium: string | null;
+  campaign: string | null;
+  term: string | null;
+  content: string | null;
+}
+
+function pick(params: URLSearchParams, key: string): string | null {
+  const v = params.get(key);
+  if (!v) return null;
+  const t = v.trim().slice(0, 100);
+  return t || null;
+}
+
+export function parseUtm(urlQuery: string | null | undefined): ParsedUtm {
+  if (!urlQuery) return { source: null, medium: null, campaign: null, term: null, content: null };
+  try {
+    const params = new URLSearchParams(urlQuery);
+    return {
+      source:   pick(params, 'utm_source'),
+      medium:   pick(params, 'utm_medium'),
+      campaign: pick(params, 'utm_campaign'),
+      term:     pick(params, 'utm_term'),
+      content:  pick(params, 'utm_content'),
+    };
+  } catch {
+    return { source: null, medium: null, campaign: null, term: null, content: null };
+  }
+}

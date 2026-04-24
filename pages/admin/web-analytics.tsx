@@ -35,6 +35,7 @@ interface Summary {
   timeseries: TimeseriesPoint[];
   top_pages: Array<{ path: string; views: number; sessions: number }>;
   top_referrers: Array<{ domain: string; views: number; sessions: number }>;
+  traffic_sources: Array<{ source: string; medium: string | null; campaign: string | null; sessions: number }>;
   countries: Array<{ label: string; sessions: number }>;
   devices: Array<{ label: string; sessions: number }>;
   browsers: Array<{ label: string; sessions: number }>;
@@ -257,6 +258,35 @@ export default function AdminWebAnalytics() {
               <TrafficTimeseriesChart data={summary.timeseries} range={range} />
             </Panel>
 
+            <Panel title="Traffic sources (first-touch attribution — UTM + referrer)">
+              {summary.traffic_sources.length === 0 ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400">No sessions yet</p>
+              ) : (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-12 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider pb-1 px-2">
+                    <span className="col-span-4">Source</span>
+                    <span className="col-span-3">Medium</span>
+                    <span className="col-span-3">Campaign</span>
+                    <span className="col-span-2 text-right">Sessions</span>
+                  </div>
+                  {(() => {
+                    const max = Math.max(...summary.traffic_sources.map((r) => r.sessions), 1);
+                    return summary.traffic_sources.map((r, i) => (
+                      <div key={i} className="relative">
+                        <div className="absolute inset-y-0 left-0 bg-teal-500/10 rounded" style={{ width: `${(r.sessions / max) * 100}%` }} />
+                        <div className="relative grid grid-cols-12 items-center py-1.5 px-2 text-sm">
+                          <span className="col-span-4 truncate font-medium text-gray-900 dark:text-gray-100">{r.source}</span>
+                          <span className="col-span-3 truncate text-gray-600 dark:text-gray-400">{r.medium ?? '—'}</span>
+                          <span className="col-span-3 truncate text-gray-600 dark:text-gray-400">{r.campaign ?? '—'}</span>
+                          <span className="col-span-2 text-right font-medium text-gray-700 dark:text-gray-300 tabular-nums">{r.sessions.toLocaleString('en-ZA')}</span>
+                        </div>
+                      </div>
+                    ));
+                  })()}
+                </div>
+              )}
+            </Panel>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Panel title="Top pages">
                 <Table
@@ -264,7 +294,7 @@ export default function AdminWebAnalytics() {
                   labelCol="Path" valueCol="Views"
                 />
               </Panel>
-              <Panel title="Top referrers">
+              <Panel title="Top referrers (raw document.referrer)">
                 <Table
                   rows={summary.top_referrers.map((r) => ({ label: r.domain, value: r.views }))}
                   labelCol="Source" valueCol="Views"
