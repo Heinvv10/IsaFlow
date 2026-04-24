@@ -69,6 +69,27 @@ export default function PortalPayPage() {
     formRef.current.submit();
   };
 
+  const handleStitchPay = async () => {
+    if (!token) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      const res = await fetch('/api/portal/payments/stitch/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.data?.checkoutUrl) {
+        throw new Error(json.error?.message ?? json.message ?? 'Failed to start payment');
+      }
+      window.location.href = json.data.checkoutUrl as string;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start payment');
+      setSubmitting(false);
+    }
+  };
+
   // ── Success State ───────────────────────────────────────────────────────
   if (isSuccess) {
     return (
@@ -172,8 +193,7 @@ export default function PortalPayPage() {
           </div>
         </div>
 
-        {/* PayFast Payment Button */}
-        {data.payfastFormData ? (
+        {data.payfastFormData && (
           <>
             <form
               ref={formRef}
@@ -206,19 +226,35 @@ export default function PortalPayPage() {
               )}
             </button>
 
-            <div className="mt-4 flex items-center justify-center gap-2 text-xs text-gray-600 dark:text-gray-400">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-              </svg>
-              <span>Secured by PayFast. Card details are never stored on our servers.</span>
+            <div className="my-4 flex items-center gap-3 text-xs text-gray-500">
+              <span className="flex-1 h-px bg-gray-200" />
+              <span>or pay directly from your bank</span>
+              <span className="flex-1 h-px bg-gray-200" />
             </div>
           </>
-        ) : (
-          <div className="text-center py-8 text-gray-500">
-            <p>Online payment is not currently available for this invoice.</p>
-            <p className="text-sm mt-2">Please contact the billing department for alternative payment methods.</p>
-          </div>
         )}
+
+        <button
+          onClick={handleStitchPay}
+          disabled={submitting}
+          className="w-full py-4 bg-indigo-600 text-white rounded-xl font-semibold text-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-3"
+        >
+          {submitting ? (
+            <>
+              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              Redirecting to Stitch…
+            </>
+          ) : (
+            'Pay with Instant EFT (Stitch)'
+          )}
+        </button>
+
+        <div className="mt-4 flex items-center justify-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+          </svg>
+          <span>Secured by Stitch &amp; PayFast. Card and bank details are never stored on our servers.</span>
+        </div>
       </div>
     </PageShell>
   );

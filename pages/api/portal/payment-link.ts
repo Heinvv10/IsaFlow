@@ -15,8 +15,7 @@ import { log } from '@/lib/logger';
 type Row = Record<string, unknown>;
 
 
-async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method === 'GET') {
+async function getHandler(req: NextApiRequest, res: NextApiResponse) {
     const token = req.query.token as string;
     if (!token) return apiResponse.badRequest(res, 'token is required');
     const link = await getPaymentLink(token);
@@ -61,9 +60,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     return apiResponse.success(res, enriched);
-  }
+}
 
-  if (req.method === 'POST') {
+async function postHandler(req: NextApiRequest, res: NextApiResponse) {
     const { invoiceId, clientId, amount } = req.body;
     if (!invoiceId || !clientId || !amount) {
       return apiResponse.badRequest(res, 'invoiceId, clientId, and amount are required');
@@ -91,10 +90,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     const token = await createPaymentLink(invoiceId, clientId, Number(amount));
     return apiResponse.success(res, { token, url: `/portal/pay/${token}` });
-  }
+}
 
+const authedPost = withAuth(postHandler);
+
+async function router(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method === 'GET') return getHandler(req, res);
+  if (req.method === 'POST') return authedPost(req, res);
   return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST']);
 }
 
- 
-export default withAuth(withErrorHandler(handler));
+export default withErrorHandler(router);
