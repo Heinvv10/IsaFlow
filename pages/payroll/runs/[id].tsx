@@ -187,6 +187,11 @@ export default function PayrollRunDetailPage() {
                 title="Compare to the prior run — spot ≥20% swings before approving">
                 <GitCompare className="h-4 w-4" /> Variance
               </Link>
+              <Link href={`/payroll/runs/${runId}/cost-centre-summary`}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg border border-[var(--ff-border-primary)] hover:bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-secondary)] text-sm font-medium"
+                title="Totals per cost centre">
+                Cost centres
+              </Link>
               {canReopen && (
                 <button onClick={reopen} disabled={reopening}
                   className="flex items-center gap-2 px-4 py-2 rounded-lg border border-amber-400 text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-500/10 disabled:opacity-50 text-sm font-medium"

@@ -38,21 +38,43 @@ export default function LoansListPage() {
   const [error, setError] = useState('');
   const [statusFilter, setStatusFilter] = useState<'' | LoanRow['status']>('');
 
+  const [componentsMissing, setComponentsMissing] = useState(false);
+  const [seeding, setSeeding] = useState(false);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
       const qs = statusFilter ? `?status=${statusFilter}` : '';
-      const res = await apiFetch(`/api/payroll/loans${qs}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
+      const [loansRes, compRes] = await Promise.all([
+        apiFetch(`/api/payroll/loans${qs}`),
+        apiFetch('/api/payroll/components'),
+      ]);
+      if (!loansRes.ok) throw new Error(`HTTP ${loansRes.status}`);
+      const json = await loansRes.json();
       setLoans((json.data ?? json) as LoanRow[]);
+      if (compRes.ok) {
+        const compJson = await compRes.json();
+        const components = (compJson.data ?? compJson) as Array<{ sarsSourceCode: string }>;
+        const codes = new Set(components.map(c => c.sarsSourceCode));
+        setComponentsMissing(!codes.has('LOAN') || !codes.has('3801'));
+      }
     } catch {
       setError('Failed to load loans');
     } finally {
       setLoading(false);
     }
   }, [statusFilter]);
+
+  async function seedComponents(): Promise<void> {
+    setSeeding(true);
+    try {
+      const res = await apiFetch('/api/payroll/loans/setup-components', { method: 'POST' });
+      if (res.ok) await load();
+    } finally {
+      setSeeding(false);
+    }
+  }
 
   useEffect(() => { load(); }, [load]);
 
@@ -75,6 +97,18 @@ export default function LoansListPage() {
         </div>
 
         <div className="p-6 space-y-4">
+          {componentsMissing && !loading && (
+            <div className="flex items-center justify-between gap-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+              <div className="text-amber-300">
+                Loan payslip components not configured. Without these, loan payments record but don't appear on payslips.
+              </div>
+              <button onClick={seedComponents} disabled={seeding}
+                className="px-3 py-1.5 rounded-md bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium disabled:opacity-50">
+                {seeding ? 'Creating...' : 'Create loan components'}
+              </button>
+            </div>
+          )}
+
           <div className="flex items-center gap-3">
             <label className="text-sm text-[var(--ff-text-secondary)]">Status</label>
             <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as LoanRow['status'] | '')}

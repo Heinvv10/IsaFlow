@@ -18,6 +18,7 @@ export interface Employee {
   uifExcluded: boolean;
   medicalAidMainMember: boolean;
   medicalAidDependantsCount: number;
+  costCentreId?: string | null;
 }
 
 interface Props {
