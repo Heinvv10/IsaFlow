@@ -15,6 +15,7 @@ export interface PayrollEmployee {
   uifExcluded: boolean;
   medicalAidMainMember: boolean;
   medicalAidDependantsCount: number;
+  costCentreId?: string | null;
 }
 
 export interface PayrollComponent {

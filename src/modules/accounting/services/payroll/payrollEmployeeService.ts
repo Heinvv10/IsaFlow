@@ -21,6 +21,7 @@ function mapRow(r: Row): PayrollEmployee {
     uifExcluded: Boolean(r.uif_excluded),
     medicalAidMainMember: Boolean(r.medical_aid_main_member),
     medicalAidDependantsCount: Number(r.medical_aid_dependants_count) || 0,
+    costCentreId: r.cost_centre_id == null ? null : String(r.cost_centre_id),
   };
 }
 

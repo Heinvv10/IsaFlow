@@ -15,6 +15,7 @@ import {
   type Assignment,
 } from '@/components/payroll/EmployeeComponentsCard';
 import { EmployeeTerminationCard } from '@/components/payroll/EmployeeTerminationCard';
+import { CostCentreAssignmentCard } from '@/components/payroll/CostCentreAssignmentCard';
 
 export default function EmployeeDetailPage() {
   const router = useRouter();
@@ -197,6 +198,14 @@ export default function EmployeeDetailPage() {
             onEnd={endAssignment}
             adding={addingAssignment}
           />
+
+          {employeeId && (
+            <CostCentreAssignmentCard
+              employeeId={employeeId}
+              currentCostCentreId={employee.costCentreId ?? null}
+              onChange={(id) => setEmployee({ ...employee, costCentreId: id })}
+            />
+          )}
 
           {employeeId && <EmployeeTerminationCard employeeId={employeeId} endDate={employee.endDate ?? null} />}
         </div>
