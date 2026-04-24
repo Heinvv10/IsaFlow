@@ -18,6 +18,7 @@ import { sql, withTransaction } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { sendEmail } from '../core/emailService';
+import { BRAND, emailLayout } from '@/lib/email-templates';
 
 export type DunningTone = 'polite' | 'firm' | 'final' | 'legal';
 export type TriggerSource = 'manual' | 'cron' | 'auto';
@@ -281,9 +282,18 @@ export async function sendDunning(input: SendDunningInput): Promise<SendResult> 
   const messageToken = String(sendRow.message_token);
 
   const bodyWithToken = `${rendered.body}\n\n[ref:${messageToken}]`;
-  const html = `<pre style="font-family:system-ui,Arial,sans-serif;white-space:pre-wrap;">${
-    bodyWithToken.replace(/&/g, '&amp;').replace(/</g, '&lt;')
-  }</pre>`;
+  const escapedBody = bodyWithToken
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\n/g, '<br>');
+  const html = emailLayout(`
+    <tr>
+      <td style="padding:36px 32px 28px; font-family:${BRAND.fontStack};
+                 font-size:15px; color:${BRAND.textBody}; line-height:1.6;">
+        ${escapedBody}
+      </td>
+    </tr>`);
 
   const result = await sendEmail({
     to: ctx.customer_email,
