@@ -27,7 +27,7 @@ const CATEGORIES = [
 
 const CreateBody = z
   .object({
-    employeeId: z.string().uuid(),
+    employeeId: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, { message: "Invalid UUID" }),
     category: z.enum(CATEGORIES),
     description: z.string().min(1).max(500),
     provider: z.string().max(200).optional(),

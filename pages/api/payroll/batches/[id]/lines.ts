@@ -24,7 +24,7 @@ import {
 
 const LineSchema = z
   .object({
-    employeeId: z.string().uuid(),
+    employeeId: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, { message: "Invalid UUID" }),
     value: z.number().finite().optional(),
     km: z.number().finite().positive().optional(),
     ratePerKm: z.number().finite().positive().optional(),

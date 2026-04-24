@@ -28,7 +28,7 @@ const PutBody = z
     allocations: z
       .array(
         z.object({
-          costCentreId: z.string().uuid(),
+          costCentreId: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, { message: "Invalid UUID" }),
           percentage: z.number().positive().max(100),
         }),
       )

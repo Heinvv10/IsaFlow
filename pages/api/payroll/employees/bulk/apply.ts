@@ -24,7 +24,7 @@ import {
 const Filter = z
   .object({
     department: z.string().nullable().optional(),
-    costCentreId: z.string().uuid().nullable().optional(),
+    costCentreId: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, { message: "Invalid UUID" }).nullable().optional(),
     employmentType: z.string().nullable().optional(),
   })
   .strict();
@@ -32,7 +32,7 @@ const Filter = z
 const Update = z
   .object({
     department: z.string().optional(),
-    costCentreId: z.string().uuid().nullable().optional(),
+    costCentreId: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, { message: "Invalid UUID" }).nullable().optional(),
     employmentType: z.string().optional(),
   })
   .strict();

@@ -22,7 +22,7 @@ const CreateBody = z
   .object({
     code: z.string().min(1).max(30),
     name: z.string().min(1).max(120),
-    parentId: z.string().uuid().optional().nullable(),
+    parentId: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, { message: "Invalid UUID" }).optional().nullable(),
     notes: z.string().max(1000).optional(),
   })
   .strict();

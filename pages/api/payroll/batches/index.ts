@@ -24,7 +24,7 @@ import {
 const CreateBody = z
   .object({
     batchType: z.enum(['component_values', 'reimbursive_travel']),
-    componentId: z.string().uuid().optional(),
+    componentId: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, { message: "Invalid UUID" }).optional(),
     description: z.string().min(1).max(200),
     periodYear: z.number().int().min(2000).max(2100),
     periodMonth: z.number().int().min(1).max(12),
