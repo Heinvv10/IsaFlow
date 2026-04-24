@@ -36,6 +36,7 @@ interface MappedCustomer { name: string; email?: string; phone?: string; vatNumb
 interface MappedSupplier { name: string; email?: string; phone?: string; vatNumber?: string; contactPerson?: string; }
 interface MappedARInvoice { invoiceNumber: string; customerName: string; invoiceDate: string; dueDate?: string; subtotal: number; taxAmount: number; totalAmount: number; reference?: string; sageId?: number; }
 interface MappedAPInvoice { invoiceNumber: string; supplierName: string; invoiceDate: string; dueDate?: string; subtotal: number; taxAmount: number; totalAmount: number; reference?: string; sageId?: number; }
+interface BankTx { bankAccountId: string; date: string; amount: number; description?: string; reference?: string; }
 
 interface CommitBody {
   companyId?: string;
@@ -44,6 +45,7 @@ interface CommitBody {
     suppliers?:  { records?: MappedSupplier[] };
     arInvoices?: { records?: MappedARInvoice[] };
     apInvoices?: { records?: MappedAPInvoice[] };
+    bankTransactions?: { bankAccountId: string; records: BankTx[] };
   };
 }
 
@@ -260,6 +262,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     suppliers:  { created: 0, skipped: 0, failed: [] as string[] },
     arInvoices: { created: 0, skipped: 0, failed: [] as string[] },
     apInvoices: { created: 0, skipped: 0, failed: [] as string[] },
+    bankTransactions: { created: 0, skipped: 0, failed: [] as string[] },
   };
 
   // Each per-record operation runs in a SAVEPOINT so a single failure
@@ -333,6 +336,54 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         throw err;
       }
     });
+  }
+
+  // Bank transactions — bulk insert in chunks. Idempotent on (bank_account_id,
+  // transaction_date, amount, description) — skip obvious re-imports.
+  const btx = pulled.bankTransactions;
+  if (btx && btx.records?.length > 0) {
+    const BATCH = 500;
+    const accountId = btx.bankAccountId;
+    const accountCheck = (await sql`
+      SELECT 1 FROM gl_accounts WHERE id = ${accountId}::UUID
+        AND company_id = ${companyId}::UUID AND account_subtype = 'bank' LIMIT 1
+    `) as Row[];
+    if (accountCheck.length === 0) {
+      summary.bankTransactions.failed.push(`Bank account ${accountId} not found for company`);
+    } else {
+      for (let start = 0; start < btx.records.length; start += BATCH) {
+        const chunk = btx.records.slice(start, start + BATCH);
+        await withSavepoint(`btx_${start}`, async () => {
+          for (const tx of chunk) {
+            try {
+              const dup = (await sql`
+                SELECT 1 FROM bank_transactions
+                WHERE bank_account_id = ${accountId}::UUID
+                  AND transaction_date = ${tx.date}::DATE
+                  AND amount = ${tx.amount}
+                  AND COALESCE(description, '') = ${tx.description || ''}
+                LIMIT 1
+              `) as Row[];
+              if (dup.length) { summary.bankTransactions.skipped += 1; continue; }
+              await sql`
+                INSERT INTO bank_transactions (
+                  company_id, bank_account_id, transaction_date, amount,
+                  description, reference, status
+                ) VALUES (
+                  ${companyId}::UUID, ${accountId}::UUID, ${tx.date}::DATE, ${tx.amount},
+                  ${tx.description || null}, ${tx.reference || null}, 'imported'
+                )
+              `;
+              summary.bankTransactions.created += 1;
+            } catch (err) {
+              summary.bankTransactions.failed.push(
+                `${tx.date} ${tx.amount}: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
+          }
+        }).catch(() => { /* chunk savepoint — per-record errors already captured */ });
+      }
+    }
   }
 
   log.info('Sage commit complete', { companyId, summary }, 'migration');
