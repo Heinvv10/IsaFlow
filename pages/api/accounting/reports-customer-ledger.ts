@@ -145,15 +145,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, result);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('does not exist')) {
-      const empty: LedgerResult = {
-        customer_name: '',
-        opening_balance: 0,
-        closing_balance: 0,
-        transactions: [],
-      };
-      return apiResponse.success(res, empty);
-    }
     log.error('Customer ledger report failed', { error: message, customerId }, 'accounting-api');
     return apiResponse.internalError(res, err, 'Failed to generate customer ledger');
   }

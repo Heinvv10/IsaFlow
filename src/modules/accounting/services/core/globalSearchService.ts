@@ -127,28 +127,8 @@ async function searchCustomers(companyId: string, pattern: string): Promise<Sear
       icon: 'users',
     }));
   } catch (err) {
-    // Retry without deleted_at in case column does not exist yet
-    try {
-      const rows = await sql`
-        SELECT id, name, account_number
-        FROM customers
-        WHERE company_id = ${companyId}
-          AND (name ILIKE ${pattern} OR account_number ILIKE ${pattern})
-        LIMIT 3
-      ` as { id: string; name: string; account_number: string | null }[];
-
-      return rows.map(r => ({
-        type: 'customer',
-        id: String(r.id),
-        title: String(r.name),
-        subtitle: r.account_number ? String(r.account_number) : '',
-        url: `/accounting/customers?id=${r.id}`,
-        icon: 'users',
-      }));
-    } catch (innerErr) {
-      log.warn('Customer search failed', { error: innerErr }, 'global-search');
-      return [];
-    }
+    log.warn('Customer search failed', { error: err }, 'global-search');
+    return [];
   }
 }
 
@@ -172,27 +152,8 @@ async function searchSuppliers(companyId: string, pattern: string): Promise<Sear
       icon: 'truck',
     }));
   } catch (err) {
-    try {
-      const rows = await sql`
-        SELECT id, name, account_number
-        FROM suppliers
-        WHERE company_id = ${companyId}
-          AND (name ILIKE ${pattern} OR account_number ILIKE ${pattern})
-        LIMIT 3
-      ` as { id: string; name: string; account_number: string | null }[];
-
-      return rows.map(r => ({
-        type: 'supplier',
-        id: String(r.id),
-        title: String(r.name),
-        subtitle: r.account_number ? String(r.account_number) : '',
-        url: `/accounting/suppliers?id=${r.id}`,
-        icon: 'truck',
-      }));
-    } catch (innerErr) {
-      log.warn('Supplier search failed', { error: innerErr }, 'global-search');
-      return [];
-    }
+    log.warn('Supplier search failed', { error: err }, 'global-search');
+    return [];
   }
 }
 
