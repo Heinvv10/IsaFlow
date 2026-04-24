@@ -24,6 +24,8 @@ export interface CompanyAuthedRequest extends NextApiRequest {
   user: { id: string; email?: string; claims: Record<string, unknown> };
   companyId: string;
   companyRole: string;
+  /** Global role from public.users.role — e.g. 'super_admin'. Independent of companyRole. */
+  userGlobalRole: string | null;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -31,7 +33,10 @@ type Handler = (req: any, res: NextApiResponse<any>) => any;
 
 /**
  * Role gate — must be composed inside withAuth.
- * Checks req.companyRole against the ROLE_HIERARCHY.
+ * Passes if EITHER the global users.role OR the per-tenant companyRole
+ * meets the required level. The global role is checked first so that
+ * a platform super_admin isn't locked out of tools by their per-tenant
+ * role (e.g. 'owner' isn't in ROLE_HIERARCHY).
  *
  * Usage: withAuth(withRole('admin')(withErrorHandler(handler)))
  */
@@ -39,7 +44,9 @@ export function withRole(requiredRole: AuthRole) {
   return (handler: Handler): Handler => {
     return async (req: NextApiRequest, res: NextApiResponse) => {
       const authedReq = req as CompanyAuthedRequest;
-      const userRoleLevel = ROLE_HIERARCHY[authedReq.companyRole as AuthRole] ?? 0;
+      const companyLevel = ROLE_HIERARCHY[authedReq.companyRole as AuthRole] ?? 0;
+      const globalLevel = ROLE_HIERARCHY[authedReq.userGlobalRole as AuthRole] ?? 0;
+      const userRoleLevel = Math.max(companyLevel, globalLevel);
       const requiredRoleLevel = ROLE_HIERARCHY[requiredRole] ?? 0;
       if (userRoleLevel < requiredRoleLevel) {
         return res.status(403).json({
@@ -133,6 +140,22 @@ export function withAuth(handler: Handler): NextApiHandler {
         return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Not a member of this company' } });
       }
 
+      // Global role from public.users.role (e.g. 'super_admin'). Separate from
+      // company_users.role — a platform admin is a platform admin regardless
+      // of whether they're also a tenant member. Read under the same app_user
+      // RLS scope so the users_self_read policy covers it.
+      let globalRole: string | null = null;
+      try {
+        const ur = await client.query<{ role: string }>(
+          `SELECT role FROM users WHERE id = $1::uuid LIMIT 1`,
+          [claims.sub]
+        );
+        globalRole = ur.rows[0]?.role ?? null;
+      } catch {
+        // RLS denial or missing user row — treat as no global elevation.
+        globalRole = null;
+      }
+
       (req as CompanyAuthedRequest).user = {
         id: claims.sub,
         email: typeof claims.email === 'string' ? claims.email : undefined,
@@ -140,6 +163,7 @@ export function withAuth(handler: Handler): NextApiHandler {
       };
       (req as CompanyAuthedRequest).companyId = activeCompanyId;
       (req as CompanyAuthedRequest).companyRole = membership.rows[0]!.role;
+      (req as CompanyAuthedRequest).userGlobalRole = globalRole;
 
       // Pentest M23: per-company rate limit for well-known heavy route
       // categories. Keeps a single tenant from saturating the pool with
