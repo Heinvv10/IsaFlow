@@ -68,5 +68,11 @@ export const reportsTab: Tab = {
         { label: 'Evidence Packs', href: '/accounting/audit-packs' },
       ],
     },
+    {
+      section: 'Insights',
+      items: [
+        { label: 'Web Traffic', href: '/accounting/reports/web-traffic' },
+      ],
+    },
   ],
 };
