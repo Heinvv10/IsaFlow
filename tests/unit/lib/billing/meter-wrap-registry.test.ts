@@ -16,7 +16,10 @@ const ROOT = resolve(__dirname, '..', '..', '..', '..');
 // Operations not yet wired (e.g. compliance.export, audit.export, bank.allocate)
 // are intentionally excluded until their route is wrapped.
 const WIRED: Record<FlowOperationCode, string[] | null> = {
-  'bank.import':          ['pages/api/accounting/bank-transactions-import.ts'],
+  // bank.import is metered manually inside the bulk-commit handler so each
+  // file in a bulk import gets its own debit (withFlowMeter charges once
+  // per request, which would underbill multi-file uploads).
+  'bank.import':          ['pages/api/accounting/bank-transactions-bulk-commit.ts'],
   'invoice.create':       ['pages/api/accounting/customer-invoices-create.ts'],
   'report.tb':            ['pages/api/accounting/reports-trial-balance.ts'],
   'afs.generate':         ['pages/api/accounting/afs/generate-pack.ts'],
@@ -49,10 +52,16 @@ describe('withFlowMeter wrap registry', () => {
     for (const rel of files) {
       it(`${code} is wired in ${rel}`, () => {
         const source = readFileSync(resolve(ROOT, rel), 'utf-8');
-        expect(source).toMatch(/from ['"]@\/lib\/billing\/withFlowMeter['"]/);
-        // Match `withFlowMeter('code', ...` or `withFlowMeter("code", ...`.
-        const pattern = new RegExp(`withFlowMeter\\(\\s*['"]${code.replace(/\./g, '\\.')}['"]`);
-        expect(source).toMatch(pattern);
+        // Either wrapped via withFlowMeter, or metered manually with
+        // deductFlows / refundFlows passing the operation code.
+        const escapedCode = code.replace(/\./g, '\\.');
+        const wrapped = new RegExp(`withFlowMeter\\(\\s*['"]${escapedCode}['"]`);
+        const manual = new RegExp(`(deductFlows|refundFlows)\\([^)]*['"]${escapedCode}['"]`);
+        const matchesWrap = wrapped.test(source);
+        const matchesManual = manual.test(source);
+        expect(matchesWrap || matchesManual,
+          `expected ${rel} to call withFlowMeter('${code}', …) or deductFlows/refundFlows(…, '${code}', …)`,
+        ).toBe(true);
       });
     }
   }

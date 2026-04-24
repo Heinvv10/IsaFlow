@@ -59,18 +59,12 @@ test.describe('PAYG — Flow wallet lifecycle', () => {
     expect(latest?.type).toBe('purchase');
     expect(latest?.flows).toBe(smallest.flows);
 
-    // ── 5. Spend one Flow on a metered route (bank.import attempt) ────────
-    // We don't need the import to succeed — we just need the debit header
-    // to show up.  The middleware debits BEFORE the handler runs, so even
-    // a 400 response on an empty body proves the debit fired.
-    //
-    // NOTE: if the bank.import handler returns 4xx, the middleware refunds
-    // the debit — so we can't use this as a proof of debit unless we wire
-    // in a successful call. For a first-pass smoke, we just check that the
-    // metering headers are present (set before the handler runs).
-    const meteredRes = await page.request.post('/api/accounting/bank-transactions-import', {
-      data: {},    // invalid — will 4xx
-    });
+    // ── 5. Spend one Flow on a metered route ──────────────────────────────
+    // Use trial-balance because it's still wrapped in withFlowMeter (which
+    // debits BEFORE the handler runs). The bank-import flow now uses
+    // per-file manual deductFlows in the bulk-commit endpoint, so it
+    // can't be hit with an empty body anymore.
+    const meteredRes = await page.request.get('/api/accounting/reports-trial-balance');
     const balanceAfterHeader = meteredRes.headers()['x-flow-balance-after'];
     expect(balanceAfterHeader, 'withFlowMeter should set X-Flow-Balance-After header').toBeTruthy();
 
