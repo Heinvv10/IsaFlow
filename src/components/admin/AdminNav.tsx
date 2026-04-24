@@ -74,7 +74,15 @@ const NAV_DEFS: NavDef[] = [
   { label: 'Features',    path: '/features',   icon: ToggleRight },
   { label: 'Job Queue',   path: '/job-queue',  icon: Zap },
   { label: 'Audit Trail', path: '/audit',      icon: ScrollText },
-  { label: 'Analytics',   path: '/analytics',  icon: BarChart2 },
+  {
+    label: 'Analytics',
+    path: '/analytics',
+    icon: BarChart2,
+    children: [
+      { label: 'Business',    path: '/analytics',      icon: BarChart2 },
+      { label: 'Web Traffic', path: '/web-analytics',  icon: Activity },
+    ],
+  },
   { label: 'Components',  path: '/components', icon: Palette },
   { label: 'Settings',    path: '/settings',   icon: Settings },
 ];

@@ -5,19 +5,29 @@ import { AuthProvider } from '@/contexts/AuthContext';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { CompanyProvider } from '@/contexts/CompanyContext';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { TrackerScript } from '@/components/analytics/TrackerScript';
 import '../styles/globals.css';
 
 /**
  * Custom App component
  * Wraps all pages with ThemeProvider + AuthProvider
- * Registers service worker for PWA support
+ * Registers service worker for PWA support (production only —
+ * SW caching breaks HMR in dev by pinning old webpack bundles).
  */
 export default function App({ Component, pageProps }: AppProps) {
   useEffect(() => {
-    if ('serviceWorker' in navigator) {
+    if (!('serviceWorker' in navigator)) return;
+
+    if (process.env.NODE_ENV === 'production') {
       navigator.serviceWorker.register('/sw.js').catch(() => {
         // Service worker registration failed — non-critical
       });
+    } else {
+      // Dev: tear down any SW a previous prod build left behind so
+      // webpack hot-updates aren't intercepted from cache.
+      navigator.serviceWorker.getRegistrations().then((regs) => {
+        regs.forEach((r) => { void r.unregister(); });
+      }).catch(() => { /* non-critical */ });
     }
   }, []);
 
@@ -29,6 +39,7 @@ export default function App({ Component, pageProps }: AppProps) {
         <ErrorBoundary>
         <Component {...pageProps} />
         </ErrorBoundary>
+        <TrackerScript />
         <Toaster
           position="top-right"
           containerStyle={{ top: 16, right: 16 }}

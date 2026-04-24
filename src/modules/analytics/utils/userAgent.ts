@@ -1,0 +1,44 @@
+export interface ParsedUA {
+  device: 'mobile' | 'tablet' | 'desktop';
+  browser: string;
+  os: string;
+}
+
+export function parseUserAgent(ua: string): ParsedUA {
+  const s = ua || '';
+  const lower = s.toLowerCase();
+
+  const device: ParsedUA['device'] = /ipad|tablet|playbook|silk(?!.*mobile)/i.test(s)
+    ? 'tablet'
+    : /mobile|iphone|ipod|android.*mobile|blackberry|bb10|opera mini/i.test(s)
+    ? 'mobile'
+    : 'desktop';
+
+  let browser = 'Other';
+  if (lower.includes('edg/')) browser = 'Edge';
+  else if (lower.includes('firefox/')) browser = 'Firefox';
+  else if (lower.includes('opr/') || lower.includes('opera')) browser = 'Opera';
+  else if (lower.includes('chrome/') && !lower.includes('chromium')) browser = 'Chrome';
+  else if (lower.includes('safari/') && !lower.includes('chrome')) browser = 'Safari';
+  else if (lower.includes('chromium')) browser = 'Chromium';
+
+  let os = 'Other';
+  if (/windows nt/i.test(s)) os = 'Windows';
+  else if (/mac os x/i.test(s)) os = 'macOS';
+  else if (/android/i.test(s)) os = 'Android';
+  else if (/iphone|ipad|ipod/i.test(s)) os = 'iOS';
+  else if (/linux/i.test(s)) os = 'Linux';
+  else if (/cros/i.test(s)) os = 'ChromeOS';
+
+  return { device, browser, os };
+}
+
+export function parseReferrer(ref: string | null | undefined): { domain: string | null; path: string | null } {
+  if (!ref) return { domain: null, path: null };
+  try {
+    const u = new URL(ref);
+    return { domain: u.hostname, path: u.pathname };
+  } catch {
+    return { domain: null, path: null };
+  }
+}
