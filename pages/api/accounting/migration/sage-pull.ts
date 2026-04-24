@@ -10,7 +10,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type CompanyAuthedRequest, withRole } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import {
   buildSageAccountsFetchScript,
@@ -113,5 +113,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'POST']);
 }
 
-// Super admin only — ISAFlow internal tool
-export default withAuth(withRole('super_admin')(withErrorHandler(handler)));
+// Owners/admins of a company can re-run the Sage auto-import for their own
+// tenant. Original gate was withRole('super_admin') but company_users has no
+// super_admin rows anywhere — the gate was a brick wall. company-scoped
+// 'owner'/'admin' is the correct gate for a per-tenant migration tool.
+export default withAuth(withErrorHandler(withWriteAccess(handler, { allowedRoles: ['owner', 'admin'] })));
