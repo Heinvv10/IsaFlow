@@ -19,15 +19,17 @@ export const payrollTab: Tab = {
     {
       section: 'Current Period',
       items: [
-        { label: 'Payroll Runs',     href: '/payroll/runs' },
-        { label: 'Leave Capture',    href: '/payroll/leave/new' },
+        { label: 'Payroll Runs',        href: '/payroll/runs' },
+        { label: 'Batch Transactions',  href: '/payroll/batches' },
+        { label: 'Leave Capture',       href: '/payroll/leave/new' },
       ],
     },
     {
       section: 'Employees',
       items: [
-        { label: 'Employees',        href: '/payroll/employees' },
-        { label: 'Add Employee',     href: '/payroll/employees/new' },
+        { label: 'Employees',           href: '/payroll/employees' },
+        { label: 'Add Employee',        href: '/payroll/employees/new' },
+        { label: 'Employee Duplicates', href: '/payroll/duplicates' },
       ],
     },
     {
