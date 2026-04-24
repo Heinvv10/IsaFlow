@@ -128,22 +128,19 @@ export function cleanDescription(desc: string): string {
 /**
  * Extract account number from bank statement text.
  *
- * Strategy (two passes):
+ * Strategy:
  *
- *   Pass 1 — LABELLED match. Looks for patterns like:
- *     "Account Number: 12345678"
- *     "Acc No: 12345678"
- *     "A/C 12345678"
- *   This is the most reliable and runs first. Banks that emit clean
- *   labelled headers (FNB, ABSA on newer statements) land here.
+ *   Pass 1 — LABELLED match. Looks for "Account Number: 12345678",
+ *   "Acc No: …", "A/C …". When the label and digits land on the same
+ *   pdf-parse line this is the authoritative answer.
  *
- *   Pass 2 — UNLABELLED fallback. Some SA banks (notably Standard Bank)
- *   print the account number in the header block without any "Account
- *   Number:" label — e.g. "ISINDA 029 4069625895 0196". Pass 2 scans
- *   the first ~3000 chars of the document for the first 9-13 digit
- *   standalone token (SA consumer/business accounts are typically 9-11
- *   digits). Only runs if Pass 1 failed, so labelled statements always
- *   get the authoritative value.
+ *   Pass 2 — FREQUENCY-RANKED fallback. Account numbers appear in the
+ *   header/footer of EVERY page of an SA bank statement (the legacy
+ *   "first 9-13 digit number" heuristic mis-picks transaction
+ *   reference numbers, which appear once each). We count every 9-13
+ *   digit token, subtract scores for tokens that appear adjacent to
+ *   known false-positive labels (VAT registration, telephone, branch
+ *   codes), and return the highest-scoring candidate.
  *
  * Returns the number with spaces/dashes stripped, or null if nothing
  * plausible is found.
@@ -158,19 +155,83 @@ export function extractAccountNumber(text: string): string | null {
   for (const pattern of labelledPatterns) {
     const match = text.match(pattern);
     if (match?.[1]) {
-      return match[1].replace(/[\s-]/g, '').trim();
+      const cleaned = match[1].replace(/[\s-]/g, '').trim();
+      if (cleaned.length >= 6 && !isLikelyNonAccountToken(text, cleaned)) {
+        return cleaned;
+      }
     }
   }
 
-  // Pass 2: unlabelled fallback. Look in the header region only (first
-  // ~3000 chars) so we don't mis-pick a counterparty account from a
-  // transaction description further down. Find the first 9-13 digit
-  // standalone number — almost always the primary account.
-  const header = text.slice(0, 3000);
-  const unlabelled = header.match(/\b\d{9,13}\b/);
-  if (unlabelled?.[0]) return unlabelled[0];
+  // Pass 2: page-header marker pattern. ABSA (and several other SA
+  // banks) print a per-page header like "VFIBRE 001 4118819618 0001"
+  // — entity name, branch code, account number, statement number.
+  // The third token is the account. Whichever digit token shows up in
+  // this pattern most often is the account number — it appears once
+  // per page, and is far more reliable than raw frequency since
+  // counterparty accounts in transaction lines also recur.
+  const headerPattern = /\b[A-Z][A-Z0-9 ]{2,40}\s+\d{3}\s+(\d{9,13})\s+\d{3,5}\b/g;
+  const headerHits = new Map<string, number>();
+  let headerMatch: RegExpExecArray | null;
+  while ((headerMatch = headerPattern.exec(text)) !== null) {
+    const token = headerMatch[1]!;
+    if (!isLikelyNonAccountToken(text, token)) {
+      headerHits.set(token, (headerHits.get(token) ?? 0) + 1);
+    }
+  }
+  if (headerHits.size > 0) {
+    let bestHeader: string | null = null;
+    let bestHeaderCount = 0;
+    for (const [token, count] of headerHits) {
+      if (count > bestHeaderCount) {
+        bestHeader = token;
+        bestHeaderCount = count;
+      }
+    }
+    if (bestHeader) return bestHeader;
+  }
 
-  return null;
+  // Pass 3: frequency-ranked fallback. Score every 9-13 digit token by
+  // how often it appears, then penalise tokens that sit next to known
+  // non-account labels (VAT/registration/telephone). The account number
+  // is repeated on every page; transaction references are not.
+  const tokens = text.match(/\b\d{9,13}\b/g);
+  if (!tokens || tokens.length === 0) return null;
+
+  const counts = new Map<string, number>();
+  for (const t of tokens) counts.set(t, (counts.get(t) ?? 0) + 1);
+
+  let best: string | null = null;
+  let bestScore = -Infinity;
+  for (const [token, count] of counts) {
+    if (isLikelyNonAccountToken(text, token)) continue;
+    const score = count;
+    if (score > bestScore) {
+      best = token;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+/**
+ * Heuristic: does this digit string sit adjacent to a label that
+ * strongly suggests it is NOT an account number? VAT registration
+ * numbers, company registration numbers, telephone numbers and SARS
+ * tax reference numbers all match the 9-13 digit shape and tend to
+ * appear in every bank statement page header alongside the real
+ * account number.
+ */
+function isLikelyNonAccountToken(text: string, token: string): boolean {
+  const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Look at the 60 chars immediately preceding the token. If any of
+  // these labels appear in that window, treat the token as a false
+  // positive for account-number extraction.
+  const re = new RegExp(
+    '(vat\\s+(?:registration|reg)\\s*(?:no\\.?|num(?:ber)?)?|registration\\s+number|tax\\s+(?:reference|ref)|tel(?:ephone)?\\s*(?:no\\.?|number)?|telephone|branch\\s+code|reg\\s*no\\.?)' +
+      '[^\\d]{0,60}?\\b' + escaped + '\\b',
+    'i',
+  );
+  return re.test(text);
 }
 
 /**
