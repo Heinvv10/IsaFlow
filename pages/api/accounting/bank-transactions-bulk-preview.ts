@@ -31,6 +31,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
+import { checkRateLimit } from '@/lib/rateLimit';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import {
@@ -87,6 +88,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // decoded size to 15 MB so a single request can't pin a worker.
   if (pdfBase64 && Buffer.byteLength(pdfBase64, 'base64') > 15 * 1024 * 1024) {
     return apiResponse.badRequest(res, 'PDF file exceeds 15MB limit');
+  }
+  // Pentest M22: rate-limit the expensive per-file preview flow.
+  if (!(await checkRateLimit(`bank-bulk-preview:${companyId}`, { max: 60, windowSecs: 3600 }))) {
+    return apiResponse.tooManyRequests(res);
   }
 
   const resolvedFileType: StatementFileType = fileType ?? (pdfBase64 ? 'pdf' : 'csv');

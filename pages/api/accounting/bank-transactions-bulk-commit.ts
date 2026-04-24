@@ -42,6 +42,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
+import { checkRateLimit } from '@/lib/rateLimit';
 import { getCompanyPlan } from '@/lib/billing/getCompanyPlan';
 import {
   deductFlows,
@@ -121,6 +122,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Pentest M16: cap decoded base64 size before decoding.
   if (pdfBase64 && Buffer.byteLength(pdfBase64, 'base64') > 15 * 1024 * 1024) {
     return apiResponse.badRequest(res, 'PDF file exceeds 15MB limit');
+  }
+  // Pentest M22: rate-limit the commit to bound DB write pressure.
+  if (!(await checkRateLimit(`bank-bulk-commit:${companyId}`, { max: 60, windowSecs: 3600 }))) {
+    return apiResponse.tooManyRequests(res);
   }
 
   // 1. Verify the chosen bank account belongs to this company.

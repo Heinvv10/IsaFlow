@@ -7,7 +7,18 @@ import { parseCookies, clearAuthCookies, ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE } 
 import { als } from '@/lib/als';
 import { log } from '@/lib/logger';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
+import { checkRateLimit } from '@/lib/rateLimit';
 import { ROLE_HIERARCHY, type AuthRole } from './types';
+
+/**
+ * Route categories that get per-company rate limiting applied inside withAuth
+ * without each handler having to opt in. Pentest M23.
+ * The table is intentionally small — add a pattern here, not a one-off in
+ * each handler.
+ */
+const AUTO_RATE_LIMIT: Array<{ prefix: string; key: string; max: number; windowSecs: number }> = [
+  { prefix: '/api/accounting/reports-', key: 'reports', max: 60, windowSecs: 60 },
+];
 
 export interface CompanyAuthedRequest extends NextApiRequest {
   user: { id: string; email?: string; claims: Record<string, unknown> };
@@ -121,6 +132,25 @@ export function withAuth(handler: Handler): NextApiHandler {
       };
       (req as CompanyAuthedRequest).companyId = activeCompanyId;
       (req as CompanyAuthedRequest).companyRole = membership.rows[0]!.role;
+
+      // Pentest M23: per-company rate limit for well-known heavy route
+      // categories. Keeps a single tenant from saturating the pool with
+      // full-GL aggregations.
+      const path = req.url?.split('?')[0] ?? '';
+      const bucket = AUTO_RATE_LIMIT.find((b) => path.startsWith(b.prefix));
+      if (bucket) {
+        const allowed = await checkRateLimit(
+          `${bucket.key}:${activeCompanyId}`,
+          { max: bucket.max, windowSecs: bucket.windowSecs },
+        );
+        if (!allowed) {
+          await client.query('ROLLBACK');
+          return res.status(429).json({
+            success: false,
+            error: { code: 'RATE_LIMITED', message: 'Too many requests. Please try again shortly.' },
+          });
+        }
+      }
 
       const runHandler = async () =>
         als.run(

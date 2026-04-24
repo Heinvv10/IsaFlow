@@ -59,7 +59,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
   }
   const { companyId } = req as CompanyAuthedRequest;
-  const taxYear = req.query.taxYear ? Number(req.query.taxYear) : new Date().getFullYear();
+  // Pentest M17: bound numeric query params.
+  const taxYearRaw = req.query.taxYear ? Number(req.query.taxYear) : new Date().getFullYear();
+  if (!Number.isInteger(taxYearRaw) || taxYearRaw < 2000 || taxYearRaw > 2100) {
+    return apiResponse.badRequest(res, 'taxYear must be an integer between 2000 and 2100');
+  }
+  const taxYear = taxYearRaw;
 
   const { startMonth, startYear, endMonth, endYear } = taxYearRange(taxYear);
 

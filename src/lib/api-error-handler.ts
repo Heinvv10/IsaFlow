@@ -6,6 +6,7 @@ import { apiLogger } from '@/lib/logger';
 import { runWithRequestContext, generateRequestId } from '@/lib/observability/requestContext';
 import { logRequestCompleted } from '@/lib/observability/requestLogger';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
+import { safeCorsOrigin } from '@/lib/cors';
 
 const SENSITIVE_KEYS = new Set(['password', 'confirmPassword', 'password_hash', 'token', 'secret', 'apiKey', 'api_key']);
 
@@ -67,17 +68,9 @@ export function withErrorHandler(
 
       await runWithRequestContext(requestId, async () => {
       try {
-        // Set CORS headers - restrict to known origins
-        const allowedOrigins = [
-          'https://app.isaflow.co.za',
-          'https://admin.isaflow.co.za',
-          'https://isaflow.co.za',
-          ...(process.env.NODE_ENV === 'development'
-            ? ['http://localhost:3101', 'http://localhost:3004']
-            : []),
-        ];
-        const origin = req.headers.origin;
-        if (origin && allowedOrigins.includes(origin)) {
+        // CORS — single source of truth in src/lib/cors.ts (pentest M11).
+        const origin = safeCorsOrigin(req.headers.origin);
+        if (origin) {
           res.setHeader('Access-Control-Allow-Origin', origin);
           res.setHeader('Vary', 'Origin');
           res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');

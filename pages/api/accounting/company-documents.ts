@@ -11,6 +11,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { checkRateLimit } from '@/lib/rateLimit';
 import { sql } from '@/lib/neon';
 import { isVlmAvailable } from '@/modules/accounting/services/bank/vlmService';
 import { extractStatutoryDocWithVlm } from '@/modules/accounting/services/bank/vlmService';
@@ -102,6 +103,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
     if (!(await validateMembership(companyId))) {
       return apiResponse.forbidden(res, 'You do not have access to this company');
+    }
+    // Pentest M22: 50 MB bodyParser + no rate limit was a bandwidth/memory
+    // DoS vector. 30 uploads/hr per tenant is plenty for document ingest.
+    if (!(await checkRateLimit(`company-docs:${companyId}`, { max: 30, windowSecs: 3600 }))) {
+      return apiResponse.tooManyRequests(res);
     }
 
     const rows = (await sql`

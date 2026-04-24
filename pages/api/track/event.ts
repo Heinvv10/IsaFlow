@@ -17,7 +17,11 @@ function str(v: unknown, max = 1000): string | null {
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  // Pentest M12: add Vary:Origin even on wildcard responses so any CDN
+  // sitting in front doesn't cache the * header and replay it to another
+  // origin should we ever add credentials to this endpoint.
   res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') {

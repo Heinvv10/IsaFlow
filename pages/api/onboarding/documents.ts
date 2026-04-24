@@ -7,6 +7,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { checkRateLimit } from '@/lib/rateLimit';
 import { sql, transaction } from '@/lib/neon';
 
 interface DocumentPayload {
@@ -31,6 +32,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!companyId) return apiResponse.badRequest(res, 'companyId is required');
   if (!documents || !Array.isArray(documents) || documents.length === 0) {
     return apiResponse.badRequest(res, 'documents array is required');
+  }
+  // Pentest H15/M22: cap array length + rate-limit the 50MB bodyParser.
+  if (documents.length > 20) {
+    return apiResponse.badRequest(res, 'Maximum 20 documents per request');
+  }
+  if (!(await checkRateLimit(`onboarding-docs:${companyId}`, { max: 15, windowSecs: 3600 }))) {
+    return apiResponse.tooManyRequests(res);
   }
 
   const ALLOWED_DOC_MIMES = ['application/pdf', 'image/jpeg', 'image/png', 'image/gif'];

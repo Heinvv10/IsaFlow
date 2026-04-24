@@ -39,8 +39,24 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   if (req.method === 'GET') {
     const status = typeof req.query.status === 'string' ? (req.query.status as BatchStatus) : undefined;
     const batchType = typeof req.query.batchType === 'string' ? (req.query.batchType as BatchType) : undefined;
-    const periodYear = req.query.periodYear ? Number(req.query.periodYear) : undefined;
-    const periodMonth = req.query.periodMonth ? Number(req.query.periodMonth) : undefined;
+    // Pentest M17: bound numeric query params — POST path uses Zod with
+    // equivalent ranges, GET was unguarded.
+    let periodYear: number | undefined;
+    if (req.query.periodYear) {
+      const y = Number(req.query.periodYear);
+      if (!Number.isInteger(y) || y < 2000 || y > 2100) {
+        return apiResponse.badRequest(res, 'periodYear must be an integer between 2000 and 2100');
+      }
+      periodYear = y;
+    }
+    let periodMonth: number | undefined;
+    if (req.query.periodMonth) {
+      const m = Number(req.query.periodMonth);
+      if (!Number.isInteger(m) || m < 1 || m > 12) {
+        return apiResponse.badRequest(res, 'periodMonth must be an integer between 1 and 12');
+      }
+      periodMonth = m;
+    }
     const batches = await listBatches(companyId, { status, batchType, periodYear, periodMonth });
     return apiResponse.success(res, batches);
   }

@@ -13,7 +13,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
   }
   const { companyId } = req as CompanyAuthedRequest;
-  const year = req.query.year ? Number(req.query.year) : new Date().getFullYear();
+  // Pentest M17: bound numeric query params.
+  const yearRaw = req.query.year ? Number(req.query.year) : new Date().getFullYear();
+  if (!Number.isInteger(yearRaw) || yearRaw < 2000 || yearRaw > 2100) {
+    return apiResponse.badRequest(res, 'year must be an integer between 2000 and 2100');
+  }
+  const year = yearRaw;
 
   const balances = await listLeaveBalances(companyId, year);
   return apiResponse.success(res, balances);
