@@ -12,6 +12,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth/withAuth';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
+import { checkRateLimit } from '@/lib/rateLimit';
 import { sql } from '@/lib/neon';
 type Row = Record<string, unknown>;
 
@@ -50,6 +51,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const { directors } = req.body as { directors?: DirectorInput[] };
     if (!Array.isArray(directors)) {
       return apiResponse.badRequest(res, 'directors array is required');
+    }
+    // Pentest H15/M22: cap array length (N individual INSERT per item) and
+    // rate-limit the bulk replace.
+    if (directors.length > 50) {
+      return apiResponse.badRequest(res, 'Maximum 50 directors per request');
+    }
+    if (!(await checkRateLimit(`company-directors:${companyId}`, { max: 20, windowSecs: 3600 }))) {
+      return apiResponse.tooManyRequests(res);
     }
 
     const ALLOWED_DOC_MIMES = ['application/pdf', 'image/jpeg', 'image/png', 'image/gif'];
