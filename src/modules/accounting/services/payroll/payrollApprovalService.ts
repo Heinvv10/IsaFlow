@@ -42,7 +42,8 @@ export async function approvePayrollRun(
 
   const currentStatus = String(runRows[0].status);
   const APPROVABLE = ['draft', 'calculated', 'processed'];
-  if (!APPROVABLE.includes(currentStatus)) {
+  const alreadyApprovedButUnposted = currentStatus === 'approved' && runRows[0].journal_entry_id == null;
+  if (!APPROVABLE.includes(currentStatus) && !alreadyApprovedButUnposted) {
     throw new Error(
       `Cannot approve payroll run with status '${currentStatus}' ` +
       `(expected one of: ${APPROVABLE.join(', ')})`
