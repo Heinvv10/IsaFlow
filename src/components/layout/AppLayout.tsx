@@ -39,6 +39,7 @@ import type { ShortcutConfig } from '@/lib/keyboard-shortcuts';
 import { AccountingTour } from '@/components/onboarding/AccountingTour';
 import { SetupGuideButton } from '@/components/onboarding/SetupGuideButton';
 import { ImpersonationBanner } from '@/components/layout/ImpersonationBanner';
+import { PayrollPeriodBar } from '@/components/payroll/PayrollPeriodBar';
 import { DM_Sans } from 'next/font/google';
 
 const dmSans = DM_Sans({ subsets: ['latin'], variable: '--font-dm-sans', display: 'swap' });
@@ -462,10 +463,11 @@ export function AppLayout({ children }: AppLayoutProps) {
 
         {/* Page content */}
         <main
-          className="flex-1 overflow-y-auto p-4 lg:p-6 relative z-0"
+          className="flex-1 overflow-y-auto relative z-0"
           style={{ background: 'var(--ff-canvas-gradient)' }}
         >
-          {children}
+          {router.pathname.startsWith('/payroll') && <PayrollPeriodBar />}
+          <div className="p-4 lg:p-6">{children}</div>
         </main>
       </div>
       </div>

@@ -29,6 +29,7 @@ import {
   Mail,
   Activity,
   Webhook,
+  Receipt,
 } from 'lucide-react';
 
 interface NavDef {
@@ -68,6 +69,14 @@ const NAV_DEFS: NavDef[] = [
       { label: 'Migrations',     path: '/tools/migrations',    icon: ArrowUpDown },
       { label: 'Email Log',      path: '/email-log',           icon: Mail },
       { label: 'Webhooks',       path: '/webhooks',            icon: Webhook },
+    ],
+  },
+  {
+    label: 'Payroll',
+    path: '/payroll',
+    icon: Receipt,
+    children: [
+      { label: 'SARS Codes', path: '/payroll/sars-codes', icon: Receipt },
     ],
   },
   { label: 'Trials',      path: '/trials',     icon: Clock },

@@ -11,6 +11,7 @@ import { useAdminHref } from '@/hooks/useAdminPrefix';
 import {
   ArrowLeft, AlertCircle, Loader2, User, CheckCircle2,
   ShieldOff, ShieldCheck, KeyRound, LogOut, Pencil, RotateCcw, UserCog, LogIn,
+  Briefcase,
 } from 'lucide-react';
 import Link from 'next/link';
 import { UserCompaniesTable, type UserCompany, type CompanyOption } from '@/components/admin/users/UserCompaniesTable';
@@ -18,6 +19,12 @@ import { UserAuditLog } from '@/components/admin/users/UserAuditLog';
 import { UserProfileForm } from '@/components/admin/users/UserProfileForm';
 import { LoginAsModal } from '@/components/admin/users/LoginAsModal';
 import { log } from '@/lib/logger';
+
+interface UserBureau {
+  bureau_id: string;
+  bureau_name: string;
+  role: 'owner' | 'accountant' | 'viewer';
+}
 
 interface UserDetail {
   id: string;
@@ -31,6 +38,8 @@ interface UserDetail {
   login_count: number;
   created_at: string;
   companies: UserCompany[];
+  account_type: 'direct' | 'bureau_owner' | 'bureau_member';
+  bureaus: UserBureau[];
 }
 
 const STATUS_BADGE: Record<string, string> = {
@@ -191,6 +200,15 @@ export default function AdminUserDetailPage() {
     if (ok) { showToast('Company removed'); void load(); }
   }
 
+  async function handleConvertToBureau() {
+    if (!user) return;
+    const suggested = `${user.first_name} ${user.last_name}`.trim() || user.email.split('@')[0]!;
+    const bureauName = window.prompt('Bureau / practice name:', suggested);
+    if (!bureauName || !bureauName.trim()) return;
+    const ok = await doAction('convert-to-bureau', 'POST', { bureauName: bureauName.trim() });
+    if (ok) { showToast('User converted to bureau owner'); void load(); }
+  }
+
   const btnBase  = 'inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border transition-colors disabled:opacity-50';
   const btnGray  = `${btnBase} border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800`;
   const btnBlue  = `${btnBase} border-blue-400 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/10`;
@@ -222,7 +240,19 @@ export default function AdminUserDetailPage() {
               <div>
                 <h2 className="text-xl font-bold text-gray-900 dark:text-white">{user.first_name} {user.last_name}</h2>
                 <p className="text-sm text-gray-500 dark:text-gray-400">{user.email}</p>
-                <span className={`px-2 py-0.5 rounded text-xs font-medium capitalize ${STATUS_BADGE[user.status] ?? ''}`}>{user.status}</span>
+                <div className="flex items-center gap-2 flex-wrap mt-1">
+                  <span className={`px-2 py-0.5 rounded text-xs font-medium capitalize ${STATUS_BADGE[user.status] ?? ''}`}>{user.status}</span>
+                  {user.account_type !== 'direct' && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-purple-500/10 text-purple-600 dark:text-purple-400">
+                      <Briefcase className="w-3 h-3" /> {user.account_type === 'bureau_owner' ? 'Bureau owner' : 'Bureau member'}
+                    </span>
+                  )}
+                  {user.bureaus.map((b) => (
+                    <span key={b.bureau_id} className="text-xs text-gray-500 dark:text-gray-400">
+                      · {b.bureau_name} <span className="text-gray-400">({b.role})</span>
+                    </span>
+                  ))}
+                </div>
               </div>
             </div>
             <div className="flex gap-2 flex-wrap">
@@ -260,6 +290,13 @@ export default function AdminUserDetailPage() {
                 className={`${btnBase} ${confirmAction === 'reset-onboarding' ? 'border-red-500 bg-red-500 text-white' : btnOrange.split(' ').slice(1).join(' ')}`}>
                 <RotateCcw className="w-4 h-4" /> {confirmAction === 'reset-onboarding' ? 'Click to confirm' : 'Reset Onboarding'}
               </button>
+              {user.account_type === 'direct' && (
+                <button onClick={() => void handleConvertToBureau()} disabled={actionLoading}
+                  className={`${btnBase} border-purple-400 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-500/10`}
+                  title="Promote this user to bureau owner so they can manage multiple client companies">
+                  <Briefcase className="w-4 h-4" /> Convert to Bureau
+                </button>
+              )}
             </div>
           </div>
 

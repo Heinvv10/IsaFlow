@@ -2,7 +2,7 @@
  * Payroll Employee Components card — assignment form + list of current assignments.
  * Used by /payroll/employees/[id].
  */
-import { Loader2, Plus, X } from 'lucide-react';
+import { Loader2, Plus, X, Repeat, Calendar } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
 
 export interface Component {
@@ -20,6 +20,7 @@ export interface Assignment {
   amount: number;
   effectiveFrom: string;
   effectiveTo: string | null;
+  isRecurring: boolean;
 }
 
 interface Props {
@@ -28,9 +29,11 @@ interface Props {
   newComponentId: string;
   newAmount: string;
   newFrom: string;
+  newIsRecurring: boolean;
   onNewComponentId: (v: string) => void;
   onNewAmount: (v: string) => void;
   onNewFrom: (v: string) => void;
+  onNewIsRecurring: (v: boolean) => void;
   onAssign: () => void;
   onEnd: (assignmentId: string) => void;
   adding: boolean;
@@ -45,9 +48,11 @@ export function EmployeeComponentsCard({
   newComponentId,
   newAmount,
   newFrom,
+  newIsRecurring,
   onNewComponentId,
   onNewAmount,
   onNewFrom,
+  onNewIsRecurring,
   onAssign,
   onEnd,
   adding,
@@ -56,34 +61,60 @@ export function EmployeeComponentsCard({
     <section className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-4">
       <h2 className="text-sm font-semibold text-[var(--ff-text-primary)] mb-4">Pay Components</h2>
 
-      <div className="flex items-end gap-3 mb-4 pb-4 border-b border-[var(--ff-border-primary)]">
-        <div className="flex-1">
-          <label className={label}>Component</label>
-          <select className={field} value={newComponentId} onChange={e => onNewComponentId(e.target.value)}>
-            <option value="">Select a component…</option>
-            {components.map(c => (
-              <option key={c.id} value={c.id}>{c.name} ({c.componentType})</option>
-            ))}
-          </select>
+      <div className="mb-4 pb-4 border-b border-[var(--ff-border-primary)] space-y-3">
+        <div className="flex items-end gap-3">
+          <div className="flex-1">
+            <label className={label}>Component</label>
+            <select className={field} value={newComponentId} onChange={e => onNewComponentId(e.target.value)}>
+              <option value="">Select a component…</option>
+              {components.map(c => (
+                <option key={c.id} value={c.id}>{c.name} ({c.componentType})</option>
+              ))}
+            </select>
+          </div>
+          <div className="w-40">
+            <label className={label}>Amount (R)</label>
+            <input type="number" step="0.01" className={field}
+              value={newAmount} onChange={e => onNewAmount(e.target.value)} />
+          </div>
+          <div className="w-40">
+            <label className={label}>Effective from</label>
+            <input type="date" className={field}
+              value={newFrom} onChange={e => onNewFrom(e.target.value)} />
+          </div>
+          <button
+            onClick={onAssign}
+            disabled={!newComponentId || !newAmount || adding}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-medium"
+          >
+            {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+            Assign
+          </button>
         </div>
-        <div className="w-40">
-          <label className={label}>Amount (R)</label>
-          <input type="number" step="0.01" className={field}
-            value={newAmount} onChange={e => onNewAmount(e.target.value)} />
+        <div className="flex items-center gap-2">
+          <span className={label} style={{ marginBottom: 0 }}>Frequency:</span>
+          <div className="inline-flex rounded-lg border border-[var(--ff-border-primary)] overflow-hidden">
+            <button
+              type="button"
+              onClick={() => onNewIsRecurring(true)}
+              className={`flex items-center gap-1 px-3 py-1.5 text-xs ${newIsRecurring ? 'bg-teal-500/10 text-teal-400' : 'text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)]'}`}
+            >
+              <Repeat className="h-3 w-3" /> Recurring (every period)
+            </button>
+            <button
+              type="button"
+              onClick={() => onNewIsRecurring(false)}
+              className={`flex items-center gap-1 px-3 py-1.5 text-xs border-l border-[var(--ff-border-primary)] ${!newIsRecurring ? 'bg-amber-500/10 text-amber-400' : 'text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)]'}`}
+            >
+              <Calendar className="h-3 w-3" /> Once-off (this period only)
+            </button>
+          </div>
+          <span className="text-xs text-[var(--ff-text-tertiary)]">
+            {newIsRecurring
+              ? 'Auto-applies to every payroll run from the effective date.'
+              : 'Auto-ends at month-end of the effective date — won\'t carry into next period.'}
+          </span>
         </div>
-        <div className="w-40">
-          <label className={label}>Effective from</label>
-          <input type="date" className={field}
-            value={newFrom} onChange={e => onNewFrom(e.target.value)} />
-        </div>
-        <button
-          onClick={onAssign}
-          disabled={!newComponentId || !newAmount || adding}
-          className="flex items-center gap-2 px-3 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-medium"
-        >
-          {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-          Assign
-        </button>
       </div>
 
       {assignments.length === 0 ? (
@@ -94,6 +125,7 @@ export function EmployeeComponentsCard({
             <tr className="border-b border-[var(--ff-border-primary)] text-left">
               <th className="py-2 text-[var(--ff-text-secondary)] font-medium">Component</th>
               <th className="py-2 text-[var(--ff-text-secondary)] font-medium">Type</th>
+              <th className="py-2 text-[var(--ff-text-secondary)] font-medium">Frequency</th>
               <th className="py-2 text-[var(--ff-text-secondary)] font-medium text-right">Amount</th>
               <th className="py-2 text-[var(--ff-text-secondary)] font-medium">From</th>
               <th className="py-2 text-[var(--ff-text-secondary)] font-medium">To</th>
@@ -105,6 +137,17 @@ export function EmployeeComponentsCard({
               <tr key={a.id} className="border-b border-[var(--ff-border-primary)] last:border-0">
                 <td className="py-2 text-[var(--ff-text-primary)]">{a.componentName}</td>
                 <td className="py-2 text-[var(--ff-text-secondary)] capitalize">{a.componentType}</td>
+                <td className="py-2">
+                  {a.isRecurring ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-teal-500/10 text-teal-400">
+                      <Repeat className="h-3 w-3" /> Recurring
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-400">
+                      <Calendar className="h-3 w-3" /> Once-off
+                    </span>
+                  )}
+                </td>
                 <td className="py-2 text-right font-mono text-[var(--ff-text-primary)]">{formatCurrency(a.amount)}</td>
                 <td className="py-2 text-[var(--ff-text-secondary)]">{a.effectiveFrom.slice(0, 10)}</td>
                 <td className="py-2 text-[var(--ff-text-secondary)]">{a.effectiveTo ? a.effectiveTo.slice(0, 10) : '—'}</td>

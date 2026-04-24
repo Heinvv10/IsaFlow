@@ -39,11 +39,12 @@ async function handler(
 
   // POST — assign a component to the employee
   if (req.method === 'POST') {
-    const { componentId, amount, effectiveFrom, effectiveTo } = req.body as {
+    const { componentId, amount, effectiveFrom, effectiveTo, isRecurring } = req.body as {
       componentId?: string;
       amount?: number;
       effectiveFrom?: string;
       effectiveTo?: string;
+      isRecurring?: boolean;
     };
 
     if (!componentId) return apiResponse.badRequest(res, 'componentId is required');
@@ -57,6 +58,7 @@ async function handler(
       Number(amount),
       new Date(effectiveFrom),
       effectiveTo ? new Date(effectiveTo) : undefined,
+      isRecurring !== false, // default true
     );
 
     res.status(201).json({ success: true, data: assignment });

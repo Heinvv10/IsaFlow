@@ -13,6 +13,7 @@ import {
 } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { calculatePayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
+import { PayrollRunLockedError } from '@/modules/accounting/services/payroll/payrollRunLock';
 
 async function handler(
   req: AuthenticatedNextApiRequest,
@@ -29,8 +30,15 @@ async function handler(
     return apiResponse.badRequest(res, 'Invalid run ID');
   }
 
-  const summary = await calculatePayrollRun(id, companyId);
-  return apiResponse.success(res, summary);
+  try {
+    const summary = await calculatePayrollRun(id, companyId);
+    return apiResponse.success(res, summary);
+  } catch (err) {
+    if (err instanceof PayrollRunLockedError) {
+      return apiResponse.badRequest(res, err.message, { lockedStatus: err.status });
+    }
+    throw err;
+  }
 }
 
 export default withAuth(withErrorHandler(withCsrf(handler)));

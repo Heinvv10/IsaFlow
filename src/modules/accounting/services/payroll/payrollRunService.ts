@@ -6,6 +6,7 @@ import { getEmployeeComponents } from './payrollComponentService';
 import { calculatePayrollLine } from './payrollCalculator';
 import { validateEmployee, validatePayrollLine } from './validationEngine';
 import { getTaxYear } from './taxTables';
+import { isPayrollRunLocked, PayrollRunLockedError } from './payrollRunLock';
 import type { EmployeeComponent, PayrollPeriod } from './payrollTypes';
 import {
   buildTerminationComponents,
@@ -102,6 +103,9 @@ export async function calculatePayrollRun(
   if (runRows.length === 0 || !runRows[0]) throw new Error('Payroll run not found');
 
   const run = runRows[0];
+  if (isPayrollRunLocked(String(run.status))) {
+    throw new PayrollRunLockedError(String(run.status));
+  }
   const period: PayrollPeriod = {
     month: Number(run.period_month),
     year: Number(run.period_year),

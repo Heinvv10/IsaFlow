@@ -11,6 +11,7 @@ export interface EmployeeComponentAssignment {
   amount: number;
   effectiveFrom: Date;
   effectiveTo: Date | null;
+  isRecurring: boolean;
 }
 
 export type EmployeeComponentAssignmentWithMeta = EmployeeComponentAssignment & {
@@ -28,7 +29,14 @@ function mapAssignment(r: Row): EmployeeComponentAssignment {
     effectiveTo: r.effective_to
       ? r.effective_to instanceof Date ? r.effective_to : new Date(String(r.effective_to))
       : null,
+    isRecurring: r.is_recurring === false ? false : true,
   };
+}
+
+/** Last day of the month containing `d`, in YYYY-MM-DD form. */
+function endOfMonthIso(d: Date): string {
+  const last = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+  return last.toISOString().slice(0, 10);
 }
 
 async function assertEmployeeInCompany(employeeId: string, companyId: string): Promise<void> {
@@ -48,23 +56,32 @@ export async function assignComponentToEmployee(
   amount: number,
   effectiveFrom: Date,
   effectiveTo?: Date,
+  isRecurring: boolean = true,
 ): Promise<EmployeeComponentAssignment> {
   await assertEmployeeInCompany(employeeId, companyId);
 
-  log.info('Assigning component to employee', { companyId, employeeId, componentId }, 'payrollEmployeeComponentService');
+  log.info('Assigning component to employee', { companyId, employeeId, componentId, isRecurring }, 'payrollEmployeeComponentService');
 
   const effectiveFromStr = effectiveFrom.toISOString().slice(0, 10);
-  const effectiveToStr = effectiveTo ? effectiveTo.toISOString().slice(0, 10) : null;
+  // Once-off → auto-cap effective_to at end of effective_from's month so the
+  // assignment dies after the period it was captured for. Caller-supplied
+  // effectiveTo wins if provided.
+  const effectiveToStr = effectiveTo
+    ? effectiveTo.toISOString().slice(0, 10)
+    : isRecurring
+    ? null
+    : endOfMonthIso(effectiveFrom);
 
   const rows = (await sql`
     INSERT INTO payroll_employee_components (
-      employee_id, component_id, amount, effective_from, effective_to
+      employee_id, component_id, amount, effective_from, effective_to, is_recurring
     ) VALUES (
       ${employeeId}::uuid,
       ${componentId}::uuid,
       ${amount},
       ${effectiveFromStr},
-      ${effectiveToStr}
+      ${effectiveToStr},
+      ${isRecurring}
     )
     RETURNING *
   `) as Row[];
@@ -102,7 +119,7 @@ export async function listEmployeeComponentAssignments(
   const rows = (await sql`
     SELECT
       pec.id, pec.employee_id, pec.component_id, pec.amount,
-      pec.effective_from, pec.effective_to,
+      pec.effective_from, pec.effective_to, pec.is_recurring,
       pc.name AS component_name,
       pc.component_type
     FROM payroll_employee_components pec

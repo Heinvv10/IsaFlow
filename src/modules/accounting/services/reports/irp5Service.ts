@@ -1,8 +1,9 @@
 /**
  * IRP5/IT3(a) Certificate Generation Service
- * SARS source codes, certificate building, EMP501 reconciliation.
- * Pure business logic — no database dependencies.
+ * Certificate building + EMP501 reconciliation. Source codes are looked up
+ * via sarsCodesService (DB-backed, year-effective) — no longer pure logic.
  */
+import { getSarsCode, categoryToComponentType } from '@/modules/accounting/services/payroll/sarsCodesService';
 
 export interface IRP5EmployeeData {
   grossSalary: number;
@@ -59,32 +60,6 @@ export interface EMP501Summary {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// SARS SOURCE CODES
-// ═══════════════════════════════════════════════════════════════════════════
-
-export const SARS_SOURCE_CODES: Record<string, { description: string; category: 'income' | 'deduction' | 'employer' }> = {
-  '3601': { description: 'Gross salary/wages', category: 'income' },
-  '3605': { description: 'Annual bonus', category: 'income' },
-  '3701': { description: 'Commission', category: 'income' },
-  '3702': { description: 'Travel allowance', category: 'income' },
-  '3703': { description: 'Reimbursive travel allowance', category: 'income' },
-  '3713': { description: 'Other allowances', category: 'income' },
-  '3801': { description: 'Overtime payments', category: 'income' },
-  '3802': { description: 'Lump sum payments', category: 'income' },
-  '3810': { description: 'Leave pay', category: 'income' },
-  '3815': { description: 'Restraint of trade', category: 'income' },
-  '4001': { description: 'Pension fund contributions (employee)', category: 'deduction' },
-  '4002': { description: 'Provident fund contributions (employee)', category: 'deduction' },
-  '4003': { description: 'Medical aid contributions (employee)', category: 'deduction' },
-  '4004': { description: 'Retirement annuity contributions', category: 'deduction' },
-  '4005': { description: 'Donations (Section 18A)', category: 'deduction' },
-  '4102': { description: 'PAYE (Pay As You Earn)', category: 'deduction' },
-  '4141': { description: 'UIF contributions (employee)', category: 'deduction' },
-  '4142': { description: 'UIF contributions (employer)', category: 'employer' },
-  '4150': { description: 'SDL (Skills Development Levy)', category: 'employer' },
-};
-
-// ═══════════════════════════════════════════════════════════════════════════
 // SOURCE CODE MAPPING
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -103,14 +78,18 @@ const CODE_MAPPING: Array<{ code: string; field: keyof IRP5EmployeeData }> = [
   { code: '4150', field: 'sdl' },
 ];
 
-export function calculateIRP5SourceCodes(data: IRP5EmployeeData): SourceCodeEntry[] {
+export async function calculateIRP5SourceCodes(
+  data: IRP5EmployeeData,
+  taxYear: number
+): Promise<SourceCodeEntry[]> {
   const entries: SourceCodeEntry[] = [];
   for (const mapping of CODE_MAPPING) {
     const amount = data[mapping.field];
     if (amount && amount > 0) {
+      const sarsCode = await getSarsCode(mapping.code, taxYear);
       entries.push({
         code: mapping.code,
-        description: SARS_SOURCE_CODES[mapping.code]?.description || '',
+        description: sarsCode?.description ?? '',
         amount: Math.round(amount * 100) / 100,
       });
     }
@@ -122,7 +101,7 @@ export function calculateIRP5SourceCodes(data: IRP5EmployeeData): SourceCodeEntr
 // IRP5 CERTIFICATE
 // ═══════════════════════════════════════════════════════════════════════════
 
-export function buildIRP5Certificate(input: {
+export async function buildIRP5Certificate(input: {
   employeeData: IRP5EmployeeData;
   employeeName: string;
   idNumber: string;
@@ -132,17 +111,17 @@ export function buildIRP5Certificate(input: {
   taxYear: number;
   periodStart: string;
   periodEnd: string;
-}): IRP5Certificate {
-  const sourceCodes = calculateIRP5SourceCodes(input.employeeData);
+}): Promise<IRP5Certificate> {
+  const sourceCodes = await calculateIRP5SourceCodes(input.employeeData, input.taxYear);
 
-  const incomeCodes = sourceCodes.filter(sc => {
-    const def = SARS_SOURCE_CODES[sc.code];
-    return def?.category === 'income';
-  });
-  const deductionCodes = sourceCodes.filter(sc => {
-    const def = SARS_SOURCE_CODES[sc.code];
-    return def?.category === 'deduction';
-  });
+  const codeCategories = await Promise.all(
+    sourceCodes.map(async (sc) => {
+      const def = await getSarsCode(sc.code, input.taxYear);
+      return { sc, coarse: def ? categoryToComponentType(def.category) : null };
+    })
+  );
+  const incomeCodes = codeCategories.filter((x) => x.coarse === 'income').map((x) => x.sc);
+  const deductionCodes = codeCategories.filter((x) => x.coarse === 'deduction').map((x) => x.sc);
 
   const totalGrossIncome = Math.round(incomeCodes.reduce((s, c) => s + c.amount, 0) * 100) / 100;
   const totalDeductions = Math.round(deductionCodes.reduce((s, c) => s + c.amount, 0) * 100) / 100;

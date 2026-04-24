@@ -163,6 +163,7 @@ export async function getUserDetail(
       u.last_login,
       u.suspended_at,
       u.suspended_reason,
+      u.account_type,
       COALESCE(
         (SELECT COUNT(*) FROM user_sessions s WHERE s.user_id = u.id)::int,
         0
@@ -175,6 +176,20 @@ export async function getUserDetail(
 
   if (rows.length === 0) return null;
   const r = rows[0] as Row;
+
+  const bureauRows = await sql`
+    SELECT bu.bureau_id, b.name AS bureau_name, bu.role
+      FROM bureau_users bu
+      JOIN bureaus b ON b.id = bu.bureau_id
+     WHERE bu.user_id = ${userId}
+     ORDER BY b.name
+  `;
+
+  const bureaus = (bureauRows as Row[]).map((b) => ({
+    bureau_id: b.bureau_id as string,
+    bureau_name: b.bureau_name as string,
+    role: b.role as 'owner' | 'accountant' | 'viewer',
+  }));
 
   const companyRows = await sql`
     SELECT
@@ -214,6 +229,8 @@ export async function getUserDetail(
     suspended_at: toIso(r.suspended_at),
     suspended_reason: r.suspended_reason as string | null,
     companies,
+    account_type: (r.account_type as 'direct' | 'bureau_owner' | 'bureau_member' | null) ?? 'direct',
+    bureaus,
   };
 }
 
