@@ -5,12 +5,27 @@
 
 import path from 'path';
 
-const STORAGE_ROOT = process.env.AFS_STORAGE_ROOT ?? path.join(process.cwd(), 'storage');
+const STORAGE_ROOT = path.resolve(
+  process.env.AFS_STORAGE_ROOT ?? path.join(process.cwd(), 'storage'),
+);
+
+/**
+ * Defence-in-depth guard against path-traversal. Currently all callers pass
+ * DB-sourced UUIDs so traversal isn't practical, but this asserts the
+ * invariant explicitly (pentest L15).
+ */
+function assertWithinRoot(p: string): string {
+  const resolved = path.resolve(p);
+  if (!resolved.startsWith(STORAGE_ROOT + path.sep) && resolved !== STORAGE_ROOT) {
+    throw new Error('Resolved AFS path escaped STORAGE_ROOT');
+  }
+  return resolved;
+}
 
 export function afsSignedPdfPath(companyId: string, documentId: string): string {
-  return path.join(STORAGE_ROOT, 'afs-signed', companyId, `${documentId}.pdf`);
+  return assertWithinRoot(path.join(STORAGE_ROOT, 'afs-signed', companyId, `${documentId}.pdf`));
 }
 
 export function afsHtmlPath(companyId: string, documentId: string): string {
-  return path.join(STORAGE_ROOT, 'afs-html', companyId, `${documentId}.html`);
+  return assertWithinRoot(path.join(STORAGE_ROOT, 'afs-html', companyId, `${documentId}.html`));
 }

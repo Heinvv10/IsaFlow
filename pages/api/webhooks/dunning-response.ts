@@ -30,14 +30,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
     return;
   }
 
+  // Pentest L18: fail-closed secret verification. Previously, a missing env
+  // var silently skipped the check — webhook was world-writable in dev or
+  // any environment where the secret wasn't configured.
   const expectedSecret = process.env.DUNNING_WEBHOOK_SECRET;
-  if (expectedSecret) {
-    const incoming = req.headers['x-webhook-secret'];
-    if (incoming !== expectedSecret) {
-      log.warn('dunning-response unauthorized', { ip: req.socket.remoteAddress }, 'dunning-webhook');
-      apiResponse.unauthorized(res);
-      return;
-    }
+  if (!expectedSecret) {
+    log.error('DUNNING_WEBHOOK_SECRET not set — rejecting webhook', undefined, 'dunning-webhook');
+    res.status(503).json({ success: false, error: { code: 'WEBHOOK_MISCONFIGURED', message: 'Webhook misconfigured' } });
+    return;
+  }
+  if (req.headers['x-webhook-secret'] !== expectedSecret) {
+    log.warn('dunning-response unauthorized', { ip: req.socket.remoteAddress }, 'dunning-webhook');
+    apiResponse.unauthorized(res);
+    return;
   }
 
   const body = req.body ?? {};

@@ -2,11 +2,15 @@
 // All fields encrypted at rest (tokens, secrets) depend on this key being present.
 // PORTAL_JWT_SECRET added (pentest L3) — used by both AFS portal and legacy AR
 // portal (post-H1 migration) for session token signing.
+// PLATFORM_ADMIN_DATABASE_URL added (pentest L5) — the admin pool connects as
+// a BYPASSRLS role, so a misconfigured URL must fail at boot, not lazy-throw
+// the first time an admin request lands.
 const REQUIRED_VARS = [
   'DATABASE_URL',
   'JWT_SECRET',
   'ENCRYPTION_KEY',
   'PORTAL_JWT_SECRET',
+  'PLATFORM_ADMIN_DATABASE_URL',
 ] as const;
 const RECOMMENDED_VARS = ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASS'] as const;
 

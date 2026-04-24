@@ -17,6 +17,15 @@ const handler: NextApiHandler = async (req, res) => {
   }
   try {
     const claims = await verifyToken(recoveryToken);
+    // Pentest L2: ensure this is a GoTrue "recovery" token specifically.
+    // Previously, any valid GoTrue access token (e.g. a normal session JWT)
+    // would pass verifyToken and could then reset any account referenced by
+    // `sub`. Recovery tokens carry `type: 'recovery'` in their claims.
+    const claimType = (claims as unknown as { type?: unknown }).type;
+    if (claimType !== 'recovery') {
+      log.warn('reset-password rejected — token is not a recovery token', { claimType }, 'Auth');
+      return res.status(400).json({ success: false, error: { code: 'INVALID_RECOVERY_TOKEN', message: 'Invalid or expired reset link' } });
+    }
     await adminUpdateUser(claims.sub, { password: newPassword });
     return res.status(200).json({ success: true, data: null });
   } catch (err) {

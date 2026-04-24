@@ -21,8 +21,21 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { code, state, error } = req.query;
 
   if (error) {
-    // User cancelled or Stitch returned error
-    return res.redirect('/accounting/bank-accounts?feed_error=' + encodeURIComponent(String(error)));
+    // Pentest L11: reflect only known Stitch error codes — don't echo
+    // arbitrary query-string values back into the destination URL.
+    const KNOWN_STITCH_ERRORS = [
+      'access_denied',
+      'server_error',
+      'temporarily_unavailable',
+      'invalid_request',
+      'invalid_scope',
+      'unauthorized_client',
+      'unsupported_response_type',
+    ];
+    const safeError = typeof error === 'string' && KNOWN_STITCH_ERRORS.includes(error)
+      ? error
+      : 'unknown_error';
+    return res.redirect('/accounting/bank-accounts?feed_error=' + safeError);
   }
 
   if (!code || !state) {

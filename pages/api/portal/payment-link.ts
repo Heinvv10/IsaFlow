@@ -67,6 +67,11 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
     if (!invoiceId || !clientId || !amount) {
       return apiResponse.badRequest(res, 'invoiceId, clientId, and amount are required');
     }
+    // Pentest L14: reject negative / Infinity / NaN amounts.
+    const amountNum = Number(amount);
+    if (!Number.isFinite(amountNum) || amountNum <= 0) {
+      return apiResponse.badRequest(res, 'amount must be a positive number');
+    }
 
     // Resolve the authenticated user's company
     const userId = (req as AuthenticatedNextApiRequest).user.id;
@@ -88,7 +93,7 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
     `) as Row[];
     if (invoice.length === 0) return apiResponse.notFound(res, 'Invoice not found');
 
-    const token = await createPaymentLink(invoiceId, clientId, Number(amount));
+    const token = await createPaymentLink(invoiceId, clientId, amountNum);
     return apiResponse.success(res, { token, url: `/portal/pay/${token}` });
 }
 
