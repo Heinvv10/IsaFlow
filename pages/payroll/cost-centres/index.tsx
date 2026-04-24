@@ -87,7 +87,7 @@ export default function CostCentresPage() {
           });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        setError(j.message ?? j.error ?? 'GL mapping save failed');
+        setError(j.error?.message ?? j.message ?? 'GL mapping save failed');
         return;
       }
       await load();
@@ -113,7 +113,7 @@ export default function CostCentresPage() {
       });
       if (!res.ok) {
         const json = await res.json().catch(() => ({}));
-        setError(json.message ?? json.error ?? 'Create failed');
+        setError(json.error?.message ?? json.message ?? 'Create failed');
         return;
       }
       setNewCode('');
@@ -140,7 +140,7 @@ export default function CostCentresPage() {
       });
       if (!res.ok) {
         const json = await res.json().catch(() => ({}));
-        setError(json.message ?? 'Save failed');
+        setError(json.error?.message ?? json.message ?? 'Save failed');
       } else {
         setEditingId(null);
         await load();

@@ -144,7 +144,7 @@ export default function NewLoanPage() {
       });
       const json = await res.json();
       if (!res.ok) {
-        setError(json.message ?? json.error ?? 'Create failed');
+        setError(json.error?.message ?? json.message ?? 'Create failed');
         return;
       }
       const id = (json.data ?? json).id as string;

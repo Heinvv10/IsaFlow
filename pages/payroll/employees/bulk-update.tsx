@@ -109,7 +109,7 @@ export default function BulkUpdatePage() {
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        setError(j.message ?? j.error ?? 'Preview failed');
+        setError(j.error?.message ?? j.message ?? 'Preview failed');
         setPreview(null);
         return;
       }
@@ -135,7 +135,7 @@ export default function BulkUpdatePage() {
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        setError(j.message ?? j.error ?? 'Apply failed');
+        setError(j.error?.message ?? j.message ?? 'Apply failed');
         return;
       }
       const json = await res.json();

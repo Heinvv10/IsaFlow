@@ -53,7 +53,7 @@ export function PayScaleCard({ employeeId, currentPayScaleId, onChange }: Props)
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        setError(j.message ?? j.error ?? 'Save failed');
+        setError(j.error?.message ?? j.message ?? 'Save failed');
         return;
       }
       onChange(payScaleId);

@@ -166,7 +166,7 @@ export default function BatchGridPage() {
       });
       const json = await res.json();
       if (!res.ok) {
-        setError(json.message ?? json.error ?? 'Save failed');
+        setError(json.error?.message ?? json.message ?? 'Save failed');
         return;
       }
       setDrafts([emptyDraft]);
@@ -212,7 +212,7 @@ export default function BatchGridPage() {
       const res = await apiFetch(`/api/payroll/batches/${id}/validate`, { method: 'POST' });
       const json = await res.json();
       if (!res.ok) {
-        setError(json.message ?? json.error ?? 'Validate failed');
+        setError(json.error?.message ?? json.message ?? 'Validate failed');
         return;
       }
       const payload = (json.data ?? json) as { ok: boolean; errors: unknown[]; totalLines: number };
@@ -233,7 +233,7 @@ export default function BatchGridPage() {
       const res = await apiFetch(`/api/payroll/batches/${id}/post`, { method: 'POST' });
       const json = await res.json();
       if (!res.ok) {
-        setError(json.message ?? json.error ?? 'Post failed');
+        setError(json.error?.message ?? json.message ?? 'Post failed');
         return;
       }
       const payload = (json.data ?? json) as { inserted: number };
