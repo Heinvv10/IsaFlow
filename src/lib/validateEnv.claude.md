@@ -1,24 +1,27 @@
-# `src/lib/validateEnv.ts`
+# validateEnv.ts
 
 ## Purpose
-Startup guard that throws if any required environment variable is missing and warns to stderr for recommended-but-optional ones.
+Boot-time environment-variable guard. Hard-fails the process if any REQUIRED var is missing; warns to stderr for RECOMMENDED vars.
 
 ## Key exports
-
-- `validateEnv() → void` — call once at server startup (e.g. `next.config.js` or the app entry point). Throws `Error` listing all missing required vars; writes a warning line to `process.stderr` for missing recommended vars.
-
-## Required variables
-`DATABASE_URL`, `JWT_SECRET`, `ENCRYPTION_KEY`
-
-## Recommended variables
-`SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`
+- `validateEnv(): void` — throws `Missing required environment variables: ...` when any REQUIRED var is unset; writes a `[env] Missing recommended ...` line to stderr for missing RECOMMENDED vars
 
 ## Dependencies
-None — pure Node.js (`process.env`).
+None — pure `process.env`.
 
 ## Critical notes
-- **`ENCRYPTION_KEY` is required**: removing it from `REQUIRED_VARS` would silently allow `encryption.ts` to soft-fail and store tokens as plaintext.
-- **Throws, not warns** on missing required vars — the process should not start without them; catch and handle in the startup script if a custom exit message is needed.
-- **Recommended-var warning uses `process.stderr.write`** directly to avoid triggering the no-`console` lint rule.
-- **Not comprehensive**: `SENTRY_DSN`, `REDIS_URL`, `NEXT_PUBLIC_*` env vars are not listed — they are handled by the consumers that need them (Redis degrades gracefully; Sentry checks `SENTRY_ENABLED`).
-- Add new required vars to `REQUIRED_VARS` (typed `as const`) whenever a new secret is introduced that the app cannot start without.
+- **REQUIRED vars** (app will NOT start without these):
+  - `DATABASE_URL` — primary Postgres connection
+  - `JWT_SECRET` — user session tokens
+  - `ENCRYPTION_KEY` — AES-256-GCM key for data at rest (tokens, stashes). App MUST fail at boot without this — do not lazy-check, otherwise `encryptToken` soft-fails and stores plaintext.
+  - `PORTAL_JWT_SECRET` (pentest L3) — AFS portal and legacy AR portal (post-H1) session token signing; separate from `JWT_SECRET`.
+  - `PLATFORM_ADMIN_DATABASE_URL` (pentest L5) — admin pool connects as a BYPASSRLS role; misconfiguration must fail at boot, not lazy-throw on the first admin request.
+  - `IMPERSONATION_JWT_SECRET` (pentest L1) — dedicated secret for short-lived admin→tenant impersonation tokens; MUST be separate from `JWT_SECRET` so an exfiltrated user-session key cannot forge impersonation tokens.
+- **RECOMMENDED vars** (warn only): `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS` — missing these means email is broken but the app still boots.
+- Uses `process.stderr.write` for the warning path to avoid tripping the `no-console` lint rule.
+- Must be invoked at the very top of the Next.js server bootstrap (typically `next.config.js` or a `_app.ts` server-side branch) — not on hot-reload paths.
+- **Not comprehensive**: `SENTRY_DSN`, `REDIS_URL`, `NEXT_PUBLIC_*` env vars are not listed. They are handled by the consumers that need them (Redis degrades gracefully; Sentry checks `SENTRY_ENABLED`).
+- Adding a new REQUIRED var is a breaking change for every existing deploy; coordinate with the ops runbook and update `.env.example` in the same PR. Keep the array typed `as const`.
+
+## Recent changes
+- 2026-04-24: PR-4 separated `IMPERSONATION_JWT_SECRET` from `JWT_SECRET` (pentest L1); L-tier cleanup added `PLATFORM_ADMIN_DATABASE_URL` (L5) and `PORTAL_JWT_SECRET` (L3).

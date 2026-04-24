@@ -1,25 +1,29 @@
-# `src/lib/encryption.ts`
+# encryption.ts
 
 ## Purpose
-AES-256-GCM encryption/decryption for sensitive data at rest (OAuth tokens, secrets stored in the DB), with PBKDF2 key derivation and a legacy raw-key fallback for pre-migration ciphertext.
+AES-256-GCM encryption/decryption for data at rest (OAuth tokens, admin impersonation stash, other sensitive fields), keyed via the `ENCRYPTION_KEY` env var.
 
 ## Key exports
-
-- `encrypt(plaintext) → string` — returns `"ivHex:tagHex:ciphertextHex"`. Key is PBKDF2-derived.
-- `decrypt(ciphertext) → string` — tries PBKDF2-derived key first; falls back to legacy raw-slice key and logs a warning if the derived key fails.
-- `encryptToken(plaintext) → string` — wraps `encrypt`; if `ENCRYPTION_KEY` is absent, logs a warning and returns plaintext (soft failure).
-- `decryptToken(value) → string` — if the value doesn't look encrypted (not 3 colon-delimited hex segments), returns it as-is (plaintext fallback). Catches decrypt errors and returns the raw value with a warning.
-- `isEncryptionAvailable() → boolean` — checks `ENCRYPTION_KEY` length ≥ 32 without throwing.
+- `isEncryptionAvailable(): boolean` — `true` iff `ENCRYPTION_KEY` is set with ≥32 chars
+- `encrypt(plaintext: string): string` — returns `iv:tag:ciphertext` (all hex); throws if key missing
+- `decrypt(ciphertext: string): string` — tries PBKDF2-derived key first, falls back to legacy raw-slice key on failure
+- `encryptToken(plaintext): string` — like `encrypt` but warns + returns plaintext if no key (soft failure)
+- `decryptToken(value): string` — bypasses crypto when value isn't `iv:tag:ct` triple (plaintext-legacy row); otherwise full decrypt with rethrow on tag mismatch (pentest L4)
 
 ## Dependencies
-- `node:crypto` — `createCipheriv`, `createDecipheriv`, `randomBytes`, `pbkdf2Sync`
-- `@/lib/logger` — `log.warn` on fallback/missing key scenarios
+- `node:crypto` — `createCipheriv`, `createDecipheriv`, `pbkdf2Sync`, `randomBytes`
+- `@/lib/logger`
 
 ## Critical notes
-- **`ENCRYPTION_KEY` must be ≥ 32 chars** — `validateEnv` enforces this at startup. `encrypt` throws if the key is missing or short; `encryptToken` degrades to plaintext.
-- **KDF parameters**: PBKDF2-SHA256, 100 000 iterations, static salt `"isaflow-encryption-salt"`, 32-byte output. The salt is not secret (it's fixed), so key entropy comes entirely from `ENCRYPTION_KEY`.
-- **Static salt risk**: the fixed KDF salt means two installations with the same `ENCRYPTION_KEY` produce the same derived key. Use a strong, unique `ENCRYPTION_KEY` per environment.
-- **Legacy migration**: data encrypted before the PBKDF2 change uses a raw 32-byte slice of `ENCRYPTION_KEY`. `decrypt` falls back to this automatically but logs a warning. Re-encrypt by reading and re-saving each field (e.g. `bank_accounts` OAuth tokens).
-- **Ciphertext format**: `ivHex:tagHex:encryptedHex` — the `decryptToken` heuristic relies on this being exactly 3 colon-separated segments to distinguish encrypted from plaintext.
-- **GCM authentication tag**: `setAuthTag` is called before `decipher.update`; tampered ciphertext will throw at `decipher.final`, which `decrypt` does NOT catch (intentional — corruption should surface).
-- **Never log plaintext or ciphertext** from this module.
+- **KDF migration**: new encryptions use PBKDF2-SHA256 with salt `'isaflow-encryption-salt'` and 100 000 iterations, 32-byte output. The legacy raw-slice key (`secret.slice(0,32)` as utf-8 bytes) is still tried as a fallback in `decrypt` so rows encrypted before the migration can still be read. Re-encrypt legacy rows by reading + re-saving each sensitive field (e.g. `bank_accounts` OAuth tokens).
+- **Static-salt caveat**: the fixed KDF salt means two installations with the same `ENCRYPTION_KEY` produce the same derived key. Use a strong, unique `ENCRYPTION_KEY` per environment.
+- **Pentest L4**: `decryptToken` now rethrows on GCM tag mismatch. Previously it silently returned the raw ciphertext string, letting callers treat tampered data as valid plaintext. Callers must now explicitly handle failure.
+- **GCM authentication tag**: `setAuthTag` is called before `decipher.update`; tampered ciphertext throws at `decipher.final`. `decrypt` does NOT catch this — corruption should surface.
+- Ciphertext format is `ivHex:tagHex:encryptedHex` (three colon-separated hex strings). `decryptToken` uses `split(':').length === 3` as a plaintext-vs-encrypted heuristic — plaintext values containing two colons would misroute.
+- IV is 12 bytes (GCM standard), generated fresh per encryption via `crypto.randomBytes`.
+- `ENCRYPTION_KEY` must be in `validateEnv` REQUIRED_VARS — app fails to start without it. Removing it would silently allow `encryptToken` to store tokens as plaintext.
+- Never log plaintext secrets; the fallback-decrypt path logs a warning (empty context) so operators know a legacy row was just decrypted.
+
+## Recent changes
+- 2026-04-24: Pentest M1+M6+M14+M15+M20+M21+L4 batch — `decryptToken` now rethrows on tag mismatch.
+- 2026-04-04: PBKDF2 key derivation introduced; legacy raw key kept as decrypt-fallback.

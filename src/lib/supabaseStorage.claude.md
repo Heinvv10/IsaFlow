@@ -1,30 +1,34 @@
 # supabaseStorage.ts
 
 ## Purpose
-Singleton `StorageClient` (from `@supabase/storage-js`) pointed at the IsaFlow self-hosted Supabase Kong (`$SUPABASE_URL/storage/v1`) with service-role auth. Provides typed upload / download / remove / signed-URL helpers for the `captured-documents` and `customer-invoices` buckets.
+Singleton `@supabase/storage-js` client for the self-hosted Supabase Storage at `${SUPABASE_URL}/storage/v1`, plus typed helpers for captured-documents and sealed customer-invoice PDF snapshots.
 
 ## Key exports
-- `getStorageClient(): StorageClient` — cached instance, fails loudly when `SUPABASE_URL` or `SUPABASE_SERVICE_ROLE_KEY` env vars are missing.
-- `CAPTURED_DOCS_BUCKET` — env-overridable constant (`'captured-documents'` default).
-- `CUSTOMER_INVOICES_BUCKET` — env-overridable constant (`'customer-invoices'` default).
-- `uploadCapturedDocument(companyId, documentId, buffer, contentType): Promise<UploadResult>` — path `<companyId>/<documentId>`, `upsert: false`.
-- `uploadCustomerInvoicePdf(companyId, documentId, buffer): Promise<UploadResult>` — path `<companyId>/<documentId>.pdf`, content-type `application/pdf`. Lazily provisions the bucket (first call per process hits `createBucket`; idempotent via "already exists" error swallow).
-- `ensureCustomerInvoicesBucket(): Promise<void>` — call-once bucket provisioner, cached via module-level `customerInvoicesBucketChecked` boolean.
-- `downloadCapturedDocument(bucket, path): Promise<Buffer>` — generic download by bucket+path (works for either bucket despite the name).
-- `removeCapturedDocument(bucket, path): Promise<void>` — best-effort; log-warn on failure.
-- `signedUrlForCapturedDocument(bucket, path, expiresInSeconds=3600): Promise<string>` — short-lived signed URL for UI preview without proxying bytes.
+- `getStorageClient(): StorageClient` — lazily constructs and caches the storage client; throws if `SUPABASE_URL` or `SUPABASE_SERVICE_ROLE_KEY` missing
+- `const CAPTURED_DOCS_BUCKET` — `SUPABASE_CAPTURED_DOCS_BUCKET` env or `'captured-documents'`
+- `const CUSTOMER_INVOICES_BUCKET` — `SUPABASE_CUSTOMER_INVOICES_BUCKET` env or `'customer-invoices'`
+- `interface UploadResult` — `{ bucket, path }`
+- `uploadCapturedDocument(companyId, documentId, buffer, contentType): Promise<UploadResult>` — path `${companyId}/${documentId}`, `upsert: false`
+- `uploadCustomerInvoicePdf(companyId, documentId, buffer): Promise<UploadResult>` — PRD-06 sealed invoice snapshot; path `${companyId}/${documentId}.pdf`; auto-provisions bucket on first call
+- `ensureCustomerInvoicesBucket(): Promise<void>` — idempotent lazy provisioner (swallows "already exists"); cached via module-level boolean
+- `downloadCapturedDocument(bucket, path): Promise<Buffer>` — works for either bucket despite the name
+- `removeCapturedDocument(bucket, path): Promise<void>` — best-effort; log-warn on failure
+- `signedUrlForCapturedDocument(bucket, path, expiresInSeconds?=3600): Promise<string>` — short-lived signed URL for UI preview
 
 ## Dependencies
-- `@supabase/storage-js@^2` — installed 2026-04-22.
-- `./logger` — warn/error log.
+- `@supabase/storage-js@^2` — installed 2026-04-22
+- `./logger`
 
 ## Critical notes
-- **Server-only.** Uses `SUPABASE_SERVICE_ROLE_KEY`. Never import in client components.
-- **Captured-docs bucket must exist on the target stack.** Dev stack was bootstrapped 2026-04-22 (private, 10MB cap, mime-whitelisted PDF/JPEG/PNG/WebP/TIFF). Production needs the same manual POST `/storage/v1/bucket` step before first upload — see `scripts/README-expectations-cron.md` and the prod deploy checklist.
-- **Customer-invoices bucket is lazy-provisioned** — first call to `uploadCustomerInvoicePdf` creates it automatically via `ensureCustomerInvoicesBucket`. No manual bootstrap needed.
-- **Generic `uploadToBucket` helper is private** — the two public upload functions thread tenant-scoped paths (`<companyId>/<documentId>[.pdf]`). Keep the pattern so bucket-level listings stay tenant-scoped.
-- **No public path.** Direct GET returns 400; use `signedUrlForCapturedDocument` with a short expiry or `downloadCapturedDocument` server-side.
+- **Server-only**: authenticates with `SUPABASE_SERVICE_ROLE_KEY`. Never import from client components or expose the client.
+- Bucket paths are **tenant-scoped** by prefix (`${companyId}/...`). Do NOT upload outside the company prefix — downstream listing/authz relies on it. The private `uploadToBucket` helper is internal; keep the two public upload functions as the only path.
+- `upsert: false` on upload — re-uploading an existing path throws. Callers must delete first if replacing.
+- **Captured-docs bucket must be pre-provisioned** on each target stack (private, 10MB cap, mime allowlist PDF/JPEG/PNG/WebP/TIFF). Production needs the manual POST `/storage/v1/bucket` step before first upload — see prod deploy checklist.
+- **Customer-invoices bucket is lazy-provisioned** — first call to `uploadCustomerInvoicePdf` creates it automatically via `ensureCustomerInvoicesBucket`. The "already exists" error is swallowed as success; any other failure logs a warn and continues (non-fatal — the subsequent upload will surface the real error).
+- The bucket-provision cache is per-process (`customerInvoicesBucketChecked`). Cold-start workers repeat the check once.
+- `signedUrlForCapturedDocument` default TTL is 1 hour — increase judiciously since signed URLs cannot be revoked. No public bucket path: direct GET returns 400.
+- Captured-docs bucket content is originally scanned slips/PDFs; customer-invoices bucket is sealed PDF snapshots that are legally the sent invoice (PRD-06 evidence chain).
 
 ## Recent changes
-- 2026-04-22: Created as the Phase 1 Storage wiring (commit d55b296).
-- 2026-04-22: Added customer-invoices bucket + lazy provisioner + `uploadCustomerInvoicePdf` (sealed customer invoice PDF snapshots).
+- 2026-04-23: PRD-06 Phase 1 — added `uploadCustomerInvoicePdf` + `ensureCustomerInvoicesBucket` for invoice-as-evidence sealed snapshots.
+- 2026-04-22: File introduced — capture module migrated from BYTEA columns to Supabase Storage pointers.

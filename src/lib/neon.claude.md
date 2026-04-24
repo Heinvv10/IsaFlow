@@ -1,29 +1,38 @@
-# DB client — `src/lib/neon.ts`
+# neon.ts
 
-The project-wide Postgres client. Despite the filename, it is NOT the Neon serverless driver anymore — it's a `pg.Pool` wrapper against a vanilla Postgres instance (Supabase self-hosted over Supavisor at `:6543`). The legacy filename is preserved so existing `@/lib/neon` imports across 300+ call sites don't need changing.
+## Purpose
+`pg.Pool`-backed tagged-template SQL client — the canonical DB entry point for the whole app. Preserves the public surface of the former Neon driver while running against vanilla Postgres (self-hosted Supabase via Supavisor on `:6543`). The legacy filename is kept so existing `@/lib/neon` imports across 300+ call sites don't need changing.
 
-## Exports
+## Key exports
+- `type DbRow = Record<string, any>`
+- `const sql: SqlFunction` — tagged template (`` sql`SELECT ...` ``) returning a `LazyQuery<T>` which is awaitable as `T[]`
+  - `sql.transaction(queries | (tx) => queries, options?)` — array- or callback-form batched transaction; `options.isolationLevel` supported
+  - `sql.unsafe<T>(text, values?)` — raw SQL fragment; interpolatable into another `` sql`...` `` or awaitable alone
+  - `sql.query<T>(text, values?)` — alias for `unsafe`
+- `transaction(queriesFn)` — callback form with `ReadCommitted` default isolation (back-compat helper)
+- `withTransaction<T>(fn: (tx: TxSql) => Promise<T>)` — sequential-imperative transaction helper; full BEGIN/COMMIT/ROLLBACK
+- `withSavepoint<T>(name, fn)` — runs inside a SAVEPOINT on the request-scoped ALS transaction so one failed query doesn't poison the whole request tx; degrades to plain `fn()` when no outer tx
+- `fmtDate(val: unknown): string` — formats a DB date column as `YYYY-MM-DD` robust to Date/string
+- `type TxSql`
+- default export: `sql`
 
-| Export | What |
-|---|---|
-| `sql` | Tagged template. `await sql\`SELECT * FROM loans WHERE id = ${id}\`` → `DbRow[]`. Placeholders bind as parameters — never concatenate. |
-| `sql.transaction(queries[])` | Neon-style array form: batches multiple queries into one HTTP round-trip. |
-| `sql.transaction(cb, opts?)` | Callback form: `cb(tx)` returns an array of queries to run in a tx. `opts.isolationLevel` supported. |
-| `transaction(cb)` | Standalone re-export for call sites that never upgraded from the Neon shape. |
-| `withTransaction(async (tx) => {…})` | Sequential helper — run imperative code inside a single tx. `tx` shadows `sql` so existing `sql\`…\`` calls just work. |
-| `fmtDate(d)` | Normalises `Date | string` → `YYYY-MM-DD`. Needed because pg returns real `Date` objects. |
-| `DbRow` | `Record<string, any>` — kept `any`-valued to match the old Neon driver shape; use `sql<MyRow>\`…\`` to tighten per-row. |
+## Dependencies
+- `pg` — node-postgres Pool
+- `@/lib/als` (lazy-imported) — AsyncLocalStorage for request-scoped tx client; enables RLS GUC persistence inside `withAuth`
+- `@/lib/logger`
 
-## Config
-- `DATABASE_URL` required.
-- `PG_POOL_MAX` (default 10) — pool size.
-- `DATABASE_SSL=strict` enforces CA verification; default is self-signed acceptance (Supabase self-hosted uses a local cert).
+## Critical notes
+- **NEVER string-concat SQL**. Always use the tagged template: `` sql`SELECT ... WHERE id = ${id}` ``. Values become `$N` parameters automatically; `LazyQuery` values spliced in are renumbered so nested `` sql`...` `` fragments compose safely.
+- **Multi-tenant**: every query must include `company_id = ${companyId}` or route through an RLS-aware policy. RLS is enforced via `set_config('request.jwt.claims', $claims, true)` inside the request tx; `withAuth` applies this before the handler runs. A missing `company_id = $X` predicate is an IDOR — the pentest skill greps for this.
+- **ALS-aware**: if an outer `withAuth` transaction is in progress (ALS store has a `client`), `sql` awaited outside a savepoint runs ON that transaction client, so RLS GUCs are honoured. If you bypass `sql` and use your own pool, RLS sees no claims.
+- **withSavepoint**: inside a `withAuth` request, a single failed query poisons the whole request tx ("current transaction is aborted …"). Wrap defensive reads in `withSavepoint('name', async () => { ... })` so a savepoint rollback keeps the outer tx alive. Savepoint name must match `/^[a-zA-Z_][a-zA-Z0-9_]{0,30}$/`.
+- **Date handling**: `row.some_date` can be `Date` or `string` depending on the column type (`date` → Date via pg, `timestamptz` → Date). Callers normalise via `fmtDate()` or `String(row.col).slice(0, 10)`.
+- **`any` in DbRow**: kept to match the old Neon shape so `row.status` type-checks without casting. Prefer explicit casts at the mapping boundary (`String(row.status) as Loan['status']`). Tighten per-row by parameterising `sql<Row>\`...\``.
+- **SSL**: `DATABASE_SSL=strict` enforces CA verification; `disable` turns SSL off; default is `{ rejectUnauthorized: false }` for self-hosted Supabase's self-signed cert.
+- **Pool lifetime**: Singleton — `_pool` is lazily created on first `getPool()` call and reused. `PG_POOL_MAX` env (default 10) controls size. Do not call `pool.end()` from app code.
+- **File is `neon.ts` but is NOT Neon**: don't trust the name. `@neondatabase/serverless` is not on the hot path anymore.
+- `sql.transaction` array-form queries execute sequentially inside one BEGIN; callback-form receives a `tx`-bound `SqlFunction` so you can build the list from earlier row data.
 
-## Multi-tenant contract
-All app-level queries MUST scope by `company_id`. RLS is enforced at the DB layer via `set_config('request.jwt.claims', $claims, true)` inside the transaction; `withAuth` middleware applies this before the handler runs. A missing `company_id = $X` predicate is a bug; the RLS policy blocks cross-tenant reads but accurate error messages require the app-level filter too.
-
-## Gotchas
-- **Date handling**: `row.some_date` can be `Date` _or_ `string` depending on the column type (`date` → string, `timestamptz` → Date). Callers typically normalise with `String(row.col).slice(0, 10)` for `YYYY-MM-DD`.
-- **`any` in DbRow**: The row type is `Record<string, any>` so `row.status` type-checks without casting. Prefer explicit casts at the mapping boundary (`String(row.status) as Loan['status']`).
-- **Pool lifetime**: Singleton — `_pool` is lazily created on first `getPool()` call and reused. Do not call `pool.end()` from app code.
-- **File is `neon.ts` but is NOT Neon**: Don't trust the name — `@neondatabase/serverless` isn't used anywhere on the hot path anymore (kept as devDep). All imports resolve to this `pg.Pool` shim.
+## Recent changes
+- 2026-04-24: Supabase-cutover drift fixes; duplicate-prefix/ghost-row tracking hardening.
+- 2026-04-18: ALS-aware routing — bare `sql` inside `withAuth` now uses the request tx client so RLS GUCs are honoured; pg.Pool driver replaced Neon serverless.
