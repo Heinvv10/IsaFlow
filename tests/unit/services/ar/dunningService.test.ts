@@ -50,6 +50,7 @@ const TEMPLATE_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 const INVOICE_ID = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
 const SEND_ID = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
 const TOKEN = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee';
+const EVIDENCE_DOC_ID = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
 
 function templateRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -152,8 +153,9 @@ describe('sendDunning', () => {
     mockSql.mockResolvedValueOnce([invoiceCtxRow()]);       // outstanding-balance guard
     mockSql.mockResolvedValueOnce([templateRow()]);         // renderTemplate → getTemplate
     mockSql.mockResolvedValueOnce([invoiceCtxRow()]);       // renderTemplate → loadInvoiceCtx
-    mockSql.mockResolvedValueOnce([{ id: SEND_ID, message_token: TOKEN }]);  // INSERT
-    mockSql.mockResolvedValueOnce([]);                      // UPDATE email_status
+    mockSql.mockResolvedValueOnce([{ id: SEND_ID, message_token: TOKEN }]);   // INSERT dunning_sends
+    mockSql.mockResolvedValueOnce([{ id: EVIDENCE_DOC_ID }]);                 // INSERT captured_documents
+    mockSql.mockResolvedValueOnce([]);                      // UPDATE email_status + source_document_id
     mockSendEmail.mockResolvedValueOnce({ success: true, messageId: 'msg-1' });
 
     const result = await sendDunning({
@@ -172,6 +174,7 @@ describe('sendDunning', () => {
     mockSql.mockResolvedValueOnce([templateRow()]);
     mockSql.mockResolvedValueOnce([invoiceCtxRow()]);
     mockSql.mockResolvedValueOnce([{ id: SEND_ID, message_token: TOKEN }]);
+    mockSql.mockResolvedValueOnce([{ id: EVIDENCE_DOC_ID }]);                 // INSERT captured_documents
     mockSql.mockResolvedValueOnce([]);
     mockSendEmail.mockResolvedValueOnce({ success: false, error: 'SMTP down' });
 
@@ -180,6 +183,33 @@ describe('sendDunning', () => {
     });
     expect(result.emailStatus).toBe('failed');
     expect(result.emailError).toBe('SMTP down');
+  });
+
+  it('seals a captured_documents evidence row and stamps dunning_sends.source_document_id', async () => {
+    mockSql.mockResolvedValueOnce([invoiceCtxRow()]);
+    mockSql.mockResolvedValueOnce([templateRow()]);
+    mockSql.mockResolvedValueOnce([invoiceCtxRow()]);
+    mockSql.mockResolvedValueOnce([{ id: SEND_ID, message_token: TOKEN }]);
+    mockSql.mockResolvedValueOnce([{ id: EVIDENCE_DOC_ID }]);
+    mockSql.mockResolvedValueOnce([]);
+    mockSendEmail.mockResolvedValueOnce({ success: true, messageId: 'msg-1' });
+
+    await sendDunning({
+      companyId: COMPANY_ID, templateId: TEMPLATE_ID, invoiceId: INVOICE_ID,
+    });
+
+    // Call 5 (0-indexed 4) is the captured_documents INSERT — assert the
+    // tagged-template strings carry the document_type='dunning' literal.
+    const captureCall = mockSql.mock.calls[4]!;
+    const strings = (captureCall[0] as unknown as string[]).join(' ');
+    expect(strings).toContain('captured_documents');
+    expect(strings).toContain("'dunning'");
+
+    // Call 6 is the dunning_sends UPDATE stamping source_document_id.
+    const updateCall = mockSql.mock.calls[5]!;
+    const updateStrings = (updateCall[0] as unknown as string[]).join(' ');
+    expect(updateStrings).toContain('source_document_id');
+    expect(updateCall).toContain(EVIDENCE_DOC_ID);
   });
 });
 
