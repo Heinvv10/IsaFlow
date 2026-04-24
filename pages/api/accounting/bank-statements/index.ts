@@ -44,8 +44,9 @@ function parseForm(req: import('next').NextApiRequest): Promise<{ fields: formid
       maxFileSize: MAX_FILE_SIZE,
       keepExtensions: true,
       filter: (part) => {
+        // Reject parts without a declared MIME — pentest H13.
         const mime = part.mimetype ?? '';
-        return mime in ALLOWED_MIME_TYPES || !mime;
+        return !!mime && mime in ALLOWED_MIME_TYPES;
       },
       fileWriteStreamHandler: (file) => {
         const chunks: Buffer[] = [];

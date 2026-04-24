@@ -11,7 +11,7 @@
  */
 
 import { LRUCache } from 'lru-cache';
-import type { NextApiRequest, NextApiResponse } from 'next';
+import type { NextApiHandler, NextApiRequest, NextApiResponse } from 'next';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
@@ -112,10 +112,10 @@ export function getClientIp(req: NextApiRequest): string {
  * Wraps an API handler with per-IP rate limiting using the Neon-backed counter.
  */
 export function withRateLimit(
-  handler: (req: NextApiRequest, res: NextApiResponse) => Promise<void> | void,
+  handler: NextApiHandler,
   opts: RateLimitOptions
-) {
-  return async (req: NextApiRequest, res: NextApiResponse): Promise<void> => {
+): NextApiHandler {
+  return async (req: NextApiRequest, res: NextApiResponse) => {
     const ip = getClientIp(req);
     const allowed = await checkRateLimit(ip, opts);
 
@@ -128,6 +128,6 @@ export function withRateLimit(
       return;
     }
 
-    return handler(req, res);
+    await handler(req, res);
   };
 }

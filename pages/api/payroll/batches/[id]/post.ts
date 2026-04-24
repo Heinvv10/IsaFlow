@@ -43,7 +43,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   } catch (err) {
     if (err instanceof BatchNotFoundError) return apiResponse.notFound(res, err.message);
     if (err instanceof BatchNotEditableError) return apiResponse.badRequest(res, err.message);
-    return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Post failed');
+    return apiResponse.badRequestFromError(res, err, 'Post failed');
   }
 }
 

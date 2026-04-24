@@ -10,7 +10,7 @@
  */
 
 import type { NextApiResponse } from 'next';
-import { type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
+import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withAuth } from '@/lib/auth';
 import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
@@ -22,7 +22,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
   }
 
-  if ((req as unknown as CompanyAuthedRequest).companyRole !== 'super_admin') {
+  // Platform role check — pentest H9. The previous check read `companyRole`
+  // from `company_users.role` (owner/admin/accountant/user/viewer), which can
+  // never equal 'super_admin'; the endpoint always denied. Now we check the
+  // platform-level `users.role`.
+  const platformRoleRows = await sql<{ role: string }>`
+    SELECT role FROM users WHERE id = ${req.user.id} LIMIT 1
+  `;
+  const platformRole = platformRoleRows[0]?.role;
+  if (platformRole !== 'super_admin') {
     return apiResponse.forbidden(res, 'Only super_admin can use impersonation');
   }
 

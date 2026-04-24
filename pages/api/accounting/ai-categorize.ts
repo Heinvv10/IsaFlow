@@ -8,7 +8,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { checkRateLimit } from '@/lib/rateLimit';
+import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import type { CompanyAuthedRequest } from '@/lib/auth/withAuth';
 import {
   buildCategorizationPrompt,
@@ -26,15 +26,17 @@ type Row = Record<string, unknown>;
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
 
-  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
-  if (!(await checkRateLimit(`ai-categorize:${ip}`, { max: 30, windowSecs: 15 * 60 }))) {
+  const ip = getClientIp(req);
+  const companyId = (req as CompanyAuthedRequest).companyId;
+  if (!(await checkRateLimit(`ai-categorize:ip:${ip}`, { max: 30, windowSecs: 15 * 60 }))) {
+    return apiResponse.tooManyRequests(res);
+  }
+  if (!(await checkRateLimit(`ai-categorize:company:${companyId}`, { max: 60, windowSecs: 15 * 60 }))) {
     return apiResponse.tooManyRequests(res);
   }
 
   const { description, amount, date } = req.body;
   if (!description) return apiResponse.badRequest(res, 'Transaction description is required');
-
-  const companyId = (req as CompanyAuthedRequest).companyId;
   const isDebit = Number(amount || 0) < 0;
 
   const tx: TransactionContext = {

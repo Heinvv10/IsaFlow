@@ -53,7 +53,7 @@ export function StitchMandateCard() {
     setLoading(true);
     setError('');
     try {
-      const res = await apiFetch('/api/admin/billing/stitch/mandate/status');
+      const res = await apiFetch('/api/billing/stitch/mandate/status');
       if (!res.ok) throw new Error(`Failed to load (${res.status})`);
       const json = (await res.json()) as { data: StatusResponse };
       setData(json.data);
@@ -74,7 +74,7 @@ export function StitchMandateCard() {
     if (!rands || rands <= 0) return;
     setBusy(true);
     try {
-      const res = await apiFetch('/api/admin/billing/stitch/mandate/create', {
+      const res = await apiFetch('/api/billing/stitch/mandate/create', {
         method: 'POST',
         body: JSON.stringify({ maxAmountCents: Math.round(rands * 100) }),
       });
@@ -93,7 +93,7 @@ export function StitchMandateCard() {
     if (!window.confirm('Revoke the active debit order? Future debits will stop.')) return;
     setBusy(true);
     try {
-      const res = await apiFetch('/api/admin/billing/stitch/mandate/revoke', {
+      const res = await apiFetch('/api/billing/stitch/mandate/revoke', {
         method: 'POST',
         body: JSON.stringify({ reason: 'User revoked from admin UI' }),
       });

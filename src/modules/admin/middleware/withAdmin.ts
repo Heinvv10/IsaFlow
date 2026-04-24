@@ -6,23 +6,14 @@
 
 import { withPlatformAdmin, type PlatformAdminRequest } from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { checkRateLimit } from '@/lib/rateLimit';
+import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import type { NextApiHandler, NextApiRequest, NextApiResponse } from 'next';
 
 export function withAdmin(
   handler: (req: PlatformAdminRequest, res: NextApiResponse) => Promise<void>
 ): NextApiHandler {
   const rateLimitedHandler = async (req: NextApiRequest, res: NextApiResponse) => {
-    // F-03: In-memory rate limiter — not shared across multiple instances.
-    const forwarded = req.headers['x-forwarded-for'];
-    const ip = (() => {
-      if (forwarded) {
-        const raw = Array.isArray(forwarded) ? forwarded[0] ?? '' : forwarded;
-        const ips = raw.split(',').map((s: string) => s.trim());
-        return ips[0] || req.socket.remoteAddress || 'unknown';
-      }
-      return req.socket.remoteAddress || 'unknown';
-    })();
+    const ip = getClientIp(req);
     const allowed = await checkRateLimit(`admin:${ip}`, { max: 120, windowSecs: 60 });
     if (!allowed) {
       res.status(429).json({

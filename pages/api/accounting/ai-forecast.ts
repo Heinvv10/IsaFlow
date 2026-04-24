@@ -7,7 +7,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
-import { checkRateLimit } from '@/lib/rateLimit';
+import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import {
   buildForecastScenario, calculateWeeklyForecast,
   buildForecastNarrativePrompt, parseForecastNarrative,
@@ -16,8 +16,12 @@ import {
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
 
-  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
-  if (!(await checkRateLimit(`ai-forecast:${ip}`, { max: 30, windowSecs: 15 * 60 }))) {
+  const ip = getClientIp(req);
+  const companyId = (req as unknown as { companyId: string }).companyId;
+  if (!(await checkRateLimit(`ai-forecast:ip:${ip}`, { max: 30, windowSecs: 15 * 60 }))) {
+    return apiResponse.tooManyRequests(res);
+  }
+  if (!(await checkRateLimit(`ai-forecast:company:${companyId}`, { max: 60, windowSecs: 15 * 60 }))) {
     return apiResponse.tooManyRequests(res);
   }
 

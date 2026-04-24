@@ -29,7 +29,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     const variance = await getPayrollRunVariance(id, companyId);
     return apiResponse.success(res, variance);
   } catch (err) {
-    return apiResponse.badRequest(res, err instanceof Error ? err.message : 'Variance load failed');
+    return apiResponse.badRequestFromError(res, err, 'Variance load failed');
   }
 }
 

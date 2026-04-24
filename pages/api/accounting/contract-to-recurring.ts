@@ -34,8 +34,9 @@ function parseForm(req: NextApiRequest): Promise<{ fields: formidable.Fields; fi
       maxFileSize: MAX_FILE_SIZE,
       keepExtensions: true,
       filter: (part) => {
+        // Reject parts without a declared MIME — pentest H13.
         const mime = part.mimetype || '';
-        return mime === 'application/pdf' || !mime;
+        return mime === 'application/pdf';
       },
       fileWriteStreamHandler: (file) => {
         const chunks: Buffer[] = [];

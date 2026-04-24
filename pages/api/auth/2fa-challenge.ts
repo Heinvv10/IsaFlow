@@ -6,6 +6,7 @@ import type { NextApiHandler } from 'next';
 import { setAuthCookies, setActiveCompanyCookie } from '@/lib/auth/cookies';
 import { challengeFactor, verifyFactor, GotrueMfaError } from '@/lib/auth/gotrue-mfa';
 import { verifyToken } from '@/lib/auth/gotrue';
+import { checkRateLimit, getClientIp, withRateLimit } from '@/lib/rateLimit';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
@@ -16,6 +17,14 @@ const handler: NextApiHandler = async (req, res) => {
   const { factor_id, code, pending_token } = req.body ?? {};
   if (typeof factor_id !== 'string' || typeof code !== 'string' || typeof pending_token !== 'string') {
     return res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'factor_id, code, pending_token required' } });
+  }
+
+  // Per-factor brute-force guard — 5 attempts / 15 min per factor_id beats
+  // IP-rotating attackers holding a valid pending_token.
+  const factorAllowed = await checkRateLimit(`2fa:factor:${factor_id}`, { max: 5, windowSecs: 900 });
+  if (!factorAllowed) {
+    log.warn('2fa rate limit (factor)', { factor_id, ip: getClientIp(req) }, 'Auth');
+    return res.status(429).json({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many attempts. Please try again later.' } });
   }
 
   let userId: string;
@@ -66,4 +75,4 @@ const handler: NextApiHandler = async (req, res) => {
   }
 };
 
-export default handler;
+export default withRateLimit(handler, { max: 20, windowSecs: 900 });

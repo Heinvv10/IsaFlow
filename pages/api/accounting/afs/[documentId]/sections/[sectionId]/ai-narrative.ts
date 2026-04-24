@@ -3,6 +3,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
+import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { generateNoteNarrative, type CompanyContext } from '@/modules/accounting/services/afs/noteAiService';
@@ -139,6 +140,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { documentId, sectionId } = req.query as { documentId: string; sectionId: string };
 
   if (req.method === 'POST') {
+    // LLM-backed — rate-limit per tenant AND per IP to bound Anthropic spend.
+    if (!(await checkRateLimit(`afs-ai:company:${companyId}`, { max: 20, windowSecs: 3600 }))) {
+      return apiResponse.tooManyRequests(res);
+    }
+    if (!(await checkRateLimit(`afs-ai:ip:${getClientIp(req)}`, { max: 30, windowSecs: 3600 }))) {
+      return apiResponse.tooManyRequests(res);
+    }
     return handleGenerate(req, res, companyId, documentId, sectionId);
   }
   if (req.method === 'PUT') {

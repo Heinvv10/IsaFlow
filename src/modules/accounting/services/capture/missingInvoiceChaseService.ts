@@ -187,6 +187,19 @@ export async function detectGaps(
   return { created, unchanged };
 }
 
+function escHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => {
+    switch (c) {
+      case '&': return '&amp;';
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '"': return '&quot;';
+      case "'": return '&#39;';
+      default: return c;
+    }
+  });
+}
+
 export function composeChaseEmail(input: ChaseTemplateInput): {
   subject: string; html: string; text: string;
 } {
@@ -194,13 +207,18 @@ export function composeChaseEmail(input: ChaseTemplateInput): {
   const monthYear = new Date(expectedBy).toLocaleString('en-ZA', { month: 'long', year: 'numeric' });
   const subject = `Reminder: ${supplierName} invoice for ${monthYear}`;
   const amtStr = expectedAmount != null ? `R${expectedAmount.toFixed(2)}` : null;
+  // Pentest M18: DB-sourced names can contain script/HTML. Escape before interpolation.
+  const safeSupplier = escHtml(supplierName);
+  const safeCompany = escHtml(companyName);
+  const safeExpectedBy = escHtml(expectedBy);
+  const safeLastInvoice = lastInvoiceDate ? escHtml(lastInvoiceDate) : null;
   const html = [
-    `<p>Dear ${supplierName},</p>`,
-    `<p>We are writing on behalf of <strong>${companyName}</strong> to request the invoice expected by <strong>${expectedBy}</strong>.</p>`,
+    `<p>Dear ${safeSupplier},</p>`,
+    `<p>We are writing on behalf of <strong>${safeCompany}</strong> to request the invoice expected by <strong>${safeExpectedBy}</strong>.</p>`,
     amtStr ? `<p>Expected amount: approximately <strong>${amtStr}</strong>.</p>` : '',
-    lastInvoiceDate ? `<p>Last invoice received: <strong>${lastInvoiceDate}</strong>.</p>` : '',
+    safeLastInvoice ? `<p>Last invoice received: <strong>${safeLastInvoice}</strong>.</p>` : '',
     `<p>Please send the outstanding invoice at your earliest convenience, or disregard if already sent.</p>`,
-    `<p>Kind regards,<br/><strong>${companyName} Accounts Team</strong></p>`,
+    `<p>Kind regards,<br/><strong>${safeCompany} Accounts Team</strong></p>`,
   ].filter(Boolean).join('\n');
   const text = [
     `Dear ${supplierName},`,

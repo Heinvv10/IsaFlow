@@ -7,25 +7,17 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { authenticatePortalUser } from '@/modules/accounting/services/ar/portalService';
-import { SignJWT } from 'jose';
+import { signArPortalToken } from '@/lib/auth/arPortalJwt';
 import cookie from 'cookie';
-import { checkRateLimit } from '@/lib/rateLimit';
-
-const PORTAL_SECRET = new TextEncoder().encode(
-  (() => { if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET is required'); return process.env.JWT_SECRET + '-portal'; })()
-);
+import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
   }
 
-  // Rate limit: 5 attempts per IP per 15 minutes
-  const rawIp = Array.isArray(req.headers['x-forwarded-for'])
-    ? req.headers['x-forwarded-for'][0]
-    : req.headers['x-forwarded-for'] ?? req.socket.remoteAddress;
-  const ip: string = rawIp ?? 'unknown';
-  if (!(await checkRateLimit(ip, { max: 5, windowSecs: 15 * 60 }))) {
+  const ip = getClientIp(req);
+  if (!(await checkRateLimit(`portal-auth:${ip}`, { max: 5, windowSecs: 15 * 60 }))) {
     return res.status(429).json({
       success: false,
       error: { code: 'RATE_LIMITED', message: 'Too many attempts. Please try again later.' },
@@ -41,21 +33,23 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!user) {
     return apiResponse.unauthorized(res, 'Invalid email or password');
   }
+  if (!user.companyId) {
+    // Customer row exists but no company_id — shouldn't happen; fail closed.
+    return apiResponse.unauthorized(res, 'Portal account misconfigured');
+  }
 
-  // Sign a JWT for the portal session
-  const token = await new SignJWT({ clientId: user.clientId, email: user.email })
-    .setProtectedHeader({ alg: 'HS256' })
-    .setExpirationTime('24h')
-    .setIssuedAt()
-    .sign(PORTAL_SECRET);
+  const token = await signArPortalToken({
+    clientId: user.clientId,
+    companyId: user.companyId,
+    email: user.email,
+  });
 
-  // Set httpOnly signed cookie
   res.setHeader('Set-Cookie', cookie.serialize('portal_session', token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'strict',
     path: '/',
-    maxAge: 60 * 60 * 24, // 24 hours
+    maxAge: 60 * 60 * 24,
   }));
 
   return apiResponse.success(res, { user });

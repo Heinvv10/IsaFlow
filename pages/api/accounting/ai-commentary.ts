@@ -10,7 +10,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { checkRateLimit } from '@/lib/rateLimit';
+import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import {
   identifyKeyDrivers,
   assessRiskAreas,
@@ -24,12 +24,14 @@ type Row = Record<string, any>;
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method || '', ['POST']);
 
-  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
-  if (!(await checkRateLimit(`ai-commentary:${ip}`, { max: 30, windowSecs: 15 * 60 }))) {
+  const ip = getClientIp(req);
+  const { companyId } = req as CompanyAuthedRequest;
+  if (!(await checkRateLimit(`ai-commentary:ip:${ip}`, { max: 30, windowSecs: 15 * 60 }))) {
     return apiResponse.tooManyRequests(res);
   }
-
-  const { companyId } = req as CompanyAuthedRequest;
+  if (!(await checkRateLimit(`ai-commentary:company:${companyId}`, { max: 60, windowSecs: 15 * 60 }))) {
+    return apiResponse.tooManyRequests(res);
+  }
   const { from, to } = req.body as { from?: string; to?: string };
 
   if (!from || !to) return apiResponse.badRequest(res, 'from and to dates are required');

@@ -8,7 +8,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { checkRateLimit } from '@/lib/rateLimit';
+import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import type { CompanyAuthedRequest } from '@/lib/auth/withAuth';
 import {
   buildTextToSQLPrompt, parseSQLResponse, validateGeneratedSQL,
@@ -36,8 +36,12 @@ const SCHEMA_TABLES: SchemaTable[] = [
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
 
-  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
-  if (!(await checkRateLimit(`nl-query:${ip}`, { max: 30, windowSecs: 15 * 60 }))) {
+  const ip = getClientIp(req);
+  const companyId = (req as CompanyAuthedRequest).companyId;
+  if (!(await checkRateLimit(`nl-query:ip:${ip}`, { max: 30, windowSecs: 15 * 60 }))) {
+    return apiResponse.tooManyRequests(res);
+  }
+  if (!(await checkRateLimit(`nl-query:company:${companyId}`, { max: 60, windowSecs: 15 * 60 }))) {
     return apiResponse.tooManyRequests(res);
   }
 
@@ -48,8 +52,6 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (question.length > 500) {
     return apiResponse.badRequest(res, 'Question is too long (maximum 500 characters)');
   }
-
-  const companyId = (req as CompanyAuthedRequest).companyId;
   const intent = classifyQueryIntent(question);
   const schemaDesc = buildSchemaDescription(SCHEMA_TABLES);
   const prompt = buildTextToSQLPrompt(question, schemaDesc, companyId);
