@@ -47,7 +47,11 @@ describe('parseBankPdf — real fixture regressions', () => {
 
     it('extracts the correct account number from the statement header', () => {
       if (!result) return;
-      expect(result.accountNumber).toBe('4096451384');
+      // Page header on every page reads "BFIBRE 007 4102426629 0007 …".
+      // 4096451384 was an earlier (incorrect) expectation — that token is a
+      // recurring counterparty (Absa Heuwelsrust) in transaction descriptions,
+      // not the statement's own account. The filename also embeds 4102426629.
+      expect(result.accountNumber).toBe('4102426629');
     });
 
     it('parses exactly 117 transactions with zero errors', () => {

@@ -12,7 +12,14 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 // ── Module mocks ─────────────────────────────────────────────────────────────
 
 vi.mock('@/lib/neon', () => {
-  const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn() });
+  // sql.unsafe(s) is used for static column-list interpolation. The mock just
+  // needs to return the string unchanged so the tagged template still matches
+  // mockResolvedValueOnce queues regardless of which column projection is
+  // splatted in.
+  const sqlMock = Object.assign(vi.fn(), {
+    transaction: vi.fn(),
+    unsafe: (s: string) => s,
+  });
   return {
     sql: sqlMock,
     withTransaction: vi.fn((cb: (tx: typeof sqlMock) => unknown) => cb(sqlMock)),

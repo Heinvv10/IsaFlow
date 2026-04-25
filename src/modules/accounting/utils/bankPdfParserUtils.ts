@@ -190,22 +190,53 @@ export function extractAccountNumber(text: string): string | null {
     if (bestHeader) return bestHeader;
   }
 
-  // Pass 3: frequency-ranked fallback. Score every 9-13 digit token by
-  // how often it appears, then penalise tokens that sit next to known
-  // non-account labels (VAT/registration/telephone). The account number
-  // is repeated on every page; transaction references are not.
+  // Pass 3: header-biased frequency fallback. Account numbers always
+  // appear in the document header/footer block; transaction reference
+  // numbers and counterparty accounts dominate the body but rarely
+  // appear in the first ~3000 chars. We score every 9-13 digit token
+  // by frequency, give a heavy bonus to tokens that appear at all in
+  // the header region, and treat a 9-digit token as the same account
+  // as a 13-digit token that ends with it (Standard Bank prints the
+  // canonical 13-digit form `0000310650550` in the header but a
+  // 9-digit suffix `310650550` in some downstream rows).
   const tokens = text.match(/\b\d{9,13}\b/g);
   if (!tokens || tokens.length === 0) return null;
 
+  const HEADER_WINDOW = 3000;
+  const headerText = text.slice(0, HEADER_WINDOW);
+  const headerTokenSet = new Set(headerText.match(/\b\d{9,13}\b/g) ?? []);
+
   const counts = new Map<string, number>();
   for (const t of tokens) counts.set(t, (counts.get(t) ?? 0) + 1);
+
+  // Canonicalise: if token A is a suffix of a longer token B that also
+  // appears, fold A's count into B and drop A. This handles the
+  // "0000310650550" vs "310650550" leading-zero case without affecting
+  // legitimately distinct accounts (a 9-digit account that happens to
+  // be the suffix of an unrelated 13-digit token in the same document
+  // is vanishingly rare and would still be excluded by the header-bias
+  // tiebreak below).
+  for (const a of [...counts.keys()]) {
+    for (const b of counts.keys()) {
+      if (a === b) continue;
+      if (b.length > a.length && b.endsWith(a)) {
+        counts.set(b, (counts.get(b) ?? 0) + (counts.get(a) ?? 0));
+        counts.delete(a);
+        break;
+      }
+    }
+  }
 
   let best: string | null = null;
   let bestScore = -Infinity;
   for (const [token, count] of counts) {
     if (isLikelyNonAccountToken(text, token)) continue;
-    const score = count;
-    if (score > bestScore) {
+    // Header presence is worth more than any plausible body-frequency
+    // delta on a real bank statement (rarely more than ~50 occurrences
+    // total). 1000 dominates the count term cleanly.
+    const headerBias = headerTokenSet.has(token) ? 1000 : 0;
+    const score = count + headerBias;
+    if (score > bestScore || (score === bestScore && best !== null && token.length > best.length)) {
       best = token;
       bestScore = score;
     }
