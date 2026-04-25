@@ -9,7 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { ContactsTab } from '@/components/accounting/suppliers/ContactsTab';
 import { ActivityTab } from '@/components/accounting/suppliers/ActivityTab';
 import Link from 'next/link';
-import { ArrowLeft, Building2, Loader2, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
+import { ArrowLeft, Building2, Loader2, AlertCircle, CheckCircle2, XCircle, Trash2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { RecordNavigation } from '@/components/accounting/RecordNavigation';
 
@@ -55,6 +55,30 @@ export default function SupplierDetailPage() {
   }, [supplierId]);
 
   useEffect(() => { void loadSupplier(); }, [loadSupplier]);
+
+  const [deleting, setDeleting] = useState(false);
+  const handleDelete = async () => {
+    if (!supplierId) return;
+    if (!window.confirm(`Delete supplier "${supplier?.name}"? This can be undone within 5 minutes.`)) return;
+    setDeleting(true);
+    try {
+      const res = await apiFetch('/api/accounting/soft-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entityType: 'supplier', entityId: supplierId as string }),
+      });
+      const json = await res.json() as { success?: boolean; error?: { message?: string } };
+      if (!res.ok || json.success === false) {
+        alert(json.error?.message ?? 'Failed to delete supplier');
+        return;
+      }
+      void router.push('/accounting/suppliers');
+    } catch {
+      alert('Failed to delete supplier');
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -123,6 +147,17 @@ export default function SupplierDetailPage() {
             <span className={`px-3 py-1 rounded-full text-sm font-medium ${supplier.is_active ? 'bg-teal-500/20 text-teal-400' : 'bg-gray-500/20 text-gray-400'}`}>
               {supplier.is_active ? 'Active' : 'Inactive'}
             </span>
+            <div className="ml-auto">
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deleting}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 disabled:opacity-50"
+              >
+                <Trash2 className="h-4 w-4" />
+                {deleting ? 'Deleting…' : 'Delete supplier'}
+              </button>
+            </div>
           </div>
         </div>
 
