@@ -30,6 +30,30 @@ function rowToAfsDocument(row: Record<string, unknown>): AfsDocument {
 export async function createAfsDocument(input: CreateAfsDocumentInput): Promise<AfsDocument> {
   log.info('Creating AFS document', { companyId: input.companyId, documentType: input.documentType }, 'afsDocumentService');
 
+  // Idempotent: a partial unique index forbids two AFS docs per (company, year) and two
+  // management packs per (company, period). Hand back the existing row instead of crashing.
+  const existing = input.documentType === 'afs' && input.fiscalYear != null
+    ? (await sql`
+        SELECT * FROM afs_documents
+        WHERE company_id = ${input.companyId}::UUID
+          AND document_type = 'afs'
+          AND fiscal_year = ${input.fiscalYear}
+        LIMIT 1
+      `) as Record<string, unknown>[]
+    : input.documentType === 'management_pack' && input.period
+      ? (await sql`
+          SELECT * FROM afs_documents
+          WHERE company_id = ${input.companyId}::UUID
+            AND document_type = 'management_pack'
+            AND period = ${input.period}
+          LIMIT 1
+        `) as Record<string, unknown>[]
+      : [];
+
+  if (existing.length > 0) {
+    return rowToAfsDocument(existing[0]!);
+  }
+
   const rows = await sql`
     INSERT INTO afs_documents (
       company_id, fiscal_year, period, document_type, reporting_framework

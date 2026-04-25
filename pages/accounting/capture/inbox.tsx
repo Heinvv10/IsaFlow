@@ -93,6 +93,27 @@ export default function CaptureInboxPage() {
     finally { setPosting(false); }
   }
 
+  const handlePostExpense = useCallback(async (eventId: string, employeeId?: string) => {
+    setPosting(true);
+    try {
+      const res = await apiFetch(`/api/accounting/capture/${eventId}/post-expense`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ employeeId }),
+      });
+      const json = await res.json() as { error?: { message?: string } | string };
+      if (!res.ok) {
+        const msg = typeof json.error === 'string' ? json.error : (json.error as { message?: string } | undefined)?.message ?? 'Failed to post expense';
+        showToast(msg, false);
+      } else {
+        showToast('Posted as expense', true);
+        setSelected(null);
+        void loadEvents();
+      }
+    } catch { showToast('Network error', false); }
+    finally { setPosting(false); }
+  }, [loadEvents]);
+
   async function handleDiscard(id: string, reason?: string) {
     setDiscarding(true);
     try {
@@ -233,6 +254,7 @@ export default function CaptureInboxPage() {
           <CaptureInboxPanel
             event={selected} onClose={() => setSelected(null)}
             onPost={handlePost} onDiscard={handleDiscard}
+            onPostExpense={handlePostExpense}
             posting={posting} discarding={discarding}
           />
         </>

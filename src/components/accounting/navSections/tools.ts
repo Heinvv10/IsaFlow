@@ -6,7 +6,7 @@ export const toolsTab: Tab = {
     {
       section: 'Documents',
       items: [
-        { label: 'Document Capture', href: '/accounting/document-capture' },
+        { label: 'Document Capture', href: '/accounting/capture/inbox' },
       ],
     },
     {

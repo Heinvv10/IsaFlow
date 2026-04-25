@@ -1,14 +1,17 @@
 /**
  * POST /api/accounting/capture/upload
- * Multipart upload (PWA channel) — creates captured_documents + capture_events.
+ * Multipart upload — creates captured_documents + capture_events.
+ * Accepts EITHER a valid `Authorization: Bearer isa_live_...` API key
+ * OR a normal user session cookie (PWA / browser upload).
  */
 
-import type { NextApiResponse } from 'next';
+import type { NextApiRequest, NextApiResponse } from 'next';
 import { Writable } from 'stream';
 import formidable from 'formidable';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
+import { validateCaptureApiKey, extractBearerToken } from '@/lib/auth/captureApiKeyAuth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { sha256, storeCapturedBytes } from '@/lib/documentStorage';
@@ -72,6 +75,13 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   const { companyId } = req;
   const userId = req.user?.id ?? null;
+  // Determine upload channel: API key auth sets 'api', session auth uses 'pwa'
+  const uploadChannel = (req as CompanyAuthedRequest & { _apiKeyId?: string })._apiKeyId
+    ? 'api'
+    : 'pwa';
+  const postingAgent = (req as CompanyAuthedRequest & { _apiKeyId?: string })._apiKeyId
+    ? `api_key:${(req as CompanyAuthedRequest & { _apiKeyId?: string })._apiKeyId}`
+    : userId;
 
   let files: formidable.Files;
   try {
@@ -139,7 +149,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         company_id, channel, sender, subject, status,
         captured_document_id, received_at
       ) VALUES (
-        ${companyId}, 'pwa', ${userId}, ${fileName},
+        ${companyId}, ${uploadChannel}, ${postingAgent}, ${fileName},
         'received', ${documentId}::uuid, NOW()
       )
       RETURNING id
@@ -166,4 +176,36 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   return apiResponse.created(res, { eventIds });
 }
 
-export default withAuth(withErrorHandler(withWriteAccess(handler as Parameters<typeof withWriteAccess>[0])));
+/**
+ * Dual-auth wrapper: accepts either a Bearer API key (isa_live_...) or a
+ * normal session cookie. Falls through to standard withAuth when no API key
+ * is detected so existing browser sessions keep working unchanged.
+ */
+async function authAndHandle(req: NextApiRequest, res: NextApiResponse) {
+  // Check Bearer header first, then X-Api-Key header as fallback
+  const rawKey =
+    extractBearerToken(req.headers.authorization as string | undefined) ??
+    (req.headers['x-api-key'] as string | undefined) ??
+    null;
+
+  if (rawKey?.startsWith('isa_live_')) {
+    const ctx = await validateCaptureApiKey(rawKey);
+    if (!ctx) {
+      return apiResponse.unauthorized(res, 'Invalid or revoked API key');
+    }
+    // Attach context so handler body can access companyId, user.id, and channel flag
+    const authedReq = req as CompanyAuthedRequest & { _apiKeyId?: string };
+    authedReq.companyId = ctx.companyId;
+    authedReq.companyRole = 'manager'; // API keys get write access
+    authedReq.user = { id: `api_key:${ctx.keyId}`, claims: {} };
+    authedReq._apiKeyId = ctx.keyId;
+    return handler(authedReq, res);
+  }
+
+  // Fall back to normal session auth (cookie-based)
+  return withAuth(
+    withErrorHandler(withWriteAccess(handler as Parameters<typeof withWriteAccess>[0])),
+  )(req, res);
+}
+
+export default withErrorHandler(authAndHandle);
