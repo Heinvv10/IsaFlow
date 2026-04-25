@@ -135,11 +135,18 @@ export default function AdminSageImportPage() {
     try {
       const res = await apiFetch('/api/admin/migration/sage-pull-server', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ companyId: selectedCompanyId, sageCookie }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message || json.message || 'Pull failed');
+      if (!res.ok) {
+        const msg =
+          (typeof json.error === 'string' && json.error) ||
+          json.error?.message ||
+          json.message ||
+          `Pull failed (${res.status})`;
+        throw new Error(msg);
+      }
 
       const pulled = json.data?.pulled ?? {};
       pulledData.current = pulled;
@@ -180,7 +187,7 @@ export default function AdminSageImportPage() {
         : all;
       const res = await apiFetch('/api/admin/migration/sage-commit', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ companyId: selectedCompanyId, pulled: payload }),
       });
       const json = await res.json();
