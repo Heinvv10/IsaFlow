@@ -4,7 +4,7 @@
  * KPI strip + maturity ladder chart + filterable loan list.
  */
 
-import { useState, useEffect, useCallback, Suspense } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -14,12 +14,7 @@ import { Landmark, Plus, Search, TrendingUp, Calendar, Percent, Loader2 } from '
 import { Loan, PortfolioSummary, fmt, fmtDate, PRODUCT_LABELS } from '@/components/loans/types';
 import { LoanStatusBadge } from '@/components/loans/LoanStatusBadge';
 
-const BarChart = dynamic(() => import('recharts').then(m => m.BarChart), { ssr: false });
-const Bar = dynamic(() => import('recharts').then(m => m.Bar), { ssr: false });
-const XAxis = dynamic(() => import('recharts').then(m => m.XAxis), { ssr: false });
-const YAxis = dynamic(() => import('recharts').then(m => m.YAxis), { ssr: false });
-const Tooltip = dynamic(() => import('recharts').then(m => m.Tooltip), { ssr: false });
-const ResponsiveContainer = dynamic(() => import('recharts').then(m => m.ResponsiveContainer), { ssr: false });
+const LoanMaturityChart = dynamic(() => import('@/components/loans/LoanMaturityChart'), { ssr: false });
 
 interface MaturityBucket { year: string; outstanding: number }
 
@@ -114,16 +109,7 @@ export default function LoansIndexPage() {
               <h2 className="text-sm font-semibold text-[var(--ff-text-secondary)] uppercase tracking-wide mb-4">
                 Maturity Ladder — Outstanding by Final Payment Year
               </h2>
-              <Suspense fallback={<div className="h-48 flex items-center justify-center text-[var(--ff-text-tertiary)] text-sm">Loading chart…</div>}>
-                <ResponsiveContainer width="100%" height={180}>
-                  <BarChart data={maturity} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
-                    <XAxis dataKey="year" tick={{ fontSize: 11, fill: 'var(--ff-text-secondary)' }} />
-                    <YAxis tickFormatter={(v: number) => `R${(v/1_000_000).toFixed(1)}M`} tick={{ fontSize: 11, fill: 'var(--ff-text-secondary)' }} width={60} />
-                    <Tooltip formatter={(v) => fmt(v as number)} labelStyle={{ color: 'var(--ff-text-primary)' }} contentStyle={{ background: 'var(--ff-bg-secondary)', border: '1px solid var(--ff-border-light)', borderRadius: '0.5rem', fontSize: 12 }} />
-                    <Bar dataKey="outstanding" fill="#14b8a6" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </Suspense>
+              <LoanMaturityChart data={maturity} />
             </div>
           )}
 
