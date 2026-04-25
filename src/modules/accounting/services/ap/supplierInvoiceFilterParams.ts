@@ -60,6 +60,8 @@ function parseIsoDate(v: unknown): string | undefined {
   return s && ISO_DATE.test(s) ? s : undefined;
 }
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export function parseSupplierInvoiceFilters(query: Record<string, unknown>): FilterParseResult {
   const status = pickStr(query.status);
   if (status && !(STATUS_VALUES as readonly string[]).includes(status)) {
@@ -76,6 +78,11 @@ export function parseSupplierInvoiceFilters(query: Record<string, unknown>): Fil
     return { ok: false, error: `Invalid sort: ${sort}` };
   }
 
+  const supplierIdRaw = pickStr(query.supplier_id);
+  if (supplierIdRaw && !UUID_REGEX.test(supplierIdRaw)) {
+    return { ok: false, error: 'Invalid supplier_id (must be UUID)' };
+  }
+
   const sortOrderRaw = pickStr(query.sort_order);
   const sortOrder = sortOrderRaw === 'asc' || sortOrderRaw === 'desc' ? sortOrderRaw : undefined;
 
@@ -86,7 +93,7 @@ export function parseSupplierInvoiceFilters(query: Record<string, unknown>): Fil
     ok: true,
     filters: {
       status: status as SupplierInvoiceStatus | undefined,
-      supplierId: pickStr(query.supplier_id),
+      supplierId: supplierIdRaw,
       matchStatus: matchStatus as InvoiceMatchStatus | undefined,
       search: pickStr(query.search),
       fromDate: parseIsoDate(query.from_date),
