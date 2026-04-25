@@ -58,6 +58,8 @@ export function mapTxRow(row: Row): BankTransaction {
     allocationType: row.allocation_type
       ? String(row.allocation_type) as BankTransaction['allocationType'] : undefined,
     allocatedEntityName: row.allocated_entity_name ? String(row.allocated_entity_name) : undefined,
+    counterpartyAccountId: row.counterparty_account_id ? String(row.counterparty_account_id) : undefined,
+    transferJournalEntryId: row.transfer_journal_entry_id ? String(row.transfer_journal_entry_id) : undefined,
   };
 }
 
@@ -75,7 +77,7 @@ export interface BankTxFilters {
   sortOrder?: 'asc' | 'desc';
   allocationFilter?: 'all' | 'unallocated' | 'allocated';
   txType?: 'all' | 'spent' | 'received';
-  allocType?: 'all' | 'account' | 'supplier' | 'customer';
+  allocType?: 'all' | 'account' | 'supplier' | 'customer' | 'transfer';
   hasSuggestion?: 'all' | 'yes' | 'no';
   limit?: number;
   offset?: number;
@@ -148,7 +150,7 @@ export async function getBankTransactions(
       // directly. The final `extra` fragment is therefore safe.
       const txTypeCond = filters.txType === 'spent' ? 'AND bt.amount < 0'
         : filters.txType === 'received' ? 'AND bt.amount > 0' : '';
-      const validAllocTypes = ['account', 'supplier', 'customer'] as const;
+      const validAllocTypes = ['account', 'supplier', 'customer', 'transfer'] as const;
       const safeAllocType = filters.allocType && validAllocTypes.includes(filters.allocType as typeof validAllocTypes[number])
         ? filters.allocType : null;
       const allocTypeCond = safeAllocType ? `AND bt.allocation_type = '${safeAllocType}'` : '';

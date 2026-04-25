@@ -132,7 +132,10 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
   const [ruleName, setRuleName] = useState(() => extractPattern(transaction.description || ''));
   const [autoCreateEntry, setAutoCreateEntry] = useState(false);
 
-  const [allocType, setAllocType] = useState<AllocType>(() => selection?.type ?? 'account');
+  const [allocType, setAllocType] = useState<AllocType>(() => {
+    const t = selection?.type;
+    return t === 'supplier' || t === 'customer' || t === 'account' ? t : 'account';
+  });
   const [vatCode, setVatCode] = useState<RuleVatCode>(() => (selection?.vatCode as RuleVatCode) ?? 'none');
   const [selectedGl, setSelectedGl] = useState<SelectOption | null>(() => {
     if (selection?.type === 'account' && selection.entityId) {

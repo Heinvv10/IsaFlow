@@ -58,7 +58,7 @@ async function resolveVatAccountId(
   }
 }
 
-export type AllocationType = 'account' | 'supplier' | 'customer';
+export type AllocationType = 'account' | 'supplier' | 'customer' | 'transfer';
 
 export interface SplitLine {
   contraAccountId: string;
@@ -104,8 +104,62 @@ export async function allocateTransaction(
   let source: import('../../types/gl.types').GLEntrySource;
   let entryDesc = '';
   let allocEntityName: string | null = null;
+  let counterpartyAccountId: string | null = null;
 
-  if (allocType === 'supplier' && entityId) {
+  if (allocType === 'transfer') {
+    if (!contraAccountId) throw new Error('contraAccountId is required for transfer allocation (counterparty bank account)');
+    if (contraAccountId === bankAccountId) throw new Error('Transfer source and destination bank accounts must differ');
+
+    const cpRows = (await sql`
+      SELECT account_code, account_name, account_subtype FROM gl_accounts
+      WHERE id = ${contraAccountId}::UUID AND company_id = ${companyId}::UUID
+    `) as Row[];
+    if (cpRows.length === 0) throw new Error('Counterparty bank account not found');
+    const cp = cpRows[0]!;
+    if (String(cp.account_subtype) !== 'bank') {
+      throw new Error('Transfer counterparty must be a bank account (subtype = bank)');
+    }
+
+    // Guard: if the opposite bank's feed already has an allocated transfer
+    // matching this amount/date, the user is double-posting. Matching the
+    // existing JE is the correct path.
+    const dupRows = (await sql`
+      SELECT id FROM bank_transactions
+      WHERE company_id = ${companyId}::UUID
+        AND bank_account_id = ${contraAccountId}::UUID
+        AND counterparty_account_id = ${bankAccountId}::UUID
+        AND transfer_journal_entry_id IS NOT NULL
+        AND amount = ${-Number(tx.amount)}
+        AND transaction_date BETWEEN (${txDate}::DATE - INTERVAL '2 days')
+                                 AND (${txDate}::DATE + INTERVAL '2 days')
+      LIMIT 1
+    `) as Row[];
+    if (dupRows.length > 0) {
+      throw new Error(
+        'A matching transfer already exists on the counterparty bank for this amount and date. ' +
+        'Match the existing journal entry instead of posting a new one.',
+      );
+    }
+
+    counterpartyAccountId = contraAccountId;
+    allocEntityName = `${String(cp.account_code)} ${String(cp.account_name)}`;
+    entryDesc = description || `Transfer: ${isSpent ? 'to' : 'from'} ${allocEntityName}`;
+    source = 'auto_bank_transfer';
+
+    // isSpent (outflow on this bank) → DR counterparty, CR this bank.
+    // deposit (inflow on this bank) → DR this bank, CR counterparty.
+    if (isSpent) {
+      lines = [
+        { glAccountId: contraAccountId, debit: totalAmount, credit: 0, description: entryDesc },
+        { glAccountId: bankAccountId, debit: 0, credit: totalAmount, description: entryDesc },
+      ];
+    } else {
+      lines = [
+        { glAccountId: bankAccountId, debit: totalAmount, credit: 0, description: entryDesc },
+        { glAccountId: contraAccountId, debit: 0, credit: totalAmount, description: entryDesc },
+      ];
+    }
+  } else if (allocType === 'supplier' && entityId) {
     const apAccountId = await getSystemAccountId('payable', companyId);
     const supRows = (await sql`SELECT name FROM suppliers WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
     const supName = supRows.length > 0 ? String(supRows[0]!.name) : `Supplier #${entityId}`;
@@ -224,6 +278,8 @@ export async function allocateTransaction(
         UPDATE bank_transactions
         SET status = 'allocated', matched_journal_line_id = ${journalLineId}::UUID,
             allocation_type = ${allocType}, allocated_entity_name = ${allocEntityName},
+            counterparty_account_id = ${counterpartyAccountId}::UUID,
+            transfer_journal_entry_id = ${allocType === 'transfer' ? je.id : null}::UUID,
             cc1_id = ${cc1Id || null}::UUID, cc2_id = ${cc2Id || null}::UUID,
             bu_id = ${buId || null}::UUID, updated_at = NOW()
         WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`;
