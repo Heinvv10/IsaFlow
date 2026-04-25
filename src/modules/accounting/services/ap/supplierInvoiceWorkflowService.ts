@@ -34,12 +34,19 @@ export async function approveSupplierInvoice(
     const defaultExpenseAccount = await getSystemAccount('default_expense', companyId);
     const lines: JournalLineInput[] = [];
 
+    // Detect gross-inclusive line totals: if sum(lineTotal) ≈ totalAmount the seed
+    // data stored gross amounts. Scale each line down to net so the VAT DR isn't
+    // double-counted when we add the separate input-VAT line below.
+    const sumLineTotal = invoice.items.reduce((s, i) => s + i.lineTotal, 0);
+    const lineTotalsAreGross = invoice.taxRate > 0 && Math.abs(sumLineTotal - invoice.totalAmount) < 0.02;
+    const netFactor = lineTotalsAreGross && sumLineTotal > 0 ? invoice.subtotal / sumLineTotal : 1;
+
     for (const item of invoice.items) {
       const glAccountId = item.glAccountId || defaultExpenseAccount.id;
       if (!glAccountId) throw new Error('No GL account for invoice item and no default expense account');
       lines.push({
         glAccountId,
-        debit: item.lineTotal,
+        debit: Math.round(item.lineTotal * netFactor * 100) / 100,
         credit: 0,
         description: item.description,
         projectId: item.projectId || invoice.projectId,
@@ -90,6 +97,79 @@ export async function approveSupplierInvoice(
     log.error('Failed to approve supplier invoice', { id, error: err }, 'accounting');
     throw err;
   }
+}
+
+/**
+ * Idempotent GL backfill for already-approved supplier invoices.
+ * Equivalent of approveSupplierInvoice but skips the status guard.
+ */
+export async function postSupplierInvoiceToGL(
+  companyId: string,
+  id: string,
+  userId: string,
+): Promise<{ journalEntryId: string; alreadyPosted: boolean }> {
+  const invoice = await getSupplierInvoiceById(companyId, id);
+  if (!invoice) throw new Error(`Supplier invoice ${id} not found`);
+
+  if (invoice.glJournalEntryId) {
+    return { journalEntryId: invoice.glJournalEntryId, alreadyPosted: true };
+  }
+
+  const apAccount = await getSystemAccount('payable', companyId);
+  const vatAccount = await getSystemAccount('vat_input', companyId);
+  const defaultExpenseAccount = await getSystemAccount('default_expense', companyId);
+  const lines: JournalLineInput[] = [];
+
+  const sumLineTotal2 = invoice.items.reduce((s, i) => s + i.lineTotal, 0);
+  const lineTotalsAreGross2 = invoice.taxRate > 0 && Math.abs(sumLineTotal2 - invoice.totalAmount) < 0.02;
+  const netFactor2 = lineTotalsAreGross2 && sumLineTotal2 > 0 ? invoice.subtotal / sumLineTotal2 : 1;
+
+  for (const item of invoice.items) {
+    const glAccountId = item.glAccountId || defaultExpenseAccount.id;
+    lines.push({
+      glAccountId,
+      debit: Math.round(item.lineTotal * netFactor2 * 100) / 100,
+      credit: 0,
+      description: item.description,
+      projectId: item.projectId || invoice.projectId,
+      costCenterId: item.costCenterId || invoice.costCenterId,
+    });
+  }
+
+  if (invoice.taxAmount > 0) {
+    lines.push({
+      glAccountId: vatAccount.id,
+      debit: invoice.taxAmount,
+      credit: 0,
+      description: `VAT on ${invoice.invoiceNumber}`,
+      vatType: 'standard',
+    });
+  }
+
+  lines.push({
+    glAccountId: apAccount.id,
+    debit: 0,
+    credit: invoice.totalAmount,
+    description: `AP: ${invoice.invoiceNumber}`,
+  });
+
+  const journalEntry = await createJournalEntry(companyId, {
+    entryDate: invoice.invoiceDate,
+    description: `Supplier invoice ${invoice.invoiceNumber}`,
+    source: 'auto_supplier_invoice',
+    lines,
+  }, userId);
+
+  await postJournalEntry(companyId, journalEntry.id, userId);
+
+  await sql`
+    UPDATE supplier_invoices
+    SET gl_journal_entry_id = ${journalEntry.id}::UUID
+    WHERE id = ${id} AND company_id = ${companyId}::UUID
+  `;
+
+  log.info('Backfilled supplier invoice GL', { id, journalEntryId: journalEntry.id }, 'accounting');
+  return { journalEntryId: journalEntry.id, alreadyPosted: false };
 }
 
 export async function cancelSupplierInvoice(

@@ -114,6 +114,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       WHERE ga.account_subtype = 'bank'
         AND ga.is_active = TRUE
         AND ga.company_id = ${companyId}
+        AND ga.parent_account_id IS NULL
       ORDER BY ga.account_code
     `;
 

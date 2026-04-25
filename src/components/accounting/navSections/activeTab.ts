@@ -21,7 +21,6 @@ export function getActiveTabId(
     pathname.startsWith('/accounting/company-settings') ||
     pathname.startsWith('/accounting/user-access') ||
     pathname.startsWith('/accounting/my-account') ||
-    pathname.startsWith('/accounting/document-capture') ||
     pathname.startsWith('/accounting/approvals') ||
     pathname.startsWith('/accounting/recurring-transactions') ||
     pathname.startsWith('/accounting/webhooks') ||
@@ -62,6 +61,7 @@ export function getActiveTabId(
   if (
     pathname.startsWith('/accounting/suppliers') ||
     pathname.startsWith('/accounting/supplier-') ||
+    pathname.startsWith('/accounting/capture') ||
     pathname.startsWith('/accounting/purchase-orders') ||
     pathname.startsWith('/accounting/goods-received') ||
     pathname.startsWith('/accounting/batch-payments') ||

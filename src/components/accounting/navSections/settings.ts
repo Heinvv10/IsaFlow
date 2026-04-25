@@ -14,7 +14,7 @@ export const settingsTab: Tab = {
     {
       section: 'Documents & Workflows',
       items: [
-        { label: 'Document Capture', href: '/accounting/document-capture' },
+        { label: 'Document Capture', href: '/accounting/capture/inbox' },
         { label: 'Approvals', href: '/accounting/approvals' },
         { label: 'Recurring Transactions', href: '/accounting/recurring-transactions' },
         { label: 'Webhooks', href: '/accounting/webhooks' },

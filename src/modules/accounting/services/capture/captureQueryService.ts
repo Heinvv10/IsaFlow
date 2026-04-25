@@ -31,11 +31,19 @@ export interface CaptureEventRow {
   fileName: string | null;
   fileType: string | null;
   documentType: string | null;
+  // Category detection (mig 463)
+  documentCategory: 'invoice' | 'expense' | null;
+  // Gate / resolution fields
+  gateOutcome: string | null;
+  duplicateHitId: string | null;
+  resolvedSupplierId: string | null;
+  resolvedEmployeeId: string | null;
 }
 
 type Row = Record<string, unknown>;
 
 function mapEvent(row: Row): CaptureEventRow {
+  const rawCategory = row.document_category as string | null;
   return {
     eventId: row.event_id as string,
     companyId: row.company_id as string,
@@ -62,6 +70,11 @@ function mapEvent(row: Row): CaptureEventRow {
     fileName: row.file_name as string | null,
     fileType: row.file_type as string | null,
     documentType: row.document_type as string | null,
+    documentCategory: (rawCategory === 'invoice' || rawCategory === 'expense') ? rawCategory : null,
+    gateOutcome: row.gate_outcome as string | null,
+    duplicateHitId: row.duplicate_hit_id as string | null,
+    resolvedSupplierId: row.resolved_supplier_id as string | null,
+    resolvedEmployeeId: row.resolved_employee_id as string | null,
   };
 }
 
@@ -103,6 +116,9 @@ export async function listPendingEvents(
       ce.posted_by,
       ce.posted_at,
       ce.captured_document_id,
+      ce.document_category,
+      ce.resolved_supplier_id,
+      ce.resolved_employee_id,
       cd.vendor_name,
       cd.document_date,
       cd.reference_number,
@@ -142,6 +158,9 @@ export async function getEvent(
       ce.posted_by,
       ce.posted_at,
       ce.captured_document_id,
+      ce.document_category,
+      ce.resolved_supplier_id,
+      ce.resolved_employee_id,
       cd.vendor_name,
       cd.document_date,
       cd.reference_number,

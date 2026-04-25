@@ -17,6 +17,7 @@ import {
   cancelSupplierInvoice,
   performThreeWayMatch,
 } from '@/modules/accounting/services/ap/supplierInvoiceService';
+import { postSupplierInvoiceToGL } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 // TODO(PRD-05): When a human-driven CREATE path is added to this handler
 // (or to pages/api/accounting/supplier-invoices.ts), call:
 //   recordCoding({ companyId, supplierId, supplierInvoiceId, glAccountId, vatCode,
@@ -29,6 +30,7 @@ const SupplierInvoiceActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('approve'), invoiceId: UUID }),
   z.object({ action: z.literal('cancel'), invoiceId: UUID }),
   z.object({ action: z.literal('match'), invoiceId: UUID }),
+  z.object({ action: z.literal('post_gl'), invoiceId: UUID }),
 ]);
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -58,6 +60,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       }
       case 'match': {
         const result = await performThreeWayMatch(companyId, invoiceId);
+        return apiResponse.success(res, result);
+      }
+      case 'post_gl': {
+        const result = await postSupplierInvoiceToGL(companyId, invoiceId, userId);
         return apiResponse.success(res, result);
       }
       default:

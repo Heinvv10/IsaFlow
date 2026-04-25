@@ -17,6 +17,7 @@ import {
   shouldAutoPostReceipt,
   parseReceiptType,
 } from '@/modules/accounting/services/bank/receiptToJournalService';
+import { getSystemAccountId } from '@/modules/accounting/services/gl/systemAccountResolver';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -48,25 +49,32 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, `Validation failed: ${validation.errors.join(', ')}`);
   }
 
-  // Get GL accounts
+  // Get GL accounts for merchant-to-expense mapping
   const glAccounts = (await sql`
     SELECT id, account_code as code, account_name as name
     FROM gl_accounts WHERE company_id = ${companyId}
     ORDER BY account_code
   `) as Row[];
 
-  // Map merchant to expense account
+  // Resolve system accounts via default-accounts config (not hard-coded GL codes)
+  let vatInputAccountId: string;
+  let bankAccountId: string;
+  let defaultExpenseAccountId: string;
+  try {
+    [vatInputAccountId, bankAccountId, defaultExpenseAccountId] = await Promise.all([
+      getSystemAccountId('vat_input', companyId),
+      getSystemAccountId('bank', companyId),
+      getSystemAccountId('default_expense', companyId),
+    ]);
+  } catch {
+    return apiResponse.badRequest(res, 'Default accounts not configured. Set VAT Input, Bank, and Expense accounts under Accounting > Default Accounts.');
+  }
+
+  // Map merchant to a specific expense account; fall back to configured default
   const accountSuggestion = extracted.vendorName
     ? mapMerchantToExpenseAccount(extracted.vendorName, glAccounts.map(a => ({ id: a.id, code: a.code, name: a.name })))
     : null;
-
-  const expenseAccountId = accountSuggestion?.id || glAccounts.find(a => a.code === '5100')?.id;
-  const vatInputAccountId = glAccounts.find(a => a.code === '1140')?.id;
-  const bankAccountId = glAccounts.find(a => a.code === '1110')?.id;
-
-  if (!expenseAccountId || !vatInputAccountId || !bankAccountId) {
-    return apiResponse.badRequest(res, 'Required GL accounts not found (expense, VAT input, bank)');
-  }
+  const expenseAccountId = accountSuggestion?.id ?? defaultExpenseAccountId;
 
   // Build journal entry
   const journalInput = buildExpenseJournalFromReceipt(extracted, { expenseAccountId, vatInputAccountId, bankAccountId });

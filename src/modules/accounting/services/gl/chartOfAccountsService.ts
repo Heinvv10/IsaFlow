@@ -26,6 +26,8 @@ export interface UpdateAccountInput {
   isActive?: boolean;
   displayOrder?: number;
   defaultVatCode?: 'none' | 'standard' | 'zero_rated' | 'exempt';
+  accountSubtype?: string | null;
+  isSystemAccount?: boolean;
 }
 
 interface AccountTreeNode extends GLAccount {
@@ -224,7 +226,7 @@ export async function createAccount(companyId: string, input: CreateAccountInput
     let level = 1;
     if (input.parentAccountId) {
       const parent = await sql`
-        SELECT id, level FROM gl_accounts WHERE id = ${input.parentAccountId}
+        SELECT id, level FROM gl_accounts WHERE id = ${input.parentAccountId} AND company_id = ${companyId}
       ` as { level: number }[];
       if (parent.length === 0) {
         throw new Error(`Parent account ${input.parentAccountId} not found`);
@@ -324,7 +326,9 @@ export async function updateAccount(companyId: string, id: string, input: Update
         description = COALESCE(${input.description ?? null}, description),
         is_active = COALESCE(${input.isActive ?? null}, is_active),
         display_order = COALESCE(${input.displayOrder ?? null}, display_order),
-        default_vat_code = COALESCE(${input.defaultVatCode || null}, default_vat_code)
+        default_vat_code = COALESCE(${input.defaultVatCode || null}, default_vat_code),
+        account_subtype = CASE WHEN ${input.accountSubtype !== undefined} THEN ${input.accountSubtype ?? null} ELSE account_subtype END,
+        is_system_account = COALESCE(${input.isSystemAccount ?? null}, is_system_account)
       WHERE id = ${id} AND company_id = ${companyId}
       RETURNING *
     `;

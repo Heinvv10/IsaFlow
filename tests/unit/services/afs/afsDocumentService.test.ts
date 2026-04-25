@@ -42,7 +42,9 @@ describe('afsDocumentService', () => {
 
   describe('createAfsDocument', () => {
     it('inserts a new document and returns camelCase AfsDocument', async () => {
-      mockSql.mockResolvedValueOnce([DB_ROW]);
+      // Two queries: idempotent SELECT (no existing) then INSERT...RETURNING.
+      mockSql.mockResolvedValueOnce([]);        // SELECT — nothing existing
+      mockSql.mockResolvedValueOnce([DB_ROW]);  // INSERT
 
       const result = await createAfsDocument({
         companyId: COMPANY_ID,
@@ -58,11 +60,27 @@ describe('afsDocumentService', () => {
       expect(result.reportingFramework).toBe('ifrs_smes');
       expect(result.status).toBe('draft');
       expect(result.version).toBe(1);
+      expect(mockSql).toHaveBeenCalledTimes(2);
+    });
+
+    it('returns existing document when one already exists for (company, year)', async () => {
+      // Idempotent path: SELECT returns the existing row, no INSERT happens.
+      mockSql.mockResolvedValueOnce([DB_ROW]);
+
+      const result = await createAfsDocument({
+        companyId: COMPANY_ID,
+        fiscalYear: 2025,
+        documentType: 'afs',
+        reportingFramework: 'ifrs_smes',
+      });
+
+      expect(result.id).toBe(DOC_ID);
       expect(mockSql).toHaveBeenCalledTimes(1);
     });
 
-    it('throws when sql returns empty array (conflict / DB constraint)', async () => {
-      mockSql.mockResolvedValueOnce([]);
+    it('throws when INSERT returns empty array (conflict / DB constraint)', async () => {
+      mockSql.mockResolvedValueOnce([]); // SELECT — nothing existing
+      mockSql.mockResolvedValueOnce([]); // INSERT — no row returned
 
       await expect(
         createAfsDocument({

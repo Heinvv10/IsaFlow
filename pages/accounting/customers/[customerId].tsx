@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, User, MapPin, Users, Activity, Loader2, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
+import { ArrowLeft, User, MapPin, Users, Activity, Loader2, AlertCircle, CheckCircle2, XCircle, Trash2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { DeliveryAddressesTab } from '@/components/accounting/customers/DeliveryAddressesTab';
@@ -114,6 +114,31 @@ export default function CustomerDetailPage() {
     }
   }, [activeTab, loadActivity]);
 
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    if (!customerId) return;
+    if (!window.confirm(`Delete customer "${customer?.name}"? This can be undone within 5 minutes.`)) return;
+    setDeleting(true);
+    try {
+      const res = await apiFetch('/api/accounting/soft-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entityType: 'customer', entityId: customerId as string }),
+      });
+      const json = await res.json() as { success?: boolean; error?: { message?: string } };
+      if (!res.ok || json.success === false) {
+        alert(json.error?.message ?? 'Failed to delete customer');
+        return;
+      }
+      void router.push('/accounting/customers');
+    } catch {
+      alert('Failed to delete customer');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const loadCustomer = async () => {
     setLoading(true);
     try {
@@ -198,6 +223,17 @@ export default function CustomerDetailPage() {
             <span className={`px-3 py-1 rounded-full text-sm font-medium ${customer.is_active ? 'bg-teal-500/20 text-teal-400' : 'bg-gray-500/20 text-gray-400'}`}>
               {customer.is_active ? 'Active' : 'Inactive'}
             </span>
+            <div className="ml-auto">
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deleting}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 disabled:opacity-50"
+              >
+                <Trash2 className="h-4 w-4" />
+                {deleting ? 'Deleting…' : 'Delete customer'}
+              </button>
+            </div>
           </div>
 
           {/* Tab bar */}

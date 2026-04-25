@@ -87,6 +87,15 @@ export async function updatePayrollEmployee(
   `) as Row[];
   const before = beforeRows[0];
 
+  const toIso = (v: unknown): string | null => {
+    if (!v) return null;
+    if (v instanceof Date) return v.toISOString().split('T')[0] ?? null;
+    return String(v).split('T')[0] ?? null;
+  };
+  const dobIso = toIso(data.dateOfBirth);
+  const endIso = toIso(data.endDate);
+  const status = endIso ? 'terminated' : null;
+
   const rows = (await sql`
     UPDATE payroll_employees SET
       first_name                   = COALESCE(${data.firstName ?? null}, first_name),
@@ -94,6 +103,9 @@ export async function updatePayrollEmployee(
       tax_number                   = COALESCE(${data.taxNumber ?? null}, tax_number),
       id_number                    = COALESCE(${data.idNumber ?? null}, id_number),
       employment_type              = COALESCE(${data.employmentType ?? null}, employment_type),
+      date_of_birth                = COALESCE(${dobIso}, date_of_birth),
+      end_date                     = COALESCE(${endIso}, end_date),
+      status                       = COALESCE(${status}, status),
       uif_excluded                 = COALESCE(${data.uifExcluded ?? null}, uif_excluded),
       medical_aid_main_member      = COALESCE(${data.medicalAidMainMember ?? null}, medical_aid_main_member),
       medical_aid_dependants_count = COALESCE(${data.medicalAidDependantsCount ?? null}, medical_aid_dependants_count),

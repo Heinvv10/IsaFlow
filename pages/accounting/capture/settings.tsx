@@ -11,6 +11,7 @@ import {
   Copy, Check, RefreshCw, AlertCircle, Loader2, X, Zap,
 } from 'lucide-react';
 import Link from 'next/link';
+import { CaptureApiKeysSection } from '@/components/accounting/capture/CaptureApiKeysSection';
 
 interface InboxAddress { id: string; address: string }
 interface WaInbox { id: string; address: string; isActive: boolean }
@@ -262,7 +263,10 @@ export default function CaptureSettingsPage() {
             )}
           </SectionCard>
 
-          {/* Section 3: Other Channels */}
+          {/* Section 3: API Keys */}
+          <CaptureApiKeysSection showToast={showToast} />
+
+          {/* Section 4: Other Channels */}
           <SectionCard title="Other Channels">
             <p className="text-sm text-slate-400 mb-4">Additional ways to submit documents to your capture inbox.</p>
             <div className="space-y-3">
