@@ -179,7 +179,7 @@ export async function postSupplierInvoiceToGL(
   await sql`
     UPDATE supplier_invoices
     SET gl_journal_entry_id = ${journalEntry.id}::UUID
-    WHERE id = ${id} AND company_id = ${companyId}::UUID
+    WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
   `;
 
   log.info('Backfilled supplier invoice GL', { id, journalEntryId: journalEntry.id }, 'accounting');
