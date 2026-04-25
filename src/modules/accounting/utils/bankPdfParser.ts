@@ -160,6 +160,15 @@ export async function parseBankPdf(
     const { parseBankStatementText } = await import('./bankPdfParserFactory');
     const factoryResult = parseBankStatementText(text, detectedFormat);
     if (factoryResult.transactions.length > 0) return factoryResult;
+    // Provisional / empty-period statement — parsed OK but no transactions
+    if (factoryResult.errors.some(e => e.error === '__empty_period__')) {
+      return {
+        transactions: [],
+        errors: [{ row: 0, error: 'This statement has no transactions for the period (provisional or zero-activity statement). Nothing to import.' }],
+        bankFormat: detectedFormat,
+        accountNumber: factoryResult.accountNumber,
+      };
+    }
     log.warn('Factory parser returned no transactions, trying fallbacks', {
       format: detectedFormat,
     }, 'accounting-pdf');
