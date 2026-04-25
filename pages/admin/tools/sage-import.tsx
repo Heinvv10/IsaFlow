@@ -1,72 +1,117 @@
 /**
  * Admin Sage Auto-Import
- * Wraps the Sage import flow for admins, with a company selector.
- * Admin picks a target company, then proceeds through the same
- * connect → pull → review steps as the customer-facing page.
+ *
+ * Pick target company → connect (extension or pasted cookie) → click
+ * Pull from Sage. The server hits Sage's API directly using the
+ * supplied session cookie, maps every endpoint, and stashes the
+ * mapped data so the existing commit endpoint can pick it up.
  */
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import Link from 'next/link';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
-import Link from 'next/link';
 import { apiFetch } from '@/lib/apiFetch';
 import {
-  ArrowLeft, Download, CheckCircle2, AlertCircle,
-  Loader2, Database, Users, Building2, FileText, ShieldCheck,
-  ExternalLink, RefreshCw, Copy, Upload,
+  ArrowLeft, Download, CheckCircle2, AlertCircle, Loader2,
+  Database, Users, Building2, FileText, ShieldCheck, Cable, KeyRound,
 } from 'lucide-react';
 
-interface Company {
-  id: string;
-  name: string;
-}
+interface Company { id: string; name: string }
 
+type StepId = 'company' | 'accounts' | 'customers' | 'suppliers' | 'arInvoices' | 'apInvoices';
+type StepStatus = 'pending' | 'done';
 interface PullStep {
-  id: string;
+  id: StepId;
   label: string;
   icon: typeof Database;
   description: string;
-  status: 'pending' | 'pulling' | 'done' | 'error';
+  status: StepStatus;
   count?: number;
-  error?: string;
 }
 
 const INITIAL_STEPS: PullStep[] = [
   { id: 'company',    label: 'Company Info',           icon: Building2, description: 'Name, tax number, registration',   status: 'pending' },
-  { id: 'accounts',  label: 'Chart of Accounts',       icon: Database,  description: 'All GL accounts with categories',  status: 'pending' },
-  { id: 'customers', label: 'Customers',               icon: Users,     description: 'Customer contacts and balances',   status: 'pending' },
-  { id: 'suppliers', label: 'Suppliers',               icon: Building2, description: 'Supplier contacts and balances',   status: 'pending' },
-  { id: 'arInvoices',label: 'Customer Invoices (AR)',  icon: FileText,  description: 'Outstanding sales invoices',       status: 'pending' },
-  { id: 'apInvoices',label: 'Supplier Invoices (AP)',  icon: FileText,  description: 'Outstanding purchase invoices',    status: 'pending' },
+  { id: 'accounts',   label: 'Chart of Accounts',      icon: Database,  description: 'All GL accounts with categories',  status: 'pending' },
+  { id: 'customers',  label: 'Customers',              icon: Users,     description: 'Customer contacts and balances',   status: 'pending' },
+  { id: 'suppliers',  label: 'Suppliers',              icon: Building2, description: 'Supplier contacts and balances',   status: 'pending' },
+  { id: 'arInvoices', label: 'Customer Invoices (AR)', icon: FileText,  description: 'Outstanding sales invoices',       status: 'pending' },
+  { id: 'apInvoices', label: 'Supplier Invoices (AP)', icon: FileText,  description: 'Outstanding purchase invoices',    status: 'pending' },
 ];
+
+const COMMIT_KEYS = ['accounts','customers','suppliers','arInvoices','apInvoices'] as const;
+
+interface ExtensionReply {
+  ok: boolean;
+  error?: string | null;
+  value?: string;
+  expirationDate?: number | null;
+  version?: string;
+}
+
+function useSageExtension() {
+  const [installed, setInstalled] = useState(false);
+  const [version, setVersion] = useState('');
+  const pendingRef = useRef<Map<string, (r: ExtensionReply) => void>>(new Map());
+
+  useEffect(() => {
+    function onMessage(ev: MessageEvent) {
+      const d = ev.data;
+      if (!d || typeof d !== 'object' || d.source !== 'isaflow-sage-extension') return;
+      if (d.type === 'announce') {
+        setInstalled(true);
+        if (d.version) setVersion(d.version);
+        return;
+      }
+      if (typeof d.requestId === 'string' && d.type?.endsWith?.('-reply')) {
+        const cb = pendingRef.current.get(d.requestId);
+        if (cb) {
+          pendingRef.current.delete(d.requestId);
+          cb(d as ExtensionReply);
+        }
+      }
+    }
+    window.addEventListener('message', onMessage);
+    // Active probe in case the extension's announce fired before this hook mounted.
+    window.postMessage({ source: 'isaflow-sage-page', type: 'isaflow-sage-ext-ping', requestId: 'probe-' + Date.now() }, '*');
+    return () => window.removeEventListener('message', onMessage);
+  }, []);
+
+  const ask = useCallback((type: string, timeoutMs = 4000): Promise<ExtensionReply> => {
+    return new Promise((resolve) => {
+      const requestId = `req-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const timer = setTimeout(() => {
+        if (pendingRef.current.delete(requestId)) {
+          resolve({ ok: false, error: 'Extension did not respond' });
+        }
+      }, timeoutMs);
+      pendingRef.current.set(requestId, (r) => { clearTimeout(timer); resolve(r); });
+      window.postMessage({ source: 'isaflow-sage-page', type, requestId }, '*');
+    });
+  }, []);
+
+  return { installed, version, ask };
+}
 
 export default function AdminSageImportPage() {
   const adminHref = useAdminHref();
+  const ext = useSageExtension();
 
-  const [companies, setCompanies]               = useState<Company[]>([]);
+  const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState('');
-  const [companiesError, setCompaniesError]     = useState('');
+  const [companiesError, setCompaniesError] = useState('');
 
-  const [steps, setSteps]       = useState<PullStep[]>(INITIAL_STEPS);
-  const [connected, setConnected] = useState(false);
-  const [pulling, setPulling]   = useState(false);
+  const [steps, setSteps] = useState<PullStep[]>(INITIAL_STEPS);
+  const [pulling, setPulling] = useState(false);
   const [committing, setCommitting] = useState(false);
-  const [commitSummary, setCommitSummary] = useState<null | {
-    accounts:   { created: number; skipped: number; failed: string[] };
-    customers:  { created: number; skipped: number; failed: string[] };
-    suppliers:  { created: number; skipped: number; failed: string[] };
-    arInvoices: { created: number; skipped: number; failed: string[] };
-    apInvoices: { created: number; skipped: number; failed: string[] };
-  }>(null);
-  const [error, setError]       = useState('');
-  const [sageWindow, setSageWindow] = useState<Window | null>(null);
-  const [scripts, setScripts]   = useState<Record<string, string>>({});
-  const [scriptsLoading, setScriptsLoading] = useState(false);
-  const [copiedStep, setCopiedStep] = useState('');
+  const [pulledAt, setPulledAt] = useState<Date | null>(null);
+  const [commitSummary, setCommitSummary] = useState<null | Record<typeof COMMIT_KEYS[number], { created: number; skipped: number; failed: string[] }>>(null);
+  const [error, setError] = useState('');
+  const [showPaste, setShowPaste] = useState(false);
+  const [pastedCookie, setPastedCookie] = useState('');
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pulledData = useRef<Record<string, any>>({});
 
-  // Load companies on mount
   useEffect(() => {
     apiFetch('/api/admin/companies?limit=200')
       .then(r => r.json())
@@ -74,147 +119,59 @@ export default function AdminSageImportPage() {
       .catch(() => setCompaniesError('Failed to load companies.'));
   }, []);
 
-  const updateStep = useCallback((id: string, update: Partial<PullStep>) => {
-    setSteps(prev => prev.map(s => s.id === id ? { ...s, ...update } : s));
+  const resetSteps = useCallback(() => {
+    setSteps(INITIAL_STEPS.map(s => ({ ...s, status: 'pending', count: undefined })));
+    pulledData.current = {};
+    setPulledAt(null);
+    setCommitSummary(null);
   }, []);
 
-  // Load per-step bookmarklet scripts whenever the target company changes.
-  // The GET endpoint returns ready-to-paste `javascript:` snippets — one
-  // per step — that fetch from Sage and trigger a JSON file download.
-  useEffect(() => {
-    if (!selectedCompanyId) { setScripts({}); return; }
-    setScriptsLoading(true);
-    apiFetch(`/api/admin/migration/sage-pull?companyId=${selectedCompanyId}`)
-      .then(r => r.json())
-      .then(j => setScripts((j.data?.scripts ?? {}) as Record<string, string>))
-      .catch(() => setScripts({}))
-      .finally(() => setScriptsLoading(false));
-  }, [selectedCompanyId]);
+  const runPull = useCallback(async (sageCookie: string) => {
+    if (!selectedCompanyId) { setError('Pick a target company first.'); return; }
+    if (!sageCookie || sageCookie.length < 16) { setError('Sage session cookie is missing or too short.'); return; }
+    setPulling(true); setError(''); resetSteps();
 
-  const copyScript = useCallback(async (stepId: string) => {
-    const s = scripts[stepId];
-    if (!s) return;
     try {
-      await navigator.clipboard.writeText(s);
-      setCopiedStep(stepId);
-      setTimeout(() => setCopiedStep(c => (c === stepId ? '' : c)), 1500);
-    } catch {
-      // clipboard may be blocked — user can still see the snippet and copy by hand
-    }
-  }, [scripts]);
-
-  const uploadJsonForStep = useCallback(async (stepId: string, file: File) => {
-    if (!selectedCompanyId) {
-      setError('Pick a target company first.');
-      return;
-    }
-    updateStep(stepId, { status: 'pulling', error: undefined });
-    try {
-      const text = await file.text();
-      let parsed: unknown;
-      try { parsed = JSON.parse(text); } catch { throw new Error('File is not valid JSON.'); }
-      const res = await apiFetch(
-        `/api/admin/migration/sage-pull?companyId=${selectedCompanyId}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ step: stepId, rawData: parsed }),
-        },
-      );
+      const res = await apiFetch('/api/admin/migration/sage-pull-server', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyId: selectedCompanyId, sageCookie }),
+      });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message || json.message || 'Mapping failed');
-      pulledData.current[stepId] = json.data;
-      updateStep(stepId, {
+      if (!res.ok) throw new Error(json.error?.message || json.message || 'Pull failed');
+
+      const pulled = json.data?.pulled ?? {};
+      pulledData.current = pulled;
+      setSteps(prev => prev.map(s => ({
+        ...s,
         status: 'done',
-        count: json.data.total ?? json.data.records?.length ?? 1,
-      });
+        count: pulled[s.id]?.total ?? (s.id === 'company' ? 1 : pulled[s.id]?.records?.length ?? 0),
+      })));
+      setPulledAt(new Date());
     } catch (err) {
-      updateStep(stepId, {
-        status: 'error',
-        error: err instanceof Error ? err.message : 'Upload failed',
-      });
-    }
-  }, [selectedCompanyId, updateStep]);
-
-  const openSageTab = useCallback(() => {
-    const win = window.open('https://accounting.sageone.co.za/Dashboard/Home.aspx', 'sage_session');
-    if (win) {
-      setSageWindow(win);
-      setConnected(true);
-      setError('');
-    } else {
-      setError('Popup blocked — please allow popups for this site.');
-    }
-  }, []);
-
-  const runScriptInSage = useCallback(async (_script: string): Promise<unknown> => {
-    return new Promise((_resolve, reject) => {
-      if (!sageWindow || sageWindow.closed) {
-        reject(new Error('Sage window is closed. Please reconnect.'));
-        return;
-      }
-      // Cross-origin restriction: cannot inject JS into accounting.sageone.co.za.
-      // Use the bookmarklet method below as an alternative.
-      reject(new Error('Cannot access Sage window — cross-origin restriction. Use the bookmarklet method instead.'));
-    });
-  }, [sageWindow]);
-
-  const pullAllData = useCallback(async () => {
-    if (!selectedCompanyId) {
-      setError('Please select a target company before pulling data.');
-      return;
-    }
-    setPulling(true);
-    setError('');
-
-    try {
-      const scriptsRes  = await apiFetch(`/api/admin/migration/sage-pull?companyId=${selectedCompanyId}`);
-      const scriptsJson = await scriptsRes.json();
-      if (!scriptsRes.ok) throw new Error('Failed to load pull scripts');
-      const scripts = scriptsJson.data.scripts as Record<string, string>;
-
-      for (const step of INITIAL_STEPS) {
-        updateStep(step.id, { status: 'pulling' });
-        try {
-          const rawData = await runScriptInSage(scripts[step.id] || '');
-
-          const mapRes  = await apiFetch(
-            `/api/admin/migration/sage-pull?companyId=${selectedCompanyId}`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ step: step.id, rawData }),
-            },
-          );
-          const mapJson = await mapRes.json();
-          if (!mapRes.ok) throw new Error(mapJson.message || 'Mapping failed');
-
-          pulledData.current[step.id] = mapJson.data;
-          updateStep(step.id, {
-            status: 'done',
-            count: mapJson.data.total ?? mapJson.data.records?.length ?? 1,
-          });
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : 'Pull failed';
-          updateStep(step.id, { status: 'error', error: msg });
-        }
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to pull data');
+      setError(err instanceof Error ? err.message : 'Pull failed');
     } finally {
       setPulling(false);
     }
-  }, [selectedCompanyId, runScriptInSage, updateStep]);
+  }, [selectedCompanyId, resetSteps]);
 
-  const allDone  = steps.every(s => s.status === 'done');
-  const anyError = steps.some(s => s.status === 'error');
-  const anyPulled = steps.some(s => s.status === 'done');
+  const pullViaExtension = useCallback(async () => {
+    setError('');
+    const reply = await ext.ask('isaflow-sage-ext-getCookie', 6000);
+    if (!reply.ok || !reply.value) {
+      setError(reply.error || 'Extension could not read the Sage session cookie. Make sure you are signed in to Sage in this browser.');
+      return;
+    }
+    await runPull(reply.value);
+  }, [ext, runPull]);
+
+  const pullViaPaste = useCallback(async () => {
+    await runPull(pastedCookie.trim());
+  }, [pastedCookie, runPull]);
 
   const commit = useCallback(async (mode: 'all' | 'namesAndCoa') => {
     if (!selectedCompanyId) return;
-    setCommitting(true);
-    setError('');
-    setCommitSummary(null);
+    setCommitting(true); setError(''); setCommitSummary(null);
     try {
       const all = pulledData.current;
       const payload = mode === 'namesAndCoa'
@@ -235,19 +192,13 @@ export default function AdminSageImportPage() {
     }
   }, [selectedCompanyId]);
 
-  const commitToIsaflow = useCallback(() => commit('all'), [commit]);
-  const commitNamesAndCoaOnly = useCallback(() => commit('namesAndCoa'), [commit]);
+  const anyPulled = steps.some(s => s.status === 'done');
 
   return (
     <AdminLayout title="Sage Auto-Import">
       <div className="max-w-3xl mx-auto space-y-6">
-
-        {/* Header */}
         <div>
-          <Link
-            href={adminHref('/admin/tools')}
-            className="inline-flex items-center gap-1.5 text-sm text-teal-600 dark:text-teal-400 hover:underline mb-4"
-          >
+          <Link href={adminHref('/admin/tools')} className="inline-flex items-center gap-1.5 text-sm text-teal-600 dark:text-teal-400 hover:underline mb-4">
             <ArrowLeft className="w-4 h-4" /> Back to Admin Tools
           </Link>
           <div className="flex items-center gap-3">
@@ -263,20 +214,17 @@ export default function AdminSageImportPage() {
           </div>
         </div>
 
-        {/* Global error */}
         {error && (
-          <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-600 dark:text-red-400 text-sm">
-            <AlertCircle className="h-4 w-4 shrink-0" /> {error}
+          <div className="flex items-start gap-2 p-3 rounded-lg bg-red-500/10 text-red-600 dark:text-red-400 text-sm">
+            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" /> <span>{error}</span>
           </div>
         )}
 
-        {/* Company Selector */}
         <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6">
           <h2 className="font-semibold text-gray-900 dark:text-white mb-3">Target Company</h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
             Select the ISAFlow company that Sage data will be imported into.
           </p>
-
           {companiesError ? (
             <div className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400">
               <AlertCircle className="h-4 w-4 shrink-0" /> {companiesError}
@@ -288,115 +236,113 @@ export default function AdminSageImportPage() {
               className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-500"
             >
               <option value="">-- Select a company --</option>
-              {companies.map(c => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
+              {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           )}
         </div>
 
-        {/* Step 1: Connect */}
-        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6">
-          <h2 className="font-semibold text-gray-900 dark:text-white mb-3">Step 1: Connect to Sage</h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-            Open Sage Business Cloud in a new window. Log in and select the correct company.
-            ISAFlow will read data from the active session.
-          </p>
+        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6 space-y-4">
           <div className="flex items-center gap-3">
-            <button
-              onClick={openSageTab}
-              className="flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-medium"
-            >
-              <ExternalLink className="h-4 w-4" />
-              {connected ? 'Reconnect to Sage' : 'Open Sage'}
-            </button>
-            {connected && (
-              <span className="flex items-center gap-1 text-sm text-teal-500">
-                <CheckCircle2 className="h-4 w-4" /> Sage window open
-              </span>
-            )}
+            <Cable className="h-5 w-5 text-teal-500" />
+            <h2 className="font-semibold text-gray-900 dark:text-white">Step 1: Connect to Sage</h2>
           </div>
+
+          {ext.installed ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-sm text-teal-600 dark:text-teal-400">
+                <CheckCircle2 className="h-4 w-4" />
+                ISAFlow Sage Connector extension detected{ext.version ? ` (v${ext.version})` : ''}.
+              </div>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Make sure you are signed in to <a href="https://accounting.sageone.co.za" target="_blank" rel="noreferrer" className="text-teal-500 underline">accounting.sageone.co.za</a> in this browser, with the company you want to pull from selected.
+              </p>
+              <button
+                onClick={() => void pullViaExtension()}
+                disabled={!selectedCompanyId || pulling}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-teal-600 hover:bg-teal-500 disabled:bg-teal-800 disabled:text-teal-300 text-white rounded-lg text-sm font-semibold transition-colors"
+              >
+                {pulling ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                {pulling ? 'Pulling from Sage…' : 'Pull from Sage'}
+              </button>
+              <button
+                onClick={() => setShowPaste(v => !v)}
+                className="block text-xs text-gray-500 dark:text-gray-400 underline hover:text-teal-500"
+              >
+                {showPaste ? 'Hide manual cookie paste' : 'Use manual cookie paste instead'}
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-300 text-sm">
+                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium">ISAFlow Sage Connector extension not detected.</p>
+                  <p className="text-xs mt-1 opacity-90">
+                    Install it to pull automatically: clone the repo, then in Chrome go to <code>chrome://extensions</code>, enable Developer mode, and load <code>chrome-extension/sage-connector/</code>. Reload this page after installing. Or use manual cookie paste below.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {(showPaste || !ext.installed) && (
+            <div className="space-y-2 pt-2 border-t border-gray-100 dark:border-gray-700">
+              <div className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-200">
+                <KeyRound className="h-4 w-4" /> Manual cookie paste (fallback)
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                In Chrome on the Sage tab, open DevTools → Application → Cookies → <code>https://accounting.sageone.co.za</code> → copy the value of <code>.AspNet.ApplicationCookie</code> and paste it below.
+              </p>
+              <textarea
+                value={pastedCookie}
+                onChange={e => setPastedCookie(e.target.value)}
+                placeholder=".AspNet.ApplicationCookie value…"
+                rows={3}
+                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-xs font-mono px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-500"
+              />
+              <button
+                onClick={() => void pullViaPaste()}
+                disabled={!selectedCompanyId || pulling || pastedCookie.trim().length < 16}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50 text-gray-900 dark:text-white rounded-lg text-sm font-medium"
+              >
+                {pulling ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                {pulling ? 'Pulling…' : 'Pull from Sage with pasted cookie'}
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* Step 2: Pull Data */}
-        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold text-gray-900 dark:text-white">Step 2: Pull Data</h2>
-            <button
-              onClick={pullAllData}
-              disabled={!connected || pulling || !selectedCompanyId}
-              className="flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg disabled:opacity-50 text-sm font-medium"
-            >
-              {pulling
-                ? <Loader2 className="h-4 w-4 animate-spin" />
-                : <RefreshCw className="h-4 w-4" />}
-              {pulling ? 'Pulling...' : 'Pull All Data'}
-            </button>
+        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6 space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="font-semibold text-gray-900 dark:text-white">Step 2: Pulled Data</h2>
+            {pulledAt && (
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Pulled {pulledAt.toLocaleTimeString()}
+              </p>
+            )}
           </div>
-
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-            Sage&apos;s domain blocks cross-window scripting, so the auto-pull will usually fail.
-            For each row: copy the bookmarklet, paste it into the URL bar of your Sage tab
-            (or run it from your browser&apos;s console / a bookmark), then upload the
-            downloaded JSON file here.
-          </p>
-
           <div className="divide-y divide-gray-100 dark:divide-gray-700">
             {steps.map(step => {
               const Icon = step.icon;
-              const script = scripts[step.id];
               return (
-                <div key={step.id} className="py-3">
-                  <div className="flex items-center gap-3">
-                    <div className="p-1.5 rounded bg-gray-100 dark:bg-gray-700">
-                      <Icon className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900 dark:text-white">{step.label}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
-                        {step.status === 'error' ? step.error : step.description}
-                      </p>
-                    </div>
-                    <div className="shrink-0 flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => void copyScript(step.id)}
-                        disabled={!script || scriptsLoading}
-                        className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
-                        title="Copy bookmarklet to clipboard"
-                      >
-                        <Copy className="h-3 w-3" />
-                        {copiedStep === step.id ? 'Copied' : 'Copy'}
-                      </button>
-                      <label className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer">
-                        <Upload className="h-3 w-3" /> Upload
-                        <input
-                          type="file"
-                          accept="application/json,.json"
-                          className="hidden"
-                          onChange={e => {
-                            const f = e.target.files?.[0];
-                            if (f) void uploadJsonForStep(step.id, f);
-                            e.target.value = '';
-                          }}
-                        />
-                      </label>
-                      {step.status === 'pending' && (
-                        <span className="text-xs text-gray-600 dark:text-gray-400 w-16 text-right">Waiting</span>
-                      )}
-                      {step.status === 'pulling' && (
-                        <Loader2 className="h-4 w-4 animate-spin text-teal-500" />
-                      )}
-                      {step.status === 'done' && (
-                        <span className="flex items-center gap-1 text-xs text-teal-500 w-20 text-right">
-                          <CheckCircle2 className="h-4 w-4" />
-                          {step.count}
-                        </span>
-                      )}
-                      {step.status === 'error' && (
-                        <AlertCircle className="h-4 w-4 text-red-400" />
-                      )}
-                    </div>
+                <div key={step.id} className="flex items-center gap-3 py-3">
+                  <div className="p-1.5 rounded bg-gray-100 dark:bg-gray-700">
+                    <Icon className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 dark:text-white">{step.label}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">{step.description}</p>
+                  </div>
+                  <div className="shrink-0">
+                    {pulling && step.status === 'pending' ? (
+                      <Loader2 className="h-4 w-4 animate-spin text-teal-500" />
+                    ) : step.status === 'done' ? (
+                      <span className="flex items-center gap-1 text-xs text-teal-500">
+                        <CheckCircle2 className="h-4 w-4" /> {step.count ?? 0}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-500 dark:text-gray-400">Waiting</span>
+                    )}
                   </div>
                 </div>
               );
@@ -404,50 +350,37 @@ export default function AdminSageImportPage() {
           </div>
         </div>
 
-        {/* Step 3: Commit */}
-        {(allDone || anyPulled) && (
+        {anyPulled && (
           <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6 space-y-4">
             <div className="flex items-center gap-3">
               <ShieldCheck className="h-5 w-5 text-teal-500" />
               <h2 className="font-semibold text-gray-900 dark:text-white">Step 3: Commit to ISAFlow</h2>
             </div>
-            {anyError && !allDone && (
-              <p className="text-sm text-amber-600 dark:text-amber-400">
-                Some steps failed. You can commit partial data — failed steps will be skipped.
-              </p>
-            )}
             {!commitSummary && (
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                Inserts customers/suppliers and approved invoices (posting journal entries) into the target company.
-                Safe to re-run: existing customers/suppliers are matched by name, duplicate invoice numbers are skipped.
+                Existing customers/suppliers are matched by name; duplicate invoice numbers are skipped; existing GL accounts are skipped on conflict (account_code).
               </p>
             )}
 
             {commitSummary && (
               <div className="space-y-2 text-sm">
-                {(['accounts','customers','suppliers','arInvoices','apInvoices'] as const).map(k => (
+                {COMMIT_KEYS.map(k => (
                   <div key={k} className="flex items-center justify-between gap-4 px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-900/40">
-                    <span className="font-medium text-gray-900 dark:text-white capitalize">{k.replace('Invoices',' Invoices')}</span>
+                    <span className="font-medium text-gray-900 dark:text-white capitalize">{k.replace('Invoices', ' Invoices')}</span>
                     <span className="text-gray-600 dark:text-gray-400">
-                      <span className="text-teal-600 dark:text-teal-400">{commitSummary[k].created} created</span>
-                      {' · '}
+                      <span className="text-teal-600 dark:text-teal-400">{commitSummary[k].created} created</span>{' · '}
                       <span>{commitSummary[k].skipped} skipped</span>
                       {commitSummary[k].failed.length > 0 && (
-                        <>
-                          {' · '}
-                          <span className="text-red-600 dark:text-red-400">{commitSummary[k].failed.length} failed</span>
-                        </>
+                        <>{' · '}<span className="text-red-600 dark:text-red-400">{commitSummary[k].failed.length} failed</span></>
                       )}
                     </span>
                   </div>
                 ))}
-                {(['accounts','customers','suppliers','arInvoices','apInvoices'] as const).some(k => commitSummary[k].failed.length > 0) && (
+                {COMMIT_KEYS.some(k => commitSummary[k].failed.length > 0) && (
                   <details className="pt-2">
                     <summary className="cursor-pointer text-xs text-red-600 dark:text-red-400">Show failures</summary>
                     <pre className="text-xs mt-2 p-3 rounded bg-red-500/5 text-red-700 dark:text-red-300 max-h-64 overflow-auto whitespace-pre-wrap">
-{(['accounts','customers','suppliers','arInvoices','apInvoices'] as const)
-  .flatMap(k => commitSummary[k].failed.map(f => `[${k}] ${f}`))
-  .join('\n')}
+{COMMIT_KEYS.flatMap(k => commitSummary[k].failed.map(f => `[${k}] ${f}`)).join('\n')}
                     </pre>
                   </details>
                 )}
@@ -456,41 +389,23 @@ export default function AdminSageImportPage() {
 
             <div className="flex items-center gap-3 flex-wrap">
               <button
-                onClick={() => void commitNamesAndCoaOnly()}
+                onClick={() => void commit('namesAndCoa')}
                 disabled={committing || !anyPulled}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50 text-gray-900 dark:text-white rounded-lg text-sm font-medium transition-colors"
                 title="Commit only Chart of Accounts, Customers and Suppliers — skip AR/AP invoices."
               >
-                {committing
-                  ? <><Loader2 className="h-4 w-4 animate-spin" /> Committing…</>
-                  : 'Commit names + COA only'}
+                {committing ? <><Loader2 className="h-4 w-4 animate-spin" /> Committing…</> : 'Commit names + COA only'}
               </button>
               <button
-                onClick={() => void commitToIsaflow()}
+                onClick={() => void commit('all')}
                 disabled={committing || !anyPulled}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-500 disabled:bg-teal-800 disabled:text-teal-300 text-white rounded-lg text-sm font-medium transition-colors"
               >
-                {committing ? (
-                  <><Loader2 className="h-4 w-4 animate-spin" /> Committing…</>
-                ) : commitSummary ? 'Commit again' : 'Commit everything'}
+                {committing ? <><Loader2 className="h-4 w-4 animate-spin" /> Committing…</> : commitSummary ? 'Commit again' : 'Commit everything'}
               </button>
             </div>
           </div>
         )}
-
-        {/* How-to */}
-        <div className="p-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
-          <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-2">
-            How the bookmarklet method works
-          </h3>
-          <ol className="text-xs text-gray-600 dark:text-gray-300 space-y-1 list-decimal pl-5">
-            <li>Open Sage Business Cloud and log in to the company you want to pull from.</li>
-            <li>For each row above, click <strong>Copy</strong>, switch to the Sage tab, paste into a new bookmark URL (or paste in DevTools console). Run it — Sage will return a JSON file (e.g. <code>sage-accounts.json</code>).</li>
-            <li>Back here, click <strong>Upload</strong> on the matching row and pick the JSON file. The row turns green when the records are mapped.</li>
-            <li>Once at least <em>Chart of Accounts, Customers, Suppliers</em> are uploaded, scroll down and click <strong>Commit names + COA only</strong>. Run <strong>Commit everything</strong> later when you also have AR/AP invoices.</li>
-          </ol>
-        </div>
-
       </div>
     </AdminLayout>
   );
