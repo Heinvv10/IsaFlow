@@ -13,7 +13,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import {
   ArrowLeft, Download, CheckCircle2, AlertCircle,
   Loader2, Database, Users, Building2, FileText, ShieldCheck,
-  ExternalLink, RefreshCw,
+  ExternalLink, RefreshCw, Copy, Upload,
 } from 'lucide-react';
 
 interface Company {
@@ -60,6 +60,9 @@ export default function AdminSageImportPage() {
   }>(null);
   const [error, setError]       = useState('');
   const [sageWindow, setSageWindow] = useState<Window | null>(null);
+  const [scripts, setScripts]   = useState<Record<string, string>>({});
+  const [scriptsLoading, setScriptsLoading] = useState(false);
+  const [copiedStep, setCopiedStep] = useState('');
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pulledData = useRef<Record<string, any>>({});
 
@@ -74,6 +77,64 @@ export default function AdminSageImportPage() {
   const updateStep = useCallback((id: string, update: Partial<PullStep>) => {
     setSteps(prev => prev.map(s => s.id === id ? { ...s, ...update } : s));
   }, []);
+
+  // Load per-step bookmarklet scripts whenever the target company changes.
+  // The GET endpoint returns ready-to-paste `javascript:` snippets — one
+  // per step — that fetch from Sage and trigger a JSON file download.
+  useEffect(() => {
+    if (!selectedCompanyId) { setScripts({}); return; }
+    setScriptsLoading(true);
+    apiFetch(`/api/admin/migration/sage-pull?companyId=${selectedCompanyId}`)
+      .then(r => r.json())
+      .then(j => setScripts((j.data?.scripts ?? {}) as Record<string, string>))
+      .catch(() => setScripts({}))
+      .finally(() => setScriptsLoading(false));
+  }, [selectedCompanyId]);
+
+  const copyScript = useCallback(async (stepId: string) => {
+    const s = scripts[stepId];
+    if (!s) return;
+    try {
+      await navigator.clipboard.writeText(s);
+      setCopiedStep(stepId);
+      setTimeout(() => setCopiedStep(c => (c === stepId ? '' : c)), 1500);
+    } catch {
+      // clipboard may be blocked — user can still see the snippet and copy by hand
+    }
+  }, [scripts]);
+
+  const uploadJsonForStep = useCallback(async (stepId: string, file: File) => {
+    if (!selectedCompanyId) {
+      setError('Pick a target company first.');
+      return;
+    }
+    updateStep(stepId, { status: 'pulling', error: undefined });
+    try {
+      const text = await file.text();
+      let parsed: unknown;
+      try { parsed = JSON.parse(text); } catch { throw new Error('File is not valid JSON.'); }
+      const res = await apiFetch(
+        `/api/admin/migration/sage-pull?companyId=${selectedCompanyId}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ step: stepId, rawData: parsed }),
+        },
+      );
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error?.message || json.message || 'Mapping failed');
+      pulledData.current[stepId] = json.data;
+      updateStep(stepId, {
+        status: 'done',
+        count: json.data.total ?? json.data.records?.length ?? 1,
+      });
+    } catch (err) {
+      updateStep(stepId, {
+        status: 'error',
+        error: err instanceof Error ? err.message : 'Upload failed',
+      });
+    }
+  }, [selectedCompanyId, updateStep]);
 
   const openSageTab = useCallback(() => {
     const win = window.open('https://accounting.sageone.co.za/Dashboard/Home.aspx', 'sage_session');
@@ -273,36 +334,69 @@ export default function AdminSageImportPage() {
             </button>
           </div>
 
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+            Sage&apos;s domain blocks cross-window scripting, so the auto-pull will usually fail.
+            For each row: copy the bookmarklet, paste it into the URL bar of your Sage tab
+            (or run it from your browser&apos;s console / a bookmark), then upload the
+            downloaded JSON file here.
+          </p>
+
           <div className="divide-y divide-gray-100 dark:divide-gray-700">
             {steps.map(step => {
               const Icon = step.icon;
+              const script = scripts[step.id];
               return (
-                <div key={step.id} className="flex items-center gap-3 py-3">
-                  <div className="p-1.5 rounded bg-gray-100 dark:bg-gray-700">
-                    <Icon className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 dark:text-white">{step.label}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                      {step.status === 'error' ? step.error : step.description}
-                    </p>
-                  </div>
-                  <div className="shrink-0">
-                    {step.status === 'pending' && (
-                      <span className="text-xs text-gray-600 dark:text-gray-400">Waiting</span>
-                    )}
-                    {step.status === 'pulling' && (
-                      <Loader2 className="h-4 w-4 animate-spin text-teal-500" />
-                    )}
-                    {step.status === 'done' && (
-                      <span className="flex items-center gap-1 text-xs text-teal-500">
-                        <CheckCircle2 className="h-4 w-4" />
-                        {step.count} records
-                      </span>
-                    )}
-                    {step.status === 'error' && (
-                      <AlertCircle className="h-4 w-4 text-red-400" />
-                    )}
+                <div key={step.id} className="py-3">
+                  <div className="flex items-center gap-3">
+                    <div className="p-1.5 rounded bg-gray-100 dark:bg-gray-700">
+                      <Icon className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900 dark:text-white">{step.label}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {step.status === 'error' ? step.error : step.description}
+                      </p>
+                    </div>
+                    <div className="shrink-0 flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void copyScript(step.id)}
+                        disabled={!script || scriptsLoading}
+                        className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
+                        title="Copy bookmarklet to clipboard"
+                      >
+                        <Copy className="h-3 w-3" />
+                        {copiedStep === step.id ? 'Copied' : 'Copy'}
+                      </button>
+                      <label className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer">
+                        <Upload className="h-3 w-3" /> Upload
+                        <input
+                          type="file"
+                          accept="application/json,.json"
+                          className="hidden"
+                          onChange={e => {
+                            const f = e.target.files?.[0];
+                            if (f) void uploadJsonForStep(step.id, f);
+                            e.target.value = '';
+                          }}
+                        />
+                      </label>
+                      {step.status === 'pending' && (
+                        <span className="text-xs text-gray-600 dark:text-gray-400 w-16 text-right">Waiting</span>
+                      )}
+                      {step.status === 'pulling' && (
+                        <Loader2 className="h-4 w-4 animate-spin text-teal-500" />
+                      )}
+                      {step.status === 'done' && (
+                        <span className="flex items-center gap-1 text-xs text-teal-500 w-20 text-right">
+                          <CheckCircle2 className="h-4 w-4" />
+                          {step.count}
+                        </span>
+                      )}
+                      {step.status === 'error' && (
+                        <AlertCircle className="h-4 w-4 text-red-400" />
+                      )}
+                    </div>
                   </div>
                 </div>
               );
@@ -384,18 +478,17 @@ export default function AdminSageImportPage() {
           </div>
         )}
 
-        {/* Bookmarklet fallback */}
+        {/* How-to */}
         <div className="p-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
           <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-2">
-            Alternative: Bookmarklet Method
+            How the bookmarklet method works
           </h3>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-            If auto-pull fails due to browser restrictions, drag the snippet below to your
-            bookmarks bar and click it while on the Sage dashboard.
-          </p>
-          <p className="text-xs font-mono bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 p-2 rounded break-all">
-            javascript:void(fetch(&apos;/services/Account/GetWithFilter&apos;,&#123;method:&apos;POST&apos;,headers:&#123;&apos;Content-Type&apos;:&apos;application/json&apos;&#125;,body:JSON.stringify(&#123;FilterId:2,Search:&apos;&apos;,Skip:0,Take:1000&#125;)&#125;).then(r=&gt;r.json()).then(d=&gt;&#123;const b=new Blob([JSON.stringify(d)],&#123;type:&apos;application/json&apos;&#125;);const a=document.createElement(&apos;a&apos;);a.href=URL.createObjectURL(b);a.download=&apos;sage-accounts.json&apos;;a.click()&#125;))
-          </p>
+          <ol className="text-xs text-gray-600 dark:text-gray-300 space-y-1 list-decimal pl-5">
+            <li>Open Sage Business Cloud and log in to the company you want to pull from.</li>
+            <li>For each row above, click <strong>Copy</strong>, switch to the Sage tab, paste into a new bookmark URL (or paste in DevTools console). Run it — Sage will return a JSON file (e.g. <code>sage-accounts.json</code>).</li>
+            <li>Back here, click <strong>Upload</strong> on the matching row and pick the JSON file. The row turns green when the records are mapped.</li>
+            <li>Once at least <em>Chart of Accounts, Customers, Suppliers</em> are uploaded, scroll down and click <strong>Commit names + COA only</strong>. Run <strong>Commit everything</strong> later when you also have AR/AP invoices.</li>
+          </ol>
         </div>
 
       </div>
