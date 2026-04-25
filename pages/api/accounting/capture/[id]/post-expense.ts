@@ -13,7 +13,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import {
   mapMerchantToExpenseAccount,
@@ -162,24 +162,26 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     // Auto-submit so it enters the approval queue immediately
     const submitted = await submitClaim(claim.id, companyId);
 
-    // Stamp capture records
-    await sql`
-      UPDATE captured_documents
-      SET status = 'matched', document_category = 'expense', updated_at = NOW()
-      WHERE id = ${documentId}::uuid AND company_id = ${companyId}
-    `;
-    await sql`
-      UPDATE capture_events
-      SET status = 'posted',
-          posted_by = ${userId},
-          posted_at = NOW(),
-          document_category = 'expense',
-          resolved_employee_id = ${employeeId}::uuid,
-          resolved_gl_account_id = ${resolvedGlAccountId}::uuid,
-          resolved_cost_centre_id = ${costCentreId ?? null}::uuid,
-          updated_at = NOW()
-      WHERE id = ${eventId}::uuid AND company_id = ${companyId}
-    `;
+    // Stamp capture records atomically
+    await withTransaction(async (tx) => {
+      await tx`
+        UPDATE captured_documents
+        SET status = 'matched', document_category = 'expense', updated_at = NOW()
+        WHERE id = ${documentId}::uuid AND company_id = ${companyId}
+      `;
+      await tx`
+        UPDATE capture_events
+        SET status = 'posted',
+            posted_by = ${userId},
+            posted_at = NOW(),
+            document_category = 'expense',
+            resolved_employee_id = ${employeeId}::uuid,
+            resolved_gl_account_id = ${resolvedGlAccountId}::uuid,
+            resolved_cost_centre_id = ${costCentreId ?? null}::uuid,
+            updated_at = NOW()
+        WHERE id = ${eventId}::uuid AND company_id = ${companyId}
+      `;
+    });
 
     log.info('Capture event posted as expense claim', {
       eventId, documentId, claimId: claim.id, employeeId,
@@ -241,23 +243,25 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     }
   }
 
-  // Stamp capture records
-  await sql`
-    UPDATE captured_documents
-    SET status = 'matched', document_category = 'expense', updated_at = NOW()
-    WHERE id = ${documentId}::uuid AND company_id = ${companyId}
-  `;
-  await sql`
-    UPDATE capture_events
-    SET status = 'posted',
-        posted_by = ${userId},
-        posted_at = NOW(),
-        document_category = 'expense',
-        resolved_gl_account_id = ${resolvedGlAccountId}::uuid,
-        resolved_cost_centre_id = ${costCentreId ?? null}::uuid,
-        updated_at = NOW()
-    WHERE id = ${eventId}::uuid AND company_id = ${companyId}
-  `;
+  // Stamp capture records atomically
+  await withTransaction(async (tx) => {
+    await tx`
+      UPDATE captured_documents
+      SET status = 'matched', document_category = 'expense', updated_at = NOW()
+      WHERE id = ${documentId}::uuid AND company_id = ${companyId}
+    `;
+    await tx`
+      UPDATE capture_events
+      SET status = 'posted',
+          posted_by = ${userId},
+          posted_at = NOW(),
+          document_category = 'expense',
+          resolved_gl_account_id = ${resolvedGlAccountId}::uuid,
+          resolved_cost_centre_id = ${costCentreId ?? null}::uuid,
+          updated_at = NOW()
+      WHERE id = ${eventId}::uuid AND company_id = ${companyId}
+    `;
+  });
 
   log.info('Capture event posted as direct GL expense', {
     eventId, documentId, jeId: jeEntry.id, autoPost, jeStatus,
