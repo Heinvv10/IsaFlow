@@ -34,10 +34,12 @@ const TYPE_META: Record<CandidateType, { label: string; icon: typeof FileText; c
   customer_invoice: { label: 'Customer Inv', icon: Users, colour: 'text-teal-400 bg-teal-400/10' },
   purchase_order: { label: 'PO', icon: ShoppingCart, colour: 'text-amber-400 bg-amber-400/10' },
   journal_line: { label: 'Journal', icon: BookOpen, colour: 'text-purple-400 bg-purple-400/10' },
+  bank_transfer: { label: 'Transfer', icon: BookOpen, colour: 'text-orange-400 bg-orange-400/10' },
 };
 
-const GROUP_ORDER: CandidateType[] = ['customer_invoice', 'supplier_invoice', 'purchase_order', 'journal_line'];
+const GROUP_ORDER: CandidateType[] = ['bank_transfer', 'customer_invoice', 'supplier_invoice', 'purchase_order', 'journal_line'];
 const GROUP_TITLES: Record<CandidateType, string> = {
+  bank_transfer: 'Bank Transfers (opposite leg)',
   customer_invoice: 'Customer Invoices',
   supplier_invoice: 'Supplier Invoices',
   purchase_order: 'Purchase Orders',
@@ -91,7 +93,7 @@ export function FindMatchModal({ transaction, onClose, onMatch }: Props) {
   const grouped = GROUP_ORDER.reduce<Record<CandidateType, MatchCandidate[]>>((acc, type) => {
     acc[type] = filtered.filter(c => c.type === type);
     return acc;
-  }, { customer_invoice: [], supplier_invoice: [], purchase_order: [], journal_line: [] });
+  }, { bank_transfer: [], customer_invoice: [], supplier_invoice: [], purchase_order: [], journal_line: [] });
 
   const handleConfirm = async () => {
     if (!selected) return;

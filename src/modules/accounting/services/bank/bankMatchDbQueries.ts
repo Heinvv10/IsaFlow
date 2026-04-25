@@ -194,7 +194,7 @@ export async function fetchJournalLineCandidates(
   txDesc: string,
 ): Promise<MatchCandidate[]> {
   const jlRows = (await sql`
-    SELECT jl.id, jl.description, jl.debit, jl.credit, je.entry_date
+    SELECT jl.id, jl.description, jl.debit, jl.credit, je.entry_date, je.source
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     WHERE je.status = 'posted'
@@ -212,8 +212,18 @@ export async function fetchJournalLineCandidates(
     const lineNet = Number(row.debit) - Number(row.credit);
     const label = String(row.description ?? 'Journal line');
     const candDate = fmtDate(row.entry_date);
-    const score = scoreAmount(txAmount, lineNet) + scoreDate(txDate, candDate) + scoreDescription(txDesc, label);
-    const matchReason = Math.abs(lineNet - txAmount) < 0.01 ? 'Exact amount match' : undefined;
-    return { type: 'journal_line' as const, id: String(row.id), label, amount: lineNet, date: candDate, score, matchReason };
+    const isTransfer = String(row.source || '') === 'auto_bank_transfer';
+    let score = scoreAmount(txAmount, lineNet) + scoreDate(txDate, candDate) + scoreDescription(txDesc, label);
+    let matchReason: string | undefined = Math.abs(lineNet - txAmount) < 0.01 ? 'Exact amount match' : undefined;
+    if (isTransfer && Math.abs(lineNet - txAmount) < 0.01) {
+      // Surface the opposite leg of an inter-account transfer at the top — no
+      // new JE must be posted, user should match against this existing one.
+      score += 40;
+      matchReason = 'Matches existing bank transfer journal — select to reconcile without posting a new entry';
+    }
+    return {
+      type: isTransfer ? ('bank_transfer' as const) : ('journal_line' as const),
+      id: String(row.id), label, amount: lineNet, date: candDate, score, matchReason,
+    };
   });
 }

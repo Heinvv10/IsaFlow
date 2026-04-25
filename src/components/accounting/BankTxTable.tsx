@@ -9,7 +9,7 @@ import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { Check, X, Undo2, Search, Scissors, SearchCheck, RotateCcw, Paperclip, BookmarkPlus, Plus, Clock } from 'lucide-react';
 
-export type AllocType = 'account' | 'supplier' | 'customer';
+export type AllocType = 'account' | 'supplier' | 'customer' | 'transfer';
 export type VatCode = 'none' | 'standard' | 'zero_rated' | 'exempt';
 
 export const VAT_OPTIONS: { value: VatCode; label: string; rate: number }[] = [
@@ -81,6 +81,8 @@ interface Props {
   glAccounts: SelectOption[];
   suppliers: SelectOption[];
   customers: SelectOption[];
+  /** Other bank GL accounts available as transfer targets (source bank already excluded). */
+  transferTargets: SelectOption[];
   cc1Options: SelectOption[];
   cc2Options: SelectOption[];
   buOptions: SelectOption[];
@@ -170,7 +172,7 @@ function NotesCell({
 
 export function BankTxTable(props: Props) {
   const {
-    transactions, glAccounts, suppliers, customers,
+    transactions, glAccounts, suppliers, customers, transferTargets,
     cc1Options, cc2Options, buOptions, showCC, showBU,
     selectedIds, rowSelections, allSelected, tab,
     onToggleSelect, onSelectAll, onRowTypeChange, onRowEntityChange, onRowVatChange,
@@ -198,6 +200,7 @@ export function BankTxTable(props: Props) {
   function getOptionsForType(type: AllocType): SelectOption[] {
     if (type === 'supplier') return suppliers;
     if (type === 'customer') return customers;
+    if (type === 'transfer') return transferTargets;
     return glAccounts;
   }
 
@@ -320,7 +323,7 @@ export function BankTxTable(props: Props) {
                     <span className="text-xs text-[var(--ff-text-tertiary)]">{tx.notes || ''}</span>
                   )}
                 </td>
-                {/* Type dropdown — Account / Supplier / Customer */}
+                {/* Type dropdown — Account / Supplier / Customer / Transfer */}
                 <td className="py-2 px-2">
                   {isNew ? (
                     <select
@@ -331,15 +334,18 @@ export function BankTxTable(props: Props) {
                       <option value="account">Account</option>
                       <option value="supplier">Supplier</option>
                       <option value="customer">Customer</option>
+                      <option value="transfer">Transfer</option>
                     </select>
                   ) : (
                     <span className={`text-xs font-medium ${
                       (tx.allocationType || sel?.type) === 'supplier' ? 'text-blue-400'
                       : (tx.allocationType || sel?.type) === 'customer' ? 'text-purple-400'
+                      : (tx.allocationType || sel?.type) === 'transfer' ? 'text-orange-400'
                       : 'text-[var(--ff-text-secondary)]'
                     }`}>
                       {(tx.allocationType || sel?.type) === 'supplier' ? 'Supplier'
                        : (tx.allocationType || sel?.type) === 'customer' ? 'Customer'
+                       : (tx.allocationType || sel?.type) === 'transfer' ? 'Transfer'
                        : 'Account'}
                     </span>
                   )}
@@ -378,12 +384,15 @@ export function BankTxTable(props: Props) {
                               ? 'text-amber-400 bg-amber-500/10 font-medium'
                               : rowType === 'supplier'
                                 ? 'text-blue-400 bg-blue-500/10 font-medium'
-                                : 'text-purple-400 bg-purple-500/10 font-medium'
+                                : rowType === 'transfer'
+                                  ? 'text-orange-400 bg-orange-500/10 font-medium'
+                                  : 'text-purple-400 bg-purple-500/10 font-medium'
                         }`}
                       >
                         {sel?.entityId ? sel.label : (
                           rowType === 'supplier' ? 'Select Supplier'
                           : rowType === 'customer' ? 'Select Customer'
+                          : rowType === 'transfer' ? 'Select Bank Account'
                           : 'Unallocated'
                         )}
                       </button>
@@ -393,7 +402,7 @@ export function BankTxTable(props: Props) {
                             <div className="relative">
                               <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-[var(--ff-text-tertiary)]" />
                               <input type="text"
-                                placeholder={`Search ${rowType === 'supplier' ? 'suppliers' : rowType === 'customer' ? 'customers' : 'accounts'}...`}
+                                placeholder={`Search ${rowType === 'supplier' ? 'suppliers' : rowType === 'customer' ? 'customers' : rowType === 'transfer' ? 'bank accounts' : 'accounts'}...`}
                                 value={search} onChange={e => setSearch(e.target.value)}
                                 className="w-full pl-7 pr-2 py-1.5 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-xs text-[var(--ff-text-primary)] focus:outline-none focus:border-blue-500"
                                 autoFocus />
@@ -439,7 +448,7 @@ export function BankTxTable(props: Props) {
                               <div className="px-3 py-2 text-xs text-[var(--ff-text-tertiary)]">No results found</div>
                             )}
                           </div>
-                          {onCreateEntity && (
+                          {onCreateEntity && rowType !== 'transfer' && (
                             <div className="border-t border-[var(--ff-border-light)] p-1.5">
                               <button
                                 onClick={() => { onCreateEntity(tx.id, rowType); setOpenSel(null); }}
@@ -457,6 +466,7 @@ export function BankTxTable(props: Props) {
                     <span className={`text-xs truncate max-w-[200px] block ${
                       (tx.allocationType) === 'supplier' ? 'text-blue-400'
                       : (tx.allocationType) === 'customer' ? 'text-purple-400'
+                      : (tx.allocationType) === 'transfer' ? 'text-orange-400'
                       : 'text-teal-400'
                     }`} title={tx.allocatedEntityName || sel?.label || 'Allocated'}>
                       {tx.allocatedEntityName || sel?.label || 'Allocated'}
@@ -464,7 +474,7 @@ export function BankTxTable(props: Props) {
                   )}
                 </td>
                 <td className="py-2 px-2">
-                  {sel?.type === 'supplier' || sel?.type === 'customer' ? (
+                  {sel?.type === 'supplier' || sel?.type === 'customer' || sel?.type === 'transfer' ? (
                     <span className="text-xs text-[var(--ff-text-tertiary)] italic">N/A</span>
                   ) : isNew ? (
                     <select

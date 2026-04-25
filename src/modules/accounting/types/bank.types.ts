@@ -80,8 +80,12 @@ export interface BankTransaction {
   cc2Name?: string;
   buName?: string;
   // Allocation tracking — populated when status is matched/reconciled
-  allocationType?: 'account' | 'supplier' | 'customer';
+  allocationType?: 'account' | 'supplier' | 'customer' | 'transfer';
   allocatedEntityName?: string;
+  /** For allocationType = 'transfer': the GL account id of the other bank account. */
+  counterpartyAccountId?: string;
+  /** For allocationType = 'transfer': the single balanced JE id shared by both legs. */
+  transferJournalEntryId?: string;
 }
 
 // ── Bank Reconciliation ──────────────────────────────────────────────────────

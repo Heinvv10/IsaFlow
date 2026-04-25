@@ -35,7 +35,7 @@ const BankTxActionSchema = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('allocate'),
     bankTransactionId: UUID,
-    allocationType: z.enum(['account', 'supplier', 'customer']).optional(),
+    allocationType: z.enum(['account', 'supplier', 'customer', 'transfer']).optional(),
     contraAccountId: UUID.optional(),
     entityId: UUID.optional(),
     description: z.string().max(500).optional(),
@@ -109,6 +109,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         }
         if ((aType === 'supplier' || aType === 'customer') && !body.entityId) {
           return apiResponse.badRequest(res, 'entityId is required for supplier/customer allocation');
+        }
+        if (aType === 'transfer' && !body.contraAccountId) {
+          return apiResponse.badRequest(res, 'contraAccountId is required for transfer allocation (the counterparty bank account)');
         }
         const result = await allocateTransaction(
           companyId, body.bankTransactionId, body.contraAccountId || null, userId,

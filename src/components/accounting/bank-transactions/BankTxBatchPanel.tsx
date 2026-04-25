@@ -21,6 +21,7 @@ interface Props {
   glAccounts: SelectOption[];
   suppliers: SelectOption[];
   customers: SelectOption[];
+  transferTargets: SelectOption[];
   rulePrompt: RulePrompt | null;
   onBatchTypeChange: (type: AllocType) => void;
   onBatchSearchChange: (v: string) => void;
@@ -32,17 +33,20 @@ interface Props {
 
 export function BankTxBatchPanel({
   showBatchEdit, selectedCount, batchType, batchSearch,
-  glAccounts, suppliers, customers,
+  glAccounts, suppliers, customers, transferTargets,
   rulePrompt,
   onBatchTypeChange, onBatchSearchChange, onApplyBatchEdit, onCancelBatchEdit,
   onCreateRule, onDismissRulePrompt,
 }: Props) {
   const batchOptions = useMemo(() => {
-    const opts = batchType === 'supplier' ? suppliers : batchType === 'customer' ? customers : glAccounts;
+    const opts = batchType === 'supplier' ? suppliers
+      : batchType === 'customer' ? customers
+      : batchType === 'transfer' ? transferTargets
+      : glAccounts;
     if (!batchSearch) return opts.slice(0, 30);
     const q = batchSearch.toLowerCase();
     return opts.filter(o => (o.code || '').toLowerCase().includes(q) || o.name.toLowerCase().includes(q)).slice(0, 30);
-  }, [batchType, batchSearch, glAccounts, suppliers, customers]);
+  }, [batchType, batchSearch, glAccounts, suppliers, customers, transferTargets]);
 
   return (
     <>
@@ -58,6 +62,7 @@ export function BankTxBatchPanel({
             <option value="account">Account</option>
             <option value="supplier">Supplier</option>
             <option value="customer">Customer</option>
+            <option value="transfer">Transfer</option>
           </select>
           <div className="relative">
             <input
