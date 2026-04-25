@@ -15,7 +15,7 @@
   };
 
   function announce() {
-    window.postMessage({ source: 'isaflow-sage-extension', type: 'announce', version: '1.0.0' }, '*');
+    window.postMessage({ source: 'isaflow-sage-extension', type: 'announce', version: '1.1.0' }, '*');
   }
 
   window.addEventListener('message', (event) => {
@@ -36,7 +36,8 @@
         ok: !err && resp && resp.ok,
         error: err || (resp && resp.error) || null,
         value: resp && resp.value,
-        expirationDate: resp && resp.expirationDate,
+        names: resp && resp.names,
+        count: resp && resp.count,
         version: resp && resp.version,
       }, '*');
     });

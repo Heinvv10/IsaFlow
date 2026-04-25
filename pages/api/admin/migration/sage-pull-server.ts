@@ -5,7 +5,8 @@
  *
  * Body: {
  *   companyId: string,
- *   sageCookie: string,             // value of .AspNet.ApplicationCookie
+ *   sageCookie: string,             // raw `Cookie:` header value — name=value; name=value; …
+ *                                   // (we send every cookie set by sageone.co.za, not just one)
  *   sageBase?: string,              // override host (default https://accounting.sageone.co.za)
  * }
  *
@@ -41,10 +42,14 @@ interface SageEnvelope { Results?: unknown[]; TotalResults?: number; }
 interface CompanyResp { Name?: string; TaxNumber?: string; RegistrationNumber?: string; CurrencySymbol?: string; TakeOnBalanceDate?: string; }
 
 function buildHeaders(cookie: string): HeadersInit {
+  // Caller passes the full `Cookie:` value (a `name=value; name=value` string
+  // for every cookie set by sageone.co.za). If they pass just a single cookie
+  // value, prefix it; otherwise replay the string verbatim.
+  const cookieHeader = cookie.includes('=') ? cookie : `.AspNet.ApplicationCookie=${cookie}`;
   return {
     'Content-Type': 'application/json;charset=UTF-8',
     'Accept': 'application/json',
-    'Cookie': `.AspNet.ApplicationCookie=${cookie}`,
+    'Cookie': cookieHeader,
     'X-Requested-With': 'XMLHttpRequest',
   };
 }
