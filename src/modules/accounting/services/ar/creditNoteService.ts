@@ -3,7 +3,7 @@
  * Credit Note Service (Customer & Supplier)
  */
 
-import { sql, withTransaction } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl/journalEntryService';
 import { getSystemAccount } from '../gl/systemAccountResolver';
@@ -164,28 +164,24 @@ export async function approveCreditNote(companyId: string, id: string, userId: s
     }, userId);
     await postJournalEntry(companyId, je.id, userId);
 
-    // Update invoice balance and credit note status atomically
-    const updated = await withTransaction(async (tx) => {
-      if (String(cn.type) === 'customer' && cn.customer_invoice_id) {
-        await tx`
-          UPDATE customer_invoices SET amount_paid = amount_paid + ${Number(cn.total_amount)}
-          WHERE id = ${cn.customer_invoice_id}::UUID AND company_id = ${companyId}::UUID
-        `;
-      } else if (String(cn.type) === 'supplier' && cn.supplier_invoice_id) {
-        await tx`
-          UPDATE supplier_invoices SET amount_paid = amount_paid + ${Number(cn.total_amount)}
-          WHERE id = ${cn.supplier_invoice_id}::UUID AND company_id = ${companyId}::UUID
-        `;
-      }
+    if (String(cn.type) === 'customer' && cn.customer_invoice_id) {
+      await sql`
+        UPDATE customer_invoices SET amount_paid = amount_paid + ${Number(cn.total_amount)}
+        WHERE id = ${cn.customer_invoice_id}::UUID AND company_id = ${companyId}::UUID
+      `;
+    } else if (String(cn.type) === 'supplier' && cn.supplier_invoice_id) {
+      await sql`
+        UPDATE supplier_invoices SET amount_paid = amount_paid + ${Number(cn.total_amount)}
+        WHERE id = ${cn.supplier_invoice_id}::UUID AND company_id = ${companyId}::UUID
+      `;
+    }
 
-      const rows = (await tx`
-        UPDATE credit_notes SET status = 'approved', approved_by = ${userId}::UUID,
-          approved_at = NOW(), gl_journal_entry_id = ${je.id}::UUID
-        WHERE id = ${id} AND company_id = ${companyId}::UUID RETURNING *
-      `) as Record<string, unknown>[];
-
-      return rows[0] as Record<string, unknown>;
-    });
+    const updatedRows = (await sql`
+      UPDATE credit_notes SET status = 'approved', approved_by = ${userId}::UUID,
+        approved_at = NOW(), gl_journal_entry_id = ${je.id}::UUID
+      WHERE id = ${id} AND company_id = ${companyId}::UUID RETURNING *
+    `) as Record<string, unknown>[];
+    const updated = updatedRows[0] as Record<string, unknown>;
 
     log.info('Approved credit note', { id, journalEntryId: je.id }, 'accounting');
     return mapRow(updated);
@@ -213,39 +209,35 @@ export async function cancelCreditNote(companyId: string,
       await reverseJournalEntry(companyId, String(cn.gl_journal_entry_id), userId);
     }
 
-    // Atomically reverse invoice balance adjustments and mark credit note cancelled
-    const updated = await withTransaction(async (tx) => {
-      if (String(cn.type) === 'customer' && cn.customer_invoice_id) {
-        await tx`
-          UPDATE customer_invoices
-          SET amount_paid = GREATEST(0, amount_paid - ${Number(cn.total_amount)})
-          WHERE id = ${cn.customer_invoice_id}::UUID AND company_id = ${companyId}::UUID
-        `;
-        await tx`
-          UPDATE customer_invoices SET status = CASE
-            WHEN amount_paid <= 0.01 THEN 'approved'
-            WHEN amount_paid < total_amount THEN 'partially_paid'
-            ELSE status
-          END
-          WHERE id = ${cn.customer_invoice_id}::UUID AND company_id = ${companyId}::UUID
-        `;
-      } else if (String(cn.type) === 'supplier' && cn.supplier_invoice_id) {
-        await tx`
-          UPDATE supplier_invoices
-          SET amount_paid = GREATEST(0, amount_paid - ${Number(cn.total_amount)})
-          WHERE id = ${cn.supplier_invoice_id}::UUID AND company_id = ${companyId}::UUID
-        `;
-      }
+    if (String(cn.type) === 'customer' && cn.customer_invoice_id) {
+      await sql`
+        UPDATE customer_invoices
+        SET amount_paid = GREATEST(0, amount_paid - ${Number(cn.total_amount)})
+        WHERE id = ${cn.customer_invoice_id}::UUID AND company_id = ${companyId}::UUID
+      `;
+      await sql`
+        UPDATE customer_invoices SET status = CASE
+          WHEN amount_paid <= 0.01 THEN 'approved'
+          WHEN amount_paid < total_amount THEN 'partially_paid'
+          ELSE status
+        END
+        WHERE id = ${cn.customer_invoice_id}::UUID AND company_id = ${companyId}::UUID
+      `;
+    } else if (String(cn.type) === 'supplier' && cn.supplier_invoice_id) {
+      await sql`
+        UPDATE supplier_invoices
+        SET amount_paid = GREATEST(0, amount_paid - ${Number(cn.total_amount)})
+        WHERE id = ${cn.supplier_invoice_id}::UUID AND company_id = ${companyId}::UUID
+      `;
+    }
 
-      const rows = (await tx`
-        UPDATE credit_notes
-        SET status = 'cancelled', cancelled_by = ${userId}::UUID,
-            cancelled_at = NOW(), cancel_reason = ${reason || null}
-        WHERE id = ${id} AND company_id = ${companyId}::UUID RETURNING *
-      `) as Record<string, unknown>[];
-
-      return rows[0] as Record<string, unknown>;
-    });
+    const cancelledRows = (await sql`
+      UPDATE credit_notes
+      SET status = 'cancelled', cancelled_by = ${userId}::UUID,
+          cancelled_at = NOW(), cancel_reason = ${reason || null}
+      WHERE id = ${id} AND company_id = ${companyId}::UUID RETURNING *
+    `) as Record<string, unknown>[];
+    const updated = cancelledRows[0] as Record<string, unknown>;
 
     log.info('Cancelled credit note', { id, reason }, 'accounting');
     return mapRow(updated);
@@ -283,23 +275,21 @@ export async function applyCreditNoteToInvoice(
   const applyAmount = Math.min(Number(cn.total_amount), outstanding);
   if (applyAmount <= 0) throw new Error('Invoice has no outstanding balance');
 
-  const updated = await withTransaction(async (tx) => {
-    const newPaid = Number(inv.amount_paid) + applyAmount;
-    const newStatus = newPaid >= Number(inv.total_amount) * 0.999 ? 'paid'
-      : newPaid > 0.01 ? 'partially_paid' : String(inv.status);
-    await tx`
-      UPDATE customer_invoices
-      SET amount_paid = ${newPaid}, status = ${newStatus}
-      WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}
-    `;
-    const rows = (await tx`
-      UPDATE credit_notes
-      SET status = 'applied', customer_invoice_id = ${invoiceId}::UUID, updated_at = NOW()
-      WHERE id = ${creditNoteId}::UUID AND company_id = ${companyId}
-      RETURNING *
-    `) as Record<string, unknown>[];
-    return rows[0] as Record<string, unknown>;
-  });
+  const newPaid = Number(inv.amount_paid) + applyAmount;
+  const newStatus = newPaid >= Number(inv.total_amount) * 0.999 ? 'paid'
+    : newPaid > 0.01 ? 'partially_paid' : String(inv.status);
+  await sql`
+    UPDATE customer_invoices
+    SET amount_paid = ${newPaid}, status = ${newStatus}
+    WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}
+  `;
+  const appliedRows = (await sql`
+    UPDATE credit_notes
+    SET status = 'applied', customer_invoice_id = ${invoiceId}::UUID, updated_at = NOW()
+    WHERE id = ${creditNoteId}::UUID AND company_id = ${companyId}
+    RETURNING *
+  `) as Record<string, unknown>[];
+  const updated = appliedRows[0] as Record<string, unknown>;
 
   log.info('Applied credit note to invoice', { creditNoteId, invoiceId, applyAmount, userId }, 'accounting');
   return mapRow(updated);
