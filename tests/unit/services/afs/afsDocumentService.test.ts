@@ -62,7 +62,9 @@ describe('afsDocumentService', () => {
     });
 
     it('throws when sql returns empty array (conflict / DB constraint)', async () => {
-      mockSql.mockResolvedValueOnce([]);
+      // Two queries: idempotent SELECT (no existing) then INSERT...RETURNING.
+      mockSql.mockResolvedValueOnce([]); // SELECT — nothing existing
+      mockSql.mockResolvedValueOnce([]); // INSERT — no row returned
 
       await expect(
         createAfsDocument({
