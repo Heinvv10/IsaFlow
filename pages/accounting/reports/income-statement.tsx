@@ -33,7 +33,7 @@ export default function IncomeStatementPage() {
   const defaults = getDefaultDates();
   const [periodStart, setPeriodStart] = useState(qStart || defaults.periodStart);
   const [periodEnd, setPeriodEnd] = useState(qEnd || defaults.periodEnd);
-  useEffect(() => { if (qStart && qStart !== periodStart) setPeriodStart(qStart); if (qEnd && qEnd !== periodEnd) setPeriodEnd(qEnd); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [qStart, qEnd]);
+  useEffect(() => { if (qStart && qStart !== periodStart) setPeriodStart(qStart); if (qEnd && qEnd !== periodEnd) setPeriodEnd(qEnd);   }, [qStart, qEnd]);
   const [report, setReport] = useState<IncomeStatementReport | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');

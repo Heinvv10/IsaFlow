@@ -96,7 +96,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       'signum-webhook',
     );
     return res.status(200).json({ received: true });
-  };
+  }
 
   // 4. Handle non-signed terminal events — reset signing state so staff can resend
   if (payload.event !== 'document.signed') {

@@ -121,7 +121,7 @@ export function LandingTestimonials() {
               ))}
             </div>
             <blockquote className="text-xl lg:text-2xl font-medium text-slate-900 dark:text-white leading-relaxed mb-8">
-              "{featured.quote}"
+              &quot;{featured.quote}&quot;
             </blockquote>
             {featured.metric && (
               <div className="inline-block px-4 py-2 bg-teal-500/20 text-teal-400 text-sm font-semibold rounded-full mb-6">
@@ -145,7 +145,7 @@ export function LandingTestimonials() {
                 ))}
               </div>
               <blockquote className="text-gray-700 leading-relaxed mb-6 text-sm">
-                "{t.quote}"
+                &quot;{t.quote}&quot;
               </blockquote>
               <div>
                 <p className="font-semibold text-gray-900 text-sm">{t.name}</p>

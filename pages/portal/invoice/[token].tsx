@@ -129,7 +129,6 @@ export default function PortalInvoicePage({ invoice, token, isOverdue }: PortalI
           <div className="max-w-3xl mx-auto flex items-center justify-between">
             <div className="flex items-center gap-2.5">
               {invoice.company_logo_url ? (
-                // eslint-disable-next-line @next/next/no-img-element
                 <img src={invoice.company_logo_url} alt={headerName} className="h-8 w-auto object-contain" />
               ) : (
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: accentColor }}>
@@ -425,7 +424,7 @@ function DisputeModal({
         <div className="px-6 py-5 space-y-4">
           <div>
             <p className="text-xs font-medium text-gray-600 mb-2">
-              Optional — pick the line(s) you're disputing. Leave blank to dispute the whole invoice.
+              Optional — pick the line(s) you&apos;re disputing. Leave blank to dispute the whole invoice.
             </p>
             <div className="max-h-48 overflow-y-auto border border-gray-100 rounded-lg divide-y divide-gray-50">
               {invoice.items.map((item) => (

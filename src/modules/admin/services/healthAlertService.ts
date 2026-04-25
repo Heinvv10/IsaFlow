@@ -9,7 +9,7 @@ import { log } from '@/lib/logger';
 import type { DbRow } from '@/lib/neon';
 import { sendEmail } from '@/modules/accounting/services/core/emailService';
 import { BRAND, emailLayout } from '@/lib/email-templates';
-// eslint-disable-next-line @typescript-eslint/no-restricted-imports
+ 
 import type { SystemHealthResponse } from '../../../../pages/api/admin/health';
 
 type Row = DbRow;

@@ -147,7 +147,7 @@ export default function CustomerDedupPage() {
               <Search className="h-12 w-12 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
               <p className="text-[var(--ff-text-secondary)] font-medium">Ready to scan</p>
               <p className="text-sm text-[var(--ff-text-tertiary)] mt-1 mb-4">
-                Click "Scan for Duplicates" to find potential matches
+                Click &quot;Scan for Duplicates&quot; to find potential matches
               </p>
               <button
                 onClick={scan}

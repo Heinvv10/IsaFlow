@@ -161,7 +161,7 @@ function renderSection(doc: JsPDFDoc, autoTable: any, section: PackSection, page
   }
   const startY: number = (doc.lastAutoTable?.finalY ?? 20) + 14;
 
-  let y = renderSectionHeader(doc, section.title, startY, pageW, margin);
+  const y = renderSectionHeader(doc, section.title, startY, pageW, margin);
   const d = section.data;
 
   switch (section.type) {

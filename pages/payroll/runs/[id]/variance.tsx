@@ -187,7 +187,7 @@ export default function PayrollRunVariancePage() {
         <div className="p-6 space-y-6">
           {!data.priorRunId && (
             <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-sm">
-              <AlertTriangle className="h-4 w-4" /> No prior payroll run — every line shows as "new".
+              <AlertTriangle className="h-4 w-4" /> No prior payroll run — every line shows as &quot;new&quot;.
             </div>
           )}
 

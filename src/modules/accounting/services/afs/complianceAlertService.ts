@@ -116,9 +116,9 @@ async function detectPisThresholdAlerts(companyId: string): Promise<void> {
   }
 
   // rows.length >= 2 is guaranteed above; non-null assertion is safe
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+   
   const current = Number(rows[0]!.pis_score);
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+   
   const prior = Number(rows[1]!.pis_score);
 
   if (current >= 100 && prior < 100) {

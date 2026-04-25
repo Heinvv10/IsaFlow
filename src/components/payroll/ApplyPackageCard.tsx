@@ -91,7 +91,7 @@ export function ApplyPackageCard({ employeeId }: Props) {
             </button>
           </div>
           <p className="mt-3 text-xs text-[var(--ff-text-secondary)]">
-            Applying end-dates any open assignment for each of the package's components, then inserts the new rows
+            Applying end-dates any open assignment for each of the package&apos;s components, then inserts the new rows
             with the chosen effective date. Prior runs remain unchanged.
           </p>
         </>

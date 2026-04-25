@@ -79,7 +79,7 @@ export function OccupationalLevelCard({ employeeId, currentLevelId, onChange }: 
         </div>
       )}
       <p className="mt-2 text-xs text-[var(--ff-text-secondary)]">
-        Drives the EEA2 annual return. Employees without a level fall into "Unspecified" on the report.
+        Drives the EEA2 annual return. Employees without a level fall into &quot;Unspecified&quot; on the report.
       </p>
       {error && (
         <div className="mt-3 flex items-center gap-2 text-sm text-red-400">

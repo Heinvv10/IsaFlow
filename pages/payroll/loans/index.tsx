@@ -100,7 +100,7 @@ export default function LoansListPage() {
           {componentsMissing && !loading && (
             <div className="flex items-center justify-between gap-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
               <div className="text-amber-300">
-                Loan payslip components not configured. Without these, loan payments record but don't appear on payslips.
+                Loan payslip components not configured. Without these, loan payments record but don&apos;t appear on payslips.
               </div>
               <button onClick={seedComponents} disabled={seeding}
                 className="px-3 py-1.5 rounded-md bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium disabled:opacity-50">

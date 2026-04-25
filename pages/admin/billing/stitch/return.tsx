@@ -150,7 +150,7 @@ export default function AdminStitchMandateReturn() {
           {state === 'error' && (
             <div className="text-center">
               <AlertTriangle className="w-14 h-14 text-amber-500 mx-auto" />
-              <h1 className="mt-4 text-2xl font-semibold text-slate-900">We couldn't confirm the mandate</h1>
+              <h1 className="mt-4 text-2xl font-semibold text-slate-900">We couldn&apos;t confirm the mandate</h1>
               <p className="mt-2 text-slate-600">{errorMsg}</p>
               <p className="mt-4 text-sm text-slate-500">
                 The authorisation may still complete shortly. Refresh this page in a minute, or contact support.

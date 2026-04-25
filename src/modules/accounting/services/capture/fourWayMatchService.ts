@@ -40,7 +40,7 @@ export async function recordPaymentMatch(
   const row = rows[0]!;
 
   // Already matched — nothing to do
-  if (Boolean(row.payment_matched)) {
+  if (row.payment_matched) {
     return { paymentMatched: true };
   }
 

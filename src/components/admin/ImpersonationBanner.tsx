@@ -62,13 +62,17 @@ export function clearImpersonationSession(): void {
 export function ImpersonationBanner() {
   const router = useRouter();
   const [session, setSession] = useState<ImpersonationSession | null>(null);
+  const [now, setNow] = useState<number | null>(null);
 
   useEffect(() => {
     const s = getImpersonationSession();
     setSession(s);
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(id);
   }, []);
 
-  if (!session) return null;
+  if (!session || now === null) return null;
 
   const handleExit = () => {
     clearImpersonationSession();
@@ -81,7 +85,7 @@ export function ImpersonationBanner() {
   const expiresAt = new Date(session.expires_at);
   const minutesLeft = Math.max(
     0,
-    Math.round((expiresAt.getTime() - Date.now()) / 60_000)
+    Math.round((expiresAt.getTime() - now) / 60_000)
   );
 
   return (

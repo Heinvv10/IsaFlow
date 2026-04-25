@@ -20,7 +20,7 @@ export default function BalanceSheetPage() {
   const router = useRouter();
   const qAsAt = typeof router.query.as_at_date === 'string' ? router.query.as_at_date : '';
   const [asAtDate, setAsAtDate] = useState(qAsAt || new Date().toISOString().split('T')[0]);
-  useEffect(() => { if (qAsAt && qAsAt !== asAtDate) setAsAtDate(qAsAt); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [qAsAt]);
+  useEffect(() => { if (qAsAt && qAsAt !== asAtDate) setAsAtDate(qAsAt);   }, [qAsAt]);
   const [report, setReport] = useState<BalanceSheetReport | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');

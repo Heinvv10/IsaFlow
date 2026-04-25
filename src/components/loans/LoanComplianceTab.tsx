@@ -50,7 +50,7 @@ export function LoanComplianceTab({ loanId }: Props) {
     setLoading(false);
   }, [loanId]);
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- idiomatic data load
+   
   useEffect(() => { load(); }, [load]);
 
   const runAssessment = async () => {
