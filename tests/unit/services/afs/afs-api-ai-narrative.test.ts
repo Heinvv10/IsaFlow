@@ -12,6 +12,10 @@ vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
+vi.mock('@/lib/rateLimit', () => ({
+  checkRateLimit: vi.fn().mockResolvedValue(true),
+  getClientIp: vi.fn().mockReturnValue('1.2.3.4'),
+}));
 vi.mock('@/modules/accounting/services/afs/noteAiService', () => ({
   generateNoteNarrative: vi.fn(),
 }));
@@ -21,6 +25,7 @@ vi.mock('@/lib/apiResponse', () => ({
     badRequest:       vi.fn(),
     notFound:         vi.fn(),
     methodNotAllowed: vi.fn(),
+    tooManyRequests:  vi.fn(),
   },
 }));
 

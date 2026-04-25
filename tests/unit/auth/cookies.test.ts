@@ -49,7 +49,8 @@ describe('cookies', () => {
     const { res, headers } = mkRes();
     clearAuthCookies(res);
     const cookies = headers['set-cookie'];
-    expect(cookies).toHaveLength(3);
+    // access, refresh, active_company, pending_mfa
+    expect(cookies).toHaveLength(4);
     for (const c of cookies) expect(c).toMatch(/Max-Age=0/);
   });
 
@@ -104,12 +105,12 @@ describe('cookies', () => {
       process.env.COOKIE_DOMAIN = '.isaflow.co.za';
       const { res, headers } = mkRes();
       clearAuthCookies(res);
-      // 3 cookies × 2 scopings (host-scoped + domain-scoped)
-      expect(headers['set-cookie']).toHaveLength(6);
+      // 4 cookies × 2 scopings (host-scoped + domain-scoped)
+      expect(headers['set-cookie']).toHaveLength(8);
       const hostScoped = headers['set-cookie'].filter((c) => !/Domain=/.test(c));
       const domainScoped = headers['set-cookie'].filter((c) => /Domain=\.isaflow\.co\.za/.test(c));
-      expect(hostScoped).toHaveLength(3);
-      expect(domainScoped).toHaveLength(3);
+      expect(hostScoped).toHaveLength(4);
+      expect(domainScoped).toHaveLength(4);
       for (const c of headers['set-cookie']) expect(c).toMatch(/Max-Age=0/);
     });
   });
