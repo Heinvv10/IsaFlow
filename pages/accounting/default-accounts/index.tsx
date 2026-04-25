@@ -11,8 +11,10 @@ import { apiFetch } from '@/lib/apiFetch';
 
 interface GLAccount {
   id: string;
-  account_code: string;
-  account_name: string;
+  accountCode?: string;
+  account_code?: string;
+  accountName?: string;
+  account_name?: string;
 }
 
 interface DefaultAccountMapping {
@@ -58,7 +60,8 @@ export default function DefaultAccountsPage() {
       ]);
       const acctJson = await acctRes.json();
       const mapJson = await mapRes.json();
-      setGlAccounts((acctJson.data || acctJson).accounts || []);
+      const acctData = acctJson.data ?? acctJson;
+      setGlAccounts(Array.isArray(acctData) ? acctData : (acctData.accounts ?? []));
       setMappings((mapJson.data || mapJson).mappings || {});
     } catch {
       setMessage({ type: 'error', text: 'Failed to load configuration' });
@@ -155,7 +158,7 @@ export default function DefaultAccountsPage() {
                         >
                           <option value="">Not configured</option>
                           {glAccounts.map(a => (
-                            <option key={a.id} value={a.id}>{a.account_code} — {a.account_name}</option>
+                            <option key={a.id} value={a.id}>{(a.accountCode ?? a.account_code)} — {(a.accountName ?? a.account_name)}</option>
                           ))}
                         </select>
                       </div>
