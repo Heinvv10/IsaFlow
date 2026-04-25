@@ -64,6 +64,7 @@ function parseStandardBankColumnFormat(text: string): BankCsvParseResult {
     `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
 
   let last: { idx: number } | null = null;
+  let skippedBalanceRows = 0;
 
   for (const line of lines) {
     const m = line.match(rowPat);
@@ -82,7 +83,7 @@ function parseStandardBankColumnFormat(text: string): BankCsvParseResult {
     const balance = parseNum(balanceRaw!);
 
     // Skip balance rows (no real transaction)
-    if (debit === 0 && credit === 0) continue;
+    if (debit === 0 && credit === 0) { skippedBalanceRows++; continue; }
 
     const amount = credit !== 0 ? credit : debit;
     const transactionDate = parseYyyymmdd(dateRaw!);
@@ -95,6 +96,12 @@ function parseStandardBankColumnFormat(text: string): BankCsvParseResult {
       balance,
     });
     last = { idx: result.transactions.length - 1 };
+  }
+
+  // If all rows were balance-only (provisional/empty statement period), signal
+  // this via a specific error so the caller can give a better message.
+  if (result.transactions.length === 0 && skippedBalanceRows > 0) {
+    result.errors = [{ row: 0, error: '__empty_period__' }];
   }
 
   return result;
