@@ -13,6 +13,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
+import { sql } from '@/lib/neon';
 import { getIncomeStatement } from '@/modules/accounting/services/reports/financialReportingService';
 import { csvVal } from '@/lib/csv';
 
@@ -28,11 +29,21 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!periodEnd) return apiResponse.badRequest(res, 'period_end is required');
 
   try {
-    const report = await getIncomeStatement(companyId, periodStart, periodEnd, {
-      costCentreId: costCentreId || undefined,
-    });
+    const [companyRows, report] = await Promise.all([
+      sql`SELECT name FROM companies WHERE id = ${companyId}::UUID LIMIT 1` as Promise<{name: string}[]>,
+      getIncomeStatement(companyId, periodStart, periodEnd, {
+        costCentreId: costCentreId || undefined,
+      }),
+    ]);
+    const companyName = (companyRows as {name: string}[])[0]?.name ?? 'Company';
+    const today = new Date().toLocaleDateString('en-ZA');
 
     const csvLines: string[] = [
+      `${csvVal(companyName)}`,
+      `Income Statement (Profit & Loss)`,
+      `Period: ${csvVal(periodStart)} to ${csvVal(periodEnd)}`,
+      `Generated: ${csvVal(today)}`,
+      ``,
       'Section,Account Code,Account Name,Amount',
     ];
 
@@ -66,8 +77,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Net Profit summary
     csvLines.push(`${csvVal('Summary')},${csvVal('')},${csvVal('Net Profit')},${Number(report.netProfit).toFixed(2)}`);
 
+    // Margin summaries
+    csvLines.push(`${csvVal('Summary')},${csvVal('')},${csvVal('Gross Margin %')},${report.totalRevenue > 0 ? ((report.grossProfit / report.totalRevenue) * 100).toFixed(1) + '%' : '—'}`);
+    csvLines.push(`${csvVal('Summary')},${csvVal('')},${csvVal('Net Margin %')},${report.totalRevenue > 0 ? ((report.netProfit / report.totalRevenue) * 100).toFixed(1) + '%' : '—'}`);
+
     const csv = csvLines.join('\n');
-    const filename = `income-statement-${new Date().toISOString().split('T')[0]}.csv`;
+    const filename = `income-statement-${periodStart}-to-${periodEnd}.csv`;
 
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);

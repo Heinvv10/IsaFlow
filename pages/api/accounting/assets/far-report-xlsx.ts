@@ -34,6 +34,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const asAtYYYYMM = asAtDate.replace(/-/g, '').slice(0, 6);
   apiLogger.info({ companyId, asAtDate }, 'FAR xlsx export requested');
 
+  const companyRows = (await sql`SELECT name FROM companies WHERE id = ${companyId}::UUID LIMIT 1`) as Row[];
+  const companyName = (companyRows[0]?.name as string) ?? 'Company';
+
   const rows = (await sql`
     SELECT DISTINCT ON (apl.asset_id)
       a.id                                  AS asset_id,
@@ -79,7 +82,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   // Title row
   ws.mergeCells('A1:S1');
   const titleCell = ws.getCell('A1');
-  titleCell.value = `Fixed Asset Register — as at ${asAtDate}`;
+  titleCell.value = `${companyName} — Fixed Asset Register — as at ${asAtDate}`;
   titleCell.font = { bold: true, size: 13 };
   titleCell.alignment = { horizontal: 'left' };
   ws.getRow(1).height = 22;
@@ -115,8 +118,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const numFmt = '#,##0.00';
   const numCols = new Set([9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]);
 
-  let policyCostTot = 0, policyAccDepTot = 0, policyCAot = 0;
-  let taxCostTot = 0, taxAccDepTot = 0, taxCAot = 0, deferredTaxTot = 0;
+  let policyCostTot = 0, policyAccDepTot = 0, policyCAot = 0, policyCurrentDepTot = 0;
+  let taxCostTot = 0, taxAccDepTot = 0, taxCAot = 0, taxCurrentDepTot = 0, deferredTaxTot = 0;
 
   // Data rows
   for (const r of rows) {
@@ -135,9 +138,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     policyCostTot += policyCost;
     policyAccDepTot += policyAccDep;
     policyCAot += policyCA;
+    policyCurrentDepTot += policyCurrentDep;
     taxCostTot += taxCost;
     taxAccDepTot += taxAccDep;
     taxCAot += taxCA;
+    taxCurrentDepTot += taxCurrentDep;
     deferredTaxTot += deferredTax;
 
     const dataRow = ws.addRow([
@@ -163,11 +168,17 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     });
   }
 
+  // Freeze pane — rows 1 (title), 2 (blank), 3 (headers) are frozen
+  ws.views = [{ state: 'frozen', xSplit: 0, ySplit: 3, topLeftCell: 'A4', activeCell: 'A4' }];
+
+  // Auto-filter on header row (row 3)
+  ws.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: headers.length } };
+
   // Totals row
   const totRow = ws.addRow([
     'TOTALS', '', '', '', '', '', '', '',
-    policyCostTot, policyAccDepTot, policyCAot, '', '',
-    taxCostTot, taxAccDepTot, taxCAot, '', '',
+    policyCostTot, policyAccDepTot, policyCAot, policyCurrentDepTot, '',
+    taxCostTot, taxAccDepTot, taxCAot, taxCurrentDepTot, '',
     deferredTaxTot,
   ]);
   totRow.eachCell((cell, colNum) => {

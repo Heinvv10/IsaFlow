@@ -40,7 +40,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       -- Category policy fields (asset-level overrides first, then category)
       COALESCE(a.useful_life_years, c.useful_life_years)          AS useful_life_years,
       COALESCE(a.salvage_value / NULLIF(a.purchase_price, 0), c.residual_pct, 0) AS residual_pct,
-      COALESCE(a.tax_useful_life_years, a.tax_life_years, c.tax_life_years)      AS tax_life_years
+      COALESCE(a.tax_useful_life_years, c.tax_life_years)                        AS tax_life_years
     FROM assets a
     LEFT JOIN asset_categories c ON c.id = a.category_id
     WHERE a.company_id = ${companyId}::UUID
@@ -61,13 +61,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   for (const asset of assets) {
     const usefulLifeYears = Number(asset.useful_life_years ?? 0);
-    const taxLifeYears = Number(asset.tax_life_years ?? 0);
+    // Fall back to policy life when no explicit tax life is configured
+    const taxLifeYears = Number(asset.tax_life_years ?? asset.useful_life_years ?? 0);
     const cost = Number(asset.cost);
     const purchaseDate = String(asset.purchase_date instanceof Date
       ? asset.purchase_date.toISOString().slice(0, 10)
       : asset.purchase_date);
 
-    if (usefulLifeYears <= 0 || taxLifeYears <= 0) { skipped++; continue; }
+    if (usefulLifeYears <= 0) { skipped++; continue; }
 
     const disposalDate = asset.disposal_date
       ? String(asset.disposal_date instanceof Date

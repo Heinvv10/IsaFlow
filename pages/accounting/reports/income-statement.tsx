@@ -7,11 +7,12 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, BarChart3, Loader2, AlertCircle, ChevronDown, ChevronRight, Download } from 'lucide-react';
+import { ArrowLeft, BarChart3, Loader2, AlertCircle, ChevronDown, ChevronRight, Download, FileSpreadsheet } from 'lucide-react';
 import type { IncomeStatementReport, IncomeStatementLineItem } from '@/modules/accounting/types/gl.types';
 import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
 
 import { formatCurrency } from '@/utils/formatters';
+import { formatDisplayDate } from '@/utils/dateFormat';
 import { apiFetch } from '@/lib/apiFetch';
 import { EvidenceDrillModal } from '@/components/accounting/evidence/EvidenceDrillModal';
 
@@ -54,6 +55,12 @@ export default function IncomeStatementPage() {
     const params = new URLSearchParams({ period_start: periodStart, period_end: periodEnd });
     if (costCentreId) params.set('cost_centre_id', costCentreId);
     window.open(`/api/accounting/income-statement-export?${params}`, '_blank');
+  }
+
+  function handleXlsxExport() {
+    const params = new URLSearchParams({ period_start: periodStart, period_end: periodEnd });
+    if (costCentreId) params.set('cost_centre_id', costCentreId);
+    window.open(`/api/accounting/income-statement-xlsx?${params}`, '_blank');
   }
 
   function toggleAccount(code: string) {
@@ -104,10 +111,16 @@ export default function IncomeStatementPage() {
                 </div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Income Statement</h1>
               </div>
-              <button onClick={handleExport} disabled={!report}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium disabled:opacity-50">
-                <Download className="h-4 w-4" /> Export CSV
-              </button>
+              <div className="flex items-center gap-2">
+                <button onClick={handleXlsxExport} disabled={!report}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium disabled:opacity-50">
+                  <FileSpreadsheet className="h-4 w-4" /> Export Excel
+                </button>
+                <button onClick={handleExport} disabled={!report}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium disabled:opacity-50">
+                  <Download className="h-4 w-4" /> Export CSV
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -154,7 +167,7 @@ export default function IncomeStatementPage() {
             <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
               <div className="px-6 py-4 border-b border-[var(--ff-border-light)]">
                 <h2 className="text-lg font-semibold text-[var(--ff-text-primary)]">
-                  Profit &amp; Loss — {periodStart} to {periodEnd}
+                  Profit &amp; Loss — {formatDisplayDate(periodStart)} to {formatDisplayDate(periodEnd)}
                 </h2>
               </div>
 
@@ -204,6 +217,24 @@ export default function IncomeStatementPage() {
                     )}
                   </span>
                 </div>
+
+                {/* Margin Stats */}
+                {report.totalRevenue > 0 && (
+                  <div className="px-6 py-2 flex gap-6 text-sm border-t border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
+                    <span className="text-[var(--ff-text-tertiary)]">
+                      Gross Margin:{' '}
+                      <span className="font-mono font-medium text-[var(--ff-text-primary)]">
+                        {((report.grossProfit / report.totalRevenue) * 100).toFixed(1)}%
+                      </span>
+                    </span>
+                    <span className="text-[var(--ff-text-tertiary)]">
+                      Net Margin:{' '}
+                      <span className="font-mono font-medium text-[var(--ff-text-primary)]">
+                        {((report.netProfit / report.totalRevenue) * 100).toFixed(1)}%
+                      </span>
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           ) : null}
