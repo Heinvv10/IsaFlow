@@ -73,7 +73,6 @@ export async function processSupplierPayment(
       entryDate: payment.paymentDate,
       description: `Supplier payment ${payment.paymentNumber}`,
       source: 'auto_supplier_payment',
-      sourceDocumentId: id,
       lines,
     }, userId);
 

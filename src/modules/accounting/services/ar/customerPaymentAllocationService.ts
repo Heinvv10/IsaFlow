@@ -44,7 +44,6 @@ export async function confirmCustomerPayment(
       entryDate: payment.paymentDate,
       description: `Customer payment ${payment.paymentNumber}`,
       source: 'auto_payment',
-      sourceDocumentId: id,
       lines,
     }, userId);
     await postJournalEntry(companyId, je.id, userId);

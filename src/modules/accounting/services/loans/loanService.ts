@@ -67,6 +67,22 @@ export interface LoanUpdateInput {
   glAccountId?: string;
   reference?: string;
   description?: string;
+  // Financial terms — editable when no GL postings exist on the loan.
+  principal?: number;
+  startDate?: string;
+  termMonths?: number;
+  rateMode?: 'FIXED' | 'PRIME_PLUS' | 'PRIME_MINUS';
+  margin?: number;
+  fixedRate?: number;
+  residual?: number;
+  dayCount?: 'ACTUAL_365' | 'ACTUAL_360' | '30_360';
+  repriceMode?: 'RESOLVE_ON_RATE_CHANGE' | 'RESOLVE_EVERY_PERIOD' | 'FIXED_INSTALLMENT';
+  skipMode?: 'EXTEND_TERM' | 'MAINTAIN_TERM';
+  lumpMode?: 'REDUCE_INSTALLMENT' | 'MAINTAIN_INSTALLMENT';
+  currency?: string;
+  originationFee?: number;
+  product?: string;
+  counterpartyId?: string;
 }
 
 export interface LoanEvent {
@@ -233,18 +249,82 @@ export async function updateLoan(
   companyId: string,
   loanId: string,
   input: LoanUpdateInput,
+  opts?: { force?: boolean },
 ): Promise<Loan | null> {
+  const financialTermFields = [
+    'principal', 'startDate', 'termMonths', 'rateMode', 'margin', 'fixedRate',
+    'residual', 'dayCount', 'repriceMode', 'skipMode', 'lumpMode', 'currency',
+    'originationFee',
+  ] as const;
+  const editingFinancialTerms = financialTermFields.some(k => input[k] !== undefined);
+
+  if (editingFinancialTerms && !opts?.force) {
+    const postings = (await sql`
+      SELECT 1 FROM gl_journal_lines jl
+      JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+      WHERE je.company_id = ${companyId}::UUID
+        AND jl.gl_account_id = (SELECT gl_account_id FROM loans WHERE id = ${loanId} AND company_id = ${companyId}::UUID)
+        AND je.status = 'posted'
+      LIMIT 1
+    `) as Row[];
+    if (postings.length > 0) {
+      throw new Error(
+        'Cannot edit financial terms — loan has posted GL entries. ' +
+        'Use status=written_off + create new loan, or pass force=true.'
+      );
+    }
+  }
+
   const rows = (await sql`
     UPDATE loans SET
-      status        = COALESCE(${input.status ?? null}, status),
-      gl_account_id = COALESCE(${input.glAccountId ?? null}::uuid, gl_account_id),
-      reference     = COALESCE(${input.reference ?? null}, reference),
-      description   = COALESCE(${input.description ?? null}, description),
+      status         = COALESCE(${input.status ?? null}, status),
+      gl_account_id  = COALESCE(${input.glAccountId ?? null}::uuid, gl_account_id),
+      reference      = COALESCE(${input.reference ?? null}, reference),
+      description    = COALESCE(${input.description ?? null}, description),
+      principal      = COALESCE(${input.principal ?? null}::numeric, principal),
+      start_date     = COALESCE(${input.startDate ?? null}::date, start_date),
+      term_months    = COALESCE(${input.termMonths ?? null}::int, term_months),
+      rate_mode      = COALESCE(${input.rateMode ?? null}, rate_mode),
+      margin         = COALESCE(${input.margin ?? null}::numeric, margin),
+      fixed_rate     = COALESCE(${input.fixedRate ?? null}::numeric, fixed_rate),
+      residual       = COALESCE(${input.residual ?? null}::numeric, residual),
+      day_count      = COALESCE(${input.dayCount ?? null}, day_count),
+      reprice_mode   = COALESCE(${input.repriceMode ?? null}, reprice_mode),
+      skip_mode      = COALESCE(${input.skipMode ?? null}, skip_mode),
+      lump_mode      = COALESCE(${input.lumpMode ?? null}, lump_mode),
+      currency       = COALESCE(${input.currency ?? null}, currency),
+      origination_fee = COALESCE(${input.originationFee ?? null}::numeric, origination_fee),
+      product        = COALESCE(${input.product ?? null}, product),
+      counterparty_id = COALESCE(${input.counterpartyId ?? null}::uuid, counterparty_id),
       updated_at    = now()
     WHERE id = ${loanId} AND company_id = ${companyId}
     RETURNING *
   `) as Row[];
   return rows.length > 0 ? mapLoanRow(rows[0]!) : null;
+}
+
+export async function deleteLoan(
+  companyId: string,
+  loanId: string,
+  opts?: { force?: boolean },
+): Promise<boolean> {
+  const postings = (await sql`
+    SELECT 1 FROM gl_journal_lines jl
+    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+    WHERE je.company_id = ${companyId}::UUID
+      AND jl.gl_account_id = (SELECT gl_account_id FROM loans WHERE id = ${loanId} AND company_id = ${companyId}::UUID)
+      AND je.status = 'posted'
+    LIMIT 1
+  `) as Row[];
+  if (postings.length > 0 && !opts?.force) {
+    throw new Error('Cannot delete — loan has posted GL entries. Pass force=true to override.');
+  }
+  const rows = (await sql`
+    UPDATE loans SET status = 'closed', updated_at = now()
+    WHERE id = ${loanId} AND company_id = ${companyId}
+    RETURNING id
+  `) as Row[];
+  return rows.length > 0;
 }
 
 export async function addLoanEvent(
