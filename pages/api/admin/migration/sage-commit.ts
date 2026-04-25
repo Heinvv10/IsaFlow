@@ -32,6 +32,15 @@ import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/custom
 
 type Row = Record<string, unknown>;
 
+interface MappedAccount {
+  accountCode: string;
+  accountName: string;
+  accountType: 'asset' | 'liability' | 'equity' | 'revenue' | 'expense';
+  normalBalance: 'debit' | 'credit';
+  description?: string;
+  isSystem?: boolean;
+  isActive?: boolean;
+}
 interface MappedCustomer { name: string; email?: string; phone?: string; vatNumber?: string; contactPerson?: string; creditLimit?: number; }
 interface MappedSupplier { name: string; email?: string; phone?: string; vatNumber?: string; contactPerson?: string; }
 interface MappedARInvoice { invoiceNumber: string; customerName: string; invoiceDate: string; dueDate?: string; subtotal: number; taxAmount: number; totalAmount: number; reference?: string; sageId?: number; }
@@ -41,6 +50,7 @@ interface BankTx { bankAccountId: string; date: string; amount: number; descript
 interface CommitBody {
   companyId?: string;
   pulled?: {
+    accounts?:   { records?: MappedAccount[] };
     customers?:  { records?: MappedCustomer[] };
     suppliers?:  { records?: MappedSupplier[] };
     arInvoices?: { records?: MappedARInvoice[] };
@@ -258,6 +268,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const userId = (req as any).user?.id ?? 'sage-migration';
 
   const summary = {
+    accounts:   { created: 0, skipped: 0, failed: [] as string[] },
     customers:  { created: 0, skipped: 0, failed: [] as string[] },
     suppliers:  { created: 0, skipped: 0, failed: [] as string[] },
     arInvoices: { created: 0, skipped: 0, failed: [] as string[] },
@@ -271,6 +282,36 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // would return "current transaction is aborted".
   const sp = (name: string, fn: () => Promise<void>) =>
     withSavepoint(name, fn).catch(() => { /* swallowed: per-record handler below records the failure */ });
+
+  // Chart of Accounts. Idempotent on (company_id, account_code) — re-runs
+  // skip existing rows. We don't try to update names/types on conflict
+  // because the user may have edited them in ISAFlow after the last pull.
+  const accounts = pulled.accounts?.records ?? [];
+  let ai = 0;
+  for (const a of accounts) {
+    await sp(`acc_${ai++}`, async () => {
+      try {
+        const inserted = (await sql`
+          INSERT INTO gl_accounts (
+            company_id, account_code, account_name, account_type,
+            normal_balance, description, is_system_account, is_active, level, display_order
+          ) VALUES (
+            ${companyId}::UUID, ${a.accountCode}, ${a.accountName}, ${a.accountType},
+            ${a.normalBalance}, ${a.description ?? null},
+            ${a.isSystem ?? false}, ${a.isActive ?? true},
+            0, 0
+          )
+          ON CONFLICT (company_id, account_code) DO NOTHING
+          RETURNING id
+        `) as Row[];
+        if (inserted.length) summary.accounts.created += 1;
+        else summary.accounts.skipped += 1;
+      } catch (err) {
+        summary.accounts.failed.push(`${a.accountCode} ${a.accountName}: ${err instanceof Error ? err.message : String(err)}`);
+        throw err;
+      }
+    });
+  }
 
   const customers = pulled.customers?.records ?? [];
   let i = 0;

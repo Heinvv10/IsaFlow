@@ -52,6 +52,7 @@ export default function AdminSageImportPage() {
   const [pulling, setPulling]   = useState(false);
   const [committing, setCommitting] = useState(false);
   const [commitSummary, setCommitSummary] = useState<null | {
+    accounts:   { created: number; skipped: number; failed: string[] };
     customers:  { created: number; skipped: number; failed: string[] };
     suppliers:  { created: number; skipped: number; failed: string[] };
     arInvoices: { created: number; skipped: number; failed: string[] };
@@ -148,19 +149,20 @@ export default function AdminSageImportPage() {
   const anyError = steps.some(s => s.status === 'error');
   const anyPulled = steps.some(s => s.status === 'done');
 
-  const commitToIsaflow = useCallback(async () => {
+  const commit = useCallback(async (mode: 'all' | 'namesAndCoa') => {
     if (!selectedCompanyId) return;
     setCommitting(true);
     setError('');
     setCommitSummary(null);
     try {
+      const all = pulledData.current;
+      const payload = mode === 'namesAndCoa'
+        ? { accounts: all.accounts, customers: all.customers, suppliers: all.suppliers }
+        : all;
       const res = await apiFetch('/api/admin/migration/sage-commit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          companyId: selectedCompanyId,
-          pulled: pulledData.current,
-        }),
+        body: JSON.stringify({ companyId: selectedCompanyId, pulled: payload }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error?.message ?? json.message ?? 'Commit failed');
@@ -171,6 +173,9 @@ export default function AdminSageImportPage() {
       setCommitting(false);
     }
   }, [selectedCompanyId]);
+
+  const commitToIsaflow = useCallback(() => commit('all'), [commit]);
+  const commitNamesAndCoaOnly = useCallback(() => commit('namesAndCoa'), [commit]);
 
   return (
     <AdminLayout title="Sage Auto-Import">
@@ -326,7 +331,7 @@ export default function AdminSageImportPage() {
 
             {commitSummary && (
               <div className="space-y-2 text-sm">
-                {(['customers','suppliers','arInvoices','apInvoices'] as const).map(k => (
+                {(['accounts','customers','suppliers','arInvoices','apInvoices'] as const).map(k => (
                   <div key={k} className="flex items-center justify-between gap-4 px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-900/40">
                     <span className="font-medium text-gray-900 dark:text-white capitalize">{k.replace('Invoices',' Invoices')}</span>
                     <span className="text-gray-600 dark:text-gray-400">
@@ -342,11 +347,11 @@ export default function AdminSageImportPage() {
                     </span>
                   </div>
                 ))}
-                {(['customers','suppliers','arInvoices','apInvoices'] as const).some(k => commitSummary[k].failed.length > 0) && (
+                {(['accounts','customers','suppliers','arInvoices','apInvoices'] as const).some(k => commitSummary[k].failed.length > 0) && (
                   <details className="pt-2">
                     <summary className="cursor-pointer text-xs text-red-600 dark:text-red-400">Show failures</summary>
                     <pre className="text-xs mt-2 p-3 rounded bg-red-500/5 text-red-700 dark:text-red-300 max-h-64 overflow-auto whitespace-pre-wrap">
-{(['customers','suppliers','arInvoices','apInvoices'] as const)
+{(['accounts','customers','suppliers','arInvoices','apInvoices'] as const)
   .flatMap(k => commitSummary[k].failed.map(f => `[${k}] ${f}`))
   .join('\n')}
                     </pre>
@@ -355,15 +360,27 @@ export default function AdminSageImportPage() {
               </div>
             )}
 
-            <button
-              onClick={() => void commitToIsaflow()}
-              disabled={committing || !anyPulled}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-500 disabled:bg-teal-800 disabled:text-teal-300 text-white rounded-lg text-sm font-medium transition-colors"
-            >
-              {committing ? (
-                <><Loader2 className="h-4 w-4 animate-spin" /> Committing…</>
-              ) : commitSummary ? 'Commit again' : 'Commit to ISAFlow'}
-            </button>
+            <div className="flex items-center gap-3 flex-wrap">
+              <button
+                onClick={() => void commitNamesAndCoaOnly()}
+                disabled={committing || !anyPulled}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50 text-gray-900 dark:text-white rounded-lg text-sm font-medium transition-colors"
+                title="Commit only Chart of Accounts, Customers and Suppliers — skip AR/AP invoices."
+              >
+                {committing
+                  ? <><Loader2 className="h-4 w-4 animate-spin" /> Committing…</>
+                  : 'Commit names + COA only'}
+              </button>
+              <button
+                onClick={() => void commitToIsaflow()}
+                disabled={committing || !anyPulled}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-500 disabled:bg-teal-800 disabled:text-teal-300 text-white rounded-lg text-sm font-medium transition-colors"
+              >
+                {committing ? (
+                  <><Loader2 className="h-4 w-4 animate-spin" /> Committing…</>
+                ) : commitSummary ? 'Commit again' : 'Commit everything'}
+              </button>
+            </div>
           </div>
         )}
 
