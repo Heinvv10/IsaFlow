@@ -73,7 +73,7 @@ export default function BankTransactionsPage() {
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
   const [allocationFilter, setAllocationFilter] = useState<'all' | 'unallocated' | 'allocated'>('all');
   const [txType, setTxType] = useState<'all' | 'spent' | 'received'>('all');
-  const [allocType, setAllocType] = useState<'all' | 'account' | 'supplier' | 'customer'>('all');
+  const [allocType, setAllocType] = useState<'all' | 'account' | 'supplier' | 'customer' | 'transfer'>('all');
   const [hasSuggestion, setHasSuggestion] = useState<'all' | 'yes' | 'no'>('all');
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Selection / UI
@@ -179,6 +179,10 @@ export default function BankTransactionsPage() {
   });
 
   const bank = bankAccounts.find(b => b.id === selectedBank);
+  // Transfer targets — every other bank GL account (source bank excluded)
+  const transferTargets: SelectOption[] = bankAccounts
+    .filter(b => b.id !== selectedBank)
+    .map(b => ({ id: b.id, code: b.accountCode, name: b.accountName }));
   const totalPages = Math.ceil(total / PAGE_SIZE);
   const allSelected = transactions.length > 0 && transactions.every(t => selectedIds.has(t.id));
   const toggleSelect = (id: string) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -253,6 +257,7 @@ export default function BankTransactionsPage() {
         <BankTxBatchPanel
           showBatchEdit={showBatchEdit} selectedCount={selectedIds.size} batchType={batchType}
           batchSearch={batchSearch} glAccounts={glAccounts} suppliers={suppliers} customers={customers}
+          transferTargets={transferTargets}
           rulePrompt={rulePrompt}
           onBatchTypeChange={t => { setBatchType(t); setBatchSearch(''); }}
           onBatchSearchChange={setBatchSearch} onApplyBatchEdit={actions.handleApplyBatchEdit}
@@ -274,7 +279,8 @@ export default function BankTransactionsPage() {
           ) : (
             <BankTxTable
               transactions={transactions} glAccounts={glAccounts} suppliers={suppliers}
-              customers={customers} cc1Options={cc1Options} cc2Options={cc2Options} buOptions={buOptions}
+              customers={customers} transferTargets={transferTargets}
+              cc1Options={cc1Options} cc2Options={cc2Options} buOptions={buOptions}
               showCC={showCC} showBU={showBU} selectedIds={selectedIds} rowSelections={rowSelections}
               allSelected={allSelected} tab={tab}
               onToggleSelect={toggleSelect}

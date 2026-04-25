@@ -30,7 +30,7 @@ export interface BankTxFiltersProps {
   sortOrder: 'asc' | 'desc';
   allocationFilter: 'all' | 'unallocated' | 'allocated';
   txType: 'all' | 'spent' | 'received';
-  allocType: 'all' | 'account' | 'supplier' | 'customer';
+  allocType: 'all' | 'account' | 'supplier' | 'customer' | 'transfer';
   hasSuggestion: 'all' | 'yes' | 'no';
   onRefresh: () => void;
   onBulkAccept: () => void;
@@ -48,7 +48,7 @@ export interface BankTxFiltersProps {
   onSortOrderChange: (v: 'asc' | 'desc') => void;
   onAllocationFilterChange: (v: 'all' | 'unallocated' | 'allocated') => void;
   onTxTypeChange: (v: 'all' | 'spent' | 'received') => void;
-  onAllocTypeChange: (v: 'all' | 'account' | 'supplier' | 'customer') => void;
+  onAllocTypeChange: (v: 'all' | 'account' | 'supplier' | 'customer' | 'transfer') => void;
   onHasSuggestionChange: (v: 'all' | 'yes' | 'no') => void;
   onToggleCC: () => void;
   onToggleBU: () => void;
@@ -230,13 +230,14 @@ export function BankTxFilters({
 
       <select
         value={allocType}
-        onChange={e => onAllocTypeChange(e.target.value as 'all' | 'account' | 'supplier' | 'customer')}
+        onChange={e => onAllocTypeChange(e.target.value as 'all' | 'account' | 'supplier' | 'customer' | 'transfer')}
         className="px-2 py-1 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-xs text-[var(--ff-text-primary)]"
       >
         <option value="all">All Categories</option>
         <option value="account">Account</option>
         <option value="supplier">Supplier</option>
         <option value="customer">Customer</option>
+        <option value="transfer">Transfer</option>
       </select>
 
       <select

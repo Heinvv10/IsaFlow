@@ -71,12 +71,13 @@ export function buildBankTxActions(deps: ActionDeps) {
     const tx = transactions.find(t => t.id === txId);
     try {
       const body: Record<string, string> = { action: 'allocate', bankTransactionId: txId, allocationType: sel.type, vatCode: sel.vatCode || 'none' };
-      if (sel.type === 'account') body.contraAccountId = sel.entityId; else body.entityId = sel.entityId;
+      if (sel.type === 'account' || sel.type === 'transfer') body.contraAccountId = sel.entityId;
+      else body.entityId = sel.entityId;
       if (sel.cc1Id) body.cc1Id = sel.cc1Id;
       if (sel.cc2Id) body.cc2Id = sel.cc2Id;
       if (sel.buId) body.buId = sel.buId;
       await callAction(body);
-      notify.success('Transaction allocated');
+      notify.success(sel.type === 'transfer' ? 'Transfer posted' : 'Transaction allocated');
       loadTransactions(); refreshBankAccounts();
       if (sel.type === 'account' && sel.entityId) {
         apiFetch('/api/accounting/smart-categorize', {
@@ -133,7 +134,8 @@ export function buildBankTxActions(deps: ActionDeps) {
         const sel = rowSelections[txId];
         if (!sel) continue;
         const body: Record<string, string> = { action: 'allocate', bankTransactionId: txId, allocationType: sel.type, vatCode: sel.vatCode || 'none' };
-        if (sel.type === 'account') body.contraAccountId = sel.entityId; else body.entityId = sel.entityId;
+        if (sel.type === 'account' || sel.type === 'transfer') body.contraAccountId = sel.entityId;
+        else body.entityId = sel.entityId;
         if (sel.cc1Id) body.cc1Id = sel.cc1Id;
         if (sel.cc2Id) body.cc2Id = sel.cc2Id;
         if (sel.buId) body.buId = sel.buId;

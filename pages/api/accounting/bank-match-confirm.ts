@@ -48,7 +48,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (!candidateType) return apiResponse.badRequest(res, 'candidateType is required');
   if (!candidateId) return apiResponse.badRequest(res, 'candidateId is required');
 
-  const validTypes: CandidateType[] = ['supplier_invoice', 'customer_invoice', 'purchase_order', 'journal_line'];
+  const validTypes: CandidateType[] = ['supplier_invoice', 'customer_invoice', 'purchase_order', 'journal_line', 'bank_transfer'];
   if (!validTypes.includes(candidateType)) {
     return apiResponse.badRequest(res, `candidateType must be one of: ${validTypes.join(', ')}`);
   }
@@ -161,6 +161,56 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       `;
 
       log.info('Confirmed match: purchase order', { bankTransactionId, candidateId }, 'accounting-api');
+
+    } else if (candidateType === 'bank_transfer') {
+      // Opposite leg of an inter-account transfer. The transfer JE was posted
+      // when the source bank's line was allocated — no new JE here, just tie
+      // this bank tx to that JL and mirror the transfer metadata so drill-
+      // through works from either side.
+      const jlRows = (await sql`
+        SELECT jl.journal_entry_id, jl.gl_account_id, je.source
+        FROM gl_journal_lines jl
+        JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+        WHERE jl.id = ${candidateId}::UUID AND jl.company_id = ${companyId}::UUID
+      `) as Row[];
+      if (jlRows.length === 0) {
+        return apiResponse.notFound(res, 'Journal line', candidateId);
+      }
+      const jl = jlRows[0]!;
+      if (String(jl.source) !== 'auto_bank_transfer') {
+        return apiResponse.badRequest(res, 'Selected journal line is not a bank transfer');
+      }
+      const transferJeId = String(jl.journal_entry_id);
+
+      // Counterparty = the OTHER bank GL account on this JE (not the one for
+      // this bank tx).
+      const otherLegRows = (await sql`
+        SELECT jl2.gl_account_id, ga.account_code, ga.account_name
+        FROM gl_journal_lines jl2
+        JOIN gl_accounts ga ON ga.id = jl2.gl_account_id
+        WHERE jl2.journal_entry_id = ${transferJeId}::UUID
+          AND jl2.company_id = ${companyId}::UUID
+          AND jl2.id <> ${candidateId}::UUID
+        LIMIT 1
+      `) as Row[];
+      const counterpartyId = otherLegRows.length > 0 ? String(otherLegRows[0]!.gl_account_id) : null;
+      const counterpartyLabel = otherLegRows.length > 0
+        ? `${String(otherLegRows[0]!.account_code)} ${String(otherLegRows[0]!.account_name)}`
+        : null;
+
+      await matchTransaction(companyId, bankTransactionId, candidateId);
+      await sql`
+        UPDATE bank_transactions
+        SET allocation_type = 'transfer',
+            allocated_entity_name = ${counterpartyLabel},
+            counterparty_account_id = ${counterpartyId}::UUID,
+            transfer_journal_entry_id = ${transferJeId}::UUID,
+            updated_at = NOW()
+        WHERE id = ${bankTransactionId}::UUID AND company_id = ${companyId}::UUID
+      `;
+      log.info('Confirmed match: bank transfer (opposite leg)', {
+        bankTransactionId, candidateId, transferJeId, counterpartyId,
+      }, 'accounting-api');
 
     } else {
       // journal_line — match to existing GL entry
