@@ -1,4 +1,4 @@
-import { sql } from '@/lib/neon';
+import { sql, fmtDate } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
@@ -107,7 +107,7 @@ function dbRowToSchedule(r: Row): ScheduleRow {
   const interest = parseFloat(String(r.interest ?? '0'));
   return {
     period: Number(r.period),
-    date: String(r.date).slice(0, 10),
+    date: fmtDate(r.date),
     opening: parseFloat(String(r.opening ?? '0')),
     rate: parseFloat(String(r.rate ?? '0')),
     installment: parseFloat(String(r.installment ?? '0')),
@@ -130,7 +130,7 @@ function mapPostingRow(r: Row): LoanGlPosting {
     companyId: String(r.company_id),
     loanId: String(r.loan_id),
     period: Number(r.period),
-    postingDate: String(r.posting_date).slice(0, 10),
+    postingDate: fmtDate(r.posting_date),
     accountId: String(r.account_id),
     debit: parseFloat(String(r.debit ?? '0')),
     credit: parseFloat(String(r.credit ?? '0')),

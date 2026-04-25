@@ -1,4 +1,4 @@
-import { sql } from '@/lib/neon';
+import { sql, fmtDate } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
@@ -173,7 +173,7 @@ export async function closeLoanPeriod(
       closing: parseFloat(String(row.snapshot_closing)),
       stLiability: parseFloat(String(row.snapshot_stliability ?? '0')),
     };
-    const postingDate = String(row.snapshot_date).slice(0, 10);
+    const postingDate = fmtDate(row.snapshot_date);
     const narrative = `Reclassification – loan ${String(row.reference ?? loanId)} for ${yyyymm}`;
 
     const input = buildReclassificationInput(snapshot, accounts, postingDate, narrative);
@@ -276,7 +276,7 @@ export async function listLoansForPeriodClose(
     margin: parseFloat(String(r.margin ?? '0')),
     fixedRate: r.fixed_rate != null ? parseFloat(String(r.fixed_rate)) : null,
     nextPaymentDate:
-      r.next_payment_date != null ? String(r.next_payment_date).slice(0, 10) : null,
+      r.next_payment_date != null ? fmtDate(r.next_payment_date) : null,
     accruedInterest: parseFloat(String(r.accrued_interest ?? '0')),
     periodStatus: (r.period_status === 'posted' ? 'posted' : 'open') as 'open' | 'posted',
   }));

@@ -1,5 +1,5 @@
 import Decimal from 'decimal.js';
-import { sql } from '@/lib/neon';
+import { sql, fmtDate } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { amortise } from '@/lib/amortisation/engine';
@@ -205,7 +205,7 @@ function dbRowToSchedule(r: Row): ScheduleRow {
   const interest = parseFloat(String(r.interest ?? '0'));
   return {
     period: Number(r.period),
-    date: String(r.date).slice(0, 10),
+    date: fmtDate(r.date),
     opening: parseFloat(String(r.opening ?? '0')),
     rate: parseFloat(String(r.rate ?? '0')),
     installment: parseFloat(String(r.installment ?? '0')),
@@ -227,7 +227,7 @@ function mapAssessment(r: Row): Assessment {
     id: String(r.id),
     companyId: String(r.company_id),
     loanId: String(r.loan_id),
-    assessmentDate: String(r.assessment_date).slice(0, 10),
+    assessmentDate: fmtDate(r.assessment_date),
     ncaFlagged: Boolean(r.nca_flagged),
     ncaPeriod: r.nca_period != null ? Number(r.nca_period) : null,
     stage: r.ifrs9_stage != null ? Number(r.ifrs9_stage) as EclStage : null,
@@ -273,7 +273,7 @@ export async function assessLoan(
     WHERE company_id = ${companyId} AND loan_id = ${loanId}
   `) as Row[];
   const lastPaymentDate = lastPay[0]?.last_payment_date != null
-    ? String(lastPay[0]!.last_payment_date).slice(0, 10)
+    ? fmtDate(lastPay[0]!.last_payment_date)
     : null;
 
   // The next scheduled row on or after asOfDate is the earliest unpaid
