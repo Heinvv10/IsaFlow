@@ -16,6 +16,54 @@ import type { JournalLineInput } from '../../types/gl.types';
 
 type Row = DbRow;
 
+/**
+ * Build the expense journal lines for a supplier invoice.
+ *
+ * Handles gross vs net line totals: if the sum of lineTotals matches
+ * totalAmount (gross-inclusive storage), scale each line down to net
+ * to avoid double-counting VAT. Uses a last-line adjustment so the
+ * per-line rounding errors don't accumulate into a debit/credit imbalance.
+ */
+function buildExpenseLines(
+  invoice: SupplierInvoice,
+  defaultGlAccountId: string,
+): JournalLineInput[] {
+  const items = invoice.items ?? [];
+  const sumLineTotal = items.reduce((s, i) => s + i.lineTotal, 0);
+  const lineTotalsAreGross = invoice.taxRate > 0 && Math.abs(sumLineTotal - invoice.totalAmount) < 0.02;
+  const netTotal = invoice.subtotal;
+  const lines: JournalLineInput[] = [];
+
+  let allocatedNet = 0;
+  const itemCount = items.length;
+
+  items.forEach((item, idx) => {
+    const glAccountId = item.glAccountId || defaultGlAccountId;
+    let debit: number;
+
+    if (idx === itemCount - 1) {
+      // Last line: absorb rounding residual so debits sum exactly to subtotal.
+      debit = Math.round((netTotal - allocatedNet) * 100) / 100;
+    } else if (lineTotalsAreGross && sumLineTotal > 0) {
+      debit = Math.round(item.lineTotal * (netTotal / sumLineTotal) * 100) / 100;
+    } else {
+      debit = Math.round(item.lineTotal * 100) / 100;
+    }
+
+    allocatedNet += debit;
+    lines.push({
+      glAccountId,
+      debit,
+      credit: 0,
+      description: item.description,
+      projectId: item.projectId || invoice.projectId,
+      costCenterId: item.costCenterId || invoice.costCenterId,
+    });
+  });
+
+  return lines;
+}
+
 export async function approveSupplierInvoice(
   companyId: string,
   id: string,
@@ -32,20 +80,8 @@ export async function approveSupplierInvoice(
     const apAccount = await getSystemAccount('payable', companyId);
     const vatAccount = await getSystemAccount('vat_input', companyId);
     const defaultExpenseAccount = await getSystemAccount('default_expense', companyId);
-    const lines: JournalLineInput[] = [];
 
-    for (const item of invoice.items) {
-      const glAccountId = item.glAccountId || defaultExpenseAccount.id;
-      if (!glAccountId) throw new Error('No GL account for invoice item and no default expense account');
-      lines.push({
-        glAccountId,
-        debit: item.lineTotal,
-        credit: 0,
-        description: item.description,
-        projectId: item.projectId || invoice.projectId,
-        costCenterId: item.costCenterId || invoice.costCenterId,
-      });
-    }
+    const lines: JournalLineInput[] = buildExpenseLines(invoice, defaultExpenseAccount.id);
 
     if (invoice.taxAmount > 0) {
       lines.push({
@@ -90,6 +126,64 @@ export async function approveSupplierInvoice(
     log.error('Failed to approve supplier invoice', { id, error: err }, 'accounting');
     throw err;
   }
+}
+
+/**
+ * Idempotent GL backfill for already-approved supplier invoices.
+ * Equivalent of approveSupplierInvoice but skips the status guard.
+ */
+export async function postSupplierInvoiceToGL(
+  companyId: string,
+  id: string,
+  userId: string,
+): Promise<{ journalEntryId: string; alreadyPosted: boolean }> {
+  const invoice = await getSupplierInvoiceById(companyId, id);
+  if (!invoice) throw new Error(`Supplier invoice ${id} not found`);
+
+  if (invoice.glJournalEntryId) {
+    return { journalEntryId: invoice.glJournalEntryId, alreadyPosted: true };
+  }
+
+  const apAccount = await getSystemAccount('payable', companyId);
+  const vatAccount = await getSystemAccount('vat_input', companyId);
+  const defaultExpenseAccount = await getSystemAccount('default_expense', companyId);
+
+  const lines: JournalLineInput[] = buildExpenseLines(invoice, defaultExpenseAccount.id);
+
+  if (invoice.taxAmount > 0) {
+    lines.push({
+      glAccountId: vatAccount.id,
+      debit: invoice.taxAmount,
+      credit: 0,
+      description: `VAT on ${invoice.invoiceNumber}`,
+      vatType: 'standard',
+    });
+  }
+
+  lines.push({
+    glAccountId: apAccount.id,
+    debit: 0,
+    credit: invoice.totalAmount,
+    description: `AP: ${invoice.invoiceNumber}`,
+  });
+
+  const journalEntry = await createJournalEntry(companyId, {
+    entryDate: invoice.invoiceDate,
+    description: `Supplier invoice ${invoice.invoiceNumber}`,
+    source: 'auto_supplier_invoice',
+    lines,
+  }, userId);
+
+  await postJournalEntry(companyId, journalEntry.id, userId);
+
+  await sql`
+    UPDATE supplier_invoices
+    SET gl_journal_entry_id = ${journalEntry.id}::UUID
+    WHERE id = ${id} AND company_id = ${companyId}::UUID
+  `;
+
+  log.info('Backfilled supplier invoice GL', { id, journalEntryId: journalEntry.id }, 'accounting');
+  return { journalEntryId: journalEntry.id, alreadyPosted: false };
 }
 
 export async function cancelSupplierInvoice(
