@@ -75,7 +75,7 @@ export function amortise(
   const residual = new Decimal(loan.residual);
   const sortedEvents = [...events].sort((a, b) => a.date.localeCompare(b.date));
 
-  let totalPeriods = loan.termMonths;
+  const totalPeriods = loan.termMonths;
   let balance = principal;
   let installment: Decimal;
   let prevRate: Decimal | null = null;

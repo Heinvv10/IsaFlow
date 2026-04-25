@@ -132,7 +132,7 @@ export default function BureauClientsPage() {
       <AppLayout>
         <div className="p-6">
           <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-sm">
-            <AlertCircle className="h-4 w-4" /> You aren't a member of any bureau.
+            <AlertCircle className="h-4 w-4" /> You aren&apos;t a member of any bureau.
           </div>
         </div>
       </AppLayout>
@@ -225,7 +225,7 @@ export default function BureauClientsPage() {
             <div className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] overflow-hidden">
               <div className="px-4 py-3 border-b border-[var(--ff-border-primary)]">
                 <h2 className="text-sm font-medium text-[var(--ff-text-primary)]">Available to link</h2>
-                <p className="text-xs text-[var(--ff-text-tertiary)] mt-0.5">Companies you can access that aren't linked to this bureau yet.</p>
+                <p className="text-xs text-[var(--ff-text-tertiary)] mt-0.5">Companies you can access that aren&apos;t linked to this bureau yet.</p>
               </div>
               {linkable.length === 0 ? (
                 <div className="px-4 py-8 text-center text-sm text-[var(--ff-text-tertiary)]">

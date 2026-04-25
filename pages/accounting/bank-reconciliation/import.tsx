@@ -28,7 +28,7 @@ export default function BankStatementImportPage() {
             Import bank statements
           </h1>
           <p className="mt-1 text-sm text-[var(--ff-text-muted)]">
-            Drop a folder of statements for one bank account. We'll parse each file,
+            Drop a folder of statements for one bank account. We&apos;ll parse each file,
             verify it matches the chosen account, and import everything in one go.
           </p>
         </div>

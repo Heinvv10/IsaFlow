@@ -67,7 +67,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   let written = 0;
 
   try {
-    while (true) {
+    for (;;) {
       const rows = await sql`
         SELECT
           u.id,

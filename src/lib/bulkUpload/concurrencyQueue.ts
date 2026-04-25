@@ -22,7 +22,7 @@ export async function runWithConcurrency<TItem, TResult>(
   let cursor = 0;
 
   const next = async (): Promise<void> => {
-    while (true) {
+    for (;;) {
       const i = cursor++;
       if (i >= items.length) return;
       try {

@@ -96,7 +96,7 @@ export default function DunningTemplatesPage() {
   }, [editingId, draft, cancelEdit]);
 
   const deactivateTemplate = useCallback(async (id: string, name: string) => {
-    // eslint-disable-next-line no-alert
+     
     if (!confirm(`Deactivate "${name}"? The template stays in history but the cron will skip it.`)) return;
     try {
       const res = await apiFetch(`/api/accounting/ar/dunning/templates/${id}`, { method: 'DELETE' });

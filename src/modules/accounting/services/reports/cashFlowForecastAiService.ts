@@ -88,7 +88,7 @@ function buildWeekStarts(horizonDays: number): string[] {
   const start = new Date(today);
   start.setDate(today.getDate() + toMonday);
   const cursor = new Date(start);
-  while (true) {
+  for (;;) {
     const diff = Math.round((cursor.getTime() - today.getTime()) / 86400000);
     if (diff > horizonDays) break;
     weeks.push(cursor.toISOString().slice(0, 10));

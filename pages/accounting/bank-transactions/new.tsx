@@ -65,7 +65,7 @@ export default function NewBankTransactionPage() {
       }),
       apiFetch('/api/accounting/suppliers-list?status=active').then(r => r.json()).then(json => {
         if (!mounted) return;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         const d = json.data ?? json;
         const list: any[] = Array.isArray(d) ? d : (d.suppliers ?? []);
         setSuppliers(list.map(s => ({ id: String(s.id), name: s.name, code: s.code })));

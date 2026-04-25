@@ -33,10 +33,12 @@ export default function FlowsReturnPage() {
   const [status, setStatus] = useState<Status | 'timeout' | 'error'>('pending');
   const [flows, setFlows] = useState<number | null>(null);
   const [error, setError] = useState('');
-  const startedAtRef = useRef<number>(Date.now());
+  const startedAtRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!ref) return;
+    if (startedAtRef.current === null) startedAtRef.current = Date.now();
+    const startedAt = startedAtRef.current;
     let cancelled = false;
 
     const tick = async () => {
@@ -57,7 +59,7 @@ export default function FlowsReturnPage() {
           return;
         }
 
-        if (Date.now() - startedAtRef.current > POLL_TIMEOUT_MS) {
+        if (Date.now() - startedAt > POLL_TIMEOUT_MS) {
           setStatus('timeout');
           return;
         }

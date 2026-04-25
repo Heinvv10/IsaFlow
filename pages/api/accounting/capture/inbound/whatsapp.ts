@@ -24,7 +24,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const authToken = process.env.TWILIO_AUTH_TOKEN;
   if (authToken) {
     // Lazy-import twilio to avoid hard startup dep when env not configured
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+     
     const twilioLib = await import('twilio');
     const validateRequest: (
       authToken: string,
@@ -82,7 +82,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const replyBody =
       captureEventIds.length === 1
         ? 'Received 1 photo — extracting now. I\'ll confirm once posted.'
-        : `Received ${captureEventIds.length} photo(s) — extracting now. I\'ll confirm once posted.`;
+        : `Received ${captureEventIds.length} photo(s) — extracting now. I'll confirm once posted.`;
 
     sendWhatsAppMessage(from, replyBody).catch((err: unknown) => {
       log.warn('whatsapp webhook: reply failed', {
