@@ -13,8 +13,7 @@
     "test:e2e": "playwright test --config playwright-test.config.ts",
     "test:coverage": "vitest run --coverage",
     "test": "vitest run && playwright test --config playwright-test.config.ts",
-    "ci": "bun run type-check && bun run lint && bun run test:unit",
-    "ci:quick": "bun run type-check && bun run lint",
+    "ci": "bash scripts/ci/run-ci.sh",
     "ci:install-hooks": "bash scripts/ci/install-hooks.sh",
     "db:migrate": "bun scripts/apply-migrations.ts",
     "db:audit-drift": "bun scripts/audit-schema-drift.ts"

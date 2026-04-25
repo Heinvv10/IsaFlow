@@ -1,9 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-
-if [ "${SKIP_CI:-0}" = "1" ]; then
-  exit 0
-fi
-
-cd "$(git rev-parse --show-toplevel)"
-bun run ci:quick

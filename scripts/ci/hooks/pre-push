@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# git pipes <local-ref> <local-sha> <remote-ref> <remote-sha> on stdin;
+# we don't inspect it but we don't want bun/vitest reading those lines either.
+exec </dev/null
+
 if [ "${SKIP_CI:-0}" = "1" ]; then
   echo "[pre-push] SKIP_CI=1 — bypassing checks"
   exit 0
 fi
 
-echo "[pre-push] running bun run ci..."
 cd "$(git rev-parse --show-toplevel)"
+echo "[pre-push] running bun run ci..."
 bun run ci
