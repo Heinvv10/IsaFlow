@@ -45,7 +45,8 @@ interface ExtensionReply {
   ok: boolean;
   error?: string | null;
   value?: string;
-  expirationDate?: number | null;
+  names?: string[];
+  count?: number;
   version?: string;
 }
 
@@ -159,7 +160,7 @@ export default function AdminSageImportPage() {
     setError('');
     const reply = await ext.ask('isaflow-sage-ext-getCookie', 6000);
     if (!reply.ok || !reply.value) {
-      setError(reply.error || 'Extension could not read the Sage session cookie. Make sure you are signed in to Sage in this browser.');
+      setError(reply.error || 'Extension could not read the Sage session cookies. Make sure you are signed in to accounting.sageone.co.za in this browser.');
       return;
     }
     await runPull(reply.value);

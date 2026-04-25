@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ISAFlow Sage Connector",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Lets ISAFlow read your Sage Business Cloud session cookie so admins can auto-import data without bookmarklets.",
   "permissions": ["cookies", "storage"],
   "host_permissions": [
