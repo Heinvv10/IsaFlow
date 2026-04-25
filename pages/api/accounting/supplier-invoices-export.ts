@@ -3,7 +3,9 @@
  * GET /api/accounting/supplier-invoices-export — export filtered list as CSV
  *
  * Honours the same filter/sort params as supplier-invoices.ts so the CSV
- * matches what the user sees in the list (no pagination cap).
+ * matches what the user sees. Single un-paginated DB query (capped at
+ * SUPPLIER_INVOICE_EXPORT_CAP for safety) — MVCC snapshot consistency, no
+ * risk of skipped/duplicated rows from concurrent inserts.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -13,71 +15,31 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth
 import { log } from '@/lib/logger';
 import { csvCell } from '@/lib/csv';
 import {
-  getSupplierInvoices,
-  type SupplierInvoiceSort,
+  getSupplierInvoicesForExport,
+  SUPPLIER_INVOICE_EXPORT_CAP,
 } from '@/modules/accounting/services/ap/supplierInvoiceService';
-import type { SupplierInvoiceStatus } from '@/modules/accounting/types/ap.types';
+import { parseSupplierInvoiceFilters } from '@/modules/accounting/services/ap/supplierInvoiceFilterParams';
 import { formatDate } from '@/utils/formatters';
-
-const VALID_SORTS: SupplierInvoiceSort[] = [
-  'invoice_number', 'supplier_name', 'reference', 'invoice_date',
-  'total_amount', 'balance', 'status',
-];
-
-function parseNumeric(v: unknown): number | undefined {
-  if (v === undefined || v === null || v === '') return undefined;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : undefined;
-}
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
 
   try {
-    const {
-      status, supplier_id, match_status, search,
-      from_date, to_date, from_amount, to_amount,
-      from_balance, to_balance, sort, sort_order,
-    } = req.query;
+    const parsed = parseSupplierInvoiceFilters(req.query);
+    if (!parsed.ok) return apiResponse.badRequest(res, parsed.error);
 
-    const sortKey = typeof sort === 'string' && (VALID_SORTS as string[]).includes(sort)
-      ? sort as SupplierInvoiceSort
-      : undefined;
-    const sortOrder = sort_order === 'asc' ? 'asc' as const
-      : sort_order === 'desc' ? 'desc' as const : undefined;
+    const { invoices, truncated } = await getSupplierInvoicesForExport(companyId, parsed.filters);
 
-    // Pull the full filtered set in pages of 200 (the service hard-caps the limit).
-    const allInvoices: Awaited<ReturnType<typeof getSupplierInvoices>>['invoices'] = [];
-    const PAGE_SIZE = 200;
-    let offset = 0;
-    let total = Infinity;
-    while (offset < total) {
-      const result = await getSupplierInvoices(companyId, {
-        status: status as SupplierInvoiceStatus | undefined,
-        supplierId: supplier_id ? String(supplier_id) : undefined,
-        matchStatus: match_status as 'unmatched' | 'po_matched' | 'grn_matched' | 'fully_matched' | undefined,
-        search: typeof search === 'string' ? search : undefined,
-        fromDate: typeof from_date === 'string' ? from_date : undefined,
-        toDate: typeof to_date === 'string' ? to_date : undefined,
-        fromAmount: parseNumeric(from_amount),
-        toAmount: parseNumeric(to_amount),
-        fromBalance: parseNumeric(from_balance),
-        toBalance: parseNumeric(to_balance),
-        sort: sortKey,
-        sortOrder,
-        limit: PAGE_SIZE,
-        offset,
-      });
-      allInvoices.push(...result.invoices);
-      total = result.total;
-      offset += PAGE_SIZE;
-      if (result.invoices.length < PAGE_SIZE) break;
+    if (truncated) {
+      log.warn('Supplier invoice export hit row cap', {
+        companyId, cap: SUPPLIER_INVOICE_EXPORT_CAP, rows: invoices.length,
+      }, 'accounting-api');
     }
 
     const lines = [
       'Invoice #,Supplier,Reference,Invoice Date,Due Date,Subtotal,Tax,Total,Paid,Outstanding,Status',
-      ...allInvoices.map((inv) => [
+      ...invoices.map((inv) => [
         csvCell(inv.invoiceNumber),
         csvCell(inv.supplierName ?? ''),
         csvCell(inv.reference ?? ''),
@@ -93,6 +55,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     ];
 
     res.setHeader('Content-Type', 'text/csv');
+    if (truncated) {
+      res.setHeader('X-Export-Truncated', String(SUPPLIER_INVOICE_EXPORT_CAP));
+    }
     res.setHeader(
       'Content-Disposition',
       `attachment; filename="supplier-invoices-${new Date().toISOString().split('T')[0]}.csv"`,

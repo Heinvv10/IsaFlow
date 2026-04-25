@@ -45,6 +45,11 @@ export type SupplierInvoiceSort =
   | 'balance'
   | 'status';
 
+export const SUPPLIER_INVOICE_SORT_KEYS: readonly SupplierInvoiceSort[] = [
+  'invoice_number', 'supplier_name', 'reference', 'invoice_date',
+  'total_amount', 'balance', 'status',
+] as const;
+
 const SORT_COLUMNS: Record<SupplierInvoiceSort, string> = {
   invoice_number: 'si.invoice_number',
   supplier_name: 's.name',
@@ -54,6 +59,10 @@ const SORT_COLUMNS: Record<SupplierInvoiceSort, string> = {
   balance: 'si.balance',
   status: 'si.status',
 };
+
+// Hard cap on rows pulled by the export endpoint. Keeps a tenant with
+// 100k invoices from monopolising a Node process and the connection pool.
+export const SUPPLIER_INVOICE_EXPORT_CAP = 10_000;
 
 const INVOICE_COLUMNS = `
   si.id, si.company_id, si.invoice_number, si.supplier_id,
@@ -69,6 +78,64 @@ const INVOICE_COLUMNS = `
   s.name AS supplier_name, NULL::text AS po_number
 `;
 
+/**
+ * Build the AND-joined WHERE fragment for the given filters. Only active
+ * predicates are emitted so postgres can use the indexes on `(company_id,
+ * status)`, `(supplier_id)`, etc. — the previous `(${p} IS NULL OR col=${p})`
+ * shape was non-sargable.
+ *
+ * Built as a single `sql.unsafe(text, values)` LazyQuery so callers can
+ * interpolate it once into the outer query. Predicate strings are *static*
+ * literals — only validated/typed values go through `$N` placeholders, so
+ * the unsafe call carries no injection risk.
+ */
+function buildInvoiceWhere(companyId: string, f: InvoiceFilters | undefined) {
+  const values: unknown[] = [companyId];
+  const conds: string[] = ['si.company_id = $1::UUID', 'si.deleted_at IS NULL'];
+
+  function add(predicate: (n: number) => string, value: unknown) {
+    values.push(value);
+    conds.push(predicate(values.length));
+  }
+
+  if (f?.status) add((n) => `si.status = $${n}::text`, f.status);
+  if (f?.supplierId) add((n) => `si.supplier_id = $${n}::uuid`, f.supplierId);
+  if (f?.matchStatus) add((n) => `si.match_status = $${n}::text`, f.matchStatus);
+  if (f?.fromDate) add((n) => `si.invoice_date >= $${n}::date`, f.fromDate);
+  if (f?.toDate) add((n) => `si.invoice_date <= $${n}::date`, f.toDate);
+  if (typeof f?.fromAmount === 'number') {
+    add((n) => `si.total_amount >= $${n}::numeric`, f.fromAmount);
+  }
+  if (typeof f?.toAmount === 'number') {
+    add((n) => `si.total_amount <= $${n}::numeric`, f.toAmount);
+  }
+  if (typeof f?.fromBalance === 'number') {
+    add((n) => `si.balance >= $${n}::numeric`, f.fromBalance);
+  }
+  if (typeof f?.toBalance === 'number') {
+    add((n) => `si.balance <= $${n}::numeric`, f.toBalance);
+  }
+  const trimmed = f?.search?.trim();
+  if (trimmed) {
+    values.push(`%${trimmed}%`);
+    const n = values.length;
+    conds.push(`(si.invoice_number ILIKE $${n} OR si.reference ILIKE $${n} OR si.notes ILIKE $${n} OR s.name ILIKE $${n})`);
+  }
+
+  return sql.unsafe(conds.join(' AND '), values);
+}
+
+function buildOrderBy(filters: InvoiceFilters | undefined): string {
+  const sortKey: SupplierInvoiceSort = filters?.sort && SORT_COLUMNS[filters.sort]
+    ? filters.sort
+    : 'invoice_date';
+  const sortColumn = SORT_COLUMNS[sortKey];
+  const sortDir = filters?.sortOrder === 'asc' ? 'ASC' : 'DESC';
+  // si.created_at as the tie-breaker is monotonic (insertion order); using
+  // si.id alone falls back to UUIDv4-random ordering which jitters per render.
+  return `ORDER BY ${sortColumn} ${sortDir} NULLS LAST, si.created_at ${sortDir}, si.id ${sortDir}`;
+}
+
 export async function getSupplierInvoices(companyId: string, filters?: InvoiceFilters): Promise<{
   invoices: SupplierInvoice[];
   total: number;
@@ -76,25 +143,8 @@ export async function getSupplierInvoices(companyId: string, filters?: InvoiceFi
   try {
     const safeLimit = Math.min(filters?.limit ?? 50, 200);
     const offset = filters?.offset || 0;
-
-    const status = filters?.status ?? null;
-    const supplierId = filters?.supplierId ?? null;
-    const matchStatus = filters?.matchStatus ?? null;
-    const searchPattern = filters?.search?.trim() ? `%${filters.search.trim()}%` : null;
-    const fromDate = filters?.fromDate || null;
-    const toDate = filters?.toDate || null;
-    const fromAmount = typeof filters?.fromAmount === 'number' ? filters.fromAmount : null;
-    const toAmount = typeof filters?.toAmount === 'number' ? filters.toAmount : null;
-    const fromBalance = typeof filters?.fromBalance === 'number' ? filters.fromBalance : null;
-    const toBalance = typeof filters?.toBalance === 'number' ? filters.toBalance : null;
-
-    const sortKey: SupplierInvoiceSort = filters?.sort && SORT_COLUMNS[filters.sort]
-      ? filters.sort
-      : 'invoice_date';
-    const sortColumn = SORT_COLUMNS[sortKey];
-    const sortDir = filters?.sortOrder === 'asc' ? 'ASC' : 'DESC';
-    // NULLS LAST keeps blank references / dates from floating to the top of asc sorts
-    const orderByClause = `ORDER BY ${sortColumn} ${sortDir} NULLS LAST, si.id ${sortDir}`;
+    const where = buildInvoiceWhere(companyId, filters);
+    const orderBy = buildOrderBy(filters);
 
     // NOTE: purchase_orders table is not available in standalone accounting app.
     // po_number is returned as NULL; purchase_order_id column is kept for data integrity.
@@ -102,23 +152,8 @@ export async function getSupplierInvoices(companyId: string, filters?: InvoiceFi
       SELECT ${sql.unsafe(INVOICE_COLUMNS)}
       FROM supplier_invoices si
       LEFT JOIN suppliers s ON s.id = si.supplier_id
-      WHERE si.company_id = ${companyId}::UUID
-        AND si.deleted_at IS NULL
-        AND (${status}::text IS NULL OR si.status = ${status}::text)
-        AND (${supplierId}::uuid IS NULL OR si.supplier_id = ${supplierId}::uuid)
-        AND (${matchStatus}::text IS NULL OR si.match_status = ${matchStatus}::text)
-        AND (${fromDate}::date IS NULL OR si.invoice_date >= ${fromDate}::date)
-        AND (${toDate}::date IS NULL OR si.invoice_date <= ${toDate}::date)
-        AND (${fromAmount}::numeric IS NULL OR si.total_amount >= ${fromAmount}::numeric)
-        AND (${toAmount}::numeric IS NULL OR si.total_amount <= ${toAmount}::numeric)
-        AND (${fromBalance}::numeric IS NULL OR si.balance >= ${fromBalance}::numeric)
-        AND (${toBalance}::numeric IS NULL OR si.balance <= ${toBalance}::numeric)
-        AND (${searchPattern}::text IS NULL OR
-             si.invoice_number ILIKE ${searchPattern}::text OR
-             si.reference ILIKE ${searchPattern}::text OR
-             si.notes ILIKE ${searchPattern}::text OR
-             s.name ILIKE ${searchPattern}::text)
-      ${sql.unsafe(orderByClause)}
+      WHERE ${where}
+      ${sql.unsafe(orderBy)}
       LIMIT ${safeLimit} OFFSET ${offset}
     `) as Row[];
 
@@ -126,22 +161,7 @@ export async function getSupplierInvoices(companyId: string, filters?: InvoiceFi
       SELECT COUNT(*) AS cnt
       FROM supplier_invoices si
       LEFT JOIN suppliers s ON s.id = si.supplier_id
-      WHERE si.company_id = ${companyId}::UUID
-        AND si.deleted_at IS NULL
-        AND (${status}::text IS NULL OR si.status = ${status}::text)
-        AND (${supplierId}::uuid IS NULL OR si.supplier_id = ${supplierId}::uuid)
-        AND (${matchStatus}::text IS NULL OR si.match_status = ${matchStatus}::text)
-        AND (${fromDate}::date IS NULL OR si.invoice_date >= ${fromDate}::date)
-        AND (${toDate}::date IS NULL OR si.invoice_date <= ${toDate}::date)
-        AND (${fromAmount}::numeric IS NULL OR si.total_amount >= ${fromAmount}::numeric)
-        AND (${toAmount}::numeric IS NULL OR si.total_amount <= ${toAmount}::numeric)
-        AND (${fromBalance}::numeric IS NULL OR si.balance >= ${fromBalance}::numeric)
-        AND (${toBalance}::numeric IS NULL OR si.balance <= ${toBalance}::numeric)
-        AND (${searchPattern}::text IS NULL OR
-             si.invoice_number ILIKE ${searchPattern}::text OR
-             si.reference ILIKE ${searchPattern}::text OR
-             si.notes ILIKE ${searchPattern}::text OR
-             s.name ILIKE ${searchPattern}::text)
+      WHERE ${where}
     `) as Row[];
 
     return { invoices: rows.map(mapInvoiceRow), total: Number(countRows[0]!.cnt) };
@@ -174,6 +194,39 @@ export async function getSupplierInvoiceStatusCounts(companyId: string): Promise
     return counts;
   } catch (err) {
     log.error('Failed to get supplier invoice status counts', { error: err }, 'accounting');
+    throw err;
+  }
+}
+
+/**
+ * Export-flavoured fetch: a single un-paginated query (capped at
+ * SUPPLIER_INVOICE_EXPORT_CAP) honouring the same filters and sort as the list
+ * endpoint. One query → MVCC snapshot consistency, no risk of skipped or
+ * duplicated rows from concurrent inserts that LIMIT/OFFSET paging would have.
+ */
+export async function getSupplierInvoicesForExport(
+  companyId: string,
+  filters?: Omit<InvoiceFilters, 'limit' | 'offset'>,
+): Promise<{ invoices: SupplierInvoice[]; truncated: boolean }> {
+  try {
+    const where = buildInvoiceWhere(companyId, filters);
+    const orderBy = buildOrderBy(filters);
+    const cap = SUPPLIER_INVOICE_EXPORT_CAP;
+    const rows = (await sql`
+      SELECT ${sql.unsafe(INVOICE_COLUMNS)}
+      FROM supplier_invoices si
+      LEFT JOIN suppliers s ON s.id = si.supplier_id
+      WHERE ${where}
+      ${sql.unsafe(orderBy)}
+      LIMIT ${cap + 1}
+    `) as Row[];
+    const truncated = rows.length > cap;
+    return {
+      invoices: (truncated ? rows.slice(0, cap) : rows).map(mapInvoiceRow),
+      truncated,
+    };
+  } catch (err) {
+    log.error('Failed to export supplier invoices', { error: err }, 'accounting');
     throw err;
   }
 }
