@@ -45,6 +45,14 @@ export PATH="$HOME/.local/bin:$PATH"
 echo "Installing dependencies..."
 $BUN install
 
+# 1a. CI gate — type-check, lint, unit tests must pass before we build
+if [ "${SKIP_CI:-0}" != "1" ]; then
+  echo "Running CI gate (bun run ci)..."
+  $BUN run ci
+else
+  echo "WARNING: SKIP_CI=1 — CI gate bypassed"
+fi
+
 echo "Building production bundle..."
 NODE_ENV=production $BUN run build
 
