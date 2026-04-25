@@ -57,12 +57,14 @@ describe('extractAccountNumber — unlabelled Pass 2 fallback', () => {
     expect(extractAccountNumber(text)).toBe('4069625895');
   });
 
-  it('ignores obvious non-account numbers outside the header region', () => {
-    // If the only long digit sequence is BEYOND the ~3000 char header
-    // window, we return null rather than guess from transaction rows.
+  it('falls back to a lone 9-13 digit token even when far from any header', () => {
+    // Pass 3 (frequency-ranked) scans the whole document. With no header
+    // pattern available and only one candidate, that candidate wins —
+    // returning null here would lose statements where the parser doesn't
+    // see a header marker (per fix 72db7a26).
     const filler = 'a'.repeat(3200);
     const text = `${filler} 4069625895 end`;
-    expect(extractAccountNumber(text)).toBe(null);
+    expect(extractAccountNumber(text)).toBe('4069625895');
   });
 
   it('does not match 8-digit SARS tax numbers in the header', () => {
