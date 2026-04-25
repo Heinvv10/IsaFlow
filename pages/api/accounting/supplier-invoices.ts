@@ -14,18 +14,56 @@ import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
 import {
   getSupplierInvoices,
+  getSupplierInvoiceStatusCounts,
   createSupplierInvoice,
+  type SupplierInvoiceSort,
 } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import type { SupplierInvoiceStatus } from '@/modules/accounting/types/ap.types';
+
+const VALID_SORTS: SupplierInvoiceSort[] = [
+  'invoice_number', 'supplier_name', 'reference', 'invoice_date',
+  'total_amount', 'balance', 'status',
+];
+
+function parseNumeric(v: unknown): number | undefined {
+  if (v === undefined || v === null || v === '') return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : undefined;
+}
 
 async function getHandler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
   try {
-    const { status, supplier_id, match_status, limit, offset } = req.query;
+    const {
+      status, supplier_id, match_status, limit, offset,
+      search, from_date, to_date, from_amount, to_amount,
+      from_balance, to_balance, sort, sort_order, status_counts,
+    } = req.query;
+
+    if (status_counts) {
+      const counts = await getSupplierInvoiceStatusCounts(companyId);
+      return apiResponse.success(res, { counts });
+    }
+
+    const sortKey = typeof sort === 'string' && (VALID_SORTS as string[]).includes(sort)
+      ? sort as SupplierInvoiceSort
+      : undefined;
+    const sortOrder = sort_order === 'asc' ? 'asc' as const
+      : sort_order === 'desc' ? 'desc' as const : undefined;
+
     const result = await getSupplierInvoices(companyId, {
       status: status as SupplierInvoiceStatus | undefined,
       supplierId: supplier_id ? String(supplier_id) : undefined,
       matchStatus: match_status as 'unmatched' | 'po_matched' | 'grn_matched' | 'fully_matched' | undefined,
+      search: typeof search === 'string' ? search : undefined,
+      fromDate: typeof from_date === 'string' ? from_date : undefined,
+      toDate: typeof to_date === 'string' ? to_date : undefined,
+      fromAmount: parseNumeric(from_amount),
+      toAmount: parseNumeric(to_amount),
+      fromBalance: parseNumeric(from_balance),
+      toBalance: parseNumeric(to_balance),
+      sort: sortKey,
+      sortOrder,
       limit: limit ? Math.min(Number(limit), 200) : undefined,
       offset: offset ? Number(offset) : undefined,
     });
