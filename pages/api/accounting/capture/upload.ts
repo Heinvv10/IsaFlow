@@ -195,7 +195,7 @@ async function authAndHandle(req: NextApiRequest, res: NextApiResponse) {
     const authedReq = req as CompanyAuthedRequest & { _apiKeyId?: string };
     authedReq.companyId = ctx.companyId;
     authedReq.companyRole = 'manager'; // API keys get write access
-    authedReq.user = { id: `api_key:${ctx.keyId}`, claims: {} };
+    authedReq.user = { id: '', claims: {} };
     authedReq._apiKeyId = ctx.keyId;
     return handler(authedReq, res);
   }
