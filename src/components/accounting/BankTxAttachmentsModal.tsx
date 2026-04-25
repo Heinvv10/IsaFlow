@@ -12,10 +12,11 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { X, Paperclip, Trash2, Upload, FileImage, FileText, AlertCircle, Loader2 } from 'lucide-react';
+import { X, Paperclip, Trash2, Upload, FileImage, FileText, AlertCircle, Loader2, FolderOpen } from 'lucide-react';
 import { notify } from '@/utils/toast';
 import { apiFetch } from '@/lib/apiFetch';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { SharePointPickerModal } from '@/components/accounting/SharePointPickerModal';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -75,6 +76,8 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
   const [uploading, setUploading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [showSharePointPicker, setShowSharePointPicker] = useState(false);
+  const [importingFromSP, setImportingFromSP] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ── Fetch attachment list ──────────────────────────────────────────────────
@@ -165,6 +168,21 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
     }
   };
 
+  // ── SharePoint import ──────────────────────────────────────────────────────
+  const handleSharePointImport = useCallback(async (serverRelativeUrl: string, fileName: string) => {
+    setImportingFromSP(true);
+    try {
+      const res = await apiFetch('/api/accounting/sharepoint/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ serverRelativeUrl, entityType: 'bank_transaction', entityId: bankTransactionId }) });
+      const json = await res.json() as { success: boolean; error?: { message?: string } };
+      if (!res.ok || !json.success) throw new Error(json.error?.message ?? 'Import failed');
+      notify.success(`${fileName} attached`);
+      setShowSharePointPicker(false);
+      await fetchAttachments();
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : 'Import failed');
+    } finally { setImportingFromSP(false); }
+  }, [bankTransactionId, fetchAttachments]);
+
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -183,6 +201,18 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
               <p className="text-xs text-[var(--ff-text-tertiary)] truncate">{transactionDescription}</p>
             )}
           </div>
+          <button
+            onClick={() => setShowSharePointPicker(true)}
+            disabled={importingFromSP}
+            title="Import from SharePoint"
+            className="p-1.5 rounded hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {importingFromSP ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <FolderOpen className="h-4 w-4" />
+            )}
+          </button>
           <button
             onClick={onClose}
             className="p-1.5 rounded hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)]"
@@ -318,6 +348,13 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
           </button>
         </div>
       </div>
+
+      <SharePointPickerModal
+        isOpen={showSharePointPicker}
+        onClose={() => setShowSharePointPicker(false)}
+        initialPath="Shared Documents/VF Suppliers/ABSA Transactions"
+        onImport={handleSharePointImport}
+      />
     </div>
   );
 }

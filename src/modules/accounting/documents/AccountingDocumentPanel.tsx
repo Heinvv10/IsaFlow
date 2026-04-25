@@ -10,8 +10,10 @@ import {
   AlertCircle,
   X,
   Link2,
+  FolderOpen,
 } from 'lucide-react';
 import { useAccountingDocuments } from './useAccountingDocuments';
+import { SharePointPickerModal } from '@/components/accounting/SharePointPickerModal';
 import {
   ACCOUNTING_DOCUMENT_TYPE_LABELS,
   DOCUMENT_TYPE_LABELS,
@@ -72,9 +74,9 @@ export function AccountingDocumentPanel({
     useAccountingDocuments(entityType, entityId);
 
   const [showUpload, setShowUpload] = useState(false);
-  const [selectedType, setSelectedType] = useState<AccountingDocumentType>(
-    allowedTypes[0]?.value || 'other'
-  );
+  const [showSharePointPicker, setShowSharePointPicker] = useState(false);
+  const [importingFromSP, setImportingFromSP] = useState(false);
+  const [selectedType, setSelectedType] = useState<AccountingDocumentType>(allowedTypes[0]?.value || 'other');
   const [notes, setNotes] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -102,6 +104,22 @@ export function AccountingDocumentPanel({
     await deleteDocument(docId);
   };
 
+  const spInitialPath = entityType === 'supplier_invoice'
+    ? 'Shared Documents/VF Suppliers'
+    : entityType === 'customer_invoice'
+    ? 'Shared Documents/Invoices'
+    : 'Shared Documents';
+
+  const handleSharePointImport = async (serverRelativeUrl: string) => {
+    setImportingFromSP(true);
+    try {
+      const res = await fetch('/api/accounting/sharepoint/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ serverRelativeUrl, entityType, entityId }) });
+      if (!res.ok) { const json = await res.json() as { error?: { message?: string } }; throw new Error(json.error?.message ?? 'Import failed'); }
+      setShowSharePointPicker(false);
+      window.location.reload();
+    } finally { setImportingFromSP(false); }
+  };
+
   return (
     <div className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-lg">
       {/* Header */}
@@ -113,13 +131,23 @@ export function AccountingDocumentPanel({
           </h3>
         </div>
         {!readOnly && (
-          <button
-            onClick={() => setShowUpload(!showUpload)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            <Upload className="h-4 w-4" />
-            Upload
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowSharePointPicker(true)}
+              disabled={importingFromSP}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] rounded-lg hover:text-[var(--ff-text-primary)] hover:border-[var(--ff-text-tertiary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <FolderOpen className="h-4 w-4" />
+              From SharePoint
+            </button>
+            <button
+              onClick={() => setShowUpload(!showUpload)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <Upload className="h-4 w-4" />
+              Upload
+            </button>
+          </div>
         )}
       </div>
 
@@ -274,6 +302,13 @@ export function AccountingDocumentPanel({
           })
         )}
       </div>
+
+      <SharePointPickerModal
+        isOpen={showSharePointPicker}
+        onClose={() => setShowSharePointPicker(false)}
+        onImport={(url) => handleSharePointImport(url)}
+        initialPath={spInitialPath}
+      />
     </div>
   );
 }
