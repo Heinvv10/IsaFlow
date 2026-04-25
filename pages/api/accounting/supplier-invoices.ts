@@ -14,21 +14,23 @@ import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
 import {
   getSupplierInvoices,
+  getSupplierInvoiceStatusCounts,
   createSupplierInvoice,
 } from '@/modules/accounting/services/ap/supplierInvoiceService';
-import type { SupplierInvoiceStatus } from '@/modules/accounting/types/ap.types';
+import { parseSupplierInvoiceFilters } from '@/modules/accounting/services/ap/supplierInvoiceFilterParams';
 
 async function getHandler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
   try {
-    const { status, supplier_id, match_status, limit, offset } = req.query;
-    const result = await getSupplierInvoices(companyId, {
-      status: status as SupplierInvoiceStatus | undefined,
-      supplierId: supplier_id ? String(supplier_id) : undefined,
-      matchStatus: match_status as 'unmatched' | 'po_matched' | 'grn_matched' | 'fully_matched' | undefined,
-      limit: limit ? Math.min(Number(limit), 200) : undefined,
-      offset: offset ? Number(offset) : undefined,
-    });
+    if (req.query.status_counts) {
+      const counts = await getSupplierInvoiceStatusCounts(companyId);
+      return apiResponse.success(res, { counts });
+    }
+
+    const parsed = parseSupplierInvoiceFilters(req.query);
+    if (!parsed.ok) return apiResponse.badRequest(res, parsed.error);
+
+    const result = await getSupplierInvoices(companyId, parsed.filters);
     return apiResponse.success(res, result);
   } catch (err) {
     log.error('Failed to get supplier invoices', { error: err }, 'accounting-api');
