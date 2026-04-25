@@ -12,6 +12,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
+import { sql } from '@/lib/neon';
 import { getBalanceSheet } from '@/modules/accounting/services/reports/financialReportingService';
 import { csvVal } from '@/lib/csv';
 
@@ -25,9 +26,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!asAtDate) return apiResponse.badRequest(res, 'as_at_date is required');
 
   try {
-    const report = await getBalanceSheet(companyId, asAtDate, costCentreId || undefined);
+    const [companyRows, report] = await Promise.all([
+      sql`SELECT name FROM companies WHERE id = ${companyId}::UUID LIMIT 1` as Promise<{name: string}[]>,
+      getBalanceSheet(companyId, asAtDate, costCentreId || undefined),
+    ]);
+    const companyName = (companyRows as {name: string}[])[0]?.name ?? 'Company';
 
     const csvLines: string[] = [
+      `${csvVal(companyName)}`,
+      `Balance Sheet`,
+      `As at: ${csvVal(asAtDate)}`,
+      `Generated: ${csvVal(new Date().toLocaleDateString('en-ZA'))}`,
+      ``,
       'Section,Account Code,Account Name,Balance',
     ];
 
@@ -56,7 +66,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     csvLines.push(`${csvVal('Equity')},${csvVal('')},${csvVal('Total Equity')},${Number(report.totalEquity).toFixed(2)}`);
 
     const csv = csvLines.join('\n');
-    const filename = `balance-sheet-${new Date().toISOString().split('T')[0]}.csv`;
+    const filename = `balance-sheet-${asAtDate}.csv`;
 
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);

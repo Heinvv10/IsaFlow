@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, BarChart3, Loader2, AlertCircle, CheckCircle2, ChevronDown, ChevronRight, Download } from 'lucide-react';
+import { ArrowLeft, BarChart3, Loader2, AlertCircle, CheckCircle2, ChevronDown, ChevronRight, Download, FileSpreadsheet } from 'lucide-react';
 import type { BalanceSheetReport } from '@/modules/accounting/types/gl.types';
 import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
 import { formatCurrency } from '@/utils/formatters';
@@ -69,6 +69,13 @@ export default function BalanceSheetPage() {
     window.open(`/api/accounting/balance-sheet-export?${params}`, '_blank');
   }
 
+  function handleXlsxExport() {
+    if (!asAtDate) return;
+    const params = new URLSearchParams({ as_at_date: asAtDate });
+    if (costCentreId) params.set('cost_centre_id', costCentreId);
+    window.open(`/api/accounting/balance-sheet-xlsx?${params}`, '_blank');
+  }
+
   const balanced = report ? Math.abs(report.totalAssets - (report.totalLiabilities + report.totalEquity)) < 0.02 : false;
   const drillDownStart = (asAtDate ?? '').slice(0, 4) + '-01-01';
   const drillDownEnd = asAtDate ?? '';
@@ -97,10 +104,16 @@ export default function BalanceSheetPage() {
                 </div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Balance Sheet</h1>
               </div>
-              <button onClick={handleExport} disabled={!report}
-                className="inline-flex items-center gap-2 px-4 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 text-sm font-medium disabled:opacity-50">
-                <Download className="h-4 w-4" /> Export CSV
-              </button>
+              <div className="flex items-center gap-2">
+                <button onClick={handleXlsxExport} disabled={!report}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium disabled:opacity-50">
+                  <FileSpreadsheet className="h-4 w-4" /> Export Excel
+                </button>
+                <button onClick={handleExport} disabled={!report}
+                  className="inline-flex items-center gap-2 px-4 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 text-sm font-medium disabled:opacity-50">
+                  <Download className="h-4 w-4" /> Export CSV
+                </button>
+              </div>
             </div>
           </div>
         </div>

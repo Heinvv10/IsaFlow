@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { sql } from '@/lib/neon';
+import { sql, fmtDate } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { amortise } from '@/lib/amortisation/engine';
@@ -32,7 +32,7 @@ export interface PortfolioSummary {
 function mapDbRowToSchedule(r: Row): ScheduleRow {
   return {
     period: Number(r.period),
-    date: String(r.date).slice(0, 10),
+    date: fmtDate(r.date),
     opening: parseFloat(String(r.opening ?? '0')),
     rate: parseFloat(String(r.rate ?? '0')),
     installment: parseFloat(String(r.installment ?? '0')),
@@ -53,7 +53,7 @@ function loanRowToInputs(row: Row): LoanInputs {
   return {
     id: String(row.id),
     principal: parseFloat(String(row.principal)),
-    startDate: String(row.start_date).slice(0, 10),
+    startDate: fmtDate(row.start_date),
     termMonths: Number(row.term_months),
     rateMode: String(row.rate_mode) as LoanInputs['rateMode'],
     margin: parseFloat(String(row.margin ?? '0')),
@@ -72,7 +72,7 @@ function loanRowToInputs(row: Row): LoanInputs {
 function dbEventToEngine(r: Row): LoanEvent {
   return {
     kind: String(r.kind) as LoanEvent['kind'],
-    date: String(r.event_date).slice(0, 10),
+    date: fmtDate(r.event_date),
     amount: r.amount != null ? parseFloat(String(r.amount)) : undefined,
     note: r.note != null ? String(r.note) : undefined,
   };
@@ -80,7 +80,7 @@ function dbEventToEngine(r: Row): LoanEvent {
 
 function dbPointToEngine(r: Row): RatePoint {
   return {
-    effectiveDate: String(r.effective_date).slice(0, 10),
+    effectiveDate: fmtDate(r.effective_date),
     rate: parseFloat(String(r.rate)),
   };
 }
@@ -106,7 +106,8 @@ async function fetchEvents(companyId: string, loanId: string): Promise<Row[]> {
   `) as Row[];
 }
 
-async function fetchRatePoints(curveId: string): Promise<Row[]> {
+async function fetchRatePoints(curveId: string | null | undefined): Promise<Row[]> {
+  if (!curveId || curveId === 'null') return [];
   return (await sql`
     SELECT * FROM loan_rate_points WHERE curve_id = ${curveId} ORDER BY effective_date ASC
   `) as Row[];
@@ -125,10 +126,10 @@ export async function previewSchedule(
 
   if (eventsOverride) {
     engineEvents = eventsOverride;
-    pointRows = await fetchRatePoints(String(loanRow.curve_id));
+    pointRows = await fetchRatePoints(loanRow.curve_id as string | null);
   } else {
     const eventRows = await fetchEvents(companyId, loanId);
-    pointRows = await fetchRatePoints(String(loanRow.curve_id));
+    pointRows = await fetchRatePoints(loanRow.curve_id as string | null);
     engineEvents = eventRows.map(dbEventToEngine);
   }
 
@@ -145,7 +146,7 @@ export async function getOrComputeSchedule(
 ): Promise<ScheduleResult> {
   const loanRow = await fetchLoanData(companyId, loanId);
   const eventRows = await fetchEvents(companyId, loanId);
-  const pointRows = await fetchRatePoints(String(loanRow.curve_id));
+  const pointRows = await fetchRatePoints(loanRow.curve_id as string | null);
 
   const hash = buildInputsHash(loanRow, eventRows, pointRows);
 
