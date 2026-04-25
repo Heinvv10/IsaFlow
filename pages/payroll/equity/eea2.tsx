@@ -143,7 +143,7 @@ export default function EEA2Page() {
 
             <p className="text-xs text-[var(--ff-text-secondary)]">
               Cells show headcount for each (race, gender) pair. Unspecified employees (no equity fields set) appear
-              in the "Unspecified" row at the bottom so the total always matches active headcount.
+              in the &quot;Unspecified&quot; row at the bottom so the total always matches active headcount.
             </p>
           </>
         )}

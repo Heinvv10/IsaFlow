@@ -76,9 +76,9 @@ export function PeriodPicker({ mode = 'range', value, onChange, labelRange, labe
 
   if (mode === 'range') {
     const rv = value as PeriodRange;
-    function pickRange(k: PeriodPreset) { setPreset(k); const r = resolveRange(k); if (r) onChange(r); }
-    function setFrom(v: string) { setPreset('custom'); onChange({ dateFrom: v, dateTo: rv.dateTo }); }
-    function setTo(v: string) { setPreset('custom'); onChange({ dateFrom: rv.dateFrom, dateTo: v }); }
+    const pickRange = (k: PeriodPreset) => { setPreset(k); const r = resolveRange(k); if (r) onChange(r); };
+    const setFrom = (v: string) => { setPreset('custom'); onChange({ dateFrom: v, dateTo: rv.dateTo }); };
+    const setTo = (v: string) => { setPreset('custom'); onChange({ dateFrom: rv.dateFrom, dateTo: v }); };
     return (
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap gap-1.5">

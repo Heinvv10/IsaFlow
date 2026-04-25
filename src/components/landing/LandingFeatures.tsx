@@ -12,7 +12,7 @@ export function LandingFeaturesGrid() {
           <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight mb-4 text-gray-900">
             Everything you need.
             <br />
-            Nothing you don't.
+            Nothing you don&apos;t.
           </h2>
         </div>
 

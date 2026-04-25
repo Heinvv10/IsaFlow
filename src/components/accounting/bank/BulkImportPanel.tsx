@@ -429,7 +429,7 @@ export function BulkImportPanel() {
       {stats.inconclusiveCount > 0 && bankAccount && (
         <div className="rounded-lg border border-sky-500/30 bg-sky-500/5 px-3 py-2 text-xs text-sky-400">
           {stats.inconclusiveCount} file{stats.inconclusiveCount === 1 ? '' : 's'} have no
-          {' '}embedded account number — they'll be imported into{' '}
+          {' '}embedded account number — they&apos;ll be imported into{' '}
           <span className="font-medium">{bankAccount.accountName}</span>.
         </div>
       )}

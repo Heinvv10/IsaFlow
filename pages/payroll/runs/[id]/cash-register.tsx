@@ -83,7 +83,7 @@ export default function CashRegisterPage() {
           </div>
         ) : reg === null ? null : reg.rows.length === 0 ? (
           <div className="text-sm text-[var(--ff-text-secondary)]">
-            No cash-paid employees in this run. Mark an employee's payment method as "cash" on their detail page.
+            No cash-paid employees in this run. Mark an employee&apos;s payment method as &quot;cash&quot; on their detail page.
           </div>
         ) : (
           <>

@@ -108,7 +108,7 @@ export default function AdminSarsCodesPage() {
     }
   }, [search, category, statusFilter]);
 
-  useEffect(() => { void load(taxYear); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  useEffect(() => { void load(taxYear);   }, []);
 
   const onYearChange = (y: number) => { setTaxYear(y); void load(y); };
 
@@ -445,7 +445,7 @@ function ImportWizard({ onClose, onComplete }: { onClose: () => void; onComplete
               >
                 <FileSpreadsheet className="h-10 w-10 text-[var(--ff-text-tertiary)] mx-auto mb-2" />
                 <p className="text-sm text-[var(--ff-text-primary)]">{file ? file.name : 'Click to choose XLSX file'}</p>
-                <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">Max 5 MB · sheet "Master_Codes" required</p>
+                <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">Max 5 MB · sheet &quot;Master_Codes&quot; required</p>
                 <input ref={inputRef} type="file" accept=".xlsx" className="hidden" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
               </div>
 

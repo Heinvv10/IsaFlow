@@ -84,12 +84,12 @@ export default function LoanDetailPage() {
     setLoadingCurve(false);
   }, []);
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- idiomatic data load
+   
   useEffect(() => { loadLoan(); }, [loadLoan]);
 
   useEffect(() => {
     if (!loan) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- tab-driven data load
+     
     if (tab === 'schedule' && scheduleRows.length === 0) loadSchedule();
     if (tab === 'events') loadEvents();
     if (tab === 'curve') {

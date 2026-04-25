@@ -383,7 +383,7 @@ export default function AdminWebAnalytics() {
 
             <Panel title="Custom events (outbound clicks, downloads, custom tracking)">
               {summary.custom_events.length === 0 ? (
-                <p className="text-sm text-gray-500 dark:text-gray-400">No custom events captured yet. Fire them with <code className="text-xs bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">window.isaTrack.event('name', &#123;...&#125;)</code> or let the tracker auto-capture outbound links and downloads.</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">No custom events captured yet. Fire them with <code className="text-xs bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">window.isaTrack.event(&apos;name&apos;, &#123;...&#125;)</code> or let the tracker auto-capture outbound links and downloads.</p>
               ) : (
                 <Table
                   rows={summary.custom_events.map((e) => ({ label: e.event_name, value: e.events }))}

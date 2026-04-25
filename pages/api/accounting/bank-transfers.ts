@@ -66,7 +66,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const entryRef = reference || `Transfer: ${fromAcct?.account_name} → ${toAcct?.account_name}`;
     const txDate = transferDate || new Date().toISOString().split('T')[0];
 
-    const entry = await withTransaction(async (tx) => { // eslint-disable-line
+    const entry = await withTransaction(async (tx) => {  
 
       const entryRows = await tx`
         INSERT INTO gl_journal_entries (

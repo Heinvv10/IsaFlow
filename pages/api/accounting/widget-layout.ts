@@ -104,7 +104,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST']);
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 // Per-user dashboard layout — viewers must be able to save their own UI state,
 // so the write-access gate is explicitly disabled for this endpoint.
 export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler, { allowedRoles: null }))));
