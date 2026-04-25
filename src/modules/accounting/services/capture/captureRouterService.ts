@@ -12,6 +12,50 @@ import type { ExtractedDocument } from '@/modules/accounting/types/documentCaptu
 
 type Row = Record<string, unknown>;
 
+// ---------------------------------------------------------------------------
+// Category detection — classifies a receipt/slip as 'expense' vs 'invoice'
+// ---------------------------------------------------------------------------
+
+/**
+ * Heuristically decide whether an extracted document is a retail expense
+ * receipt (till slip, fuel, food, transport) or a formal supplier invoice.
+ *
+ * Rules (evaluated in order — first match wins):
+ *  1. Strong invoice signals: has both an invoice/reference number AND either
+ *     a vendor VAT number or more than one line item → invoice.
+ *  2. Merchant pattern hit on known SA fuel/food/travel/retail names → expense.
+ *  3. Till-slip proxy: no reference number, no vendor VAT number, but has a
+ *     vendor name → expense.
+ *  4. Fallback → invoice (keep existing behaviour for unknown docs).
+ */
+export function detectDocumentCategory(extracted: ExtractedDocument): 'invoice' | 'expense' {
+  const hasRef = Boolean(extracted.referenceNumber);
+  const hasVat = Boolean(extracted.vendorVatNumber);
+  const lineCount = extracted.lineItems?.length ?? 0;
+
+  // Strong invoice signals
+  if (hasRef && (hasVat || lineCount > 1)) {
+    return 'invoice';
+  }
+
+  // Merchant pattern match → expense
+  if (extracted.vendorName) {
+    const name = extracted.vendorName.toLowerCase();
+    if (
+      /engen|shell|caltex|sasol|\bbp\b|\btotal\b|fuel|petrol|diesel|spur|nandos|steers|mcdonald|kfc|wimpy|ocean basket|mugg.*bean|restaurant|cafe|coffee|uber|bolt|airport|hotel|lodge|airbnb/i.test(name)
+    ) {
+      return 'expense';
+    }
+  }
+
+  // Till-slip proxy: no reference, no VAT number, but has vendor name
+  if (!hasRef && !hasVat && extracted.vendorName) {
+    return 'expense';
+  }
+
+  return 'invoice';
+}
+
 const MIME_TO_EXT: Record<string, string> = {
   pdf: 'application/pdf',
   jpeg: 'image/jpeg',
@@ -110,27 +154,37 @@ export async function routeEvent(captureEventId: string, companyId: string): Pro
       const refNum: string | null = extracted.referenceNumber ?? null;
       const totalAmt: number | null = extracted.totalAmount ?? null;
       const vatAmt: number | null = extracted.vatAmount ?? null;
+      const category = detectDocumentCategory(extracted);
 
       await sql`
         UPDATE captured_documents
-        SET extracted_data = ${extractedData}::jsonb,
-            document_type  = ${docType},
-            vendor_name    = ${vendorName},
-            document_date  = ${docDate}::date,
-            reference_number = ${refNum},
-            total_amount   = ${totalAmt},
-            vat_amount     = ${vatAmt},
-            status         = 'pending',
-            updated_at     = NOW()
+        SET extracted_data     = ${extractedData}::jsonb,
+            document_type      = ${docType},
+            vendor_name        = ${vendorName},
+            document_date      = ${docDate}::date,
+            reference_number   = ${refNum},
+            total_amount       = ${totalAmt},
+            vat_amount         = ${vatAmt},
+            document_category  = ${category},
+            status             = 'pending',
+            updated_at         = NOW()
         WHERE id = ${documentId}::uuid AND company_id = ${companyId}
       `;
-    }
 
-    await sql`
-      UPDATE capture_events
-      SET status = 'extracted', updated_at = NOW()
-      WHERE id = ${captureEventId}::uuid AND company_id = ${companyId}
-    `;
+      await sql`
+        UPDATE capture_events
+        SET status            = 'extracted',
+            document_category = ${category},
+            updated_at        = NOW()
+        WHERE id = ${captureEventId}::uuid AND company_id = ${companyId}
+      `;
+    } else {
+      await sql`
+        UPDATE capture_events
+        SET status = 'extracted', updated_at = NOW()
+        WHERE id = ${captureEventId}::uuid AND company_id = ${companyId}
+      `;
+    }
 
     log.info('routeEvent: extraction complete', { captureEventId, hasExtracted: !!extracted }, 'capture-router');
   } catch (err) {
