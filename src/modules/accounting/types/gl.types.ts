@@ -61,6 +61,7 @@ export type GLEntrySource =
   | 'auto_depreciation'
   | 'auto_payroll'
   | 'auto_migration'
+  | 'auto_expense_receipt'
   | 'auto_bank_transfer';
 
 // ── Recurring Journals ────────────────────────────────────────────────────────
