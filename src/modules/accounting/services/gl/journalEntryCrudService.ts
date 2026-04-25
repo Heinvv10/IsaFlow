@@ -225,13 +225,14 @@ export async function createJournalEntry(
       ...input.lines.map((line) => sql`
         INSERT INTO gl_journal_lines (
           journal_entry_id, gl_account_id, debit, credit,
-          description, project_id, cost_center_id, vat_type, company_id
+          description, project_id, cost_center_id, bu_id, vat_type, company_id
         ) VALUES (
           ${entryId}::UUID, ${line.glAccountId}::UUID,
           ${line.debit}, ${line.credit},
           ${line.description || null},
           ${line.projectId || null},
           ${line.costCenterId || null},
+          ${line.buId || null}::UUID,
           ${line.vatType || null},
           ${companyId}::UUID
         )
