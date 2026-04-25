@@ -1,167 +1,223 @@
 /**
- * Supplier Invoices List Page
- * PRD-060 Phase 2: Accounts Payable
+ * Supplier Invoices List Page — coordinator.
+ *
+ * State + URL persistence: useSupplierInvoiceListState
+ * Filter UI: <FilterBar />
+ * Tabs:     <StatusTabs />
+ * Bulk:     <BulkActionBar />
+ * Table:    <InvoiceTable />
  */
 
-import { useState, useEffect, useCallback } from 'react';
-import { AppLayout } from '@/components/layout/AppLayout';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { FileText, Plus, Loader2, AlertCircle, ChevronRight } from 'lucide-react';
-import type { SupplierInvoice } from '@/modules/accounting/types/ap.types';
-import { formatCurrency, formatDate } from '@/utils/formatters';
-import { StatusPill } from '@/components/ui';
+import { AlertCircle, Download, Loader2, Plus } from 'lucide-react';
+import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
+import type { SupplierInvoice } from '@/modules/accounting/types/ap.types';
+import { useSupplierInvoiceListState } from '@/components/accounting/supplier-invoices/useSupplierInvoiceListState';
+import { FilterBar } from '@/components/accounting/supplier-invoices/FilterBar';
+import { StatusTabs } from '@/components/accounting/supplier-invoices/StatusTabs';
+import { BulkActionBar } from '@/components/accounting/supplier-invoices/BulkActionBar';
+import { InvoiceTable } from '@/components/accounting/supplier-invoices/InvoiceTable';
 
-const TABS = ['all', 'draft', 'pending_approval', 'approved', 'partially_paid', 'paid', 'disputed', 'cancelled'] as const;
-type Tab = typeof TABS[number];
-
-const STATUS: Record<string, { label: string; cls: string }> = {
-  draft:            { label: 'Draft',            cls: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300' },
-  pending_approval: { label: 'Pending',          cls: 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' },
-  approved:         { label: 'Approved',         cls: 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' },
-  partially_paid:   { label: 'Partial',          cls: 'bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400' },
-  paid:             { label: 'Paid',             cls: 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' },
-  disputed:         { label: 'Disputed',         cls: 'bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400' },
-  cancelled:        { label: 'Cancelled',        cls: 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400' },
-};
-
-function StatusBadge({ status }: { status: string }) {
-  return <StatusPill status={status} />;
+interface ListResult {
+  invoices: SupplierInvoice[];
+  total: number;
 }
 
+type BulkAction = 'approve' | 'post_gl' | 'cancel';
+
 export default function SupplierInvoicesPage() {
+  const state = useSupplierInvoiceListState();
+  const { filters, hydrated, filtersActive } = state;
+
   const [invoices, setInvoices] = useState<SupplierInvoice[]>([]);
   const [total, setTotal] = useState(0);
-  const [tab, setTab] = useState<Tab>('all');
+  const [counts, setCounts] = useState<Record<string, number>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState<BulkAction | null>(null);
+
+  const listParams = useMemo(() => {
+    const p = new URLSearchParams();
+    if (filters.tab !== 'all') p.set('status', filters.tab);
+    if (filters.search) p.set('search', filters.search);
+    if (filters.supplierId) p.set('supplier_id', filters.supplierId);
+    if (filters.fromDate) p.set('from_date', filters.fromDate);
+    if (filters.toDate) p.set('to_date', filters.toDate);
+    if (filters.fromAmount) p.set('from_amount', filters.fromAmount);
+    if (filters.toAmount) p.set('to_amount', filters.toAmount);
+    if (filters.fromBalance) p.set('from_balance', filters.fromBalance);
+    if (filters.toBalance) p.set('to_balance', filters.toBalance);
+    p.set('sort', filters.sort);
+    p.set('sort_order', filters.sortOrder);
+    p.set('limit', String(filters.perPage));
+    p.set('offset', String((filters.page - 1) * filters.perPage));
+    return p;
+  }, [filters]);
 
   const loadInvoices = useCallback(async () => {
     setIsLoading(true);
     setError('');
     try {
-      const params = new URLSearchParams();
-      if (tab !== 'all') params.set('status', tab);
-      const res = await apiFetch(`/api/accounting/supplier-invoices?${params}`);
+      const res = await apiFetch(`/api/accounting/supplier-invoices?${listParams}`);
       const json = await res.json();
-      const payload = json.data || json;
+      const payload = (json.data || json) as ListResult;
       setInvoices(payload.invoices || []);
       setTotal(payload.total || 0);
-    } catch {
+      setSelected(new Set());
+    } catch (err) {
+      log.warn('Failed to load supplier invoices', { error: err }, 'supplier-invoices');
       setError('Failed to load supplier invoices');
     } finally {
       setIsLoading(false);
     }
-  }, [tab]);
+  }, [listParams]);
 
-  useEffect(() => { void loadInvoices(); }, [loadInvoices]);
+  const loadCounts = useCallback(async () => {
+    try {
+      const res = await apiFetch('/api/accounting/supplier-invoices?status_counts=1');
+      const json = await res.json();
+      const data = (json.data || json) as { counts: Record<string, number> };
+      setCounts(data.counts || {});
+    } catch (err) {
+      // Tab badges are nice-to-have — surface in logs but don't break the page.
+      log.warn('Failed to load supplier invoice status counts', { error: err }, 'supplier-invoices');
+    }
+  }, []);
+
+  useEffect(() => { if (hydrated) void loadInvoices(); }, [hydrated, loadInvoices]);
+  useEffect(() => { void loadCounts(); }, [loadCounts]);
+
+  const toggleRow = useCallback((id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleAll = useCallback(() => {
+    setSelected((prev) => prev.size === invoices.length ? new Set() : new Set(invoices.map((i) => i.id)));
+  }, [invoices]);
+
+  const onBulkComplete = useCallback(async () => {
+    await loadInvoices();
+    await loadCounts();
+  }, [loadInvoices, loadCounts]);
+
+  function exportCsv() {
+    const p = new URLSearchParams(listParams);
+    p.delete('limit');
+    p.delete('offset');
+    window.open(`/api/accounting/supplier-invoices-export?${p.toString()}`, '_blank');
+  }
+
+  if (!hydrated) {
+    return (
+      <AppLayout>
+        <div className="min-h-screen bg-slate-50 dark:bg-[var(--ff-bg-primary)] flex items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout>
       <div className="min-h-screen bg-slate-50 dark:bg-[var(--ff-bg-primary)]">
-        {/* Header */}
-        <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-6 py-8">
-          <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
-          <div className="absolute -top-12 right-8 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="relative z-10 flex items-center justify-between">
-            <div>
-              <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-1">Suppliers</p>
-              <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Supplier Invoices</h1>
-              <p className="text-slate-500 dark:text-slate-400 text-sm mt-0.5">{total} {total === 1 ? 'invoice' : 'invoices'}</p>
-            </div>
-            <Link
-              href="/accounting/supplier-invoices/new"
-              className="flex items-center gap-2 px-4 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-sm font-semibold transition-colors shadow-lg shadow-teal-500/25"
-            >
-              <Plus className="w-4 h-4" /> New Invoice
-            </Link>
-          </div>
-        </div>
+        <Header total={total} filtersActive={filtersActive} onExport={exportCsv} />
 
         <div className="p-6 space-y-4">
-          {/* Filter tabs */}
-          <div className="flex gap-1 p-1 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-x-auto">
-            {TABS.map(t => (
-              <button
-                key={t}
-                onClick={() => setTab(t)}
-                className={`px-3 py-1.5 text-xs font-medium rounded-lg capitalize whitespace-nowrap transition-colors ${tab === t ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
-              >
-                {t === 'pending_approval' ? 'Pending' : t === 'partially_paid' ? 'Partial' : t}
-              </button>
-            ))}
-          </div>
+          <StatusTabs active={filters.tab} counts={counts} onChange={state.setTab} />
 
-          {/* Error */}
+          <FilterBar
+            filters={filters}
+            filtersActive={filtersActive}
+            setSearch={state.setSearch}
+            selectSupplier={state.selectSupplier}
+            clearSupplier={state.clearSupplier}
+            setDatePreset={state.setDatePreset}
+            setCustomDate={state.setCustomDate}
+            setAmountRange={state.setAmountRange}
+            resetFilters={state.resetFilters}
+          />
+
+          <BulkActionBar
+            selected={selected}
+            busy={bulkBusy}
+            onBusyChange={setBulkBusy}
+            onError={setError}
+            onComplete={onBulkComplete}
+            onClear={() => setSelected(new Set())}
+          />
+
           {error && (
             <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-sm">
               <AlertCircle className="h-4 w-4 flex-shrink-0" />{error}
             </div>
           )}
 
-          {/* Table */}
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
             {isLoading ? (
               <div className="p-16 flex items-center justify-center">
                 <Loader2 className="h-6 w-6 animate-spin text-slate-500 dark:text-slate-400" />
               </div>
-            ) : invoices.length === 0 ? (
-              <div className="p-16 text-center">
-                <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto mb-4">
-                  <FileText className="w-7 h-7 text-slate-500 dark:text-slate-400" />
-                </div>
-                <h3 className="text-base font-semibold text-slate-900 dark:text-white">No invoices found</h3>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Record your first supplier invoice</p>
-                <Link href="/accounting/supplier-invoices/new" className="inline-block mt-5 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold rounded-lg transition-colors">
-                  New Invoice
-                </Link>
-              </div>
             ) : (
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800">
-                  <tr>
-                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Invoice #</th>
-                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Supplier</th>
-                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Reference</th>
-                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Date</th>
-                    <th className="px-5 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Total</th>
-                    <th className="px-5 py-3 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Outstanding</th>
-                    <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Status</th>
-                    <th className="w-10" />
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {invoices.map(inv => {
-                    const outstanding = inv.balance ?? (inv.totalAmount - (inv.amountPaid || 0));
-                    return (
-                      <tr key={inv.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
-                        <td className="px-5 py-3.5 font-mono text-amber-500 font-semibold">
-                          <Link href={`/accounting/supplier-invoices/${inv.id}`} className="hover:underline">
-                            {inv.invoiceNumber}
-                          </Link>
-                        </td>
-                        <td className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{inv.supplierName || '—'}</td>
-                        <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 max-w-[200px] truncate" title={inv.reference}>{inv.reference || '—'}</td>
-                        <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs whitespace-nowrap">{formatDate(inv.invoiceDate)}</td>
-                        <td className="px-5 py-3.5 text-right font-mono font-semibold text-slate-900 dark:text-white">{formatCurrency(inv.totalAmount)}</td>
-                        <td className={`px-5 py-3.5 text-right font-mono font-semibold ${outstanding > 0 ? 'text-amber-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                          {formatCurrency(outstanding)}
-                        </td>
-                        <td className="px-5 py-3.5"><StatusBadge status={inv.status} /></td>
-                        <td className="px-4 py-3.5 text-right">
-                          <Link href={`/accounting/supplier-invoices/${inv.id}`} className="text-slate-500 dark:text-slate-400 hover:text-amber-500 transition-colors">
-                            <ChevronRight className="h-4 w-4" />
-                          </Link>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <InvoiceTable
+                invoices={invoices}
+                selected={selected}
+                toggleRow={toggleRow}
+                toggleAll={toggleAll}
+                sort={filters.sort}
+                sortOrder={filters.sortOrder}
+                onSort={state.toggleSort}
+                page={filters.page}
+                perPage={filters.perPage}
+                total={total}
+                onPage={state.setPage}
+                onPerPage={state.setPerPage}
+                filtersActive={filtersActive}
+              />
             )}
           </div>
         </div>
       </div>
     </AppLayout>
+  );
+}
+
+function Header({ total, filtersActive, onExport }: { total: number; filtersActive: boolean; onExport: () => void }) {
+  return (
+    <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-6 py-8">
+      <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
+      <div className="absolute -top-12 right-8 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="relative z-10 flex items-center justify-between">
+        <div>
+          <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-1">Suppliers</p>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Supplier Invoices</h1>
+          <p className="text-slate-500 dark:text-slate-400 text-sm mt-0.5">
+            {total} {total === 1 ? 'invoice' : 'invoices'}{filtersActive ? ' (filtered)' : ''}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onExport}
+            className="flex items-center gap-2 px-3 py-2.5 bg-slate-800/70 hover:bg-slate-700 text-slate-200 rounded-xl text-sm font-medium transition-colors border border-slate-700"
+          >
+            <Download className="w-4 h-4" /> Export CSV
+          </button>
+          <Link
+            href="/accounting/supplier-invoices/new"
+            className="flex items-center gap-2 px-4 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-sm font-semibold transition-colors shadow-lg shadow-teal-500/25"
+          >
+            <Plus className="w-4 h-4" /> New Invoice
+          </Link>
+        </div>
+      </div>
+    </div>
   );
 }

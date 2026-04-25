@@ -12,13 +12,13 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 // ── Module mocks ─────────────────────────────────────────────────────────────
 
 vi.mock('@/lib/neon', () => {
-  // sql.unsafe(s) is used for static column-list interpolation. The mock just
-  // needs to return the string unchanged so the tagged template still matches
-  // mockResolvedValueOnce queues regardless of which column projection is
-  // splatted in.
+  // sql.unsafe is a vi.fn so tests can assert against its bound values. It
+  // returns the first arg (raw SQL text) so the outer sql tagged template
+  // still works when the unsafe result is interpolated as a fragment.
+  const unsafeMock = vi.fn((s: string, _values?: unknown[]) => s);
   const sqlMock = Object.assign(vi.fn(), {
     transaction: vi.fn(),
-    unsafe: (s: string) => s,
+    unsafe: unsafeMock,
   });
   return {
     sql: sqlMock,
@@ -50,11 +50,15 @@ vi.mock('@/modules/accounting/utils/threeWayMatch', () => ({
 import { sql, withTransaction } from '@/lib/neon';
 import {
   getSupplierInvoices,
+  getSupplierInvoiceStatusCounts,
+  getSupplierInvoicesForExport,
   createSupplierInvoice,
+  SUPPLIER_INVOICE_EXPORT_CAP,
 } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import type { SupplierInvoiceCreateInput } from '@/modules/accounting/types/ap.types';
 
 const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
+const mockSqlUnsafe = sql.unsafe as unknown as MockedFunction<(text: string, values?: unknown[]) => string>;
 const mockWithTransaction = withTransaction as unknown as MockedFunction<
   (fn: (tx: typeof sql) => Promise<unknown>) => Promise<unknown>
 >;
@@ -201,26 +205,30 @@ describe('getSupplierInvoices', () => {
     await expect(getSupplierInvoices(COMPANY_ID)).rejects.toThrow('Connection reset');
   });
 
-  it('caps limit at 100 when caller requests more', async () => {
-    // Build 150 fake rows to confirm the service itself caps at 100
-    const fakeRows = Array.from({ length: 150 }, (_, i) => ({
+  it('caps limit at 200 when caller requests more', async () => {
+    // The list page exposes 25/50/100/200 per-page options; the service caps
+    // at 200 (the export endpoint uses its own dedicated cap).
+    const fakeRows = Array.from({ length: 250 }, (_, i) => ({
       ...sampleInvoiceRow,
       id: `sinv-${String(i).padStart(4, '0')}`,
       invoice_number: `SUP-INV-${String(i).padStart(4, '0')}`,
     }));
 
-    // SQL mock returns all 150; the service should have passed LIMIT 100 to SQL.
-    // We assert on the safeLimit behaviour by checking the mockSql call args contain
-    // 100, and that the result length equals what SQL returned (mapping is 1-to-1).
     mockSql
-      .mockResolvedValueOnce(fakeRows.slice(0, 100))  // SQL honours LIMIT 100
-      .mockResolvedValueOnce([{ cnt: '150' }]);
+      .mockResolvedValueOnce(fakeRows.slice(0, 200))  // SQL honours LIMIT 200
+      .mockResolvedValueOnce([{ cnt: '250' }]);
 
     const result = await getSupplierInvoices(COMPANY_ID, { limit: 500 });
 
-    // Result length must not exceed 100
-    expect(result.invoices.length).toBeLessThanOrEqual(100);
-    expect(result.total).toBe(150);
+    expect(result.invoices.length).toBeLessThanOrEqual(200);
+    expect(result.total).toBe(250);
+
+    // Confirm the LIMIT bound into the outer sql template was 200, not 500.
+    // sql template args = [stringsArr, ...interpolations]; LIMIT comes from
+    // ${safeLimit} so we just check the call's flat interpolations include 200.
+    const firstCall = mockSql.mock.calls[0] ?? [];
+    expect(firstCall.slice(1)).toContain(200);
+    expect(firstCall.slice(1)).not.toContain(500);
   });
 
   it('returned invoice has all expected keys from explicit column projection', async () => {
@@ -242,6 +250,167 @@ describe('getSupplierInvoices', () => {
     for (const key of requiredKeys) {
       expect(inv).toHaveProperty(key);
     }
+  });
+
+  // ── New filter coverage (PR #42) ────────────────────────────────────────────
+
+  // Helpers to inspect what buildInvoiceWhere bound to the WHERE LazyQuery.
+  // sql.unsafe(text, values) is called once per buildInvoiceWhere invocation;
+  // values are exposed via mockSqlUnsafe.mock.calls[N][1].
+  function whereCallValues(): unknown[] {
+    const calls = mockSqlUnsafe.mock.calls;
+    // Find the first unsafe call that has a values array (the WHERE call).
+    const found = calls.find((c) => Array.isArray(c[1]));
+    return (found?.[1] as unknown[]) ?? [];
+  }
+  function whereCallText(): string {
+    const calls = mockSqlUnsafe.mock.calls;
+    const found = calls.find((c) => Array.isArray(c[1]));
+    return String(found?.[0] ?? '');
+  }
+  function orderByText(): string {
+    // The orderBy unsafe call has a single arg (no values array).
+    const calls = mockSqlUnsafe.mock.calls;
+    const found = calls.find((c) => typeof c[0] === 'string' && c[0].startsWith('ORDER BY'));
+    return String(found?.[0] ?? '');
+  }
+
+  it('passes search pattern (wrapped in %) to ILIKE bindings', async () => {
+    mockSql.mockResolvedValueOnce([sampleInvoiceRow]).mockResolvedValueOnce([{ cnt: '1' }]);
+    await getSupplierInvoices(COMPANY_ID, { search: 'INV005388' });
+    expect(whereCallValues()).toContain('%INV005388%');
+  });
+
+  it('treats empty/whitespace search as no filter (no ILIKE bind)', async () => {
+    mockSql.mockResolvedValueOnce([sampleInvoiceRow]).mockResolvedValueOnce([{ cnt: '1' }]);
+    await getSupplierInvoices(COMPANY_ID, { search: '   ' });
+    const values = whereCallValues();
+    expect(values.some((v) => typeof v === 'string' && v.startsWith('%'))).toBe(false);
+  });
+
+  it('binds fromDate/toDate as ::date parameters', async () => {
+    mockSql.mockResolvedValueOnce([sampleInvoiceRow]).mockResolvedValueOnce([{ cnt: '1' }]);
+    await getSupplierInvoices(COMPANY_ID, { fromDate: '2025-05-28', toDate: '2026-04-25' });
+    const values = whereCallValues();
+    expect(values).toContain('2025-05-28');
+    expect(values).toContain('2026-04-25');
+    expect(whereCallText()).toContain('::date');
+  });
+
+  it('binds amount range and balance range parameters', async () => {
+    mockSql.mockResolvedValueOnce([sampleInvoiceRow]).mockResolvedValueOnce([{ cnt: '1' }]);
+    await getSupplierInvoices(COMPANY_ID, {
+      fromAmount: 100, toAmount: 5000, fromBalance: 0, toBalance: 999,
+    });
+    const values = whereCallValues();
+    expect(values).toContain(100);
+    expect(values).toContain(5000);
+    expect(values).toContain(0);
+    expect(values).toContain(999);
+  });
+
+  it('accepts negative amount filter values without rejecting them', async () => {
+    mockSql.mockResolvedValueOnce([sampleInvoiceRow]).mockResolvedValueOnce([{ cnt: '1' }]);
+    await getSupplierInvoices(COMPANY_ID, { fromAmount: -100 });
+    expect(whereCallValues()).toContain(-100);
+  });
+
+  it('falls back to invoice_date sort for an unknown sort key', async () => {
+    mockSql.mockResolvedValueOnce([sampleInvoiceRow]).mockResolvedValueOnce([{ cnt: '1' }]);
+    await getSupplierInvoices(COMPANY_ID, {
+      sort: 'malicious; DROP TABLE x;' as unknown as Parameters<typeof getSupplierInvoices>[1] extends infer F ? (F extends { sort?: infer S } ? S : never) : never,
+    });
+    expect(orderByText()).toContain('si.invoice_date');
+    expect(orderByText()).not.toContain('DROP TABLE');
+  });
+
+  it('respects sort=total_amount with sortOrder=asc', async () => {
+    mockSql.mockResolvedValueOnce([sampleInvoiceRow]).mockResolvedValueOnce([{ cnt: '1' }]);
+    await getSupplierInvoices(COMPANY_ID, { sort: 'total_amount', sortOrder: 'asc' });
+    expect(orderByText()).toMatch(/si\.total_amount ASC/);
+  });
+
+  it('uses descending order by default', async () => {
+    mockSql.mockResolvedValueOnce([sampleInvoiceRow]).mockResolvedValueOnce([{ cnt: '1' }]);
+    await getSupplierInvoices(COMPANY_ID, { sort: 'invoice_date' });
+    expect(orderByText()).toMatch(/si\.invoice_date DESC/);
+  });
+});
+
+// ── getSupplierInvoiceStatusCounts ───────────────────────────────────────────
+
+describe('getSupplierInvoiceStatusCounts', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('aggregates per-status counts and synthesises an "all" total', async () => {
+    mockSql.mockResolvedValueOnce([
+      { status: 'draft', cnt: '1' },
+      { status: 'approved', cnt: '149' },
+      { status: 'partially_paid', cnt: '8' },
+      { status: 'paid', cnt: '199' },
+    ]);
+
+    const counts = await getSupplierInvoiceStatusCounts(COMPANY_ID);
+    expect(counts).toEqual({
+      draft: 1,
+      approved: 149,
+      partially_paid: 8,
+      paid: 199,
+      all: 357,
+    });
+    expect(mockSql).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns {all: 0} for an empty company', async () => {
+    mockSql.mockResolvedValueOnce([]);
+    const counts = await getSupplierInvoiceStatusCounts(COMPANY_ID);
+    expect(counts.all).toBe(0);
+  });
+});
+
+// ── getSupplierInvoicesForExport ─────────────────────────────────────────────
+
+describe('getSupplierInvoicesForExport', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns the un-paginated set when below the row cap', async () => {
+    const rows = Array.from({ length: 50 }, (_, i) => ({
+      ...sampleInvoiceRow,
+      id: `sinv-${String(i).padStart(4, '0')}`,
+    }));
+    mockSql.mockResolvedValueOnce(rows);
+
+    const result = await getSupplierInvoicesForExport(COMPANY_ID);
+    expect(result.invoices).toHaveLength(50);
+    expect(result.truncated).toBe(false);
+    expect(mockSql).toHaveBeenCalledTimes(1);
+  });
+
+  it('marks the result truncated when SQL returns more than the cap', async () => {
+    const overflow = Array.from({ length: SUPPLIER_INVOICE_EXPORT_CAP + 1 }, (_, i) => ({
+      ...sampleInvoiceRow,
+      id: `sinv-${String(i).padStart(5, '0')}`,
+    }));
+    mockSql.mockResolvedValueOnce(overflow);
+
+    const result = await getSupplierInvoicesForExport(COMPANY_ID);
+    expect(result.invoices).toHaveLength(SUPPLIER_INVOICE_EXPORT_CAP);
+    expect(result.truncated).toBe(true);
+  });
+
+  it('honours filter params on the export query', async () => {
+    mockSql.mockResolvedValueOnce([sampleInvoiceRow]);
+    await getSupplierInvoicesForExport(COMPANY_ID, {
+      status: 'approved',
+      supplierId: 'sup-1',
+      search: 'INV005388',
+    });
+    // The filters end up bound into the WHERE-fragment unsafe call.
+    const whereCall = mockSqlUnsafe.mock.calls.find((c) => Array.isArray(c[1]));
+    const values = (whereCall?.[1] as unknown[]) ?? [];
+    expect(values).toContain('approved');
+    expect(values).toContain('sup-1');
+    expect(values).toContain('%INV005388%');
   });
 });
 
