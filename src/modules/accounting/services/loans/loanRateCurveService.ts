@@ -1,4 +1,4 @@
-import { sql } from '@/lib/neon';
+import { sql, fmtDate } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
@@ -51,7 +51,7 @@ function mapPointRow(row: Row): RatePoint {
   return {
     id: String(row.id),
     curveId: String(row.curve_id),
-    effectiveDate: String(row.effective_date).slice(0, 10),
+    effectiveDate: fmtDate(row.effective_date),
     rate: parseFloat(String(row.rate)),
   };
 }

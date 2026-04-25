@@ -1,4 +1,4 @@
-import { sql } from '@/lib/neon';
+import { sql, fmtDate } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
@@ -104,7 +104,7 @@ function mapLoanRow(row: Row): Loan {
     product: row.product != null ? String(row.product) : null,
     description: row.description != null ? String(row.description) : null,
     principal: parseFloat(String(row.principal)),
-    startDate: String(row.start_date).slice(0, 10),
+    startDate: fmtDate(row.start_date),
     termMonths: Number(row.term_months),
     rateMode: String(row.rate_mode) as Loan['rateMode'],
     margin: parseFloat(String(row.margin ?? '0')),
@@ -134,7 +134,7 @@ function mapEventRow(row: Row): LoanEvent {
     id: String(row.id),
     loanId: String(row.loan_id),
     companyId: String(row.company_id),
-    date: String(row.event_date).slice(0, 10),
+    date: fmtDate(row.event_date),
     kind: String(row.kind) as LoanEvent['kind'],
     amount: row.amount != null ? parseFloat(String(row.amount)) : null,
     note: row.note != null ? String(row.note) : null,
