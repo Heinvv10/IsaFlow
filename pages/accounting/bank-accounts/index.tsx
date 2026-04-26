@@ -45,7 +45,7 @@ export default function BankAccountsPage() {
   const [error, setError] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ accountCode: '', accountName: '', description: '', bankAccountNumber: '' });
+  const [form, setForm] = useState({ accountCode: '', accountName: '', description: '', bankAccountNumber: '', parentAccountId: '' });
 
   const [editingAccount, setEditingAccount] = useState<BankAccount | null>(null);
   const [editForm, setEditForm] = useState<EditForm>({ accountName: '', description: '', bankAccountNumber: '' });
@@ -67,17 +67,11 @@ export default function BankAccountsPage() {
 
   useEffect(() => { loadAccounts(); }, [loadAccounts]);
 
-  const BANK_PARENT_ID = 'bf801b3b-de70-4c10-8d8f-689de8b8a9ad';
-
   const openAddModal = useCallback(async () => {
-    setForm({ accountCode: '', accountName: '', description: '', bankAccountNumber: '' });
+    setForm({ accountCode: '', accountName: '', description: '', bankAccountNumber: '', parentAccountId: '' });
     setShowAddModal(true);
     try {
-      const qs = new URLSearchParams({
-        accountType: 'asset',
-        accountSubtype: 'bank',
-        parentAccountId: BANK_PARENT_ID,
-      });
+      const qs = new URLSearchParams({ accountType: 'asset', accountSubtype: 'bank' });
       const res = await apiFetch(`/api/accounting/chart-of-accounts-next-code?${qs}`);
       const json = await res.json();
       const code = json?.data?.code ?? json?.code;
@@ -103,7 +97,7 @@ export default function BankAccountsPage() {
           accountName: form.accountName,
           accountType: 'asset',
           accountSubtype: 'bank',
-          parentAccountId: BANK_PARENT_ID,
+          parentAccountId: form.parentAccountId || undefined,
           description: form.description || form.accountName,
           normalBalance: 'debit',
         }),
@@ -125,7 +119,7 @@ export default function BankAccountsPage() {
       }
       notify.success('Bank account created');
       setShowAddModal(false);
-      setForm({ accountCode: '', accountName: '', description: '', bankAccountNumber: '' });
+      setForm({ accountCode: '', accountName: '', description: '', bankAccountNumber: '', parentAccountId: '' });
       loadAccounts();
     } catch {
       notify.error('Failed to create bank account');
@@ -343,6 +337,24 @@ export default function BankAccountsPage() {
 
               <div>
                 <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">
+                  Parent Account <span className="text-[var(--ff-text-tertiary)] font-normal">(optional — for cards / sub-accounts)</span>
+                </label>
+                <select
+                  value={form.parentAccountId}
+                  onChange={e => setForm(f => ({ ...f, parentAccountId: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-cyan-500"
+                >
+                  <option value="">— None (root-level account) —</option>
+                  {accounts.map(a => (
+                    <option key={a.id} value={a.id}>
+                      {a.accountCode} — {a.accountName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">
                   Bank Account Number
                 </label>
                 <input
@@ -372,7 +384,7 @@ export default function BankAccountsPage() {
               </div>
 
               <p className="text-xs text-[var(--ff-text-tertiary)]">
-                Creates a GL account under Current Assets (1100) with subtype &quot;bank&quot;.
+                Creates a GL account with type &quot;asset&quot; and subtype &quot;bank&quot;. Select a parent to create a sub-account (e.g. a credit card under a main bank account).
               </p>
             </div>
 
