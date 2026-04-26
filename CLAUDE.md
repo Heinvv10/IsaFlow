@@ -18,6 +18,7 @@ Next.js 14 + TypeScript accounting SaaS. Multi-tenant (every query scoped by `co
 - **Customer invoices**: Use `COALESCE(ci.client_id, ci.customer_id)` — both columns exist.
 - **Nav**: Update `accountingNavConfig.ts` for every new page.
 - **Migrations**: `IF NOT EXISTS` on all `CREATE TABLE` / `CREATE INDEX`.
+- **Migrations**: Use the next unused 3-digit prefix. Never reuse an existing prefix. Use `244b_` style suffix if inserting between existing numbers.
 
 ## Key Paths
 

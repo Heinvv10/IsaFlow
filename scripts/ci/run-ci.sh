@@ -20,9 +20,10 @@ run_step() {
   fi
 }
 
-run_step "type-check" bun run type-check
-run_step "lint"       bun run lint
-run_step "unit-tests" bun run test:unit
+run_step "type-check"        bun run type-check
+run_step "lint"              bun run lint
+run_step "unit-tests"        bun run test:unit
+run_step "migration-naming"  bun scripts/audit-migration-naming.ts
 
 echo ""
 if [ "${#FAILED[@]}" -eq 0 ]; then
