@@ -22,6 +22,7 @@ import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { extractBearerToken } from './captureApiKeyAuth';
 import { validatePat } from './personalAccessTokens';
+import { validateOauthAccessToken, type OauthAccessContext } from './oauth';
 import { withAuth } from './withAuth';
 import type { CompanyAuthedRequest } from './withAuth';
 
@@ -42,6 +43,8 @@ interface BearerAuthedRequest extends CompanyAuthedRequest {
   /** Set when Bearer-auth path matched, for downstream auditing/logging. */
   authMethod?: 'cookie' | 'pat' | 'oauth';
   patId?: string;
+  oauthAuthorisationId?: string;
+  oauthAppId?: string;
 }
 
 let _pool: pg.Pool | null = null;
@@ -78,15 +81,38 @@ export function withBearerOrCookieAuth(handler: Handler): NextApiHandler {
     // No Bearer header → standard cookie auth path.
     if (!rawToken) return withAuth(handler)(req, res);
 
-    // Future: branch on rawToken prefix. `pat_` → PAT; `oat_` → OAuth (Layer 2).
-    if (!rawToken.startsWith('pat_')) {
+    const ip = getClientIp(req);
+
+    interface NormalisedCtx {
+      userId: string;
+      companyId: string;
+      scopes: string[];
+      method: 'pat' | 'oauth';
+      patId?: string;
+      oauthAuthorisationId?: string;
+      oauthAppId?: string;
+    }
+    let ctx: NormalisedCtx | null = null;
+
+    if (rawToken.startsWith('pat_')) {
+      const pat = await validatePat(rawToken, ip);
+      if (pat) ctx = { ...pat, method: 'pat' };
+    } else if (rawToken.startsWith('oat_')) {
+      const oauth: OauthAccessContext | null = await validateOauthAccessToken(rawToken, ip);
+      if (oauth) ctx = {
+        userId: oauth.userId,
+        companyId: oauth.companyId,
+        scopes: oauth.scopes,
+        method: 'oauth',
+        oauthAuthorisationId: oauth.authorisationId,
+        oauthAppId: oauth.oauthAppId,
+      };
+    } else {
       return res
         .status(401)
         .json({ success: false, error: { code: 'INVALID_TOKEN', message: 'Unsupported bearer token format' } });
     }
 
-    const ip = getClientIp(req);
-    const ctx = await validatePat(rawToken, ip);
     if (!ctx) {
       return res
         .status(401)
@@ -145,8 +171,13 @@ export function withBearerOrCookieAuth(handler: Handler): NextApiHandler {
       authedReq.companyId = ctx.companyId;
       authedReq.companyRole = membership.rows[0]!.role;
       authedReq.scopes = ctx.scopes;
-      authedReq.authMethod = 'pat';
-      authedReq.patId = ctx.patId;
+      authedReq.authMethod = ctx.method;
+      if (ctx.method === 'pat') {
+        authedReq.patId = ctx.patId;
+      } else {
+        authedReq.oauthAuthorisationId = ctx.oauthAuthorisationId;
+        authedReq.oauthAppId = ctx.oauthAppId;
+      }
 
       // Mirror withAuth's per-company rate limit so PAT-authed reports calls
       // don't bypass the limiter that protects the pool from full-GL aggregations.
@@ -174,8 +205,9 @@ export function withBearerOrCookieAuth(handler: Handler): NextApiHandler {
       if (process.env.SENTRY_ENABLED === 'true') {
         await Sentry.withIsolationScope(async () => {
           setTenantTags({ companyId: ctx.companyId, userId: ctx.userId, route: sanitizeRoute(req.url) });
-          Sentry.setTag('auth.method', 'pat');
-          Sentry.setTag('auth.token_id', ctx.patId);
+          Sentry.setTag('auth.method', ctx.method);
+          Sentry.setTag('auth.token_id', ctx.method === 'pat' ? ctx.patId : ctx.oauthAuthorisationId);
+          if (ctx.method === 'oauth') Sentry.setTag('oauth.app_id', ctx.oauthAppId);
           await runHandler();
         });
       } else {
