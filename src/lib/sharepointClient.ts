@@ -1,26 +1,21 @@
 /**
- * SharePoint REST API client (app-only, client credentials).
- *
- * Uses the SharePoint REST API (not Graph) with an Azure AD client-credentials
- * token. The token is cached in a module-level variable and auto-refreshed when
- * within 5 minutes of expiry so each request pays no round-trip cost.
+ * SharePoint client using Microsoft Graph API (app-only, client credentials).
  *
  * Required env vars:
  *   AZURE_CLIENT_ID       -- Azure AD app registration client ID
  *   AZURE_CLIENT_SECRET   -- Azure AD app registration client secret
- *   AZURE_TENANT_ID       -- Azure AD tenant ID (e.g. blitzfibre.onmicrosoft.com)
+ *   AZURE_TENANT_ID       -- Azure AD tenant ID
  *   SHAREPOINT_SITE_URL   -- Full site URL (e.g. https://blitzfibre.sharepoint.com/sites/VelocityFinance)
  */
 
 import { log } from '@/lib/logger';
-
-// ---- Types ------------------------------------------------------------------
 
 export interface SpFile {
   name: string;
   serverRelativeUrl: string;
   size: number;
   modified: string;
+  downloadUrl?: string;
 }
 
 export interface SpFolder {
@@ -36,190 +31,189 @@ export interface SpFolderContents {
 
 interface TokenCache {
   token: string;
-  expiresAt: number; // Unix epoch ms
+  expiresAt: number;
 }
 
-// ---- Module-level token cache -----------------------------------------------
+interface DriveCache {
+  siteId: string;
+  driveId: string;
+}
 
 let _tokenCache: TokenCache | null = null;
-const REFRESH_BEFORE_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
+let _driveCache: DriveCache | null = null;
+const REFRESH_BEFORE_MS = 5 * 60 * 1000;
 
-// ---- Env helpers ------------------------------------------------------------
-
-function requireSharePointEnv(): {
-  clientId: string;
-  clientSecret: string;
-  tenantId: string;
-  siteUrl: string;
-} {
+function requireEnv(): { clientId: string; clientSecret: string; tenantId: string; siteUrl: string } {
   const clientId = process.env.AZURE_CLIENT_ID;
   const clientSecret = process.env.AZURE_CLIENT_SECRET;
   const tenantId = process.env.AZURE_TENANT_ID;
   const siteUrl = process.env.SHAREPOINT_SITE_URL;
-
   if (!clientId || !clientSecret || !tenantId || !siteUrl) {
-    throw new Error(
-      'SharePoint not configured. Set AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID, and SHAREPOINT_SITE_URL.',
-    );
+    throw new Error('SharePoint not configured. Set AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID, and SHAREPOINT_SITE_URL.');
   }
-
   return { clientId, clientSecret, tenantId, siteUrl };
 }
 
-// ---- Token management -------------------------------------------------------
-
 export async function getAccessToken(): Promise<string> {
   const now = Date.now();
+  if (_tokenCache && _tokenCache.expiresAt - now > REFRESH_BEFORE_MS) return _tokenCache.token;
 
-  if (_tokenCache && _tokenCache.expiresAt - now > REFRESH_BEFORE_EXPIRY_MS) {
-    return _tokenCache.token;
-  }
-
-  const { clientId, clientSecret, tenantId, siteUrl } = requireSharePointEnv();
-
-  const tokenUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
-  const siteHost = new URL(siteUrl).hostname;
-  const scope = `https://${siteHost}/.default`;
-
-  const body = new URLSearchParams({
-    grant_type: 'client_credentials',
-    client_id: clientId,
-    client_secret: clientSecret,
-    scope,
-  });
-
-  const res = await fetch(tokenUrl, {
+  const { clientId, clientSecret, tenantId } = requireEnv();
+  const res = await fetch(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: body.toString(),
+    body: new URLSearchParams({
+      grant_type: 'client_credentials',
+      client_id: clientId,
+      client_secret: clientSecret,
+      scope: 'https://graph.microsoft.com/.default',
+    }).toString(),
   });
 
   if (!res.ok) {
     const text = await res.text();
-    log.error('SharePoint token fetch failed', { status: res.status, body: text }, 'sharepoint-client');
-    throw new Error(`SharePoint token fetch failed: ${res.status}`);
+    log.error('SharePoint token failed', { status: res.status, body: text }, 'sharepoint');
+    throw new Error(`SharePoint token failed: ${res.status}`);
   }
 
   const json = await res.json() as { access_token: string; expires_in: number };
-
-  _tokenCache = {
-    token: json.access_token,
-    expiresAt: now + json.expires_in * 1000,
-  };
-
-  log.info('SharePoint access token refreshed', {}, 'sharepoint-client');
+  _tokenCache = { token: json.access_token, expiresAt: now + json.expires_in * 1000 };
+  log.info('SharePoint token refreshed', {}, 'sharepoint');
   return _tokenCache.token;
 }
 
-// ---- XML parsing helpers ----------------------------------------------------
+async function getDriveId(): Promise<string> {
+  if (_driveCache) return _driveCache.driveId;
 
-function extractXmlEntries(xml: string, markerTag: string): string[] {
-  const regex = /<entry[^>]*>([\s\S]*?)<\/entry>/g;
-  const entries: string[] = [];
-  let match = regex.exec(xml);
-  while (match !== null) {
-    const content = match[1] ?? '';
-    if (content.includes(markerTag)) {
-      entries.push(content);
-    }
-    match = regex.exec(xml);
-  }
-  return entries;
-}
-
-function extractSingleValue(xml: string, tag: string): string {
-  const regex = new RegExp(`<[dm]:${tag}>([^<]*)<\/[dm]:${tag}>`);
-  const match = regex.exec(xml);
-  return match?.[1] ?? '';
-}
-
-// ---- API functions ----------------------------------------------------------
-
-function normalizePath(siteUrl: string, serverRelativePath: string): string {
-  // If already a full server-relative path (starts with /), use as-is.
-  if (serverRelativePath.startsWith('/')) return serverRelativePath;
-  // Otherwise prepend the site path derived from siteUrl.
-  const sitePath = new URL(siteUrl).pathname.replace(/\/$/, '');
-  return `${sitePath}/${serverRelativePath}`;
-}
-
-export async function listFolder(serverRelativePath: string): Promise<SpFolderContents> {
-  const { siteUrl } = requireSharePointEnv();
+  const { siteUrl } = requireEnv();
   const token = await getAccessToken();
+  const parsed = new URL(siteUrl);
+  const sitePath = parsed.pathname; // e.g. /sites/VelocityFinance
 
-  const fullPath = normalizePath(siteUrl, serverRelativePath);
-  const encodedPath = encodeURIComponent(fullPath);
+  const siteRes = await fetch(
+    `https://graph.microsoft.com/v1.0/sites/${parsed.hostname}:${sitePath}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!siteRes.ok) throw new Error(`Graph site lookup failed: ${siteRes.status}`);
+  const site = await siteRes.json() as { id: string };
 
-  const [filesRes, foldersRes] = await Promise.all([
-    fetch(
-      `${siteUrl}/_api/web/GetFolderByServerRelativeUrl('${encodedPath}')/Files`,
-      { headers: { Authorization: `Bearer ${token}`, Accept: 'application/atom+xml' } },
-    ),
-    fetch(
-      `${siteUrl}/_api/web/GetFolderByServerRelativeUrl('${encodedPath}')/Folders`,
-      { headers: { Authorization: `Bearer ${token}`, Accept: 'application/atom+xml' } },
-    ),
-  ]);
+  const drivesRes = await fetch(
+    `https://graph.microsoft.com/v1.0/sites/${site.id}/drives`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!drivesRes.ok) throw new Error(`Graph drives lookup failed: ${drivesRes.status}`);
+  const drives = await drivesRes.json() as { value: { id: string; name: string }[] };
+  const docsDrive = drives.value.find(d => d.name === 'Documents') ?? drives.value[0];
+  if (!docsDrive) throw new Error('No document drive found on SharePoint site');
 
-  if (!filesRes.ok) {
-    const text = await filesRes.text();
-    log.error('SharePoint files list failed', { status: filesRes.status, path: fullPath, body: text }, 'sharepoint-client');
-    throw new Error(`SharePoint list failed: ${filesRes.status}`);
-  }
-
-  if (!foldersRes.ok) {
-    const text = await foldersRes.text();
-    log.error('SharePoint folders list failed', { status: foldersRes.status, path: fullPath, body: text }, 'sharepoint-client');
-    throw new Error(`SharePoint folders list failed: ${foldersRes.status}`);
-  }
-
-  const filesXml = await filesRes.text();
-  const foldersXml = await foldersRes.text();
-
-  return {
-    files: parseFilesXml(filesXml),
-    folders: parseFoldersXml(foldersXml),
-  };
+  _driveCache = { siteId: site.id, driveId: docsDrive.id };
+  return _driveCache.driveId;
 }
 
-function parseFilesXml(xml: string): SpFile[] {
-  return extractXmlEntries(xml, 'd:Name').map((entry) => ({
-    name: extractSingleValue(entry, 'Name'),
-    serverRelativeUrl: extractSingleValue(entry, 'ServerRelativeUrl'),
-    size: parseInt(extractSingleValue(entry, 'Length') || '0', 10),
-    modified: extractSingleValue(entry, 'TimeLastModified'),
-  })).filter((f) => f.name !== '');
+interface GraphDriveItem {
+  name: string;
+  size?: number;
+  lastModifiedDateTime?: string;
+  parentReference?: { path?: string };
+  folder?: { childCount: number };
+  file?: { mimeType?: string };
+  '@microsoft.graph.downloadUrl'?: string;
 }
 
-function parseFoldersXml(xml: string): SpFolder[] {
-  return extractXmlEntries(xml, 'd:Name').map((entry) => ({
-    name: extractSingleValue(entry, 'Name'),
-    serverRelativeUrl: extractSingleValue(entry, 'ServerRelativeUrl'),
-    itemCount: parseInt(extractSingleValue(entry, 'ItemCount') || '0', 10),
-  })).filter((f) => f.name !== '' && f.name !== 'Forms');
+function itemToServerRelativeUrl(item: GraphDriveItem, siteUrl: string): string {
+  const parsed = new URL(siteUrl);
+  const parentPath = item.parentReference?.path ?? '';
+  // parentPath looks like: /drives/{driveId}/root:/Shared Documents/Invoices
+  const afterRoot = parentPath.replace(/^.*?root:/, '');
+  return `${parsed.pathname}${afterRoot}/${item.name}`;
+}
+
+export async function listFolder(folderPath: string): Promise<SpFolderContents> {
+  const { siteUrl } = requireEnv();
+  const token = await getAccessToken();
+  const driveId = await getDriveId();
+
+  // Normalize: strip leading /sites/... prefix so we get just the relative path within the drive
+  const parsed = new URL(siteUrl);
+  const sitePath = parsed.pathname.replace(/\/$/, '');
+  let relativePath = folderPath;
+  if (relativePath.startsWith(sitePath + '/')) {
+    relativePath = relativePath.slice(sitePath.length + 1);
+  } else if (relativePath.startsWith('/')) {
+    // full server-relative path from a different site prefix - strip leading /
+    relativePath = relativePath.replace(/^\/[^/]+\/[^/]+\//, '');
+  }
+
+  const encodedPath = relativePath.split('/').map(encodeURIComponent).join('/');
+  const url = `https://graph.microsoft.com/v1.0/drives/${driveId}/root:/${encodedPath}:/children?$top=200`;
+
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) {
+    const text = await res.text();
+    log.error('Graph folder list failed', { status: res.status, path: relativePath, body: text }, 'sharepoint');
+    throw new Error(`SharePoint folder list failed: ${res.status}`);
+  }
+
+  const json = await res.json() as { value: GraphDriveItem[] };
+  const files: SpFile[] = [];
+  const folders: SpFolder[] = [];
+
+  for (const item of json.value ?? []) {
+    if (item.folder) {
+      folders.push({
+        name: item.name,
+        serverRelativeUrl: itemToServerRelativeUrl(item, siteUrl),
+        itemCount: item.folder.childCount,
+      });
+    } else {
+      files.push({
+        name: item.name,
+        serverRelativeUrl: itemToServerRelativeUrl(item, siteUrl),
+        size: item.size ?? 0,
+        modified: item.lastModifiedDateTime ?? '',
+        downloadUrl: item['@microsoft.graph.downloadUrl'],
+      });
+    }
+  }
+
+  return { files, folders };
 }
 
 export async function downloadFile(
   serverRelativeUrl: string,
 ): Promise<{ buffer: Buffer; contentType: string; fileName: string }> {
-  const { siteUrl } = requireSharePointEnv();
+  const { siteUrl } = requireEnv();
   const token = await getAccessToken();
+  const driveId = await getDriveId();
 
-  const encodedUrl = encodeURIComponent(serverRelativeUrl);
-  const downloadUrl = `${siteUrl}/_api/web/GetFileByServerRelativeUrl('${encodedUrl}')/$value`;
-
-  const res = await fetch(downloadUrl, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-
-  if (!res.ok) {
-    log.error('SharePoint file download failed', { status: res.status, serverRelativeUrl }, 'sharepoint-client');
-    throw new Error(`SharePoint download failed: ${res.status}`);
+  const parsed = new URL(siteUrl);
+  const sitePath = parsed.pathname.replace(/\/$/, '');
+  let relativePath = serverRelativeUrl;
+  if (relativePath.startsWith(sitePath + '/')) {
+    relativePath = relativePath.slice(sitePath.length + 1);
+  } else if (relativePath.startsWith('/')) {
+    relativePath = relativePath.replace(/^\/[^/]+\/[^/]+\//, '');
   }
 
-  const arrayBuffer = await res.arrayBuffer();
+  const encodedPath = relativePath.split('/').map(encodeURIComponent).join('/');
+
+  // Get item metadata to find download URL
+  const metaRes = await fetch(
+    `https://graph.microsoft.com/v1.0/drives/${driveId}/root:/${encodedPath}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!metaRes.ok) throw new Error(`Graph item lookup failed: ${metaRes.status}`);
+  const meta = await metaRes.json() as GraphDriveItem & { '@microsoft.graph.downloadUrl'?: string };
+
+  const downloadUrl = meta['@microsoft.graph.downloadUrl'];
+  if (!downloadUrl) throw new Error('No download URL for item');
+
+  const dlRes = await fetch(downloadUrl);
+  if (!dlRes.ok) throw new Error(`File download failed: ${dlRes.status}`);
+
+  const arrayBuffer = await dlRes.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
-  const contentType = res.headers.get('content-type') ?? 'application/octet-stream';
+  const contentType = dlRes.headers.get('content-type') ?? 'application/octet-stream';
   const fileName = serverRelativeUrl.split('/').pop() ?? 'document';
 
   return { buffer, contentType, fileName };
