@@ -6,10 +6,21 @@ on:
   pull_request:
     branches: [master]
 
+# Cancel stale runs when a new commit is pushed to the same ref.
+# This prevents a backlog of queued runs from burning Actions minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Tighten token to read-only. CI only needs to check out code.
+permissions:
+  contents: read
+
 jobs:
   quality:
     name: Type Check, Lint & Test
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v4
@@ -17,6 +28,13 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+
+      - name: Cache bun deps
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
