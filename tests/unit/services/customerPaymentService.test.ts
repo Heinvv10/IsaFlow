@@ -216,6 +216,16 @@ describe('createCustomerPayment — allocation validation', () => {
       .rejects.toThrow(/not found/i);
   });
 
+  it('rejects cross-tenant invoice IDs — per-allocation query returns 0 rows when company_id does not match', async () => {
+    // Simulates an attacker supplying a valid invoice UUID from another tenant.
+    // The query now includes AND company_id = ${companyId}::UUID, so no rows
+    // are returned — the existing "not found" guard fires and rejects the call.
+    mockSql.mockResolvedValueOnce([]); // company_id mismatch → 0 rows
+
+    await expect(createCustomerPayment(COMPANY_ID, validInput, USER_ID))
+      .rejects.toThrow(/not found/i);
+  });
+
   it('creates payment and allocations when validation passes', async () => {
     // Invoice balance check: fully unpaid
     mockSql.mockResolvedValueOnce([{ total_amount: '1150.00', amount_paid: '0' }]);

@@ -175,7 +175,9 @@ export async function autoMatchTransactions(
     const bankTxRows = (await sql`
       SELECT id, amount, transaction_date, reference, description
       FROM bank_transactions
-      WHERE bank_account_id = ${bankAccountId}::UUID AND status = 'imported'
+      WHERE bank_account_id = ${bankAccountId}::UUID
+        AND company_id = ${companyId}::UUID
+        AND status = 'imported'
       ORDER BY transaction_date`) as DbRow[];
     if (bankTxRows.length === 0) return { matched: 0, unmatched: 0, candidates: [] };
     const glRows = (await sql`
