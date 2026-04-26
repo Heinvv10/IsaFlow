@@ -137,6 +137,16 @@ export interface CreatePatInput {
 }
 
 export async function createPat(input: CreatePatInput): Promise<{ id: string; raw: string; prefix: string }> {
+  // Defence-in-depth — API layer also validates against PAT_SCOPES, but if
+  // createPat is ever called from another path (e.g. future OAuth Layer 2
+  // re-using the table) we must not accept arbitrary scope strings.
+  const validScopes = new Set<string>(PAT_SCOPES);
+  for (const s of input.scopes) {
+    if (!validScopes.has(s)) {
+      throw new Error(`createPat: unknown scope "${s}"`);
+    }
+  }
+
   const { raw, hash, prefix } = generatePat();
   const days = Math.max(1, Math.min(365, Math.floor(input.expiresInDays)));
 

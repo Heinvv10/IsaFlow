@@ -182,9 +182,16 @@ export default function PersonalTokensPage() {
 
   async function copyToken() {
     if (!newPat?.token) return;
-    await navigator.clipboard.writeText(newPat.token);
-    setTokenCopied(true);
-    setTimeout(() => setTokenCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(newPat.token);
+      setTokenCopied(true);
+      setTimeout(() => setTokenCopied(false), 2000);
+    } catch {
+      // Permissions denied / non-secure context / unsupported browser. The
+      // token is rendered with `select-all` so the user can manually select
+      // and copy as a fallback.
+      showToast('Copy failed — please select and copy the token manually', false);
+    }
   }
 
   return (

@@ -19,11 +19,23 @@ import pg from 'pg';
 import { als } from '@/lib/als';
 import { log } from '@/lib/logger';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
-import { getClientIp } from '@/lib/rateLimit';
+import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { extractBearerToken } from './captureApiKeyAuth';
 import { validatePat } from './personalAccessTokens';
 import { withAuth } from './withAuth';
 import type { CompanyAuthedRequest } from './withAuth';
+
+/**
+ * Auto rate-limit table — must stay in sync with the equivalent table in
+ * withAuth.ts. PAT-authed requests skip withAuth entirely, so without this
+ * mirror they'd silently bypass per-company rate limits on heavy report routes.
+ */
+const AUTO_RATE_LIMIT: Array<{ prefix: string; key: string; max: number; windowSecs: number }> = [
+  { prefix: '/api/accounting/reports-', key: 'reports', max: 60, windowSecs: 60 },
+];
+
+/** Postgres SQLSTATE for invalid_text_representation — i.e. UUID cast errors. */
+const PG_INVALID_TEXT_REPRESENTATION = '22P02';
 
 interface BearerAuthedRequest extends CompanyAuthedRequest {
   scopes?: string[];
@@ -89,8 +101,11 @@ export function withBearerOrCookieAuth(handler: Handler): NextApiHandler {
     try {
       await client.query('BEGIN');
       await client.query('SET LOCAL ROLE app_user');
-      // Synthesize minimum JWT claims so RLS policies (which read sub) work.
-      const claims = { sub: ctx.userId, role: 'authenticated' };
+      // Synthesize the JWT claims that RLS policies actually read. `sub` keys
+      // policies via auth.uid(); `company_id` is read directly by mig 395
+      // (practice_client_rate_overrides) and mig 396 (payroll_leave_*) — without
+      // it those policies evaluate `NULL = NULL` and silently return zero rows.
+      const claims = { sub: ctx.userId, role: 'authenticated', company_id: ctx.companyId };
       await client.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify(claims)]);
       await client.query(`SELECT set_config('app.current_company_id', $1, true)`, [ctx.companyId]);
 
@@ -103,11 +118,19 @@ export function withBearerOrCookieAuth(handler: Handler): NextApiHandler {
           `SELECT role FROM company_users WHERE user_id = $1::text AND company_id = $2::uuid LIMIT 1`,
           [ctx.userId, ctx.companyId],
         );
-      } catch {
-        await client.query('ROLLBACK');
-        return res
-          .status(403)
-          .json({ success: false, error: { code: 'FORBIDDEN', message: 'Not a member of this company' } });
+      } catch (err) {
+        // Only treat invalid-UUID casts as 403 (forged or stale PAT pointing at
+        // a non-UUID company). Real DB errors (timeout, pool exhaustion) must
+        // propagate to the outer catch so they surface as 500, not as a
+        // misleading FORBIDDEN.
+        const code = (err as { code?: string } | null)?.code;
+        if (code === PG_INVALID_TEXT_REPRESENTATION) {
+          await client.query('ROLLBACK');
+          return res
+            .status(403)
+            .json({ success: false, error: { code: 'FORBIDDEN', message: 'Not a member of this company' } });
+        }
+        throw err;
       }
 
       if (membership.rows.length === 0) {
@@ -124,6 +147,24 @@ export function withBearerOrCookieAuth(handler: Handler): NextApiHandler {
       authedReq.scopes = ctx.scopes;
       authedReq.authMethod = 'pat';
       authedReq.patId = ctx.patId;
+
+      // Mirror withAuth's per-company rate limit so PAT-authed reports calls
+      // don't bypass the limiter that protects the pool from full-GL aggregations.
+      const path = req.url?.split('?')[0] ?? '';
+      const bucket = AUTO_RATE_LIMIT.find((b) => path.startsWith(b.prefix));
+      if (bucket) {
+        const allowed = await checkRateLimit(
+          `${bucket.key}:${ctx.companyId}`,
+          { max: bucket.max, windowSecs: bucket.windowSecs },
+        );
+        if (!allowed) {
+          await client.query('ROLLBACK');
+          return res.status(429).json({
+            success: false,
+            error: { code: 'RATE_LIMITED', message: 'Too many requests. Please try again shortly.' },
+          });
+        }
+      }
 
       const runHandler = async () =>
         als.run({ client, userId: ctx.userId, companyId: ctx.companyId, claims }, async () => {

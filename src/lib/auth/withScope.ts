@@ -1,12 +1,12 @@
 /**
  * Scope gate for handlers behind withBearerOrCookieAuth (PRD-10 Layer 3).
  *
- * Cookie-authed requests have full UI access — req.scopes is undefined and the
- * gate is a no-op (the user is doing what they could already do via the UI).
- *
- * PAT/OAuth-authed requests must carry an explicit scope claim. If none of the
- * required scopes are present, return 403 INSUFFICIENT_SCOPE — the user (or
- * integration developer) needs a token with broader permissions.
+ * **Contract:** withScope only enforces against requests that passed through
+ * withBearerOrCookieAuth (which attaches `req.scopes`). On a cookie-only
+ * `withAuth` route, `req.scopes` is undefined and the gate is intentionally
+ * a no-op — UI users have full access. On a route exposed via Bearer auth,
+ * the gate enforces strictly: a token without one of the required scopes
+ * gets 403 INSUFFICIENT_SCOPE.
  *
  * Usage:
  *   export default withBearerOrCookieAuth(
@@ -14,6 +14,7 @@
  *   );
  */
 import type { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
+import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 
 interface ScopedRequest extends NextApiRequest {
   scopes?: string[];
@@ -31,13 +32,11 @@ export function withScope(required: string | string[]) {
 
       const ok = requiredScopes.some((s) => scopes.includes(s));
       if (!ok) {
-        return res.status(403).json({
-          success: false,
-          error: {
-            code: 'INSUFFICIENT_SCOPE',
-            message: `Token missing required scope: ${requiredScopes.join(' or ')}`,
-          },
-        });
+        return apiResponse.error(
+          res,
+          ErrorCode.INSUFFICIENT_SCOPE,
+          `Token missing required scope: ${requiredScopes.join(' or ')}`,
+        );
       }
       return handler(req, res);
     };
