@@ -129,6 +129,10 @@ function TwoFactorScreen({
           />
         </div>
 
+        {/* TODO(PRD-10-followup): trustDevice flag is collected but never sent to
+            the server. This is "skip-2FA-on-this-device" — a different concept from
+            PRD-10's "Keep me signed in" (session length). Wire up with a device-
+            fingerprint table in a separate PRD covering MFA UX. */}
         <div className="mb-6 flex items-center gap-2">
           <input
             id="trust-device"
@@ -193,6 +197,8 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  // PRD-10 Layer 1: defaults to true (Sage Cloud parity).
+  const [rememberMe, setRememberMe] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [inviteData, setInviteData] = useState<InviteData | null>(null);
 
@@ -275,7 +281,7 @@ export default function LoginPage() {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim().toLowerCase(), password, deviceFingerprint: fingerprint }),
+        body: JSON.stringify({ email: email.trim().toLowerCase(), password, rememberMe, deviceFingerprint: fingerprint }),
         credentials: 'include',
       });
 
@@ -489,6 +495,21 @@ export default function LoginPage() {
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
+              </div>
+
+              {/* PRD-10 Layer 1: Keep me signed in — defaults checked. */}
+              <div className="mb-4 flex items-center">
+                <input
+                  id="rememberMe"
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={e => setRememberMe(e.target.checked)}
+                  disabled={isBusy}
+                  className="h-4 w-4 rounded border-slate-300 dark:border-gray-600 bg-slate-50 dark:bg-gray-800 text-teal-600 focus:ring-teal-500 focus:ring-offset-0"
+                />
+                <label htmlFor="rememberMe" className="ml-2 text-sm text-slate-600 dark:text-gray-300 select-none">
+                  Keep me signed in
+                </label>
               </div>
 
               {/* Lockout banner trumps the credential error */}

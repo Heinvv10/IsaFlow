@@ -10,10 +10,9 @@
 import { log } from '@/lib/logger';
 import type { BankCsvParseResult } from '../types/bank.types';
 import { isVlmAvailable, extractBankStatementWithVlm } from '../services/bank/vlmService';
-import { parseAbsaSlashDateLines, parseAbsaTextLines } from './bankPdfParserAbsa';
+import { parseAbsaPdfText } from './bankPdfParserAbsa';
 
-// Re-export for callers that import parseAbsaPdfText directly from this module
-export { parseAbsaPdfText } from './bankPdfParserAbsa';
+export { parseAbsaPdfText };
 
 // pdf-parse v2 exposes a PDFParse class (not a default function).
 interface PdfParseV2Result { text: string; pages: unknown[]; total: number; }
@@ -148,11 +147,9 @@ export async function parseBankPdf(
     format: detectedFormat,
   }, 'accounting-pdf');
 
-  // Route to ABSA parser directly
+  // Route to ABSA parser (handles Investment, DD/MM/YYYY, and text-date variants)
   if (detectedFormat === 'absa') {
-    const slash = parseAbsaSlashDateLines(text);
-    if (slash.transactions.length > 0) return slash;
-    return parseAbsaTextLines(text);
+    return parseAbsaPdfText(text);
   }
 
   // Other SA banks: delegate to factory
@@ -175,7 +172,7 @@ export async function parseBankPdf(
   }
 
   // Fallback: ABSA-style date-amount pattern for unknown formats
-  const fallback = parseAbsaTextLines(text);
+  const fallback = parseAbsaPdfText(text);
   if (fallback.transactions.length > 0) {
     log.info('PDF parsed using ABSA fallback pattern', {
       count: fallback.transactions.length,

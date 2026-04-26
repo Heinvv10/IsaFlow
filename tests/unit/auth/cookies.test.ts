@@ -6,6 +6,8 @@ import {
   setAuthCookies,
   clearAuthCookies,
   setActiveCompanyCookie,
+  setPendingRememberCookie,
+  clearPendingRememberCookie,
 } from '@/lib/auth/cookies';
 
 function mkReq(cookieHeader: string): NextApiRequest {
@@ -39,18 +41,69 @@ describe('cookies', () => {
     const cookies = headers['set-cookie'];
     expect(cookies.some((c) => c.startsWith('sb-access-token=a;'))).toBe(true);
     expect(cookies.some((c) => c.startsWith('sb-refresh-token=r;'))).toBe(true);
+    // All cookies set by setAuthCookies (access, refresh, remember_me hint) must
+    // be HttpOnly + SameSite=Lax. The hint is HttpOnly because it's only consumed
+    // server-side at /api/auth/refresh; exposing it would let XSS upgrade a
+    // session-only login to a 30-day persistent one.
     for (const c of cookies) {
       expect(c).toMatch(/HttpOnly/i);
       expect(c).toMatch(/SameSite=Lax/i);
     }
   });
 
+  it('setAuthCookies with persistent=false emits session-only cookies (no Max-Age)', () => {
+    const { res, headers } = mkRes();
+    setAuthCookies(res, { accessToken: 'a', refreshToken: 'r', expiresIn: 3600, persistent: false });
+    const cookies = headers['set-cookie'];
+    // Both auth credentials AND the remember-me hint must be session-only.
+    // A Max-Age would survive browser close, defeating the rememberMe=false intent.
+    for (const c of cookies) {
+      expect(c).not.toMatch(/Max-Age=/i);
+      expect(c).toMatch(/HttpOnly/i);
+      expect(c).toMatch(/SameSite=Lax/i);
+    }
+    // Hint cookie value must reflect the persistent choice — a regression that
+    // emits '1' here would silently re-enable persistence on next refresh.
+    expect(cookies.some((c) => c.startsWith('isaflow_remember_me=0;'))).toBe(true);
+  });
+
+  it('setAuthCookies with persistent=true gives the refresh cookie 30-day Max-Age and hint=1', () => {
+    const { res, headers } = mkRes();
+    setAuthCookies(res, { accessToken: 'a', refreshToken: 'r', expiresIn: 3600, persistent: true });
+    const refresh = headers['set-cookie'].find((c) => c.startsWith('sb-refresh-token='));
+    expect(refresh).toMatch(/Max-Age=2592000/);
+    expect(headers['set-cookie'].some((c) => c.startsWith('isaflow_remember_me=1;'))).toBe(true);
+  });
+
+  it('setPendingRememberCookie persists rememberMe across the 2FA round-trip', () => {
+    const { res, headers } = mkRes();
+    setPendingRememberCookie(res, true);
+    const c = headers['set-cookie'][0]!;
+    expect(c).toMatch(/^sb-pending-remember-me=1;/);
+    // 5-minute TTL — paired with the pending-MFA cookie.
+    expect(c).toMatch(/Max-Age=300/);
+    expect(c).toMatch(/HttpOnly/i);
+    expect(c).toMatch(/SameSite=Lax/i);
+  });
+
+  it('setPendingRememberCookie writes 0 when rememberMe is false', () => {
+    const { res, headers } = mkRes();
+    setPendingRememberCookie(res, false);
+    expect(headers['set-cookie'][0]).toMatch(/^sb-pending-remember-me=0;/);
+  });
+
+  it('clearPendingRememberCookie expires the cookie', () => {
+    const { res, headers } = mkRes();
+    clearPendingRememberCookie(res);
+    expect(headers['set-cookie'][0]).toMatch(/Max-Age=0/);
+  });
+
   it('clearAuthCookies emits Max-Age=0 for all auth cookies', () => {
     const { res, headers } = mkRes();
     clearAuthCookies(res);
     const cookies = headers['set-cookie'];
-    // access, refresh, active_company, pending_mfa
-    expect(cookies).toHaveLength(4);
+    // access, refresh, active_company, pending_mfa, pending_remember, remember_me hint
+    expect(cookies).toHaveLength(6);
     for (const c of cookies) expect(c).toMatch(/Max-Age=0/);
   });
 
@@ -58,7 +111,8 @@ describe('cookies', () => {
     const { res, headers } = mkRes();
     setAuthCookies(res, { accessToken: 'a', refreshToken: 'r', expiresIn: 3600 });
     setActiveCompanyCookie(res, '00000000-0000-0000-0000-00000000abcd');
-    expect(headers['set-cookie']).toHaveLength(3);
+    // access + refresh + remember_me hint + active_company
+    expect(headers['set-cookie']).toHaveLength(4); // 3 from setAuthCookies + 1 company
     expect(
       headers['set-cookie'].some((c) =>
         c.startsWith('active_company_id=00000000-0000-0000-0000-00000000abcd;')
@@ -105,12 +159,12 @@ describe('cookies', () => {
       process.env.COOKIE_DOMAIN = '.isaflow.co.za';
       const { res, headers } = mkRes();
       clearAuthCookies(res);
-      // 4 cookies × 2 scopings (host-scoped + domain-scoped)
-      expect(headers['set-cookie']).toHaveLength(8);
+      // 6 cookies × 2 scopings (host-scoped + domain-scoped)
+      expect(headers['set-cookie']).toHaveLength(12);
       const hostScoped = headers['set-cookie'].filter((c) => !/Domain=/.test(c));
       const domainScoped = headers['set-cookie'].filter((c) => /Domain=\.isaflow\.co\.za/.test(c));
-      expect(hostScoped).toHaveLength(4);
-      expect(domainScoped).toHaveLength(4);
+      expect(hostScoped).toHaveLength(6);
+      expect(domainScoped).toHaveLength(6);
       for (const c of headers['set-cookie']) expect(c).toMatch(/Max-Age=0/);
     });
   });

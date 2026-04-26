@@ -3,7 +3,7 @@
  * Convert operations split to quoteConvertService.ts
  */
 
-import { sql, withTransaction } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
@@ -219,5 +219,3 @@ export async function updateQuoteStatus(companyId: string, id: string, status: s
 // Convert operations split to quoteConvertService.ts — re-exported for backward compat
 export { convertToSalesOrder, convertToInvoice } from './quoteConvertService';
 
-// Suppress unused import lint error — withTransaction used by quoteConvertService
-void withTransaction;

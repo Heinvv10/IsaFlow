@@ -16,7 +16,7 @@
  * This service is company-scoped. Never returns candidates across tenants.
  */
 
-import { sql, withTransaction } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import type { MatchCandidate, ReceiptMatchSignals } from '@/modules/accounting/types/bank-match.types';
@@ -308,39 +308,35 @@ export async function confirmReceiptMatch(
   `) as DbRow[];
   const customerPaymentId = paymentRows.length > 0 ? String(paymentRows[0]!.id) : null;
 
-  const { invoiceStatus, newBalance } = await withTransaction(async (tx) => {
-    if (customerPaymentId) {
-      await tx`
-        INSERT INTO customer_payment_allocations (payment_id, invoice_id, amount_allocated)
-        VALUES (${customerPaymentId}::UUID, ${customerInvoiceId}::UUID, ${amount})
-      `;
-    }
-    await tx`
-      UPDATE customer_invoices
-      SET amount_paid = COALESCE(amount_paid, 0) + ${amount},
-          status = CASE
-            WHEN (total_amount - (COALESCE(amount_paid, 0) + ${amount})) <= 0.01 THEN 'paid'
-            WHEN (COALESCE(amount_paid, 0) + ${amount}) > 0 THEN 'partially_paid'
-            ELSE status
-          END,
-          paid_at = CASE
-            WHEN (total_amount - (COALESCE(amount_paid, 0) + ${amount})) <= 0.01 THEN NOW()
-            ELSE paid_at
-          END,
-          updated_at = NOW()
-      WHERE id = ${customerInvoiceId}::UUID AND company_id = ${companyId}::UUID
+  if (customerPaymentId) {
+    await sql`
+      INSERT INTO customer_payment_allocations (payment_id, invoice_id, amount_allocated)
+      VALUES (${customerPaymentId}::UUID, ${customerInvoiceId}::UUID, ${amount})
     `;
-    const after = (await tx`
-      SELECT status, total_amount, amount_paid
-      FROM customer_invoices
-      WHERE id = ${customerInvoiceId}::UUID
-    `) as DbRow[];
-    const row = after[0]!;
-    return {
-      invoiceStatus: String(row.status),
-      newBalance: Number(row.total_amount) - Number(row.amount_paid ?? 0),
-    };
-  });
+  }
+  await sql`
+    UPDATE customer_invoices
+    SET amount_paid = COALESCE(amount_paid, 0) + ${amount},
+        status = CASE
+          WHEN (total_amount - (COALESCE(amount_paid, 0) + ${amount})) <= 0.01 THEN 'paid'
+          WHEN (COALESCE(amount_paid, 0) + ${amount}) > 0 THEN 'partially_paid'
+          ELSE status
+        END,
+        paid_at = CASE
+          WHEN (total_amount - (COALESCE(amount_paid, 0) + ${amount})) <= 0.01 THEN NOW()
+          ELSE paid_at
+        END,
+        updated_at = NOW()
+    WHERE id = ${customerInvoiceId}::UUID AND company_id = ${companyId}::UUID
+  `;
+  const afterRows = (await sql`
+    SELECT status, total_amount, amount_paid
+    FROM customer_invoices
+    WHERE id = ${customerInvoiceId}::UUID
+  `) as DbRow[];
+  const afterRow = afterRows[0]!;
+  const invoiceStatus = String(afterRow.status);
+  const newBalance = Number(afterRow.total_amount) - Number(afterRow.amount_paid ?? 0);
 
   log.info('Confirmed receipt-match allocation', {
     bankTxId,

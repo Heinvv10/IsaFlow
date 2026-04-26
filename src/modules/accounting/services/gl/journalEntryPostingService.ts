@@ -3,7 +3,7 @@
  * Post and reverse journal entries with fiscal period and balance validation.
  */
 
-import { sql, withTransaction } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { validateJournalEntry } from '../../utils/doubleEntry';
@@ -84,21 +84,21 @@ export async function reverseJournalEntry(companyId: string, id: string, userId:
 
     await postJournalEntry(companyId, reversalEntry.id, userId);
 
-    // Both link-back UPDATEs must succeed together — if one fails we'd have
-    // a posted reversal with no reversal_of_id, or an original marked
-    // 'reversed' with no reversal linked.
-    await withTransaction(async (tx) => {
-      await tx`
-        UPDATE gl_journal_entries
-        SET status = 'reversed', reversed_by = ${userId}::UUID, reversed_at = NOW()
-        WHERE id = ${id} AND company_id = ${companyId}
-      `;
-      await tx`
-        UPDATE gl_journal_entries
-        SET reversal_of_id = ${id}::UUID
-        WHERE id = ${reversalEntry.id} AND company_id = ${companyId}
-      `;
-    });
+    // Both link-back UPDATEs must succeed together. We use the request-scoped
+    // sql client (auto-routed via AsyncLocalStorage) instead of withTransaction
+    // here — withTransaction would acquire a separate pool client and deadlock
+    // against the rows already locked by the request-scoped tx (e.g. the
+    // reversal JE we just inserted/posted in this same request).
+    await sql`
+      UPDATE gl_journal_entries
+      SET status = 'reversed', reversed_by = ${userId}::UUID, reversed_at = NOW()
+      WHERE id = ${id} AND company_id = ${companyId}
+    `;
+    await sql`
+      UPDATE gl_journal_entries
+      SET reversal_of_id = ${id}::UUID
+      WHERE id = ${reversalEntry.id} AND company_id = ${companyId}
+    `;
 
     log.info('Reversed journal entry', { originalId: id, reversalId: reversalEntry.id }, 'accounting');
     return reversalEntry;

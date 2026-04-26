@@ -202,10 +202,102 @@ export function parseAbsaTextLines(text: string): BankCsvParseResult {
 }
 
 /**
- * Public entry point: try slash-date format first, then space-date format.
+ * Parse ABSA Investment Account statements.
+ *
+ * Format differences from cheque statements:
+ *  - Dates: "20 Mar 2026" (same month-name style)
+ *  - Amounts: SA locale — comma decimal, space thousands ("4 500 000,00")
+ *  - Debits:  trailing minus suffix ("350 000,00-"), not a leading sign
+ *  - Descriptions: two lines — type on the transaction line, reference on the
+ *    next line ("Absa Bank Vf To Inv")
+ */
+export function parseAbsaInvestmentLines(text: string): BankCsvParseResult {
+  const result: BankCsvParseResult = { transactions: [], errors: [], bankFormat: 'absa' };
+
+  const accountNumber = extractAccountNumber(text) ?? undefined;
+  if (accountNumber) result.accountNumber = accountNumber;
+
+  const lines = text.split('\n').map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
+
+  // SA amount: 1-3 digits, optional space-separated groups of 3, comma decimal, optional trailing minus
+  const saAmtPat = /(\d{1,3}(?:\s\d{3})*,\d{2}-?)/g;
+
+  const parseSAAmount = (raw: string): number => {
+    const isNeg = raw.endsWith('-');
+    const n = parseFloat(raw.replace(/-$/, '').replace(/\s/g, '').replace(',', '.'));
+    return isNeg ? -n : n;
+  };
+
+  const datePat = /^(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})\s+(.+)$/i;
+  const skipPat = /balance\s+brought\s+forward|total\s+(credits|debits)|balance\s+on\s+\d/i;
+
+  let prevBalance: number | null = null;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    const dm = line.match(datePat);
+    if (!dm) continue;
+
+    const [, day, mon, year, rest] = dm;
+    const transactionDate = parseAbsaDate(day!, mon!, year!);
+    if (!transactionDate) continue;
+    if (skipPat.test(rest!)) {
+      // Capture closing balance for sign inference
+      const amts = [...rest!.matchAll(saAmtPat)];
+      if (amts.length) prevBalance = parseSAAmount(amts[amts.length - 1]![1]!);
+      continue;
+    }
+
+    const amts = [...rest!.matchAll(saAmtPat)];
+    if (amts.length < 2) continue;
+
+    const txMatch = amts[amts.length - 2]!;
+    const balMatch = amts[amts.length - 1]!;
+    const balance = parseSAAmount(balMatch[1]!);
+    const rawTx = txMatch[1]!;
+
+    // Sign: trailing minus = debit; otherwise derive from balance delta
+    let amount: number;
+    if (rawTx.endsWith('-')) {
+      amount = parseSAAmount(rawTx);
+    } else if (prevBalance !== null) {
+      amount = Math.round((balance - prevBalance) * 100) / 100;
+    } else {
+      amount = parseSAAmount(rawTx);
+    }
+
+    const descEnd = txMatch.index!;
+    const description = rest!.substring(0, descEnd).trim();
+
+    // Grab continuation line (reference such as "Absa Bank Vf To Inv")
+    let fullDesc = description;
+    if (i + 1 < lines.length) {
+      const next = lines[i + 1]!;
+      if (!next.match(datePat)) {
+        fullDesc = description ? `${description} — ${next}` : next;
+        i++;
+      }
+    }
+
+    result.transactions.push({ transactionDate, amount, description: fullDesc, balance });
+    prevBalance = balance;
+  }
+
+  return result;
+}
+
+/**
+ * Public entry point: detect format and delegate.
+ * Investment Account uses SA locale amounts — try it when the header says so.
  */
 export function parseAbsaPdfText(text: string): BankCsvParseResult {
   log.info('Parsing ABSA PDF text', { textLength: text.length }, 'accounting-pdf');
+
+  if (/investment\s+account/i.test(text)) {
+    const invResult = parseAbsaInvestmentLines(text);
+    if (invResult.transactions.length > 0) return invResult;
+  }
+
   const slashResult = parseAbsaSlashDateLines(text);
   if (slashResult.transactions.length > 0) return slashResult;
   return parseAbsaTextLines(text);

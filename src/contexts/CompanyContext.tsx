@@ -39,6 +39,8 @@ export interface Company {
   vatPeriod?: string;
   defaultCurrency?: string;
   isActive?: boolean;
+  // PRD-10 Layer 1: idle-timeout policy in minutes (default 480 = 8h).
+  idleTimeoutMinutes?: number;
 }
 
 export interface CompanyUser {
@@ -114,6 +116,7 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
             vatPeriod: c.vat_period || c.vatPeriod,
             defaultCurrency: c.default_currency || c.defaultCurrency,
             isActive: c.is_active ?? c.isActive ?? true,
+            idleTimeoutMinutes: c.idle_timeout_minutes ?? c.idleTimeoutMinutes,
           };
           setActiveCompany(company);
           localStorage.setItem(STORAGE_KEY, JSON.stringify({ id: company.id, name: company.name }));

@@ -7,8 +7,10 @@ import {
   setAuthCookies,
   setActiveCompanyCookie,
   clearPendingMfaCookie,
+  clearPendingRememberCookie,
   parseCookies,
   PENDING_MFA_COOKIE,
+  PENDING_REMEMBER_COOKIE,
 } from '@/lib/auth/cookies';
 import { challengeFactor, verifyFactor, GotrueMfaError } from '@/lib/auth/gotrue-mfa';
 import { verifyToken } from '@/lib/auth/gotrue';
@@ -80,13 +82,19 @@ const handler: NextApiHandler = async (req, res) => {
       LIMIT 1
     `;
 
+    // PRD-10: honour the rememberMe choice that login set on the companion cookie.
+    // Default true if cookie is absent (covers older clients).
+    const persistent = parseCookies(req)[PENDING_REMEMBER_COOKIE] !== '0';
+
     setAuthCookies(res, {
       accessToken: aal2.access_token,
       refreshToken: aal2.refresh_token,
       expiresIn: aal2.expires_in,
+      persistent,
     });
     if (memberships.length > 0) setActiveCompanyCookie(res, memberships[0]!.company_id);
     clearPendingMfaCookie(res);
+    clearPendingRememberCookie(res);
     if (email) await clearLockout(email, ip);
 
     return res.status(200).json({

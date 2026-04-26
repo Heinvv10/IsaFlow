@@ -27,6 +27,7 @@ import dynamic from 'next/dynamic';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useCompany } from '@/contexts/CompanyContext';
+import { startSessionHeartbeat } from '@/lib/auth/sessionHeartbeat';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { CompanySwitcher } from '@/components/layout/CompanySwitcher';
 import { CreateNewMenu } from '@/components/layout/CreateNewMenu';
@@ -66,10 +67,19 @@ export function AppLayout({ children }: AppLayoutProps) {
   const router = useRouter();
   const { user, loading, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
-  const { companyRole } = useCompany();
+  const { companyRole, activeCompany } = useCompany();
 
   // Track page visits for usage-based quick actions
   useTrackPageVisit();
+
+  // PRD-10 Layer 1: keep the session refreshed and bounce on idle.
+  // Restarts when the active company changes so a tighter idle policy on a
+  // different tenant takes effect immediately.
+  useEffect(() => {
+    if (!user) return;
+    const idle = activeCompany?.idleTimeoutMinutes ?? 480;
+    return startSessionHeartbeat({ idleTimeoutMinutes: idle });
+  }, [user, activeCompany?.id, activeCompany?.idleTimeoutMinutes]);
 
   // On admin subdomain, hide accounting-specific UI (nav, company switcher, etc.)
   const [isAdminHost, setIsAdminHost] = useState(false);

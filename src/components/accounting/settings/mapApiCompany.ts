@@ -134,5 +134,6 @@ export function mapApiCompany(c: Record<string, any>): Company {
     netcashServiceKey: c.netcashServiceKey ?? c.netcash_service_key ?? null,
     netcashPayoutsKey: c.netcashPayoutsKey ?? c.netcash_payouts_key ?? null,
     netcashEnabled: c.netcashEnabled ?? c.netcash_enabled ?? false,
+    idleTimeoutMinutes: c.idleTimeoutMinutes ?? c.idle_timeout_minutes ?? 480,
   };
 }

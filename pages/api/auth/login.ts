@@ -2,7 +2,7 @@
 import type { NextApiHandler } from 'next';
 import { signIn } from '@/lib/auth/gotrue';
 import { listFactors, GotrueMfaError } from '@/lib/auth/gotrue-mfa';
-import { setAuthCookies, setActiveCompanyCookie, setPendingMfaCookie } from '@/lib/auth/cookies';
+import { setAuthCookies, setActiveCompanyCookie, setPendingMfaCookie, setPendingRememberCookie } from '@/lib/auth/cookies';
 import { checkLockout, recordFailure, clearLockout } from '@/lib/auth/accountLockout';
 import { checkRateLimit, getClientIp, withRateLimit } from '@/lib/rateLimit';
 import { sql } from '@/lib/neon';
@@ -12,10 +12,12 @@ const handler: NextApiHandler = async (req, res) => {
   if (req.method !== 'POST') {
     return res.status(405).json({ success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'POST required' } });
   }
-  const { email, password } = req.body ?? {};
+  const { email, password, rememberMe } = req.body ?? {};
   if (typeof email !== 'string' || typeof password !== 'string') {
     return res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'email and password required' } });
   }
+  // PRD-10 Layer 1: default true matches Sage Cloud parity.
+  const persistent = rememberMe !== false;
 
   const cleanEmail = email.toLowerCase().trim();
   const ip = getClientIp(req);
@@ -71,6 +73,8 @@ const handler: NextApiHandler = async (req, res) => {
     // Pentest H6: pending_token is now a short-lived HttpOnly cookie.
     // Returning it in the response body exposes it to XSS / extensions.
     setPendingMfaCookie(res, token.access_token);
+    // PRD-10: carry rememberMe through the 2FA round-trip.
+    setPendingRememberCookie(res, persistent);
     return res.status(200).json({
       success: true,
       data: {
@@ -94,6 +98,7 @@ const handler: NextApiHandler = async (req, res) => {
     accessToken: token.access_token,
     refreshToken: token.refresh_token,
     expiresIn: token.expires_in,
+    persistent,
   });
   if (memberships.length > 0) setActiveCompanyCookie(res, memberships[0]!.company_id);
 

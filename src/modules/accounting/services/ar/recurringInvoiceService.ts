@@ -3,7 +3,7 @@
  * Phase 1 Sage Alignment: Auto-generate customer invoices on schedule
  */
 
-import { sql, withTransaction, fmtDate } from '@/lib/neon';
+import { sql, fmtDate } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type {
@@ -117,30 +117,28 @@ export async function generateInvoiceFromRecurring(companyId: string,
   const nextNum = (Number(numRows[0]?.max_num) || 0) + 1;
   const invoiceNumber = `INV-${String(nextNum).padStart(5, '0')}`;
 
-  const invoiceId = await withTransaction(async (tx) => {
-    const inv = (await tx`
-      INSERT INTO customer_invoices (
-        company_id, invoice_number, client_id, customer_id, project_id,
-        invoice_date, due_date, subtotal, tax_amount, total_amount,
-        status, notes, created_by
-      ) VALUES (
-        ${companyId}::UUID, ${invoiceNumber}, ${ri.client_id}::UUID, ${ri.client_id}::UUID,
-        ${ri.project_id || null},
-        CURRENT_DATE, CURRENT_DATE + INTERVAL '30 days',
-        ${Number(ri.subtotal)}, ${Number(ri.tax_amount)}, ${Number(ri.total_amount)},
-        'approved', ${ri.description || ri.template_name}, ${userId}::UUID
-      ) RETURNING id
-    `) as Row[];
+  const inv = (await sql`
+    INSERT INTO customer_invoices (
+      company_id, invoice_number, client_id, customer_id, project_id,
+      invoice_date, due_date, subtotal, tax_amount, total_amount,
+      status, notes, created_by
+    ) VALUES (
+      ${companyId}::UUID, ${invoiceNumber}, ${ri.client_id}::UUID, ${ri.client_id}::UUID,
+      ${ri.project_id || null},
+      CURRENT_DATE, CURRENT_DATE + INTERVAL '30 days',
+      ${Number(ri.subtotal)}, ${Number(ri.tax_amount)}, ${Number(ri.total_amount)},
+      'approved', ${ri.description || ri.template_name}, ${userId}::UUID
+    ) RETURNING id
+  `) as Row[];
 
-    await tx`
-      UPDATE recurring_invoices
-      SET last_run_date = CURRENT_DATE, next_run_date = ${nextDate}::DATE,
-          run_count = run_count + 1, status = ${newStatus}
-      WHERE id = ${id}
-    `;
+  await sql`
+    UPDATE recurring_invoices
+    SET last_run_date = CURRENT_DATE, next_run_date = ${nextDate}::DATE,
+        run_count = run_count + 1, status = ${newStatus}
+    WHERE id = ${id}
+  `;
 
-    return String(inv[0]!.id);
-  });
+  const invoiceId = String(inv[0]!.id);
 
   log.info('Generated invoice from recurring', { recurringId: id, invoiceId }, 'accounting');
   return invoiceId;

@@ -129,7 +129,7 @@ export function AccountRow({
                 {!codeLocked && (
                   <button
                     onClick={() => { setEditCode(account.accountCode); setIsEditingCode(true); }}
-                    className="p-0.5 rounded text-[var(--ff-text-tertiary)] hover:text-blue-400 hover:bg-blue-500/10 opacity-0 group-hover:opacity-100 transition-all"
+                    className="p-0.5 rounded text-[var(--ff-text-tertiary)] hover:text-blue-400 hover:bg-blue-500/10 transition-all"
                     title="Change code"
                   >
                     <Pencil className="h-3 w-3" />

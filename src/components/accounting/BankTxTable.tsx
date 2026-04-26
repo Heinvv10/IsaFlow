@@ -576,7 +576,7 @@ export function BankTxTable(props: Props) {
                             className="p-1 rounded hover:bg-purple-500/10 text-purple-400">
                             <Scissors className="h-3.5 w-3.5" />
                           </button>
-                          {onCreateRule && !tx.suggestedGlAccountId && (
+                          {onCreateRule && (
                             <button onClick={() => onCreateRule(tx)} title="Create rule from this transaction"
                               className="p-1 rounded hover:bg-yellow-500/10 text-yellow-400">
                               <BookmarkPlus className="h-3.5 w-3.5" />

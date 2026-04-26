@@ -4,7 +4,7 @@
  * Extracted from customerPaymentService.ts for file-size compliance.
  */
 
-import { sql, fmtDate, withTransaction } from '@/lib/neon';
+import { sql, fmtDate } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl/journalEntryService';
@@ -48,32 +48,30 @@ export async function confirmCustomerPayment(
     }, userId);
     await postJournalEntry(companyId, je.id, userId);
 
-    // Update invoice balances and mark payment confirmed atomically
-    const updated = await withTransaction(async (tx) => {
-      for (const alloc of payment.allocations) {
-        await tx`
-          UPDATE customer_invoices SET amount_paid = amount_paid + ${alloc.amountAllocated}
-          WHERE id = ${alloc.invoiceId}::UUID AND company_id = ${companyId}::UUID
-        `;
-        await tx`
-          UPDATE customer_invoices SET status = CASE
-            WHEN (total_amount - amount_paid) <= 0.01 THEN 'paid'
-            WHEN amount_paid > 0 THEN 'partially_paid'
-            ELSE status
-          END, paid_at = CASE WHEN (total_amount - amount_paid) <= 0.01 THEN NOW() ELSE paid_at END
-          WHERE id = ${alloc.invoiceId}::UUID AND company_id = ${companyId}::UUID
-        `;
-      }
+    // Update invoice balances and mark payment confirmed — runs on the ALS-bound
+    // connection so the outer withAuth transaction provides atomicity.
+    for (const alloc of payment.allocations) {
+      await sql`
+        UPDATE customer_invoices SET amount_paid = amount_paid + ${alloc.amountAllocated}
+        WHERE id = ${alloc.invoiceId}::UUID AND company_id = ${companyId}::UUID
+      `;
+      await sql`
+        UPDATE customer_invoices SET status = CASE
+          WHEN (total_amount - amount_paid) <= 0.01 THEN 'paid'
+          WHEN amount_paid > 0 THEN 'partially_paid'
+          ELSE status
+        END, paid_at = CASE WHEN (total_amount - amount_paid) <= 0.01 THEN NOW() ELSE paid_at END
+        WHERE id = ${alloc.invoiceId}::UUID AND company_id = ${companyId}::UUID
+      `;
+    }
 
-      const rows = (await tx`
-        UPDATE customer_payments
-        SET status = 'confirmed', confirmed_by = ${userId}::UUID, confirmed_at = NOW(),
-            gl_journal_entry_id = ${je.id}::UUID
-        WHERE id = ${id} AND company_id = ${companyId}::UUID RETURNING *
-      `) as Row[];
-
-      return rows[0] as Row;
-    });
+    const updatedRows = (await sql`
+      UPDATE customer_payments
+      SET status = 'confirmed', confirmed_by = ${userId}::UUID, confirmed_at = NOW(),
+          gl_journal_entry_id = ${je.id}::UUID
+      WHERE id = ${id} AND company_id = ${companyId}::UUID RETURNING *
+    `) as Row[];
+    const updated = updatedRows[0] as Row;
 
     log.info('Confirmed customer payment', { id, journalEntryId: je.id }, 'accounting');
     return mapPaymentRow(updated);
@@ -101,30 +99,29 @@ export async function cancelCustomerPayment(
       await reverseJournalEntry(companyId, payment.glJournalEntryId, userId);
     }
 
-    // Reverse invoice balances + cancel payment atomically
-    const updated = await withTransaction(async (tx) => {
-      for (const alloc of payment.allocations) {
-        await tx`
-          UPDATE customer_invoices
-          SET amount_paid = GREATEST(0, amount_paid - ${alloc.amountAllocated}),
-              status = CASE
-                WHEN GREATEST(0, amount_paid - ${alloc.amountAllocated}) <= 0.01 THEN 'approved'
-                WHEN GREATEST(0, amount_paid - ${alloc.amountAllocated}) < total_amount THEN 'partially_paid'
-                ELSE status
-              END,
-              paid_at = CASE WHEN GREATEST(0, amount_paid - ${alloc.amountAllocated}) <= 0.01 THEN NULL ELSE paid_at END
-          WHERE id = ${alloc.invoiceId}::UUID AND company_id = ${companyId}
-        `;
-      }
+    // Reverse invoice balances + cancel payment — runs on the ALS-bound
+    // connection so the outer withAuth transaction provides atomicity.
+    for (const alloc of payment.allocations) {
+      await sql`
+        UPDATE customer_invoices
+        SET amount_paid = GREATEST(0, amount_paid - ${alloc.amountAllocated}),
+            status = CASE
+              WHEN GREATEST(0, amount_paid - ${alloc.amountAllocated}) <= 0.01 THEN 'approved'
+              WHEN GREATEST(0, amount_paid - ${alloc.amountAllocated}) < total_amount THEN 'partially_paid'
+              ELSE status
+            END,
+            paid_at = CASE WHEN GREATEST(0, amount_paid - ${alloc.amountAllocated}) <= 0.01 THEN NULL ELSE paid_at END
+        WHERE id = ${alloc.invoiceId}::UUID AND company_id = ${companyId}
+      `;
+    }
 
-      const cancelNote = reason ? ` [CANCELLED: ${reason}]` : ' [CANCELLED]';
-      return (await tx`
-        UPDATE customer_payments
-        SET status = 'cancelled',
-            description = COALESCE(description, '') || ${cancelNote}
-        WHERE id = ${id} AND company_id = ${companyId} RETURNING *
-      `) as Row[];
-    }) as Row[];
+    const cancelNote = reason ? ` [CANCELLED: ${reason}]` : ' [CANCELLED]';
+    const updated = (await sql`
+      UPDATE customer_payments
+      SET status = 'cancelled',
+          description = COALESCE(description, '') || ${cancelNote}
+      WHERE id = ${id} AND company_id = ${companyId} RETURNING *
+    `) as Row[];
 
     log.info('Cancelled customer payment', { id, reason }, 'accounting');
     return mapPaymentRow(updated[0]!);
