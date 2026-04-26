@@ -329,6 +329,53 @@ export async function allocateTransaction(
   }
 
   log.info('Allocated bank transaction', { bankTxId, journalEntryId: je.id, allocType, entityId, contraAccountId }, 'accounting');
+
+  // Auto-link the counterparty bank_transaction if it already exists as 'imported'
+  if (allocType === 'transfer' && counterpartyAccountId) {
+    try {
+      const cpAmt = -Number(tx.amount);
+      const cpTxRows = (await sql`
+        SELECT id FROM bank_transactions
+        WHERE company_id = ${companyId}::UUID
+          AND bank_account_id = ${counterpartyAccountId}::UUID
+          AND status = 'imported'
+          AND ABS(amount - ${cpAmt}) < 0.01
+          AND transaction_date BETWEEN (${txDate}::DATE - INTERVAL '2 days')
+                                   AND (${txDate}::DATE + INTERVAL '2 days')
+        ORDER BY ABS(transaction_date::DATE - ${txDate}::DATE) ASC, created_at DESC
+        LIMIT 1
+      `) as Row[];
+      if (cpTxRows.length > 0) {
+        const cpTxId = String(cpTxRows[0]!.id);
+        // Find the JE line on the counterparty account side
+        const cpJeLines = (await sql`
+          SELECT id FROM gl_journal_lines
+          WHERE journal_entry_id = ${je.id}::UUID
+            AND gl_account_id = ${counterpartyAccountId}::UUID
+            AND company_id = ${companyId}::UUID
+          LIMIT 1
+        `) as Row[];
+        const cpJeLineId = cpJeLines.length > 0 ? String(cpJeLines[0]!.id) : null;
+        await sql`
+          UPDATE bank_transactions
+          SET status = 'allocated',
+              allocation_type = 'transfer',
+              matched_journal_line_id = ${cpJeLineId}::UUID,
+              counterparty_account_id = ${bankAccountId}::UUID,
+              transfer_journal_entry_id = ${je.id}::UUID,
+              allocated_entity_name = ${allocEntityName},
+              updated_at = NOW()
+          WHERE id = ${cpTxId}::UUID
+            AND company_id = ${companyId}::UUID
+            AND status = 'imported'
+        `;
+        log.info('Auto-linked counterparty transfer transaction', { sourceTxId: bankTxId, cpTxId, jeId: je.id }, 'accounting');
+      }
+    } catch (linkErr) {
+      log.warn('Failed to auto-link counterparty transfer — non-fatal', { bankTxId, counterpartyAccountId, error: linkErr }, 'accounting');
+    }
+  }
+
   const updated = (await sql`SELECT * FROM bank_transactions WHERE id = ${bankTxId}::UUID`) as Row[];
   return { journalEntryId: je.id, bankTransaction: mapTxRow(updated[0]!) };
 }
