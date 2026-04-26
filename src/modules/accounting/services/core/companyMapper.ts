@@ -156,6 +156,8 @@ export interface Company {
   portalPaymentInstructions: string | null;
   portalWelcomeMessage: string | null;
   portalPrimaryColor: string | null;
+  // Session UX (PRD-10 Layer 1)
+  idleTimeoutMinutes: number;
 }
 
 export interface CompanyUser {
@@ -304,5 +306,6 @@ export function mapCompany(r: Record<string, unknown>): Company {
     portalPaymentInstructions: strN(r.portal_payment_instructions),
     portalWelcomeMessage: strN(r.portal_welcome_message),
     portalPrimaryColor: strN(r.portal_primary_color),
+    idleTimeoutMinutes: num(r.idle_timeout_minutes, 480),
   };
 }

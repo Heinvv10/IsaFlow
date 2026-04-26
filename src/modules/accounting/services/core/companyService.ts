@@ -220,6 +220,7 @@ export async function updateCompany(id: string, input: Partial<Record<string, un
       portal_payment_instructions = COALESCE(${v('portalPaymentInstructions') ?? null}, portal_payment_instructions),
       portal_welcome_message = COALESCE(${v('portalWelcomeMessage') ?? null}, portal_welcome_message),
       portal_primary_color = COALESCE(${v('portalPrimaryColor') ?? null}, portal_primary_color),
+      idle_timeout_minutes = COALESCE(${v('idleTimeoutMinutes') ?? null}::int, idle_timeout_minutes),
       updated_at = NOW()
     WHERE id = ${id}::UUID RETURNING *
   `) as Record<string, unknown>[];

@@ -39,7 +39,9 @@ describe('cookies', () => {
     const cookies = headers['set-cookie'];
     expect(cookies.some((c) => c.startsWith('sb-access-token=a;'))).toBe(true);
     expect(cookies.some((c) => c.startsWith('sb-refresh-token=r;'))).toBe(true);
-    for (const c of cookies) {
+    // access + refresh must be HttpOnly; hint cookie (REMEMBER_ME_COOKIE) is intentionally not
+    const credential = cookies.filter((c) => c.startsWith('sb-'));
+    for (const c of credential) {
       expect(c).toMatch(/HttpOnly/i);
       expect(c).toMatch(/SameSite=Lax/i);
     }
@@ -49,8 +51,8 @@ describe('cookies', () => {
     const { res, headers } = mkRes();
     clearAuthCookies(res);
     const cookies = headers['set-cookie'];
-    // access, refresh, active_company, pending_mfa
-    expect(cookies).toHaveLength(4);
+    // access, refresh, active_company, pending_mfa, pending_remember, remember_me hint
+    expect(cookies).toHaveLength(6);
     for (const c of cookies) expect(c).toMatch(/Max-Age=0/);
   });
 
@@ -58,7 +60,8 @@ describe('cookies', () => {
     const { res, headers } = mkRes();
     setAuthCookies(res, { accessToken: 'a', refreshToken: 'r', expiresIn: 3600 });
     setActiveCompanyCookie(res, '00000000-0000-0000-0000-00000000abcd');
-    expect(headers['set-cookie']).toHaveLength(3);
+    // access + refresh + remember_me hint + active_company
+    expect(headers['set-cookie']).toHaveLength(4); // 3 from setAuthCookies + 1 company
     expect(
       headers['set-cookie'].some((c) =>
         c.startsWith('active_company_id=00000000-0000-0000-0000-00000000abcd;')
@@ -105,12 +108,12 @@ describe('cookies', () => {
       process.env.COOKIE_DOMAIN = '.isaflow.co.za';
       const { res, headers } = mkRes();
       clearAuthCookies(res);
-      // 4 cookies × 2 scopings (host-scoped + domain-scoped)
-      expect(headers['set-cookie']).toHaveLength(8);
+      // 6 cookies × 2 scopings (host-scoped + domain-scoped)
+      expect(headers['set-cookie']).toHaveLength(12);
       const hostScoped = headers['set-cookie'].filter((c) => !/Domain=/.test(c));
       const domainScoped = headers['set-cookie'].filter((c) => /Domain=\.isaflow\.co\.za/.test(c));
-      expect(hostScoped).toHaveLength(4);
-      expect(domainScoped).toHaveLength(4);
+      expect(hostScoped).toHaveLength(6);
+      expect(domainScoped).toHaveLength(6);
       for (const c of headers['set-cookie']) expect(c).toMatch(/Max-Age=0/);
     });
   });

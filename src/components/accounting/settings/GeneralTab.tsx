@@ -45,6 +45,28 @@ export function GeneralTab({ company, onChange }: Props) {
         </div>
       </section>
 
+      {/* Session Security (PRD-10 Layer 1) */}
+      <section className={SECTION_CLS}>
+        <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-4">Session Security</h2>
+        <p className="text-xs text-[var(--ff-text-tertiary)] mb-4">
+          Sign users out automatically after this much idle time (no clicks or keystrokes).
+          Active sessions stay logged in for the work day regardless.
+        </p>
+        <div className="max-w-xs">
+          <label className={LABEL_CLS}>Idle Timeout</label>
+          <select
+            className={INPUT_CLS}
+            value={company.idleTimeoutMinutes}
+            onChange={e => onChange('idleTimeoutMinutes', Number(e.target.value))}
+          >
+            <option value={240}>4 hours</option>
+            <option value={480}>8 hours (default)</option>
+            <option value={720}>12 hours</option>
+            <option value={43200}>Never (30 days)</option>
+          </select>
+        </div>
+      </section>
+
       {/* Regional Settings */}
       <section className={SECTION_CLS}>
         <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-4">Regional Settings</h2>

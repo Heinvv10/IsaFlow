@@ -137,6 +137,8 @@ export interface Company {
   netcashServiceKey: string | null;
   netcashPayoutsKey: string | null;
   netcashEnabled: boolean;
+  // Session UX (PRD-10 Layer 1)
+  idleTimeoutMinutes: number;
 }
 
 export interface DocumentNumber {
