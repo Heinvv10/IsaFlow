@@ -6,7 +6,25 @@
  * sarsCodesService against migration 435 sars_source_codes table).
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+// Mock @/lib/neon so sarsCodesService doesn't need a live DB.
+// sql returns the in-memory SARS codes table used by all tests below.
+vi.mock('@/lib/neon', () => {
+  const SARS_ROWS = [
+    { code: '3601', effective_year: 2026, category: 'income',    description: 'Gross salary',      status: 'active', foreign_code: null, code_pair: null, applicability_note: null, rationalisation_note: null, source_document: null, source_url: null, official_excerpt: null, brs_version: null },
+    { code: '4102', effective_year: 2026, category: 'deduction', description: 'Pension fund',       status: 'active', foreign_code: null, code_pair: null, applicability_note: null, rationalisation_note: null, source_document: null, source_url: null, official_excerpt: null, brs_version: null },
+    { code: '4141', effective_year: 2026, category: 'employer',  description: 'UIF contribution',   status: 'active', foreign_code: null, code_pair: null, applicability_note: null, rationalisation_note: null, source_document: null, source_url: null, official_excerpt: null, brs_version: null },
+    { code: '4150', effective_year: 2026, category: 'employer',  description: 'SDL contribution',   status: 'active', foreign_code: null, code_pair: null, applicability_note: null, rationalisation_note: null, source_document: null, source_url: null, official_excerpt: null, brs_version: null },
+    { code: '3901', effective_year: 2026, category: 'lump_sum',  description: 'Severance payment',  status: 'active', foreign_code: null, code_pair: null, applicability_note: null, rationalisation_note: null, source_document: null, source_url: null, official_excerpt: null, brs_version: null },
+  ];
+  const sqlFn = vi.fn().mockResolvedValue(SARS_ROWS);
+  return {
+    sql: sqlFn,
+    withTransaction: vi.fn(),
+    fmtDate: (d: unknown) => (d instanceof Date ? d.toISOString().split('T')[0] : String(d)),
+  };
+});
 
 import {
   isValidSarsTaxNumber,

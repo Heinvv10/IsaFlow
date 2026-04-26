@@ -60,20 +60,24 @@ describe('getClientIp', () => {
   });
 });
 
+// These tests require a real Neon DB — skip when only the dummy fallback URL is set.
+const hasRealDb = !!(process.env.DATABASE_URL && !process.env.DATABASE_URL.includes('dummy'));
 describe('checkRateLimit — Neon-backed persistence (BL-21)', () => {
   const KEY = 'test:rl:bl21';
 
   beforeAll(async () => {
+    if (!hasRealDb) return;
     await sql`DELETE FROM rate_limit_counters WHERE key = ${KEY}`;
   });
 
   afterEach(async () => {
+    if (!hasRealDb) return;
     // Clear both DB and LRU so each test starts from a clean state.
     await sql`DELETE FROM rate_limit_counters WHERE key = ${KEY}`;
     clearRateLimitCache();
   });
 
-  it('blocks the (N+1)-th request within the window', async () => {
+  it.skipIf(!hasRealDb)('blocks the (N+1)-th request within the window', async () => {
     // The LRU short-circuit may absorb 1 call per fresh-LRU window (when count
     // is below 50% of max). Using max=5, the LRU masks exactly 1 call, so we
     // make 6 calls to ensure the DB counter reaches 5 (all 5 allowed slots
@@ -88,7 +92,7 @@ describe('checkRateLimit — Neon-backed persistence (BL-21)', () => {
     expect(blocked).toBe(false);
   });
 
-  it('resets the window after expiry (simulated via DB update)', async () => {
+  it.skipIf(!hasRealDb)('resets the window after expiry (simulated via DB update)', async () => {
     for (let i = 0; i < 5; i++) await checkRateLimit(KEY, { max: 5, windowSecs: 60 });
     // simulate window expiry
     await sql`UPDATE rate_limit_counters SET window_start = NOW() - INTERVAL '2 minutes' WHERE key = ${KEY}`;
@@ -96,7 +100,7 @@ describe('checkRateLimit — Neon-backed persistence (BL-21)', () => {
     expect(allowed).toBe(true);
   });
 
-  it('two independent callers share the same counter (cross-pod)', async () => {
+  it.skipIf(!hasRealDb)('two independent callers share the same counter (cross-pod)', async () => {
     // "Pod A" makes 4 calls. The LRU short-circuit may absorb at most 1
     // (count < 50% of max=5 → only when count=1), so DB sees at least 3.
     for (let i = 0; i < 4; i++) await checkRateLimit(KEY, { max: 5, windowSecs: 60 });
