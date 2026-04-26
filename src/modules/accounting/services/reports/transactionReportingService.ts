@@ -49,9 +49,11 @@ export async function getCustomerReport(
         COALESCE(SUM(ci.amount_paid), 0) AS total_paid
       FROM customers c
       LEFT JOIN customer_invoices ci ON ci.client_id = c.id
+        AND ci.company_id = ${companyId}::UUID
         AND ci.invoice_date >= ${periodStart}
         AND ci.invoice_date <= ${periodEnd}
         AND ci.status NOT IN ('draft', 'cancelled')
+      WHERE c.company_id = ${companyId}::UUID
       GROUP BY c.id, c.name
       HAVING COUNT(ci.id) > 0
       ORDER BY COALESCE(SUM(ci.total_amount), 0) DESC
@@ -97,9 +99,11 @@ export async function getSupplierReport(
         COALESCE(SUM(si.amount_paid), 0) AS total_paid
       FROM suppliers s
       LEFT JOIN supplier_invoices si ON si.supplier_id = s.id
+        AND si.company_id = ${companyId}::UUID
         AND si.invoice_date >= ${periodStart}
         AND si.invoice_date <= ${periodEnd}
         AND si.status NOT IN ('draft', 'cancelled')
+      WHERE s.company_id = ${companyId}::UUID
       GROUP BY s.id, s.company_name, s.name
       HAVING COUNT(si.id) > 0
       ORDER BY COALESCE(SUM(si.total_amount), 0) DESC
