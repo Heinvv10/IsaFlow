@@ -14,7 +14,7 @@
 
 import crypto from 'node:crypto';
 
-import { sql, withTransaction } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { sendEmail } from '../core/emailService';
@@ -263,20 +263,18 @@ export async function sendDunning(input: SendDunningInput): Promise<SendResult> 
   );
   if (!rendered) throw new Error('Failed to render template');
 
-  const insertRows = await withTransaction(async (tx) => {
-    return (await tx`
-      INSERT INTO dunning_sends (
-        company_id, customer_invoice_id, template_id, sent_to_email,
-        rendered_subject, rendered_body, trigger_source, sent_by, email_status
-      ) VALUES (
-        ${input.companyId}::uuid, ${input.invoiceId}::uuid, ${input.templateId}::uuid,
-        ${ctx.customer_email},
-        ${rendered.subject}, ${rendered.body},
-        ${input.triggerSource ?? 'manual'}, ${input.sentBy ?? null}, 'pending'
-      )
-      RETURNING id, message_token
-    `) as DbRow[];
-  });
+  const insertRows = (await sql`
+    INSERT INTO dunning_sends (
+      company_id, customer_invoice_id, template_id, sent_to_email,
+      rendered_subject, rendered_body, trigger_source, sent_by, email_status
+    ) VALUES (
+      ${input.companyId}::uuid, ${input.invoiceId}::uuid, ${input.templateId}::uuid,
+      ${ctx.customer_email},
+      ${rendered.subject}, ${rendered.body},
+      ${input.triggerSource ?? 'manual'}, ${input.sentBy ?? null}, 'pending'
+    )
+    RETURNING id, message_token
+  `) as DbRow[];
   const sendRow = insertRows[0]!;
   const sendId = String(sendRow.id);
   const messageToken = String(sendRow.message_token);

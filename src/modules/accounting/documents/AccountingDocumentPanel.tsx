@@ -72,9 +72,7 @@ export function AccountingDocumentPanel({
     useAccountingDocuments(entityType, entityId);
 
   const [showUpload, setShowUpload] = useState(false);
-  const [selectedType, setSelectedType] = useState<AccountingDocumentType>(
-    allowedTypes[0]?.value || 'other'
-  );
+  const [selectedType, setSelectedType] = useState<AccountingDocumentType>(allowedTypes[0]?.value || 'other');
   const [notes, setNotes] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -274,6 +272,7 @@ export function AccountingDocumentPanel({
           })
         )}
       </div>
+
     </div>
   );
 }

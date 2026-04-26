@@ -3,7 +3,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Plus, Loader2 } from 'lucide-react';
+import { Plus, Loader2, Search } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import {
@@ -62,6 +62,7 @@ export function ChartOfAccountsTab() {
   // overwrite the code when it's either empty or a prior suggestion we placed —
   // never a value the user typed themselves.
   const [suggestedCode, setSuggestedCode] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => { loadAccounts(); }, [viewMode, showInactive]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -154,7 +155,15 @@ export function ChartOfAccountsTab() {
   };
 
   const baseFiltered = filterType === 'all' ? accounts : accounts.filter(a => a.accountType === filterType);
-  const filteredAccounts = filterAccounts(baseFiltered, sidebarType, sidebarPrefix);
+  const sidebarFiltered = filterAccounts(baseFiltered, sidebarType, sidebarPrefix);
+  const q = searchQuery.trim().toLowerCase();
+  const filteredAccounts = q
+    ? sidebarFiltered.filter(a =>
+        a.accountCode.toLowerCase().includes(q) ||
+        a.accountName.toLowerCase().includes(q) ||
+        (a.description ?? '').toLowerCase().includes(q),
+      )
+    : sidebarFiltered;
   const subtypes = SUBTYPES_BY_TYPE[addForm.accountType] || [];
   const parentOptions = accounts.filter(a => a.isActive);
 
@@ -168,6 +177,16 @@ export function ChartOfAccountsTab() {
       <div className="flex-1 min-w-0 space-y-4">
         {/* Toolbar */}
         <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--ff-text-tertiary)] pointer-events-none" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search by code or name…"
+              className="ff-input pl-9 pr-3 py-2 text-sm w-64"
+            />
+          </div>
           <div className="flex items-center gap-3">
             <select value={filterType} onChange={e => setFilterType(e.target.value)} className="ff-select text-sm py-2 px-3 min-w-[160px]">
               <option value="all">All Types</option>

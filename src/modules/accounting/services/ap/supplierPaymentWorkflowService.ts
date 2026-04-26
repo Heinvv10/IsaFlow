@@ -3,7 +3,7 @@
  * Approve and process payment operations — split from supplierPaymentService.ts.
  */
 
-import { sql, withTransaction, fmtDate } from '@/lib/neon';
+import { sql, fmtDate } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
@@ -78,33 +78,33 @@ export async function processSupplierPayment(
 
     await postJournalEntry(companyId, journalEntry.id, userId);
 
-    const updated = await withTransaction(async (tx) => {
-      for (const alloc of payment.allocations) {
-        await tx`
-          UPDATE supplier_invoices
-          SET amount_paid = amount_paid + ${alloc.amountAllocated}
-          WHERE id = ${alloc.invoiceId} AND company_id = ${companyId}::UUID
-        `;
-        await tx`
-          UPDATE supplier_invoices SET status = CASE
-            WHEN (total_amount - amount_paid) <= 0.01 THEN 'paid'
-            WHEN amount_paid > 0 THEN 'partially_paid'
-            ELSE status
-          END
-          WHERE id = ${alloc.invoiceId} AND company_id = ${companyId}::UUID
-        `;
-      }
+    // Run on the ALS-bound connection so the outer request-scoped tx provides
+    // atomicity — withTransaction would deadlock against rows already locked
+    // by this same request (e.g. the JE we just inserted/posted above).
+    for (const alloc of payment.allocations) {
+      await sql`
+        UPDATE supplier_invoices
+        SET amount_paid = amount_paid + ${alloc.amountAllocated}
+        WHERE id = ${alloc.invoiceId} AND company_id = ${companyId}::UUID
+      `;
+      await sql`
+        UPDATE supplier_invoices SET status = CASE
+          WHEN (total_amount - amount_paid) <= 0.01 THEN 'paid'
+          WHEN amount_paid > 0 THEN 'partially_paid'
+          ELSE status
+        END
+        WHERE id = ${alloc.invoiceId} AND company_id = ${companyId}::UUID
+      `;
+    }
 
-      const rows = (await tx`
-        UPDATE supplier_payments
-        SET status = 'processed', processed_at = NOW(),
-            gl_journal_entry_id = ${journalEntry.id}::UUID
-        WHERE id = ${id} AND company_id = ${companyId}::UUID
-        RETURNING *
-      `) as Row[];
-
-      return rows[0] as Row;
-    });
+    const updatedRows = (await sql`
+      UPDATE supplier_payments
+      SET status = 'processed', processed_at = NOW(),
+          gl_journal_entry_id = ${journalEntry.id}::UUID
+      WHERE id = ${id} AND company_id = ${companyId}::UUID
+      RETURNING *
+    `) as Row[];
+    const updated = updatedRows[0] as Row;
 
     log.info('Processed supplier payment', { id, journalEntryId: journalEntry.id }, 'accounting');
     return mapPaymentRow(updated);
