@@ -25,7 +25,8 @@ const TAX_YEAR = 2026;
 // SARS SOURCE CODES (now DB-backed via sarsCodesService)
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe('SARS Source Codes (DB-backed lookup)', () => {
+const hasRealDb = process.env.DATABASE_URL && !process.env.DATABASE_URL.includes('dummy');
+describe.skipIf(!hasRealDb)('SARS Source Codes (DB-backed lookup)', () => {
   it('has code 3601 for gross salary', async () => {
     const c = await getSarsCode('3601', TAX_YEAR);
     expect(c).not.toBeNull();
