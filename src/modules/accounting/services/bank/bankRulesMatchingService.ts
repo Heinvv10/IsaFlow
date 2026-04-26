@@ -9,18 +9,9 @@ import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import type { RuleApplyResult } from '../../types/bank.types';
-import type { JournalLineInput } from '../../types/gl.types';
-
-/** Convert rule match type to SQL ILIKE pattern */
-function toSqlPattern(matchType: string, matchPattern: string): string {
-  switch (matchType) {
-    case 'contains':    return `%${matchPattern}%`;
-    case 'starts_with': return `${matchPattern}%`;
-    case 'ends_with':   return `%${matchPattern}`;
-    case 'exact':       return matchPattern;
-    default:            return `%${matchPattern}%`;
-  }
-}
+import {
+  toSqlPattern, findMatchingTxs, buildAutoCreateLines, type RuleAllocType,
+} from './bankRulesMatchingHelpers';
 
 export async function applyRules(
   companyId: string,
@@ -50,6 +41,10 @@ export async function applyRules(
     const hasSuggestionRules = rules.some((r: Record<string, unknown>) => !r.auto_create_entry);
 
     if (hasSuggestionRules) {
+      // Match every still-imported transaction against every active suggestion-mode
+      // rule, then keep the highest-priority match per transaction. We deliberately
+      // overwrite any existing suggestion: a freshly-created or higher-priority rule
+      // should take precedence over a stale AI suggestion or earlier rule hit.
       const updated = (await sql`
         WITH matched AS (
           SELECT
@@ -86,11 +81,9 @@ export async function applyRules(
             )
           )
           WHERE bt.bank_account_id = ${bankAccountId}::UUID
-            AND bt.status IN ('imported', 'allocated')
-            AND bt.suggested_gl_account_id IS NULL
-            AND bt.suggested_supplier_id IS NULL
-            AND bt.suggested_client_id IS NULL
-            AND bt.suggested_category IS NULL
+            AND bt.company_id = ${companyId}::UUID
+            AND bt.status = 'imported'
+            AND bt.matched_journal_line_id IS NULL
         ),
         top_match AS (SELECT * FROM matched WHERE rn = 1)
         UPDATE bank_transactions bt
@@ -99,9 +92,15 @@ export async function applyRules(
           suggested_supplier_id   = tm.supplier_id,
           suggested_client_id     = tm.client_id,
           suggested_category      = tm.rule_name,
-          suggested_vat_code      = COALESCE(tm.vat_code, 'none')
+          suggested_vat_code      = COALESCE(NULLIF(tm.vat_code, ''), 'none')
         FROM top_match tm
         WHERE bt.id = tm.tx_id
+          AND (
+            bt.suggested_category    IS DISTINCT FROM tm.rule_name
+            OR bt.suggested_gl_account_id IS DISTINCT FROM tm.gl_account_id
+            OR bt.suggested_supplier_id   IS DISTINCT FROM tm.supplier_id
+            OR bt.suggested_client_id     IS DISTINCT FROM tm.client_id
+          )
         RETURNING bt.id, tm.rule_name
       `) as Record<string, unknown>[];
 
@@ -109,21 +108,6 @@ export async function applyRules(
         entries.push({ bankTxId: String(row.id), ruleName: String(row.rule_name), suggestion: true });
       }
       totalApplied += updated.length;
-
-      await sql`
-        UPDATE bank_transactions bt
-        SET suggested_vat_code = r.vat_code
-        FROM (
-          SELECT DISTINCT ON (rule_name) rule_name, vat_code
-          FROM bank_categorisation_rules
-          WHERE company_id = ${companyId}::UUID AND is_active = true AND vat_code != 'none'
-          ORDER BY rule_name, priority ASC
-        ) r
-        WHERE bt.bank_account_id = ${bankAccountId}::UUID
-          AND bt.status IN ('imported', 'allocated')
-          AND bt.suggested_category = r.rule_name
-          AND bt.suggested_vat_code = 'none'
-      `;
     }
 
     // Auto-create JE mode — sequential (each transaction needs its own JE)
@@ -134,41 +118,42 @@ export async function applyRules(
       const pattern = toSqlPattern(String(rule.match_type), String(rule.match_pattern));
       const field = String(rule.match_field);
       const ruleName = String(rule.rule_name);
+      const ruleGlAccountId = rule.gl_account_id ? String(rule.gl_account_id) : null;
+      const ruleSupplierId = rule.supplier_id ? String(rule.supplier_id) : null;
+      const ruleClientId = rule.client_id ? String(rule.client_id) : null;
 
-      let matchingTxs: Record<string, unknown>[];
-      if (field === 'description') {
-        matchingTxs = (await sql`
-          SELECT id, amount, transaction_date, description
-          FROM bank_transactions
-          WHERE bank_account_id = ${bankAccountId}::UUID
-            AND company_id = ${companyId}::UUID
-            AND status IN ('imported', 'allocated')
-            AND matched_journal_line_id IS NULL
-            AND description ILIKE ${pattern}
-          ORDER BY transaction_date
+      // Determine allocation shape from the rule. Account/bank rules use rule.gl_account_id
+      // as the contra. Supplier rules post to AP, customer rules to AR (via systemAccountResolver).
+      const allocType: RuleAllocType = ruleSupplierId ? 'supplier'
+        : ruleClientId ? 'customer'
+        : 'account';
+
+      if (allocType === 'account' && !ruleGlAccountId) {
+        log.warn('Skipping auto-create rule with no contra account', { ruleId: rule.id, ruleName }, 'accounting');
+        continue;
+      }
+
+      const matchingTxs = await findMatchingTxs(companyId, bankAccountId, field, pattern);
+
+      // Resolve AP/AR control accounts and entity names lazily (only when needed).
+      let apAccountId: string | null = null;
+      let arAccountId: string | null = null;
+      let supplierName: string | null = null;
+      let customerName: string | null = null;
+      if (allocType === 'supplier' && ruleSupplierId) {
+        apAccountId = await getSystemAccountId('payable', companyId);
+        const supRows = (await sql`
+          SELECT name FROM suppliers
+          WHERE id = ${ruleSupplierId}::UUID AND company_id = ${companyId}::UUID
         `) as Record<string, unknown>[];
-      } else if (field === 'reference') {
-        matchingTxs = (await sql`
-          SELECT id, amount, transaction_date, description, reference
-          FROM bank_transactions
-          WHERE bank_account_id = ${bankAccountId}::UUID
-            AND company_id = ${companyId}::UUID
-            AND status IN ('imported', 'allocated')
-            AND matched_journal_line_id IS NULL
-            AND reference ILIKE ${pattern}
-          ORDER BY transaction_date
+        supplierName = supRows[0]?.name ? String(supRows[0].name) : `Supplier #${ruleSupplierId}`;
+      } else if (allocType === 'customer' && ruleClientId) {
+        arAccountId = await getSystemAccountId('receivable', companyId);
+        const custRows = (await sql`
+          SELECT name FROM customers
+          WHERE id = ${ruleClientId}::UUID AND company_id = ${companyId}::UUID
         `) as Record<string, unknown>[];
-      } else {
-        matchingTxs = (await sql`
-          SELECT id, amount, transaction_date, description, reference
-          FROM bank_transactions
-          WHERE bank_account_id = ${bankAccountId}::UUID
-            AND company_id = ${companyId}::UUID
-            AND status IN ('imported', 'allocated')
-            AND matched_journal_line_id IS NULL
-            AND (description ILIKE ${pattern} OR reference ILIKE ${pattern})
-          ORDER BY transaction_date
-        `) as Record<string, unknown>[];
+        customerName = custRows[0]?.name ? String(custRows[0].name) : `Customer #${ruleClientId}`;
       }
 
       for (const tx of matchingTxs) {
@@ -178,45 +163,46 @@ export async function applyRules(
           ? String(rule.description_template)
               .replace('{description}', String(tx.description || ''))
               .replace('{amount}', totalAmount.toFixed(2))
+          : allocType === 'supplier' ? `Payment to ${supplierName}`
+          : allocType === 'customer' ? `Receipt from ${customerName}`
           : `Bank: ${tx.description || 'Categorised by rule'}`;
 
         const vatCode = String(rule.vat_code || 'none');
         const hasVat = vatCode === 'standard';
         const netAmount = hasVat ? Math.round((totalAmount * 100 / 115) * 100) / 100 : totalAmount;
         const vatAmount = hasVat ? Math.round((totalAmount - netAmount) * 100) / 100 : 0;
-        const vatAccountKey = isDeposit ? 'vat_output' as const : 'vat_input' as const;
+        // Supplier payment is a money-out from this bank → vat_input on the AP side.
+        // Customer receipt is a money-in to this bank → vat_output on the AR side.
+        const vatAccountKey: 'vat_input' | 'vat_output' = allocType === 'supplier' ? 'vat_input'
+          : allocType === 'customer' ? 'vat_output'
+          : (isDeposit ? 'vat_output' : 'vat_input');
         const mapVatType = vatCode === 'standard' ? 'standard' as const
           : vatCode === 'zero_rated' ? 'zero_rated' as const
           : vatCode === 'exempt' ? 'exempt' as const
           : undefined;
 
-        let lines: JournalLineInput[];
-        if (isDeposit) {
-          lines = [
-            { glAccountId: bankGlAccountId!, debit: totalAmount, credit: 0, description: entryDesc },
-            { glAccountId: String(rule.gl_account_id), debit: 0, credit: netAmount, description: entryDesc, vatType: mapVatType },
-          ];
-          if (hasVat) {
-            const vatAcctId = await getSystemAccountId(vatAccountKey, companyId);
-            lines.splice(1, 0, { glAccountId: vatAcctId, debit: 0, credit: vatAmount, description: `VAT @ 15%`, vatType: 'standard' });
-          }
-        } else {
-          lines = [
-            { glAccountId: String(rule.gl_account_id), debit: netAmount, credit: 0, description: entryDesc, vatType: mapVatType },
-            { glAccountId: bankGlAccountId!, debit: 0, credit: totalAmount, description: entryDesc },
-          ];
-          if (hasVat) {
-            const vatAcctId = await getSystemAccountId(vatAccountKey, companyId);
-            lines.splice(1, 0, { glAccountId: vatAcctId, debit: vatAmount, credit: 0, description: `VAT @ 15%`, vatType: 'standard' });
-          }
-        }
+        const source: import('../../types/gl.types').GLEntrySource = allocType === 'supplier'
+          ? 'auto_supplier_payment'
+          : allocType === 'customer'
+          ? 'auto_payment'
+          : 'auto_bank_recon';
+        const allocEntityName = allocType === 'supplier' ? supplierName!
+          : allocType === 'customer' ? customerName!
+          : ruleName;
+
+        const lines = await buildAutoCreateLines({
+          allocType, totalAmount, netAmount, vatAmount, hasVat, vatAccountKey,
+          vatType: mapVatType, isDeposit,
+          bankGlAccountId: bankGlAccountId!, ruleGlAccountId, apAccountId, arAccountId,
+          entryDesc, companyId,
+        });
 
         const je = await createJournalEntry(companyId, {
           entryDate: tx.transaction_date instanceof Date
             ? tx.transaction_date.toISOString().split('T')[0]!
             : String(tx.transaction_date).split('T')[0]!,
           description: entryDesc,
-          source: 'auto_bank_recon',
+          source,
           lines,
         }, userId);
         await postJournalEntry(companyId, je.id, userId);
@@ -232,8 +218,13 @@ export async function applyRules(
           await sql`
             UPDATE bank_transactions
             SET status = 'allocated', matched_journal_line_id = ${bankLineRows[0].id}::UUID,
-                allocation_type = 'account',
-                allocated_entity_name = ${ruleName},
+                allocation_type = ${allocType},
+                allocated_entity_name = ${allocEntityName},
+                suggested_gl_account_id = NULL,
+                suggested_supplier_id = NULL,
+                suggested_client_id = NULL,
+                suggested_category = NULL,
+                suggested_vat_code = NULL,
                 updated_at = NOW()
             WHERE id = ${tx.id}::UUID AND company_id = ${companyId}::UUID
           `;
@@ -247,9 +238,12 @@ export async function applyRules(
     const remaining = (await sql`
       SELECT COUNT(*) AS cnt FROM bank_transactions
       WHERE bank_account_id = ${bankAccountId}::UUID
-        AND status IN ('imported', 'allocated')
-        AND suggested_gl_account_id IS NULL
+        AND company_id = ${companyId}::UUID
+        AND status = 'imported'
         AND matched_journal_line_id IS NULL
+        AND suggested_gl_account_id IS NULL
+        AND suggested_supplier_id IS NULL
+        AND suggested_client_id IS NULL
     `) as Record<string, unknown>[];
     const skipped = Number(remaining[0]?.cnt ?? 0);
 

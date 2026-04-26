@@ -131,7 +131,7 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
   const [pattern, setPattern] = useState(() => extractPattern(transaction.description || ''));
   const [matchType, setMatchType] = useState<RuleMatchType>('contains');
   const [ruleName, setRuleName] = useState(() => extractPattern(transaction.description || ''));
-  const [autoCreateEntry, setAutoCreateEntry] = useState(false);
+  const [autoCreateEntry, setAutoCreateEntry] = useState(true);
 
   const [allocType, setAllocType] = useState<AllocType>(() => {
     const t = selection?.type;
@@ -203,6 +203,10 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
     if (allocType === 'bank' && !selectedBankAccount) { notify.error('Select a bank account'); return; }
     setSaving(true);
     try {
+      // Supplier/customer rules can't auto-create JEs without an AP/AR posting path,
+      // so the matching service handles those server-side. Send the user's choice
+      // for account/bank rules; for supplier/customer rules let the matching
+      // service post AP/AR JEs whenever auto-create is enabled.
       const body: Record<string, unknown> = {
         ruleName: ruleName.trim() || pattern.trim(),
         matchField: 'description',
@@ -394,7 +398,7 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
               className="accent-teal-500"
             />
             <span className="text-xs text-[var(--ff-text-secondary)]">
-              Auto-create journal entry (otherwise suggestion only)
+              Auto-allocate matching transactions (creates journal entries)
             </span>
           </label>
         </div>
