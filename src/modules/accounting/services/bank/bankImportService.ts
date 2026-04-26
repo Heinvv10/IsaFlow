@@ -17,6 +17,7 @@ import {
 import { parseOfxStatement } from '../../utils/bankOfxParser';
 import { parseQifStatement } from '../../utils/bankQifParser';
 import type { BankFormat, BankCsvParseResult } from '../../types/bank.types';
+import { relinkTransferCounterparts } from './bankTransferLinkService';
 
 export interface BulkImportContext {
   bulkImportId: string;
@@ -233,6 +234,10 @@ export async function importParsedTransactions(
     } catch (linkErr) {
       log.warn('Auto-link transfer counterparts failed — non-fatal', { batchId, error: linkErr }, 'accounting');
     }
+
+    // Broader re-link pass: catches account-type allocations to bank GL accounts
+    // (e.g. user allocated the other leg as 'Account' rather than 'Transfer')
+    await relinkTransferCounterparts(companyId, bankAccountId);
 
     // Auto-provisional posting for outflows (best-effort)
     try {

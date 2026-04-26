@@ -138,6 +138,17 @@ export default function BankTransactionsPage() {
 
   useEffect(() => { loadTransactions(); }, [loadTransactions]);
 
+  // Silently re-link any imported transactions that are the counterpart of
+  // an existing allocation (covers 'account' type pointing to a bank GL).
+  useEffect(() => {
+    if (!selectedBank) return;
+    apiFetch('/api/accounting/bank-relink-transfers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bankAccountId: selectedBank }),
+    }).catch(() => {/* non-fatal */});
+  }, [selectedBank]);
+
   // ---- Seed rowSelections from DB suggestion fields ----
   useEffect(() => {
     if (transactions.length === 0) return;

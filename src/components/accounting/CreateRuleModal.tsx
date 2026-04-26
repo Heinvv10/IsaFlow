@@ -135,7 +135,10 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
 
   const [allocType, setAllocType] = useState<AllocType>(() => {
     const t = selection?.type;
-    return t === 'supplier' || t === 'customer' || t === 'account' ? t : 'account';
+    if (t === 'supplier') return 'supplier';
+    if (t === 'customer') return 'customer';
+    if (t === 'transfer') return 'bank';
+    return 'account';
   });
   const [vatCode, setVatCode] = useState<RuleVatCode>(() => (selection?.vatCode as RuleVatCode) ?? 'none');
   const [selectedGl, setSelectedGl] = useState<SelectOption | null>(() => {
