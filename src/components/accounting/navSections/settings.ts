@@ -48,6 +48,8 @@ export const settingsTab: Tab = {
       section: 'Developer',
       items: [
         { label: 'Personal Access Tokens', href: '/developer/personal-tokens' },
+        { label: 'OAuth Apps', href: '/developer/oauth-apps' },
+        { label: 'Connected Apps', href: '/accounting/settings/connected-apps' },
       ],
     },
     {
