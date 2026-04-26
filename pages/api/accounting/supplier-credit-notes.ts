@@ -53,7 +53,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     try {
       const {
         supplierId, supplierInvoiceId, creditDate, reference,
-        description, lineItems, notes, submitAction,
+        description, lineItems, submitAction,
       } = req.body as {
         supplierId?: string;
         supplierInvoiceId?: string;

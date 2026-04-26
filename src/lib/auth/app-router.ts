@@ -12,7 +12,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyToken } from './gotrue';
 import { ACCESS_COOKIE } from './cookies';
-import type { UserAuthedRequest } from './withUserAuth';
 
 export type AppRouterUser = {
   id: string;

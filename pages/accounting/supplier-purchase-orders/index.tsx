@@ -23,16 +23,6 @@ interface PurchaseOrder {
 const TABS = ['all', 'draft', 'sent', 'received', 'invoiced'] as const;
 type Tab = typeof TABS[number];
 
-const STATUS: Record<string, { label: string; cls: string }> = {
-  draft:              { label: 'Draft',              cls: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300' },
-  sent:               { label: 'Sent',               cls: 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' },
-  partially_received: { label: 'Partial',            cls: 'bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400' },
-  received:           { label: 'Received',           cls: 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' },
-  partially_invoiced: { label: 'Part. Invoiced',     cls: 'bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400' },
-  invoiced:           { label: 'Invoiced',           cls: 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' },
-  cancelled:          { label: 'Cancelled',          cls: 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400' },
-};
-
 export default function SupplierPurchaseOrdersPage() {
   useCompany();
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
@@ -120,7 +110,6 @@ export default function SupplierPurchaseOrdersPage() {
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {orders.map(po => {
-                    const sc = STATUS[po.status];
                     return (
                       <tr key={po.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
                         <td className="px-5 py-3.5">

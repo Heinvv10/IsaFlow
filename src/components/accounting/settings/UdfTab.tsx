@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Save, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
-import { INPUT_CLS, LABEL_CLS, SECTION_CLS, Toggle } from './settingsTypes';
+import { INPUT_CLS, SECTION_CLS, Toggle } from './settingsTypes';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 

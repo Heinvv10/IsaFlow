@@ -31,11 +31,7 @@ export default function JournalEntryDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (entryId) loadEntry();
-  }, [entryId]);
-
-  const loadEntry = async () => {
+  const loadEntry = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
@@ -53,7 +49,11 @@ export default function JournalEntryDetailPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [entryId]);
+
+  useEffect(() => {
+    if (entryId) void loadEntry();
+  }, [entryId, loadEntry]);
 
   const handleAction = useCallback(async (action: 'post' | 'reverse') => {
     if (!entry) return;
@@ -77,7 +77,7 @@ export default function JournalEntryDetailPage() {
     } finally {
       setActionLoading(null);
     }
-  }, [entry, entryId]);
+  }, [entry, entryId, loadEntry]);
 
   const formatCurrency = (amount: number | string) => {
     const num = Number(amount);

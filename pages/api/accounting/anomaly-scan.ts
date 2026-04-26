@@ -46,7 +46,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     WHERE je.company_id = ${companyId}::UUID AND jl.company_id = ${companyId}::UUID AND je.entry_date >= ${fromDate} AND je.source = 'manual'
     LIMIT 500
   ` as Row[];
-  const entries = jeRows.map((r: any) => ({ id: String(r.id), date: String(r.date), amount: Number(r.amount), userId: String(r.user_id), description: String(r.description || '') }));
+  const entries = jeRows.map((r: Row) => ({ id: String(r.id), date: String(r.date), amount: Number(r.amount), userId: String(r.user_id), description: String(r.description || '') }));
 
   // Run all detections
   const benfords = benfordsLawAnalysis(transactions.map(t => Math.abs(t.amount)));

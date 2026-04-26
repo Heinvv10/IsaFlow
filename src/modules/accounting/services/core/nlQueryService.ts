@@ -124,7 +124,7 @@ export function classifyQueryIntent(question: string): QueryIntent {
 // RESULT FORMATTING
 // ═══════════════════════════════════════════════════════════════════════════
 
-export function formatQueryResult(rows: Record<string, unknown>[], question: string): QueryResult {
+export function formatQueryResult(rows: Record<string, unknown>[], _question: string): QueryResult {
   if (!rows || rows.length === 0) {
     return { rows: [], columns: [], numericColumns: [], summary: 'No results found for your query.', rowCount: 0 };
   }

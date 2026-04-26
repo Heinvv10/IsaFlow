@@ -15,8 +15,7 @@ import {
 } from './customReportFieldDefs';
 import type { ReportConfig, RunResult } from './customReportService';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = Record<string, any>;
+type Row = Record<string, unknown>;
 
 export async function runReport(companyId: string, config: ReportConfig): Promise<RunResult> {
   const { dataSource, columns, filters = [], sortBy = [], limit = 500, offset = 0 } = config;
@@ -131,12 +130,12 @@ export async function runReport(companyId: string, config: ReportConfig): Promis
   // sql.query() sends parameterized queries to Neon
    
   const [dataRows, countRows] = await Promise.all([
-    (sql as any).query(querySql, params),
-    (sql as any).query(countSql, params),
+    sql.query<Row>(querySql, params),
+    sql.query<Row>(countSql, params),
   ]);
 
-  const rows = (dataRows.rows ?? dataRows) as Row[];
-  const rowCount = Number((countRows.rows ?? countRows)[0]?.total ?? rows.length);
+  const rows = dataRows as Row[];
+  const rowCount = Number(countRows[0]?.total ?? rows.length);
 
   // Aggregate totals for totalable fields
   const totals: Record<string, number> = {};

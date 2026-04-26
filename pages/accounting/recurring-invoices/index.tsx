@@ -23,13 +23,6 @@ const isOverdue = (d: string | undefined): boolean => {
   return d.split('T')[0]! <= new Date().toISOString().split('T')[0]!;
 };
 
-const STATUS: Record<string, { label: string; cls: string }> = {
-  active:    { label: 'Active',     cls: 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' },
-  paused:    { label: 'Paused',     cls: 'bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400' },
-  completed: { label: 'Completed',  cls: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300' },
-  cancelled: { label: 'Cancelled',  cls: 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400' },
-};
-
 const TABS = ['all', 'active', 'paused', 'completed', 'cancelled'] as const;
 type Tab = typeof TABS[number];
 
@@ -190,7 +183,6 @@ export default function RecurringInvoicesPage() {
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {filtered.map(item => {
                     const due = item.status === 'active' && isOverdue(item.nextRunDate);
-                    const sc = STATUS[item.status];
                     return (
                       <tr key={item.id} className={`hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors ${due ? 'bg-orange-50/50 dark:bg-orange-900/5' : ''}`}>
                         <td className="px-5 py-3.5">

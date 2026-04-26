@@ -4,7 +4,7 @@
  * Auto-shows for new users; can be restarted via useRestartTour().
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
@@ -19,7 +19,6 @@ export function AccountingTour() {
   const [step, setStep] = useState(0);
   const [targetRect, setTargetRect] = useState<TargetRect | null>(null);
   const [isMounted, setIsMounted] = useState(false);
-  const rafRef = useRef<number | null>(null);
 
   useEffect(() => { setIsMounted(true); }, []);
 
@@ -60,7 +59,6 @@ export function AccountingTour() {
     window.addEventListener('resize', handleResize);
     return () => {
       window.removeEventListener('resize', handleResize);
-      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
   }, [active, step, measureTarget]);
 

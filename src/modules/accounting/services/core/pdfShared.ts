@@ -590,7 +590,7 @@ export interface InvoiceHeaderCtx {
 
 /** @deprecated Use renderPremiumHeader instead */
 export function renderInvoiceHeader(ctx: InvoiceHeaderCtx): number {
-  const { doc, invoice, layout: _layout, pageW, margin, accent, company } = ctx;
+  const { doc, invoice, pageW, margin, accent, company } = ctx;
   return renderPremiumHeader({
     doc, pageW, margin, company, accent,
     docType: 'invoice',

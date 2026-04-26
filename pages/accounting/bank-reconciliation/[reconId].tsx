@@ -69,7 +69,8 @@ export default function ReconciliationDetailPage() {
 
       const txJson = await txRes.json();
       const txData = txJson.data || txJson;
-      setTransactions(txData.transactions || []);
+      const loadedTransactions: BankTransaction[] = txData.transactions || [];
+      setTransactions(loadedTransactions);
 
       // Load unmatched GL lines for this bank account
       if (reconData?.bankAccountId) {
@@ -95,7 +96,7 @@ export default function ReconciliationDetailPage() {
         }
         // Filter out already matched
         const matchedLineIds = new Set(
-          transactions.filter(t => t.matchedJournalLineId).map(t => t.matchedJournalLineId)
+          loadedTransactions.filter(t => t.matchedJournalLineId).map(t => t.matchedJournalLineId)
         );
         setGlLines(lines.filter(l => !matchedLineIds.has(l.id)));
       }

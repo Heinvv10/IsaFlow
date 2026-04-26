@@ -269,11 +269,9 @@ export async function updatePlatformSettings(
   updatedBy?: string,
 ): Promise<void> {
   // smtp_configured is read-only (derived from env) — strip it before upsert
-  const { smtp_configured: _ignored, ...persistable } = data;
-
   // Drop any keys not in the explicit allowlist to prevent arbitrary key injection
-  const entries = (Object.entries(persistable) as [string, unknown][]).filter(
-    ([key]) => (ALLOWED_SETTINGS_KEYS as readonly string[]).includes(key),
+  const entries = (Object.entries(data) as [string, unknown][]).filter(
+    ([key]) => key !== 'smtp_configured' && (ALLOWED_SETTINGS_KEYS as readonly string[]).includes(key),
   );
   if (entries.length === 0) return;
 
@@ -289,5 +287,5 @@ export async function updatePlatformSettings(
     `;
   }
 
-  log.info('Platform settings updated', { keys: Object.keys(persistable), updatedBy }, 'analyticsService');
+  log.info('Platform settings updated', { keys: entries.map(([key]) => key), updatedBy }, 'analyticsService');
 }

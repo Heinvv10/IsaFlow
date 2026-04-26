@@ -11,7 +11,6 @@
  */
 import { useState, type FormEvent } from 'react';
 import Image from 'next/image';
-import { useRouter } from 'next/router';
 import type { GetServerSideProps } from 'next';
 import { ShieldCheck, AlertTriangle, Loader2, Check } from 'lucide-react';
 import { getOauthAppByClientId, OAUTH_SCOPES } from '@/lib/auth/oauth';
@@ -54,7 +53,6 @@ const SCOPE_LABELS: Record<string, string> = {
 };
 
 export default function AuthorizePage(props: Props | ErrorProps) {
-  const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

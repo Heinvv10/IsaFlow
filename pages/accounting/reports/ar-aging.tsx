@@ -98,7 +98,6 @@ export default function ARAgingPage() {
 
   function handleExport() {
     if (!data) return;
-    const BUCKET_ORDER: Bucket[] = ['current', '1-30', '31-60', '61-90', '90+'];
     const header = 'Customer,Invoice #,Invoice Date,Due Date,Total Amount,Amount Paid,Balance Due,Days Overdue,Bucket';
     const csvRows = displayRows.map(r =>
       [
