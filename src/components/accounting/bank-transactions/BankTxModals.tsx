@@ -37,6 +37,7 @@ interface Props {
   glAccounts: SelectOption[];
   suppliers: SelectOption[];
   customers: SelectOption[];
+  bankAccounts?: SelectOption[];
   selectedBank: string;
   rowSelections: Record<string, RowSelection>;
   splitTxId: string | null;
@@ -60,7 +61,7 @@ interface Props {
 }
 
 export function BankTxModals({
-  transactions, glAccounts, suppliers, customers, selectedBank, rowSelections,
+  transactions, glAccounts, suppliers, customers, bankAccounts, selectedBank, rowSelections,
   splitTxId, excludingTxId, findMatchTxId, attachmentsTxId, createRuleTx,
   createEntityTxId, createEntityType,
   onSplitClose, onSplitDone,
@@ -123,6 +124,7 @@ export function BankTxModals({
           glAccounts={glAccounts}
           suppliers={suppliers}
           clients={customers}
+          bankAccounts={bankAccounts}
           selection={rowSelections[createRuleTx.id] || null}
           onClose={onCreateRuleClose}
           onCreated={onCreateRuleDone}

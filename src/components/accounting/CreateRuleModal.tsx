@@ -18,7 +18,7 @@ const VAT_OPTIONS: { value: RuleVatCode; label: string }[] = [
   { value: 'exempt', label: 'Exempt' },
 ];
 
-type AllocType = 'account' | 'supplier' | 'customer';
+type AllocType = 'account' | 'supplier' | 'customer' | 'bank';
 
 interface Props {
   transaction: BankTx;
@@ -26,6 +26,7 @@ interface Props {
   glAccounts: SelectOption[];
   suppliers?: SelectOption[];
   clients?: SelectOption[];
+  bankAccounts?: SelectOption[];
   selection?: import('./BankTxTable').RowSelection | null;
   onClose: () => void;
   onCreated: () => void;
@@ -126,7 +127,7 @@ function EntityPicker({
   );
 }
 
-export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppliers = [], clients = [], selection, onClose, onCreated }: Props) {
+export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppliers = [], clients = [], bankAccounts = [], selection, onClose, onCreated }: Props) {
   const [pattern, setPattern] = useState(() => extractPattern(transaction.description || ''));
   const [matchType, setMatchType] = useState<RuleMatchType>('contains');
   const [ruleName, setRuleName] = useState(() => extractPattern(transaction.description || ''));
@@ -155,6 +156,7 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
     }
     return null;
   });
+  const [selectedBankAccount, setSelectedBankAccount] = useState<SelectOption | null>(null);
 
   const [matchCount, setMatchCount] = useState<number | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -185,6 +187,7 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
     if (allocTypeInitial.current) { allocTypeInitial.current = false; return; }
     setSelectedSupplier(null);
     setSelectedClient(null);
+    setSelectedBankAccount(null);
   }, [allocType]);
 
   const needsGlAccount = allocType === 'account';
@@ -194,6 +197,7 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
     if (needsGlAccount && !selectedGl) { notify.error('Select a GL account'); return; }
     if (allocType === 'supplier' && !selectedSupplier) { notify.error('Select a supplier'); return; }
     if (allocType === 'customer' && !selectedClient) { notify.error('Select a customer'); return; }
+    if (allocType === 'bank' && !selectedBankAccount) { notify.error('Select a bank account'); return; }
     setSaving(true);
     try {
       const body: Record<string, unknown> = {
@@ -205,8 +209,9 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
         vatCode,
         bankAccountId,
       };
-      // GL account only needed for 'account' type — supplier/customer use AP/AR automatically
       if (needsGlAccount && selectedGl) body.glAccountId = selectedGl.id;
+      // Bank transfer: target is stored as glAccountId (bank GL account), allocated as transfer
+      if (allocType === 'bank' && selectedBankAccount) body.glAccountId = selectedBankAccount.id;
       if (allocType === 'supplier' && selectedSupplier) body.supplierId = selectedSupplier.id;
       if (allocType === 'customer' && selectedClient) body.clientId = selectedClient.id;
 
@@ -289,7 +294,7 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
           <div>
             <label className="text-xs text-[var(--ff-text-tertiary)] mb-1 block">Allocation Type</label>
             <div className="flex gap-1">
-              {(['account', 'supplier', 'customer'] as AllocType[]).map(t => (
+              {(['account', 'supplier', 'customer', 'bank'] as AllocType[]).map(t => (
                 <button
                   key={t}
                   onClick={() => setAllocType(t)}
@@ -299,13 +304,12 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
                       : 'bg-[var(--ff-bg-primary)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] border border-[var(--ff-border-light)]'
                   }`}
                 >
-                  {t === 'account' ? 'Account' : t === 'supplier' ? 'Supplier' : 'Customer'}
+                  {t === 'account' ? 'Account' : t === 'supplier' ? 'Supplier' : t === 'customer' ? 'Customer' : 'Bank'}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* GL Account — only for 'account' type; supplier/customer use AP/AR automatically */}
           {needsGlAccount && (
             <EntityPicker
               label="GL Account"
@@ -316,7 +320,16 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
             />
           )}
 
-          {/* Supplier picker — only when allocType is supplier */}
+          {allocType === 'bank' && (
+            <EntityPicker
+              label="Bank Account"
+              placeholder="Select bank account..."
+              options={bankAccounts}
+              selected={selectedBankAccount}
+              onSelect={setSelectedBankAccount}
+            />
+          )}
+
           {allocType === 'supplier' && (
             <EntityPicker
               label="Supplier"
@@ -327,7 +340,6 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
             />
           )}
 
-          {/* Customer picker — only when allocType is customer */}
           {allocType === 'customer' && (
             <EntityPicker
               label="Customer"
@@ -390,7 +402,7 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
             className="px-4 py-1.5 rounded text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]">
             Cancel
           </button>
-          <button onClick={handleSave} disabled={saving || !pattern.trim() || (needsGlAccount && !selectedGl)}
+          <button onClick={handleSave} disabled={saving || !pattern.trim() || (needsGlAccount && !selectedGl) || (allocType === 'bank' && !selectedBankAccount)}
             className="px-4 py-1.5 rounded bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-medium flex items-center gap-1.5">
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             Create Rule

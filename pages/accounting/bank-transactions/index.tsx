@@ -330,6 +330,7 @@ export default function BankTransactionsPage() {
 
       <BankTxModals
         transactions={transactions} glAccounts={glAccounts} suppliers={suppliers} customers={customers}
+        bankAccounts={transferTargets}
         selectedBank={selectedBank} rowSelections={rowSelections} splitTxId={splitTxId}
         excludingTxId={excludingTxId} findMatchTxId={findMatchTxId} attachmentsTxId={attachmentsTxId}
         createRuleTx={createRuleTx} createEntityTxId={createEntityTxId} createEntityType={createEntityType}
