@@ -171,6 +171,7 @@ export async function getBankTransactions(
       const extra = [txTypeCond, allocTypeCond, hasSuggCond, allocationCond].filter(Boolean).join(' ');
       rows = (await sql`${sql.unsafe(TX_SELECT)}
         WHERE bt.bank_account_id = ${filters.bankAccountId}::UUID
+          AND bt.company_id = ${companyId}::UUID
           AND bt.status = ANY(${statusArr}::TEXT[])
           AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
           AND bt.amount >= ${fromAmt}::NUMERIC AND bt.amount <= ${toAmt}::NUMERIC
@@ -180,6 +181,7 @@ export async function getBankTransactions(
         LIMIT ${limit} OFFSET ${offset}`) as Row[];
       countRows = (await sql`SELECT COUNT(*) AS cnt FROM bank_transactions bt
         WHERE bt.bank_account_id = ${filters.bankAccountId}::UUID
+          AND bt.company_id = ${companyId}::UUID
           AND bt.status = ANY(${statusArr}::TEXT[])
           AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
           AND bt.amount >= ${fromAmt}::NUMERIC AND bt.amount <= ${toAmt}::NUMERIC
@@ -190,11 +192,13 @@ export async function getBankTransactions(
       const toDate = filters.toDate || '2099-12-31';
       rows = (await sql`${sql.unsafe(TX_SELECT)}
         WHERE bt.bank_account_id = ${filters.bankAccountId}::UUID
+          AND bt.company_id = ${companyId}::UUID
           AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
         ORDER BY bt.transaction_date DESC, bt.amount DESC
         LIMIT ${limit} OFFSET ${offset}`) as Row[];
       countRows = (await sql`SELECT COUNT(*) AS cnt FROM bank_transactions
         WHERE bank_account_id = ${filters.bankAccountId}::UUID
+          AND company_id = ${companyId}::UUID
           AND transaction_date >= ${fromDate} AND transaction_date <= ${toDate}`) as Row[];
     } else {
       const statusFilter = filters?.status ?? null;

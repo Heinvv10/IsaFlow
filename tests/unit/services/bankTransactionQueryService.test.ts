@@ -255,6 +255,47 @@ describe('getBankTransactions — BL-11: limit cap at 100', () => {
   });
 });
 
+// ── IDOR fix: bankAccountId branches must include company_id ─────────────────
+//
+// Before the fix the bankAccountId and bankAccountId+status branches omitted
+// company_id, allowing any authenticated user to read transactions from another
+// tenant's bank account by guessing the account UUID.
+
+describe('getBankTransactions — IDOR: company_id present in bankAccountId branches', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('passes companyId to sql when bankAccountId + status are provided', async () => {
+    const rows = [makeTxRow({ id: 'tx-idor-001', status: 'imported' })];
+    vi.mocked(sql)
+      .mockResolvedValueOnce(rows as never)
+      .mockResolvedValueOnce([{ cnt: '1' }] as never);
+
+    await getBankTransactions(COMPANY_ID, {
+      bankAccountId: ACCOUNT_ID,
+      status: 'imported',
+    });
+
+    const allValues = flatSqlValues(vi.mocked(sql));
+    // Both the bank account ID and the company ID must appear as parameterised
+    // values — not just the account ID (which was the pre-fix behaviour).
+    expect(allValues).toContain(ACCOUNT_ID);
+    expect(allValues).toContain(COMPANY_ID);
+  });
+
+  it('passes companyId to sql when only bankAccountId is provided', async () => {
+    const rows = [makeTxRow({ id: 'tx-idor-002' })];
+    vi.mocked(sql)
+      .mockResolvedValueOnce(rows as never)
+      .mockResolvedValueOnce([{ cnt: '1' }] as never);
+
+    await getBankTransactions(COMPANY_ID, { bankAccountId: ACCOUNT_ID });
+
+    const allValues = flatSqlValues(vi.mocked(sql));
+    expect(allValues).toContain(ACCOUNT_ID);
+    expect(allValues).toContain(COMPANY_ID);
+  });
+});
+
 describe('getBankTransactions — BL-11: mapTxRow column projection regression guard', () => {
   beforeEach(() => vi.clearAllMocks());
 

@@ -136,7 +136,11 @@ export async function createSupplierPayment(companyId: string,
       SELECT id, invoice_number, total_amount, amount_paid, balance
       FROM supplier_invoices
       WHERE id = ANY(${invoiceIds}::UUID[])
+        AND company_id = ${companyId}::UUID
     `) as Row[];
+    if (invoiceRows.length !== invoiceIds.length) {
+      throw new Error('One or more invoice IDs not found or belong to a different company');
+    }
 
     const invoices: InvoiceForAllocation[] = invoiceRows.map((r: Row) => ({
       id: String(r.id),
