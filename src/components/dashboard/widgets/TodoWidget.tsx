@@ -46,7 +46,6 @@ async function fetchTodoData(): Promise<TodoData | null> {
   if (cachedTodo && now - cacheTs < CACHE_TTL_MS) return cachedTodo;
   if (inFlight) return inFlight;
 
-  const today = new Date().toISOString().slice(0, 10);
   const sevenDays = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
 
   inFlight = Promise.all([

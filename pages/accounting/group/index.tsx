@@ -58,14 +58,15 @@ export default function GroupDashboardPage() {
       const json = await res.json();
       const list: CompanyGroup[] = json.data?.items ?? json.data ?? [];
       setGroups(list);
-      if (list.length > 0 && !selectedGroupId && list[0]) setSelectedGroupId(list[0].id);
+      const firstGroup = list[0];
+      if (firstGroup) setSelectedGroupId(prev => prev ?? firstGroup.id);
     } catch (err) {
       log.error('Failed to load company groups', { error: err }, 'group-dashboard');
       setError('Could not load company groups.');
     } finally { setLoadingGroups(false); }
-  }, [selectedGroupId]);
+  }, []);
 
-  useEffect(() => { void loadGroups();   }, []);
+  useEffect(() => { void loadGroups(); }, [loadGroups]);
 
   const loadDashboard = useCallback(async (groupId: string) => {
     setLoadingDash(true); setError(null);

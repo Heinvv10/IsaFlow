@@ -3,7 +3,7 @@
  * View product information
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
@@ -35,12 +35,7 @@ export default function ProductDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    if (!productId) return;
-    loadProduct();
-  }, [productId]);
-
-  const loadProduct = async () => {
+  const loadProduct = useCallback(async () => {
     setLoading(true);
     try {
       const res = await apiFetch('/api/accounting/products');
@@ -58,7 +53,12 @@ export default function ProductDetailPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [productId]);
+
+  useEffect(() => {
+    if (!productId) return;
+    void loadProduct();
+  }, [productId, loadProduct]);
 
   if (loading) {
     return (

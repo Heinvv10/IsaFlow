@@ -117,7 +117,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       ORDER BY account_code LIMIT 50
     ` as Row[];
 
-    const coaEntries: ChartOfAccountEntry[] = accounts.map((a: any) => ({
+    const coaEntries: ChartOfAccountEntry[] = accounts.map((a: Row) => ({
       code: String(a.code), name: String(a.name), type: String(a.type),
       defaultVatCode: a.default_vat_code ? String(a.default_vat_code) : undefined,
     }));

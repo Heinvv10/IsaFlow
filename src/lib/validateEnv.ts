@@ -16,11 +16,41 @@ const REQUIRED_VARS = [
   'IMPERSONATION_JWT_SECRET',
 ] as const;
 const RECOMMENDED_VARS = ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASS'] as const;
+const LOCALHOSTS = new Set(['localhost', '127.0.0.1', '::1']);
+
+function assertProductionUrl(name: string, expectedHost?: string): void {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`Missing required production environment variable: ${name}`);
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`${name} must be an absolute URL in production; got "${value}"`);
+  }
+
+  if (parsed.protocol !== 'https:') {
+    throw new Error(`${name} must use https:// in production; got "${value}"`);
+  }
+
+  if (LOCALHOSTS.has(parsed.hostname)) {
+    throw new Error(`${name} must not point at localhost in production; got "${value}"`);
+  }
+
+  if (expectedHost && parsed.hostname !== expectedHost) {
+    throw new Error(`${name} must point at ${expectedHost} in production; got "${value}"`);
+  }
+}
 
 export function validateEnv(): void {
   const missing = REQUIRED_VARS.filter(v => !process.env[v]);
   if (missing.length > 0) {
     throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+  }
+  if (process.env.NODE_ENV === 'production') {
+    assertProductionUrl('NEXT_PUBLIC_ADMIN_URL', 'admin.isaflow.co.za');
   }
   const missingRecommended = RECOMMENDED_VARS.filter(v => !process.env[v]);
   if (missingRecommended.length > 0) {

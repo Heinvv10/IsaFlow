@@ -7,7 +7,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import {
-  AlertCircle, Check, Copy, Loader2, Plus, Settings, ShieldOff, Trash2, X,
+  AlertCircle, Check, Copy, Loader2, Plus, Settings, Trash2, X,
 } from 'lucide-react';
 
 interface OauthApp {

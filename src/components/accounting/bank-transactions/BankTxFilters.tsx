@@ -56,7 +56,7 @@ export interface BankTxFiltersProps {
 
 export function BankTxFilters({
   tab, page, total, pageSize, selectedCount, selectedBank, smartRunning,
-  showCC, showBU, showBatchEdit,
+  showCC, showBU,
   searchTerm, fromDate, toDate, fromAmount, toAmount,
   sortOrder, allocationFilter, txType, allocType, hasSuggestion,
   onRefresh, onBulkAccept, onBatchAccept, onBatchDelete, onToggleBatchEdit,

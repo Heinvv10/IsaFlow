@@ -16,14 +16,6 @@ const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', c
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
 const lbl = 'block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
 const TABS = ['all', 'draft', 'sent', 'accepted', 'declined', 'expired', 'converted'] as const;
-const STATUS: Record<string, { label: string; cls: string }> = {
-  draft:     { label: 'Draft',     cls: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300' },
-  sent:      { label: 'Sent',      cls: 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' },
-  accepted:  { label: 'Accepted',  cls: 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' },
-  declined:  { label: 'Declined',  cls: 'bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400' },
-  expired:   { label: 'Expired',   cls: 'bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400' },
-  converted: { label: 'Converted', cls: 'bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400' },
-};
 
 interface ModalProps { customers: CustomerOption[]; onClose: () => void; onCreated: () => void }
 function CreateQuoteModal({ customers, onClose, onCreated }: ModalProps) {
@@ -244,9 +236,7 @@ export default function CustomerQuotesPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {quotes.map(q => {
-                    const sc = STATUS[q.status];
-                    return (
+                  {quotes.map(q => (
                       <tr key={q.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
                         <td className="px-5 py-3.5 font-mono text-amber-500 font-semibold">{q.quoteNumber}</td>
                         <td className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{q.customerName}</td>
@@ -278,8 +268,7 @@ export default function CustomerQuotesPage() {
                           </div>
                         </td>
                       </tr>
-                    );
-                  })}
+                    ))}
                 </tbody>
               </table>
             )}

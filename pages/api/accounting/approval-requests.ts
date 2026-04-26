@@ -11,8 +11,11 @@ import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, 
 import { withCsrf } from '@/lib/auth/withCsrf';
 import {
   listRequests, requestApproval, decideRequest, checkApproval, getPendingCount,
-  type ApprovalStatus,
+  type ApprovalStatus, type DocumentType,
 } from '@/modules/accounting/services/gl/approvalService';
+
+const DOCUMENT_TYPES = new Set<DocumentType>(['customer_invoice', 'supplier_invoice', 'payment', 'journal_entry', 'credit_note']);
+const isDocumentType = (value: unknown): value is DocumentType => typeof value === 'string' && DOCUMENT_TYPES.has(value as DocumentType);
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -26,9 +29,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (!documentType || !documentId) {
         return apiResponse.badRequest(res, 'documentType and documentId are required');
       }
+      if (!isDocumentType(documentType)) {
+        return apiResponse.badRequest(res, 'Invalid documentType');
+      }
       const result = await checkApproval(
         companyId,
-        documentType as any,
+        documentType,
         documentId as string,
         Number(amount) || 0
       );

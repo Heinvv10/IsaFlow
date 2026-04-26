@@ -158,7 +158,7 @@ function isolationClause(level: TransactionOptions['isolationLevel']): string {
 interface SqlFunction {
   <T = DbRow>(strings: TemplateStringsArray, ...values: unknown[]): LazyQuery<T>;
   transaction<T = unknown>(
-    queries: LazyQuery<any>[] | ((tx: SqlFunction) => LazyQuery<any>[]),
+    queries: LazyQuery<unknown>[] | ((tx: SqlFunction) => LazyQuery<unknown>[]),
     options?: TransactionOptions
   ): Promise<T[][]>;
   /** Raw SQL fragment — awaitable as a query, interpolatable as a splice. */
@@ -182,7 +182,7 @@ function createSql(client?: pg.PoolClient): SqlFunction {
   fn.query = fn.unsafe;
 
   fn.transaction = async <T = unknown>(
-    queries: LazyQuery<any>[] | ((tx: SqlFunction) => LazyQuery<any>[]),
+    queries: LazyQuery<unknown>[] | ((tx: SqlFunction) => LazyQuery<unknown>[]),
     options: TransactionOptions = {}
   ): Promise<T[][]> => {
     const pool = getPool();

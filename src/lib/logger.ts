@@ -22,9 +22,7 @@ declare global {
   }
 }
 
-export interface LogData {
-  [key: string]: any;
-}
+export type LogData = object;
 
 export interface LogEntry {
   timestamp: string;
@@ -191,7 +189,7 @@ class Logger {
     if (typeof window !== 'undefined') {
       return window.__appLogs || [];
     } else {
-      return (process as any).__appLogs || [];
+      return process.__appLogs || [];
     }
   }
 
@@ -202,7 +200,7 @@ class Logger {
     if (typeof window !== 'undefined') {
       window.__appLogs = [];
     } else {
-      (process as any).__appLogs = [];
+      process.__appLogs = [];
     }
   }
 
