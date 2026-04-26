@@ -117,17 +117,28 @@ export function startSessionHeartbeat(opts: HeartbeatOptions): StopFn {
 
   const isLeader = (): boolean => leaderId === myId;
 
-  // Best-effort logout: clears auth cookies server-side so the next visitor on
-  // this browser/URL doesn't auto-resume the session. We use sendBeacon when
-  // available so the request survives the navigation; fall back to fetch with
-  // keepalive otherwise.
+  // Clears auth cookies server-side so the next visitor on this browser doesn't
+  // auto-resume the session. Uses `keepalive: true` so the request survives the
+  // navigation that follows (sendBeacon was considered but cannot be awaited —
+  // the redirect would race the beacon). We mirror apiFetch's CSRF header so
+  // this stays robust if /api/auth/logout is ever wrapped with withCsrf.
+  const readCsrfCookie = (): string | null => {
+    if (typeof document === 'undefined') return null;
+    const match = document.cookie.split('; ').find((c) => c.startsWith('isaflow_csrf='));
+    return match ? match.slice('isaflow_csrf='.length) : null;
+  };
+
   const serverLogout = async (): Promise<void> => {
     try {
-      if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
-        navigator.sendBeacon('/api/auth/logout');
-        return;
-      }
-      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include', keepalive: true });
+      const headers: Record<string, string> = {};
+      const csrf = readCsrfCookie();
+      if (csrf) headers['X-CSRF-Token'] = csrf;
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'include',
+        keepalive: true,
+        headers,
+      });
     } catch {
       // Logout is best-effort — never block the redirect on it.
     }

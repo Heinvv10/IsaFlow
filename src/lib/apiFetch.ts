@@ -74,11 +74,11 @@ function buildRequest(options?: RequestInit): RequestInit & { headers: Headers }
 
 /** Exact path match (ignores query string and hash) so siblings like
  *  `/api/auth/refresh-token` aren't accidentally treated as the refresh
- *  endpoint by a substring check.
+ *  endpoint by a substring check, and crafted paths like
+ *  `/proxy/api/auth/refresh` don't accidentally match either.
  */
 function isRefreshUrl(url: string): boolean {
-  const path = url.split(/[?#]/)[0];
-  return path === REFRESH_URL || path?.endsWith(REFRESH_URL) === true;
+  return url.split(/[?#]/)[0] === REFRESH_URL;
 }
 
 export async function apiFetch(url: string, options?: RequestInit): Promise<Response> {

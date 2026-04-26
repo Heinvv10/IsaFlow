@@ -6,6 +6,8 @@ import {
   setAuthCookies,
   clearAuthCookies,
   setActiveCompanyCookie,
+  setPendingRememberCookie,
+  clearPendingRememberCookie,
 } from '@/lib/auth/cookies';
 
 function mkReq(cookieHeader: string): NextApiRequest {
@@ -60,13 +62,40 @@ describe('cookies', () => {
       expect(c).toMatch(/HttpOnly/i);
       expect(c).toMatch(/SameSite=Lax/i);
     }
+    // Hint cookie value must reflect the persistent choice — a regression that
+    // emits '1' here would silently re-enable persistence on next refresh.
+    expect(cookies.some((c) => c.startsWith('isaflow_remember_me=0;'))).toBe(true);
   });
 
-  it('setAuthCookies with persistent=true gives the refresh cookie 30-day Max-Age', () => {
+  it('setAuthCookies with persistent=true gives the refresh cookie 30-day Max-Age and hint=1', () => {
     const { res, headers } = mkRes();
     setAuthCookies(res, { accessToken: 'a', refreshToken: 'r', expiresIn: 3600, persistent: true });
     const refresh = headers['set-cookie'].find((c) => c.startsWith('sb-refresh-token='));
     expect(refresh).toMatch(/Max-Age=2592000/);
+    expect(headers['set-cookie'].some((c) => c.startsWith('isaflow_remember_me=1;'))).toBe(true);
+  });
+
+  it('setPendingRememberCookie persists rememberMe across the 2FA round-trip', () => {
+    const { res, headers } = mkRes();
+    setPendingRememberCookie(res, true);
+    const c = headers['set-cookie'][0]!;
+    expect(c).toMatch(/^sb-pending-remember-me=1;/);
+    // 5-minute TTL — paired with the pending-MFA cookie.
+    expect(c).toMatch(/Max-Age=300/);
+    expect(c).toMatch(/HttpOnly/i);
+    expect(c).toMatch(/SameSite=Lax/i);
+  });
+
+  it('setPendingRememberCookie writes 0 when rememberMe is false', () => {
+    const { res, headers } = mkRes();
+    setPendingRememberCookie(res, false);
+    expect(headers['set-cookie'][0]).toMatch(/^sb-pending-remember-me=0;/);
+  });
+
+  it('clearPendingRememberCookie expires the cookie', () => {
+    const { res, headers } = mkRes();
+    clearPendingRememberCookie(res);
+    expect(headers['set-cookie'][0]).toMatch(/Max-Age=0/);
   });
 
   it('clearAuthCookies emits Max-Age=0 for all auth cookies', () => {
