@@ -75,27 +75,63 @@ export function startSessionHeartbeat(opts: HeartbeatOptions): StopFn {
   }
 
   // --- Multi-tab leader election ---
-  // Each tab posts a claim with its random id and a timestamp; the highest id
-  // wins. This is best-effort (ties resolve quickly) and degrades gracefully if
-  // BroadcastChannel is unavailable (each tab heartbeats; refresh endpoint is
-  // idempotent enough that this is safe — just slightly wasteful).
+  // Each tab posts a claim with its random id; highest id wins. On stop, the
+  // leader posts a `resign` so survivors elect a new leader instead of being
+  // stuck pointing at a dead tab id (which would freeze the heartbeat for
+  // everyone — exactly the silent-logout bug this module is meant to prevent).
   const myId = Math.random().toString(36).slice(2);
   let leaderId = myId;
   let channel: BroadcastChannel | null = null;
+
+  const broadcastClaim = (): void => {
+    try {
+      channel?.postMessage({ type: 'leader-claim', id: myId });
+    } catch {
+      // Channel may have been closed — ignore.
+    }
+  };
+
   try {
     channel = new BroadcastChannel(CHANNEL_NAME);
     channel.onmessage = (e: MessageEvent) => {
       const data = e.data as { type?: string; id?: string } | undefined;
-      if (data?.type === 'leader-claim' && typeof data.id === 'string') {
-        if (data.id > leaderId) leaderId = data.id;
+      if (!data || typeof data.id !== 'string') return;
+      if (data.type === 'leader-claim') {
+        // Higher-id tab wins. If we lose, we step back to follower; if we're
+        // already higher, re-broadcast so the late-joiner learns about us.
+        if (data.id > leaderId) {
+          leaderId = data.id;
+        } else if (data.id < leaderId && leaderId === myId) {
+          broadcastClaim();
+        }
+      } else if (data.type === 'leader-resign' && data.id === leaderId) {
+        // Current leader stepping down — reset and re-elect.
+        leaderId = myId;
+        broadcastClaim();
       }
     };
-    channel.postMessage({ type: 'leader-claim', id: myId });
+    broadcastClaim();
   } catch {
     // BroadcastChannel not supported — proceed without leader election.
   }
 
   const isLeader = (): boolean => leaderId === myId;
+
+  // Best-effort logout: clears auth cookies server-side so the next visitor on
+  // this browser/URL doesn't auto-resume the session. We use sendBeacon when
+  // available so the request survives the navigation; fall back to fetch with
+  // keepalive otherwise.
+  const serverLogout = async (): Promise<void> => {
+    try {
+      if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+        navigator.sendBeacon('/api/auth/logout');
+        return;
+      }
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include', keepalive: true });
+    } catch {
+      // Logout is best-effort — never block the redirect on it.
+    }
+  };
 
   // --- Heartbeat tick ---
   const tick = async (): Promise<void> => {
@@ -104,7 +140,9 @@ export function startSessionHeartbeat(opts: HeartbeatOptions): StopFn {
 
     const idleFor = Date.now() - readLastActivity();
     if (idleFor >= idleMs) {
-      // Idle bounce — don't refresh, just send the user to the login screen.
+      // Idle bounce — clear cookies first so cookies aren't left valid on a
+      // shared computer after the redirect.
+      await serverLogout();
       window.location.href = logoutHref;
       return;
     }
@@ -127,6 +165,14 @@ export function startSessionHeartbeat(opts: HeartbeatOptions): StopFn {
     for (const ev of activityEvents) {
       document.removeEventListener(ev, onActivity);
     }
-    channel?.close();
+    if (channel) {
+      // Step down so a surviving tab can take over the heartbeat.
+      try {
+        if (isLeader()) channel.postMessage({ type: 'leader-resign', id: myId });
+      } catch {
+        // Channel may already be closed — ignore.
+      }
+      channel.close();
+    }
   };
 }

@@ -7,9 +7,12 @@ export const ACTIVE_COMPANY_COOKIE = 'active_company_id';
 // Pentest H6: holds the AAL1 GoTrue token between /login and /2fa-challenge.
 // HttpOnly + short TTL (5 min) — never exposed to JS or returned in response bodies.
 export const PENDING_MFA_COOKIE = 'sb-pending-mfa';
-// PRD-10 Layer 1: non-HttpOnly hint cookie that mirrors the rememberMe choice.
-// Read at /api/auth/refresh so a rotated refresh cookie keeps the user's original
-// "Keep me signed in" semantics (persistent vs browser-session).
+// PRD-10 Layer 1: hint cookie that mirrors the rememberMe choice.
+// Read at /api/auth/refresh so a rotated refresh cookie keeps the user's
+// original "Keep me signed in" semantics (persistent vs browser-session).
+// HttpOnly — the hint is only consumed server-side via parseCookies(req); making
+// it readable from JS would let an XSS payload set it to '1' and silently
+// upgrade a session-only login to a 30-day persistent one on next refresh.
 export const REMEMBER_ME_COOKIE = 'isaflow_remember_me';
 
 function isSecure(): boolean {
@@ -74,19 +77,19 @@ export function setAuthCookies(
 ): void {
   const domain = cookieDomain();
   const persistent = params.persistent ?? true;
-  // Access cookie always carries Max-Age — it expires on its own (≈1h) regardless.
-  appendSetCookie(
-    res,
-    `${ACCESS_COOKIE}=${params.accessToken}; ${cookieFlags(params.expiresIn, domain)}`
-  );
-  // Refresh cookie: 30d when persistent ("Keep me signed in"), browser-session when not.
+  // When not persistent ("Keep me signed in" unchecked), BOTH cookies must be
+  // session-only. If only the refresh cookie is session-only, a browser close
+  // and reopen within ~1h leaves the access cookie alive and the user signed
+  // in — contrary to user intent. The JWT's own `exp` claim is the upper
+  // bound on session length; cookie Max-Age is just for browser persistence.
+  const accessFlags = persistent ? cookieFlags(params.expiresIn, domain) : sessionCookieFlags(domain);
+  appendSetCookie(res, `${ACCESS_COOKIE}=${params.accessToken}; ${accessFlags}`);
+
   const refreshFlags = persistent ? cookieFlags(60 * 60 * 24 * 30, domain) : sessionCookieFlags(domain);
   appendSetCookie(res, `${REFRESH_COOKIE}=${params.refreshToken}; ${refreshFlags}`);
-  // Hint cookie (non-HttpOnly so refresh endpoint can read it via parseCookies on
-  // the request side; never used as a credential). Mirrors the persistent flag so
-  // /api/auth/refresh re-issues with the same TTL semantics.
-  const hintFlags = (persistent ? `Path=/; Max-Age=${60 * 60 * 24 * 30}` : `Path=/`) +
-    `; SameSite=Lax${isSecure() ? '; Secure' : ''}${domain ? `; Domain=${domain}` : ''}`;
+
+  // Hint cookie mirrors the persistent flag and is HttpOnly (server-only read).
+  const hintFlags = persistent ? cookieFlags(60 * 60 * 24 * 30, domain) : sessionCookieFlags(domain);
   appendSetCookie(res, `${REMEMBER_ME_COOKIE}=${persistent ? '1' : '0'}; ${hintFlags}`);
 }
 

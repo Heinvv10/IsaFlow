@@ -39,12 +39,34 @@ describe('cookies', () => {
     const cookies = headers['set-cookie'];
     expect(cookies.some((c) => c.startsWith('sb-access-token=a;'))).toBe(true);
     expect(cookies.some((c) => c.startsWith('sb-refresh-token=r;'))).toBe(true);
-    // access + refresh must be HttpOnly; hint cookie (REMEMBER_ME_COOKIE) is intentionally not
-    const credential = cookies.filter((c) => c.startsWith('sb-'));
-    for (const c of credential) {
+    // All cookies set by setAuthCookies (access, refresh, remember_me hint) must
+    // be HttpOnly + SameSite=Lax. The hint is HttpOnly because it's only consumed
+    // server-side at /api/auth/refresh; exposing it would let XSS upgrade a
+    // session-only login to a 30-day persistent one.
+    for (const c of cookies) {
       expect(c).toMatch(/HttpOnly/i);
       expect(c).toMatch(/SameSite=Lax/i);
     }
+  });
+
+  it('setAuthCookies with persistent=false emits session-only cookies (no Max-Age)', () => {
+    const { res, headers } = mkRes();
+    setAuthCookies(res, { accessToken: 'a', refreshToken: 'r', expiresIn: 3600, persistent: false });
+    const cookies = headers['set-cookie'];
+    // Both auth credentials AND the remember-me hint must be session-only.
+    // A Max-Age would survive browser close, defeating the rememberMe=false intent.
+    for (const c of cookies) {
+      expect(c).not.toMatch(/Max-Age=/i);
+      expect(c).toMatch(/HttpOnly/i);
+      expect(c).toMatch(/SameSite=Lax/i);
+    }
+  });
+
+  it('setAuthCookies with persistent=true gives the refresh cookie 30-day Max-Age', () => {
+    const { res, headers } = mkRes();
+    setAuthCookies(res, { accessToken: 'a', refreshToken: 'r', expiresIn: 3600, persistent: true });
+    const refresh = headers['set-cookie'].find((c) => c.startsWith('sb-refresh-token='));
+    expect(refresh).toMatch(/Max-Age=2592000/);
   });
 
   it('clearAuthCookies emits Max-Age=0 for all auth cookies', () => {

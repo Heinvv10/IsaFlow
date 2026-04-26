@@ -72,13 +72,22 @@ function buildRequest(options?: RequestInit): RequestInit & { headers: Headers }
   return { ...options, headers, credentials: 'include' };
 }
 
+/** Exact path match (ignores query string and hash) so siblings like
+ *  `/api/auth/refresh-token` aren't accidentally treated as the refresh
+ *  endpoint by a substring check.
+ */
+function isRefreshUrl(url: string): boolean {
+  const path = url.split(/[?#]/)[0];
+  return path === REFRESH_URL || path?.endsWith(REFRESH_URL) === true;
+}
+
 export async function apiFetch(url: string, options?: RequestInit): Promise<Response> {
   const init = buildRequest(options);
   const res = await fetch(url, init);
 
   // Pass through anything that isn't a 401, and never recurse into the refresh
   // endpoint itself (preventing redirect/refresh loops).
-  if (res.status !== 401 || url.includes(REFRESH_URL)) return res;
+  if (res.status !== 401 || isRefreshUrl(url)) return res;
 
   const refreshed = await refreshSession();
   if (!refreshed) {
