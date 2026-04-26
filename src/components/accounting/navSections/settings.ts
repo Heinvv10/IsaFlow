@@ -45,6 +45,12 @@ export const settingsTab: Tab = {
       ],
     },
     {
+      section: 'Developer',
+      items: [
+        { label: 'Personal Access Tokens', href: '/developer/personal-tokens' },
+      ],
+    },
+    {
       section: 'Group Consolidation',
       items: [
         { label: 'Group Dashboard', href: '/accounting/group' },
