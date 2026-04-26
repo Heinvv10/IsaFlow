@@ -24,4 +24,17 @@ describe('production admin redirect smoke', () => {
   it('uses the canonical admin host when production config is malformed', () => {
     expect(getAdminRedirectBase('not-a-url', 'production')).toBe('https://admin.isaflow.co.za');
   });
+
+  it('passes through a correctly configured production URL unchanged', () => {
+    expect(getAdminRedirectBase('https://admin.isaflow.co.za', 'production')).toBe('https://admin.isaflow.co.za');
+  });
+
+  it('falls back to canonical when production URL has wrong hostname', () => {
+    expect(getAdminRedirectBase('https://admin.isaflow.com.za', 'production')).toBe('https://admin.isaflow.co.za');
+  });
+
+  it('returns the configured URL unchanged in non-production environments', () => {
+    expect(getAdminRedirectBase('http://localhost:3200', 'development')).toBe('http://localhost:3200');
+    expect(getAdminRedirectBase('http://localhost:3200', 'test')).toBe('http://localhost:3200');
+  });
 });

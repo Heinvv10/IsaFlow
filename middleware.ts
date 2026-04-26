@@ -77,13 +77,15 @@ export function getAdminRedirectBase(
     const parsedAdminUrl = new URL(adminUrl);
     if (
       parsedAdminUrl.protocol !== 'https:' ||
-      parsedAdminUrl.hostname !== 'admin.isaflow.co.za' ||
-      ['localhost', '127.0.0.1', '::1'].includes(parsedAdminUrl.hostname)
+      parsedAdminUrl.hostname !== 'admin.isaflow.co.za'
     ) {
       return CANONICAL_ADMIN_URL;
     }
     return parsedAdminUrl.origin;
   } catch {
+    // URL constructor threw: NEXT_PUBLIC_ADMIN_URL is malformed (e.g. missing scheme).
+    // Edge runtime cannot reach @/lib/logger. validateEnv.ts catches this at boot in
+    // production. This is a deliberate fail-closed guard — not an accidental swallow.
     return CANONICAL_ADMIN_URL;
   }
 }
