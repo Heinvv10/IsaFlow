@@ -15,6 +15,11 @@ import {
 } from '@/modules/accounting/services/ap/eftService';
 
 type Row = Record<string, unknown>;
+type EFTAccountType = EFTPayment['beneficiaryAccountType'];
+
+function toEFTAccountType(value: unknown): EFTAccountType {
+  return value === 'savings' || value === 'transmission' || value === 'current' ? value : 'current';
+}
 
 const GENERATORS: Record<string, typeof generateStandardBankACB> = {
   standard_bank: generateStandardBankACB,
@@ -57,11 +62,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     actionDate: String(batches[0].payment_date || new Date().toISOString().split('T')[0]),
   };
 
-  const eftPayments: EFTPayment[] = payments.map((p: any) => ({
+  const eftPayments: EFTPayment[] = payments.map((p: Row) => ({
     beneficiaryName: String(p.supplier_name || ''),
     beneficiaryAccountNumber: String(p.bank_account_number || ''),
     beneficiaryBranchCode: String(p.bank_branch_code || ''),
-    beneficiaryAccountType: (p.bank_account_type || 'current') as any,
+    beneficiaryAccountType: toEFTAccountType(p.bank_account_type),
     amount: Number(p.amount || 0),
     reference: String(p.reference || p.id || ''),
     beneficiaryBank: String(p.bank_name || bank),

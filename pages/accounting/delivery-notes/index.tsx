@@ -76,8 +76,6 @@ export default function DeliveryNotesPage() {
     } finally { setDeleting(null); }
   };
 
-  const s = (n: DeliveryNote) => STATUS[n.status] ?? { label: n.status, cls: '' };
-
   return (
     <AppLayout>
       <div className="min-h-screen bg-slate-50 dark:bg-[var(--ff-bg-primary)]">

@@ -13,6 +13,12 @@ import type {
   StatutoryDocType,
 } from '@/modules/accounting/types/documentCapture.types';
 
+type CompanyDocumentRow = {
+  document_type: string;
+  document_name: string;
+  extracted_data: ExtractedStatutoryDoc | null;
+};
+
 // ---------------------------------------------------------------------------
 // Document type mapping
 // ---------------------------------------------------------------------------
@@ -47,12 +53,12 @@ export async function checkComplianceAlerts(companyId: string): Promise<Complian
 
   // Fetch all active statutory documents with extracted data
    
-  const docs = (await sql`
+  const docs = (await sql<CompanyDocumentRow>`
     SELECT document_type, document_name, extracted_data
     FROM company_documents
     WHERE company_id = ${companyId}::uuid AND is_active = true
     ORDER BY uploaded_at DESC
-  `) as Array<Record<string, any>>;
+  `);
 
   const docsByType = new Map<string, { name: string; extracted: ExtractedStatutoryDoc | null }>();
 

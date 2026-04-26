@@ -31,6 +31,20 @@ fi
 if sudo test -f /home/velo/isaflow/.env.local; then
   export NEXT_PUBLIC_APP_URL=$(sudo grep -E '^NEXT_PUBLIC_APP_URL=' /home/velo/isaflow/.env.local | tail -1 | cut -d= -f2-)
   export NEXT_PUBLIC_ADMIN_URL=$(sudo grep -E '^NEXT_PUBLIC_ADMIN_URL=' /home/velo/isaflow/.env.local | tail -1 | cut -d= -f2-)
+  if [ -z "$NEXT_PUBLIC_ADMIN_URL" ]; then
+    echo "ERROR: NEXT_PUBLIC_ADMIN_URL is missing from /home/velo/isaflow/.env.local"
+    exit 1
+  fi
+  case "$NEXT_PUBLIC_ADMIN_URL" in
+    http://localhost*|https://localhost*|http://127.0.0.1*|https://127.0.0.1*|http://[::1]*|https://[::1]*)
+      echo "ERROR: NEXT_PUBLIC_ADMIN_URL must not point at localhost for production builds: $NEXT_PUBLIC_ADMIN_URL"
+      exit 1
+      ;;
+  esac
+  if [ "$NEXT_PUBLIC_ADMIN_URL" != "https://admin.isaflow.co.za" ]; then
+    echo "ERROR: NEXT_PUBLIC_ADMIN_URL must be https://admin.isaflow.co.za for production builds: $NEXT_PUBLIC_ADMIN_URL"
+    exit 1
+  fi
   # instrumentation.ts runs validateEnv() during page-data collection. Without
   # these in the build env the build dies with a generic ENOENT on pages-manifest.
   export ENCRYPTION_KEY=$(sudo grep -E '^ENCRYPTION_KEY=' /home/velo/isaflow/.env.local | tail -1 | cut -d= -f2-)

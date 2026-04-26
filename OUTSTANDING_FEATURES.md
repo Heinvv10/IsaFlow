@@ -194,7 +194,7 @@ const LineChart = dynamic(() => import('recharts').then(m => m.LineChart), { ssr
 
 ## Verification Commands
 ```bash
-npx vitest run                    # All unit tests (expect 700+)
+bun run test:unit                 # All unit tests (requires Node >=20.12.0)
 npx tsc --noEmit                  # TypeScript clean
 bun run build                     # Production build
 npx playwright test tests/e2e/full-audit.spec.ts tests/e2e/workflow-audit.spec.ts  # E2E (253+ tests)

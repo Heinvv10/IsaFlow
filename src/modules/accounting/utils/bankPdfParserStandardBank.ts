@@ -77,7 +77,7 @@ function parseStandardBankColumnFormat(text: string): BankCsvParseResult {
       continue;
     }
 
-    const [, descRaw, _fee, debitRaw, creditRaw, dateRaw, balanceRaw] = m;
+    const [, descRaw, , debitRaw, creditRaw, dateRaw, balanceRaw] = m;
     const debit = parseNum(debitRaw!);
     const credit = parseNum(creditRaw!);
     const balance = parseNum(balanceRaw!);

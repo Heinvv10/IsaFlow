@@ -272,7 +272,7 @@ export async function sendEmailChase(
     lastInvoiceDate: toDateString(alertRow.exp_last_invoice_date as Date | string | null),
   };
 
-  const { subject, html, text } = composeChaseEmail(tmplInput);
+  const { subject, html } = composeChaseEmail(tmplInput);
 
   const result = await sendEmail({
     to: supplierEmail,

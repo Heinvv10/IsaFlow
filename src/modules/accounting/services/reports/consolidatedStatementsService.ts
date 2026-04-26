@@ -242,7 +242,15 @@ export async function getConsolidatedBalanceSheet(
       let entitySum = 0;
       for (const v of Object.values(raw.entities)) entitySum += v;
       raw.consolidatedAmount = entitySum + raw.eliminationAmount;
-      const { category, normalBalance: _nb, ...lineItem } = raw;
+      const { category } = raw;
+      const lineItem: ConsolidatedBSLineItem = {
+        groupAccountId: raw.groupAccountId,
+        accountCode: raw.accountCode,
+        accountName: raw.accountName,
+        entities: raw.entities,
+        eliminationAmount: raw.eliminationAmount,
+        consolidatedAmount: raw.consolidatedAmount,
+      };
       if (category === 'asset') assets.push(lineItem);
       else if (category === 'liability') liabilities.push(lineItem);
       else if (category === 'equity') equity.push(lineItem);

@@ -3,7 +3,7 @@
  * View purchase order information
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
@@ -53,12 +53,7 @@ export default function PurchaseOrderDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    if (!poId) return;
-    loadPO();
-  }, [poId]);
-
-  const loadPO = async () => {
+  const loadPO = useCallback(async () => {
     setLoading(true);
     try {
       const res = await apiFetch('/api/accounting/supplier-purchase-orders');
@@ -76,7 +71,12 @@ export default function PurchaseOrderDetailPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [poId]);
+
+  useEffect(() => {
+    if (!poId) return;
+    void loadPO();
+  }, [poId, loadPO]);
 
   if (loading) {
     return (

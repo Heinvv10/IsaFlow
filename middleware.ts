@@ -63,6 +63,30 @@ const ADMIN_PASSTHROUGH = [
 ];
 
 const ADMIN_URL = process.env.NEXT_PUBLIC_ADMIN_URL ?? 'https://admin.isaflow.co.za';
+const CANONICAL_ADMIN_URL = 'https://admin.isaflow.co.za';
+
+export function getAdminRedirectBase(
+  adminUrl = ADMIN_URL,
+  nodeEnv = process.env.NODE_ENV,
+): string {
+  if (nodeEnv !== 'production') {
+    return adminUrl;
+  }
+
+  try {
+    const parsedAdminUrl = new URL(adminUrl);
+    if (
+      parsedAdminUrl.protocol !== 'https:' ||
+      parsedAdminUrl.hostname !== 'admin.isaflow.co.za' ||
+      ['localhost', '127.0.0.1', '::1'].includes(parsedAdminUrl.hostname)
+    ) {
+      return CANONICAL_ADMIN_URL;
+    }
+    return parsedAdminUrl.origin;
+  } catch {
+    return CANONICAL_ADMIN_URL;
+  }
+}
 
 // Edge middleware gates admin-subdomain page navigation by cookie presence only.
 // Real super_admin enforcement lives in withPlatformAdmin (src/lib/auth/withPlatformAdmin.ts)
@@ -121,7 +145,7 @@ export async function middleware(request: NextRequest) {
   // ── Non-admin hosts: redirect /admin/* to admin subdomain ───────────────────
   if (pathname.startsWith('/admin')) {
     const adminPath = pathname.replace(/^\/admin/, '') || '/';
-    return NextResponse.redirect(`${ADMIN_URL}${adminPath}`);
+    return NextResponse.redirect(`${getAdminRedirectBase()}${adminPath}`);
   }
 
   // Allow public paths, static files, and API routes on main domains

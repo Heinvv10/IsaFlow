@@ -123,7 +123,7 @@ export function SetupGuideButton() {
 
       return next;
     });
-  }, [autoCompleted]);
+  }, []);
 
   if (!loaded) return null;
 

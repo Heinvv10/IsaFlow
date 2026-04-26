@@ -18,15 +18,6 @@ interface PO {
 
 const fmt = (n: number) => `R ${new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)}`;
 
-const STATUS: Record<string, string> = {
-  draft:              'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300',
-  submitted:          'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400',
-  approved:           'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400',
-  partially_received: 'bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400',
-  received:           'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400',
-  cancelled:          'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400',
-};
-
 const TABS = ['all', 'draft', 'submitted', 'approved', 'partially_received', 'received', 'cancelled'] as const;
 
 export default function PurchaseOrdersPage() {

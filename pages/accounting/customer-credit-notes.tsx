@@ -13,13 +13,6 @@ import { apiFetch } from '@/lib/apiFetch';
 const TABS = ['all', 'draft', 'approved', 'applied', 'cancelled'] as const;
 type Tab = typeof TABS[number];
 
-const STATUS: Record<string, { label: string; cls: string }> = {
-  draft:     { label: 'Draft',     cls: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300' },
-  approved:  { label: 'Approved',  cls: 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' },
-  applied:   { label: 'Applied',   cls: 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' },
-  cancelled: { label: 'Cancelled', cls: 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400' },
-};
-
 export default function CustomerCreditNotesPage() {
   const [creditNotes, setCreditNotes] = useState<CreditNote[]>([]);
   const [total, setTotal] = useState(0);
@@ -110,9 +103,7 @@ export default function CustomerCreditNotesPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {creditNotes.map(cn => {
-                    const sc = STATUS[cn.status];
-                    return (
+                  {creditNotes.map(cn => (
                       <tr key={cn.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors cursor-pointer" onClick={() => { window.location.href = `/accounting/credit-notes/${cn.id}`; }}>
                         <td className="px-5 py-3.5 font-mono text-amber-500 font-semibold">{cn.creditNoteNumber}</td>
                         <td className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{cn.clientName || '—'}</td>
@@ -122,8 +113,7 @@ export default function CustomerCreditNotesPage() {
                         <td className="px-5 py-3.5"><StatusPill status={cn.status} /></td>
                         <td className="px-4 py-3.5 text-right"><ChevronRight className="h-4 w-4 text-slate-500 dark:text-slate-400 ml-auto" /></td>
                       </tr>
-                    );
-                  })}
+                    ))}
                 </tbody>
               </table>
             )}

@@ -167,8 +167,6 @@ export default function CustomerSalesOrdersPage() {
     setDeleting(null); void load();
   };
 
-  const s = (o: SalesOrder) => STATUS[o.status] ?? { label: o.status, cls: '' };
-
   return (
     <AppLayout>
       <div className="min-h-screen bg-slate-50 dark:bg-[var(--ff-bg-primary)]">

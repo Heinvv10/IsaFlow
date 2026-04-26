@@ -9,6 +9,7 @@ import {
   useEffect,
   useRef,
   useCallback,
+  useMemo,
 } from 'react';
 import { useRouter } from 'next/router';
 import { Search, X, Clock, Zap } from 'lucide-react';
@@ -156,15 +157,16 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
   }, [onClose, router]);
 
   const showSearch = query.length >= 2;
-  const visibleRecent = recentItems.slice(0, 5);
+  const visibleRecent = useMemo(() => recentItems.slice(0, 5), [recentItems]);
 
-  const flatItems: Array<{ url: string; asResult?: SearchResult; asAction?: QuickAction }> =
+  const flatItems: Array<{ url: string; asResult?: SearchResult; asAction?: QuickAction }> = useMemo(() => (
     showSearch
       ? results.map(r => ({ url: r.url, asResult: r }))
       : [
           ...visibleRecent.map(r => ({ url: r.url, asResult: r })),
           ...actions.map(a => ({ url: a.url, asAction: a })),
-        ];
+        ]
+  ), [showSearch, results, visibleRecent, actions]);
 
   // Keyboard navigation
   useEffect(() => {

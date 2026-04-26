@@ -6,7 +6,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
-import { log } from '@/lib/logger';
 import { RefreshCw, AlertCircle, Loader2, X, CheckCircle2, Clock, Search } from 'lucide-react';
 
 interface SupplierExpectation {

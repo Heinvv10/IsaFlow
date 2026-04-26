@@ -13,7 +13,7 @@
  * NOT also wrap withCsrf, or the Bearer caller will get 403s.
  */
 
-import type { NextApiHandler, NextApiResponse, NextApiRequest } from 'next';
+import type { NextApiHandler, NextApiResponse } from 'next';
 import * as Sentry from '@sentry/nextjs';
 import pg from 'pg';
 import { als } from '@/lib/als';

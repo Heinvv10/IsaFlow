@@ -3,7 +3,7 @@
  * No auth required. Uses payment link token for access.
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { useCallback, useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 
@@ -39,15 +39,7 @@ export default function PortalPayPage() {
   const isSuccess = router.query.payment_status === 'success' || router.query.status === 'success';
   const isCancelled = router.query.payment_status === 'cancelled' || router.query.status === 'cancelled';
 
-  useEffect(() => {
-    if (!token || isSuccess || isCancelled) {
-      setLoading(false);
-      return;
-    }
-    fetchPaymentLink();
-  }, [token]);
-
-  const fetchPaymentLink = async () => {
+  const fetchPaymentLink = useCallback(async () => {
     try {
       const res = await fetch(`/api/portal/payment-link?token=${token}`);
       const json = await res.json();
@@ -61,7 +53,15 @@ export default function PortalPayPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
+
+  useEffect(() => {
+    if (!token || isSuccess || isCancelled) {
+      setLoading(false);
+      return;
+    }
+    void fetchPaymentLink();
+  }, [token, isSuccess, isCancelled, fetchPaymentLink]);
 
   const handlePayNow = () => {
     if (!data?.payfastFormData || !formRef.current) return;

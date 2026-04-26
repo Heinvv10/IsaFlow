@@ -65,13 +65,7 @@ export default function CustomerInvoiceDetailPage() {
     }
   }, []);
 
-  useEffect(() => {
-    if (!invoiceId) return;
-    loadInvoice();
-    void loadAdjacent(invoiceId as string);
-  }, [invoiceId]);
-
-  const loadInvoice = async () => {
+  const loadInvoice = useCallback(async () => {
     setLoading(true);
     try {
       const res = await apiFetch(`/api/accounting/customer-invoices-detail?id=${invoiceId}`);
@@ -79,7 +73,13 @@ export default function CustomerInvoiceDetailPage() {
       setInvoice(json.data || json);
     } catch { setError('Failed to load invoice'); }
     finally { setLoading(false); }
-  };
+  }, [invoiceId]);
+
+  useEffect(() => {
+    if (!invoiceId) return;
+    void loadInvoice();
+    void loadAdjacent(invoiceId as string);
+  }, [invoiceId, loadInvoice, loadAdjacent]);
 
   const handleAction = async (action: string) => {
     setActionLoading(action);

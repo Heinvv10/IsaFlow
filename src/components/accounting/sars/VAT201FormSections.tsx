@@ -51,7 +51,7 @@ interface TransactionTableProps {
   totalVat: number;
 }
 
-export function TransactionTable({ title, sectionColor, invoices, totalLabel, totalVat }: TransactionTableProps) {
+export function TransactionTable({ title, sectionColor, invoices, totalLabel }: TransactionTableProps) {
   const colorClasses = sectionColor === 'teal'
     ? { bg: 'bg-teal-500/5', text: 'text-teal-500', badge: 'bg-teal-500/10 text-teal-400', border: 'border-teal-500/20' }
     : { bg: 'bg-blue-500/5', text: 'text-blue-500', badge: 'bg-blue-500/10 text-blue-400', border: 'border-blue-500/20' };
