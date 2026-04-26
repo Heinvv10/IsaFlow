@@ -535,4 +535,22 @@ describe('autoMatchTransactions', () => {
       autoMatchTransactions(COMPANY_ID, BANK_ACCOUNT_ID)
     ).rejects.toThrow('connection refused');
   });
+
+  it('IDOR fix: passes companyId as a parameterised value in the bank_transactions SELECT', async () => {
+    // Verifies that the bank_transactions query is scoped by company_id and not
+    // just by bank_account_id, preventing cross-tenant transaction reads.
+    vi.mocked(sql).mockResolvedValueOnce([] as never); // empty → early return
+
+    await autoMatchTransactions(COMPANY_ID, BANK_ACCOUNT_ID);
+
+    // Inspect every value passed to sql() as a tagged-template parameter.
+    const allValues = sqlMock.mock.calls.flatMap((callArgs: unknown[]) => {
+      const [, ...values] = callArgs as [unknown, ...unknown[]];
+      return values.flat();
+    });
+    // Both the bank account ID AND the company ID must appear as parameterised
+    // values in the first (bank_transactions) query.
+    expect(allValues).toContain(BANK_ACCOUNT_ID);
+    expect(allValues).toContain(COMPANY_ID);
+  });
 });
