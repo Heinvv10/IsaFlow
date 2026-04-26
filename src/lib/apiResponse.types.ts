@@ -59,6 +59,7 @@ export enum ErrorCode {
   RATE_LIMIT = 'RATE_LIMIT',
   PAYLOAD_TOO_LARGE = 'PAYLOAD_TOO_LARGE',
   PAYMENT_REQUIRED = 'PAYMENT_REQUIRED',
+  INSUFFICIENT_SCOPE = 'INSUFFICIENT_SCOPE',
 
   // Server errors (500-599)
   INTERNAL_ERROR = 'INTERNAL_ERROR',
@@ -88,6 +89,7 @@ export const STATUS_CODE_MAP: Record<ErrorCode, number> = {
   [ErrorCode.RATE_LIMIT]: 429,
   [ErrorCode.PAYLOAD_TOO_LARGE]: 413,
   [ErrorCode.PAYMENT_REQUIRED]: 402,
+  [ErrorCode.INSUFFICIENT_SCOPE]: 403,
 
   // Server errors
   [ErrorCode.INTERNAL_ERROR]: 500,
