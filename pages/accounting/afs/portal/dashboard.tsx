@@ -7,7 +7,6 @@ import Head from 'next/head';
 import Link from 'next/link';
 import type { GetServerSidePropsContext, InferGetServerSidePropsType } from 'next';
 import { verifyPortalToken } from '@/lib/auth/portalJwt';
-import type { PortalSession } from '@/modules/accounting/services/afs/afsTypes';
 
 interface AfsDocument {
   id: string;
@@ -16,11 +15,6 @@ interface AfsDocument {
   document_type: string;
   status: string;
   created_at: string;
-}
-
-interface PageProps {
-  session: PortalSession;
-  documents: AfsDocument[];
 }
 
 export async function getServerSideProps(context: GetServerSidePropsContext) {

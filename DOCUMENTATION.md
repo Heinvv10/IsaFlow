@@ -107,9 +107,11 @@ ISAFlow is a standalone, production-grade accounting system built for South Afri
 ### Testing & Tooling
 | Technology | Version | Purpose |
 |---|---|---|
+| Node.js | >=20.12.0 | Runtime for Next.js, Vitest, and build tooling |
 | Playwright | 1.58.2 | E2E testing |
 | ESLint | 8.48.0 | Code linting |
-| Bun | - | Package manager & runtime |
+| Vitest | 4.1.2 | Unit test runner |
+| Bun | >=1.3.0 | Package manager & script runner |
 
 ---
 
@@ -1087,6 +1089,11 @@ All API routes follow the pattern `/api/accounting/*` and return standardised re
 
 ## 11. Configuration & Deployment
 
+### Local Runtime Requirements
+- Node.js `>=20.12.0` is required. Vitest 4/Rolldown imports `node:util` `styleText`, added in Node 20.12.0, so Node 20.11.x fails before tests start.
+- Bun `>=1.3.0` is required; `package.json` pins `packageManager` to `bun@1.3.2`.
+- Run `nvm use` from the repo root before `bun install` when using nvm-compatible tooling.
+
 ### Next.js Configuration (`next.config.js`)
 - `reactStrictMode: true`
 - `poweredByHeader: false`
@@ -1134,6 +1141,7 @@ bun run build        # Production build (4GB heap)
 bun run start        # Start production server
 bun run lint         # ESLint check
 bun run type-check   # TypeScript validation
+bun run test:unit    # Vitest unit tests (includes runtime preflight)
 bun run test:e2e     # Playwright E2E tests
 ```
 

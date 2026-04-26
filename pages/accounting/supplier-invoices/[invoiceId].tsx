@@ -3,7 +3,7 @@
  * PRD-060 Phase 2: View invoice, approve, match, cancel
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
@@ -46,12 +46,7 @@ export default function SupplierInvoiceDetailPage() {
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState({ invoiceNumber: '', dueDate: '', paymentTerms: '', notes: '' });
 
-  useEffect(() => {
-    if (!invoiceId) return;
-    loadInvoice();
-  }, [invoiceId]);
-
-  const loadInvoice = async () => {
+  const loadInvoice = useCallback(async () => {
     setIsLoading(true);
     try {
       const res = await apiFetch(`/api/accounting/supplier-invoices-detail?id=${invoiceId}`);
@@ -62,7 +57,12 @@ export default function SupplierInvoiceDetailPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [invoiceId]);
+
+  useEffect(() => {
+    if (!invoiceId) return;
+    void loadInvoice();
+  }, [invoiceId, loadInvoice]);
 
   const handleAction = async (action: string) => {
     if (!invoiceId) return;

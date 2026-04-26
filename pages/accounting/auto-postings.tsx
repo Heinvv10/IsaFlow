@@ -8,7 +8,7 @@
  * and reconciliation.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
@@ -56,6 +56,7 @@ const SOURCE_LABELS: Record<string, string> = {
 };
 
 const sourceLabel = (s: string) => SOURCE_LABELS[s] ?? s;
+const PAGE_SIZE = 100;
 
 function fmtR(n: number) {
   if (!n) return '—';
@@ -70,9 +71,8 @@ export default function AutoPostingsPage() {
   const [fromDate, setFromDate] = useState<string>('');
   const [toDate, setToDate] = useState<string>('');
   const [page, setPage] = useState(0);
-  const PAGE_SIZE = 100;
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -94,12 +94,11 @@ export default function AutoPostingsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [sourceFilter, fromDate, toDate, page]);
 
   useEffect(() => {
-    load();
-
-  }, [sourceFilter, fromDate, toDate, page]);
+    void load();
+  }, [load]);
 
   const totalPages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1;
 

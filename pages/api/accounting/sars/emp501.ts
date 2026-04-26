@@ -34,7 +34,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     ORDER BY month
   ` as Row[];
 
-  const monthlyData: EMP501MonthlyData[] = rows.map((r: any) => ({
+  const monthlyData: EMP501MonthlyData[] = rows.map((r: Row) => ({
     month: Number(r.month),
     paye: Number(r.paye),
     uif: Number(r.uif),

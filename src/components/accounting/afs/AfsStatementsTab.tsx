@@ -6,7 +6,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { BalanceSheetReport, BalanceSheetLineItem, IncomeStatementReport, IncomeStatementLineItem } from '@/modules/accounting/types/gl.report.types';
 import { formatCurrency } from '@/utils/formatters';
-import { Loader2, AlertCircle, ChevronDown, ChevronRight } from 'lucide-react';
+import { AlertCircle, ChevronDown, ChevronRight } from 'lucide-react';
 
 interface Props {
   periodStart: string;

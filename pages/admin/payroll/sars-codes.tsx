@@ -85,6 +85,7 @@ export default function AdminSarsCodesPage() {
 
   const [drawerCode, setDrawerCode] = useState<CodeRow | null>(null);
   const [importerOpen, setImporterOpen] = useState(false);
+  const didInitialLoadRef = useRef(false);
 
   const load = useCallback(async (year: number | null) => {
     setLoading(true);
@@ -108,7 +109,11 @@ export default function AdminSarsCodesPage() {
     }
   }, [search, category, statusFilter]);
 
-  useEffect(() => { void load(taxYear);   }, []);
+  useEffect(() => {
+    if (didInitialLoadRef.current) return;
+    didInitialLoadRef.current = true;
+    void load(taxYear);
+  }, [load, taxYear]);
 
   const onYearChange = (y: number) => { setTaxYear(y); void load(y); };
 

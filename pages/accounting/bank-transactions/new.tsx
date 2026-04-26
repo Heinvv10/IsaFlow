@@ -17,6 +17,21 @@ type VatCode = 'none' | 'standard' | 'zero_rated' | 'exempt';
 
 interface SelectOption { id: string; name: string; code?: string }
 interface BankAcct { id: string; accountCode: string; accountName: string; bankAccountNumber?: string | null }
+interface GlAccountOption {
+  id: string;
+  accountCode?: string | null;
+  code?: string | null;
+  accountName?: string | null;
+  name?: string | null;
+  accountSubtype?: string | null;
+}
+interface EntityOption {
+  id: string;
+  name?: string | null;
+  code?: string | null;
+  company_name?: string | null;
+  companyName?: string | null;
+}
 interface FormState {
   bankAccountId: string; date: string; reference: string; description: string;
   amount: string; allocationType: AllocType; contraAccountId: string; entityId: string; vatCode: VatCode;
@@ -30,6 +45,8 @@ const VAT_OPTIONS: { value: VatCode; label: string }[] = [
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
 const lbl = 'block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
 const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm';
+
+const asArray = <T,>(value: unknown): T[] => Array.isArray(value) ? value as T[] : [];
 
 export default function NewBankTransactionPage() {
   const router = useRouter();
@@ -57,24 +74,22 @@ export default function NewBankTransactionPage() {
       }),
       apiFetch('/api/accounting/chart-of-accounts').then(r => r.json()).then(json => {
         if (!mounted) return;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const list: any[] = Array.isArray(json.data ?? json) ? (json.data ?? json) : [];
+        const list = asArray<GlAccountOption>(json.data ?? json);
         setGlAccounts(list
           .filter(a => a.accountSubtype !== 'bank')
-          .map(a => ({ id: a.id, code: a.accountCode ?? a.code, name: a.accountName ?? a.name })));
+          .map(a => ({ id: a.id, code: a.accountCode ?? a.code ?? undefined, name: a.accountName ?? a.name ?? '' })));
       }),
       apiFetch('/api/accounting/suppliers-list?status=active').then(r => r.json()).then(json => {
         if (!mounted) return;
          
         const d = json.data ?? json;
-        const list: any[] = Array.isArray(d) ? d : (d.suppliers ?? []);
-        setSuppliers(list.map(s => ({ id: String(s.id), name: s.name, code: s.code })));
+        const list = Array.isArray(d) ? d as EntityOption[] : asArray<EntityOption>((d as { suppliers?: unknown }).suppliers);
+        setSuppliers(list.map(s => ({ id: String(s.id), name: s.name ?? '', code: s.code ?? undefined })));
       }),
       apiFetch('/api/accounting/customers').then(r => r.json()).then(json => {
         if (!mounted) return;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const list: any[] = Array.isArray(json.data) ? json.data : [];
-        setCustomers(list.map(c => ({ id: c.id, name: c.company_name ?? c.companyName ?? c.name ?? '' })));
+        const list = asArray<EntityOption>(json.data);
+        setCustomers(list.map(c => ({ id: String(c.id), name: c.company_name ?? c.companyName ?? c.name ?? '' })));
       }),
     ];
     Promise.allSettled(promises).finally(() => { if (mounted) setIsLoadingRef(false); });

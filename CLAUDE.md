@@ -4,6 +4,12 @@
 
 Next.js 14 + TypeScript accounting SaaS. Multi-tenant (every query scoped by `company_id`). Deployed to `app.isaflow.co.za`. Package manager: **bun**.
 
+## Runtime
+
+- Node.js `>=20.12.0` is required for local tooling and tests. Vitest 4/Rolldown imports `node:util` `styleText`, which is unavailable in Node 20.11.x and older.
+- Bun `>=1.3.0` is required. This repo pins `packageManager` to `bun@1.3.2`.
+- Use `.nvmrc` before installing dependencies: `nvm use` (or install `20.12.0` first).
+
 ## Critical Rules (ALL code, ALL agents)
 
 - **Multi-tenant**: ALWAYS add `company_id` to every DB query. Never return data across tenants.

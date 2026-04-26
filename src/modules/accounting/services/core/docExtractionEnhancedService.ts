@@ -40,6 +40,12 @@ export interface FieldConfidence {
   overall: number;
 }
 
+type ParsedVisionResponse = Partial<ExtractedDocFields> & {
+  lineItems?: unknown;
+};
+
+type ParsedLineItem = Partial<ExtractedDocFields['lineItems'][number]>;
+
 // ═══════════════════════════════════════════════════════════════════════════
 // SUPPLIER FUZZY MATCHING
 // ═══════════════════════════════════════════════════════════════════════════
@@ -188,7 +194,7 @@ export function parseClaudeVisionResponse(response: string): ExtractedDocFields 
       if (objMatch) jsonStr = objMatch[0];
     }
 
-    const parsed = JSON.parse(jsonStr);
+    const parsed = JSON.parse(jsonStr) as ParsedVisionResponse;
     return {
       vendorName: String(parsed.vendorName || ''),
       documentDate: String(parsed.documentDate || ''),
@@ -197,7 +203,7 @@ export function parseClaudeVisionResponse(response: string): ExtractedDocFields 
       vatAmount: Number(parsed.vatAmount || 0),
       totalAmount: Number(parsed.totalAmount || 0),
       vatRate: Number(parsed.vatRate || 15),
-      lineItems: Array.isArray(parsed.lineItems) ? parsed.lineItems.map((li: any) => ({
+      lineItems: Array.isArray(parsed.lineItems) ? parsed.lineItems.map((li: ParsedLineItem) => ({
         description: String(li.description || ''),
         quantity: Number(li.quantity || 0),
         unitPrice: Number(li.unitPrice || 0),

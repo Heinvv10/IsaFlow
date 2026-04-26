@@ -23,11 +23,6 @@ const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200
 const lbl = 'block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
 const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm';
 
-const STATUS: Record<string, { label: string; cls: string }> = {
-  processed: { label: 'Processed', cls: 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' },
-  pending:   { label: 'Pending',   cls: 'bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400' },
-};
-
 export default function SupplierReturnsPage() {
   const [returns, setReturns] = useState<SupplierReturn[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -115,7 +110,6 @@ export default function SupplierReturnsPage() {
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {returns.map(r => {
-                    const sc = STATUS[r.status] || { label: r.status, cls: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300' };
                     return (
                       <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
                         <td className="px-5 py-3.5 font-mono text-amber-500 font-semibold">{r.return_number}</td>

@@ -1,7 +1,8 @@
 /**
  * ISAFlow Demo Data Seeder
  * Populates the demo company with realistic SA FTTH accounting data.
- * FY2025 (Mar 2024 - Feb 2025), FY2026 (Mar 2025 - Feb 2026), FY2027 (Mar 2026 - Mar 2027)
+ * Generates a rolling 38-month demo window ending one month after today's month,
+ * so dashboard ageing, bank activity and open invoices stay realistic over time.
  *
  * Run with: npx tsx scripts/seed-demo-data.ts
  */
@@ -22,6 +23,8 @@ const sql = createSql(DATABASE_URL);
 
 const COMPANY_ID = '00000000-0000-0000-0000-000000000001';
 const ADMIN_ID   = 'a0000000-0000-0000-0000-000000000001';
+const DEMO_MONTHS_BACK = 36;
+const DEMO_MONTHS_FORWARD = 1;
 
 const CUSTOMERS = [
   { id: 'c1000000-0000-0000-0000-000000000001', name: 'VelocityFibre (Pty) Ltd' },
@@ -65,6 +68,10 @@ function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)]!;
 }
 
+function addMonths(date: Date, months: number): Date {
+  return new Date(date.getFullYear(), date.getMonth() + months, 1);
+}
+
 function monthDate(year: number, month: number, day?: number): string {
   const d = day ?? randInt(1, 25);
   return `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
@@ -82,24 +89,25 @@ function vatCalc(subtotal: number): { subtotal: number; taxAmount: number; total
   return { subtotal: s, taxAmount: t, total: s + t };
 }
 
-/** Growth factor: 15% YoY from FY2025 base. Seasonal: Dec/Jan -15% */
-function growthFactor(year: number, month: number, baseYear = 2024): number {
+/** Growth factor: 15% YoY from the rolling demo base. Seasonal: Dec/Jan -15% */
+function growthFactor(year: number, month: number, baseYear = addMonths(new Date(), -DEMO_MONTHS_BACK).getFullYear()): number {
   const yearsDiff = year - baseYear + (month >= 3 ? 0 : -1); // SA FY starts Mar
   const yoyFactor = Math.pow(1.15, Math.max(0, yearsDiff));
   const seasonal  = (month === 12 || month === 1) ? 0.85 : 1.0;
   return yoyFactor * seasonal;
 }
 
-/** Generate months from Mar 2024 to Mar 2027 inclusive */
+/** Generate a rolling month window around today. */
 function* monthRange(): Generator<{ year: number; month: number; label: string; idx: number }> {
-  let idx = 0;
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  for (let y = 2024; y <= 2027; y++) {
-    const startM = y === 2024 ? 3 : 1;
-    const endM   = y === 2027 ? 3 : 12;
-    for (let m = startM; m <= endM; m++) {
-      yield { year: y, month: m, label: `${months[m - 1]} ${y}`, idx: idx++ };
-    }
+  const today = new Date();
+  const start = addMonths(today, -DEMO_MONTHS_BACK);
+  const totalMonths = DEMO_MONTHS_BACK + DEMO_MONTHS_FORWARD + 1;
+  for (let idx = 0; idx < totalMonths; idx++) {
+    const d = addMonths(start, idx);
+    const year = d.getFullYear();
+    const month = d.getMonth() + 1;
+    yield { year, month, label: `${months[month - 1]} ${year}`, idx };
   }
 }
 
@@ -137,20 +145,25 @@ async function ensureFiscalPeriods(): Promise<void> {
   const monthNames = ['January','February','March','April','May','June',
                       'July','August','September','October','November','December'];
   const rows: Record<string, unknown>[] = [];
-  for (let y = 2024; y <= 2027; y++) {
-    for (let m = 1; m <= 12; m++) {
-      if (y === 2027 && m > 3) break;
-      const lastDay = new Date(y, m, 0).getDate();
-      rows.push({
-        period_name: `${monthNames[m - 1]} ${y}`,
-        period_number: m,
-        fiscal_year: y,
-        start_date: `${y}-${String(m).padStart(2,'0')}-01`,
-        end_date: `${y}-${String(m).padStart(2,'0')}-${lastDay}`,
-        status: y < 2026 || (y === 2026 && m <= 2) ? 'closed' : 'open',
-        company_id: COMPANY_ID,
-      });
-    }
+  const today = new Date();
+  const seen = new Set<string>();
+
+  for (const { year: y, month: m } of monthRange()) {
+    const key = `${y}-${m}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const lastDay = new Date(y, m, 0).getDate();
+    const isCurrentOrFuture = y > today.getFullYear() || (y === today.getFullYear() && m >= today.getMonth() + 1);
+    rows.push({
+      period_name: `${monthNames[m - 1]} ${y}`,
+      period_number: m,
+      fiscal_year: y,
+      start_date: `${y}-${String(m).padStart(2,'0')}-01`,
+      end_date: `${y}-${String(m).padStart(2,'0')}-${lastDay}`,
+      status: isCurrentOrFuture ? 'open' : 'closed',
+      company_id: COMPANY_ID,
+    });
   }
   await batchInsert('fiscal_periods', rows);
 }
@@ -787,7 +800,10 @@ async function seedSalesOrders(): Promise<void> {
 async function main(): Promise<void> {
   console.log('=== ISAFlow Demo Data Seeder ===');
   console.log(`Company: ${COMPANY_ID}`);
-  console.log('Range:   March 2024 → March 2027\n');
+  const months = [...monthRange()];
+  const first = months[0]!;
+  const last = months[months.length - 1]!;
+  console.log(`Range:   ${first.label} -> ${last.label}\n`);
 
   const gl = await resolveGlAccounts();
   const missing = ['1110','4100','4200','5100','5200','5600','5700','5800','1230'].filter(c => !gl[c]);
@@ -818,8 +834,8 @@ async function main(): Promise<void> {
   await seedSalesOrders();
 
   console.log('\n=== Seeding complete! ===');
-  const totalMonths = [...monthRange()].length;
-  console.log(`Covered ${totalMonths} months across FY2025, FY2026, FY2027.`);
+  const totalMonths = months.length;
+  console.log(`Covered ${totalMonths} rolling months.`);
 
   // Summary counts
   const [ciCount] = await sql.query(`SELECT COUNT(*) AS c FROM customer_invoices WHERE company_id = $1`, [COMPANY_ID]) as { c: string }[];
