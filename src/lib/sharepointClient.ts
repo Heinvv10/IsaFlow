@@ -120,12 +120,26 @@ interface GraphDriveItem {
   '@microsoft.graph.downloadUrl'?: string;
 }
 
-function itemToServerRelativeUrl(item: GraphDriveItem, siteUrl: string): string {
-  const parsed = new URL(siteUrl);
+// "Shared Documents" is the display name for the drive root in SharePoint URLs.
+// The Graph API drive root has no name — it maps to root/children, not root:/Shared Documents:/children.
+const DRIVE_ROOT_DISPLAY_NAME = 'Shared Documents';
+
+function itemDrivePath(item: GraphDriveItem): string {
   const parentPath = item.parentReference?.path ?? '';
-  // parentPath looks like: /drives/{driveId}/root:/Shared Documents/Invoices
-  const afterRoot = parentPath.replace(/^.*?root:/, '');
-  return `${parsed.pathname}${afterRoot}/${item.name}`;
+  // parentPath: /drives/{id}/root: (root) or /drives/{id}/root:/Invoices (subfolder)
+  const afterRoot = parentPath.replace(/^.*?root:/, '').replace(/^\//, '');
+  return afterRoot ? `${DRIVE_ROOT_DISPLAY_NAME}/${afterRoot}/${item.name}` : `${DRIVE_ROOT_DISPLAY_NAME}/${item.name}`;
+}
+
+function toDriveRelativePath(folderPath: string, sitePath: string): string {
+  let p = folderPath.trim();
+  // Strip full server-relative prefix e.g. /sites/VelocityFinance/Shared Documents/Invoices
+  if (p.startsWith(sitePath + '/')) p = p.slice(sitePath.length + 1);
+  else if (p.startsWith('/')) p = p.replace(/^\/[^/]+\/[^/]+\//, '');
+  // Strip the drive root display name — "Shared Documents" IS the drive root
+  if (p === DRIVE_ROOT_DISPLAY_NAME || p === '') return '';
+  if (p.startsWith(DRIVE_ROOT_DISPLAY_NAME + '/')) return p.slice(DRIVE_ROOT_DISPLAY_NAME.length + 1);
+  return p;
 }
 
 export async function listFolder(folderPath: string): Promise<SpFolderContents> {
@@ -133,24 +147,18 @@ export async function listFolder(folderPath: string): Promise<SpFolderContents> 
   const token = await getAccessToken();
   const driveId = await getDriveId();
 
-  // Normalize: strip leading /sites/... prefix so we get just the relative path within the drive
-  const parsed = new URL(siteUrl);
-  const sitePath = parsed.pathname.replace(/\/$/, '');
-  let relativePath = folderPath;
-  if (relativePath.startsWith(sitePath + '/')) {
-    relativePath = relativePath.slice(sitePath.length + 1);
-  } else if (relativePath.startsWith('/')) {
-    // full server-relative path from a different site prefix - strip leading /
-    relativePath = relativePath.replace(/^\/[^/]+\/[^/]+\//, '');
-  }
+  const sitePath = new URL(siteUrl).pathname.replace(/\/$/, '');
+  const relPath = toDriveRelativePath(folderPath, sitePath);
 
-  const encodedPath = relativePath.split('/').map(encodeURIComponent).join('/');
-  const url = `https://graph.microsoft.com/v1.0/drives/${driveId}/root:/${encodedPath}:/children?$top=200`;
+  // Empty relPath = drive root (the "Shared Documents" library itself)
+  const url = relPath
+    ? `https://graph.microsoft.com/v1.0/drives/${driveId}/root:/${relPath.split('/').map(encodeURIComponent).join('/')}:/children?$top=200`
+    : `https://graph.microsoft.com/v1.0/drives/${driveId}/root/children?$top=200`;
 
   const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   if (!res.ok) {
     const text = await res.text();
-    log.error('Graph folder list failed', { status: res.status, path: relativePath, body: text }, 'sharepoint');
+    log.error('Graph folder list failed', { status: res.status, path: relPath, body: text }, 'sharepoint');
     throw new Error(`SharePoint folder list failed: ${res.status}`);
   }
 
@@ -162,13 +170,13 @@ export async function listFolder(folderPath: string): Promise<SpFolderContents> 
     if (item.folder) {
       folders.push({
         name: item.name,
-        serverRelativeUrl: itemToServerRelativeUrl(item, siteUrl),
+        serverRelativeUrl: itemDrivePath(item),
         itemCount: item.folder.childCount,
       });
     } else {
       files.push({
         name: item.name,
-        serverRelativeUrl: itemToServerRelativeUrl(item, siteUrl),
+        serverRelativeUrl: itemDrivePath(item),
         size: item.size ?? 0,
         modified: item.lastModifiedDateTime ?? '',
         downloadUrl: item['@microsoft.graph.downloadUrl'],
@@ -186,16 +194,9 @@ export async function downloadFile(
   const token = await getAccessToken();
   const driveId = await getDriveId();
 
-  const parsed = new URL(siteUrl);
-  const sitePath = parsed.pathname.replace(/\/$/, '');
-  let relativePath = serverRelativeUrl;
-  if (relativePath.startsWith(sitePath + '/')) {
-    relativePath = relativePath.slice(sitePath.length + 1);
-  } else if (relativePath.startsWith('/')) {
-    relativePath = relativePath.replace(/^\/[^/]+\/[^/]+\//, '');
-  }
-
-  const encodedPath = relativePath.split('/').map(encodeURIComponent).join('/');
+  const sitePath = new URL(siteUrl).pathname.replace(/\/$/, '');
+  const relPath = toDriveRelativePath(serverRelativeUrl, sitePath);
+  const encodedPath = relPath.split('/').map(encodeURIComponent).join('/');
 
   // Get item metadata to find download URL
   const metaRes = await fetch(
