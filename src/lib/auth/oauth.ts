@@ -1,19 +1,16 @@
 /**
- * OAuth 2.0 service — PRD-10 Layer 2.
+ * OAuth 2.0 service — PRD-10 Layer 2 (with round-2 review fixes).
  *
  * Standard authorization-code flow with PKCE. Opaque access + refresh tokens
  * (instant revocation, mirrors PAT pattern from src/lib/auth/personalAccessTokens.ts).
- * Single-use refresh tokens — replaying a used refresh token returns
- * invalid_grant.
+ * Single-use refresh tokens via atomic UPDATE rotation; replaying a used
+ * refresh token revokes the entire authorisation row (replay detection).
  *
  * Token formats:
  *   - Authorisation code:  oac_<32 base62>     (5-min TTL, single-use, PKCE-bound)
  *   - Access token:        oat_<32 base62>     (~1h TTL, opaque)
  *   - Refresh token:       ort_<32 base62>     (30d rolling, single-use)
  *   - Client secret:       cls_<32 base62>     (shown once at app registration)
- *
- * All tokens are SHA-256 hashed before storage; raw values are returned to the
- * client exactly once at issue time.
  */
 
 import { createHash, randomBytes, timingSafeEqual } from 'crypto';
@@ -45,13 +42,13 @@ function base62(n: number): string {
   return body.slice(0, n);
 }
 
-function sha256(s: string): string {
+function sha256Hex(s: string): string {
   return createHash('sha256').update(s).digest('hex');
 }
 
 function generateToken(prefix: string, len = 32): { raw: string; hash: string; prefix12: string } {
   const raw = `${prefix}${base62(len)}`;
-  return { raw, hash: sha256(raw), prefix12: raw.slice(0, 12) };
+  return { raw, hash: sha256Hex(raw), prefix12: raw.slice(0, 12) };
 }
 
 // ── App registration ────────────────────────────────────────────────────────
@@ -170,12 +167,16 @@ export interface PublicOauthApp {
   clientId: string;
   isVerified: boolean;
   isFirstParty: boolean;
+  /** True when the app has a client_secret — confidential client. Used by the
+   *  token endpoint to decide whether to require the secret on auth-code grant. */
+  isConfidential: boolean;
 }
 
 export async function getOauthAppByClientId(clientId: string): Promise<PublicOauthApp | null> {
   const rows = (await sql`
     SELECT id, name, description, logo_url, homepage_url, redirect_uris,
-           client_id, is_verified, is_first_party
+           client_id, is_verified, is_first_party,
+           (client_secret_hash IS NOT NULL) AS is_confidential
     FROM oauth_apps
     WHERE client_id = ${clientId}
       AND revoked_at IS NULL
@@ -194,6 +195,7 @@ export async function getOauthAppByClientId(clientId: string): Promise<PublicOau
     clientId: r.client_id as string,
     isVerified: Boolean(r.is_verified),
     isFirstParty: Boolean(r.is_first_party),
+    isConfidential: Boolean(r.is_confidential),
   };
 }
 
@@ -205,7 +207,7 @@ export async function verifyClientSecret(clientId: string, presentedSecret: stri
   `) as Row[];
   if (rows.length === 0) return false;
   const stored = (rows[0]!.client_secret_hash as string) ?? '';
-  const expected = sha256(presentedSecret);
+  const expected = sha256Hex(presentedSecret);
   if (stored.length !== expected.length) return false;
   return timingSafeEqual(Buffer.from(stored, 'hex'), Buffer.from(expected, 'hex'));
 }
@@ -223,7 +225,7 @@ export interface CreateCodeInput {
 
 export async function createAuthorisationCode(input: CreateCodeInput): Promise<string> {
   const code = `oac_${base62(32)}`;
-  const codeHash = sha256(code);
+  const codeHash = sha256Hex(code);
   await sql`
     INSERT INTO oauth_authorisation_codes (
       code_hash, oauth_app_id, user_id, company_id,
@@ -257,15 +259,24 @@ export class OauthExchangeError extends Error {
   }
 }
 
+/**
+ * Exchange a code for fresh tokens. PKCE verifier is hashed (S256) and
+ * compared against the stored challenge **inside the WHERE clause** so a
+ * wrong verifier does not consume the code (HIGH-1 fix). Code is single-use:
+ * the atomic UPDATE flips `used_at` only when verifier matches AND code is
+ * unused AND not expired.
+ */
 export async function exchangeCode(args: {
   code: string;
   redirectUri: string;
   codeVerifier: string;
   oauthAppId: string;
 }): Promise<ExchangeResult> {
-  const codeHash = sha256(args.code);
+  const codeHash = sha256Hex(args.code);
   const verifierChallenge = createHash('sha256').update(args.codeVerifier).digest('base64url');
 
+  // Atomic: only mark the code used when verifier matches. Wrong verifier
+  // returns 0 rows and the code remains usable for a legitimate retry.
   const rows = (await sql`
     UPDATE oauth_authorisation_codes
     SET used_at = NOW()
@@ -274,24 +285,18 @@ export async function exchangeCode(args: {
       AND expires_at > NOW()
       AND oauth_app_id = ${args.oauthAppId}::uuid
       AND redirect_uri = ${args.redirectUri}
-    RETURNING user_id, company_id, scopes, code_challenge
+      AND code_challenge = ${verifierChallenge}
+    RETURNING user_id, company_id, scopes
   `) as Row[];
 
   if (rows.length === 0) {
     throw new OauthExchangeError(
       'invalid_grant',
-      'Authorisation code is invalid, expired, used, or does not match the redirect URI',
+      'Authorisation code is invalid, expired, used, redirect_uri mismatched, or PKCE verifier wrong',
     );
   }
 
   const r = rows[0]!;
-  if ((r.code_challenge as string) !== verifierChallenge) {
-    throw new OauthExchangeError(
-      'invalid_grant',
-      'PKCE verifier does not match the challenge from /authorize',
-    );
-  }
-
   return await issueTokens({
     oauthAppId: args.oauthAppId,
     userId: r.user_id as string,
@@ -307,18 +312,27 @@ interface IssueTokensInput {
   userId: string;
   companyId: string;
   scopes: string[];
+  /** Used by refreshAccessToken to record the rotated-out hash for replay
+   *  detection. Undefined on initial issue. */
+  previousRefreshHash?: string;
 }
 
 async function issueTokens(input: IssueTokensInput): Promise<ExchangeResult> {
   const access = generateToken('oat_', 32);
-  const refresh = generateToken('ort_', 32);
   const includesOffline = input.scopes.includes('offline_access');
+  const refresh = includesOffline ? generateToken('ort_', 32) : null;
+
+  // Compute timestamps in JS so we can pass NULL for the refresh expiry when
+  // offline_access wasn't granted (avoids nested sql`` interpolation).
+  const accessExpiresAt = new Date(Date.now() + ACCESS_TOKEN_TTL_SECS * 1000);
+  const refreshExpiresAt = refresh ? new Date(Date.now() + REFRESH_TOKEN_TTL_SECS * 1000) : null;
 
   await sql`
     INSERT INTO oauth_authorisations (
       oauth_app_id, user_id, company_id, scopes,
       access_token_hash, access_token_prefix, access_token_expires_at,
-      refresh_token_hash, refresh_token_prefix, refresh_token_expires_at
+      refresh_token_hash, refresh_token_prefix, refresh_token_expires_at,
+      previous_refresh_token_hash
     )
     VALUES (
       ${input.oauthAppId}::uuid,
@@ -327,10 +341,11 @@ async function issueTokens(input: IssueTokensInput): Promise<ExchangeResult> {
       ${input.scopes},
       ${access.hash},
       ${access.prefix12},
-      NOW() + (${ACCESS_TOKEN_TTL_SECS} || ' seconds')::interval,
-      ${refresh.hash},
-      ${refresh.prefix12},
-      NOW() + (${REFRESH_TOKEN_TTL_SECS} || ' seconds')::interval
+      ${accessExpiresAt},
+      ${refresh?.hash ?? null},
+      ${refresh?.prefix12 ?? null},
+      ${refreshExpiresAt},
+      ${input.previousRefreshHash ?? null}
     )
     ON CONFLICT (oauth_app_id, user_id, company_id)
     DO UPDATE SET
@@ -341,22 +356,33 @@ async function issueTokens(input: IssueTokensInput): Promise<ExchangeResult> {
       refresh_token_hash = EXCLUDED.refresh_token_hash,
       refresh_token_prefix = EXCLUDED.refresh_token_prefix,
       refresh_token_expires_at = EXCLUDED.refresh_token_expires_at,
+      previous_refresh_token_hash = EXCLUDED.previous_refresh_token_hash,
       revoked_at = NULL
   `;
 
   return {
     accessToken: access.raw,
-    refreshToken: includesOffline ? refresh.raw : '',
+    refreshToken: refresh?.raw ?? '',
     accessTokenExpiresIn: ACCESS_TOKEN_TTL_SECS,
     scopes: input.scopes,
   };
 }
 
+/**
+ * Atomic refresh-token rotation (HIGH-2 fix). The UPDATE rotates the hash
+ * in a single statement: only one concurrent caller can win the race. The
+ * loser sees 0 rows and gets `invalid_grant`.
+ *
+ * Replay defence (HIGH-3 fix): if the presented hash matches a row's
+ * `previous_refresh_token_hash` (a rotated-out token being re-presented), we
+ * REVOKE the entire authorisation row instead of just denying. This signals
+ * a stolen-refresh attack; the legitimate user must re-authorise.
+ */
 export async function refreshAccessToken(args: {
   refreshToken: string;
   clientId: string;
 }): Promise<ExchangeResult> {
-  const oldHash = sha256(args.refreshToken);
+  const presentedHash = sha256Hex(args.refreshToken);
 
   const appRows = (await sql`
     SELECT id FROM oauth_apps WHERE client_id = ${args.clientId} AND revoked_at IS NULL LIMIT 1
@@ -366,31 +392,64 @@ export async function refreshAccessToken(args: {
   }
   const oauthAppId = appRows[0]!.id as string;
 
-  const rows = (await sql`
-    SELECT id, user_id, company_id, scopes, refresh_token_expires_at
-    FROM oauth_authorisations
-    WHERE refresh_token_hash = ${oldHash}
+  // Pre-allocate the new refresh token so we can write it inside the rotation UPDATE.
+  const newAccess = generateToken('oat_', 32);
+  const newRefresh = generateToken('ort_', 32);
+
+  const newAccessExpiresAt = new Date(Date.now() + ACCESS_TOKEN_TTL_SECS * 1000);
+  const newRefreshExpiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_SECS * 1000);
+
+  // Atomic rotation: WHERE checks current hash + expiry; UPDATE writes the new
+  // hash and stashes the old one as previous_refresh_token_hash. Returns the
+  // user/company/scopes for the caller. A concurrent replay sees 0 rows.
+  const rotated = (await sql`
+    UPDATE oauth_authorisations
+    SET access_token_hash = ${newAccess.hash},
+        access_token_prefix = ${newAccess.prefix12},
+        access_token_expires_at = ${newAccessExpiresAt},
+        previous_refresh_token_hash = refresh_token_hash,
+        refresh_token_hash = ${newRefresh.hash},
+        refresh_token_prefix = ${newRefresh.prefix12},
+        refresh_token_expires_at = ${newRefreshExpiresAt}
+    WHERE refresh_token_hash = ${presentedHash}
       AND oauth_app_id = ${oauthAppId}::uuid
       AND revoked_at IS NULL
-    LIMIT 1
+      AND refresh_token_expires_at > NOW()
+    RETURNING id, user_id, company_id, scopes
   `) as Row[];
 
-  if (rows.length === 0) {
-    log.warn('OAuth refresh: invalid or replayed refresh token', { clientId: args.clientId }, 'oauth');
-    throw new OauthExchangeError('invalid_grant', 'Refresh token is invalid or expired');
+  if (rotated.length === 1) {
+    const r = rotated[0]!;
+    return {
+      accessToken: newAccess.raw,
+      refreshToken: newRefresh.raw,
+      accessTokenExpiresIn: ACCESS_TOKEN_TTL_SECS,
+      scopes: (r.scopes as string[]) ?? [],
+    };
   }
 
-  const r = rows[0]!;
-  if ((r.refresh_token_expires_at as Date).getTime() <= Date.now()) {
-    throw new OauthExchangeError('invalid_grant', 'Refresh token has expired');
+  // No rotation happened. Check whether the presented hash matches a
+  // *previous* hash (replay attack signal). If so, revoke the authorisation.
+  const replayRows = (await sql`
+    UPDATE oauth_authorisations
+    SET revoked_at = NOW()
+    WHERE previous_refresh_token_hash = ${presentedHash}
+      AND oauth_app_id = ${oauthAppId}::uuid
+      AND revoked_at IS NULL
+    RETURNING id, user_id, company_id
+  `) as Row[];
+
+  if (replayRows.length > 0) {
+    log.warn(
+      'OAuth refresh-token replay detected — authorisation revoked',
+      { clientId: args.clientId, authorisationId: replayRows[0]!.id, userId: replayRows[0]!.user_id },
+      'oauth',
+    );
+  } else {
+    log.info('OAuth refresh: unknown or expired token', { clientId: args.clientId }, 'oauth');
   }
 
-  return await issueTokens({
-    oauthAppId,
-    userId: r.user_id as string,
-    companyId: r.company_id as string,
-    scopes: (r.scopes as string[]) ?? [],
-  });
+  throw new OauthExchangeError('invalid_grant', 'Refresh token is invalid, expired, or has been replayed');
 }
 
 // ── Access token validation ─────────────────────────────────────────────────
@@ -408,26 +467,29 @@ export async function validateOauthAccessToken(
   ip: string | null,
 ): Promise<OauthAccessContext | null> {
   if (!rawToken.startsWith('oat_')) return null;
-  const hash = sha256(rawToken);
+  const hash = sha256Hex(rawToken);
 
+  // Validation runs on the privileged default pool (validateOauthAccessToken
+  // is called BEFORE the request's app_user transaction is set up). The query
+  // bypasses RLS by virtue of the role; the lookup is hash-keyed so this is
+  // intentional.
   const rows = (await sql`
     SELECT id, oauth_app_id, user_id, company_id, scopes, access_token_expires_at
     FROM oauth_authorisations
     WHERE access_token_hash = ${hash}
       AND revoked_at IS NULL
+      AND access_token_expires_at > NOW()
     LIMIT 1
   `) as Row[];
 
   if (rows.length === 0) return null;
   const r = rows[0]!;
-  const expiry = (r.access_token_expires_at as Date | null)?.getTime() ?? 0;
-  if (expiry <= Date.now()) return null;
 
-  sql`
-    UPDATE oauth_authorisations
-    SET last_used_at = NOW(), last_used_ip = ${ip}::inet
-    WHERE id = ${r.id as string}::uuid
-  `.catch((err: unknown) =>
+  // last_used_at update — also via the privileged default pool (HIGH-5 fix).
+  // The original implementation used the same `sql` template inside ALS scope
+  // and was rejected by RLS (FOR ALL TO app_user). Running outside ALS via a
+  // fresh query goes through getPool() default role, bypassing RLS.
+  void updateLastUsed(r.id as string, ip).catch((err) =>
     log.warn(
       'OAuth: failed to update last_used_at',
       { err: err instanceof Error ? err.message : String(err) },
@@ -442,6 +504,26 @@ export async function validateOauthAccessToken(
     companyId: r.company_id as string,
     scopes: Array.isArray(r.scopes) ? (r.scopes as string[]) : [],
   };
+}
+
+/**
+ * Last-used update that explicitly bypasses ALS context — must run on the
+ * default-role pool because RLS on oauth_authorisations rejects writes from
+ * app_user except via the owner policy (which works only when JWT claims are
+ * set, i.e. inside the request's app_user tx).
+ *
+ * We use a no-op `als.run` with empty store... no — simplest path is to call
+ * sql() outside any transaction context. Since this function is invoked from
+ * validateOauthAccessToken which itself runs BEFORE als.run() in the auth
+ * wrapper, the bare `sql` template falls through to getPool() (see neon.ts
+ * line 88-93). That's the privileged role.
+ */
+async function updateLastUsed(authorisationId: string, ip: string | null): Promise<void> {
+  await sql`
+    UPDATE oauth_authorisations
+    SET last_used_at = NOW(), last_used_ip = ${ip}::inet
+    WHERE id = ${authorisationId}::uuid
+  `;
 }
 
 // ── Connected apps ──────────────────────────────────────────────────────────

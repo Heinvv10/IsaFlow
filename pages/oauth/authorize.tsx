@@ -16,6 +16,8 @@ import type { GetServerSideProps } from 'next';
 import { ShieldCheck, AlertTriangle, Loader2, Check } from 'lucide-react';
 import { getOauthAppByClientId, OAUTH_SCOPES } from '@/lib/auth/oauth';
 import { apiFetch } from '@/lib/apiFetch';
+import { parseCookies, ACCESS_COOKIE } from '@/lib/auth/cookies';
+import { verifyToken } from '@/lib/auth/gotrue';
 
 interface ConsentApp {
   name: string;
@@ -215,6 +217,22 @@ export default function AuthorizePage(props: Props | ErrorProps) {
 const VALID_SCOPES = new Set<string>(OAUTH_SCOPES);
 
 export const getServerSideProps: GetServerSideProps<Props | ErrorProps> = async (ctx) => {
+  // Auth gate — if the user has no valid session cookie, bounce to /login
+  // with a returnTo so they come straight back here after signing in.
+  const cookies = parseCookies(ctx.req as unknown as Parameters<typeof parseCookies>[0]);
+  const accessToken = cookies[ACCESS_COOKIE];
+  let authenticated = false;
+  if (accessToken) {
+    try {
+      await verifyToken(accessToken);
+      authenticated = true;
+    } catch { /* fall through to login redirect */ }
+  }
+  if (!authenticated) {
+    const url = ctx.resolvedUrl ?? '/oauth/authorize';
+    return { redirect: { destination: `/login?returnTo=${encodeURIComponent(url)}`, permanent: false } };
+  }
+
   const q = ctx.query;
   const clientId = typeof q.client_id === 'string' ? q.client_id : '';
   const redirectUri = typeof q.redirect_uri === 'string' ? q.redirect_uri : '';
