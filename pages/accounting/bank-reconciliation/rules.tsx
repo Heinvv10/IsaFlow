@@ -65,6 +65,8 @@ export default function BankRulesPage() {
     ruleName: '', matchField: 'description', matchType: 'contains',
     matchPattern: '', glAccountId: '', supplierId: '', clientId: '', vatCode: '',
     descriptionTemplate: '', priority: '100',
+    // Suggest-only by default. Auto-post is an explicit opt-in.
+    autoCreateEntry: false,
   });
 
   const load = useCallback(async () => {
@@ -169,7 +171,7 @@ export default function BankRulesPage() {
     : rules;
 
   const resetForm = () => {
-    setForm({ ruleName: '', matchField: 'description', matchType: 'contains', matchPattern: '', glAccountId: '', supplierId: '', clientId: '', vatCode: 'none', descriptionTemplate: '', priority: '100' });
+    setForm({ ruleName: '', matchField: 'description', matchType: 'contains', matchPattern: '', glAccountId: '', supplierId: '', clientId: '', vatCode: 'none', descriptionTemplate: '', priority: '100', autoCreateEntry: false });
     setEditingRule(null);
     setShowForm(false);
     setPreviewCount(null);
@@ -187,6 +189,7 @@ export default function BankRulesPage() {
       vatCode: rule.vatCode || 'none',
       descriptionTemplate: rule.descriptionTemplate || '',
       priority: String(rule.priority),
+      autoCreateEntry: Boolean(rule.autoCreateEntry),
     });
     setEditingRule(rule);
     setShowForm(true);
@@ -198,12 +201,14 @@ export default function BankRulesPage() {
     try {
       const payload = {
         ruleName: form.ruleName, matchField: form.matchField, matchType: form.matchType,
-        matchPattern: form.matchPattern, glAccountId: form.glAccountId,
+        matchPattern: form.matchPattern,
+        glAccountId: form.glAccountId || undefined,
         supplierId: form.supplierId || undefined,
         clientId: form.clientId || undefined,
         descriptionTemplate: form.descriptionTemplate || undefined,
         priority: Number(form.priority) || 100,
         vatCode: form.vatCode || 'none',
+        autoCreateEntry: form.autoCreateEntry,
       };
 
       if (editingRule) {
@@ -261,7 +266,12 @@ export default function BankRulesPage() {
               <div className="p-2 rounded-lg bg-yellow-500/10"><Zap className="h-6 w-6 text-yellow-500" /></div>
               <div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Categorisation Rules</h1>
-                <p className="text-sm text-[var(--ff-text-secondary)]">Auto-categorise bank transactions by pattern matching</p>
+                <p className="text-sm text-[var(--ff-text-secondary)]">
+                  Auto-categorise bank transactions by pattern matching.{' '}
+                  <span className="text-[var(--ff-text-muted)]">
+                    Suggest rules attach a category for review; auto-post rules also post a journal entry.
+                  </span>
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -287,11 +297,21 @@ export default function BankRulesPage() {
                 </button>
               )}
               <button
-                onClick={() => doAction('apply', undefined, { bankAccountId: selectedBankId })}
+                onClick={() => {
+                  const confirmMsg =
+                    'Run all active rules against this bank account?\n\n' +
+                    '• Suggest rules will attach a category to matching transactions for your review.\n' +
+                    '• Auto-post rules will also post journal entries to the GL.\n\n' +
+                    'Already-categorised transactions are skipped.';
+                  if (typeof window !== 'undefined' && !window.confirm(confirmMsg)) return;
+                  void doAction('apply', undefined, { bankAccountId: selectedBankId });
+                }}
                 disabled={!!busy || !selectedBankId}
+                title="Run all active rules. Auto-post rules will create journal entries; suggest rules attach a category for review."
+                aria-label="Run rules now"
                 className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium disabled:opacity-50"
               >
-                {busy === 'apply' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} Apply Rules
+                {busy === 'apply' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} Run rules now
               </button>
               <button onClick={() => { resetForm(); setShowForm(v => !v); }} className="inline-flex items-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 text-sm font-medium">
                 <Plus className="h-4 w-4" /> New Rule
@@ -334,7 +354,7 @@ export default function BankRulesPage() {
                     <p className="mt-1 text-xs text-[var(--ff-text-tertiary)]">
                       {previewCount === null ? 'Checking matches…' : (
                         <span className={previewCount > 0 ? 'text-teal-400' : 'text-[var(--ff-text-tertiary)]'}>
-                          {previewCount} transaction{previewCount !== 1 ? 's' : ''} match
+                          {previewCount} unreviewed transaction{previewCount !== 1 ? 's' : ''} would match
                         </span>
                       )}
                     </p>
@@ -380,6 +400,22 @@ export default function BankRulesPage() {
                 </select>
                 <input value={form.descriptionTemplate} onChange={e => setForm(f => ({ ...f, descriptionTemplate: e.target.value }))} className="ff-input" placeholder="Description template (optional)" />
               </div>
+              {/* Effect toggle. Suggest-only by default; auto-post is an explicit
+                  opt-in because it creates and posts a journal entry on every match. */}
+              <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)]/40 p-3">
+                <input
+                  type="checkbox"
+                  checked={form.autoCreateEntry}
+                  onChange={e => setForm(f => ({ ...f, autoCreateEntry: e.target.checked }))}
+                  className="mt-0.5 accent-amber-500"
+                />
+                <span className="text-xs text-[var(--ff-text-secondary)]">
+                  Auto-post journal entries when this rule matches
+                  <span className="mt-0.5 block text-[11px] text-[var(--ff-text-muted)]">
+                    Off (Suggest): rule attaches a category for review only. On (Auto-post): rule also posts a journal entry on every match — confirm the GL account / supplier / customer is correct.
+                  </span>
+                </span>
+              </label>
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={resetForm} className="px-4 py-2 text-sm text-[var(--ff-text-secondary)]">Cancel</button>
                 <button type="submit" disabled={busy === 'new'} className="px-6 py-2 bg-yellow-600 text-white rounded-lg text-sm font-medium disabled:opacity-50">
@@ -432,14 +468,15 @@ export default function BankRulesPage() {
                 <th className="px-4 py-3">GL Account</th>
                 <th className="px-4 py-3">Supplier / Customer</th>
                 <th className="px-4 py-3">VAT</th>
+                <th className="px-4 py-3">Effect</th>
                 <th className="px-4 py-3">Priority</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Actions</th>
               </tr></thead>
               <tbody>
-                {loading && <tr><td colSpan={10} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">Loading...</td></tr>}
-                {!loading && rules.length === 0 && <tr><td colSpan={10} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">No rules configured. Create one to auto-categorise bank transactions.</td></tr>}
-                {!loading && rules.length > 0 && filteredRules.length === 0 && <tr><td colSpan={10} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">No rules match &ldquo;{search}&rdquo;</td></tr>}
+                {loading && <tr><td colSpan={11} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">Loading...</td></tr>}
+                {!loading && rules.length === 0 && <tr><td colSpan={11} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">No rules configured. Create one to auto-categorise bank transactions.</td></tr>}
+                {!loading && rules.length > 0 && filteredRules.length === 0 && <tr><td colSpan={11} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">No rules match &ldquo;{search}&rdquo;</td></tr>}
                 {filteredRules.map(rule => (
                   <tr key={rule.id} className={`border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50 ${selected.has(rule.id) ? 'bg-yellow-500/5' : ''}`}>
                     <td className="px-3 py-3">
@@ -476,6 +513,11 @@ export default function BankRulesPage() {
                         ? <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-500/10 text-blue-400">{VAT_LABELS[rule.vatCode]}</span>
                         : <span className="text-[var(--ff-text-tertiary)] text-xs">—</span>}
                     </td>
+                    <td className="px-4 py-3">
+                      {rule.autoCreateEntry
+                        ? <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-400" title="Posts a journal entry when matched">Auto-post</span>
+                        : <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-sky-500/10 text-sky-400" title="Attaches a category for review only">Suggest</span>}
+                    </td>
                     <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{rule.priority}</td>
                     <td className="px-4 py-3">
                       <span className={`px-2 py-0.5 rounded text-xs font-medium ${rule.isActive ? 'bg-teal-500/10 text-teal-400' : 'bg-gray-500/10 text-gray-400'}`}>
@@ -484,13 +526,13 @@ export default function BankRulesPage() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
-                        <button onClick={() => handleEdit(rule)} disabled={!!busy} className="p-1 text-[var(--ff-text-secondary)] hover:text-yellow-400" title="Edit">
+                        <button onClick={() => handleEdit(rule)} disabled={!!busy} className="p-1 text-[var(--ff-text-secondary)] hover:text-yellow-400" title="Edit rule" aria-label={`Edit rule: ${rule.ruleName}`}>
                           <Pencil className="h-4 w-4" />
                         </button>
-                        <button onClick={() => doAction('toggle', rule.id, { isActive: !rule.isActive })} disabled={busy === rule.id} className="p-1 text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]" title={rule.isActive ? 'Disable' : 'Enable'}>
+                        <button onClick={() => doAction('toggle', rule.id, { isActive: !rule.isActive })} disabled={busy === rule.id} className="p-1 text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]" title={rule.isActive ? 'Disable rule' : 'Enable rule'} aria-label={`${rule.isActive ? 'Disable' : 'Enable'} rule: ${rule.ruleName}`}>
                           {rule.isActive ? <ToggleRight className="h-4 w-4 text-teal-400" /> : <ToggleLeft className="h-4 w-4" />}
                         </button>
-                        <button onClick={() => doAction('delete', rule.id)} disabled={busy === rule.id} className="p-1 text-red-400 hover:text-red-300" title="Delete">
+                        <button onClick={() => doAction('delete', rule.id)} disabled={busy === rule.id} className="p-1 text-red-400 hover:text-red-300" title="Delete rule" aria-label={`Delete rule: ${rule.ruleName}`}>
                           {busy === rule.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                         </button>
                       </div>

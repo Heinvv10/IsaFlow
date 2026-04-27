@@ -34,8 +34,10 @@ export default function NewPayrollRunPage() {
         body: JSON.stringify({ month, year }),
       });
       if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.error || `HTTP ${res.status}`);
+        const j = await res.json().catch(() => ({} as Record<string, unknown>));
+        const errObj = (j as { error?: { message?: string } | string }).error;
+        const msg = typeof errObj === 'string' ? errObj : errObj?.message;
+        throw new Error(msg || `Server error (HTTP ${res.status})`);
       }
       const json = await res.json();
       const created = json.data ?? json;

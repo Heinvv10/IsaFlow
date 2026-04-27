@@ -82,7 +82,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       } catch { /* no budgets */ }
     }
 
-    // Get actual GL balances for expense and revenue accounts
+    // Get actual GL balances for expense and revenue accounts. We don't filter
+    // by ga.level — many companies don't populate the hierarchy fully and that
+    // filter previously returned an empty list. Accounts that are themselves
+    // headers (have children) will simply post as zero and fall out via the
+    // empty-state filter below.
     const actuals = await sql`
       SELECT
         ga.id, ga.account_code, ga.account_name, ga.account_type,
@@ -99,8 +103,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         AND je.status = 'posted' AND je.company_id = ${companyId}::UUID
         AND je.entry_date >= ${startDate}
         AND je.entry_date <= ${endDate}
-      WHERE ga.level = 3
-        AND ga.is_active = true
+      WHERE ga.is_active = true
         AND ga.company_id = ${companyId}
         AND ga.account_type IN ('expense', 'revenue')
       GROUP BY ga.id, ga.account_code, ga.account_name, ga.account_type

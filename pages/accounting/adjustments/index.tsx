@@ -45,10 +45,16 @@ export default function AdjustmentsPage() {
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
-    const url = entityType === 'supplier' ? '/api/suppliers' : '/api/clients';
+    const url = entityType === 'supplier'
+      ? '/api/accounting/suppliers-list'
+      : '/api/accounting/customers';
     apiFetch(url).then(r => r.json()).then(res => {
       const d = res.data || res;
-      setEntities(Array.isArray(d) ? d : d.clients || d.suppliers || []);
+      setEntities(
+        Array.isArray(d)
+          ? d
+          : d.clients || d.customers || d.suppliers || d.items || [],
+      );
     });
   }, [entityType]);
 
