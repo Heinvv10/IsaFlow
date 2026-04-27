@@ -1,6 +1,7 @@
 /**
  * Supplier Invoice Detail Page
- * PRD-060 Phase 2: View invoice, approve, match, cancel
+ * PRD-060 Phase 2: View invoice, approve, match, cancel.
+ * Actions grouped by workflow: Documents / Pay / Accounting / More.
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -16,6 +17,9 @@ import { AccountingDocumentPanel } from '@/modules/accounting/documents';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
 import { ThreeWayMatchPanel } from '@/components/accounting/ap/ThreeWayMatchPanel';
+import { InvoiceActionBar } from '@/components/invoices/InvoiceActionBar';
+import type { InvoiceActionGroup } from '@/components/invoices/InvoiceActionBar';
+import type { ActionMenuItem } from '@/components/ui/ActionMenu';
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -45,6 +49,7 @@ export default function SupplierInvoiceDetailPage() {
   const [actionLoading, setActionLoading] = useState('');
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState({ invoiceNumber: '', dueDate: '', paymentTerms: '', notes: '' });
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
   const loadInvoice = useCallback(async () => {
     setIsLoading(true);
@@ -85,6 +90,22 @@ export default function SupplierInvoiceDetailPage() {
     }
   };
 
+  const handleSaveEdit = async () => {
+    setActionLoading('save');
+    try {
+      await apiFetch('/api/accounting/supplier-invoices-detail', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: invoiceId, ...editForm }),
+      });
+      setEditing(false);
+      await loadInvoice();
+    } catch {
+      setError('Save failed');
+    }
+    setActionLoading('');
+  };
+
   if (isLoading) {
     return (
       <AppLayout>
@@ -117,15 +138,127 @@ export default function SupplierInvoiceDetailPage() {
   const canMatch = !!invoice.purchaseOrderId;
   const canRecordPayment = ['approved', 'partially_paid'].includes(invoice.status) && invoice.balance > 0;
 
+  // ── Action groups ────────────────────────────────────────────────────────────
+
+  const documentsGroup: InvoiceActionGroup = {
+    label: 'Documents',
+    actions: [
+      {
+        label: 'Download PDF',
+        icon: <Download className="h-4 w-4" />,
+        onClick: () => {
+          window.open(`/api/accounting/supplier-invoice-pdf?invoiceId=${String(invoiceId)}`, '_blank');
+        },
+        variant: 'secondary',
+      },
+      ...(canEdit && !editing
+        ? [{
+            label: 'Edit',
+            icon: <Pencil className="h-4 w-4" />,
+            onClick: () => {
+              setEditing(true);
+              setEditForm({
+                invoiceNumber: invoice.invoiceNumber,
+                dueDate: invoice.dueDate || '',
+                paymentTerms: invoice.paymentTerms || '',
+                notes: invoice.notes || '',
+              });
+            },
+            variant: 'secondary' as const,
+          }]
+        : []),
+      ...(editing
+        ? [{
+            label: actionLoading === 'save' ? 'Saving...' : 'Save',
+            icon: <Save className="h-4 w-4" />,
+            onClick: () => { void handleSaveEdit(); },
+            disabled: !!actionLoading,
+            loading: actionLoading === 'save',
+            variant: 'primary' as const,
+          }]
+        : []),
+    ],
+  };
+
+  const payGroup: InvoiceActionGroup = {
+    label: 'Pay',
+    actions: [
+      ...(canMatch
+        ? [{
+            label: actionLoading === 'match' ? 'Matching...' : '3-Way Match',
+            icon: <Link2 className="h-4 w-4" />,
+            onClick: () => { void handleAction('match'); },
+            disabled: !!actionLoading,
+            loading: actionLoading === 'match',
+            variant: 'secondary' as const,
+          }]
+        : []),
+      ...(canApprove
+        ? [{
+            label: actionLoading === 'approve' ? 'Approving...' : 'Approve & Post GL',
+            icon: <CheckCircle2 className="h-4 w-4" />,
+            onClick: () => { void handleAction('approve'); },
+            disabled: !!actionLoading,
+            loading: actionLoading === 'approve',
+            variant: 'primary' as const,
+          }]
+        : []),
+      ...(canRecordPayment
+        ? [{
+            label: 'Record Payment',
+            icon: <CreditCard className="h-4 w-4" />,
+            onClick: () => {
+              void router.push(
+                `/accounting/supplier-payments/new?invoiceId=${String(invoiceId)}&supplierId=${invoice.supplierId}&amount=${invoice.balance.toFixed(2)}`,
+              );
+            },
+            variant: 'primary' as const,
+          }]
+        : []),
+    ],
+  };
+
+  const accountingGroup: InvoiceActionGroup = {
+    label: 'Accounting',
+    actions: invoice.glJournalEntryId
+      ? [{
+          label: 'View GL Entry',
+          icon: <FileText className="h-4 w-4" />,
+          onClick: () => { void router.push(`/accounting/journal-entries/${invoice.glJournalEntryId}`); },
+          variant: 'secondary' as const,
+        }]
+      : [],
+  };
+
+  const overflowActions: ActionMenuItem[] = [
+    ...(canCancel
+      ? [{
+          label: 'Cancel Invoice',
+          icon: <XCircle className="h-4 w-4" />,
+          onClick: () => { setShowCancelConfirm(true); },
+          tone: 'destructive' as const,
+        }]
+      : []),
+  ];
+
+  const activeGroups = [documentsGroup, payGroup, accountingGroup].filter(
+    g => g.actions.length > 0,
+  );
+
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
         {/* Header */}
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <Link href="/accounting/supplier-invoices" className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-teal-600 mb-3">
+          <Link
+            href="/accounting/supplier-invoices"
+            className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-teal-600 mb-3"
+          >
             <ArrowLeft className="h-4 w-4" /> Back to Supplier Invoices
           </Link>
-          <div className="flex items-center justify-between">
+
+          <div className="flex items-end justify-between gap-4 flex-wrap">
+            {/* Title block */}
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-teal-500/10">
                 <Receipt className="h-6 w-6 text-teal-500" />
@@ -136,57 +269,12 @@ export default function SupplierInvoiceDetailPage() {
               </div>
               <StatusBadge status={invoice.status} />
             </div>
-            <div className="flex items-center gap-2">
-              {/* PDF Download */}
-              <a
-                href={`/api/accounting/supplier-invoice-pdf?invoiceId=${invoiceId as string}`}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-2 px-3 py-2 border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] rounded-lg hover:bg-[var(--ff-bg-tertiary)] text-sm font-medium"
-              >
-                <Download className="h-4 w-4" />PDF
-              </a>
-              {canRecordPayment && (
-                <button
-                  onClick={() => void router.push(
-                    `/accounting/supplier-payments/new?invoiceId=${invoiceId as string}&supplierId=${invoice.supplierId}&amount=${invoice.balance.toFixed(2)}`
-                  )}
-                  className="inline-flex items-center gap-2 px-3 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium"
-                >
-                  <CreditCard className="h-4 w-4" />Record Payment
-                </button>
-              )}
-              {canEdit && !editing && (
-                <button onClick={() => { setEditing(true); setEditForm({ invoiceNumber: invoice.invoiceNumber, dueDate: invoice.dueDate || '', paymentTerms: invoice.paymentTerms || '', notes: invoice.notes || '' }); }}
-                  className="inline-flex items-center gap-2 px-3 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 text-sm font-medium">
-                  <Pencil className="h-4 w-4" />Edit
-                </button>
-              )}
-              {editing && (
-                <button onClick={async () => { setActionLoading('save'); try { await apiFetch('/api/accounting/supplier-invoices-detail', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: invoiceId, ...editForm }) }); setEditing(false); await loadInvoice(); } catch { setError('Save failed'); } setActionLoading(''); }} disabled={!!actionLoading}
-                  className="inline-flex items-center gap-2 px-3 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium disabled:opacity-50">
-                  <Save className="h-4 w-4" />{actionLoading === 'save' ? 'Saving...' : 'Save'}
-                </button>
-              )}
-              {canMatch && (
-                <button onClick={() => handleAction('match')} disabled={!!actionLoading}
-                  className="inline-flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium disabled:opacity-50">
-                  <Link2 className="h-4 w-4" />{actionLoading === 'match' ? 'Matching...' : '3-Way Match'}
-                </button>
-              )}
-              {canApprove && (
-                <button onClick={() => handleAction('approve')} disabled={!!actionLoading}
-                  className="inline-flex items-center gap-2 px-3 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium disabled:opacity-50">
-                  <CheckCircle2 className="h-4 w-4" />{actionLoading === 'approve' ? 'Approving...' : 'Approve & Post GL'}
-                </button>
-              )}
-              {canCancel && (
-                <button onClick={() => handleAction('cancel')} disabled={!!actionLoading}
-                  className="inline-flex items-center gap-2 px-3 py-2 border border-red-500/50 text-red-400 rounded-lg hover:bg-red-500/10 text-sm font-medium disabled:opacity-50">
-                  <XCircle className="h-4 w-4" />Cancel
-                </button>
-              )}
-            </div>
+
+            {/* Grouped action bar */}
+            <InvoiceActionBar
+              groups={activeGroups}
+              overflowActions={overflowActions}
+            />
           </div>
         </div>
 
@@ -205,13 +293,28 @@ export default function SupplierInvoiceDetailPage() {
             </div>
             <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
               <p className="text-xs text-[var(--ff-text-tertiary)] uppercase">Due Date</p>
-              {editing ? <input type="date" name="dueDate" value={editForm.dueDate} onChange={e => setEditForm(p => ({ ...p, dueDate: e.target.value }))} className="ff-input mt-1 text-sm w-full" />
-                : <p className="text-lg font-semibold mt-1 text-[var(--ff-text-primary)]">{invoice.dueDate || '-'}</p>}
+              {editing
+                ? <input
+                    type="date"
+                    name="dueDate"
+                    value={editForm.dueDate}
+                    onChange={e => setEditForm(p => ({ ...p, dueDate: e.target.value }))}
+                    className="ff-input mt-1 text-sm w-full"
+                  />
+                : <p className="text-lg font-semibold mt-1 text-[var(--ff-text-primary)]">{invoice.dueDate || '-'}</p>
+              }
             </div>
             <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
               <p className="text-xs text-[var(--ff-text-tertiary)] uppercase">Payment Terms</p>
-              {editing ? <input name="paymentTerms" value={editForm.paymentTerms} onChange={e => setEditForm(p => ({ ...p, paymentTerms: e.target.value }))} className="ff-input mt-1 text-sm w-full" />
-                : <p className="text-lg font-semibold mt-1 text-[var(--ff-text-primary)]">{invoice.paymentTerms || '-'}</p>}
+              {editing
+                ? <input
+                    name="paymentTerms"
+                    value={editForm.paymentTerms}
+                    onChange={e => setEditForm(p => ({ ...p, paymentTerms: e.target.value }))}
+                    className="ff-input mt-1 text-sm w-full"
+                  />
+                : <p className="text-lg font-semibold mt-1 text-[var(--ff-text-primary)]">{invoice.paymentTerms || '-'}</p>
+              }
             </div>
             <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
               <p className="text-xs text-[var(--ff-text-tertiary)] uppercase">PO Number</p>
@@ -225,7 +328,9 @@ export default function SupplierInvoiceDetailPage() {
             ].map((item, i) => (
               <div key={i} className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
                 <p className="text-xs text-[var(--ff-text-tertiary)] uppercase">{item.label}</p>
-                <p className={`text-lg font-semibold mt-1 ${item.highlight ? 'text-teal-500' : 'text-[var(--ff-text-primary)]'}`}>{item.value}</p>
+                <p className={`text-lg font-semibold mt-1 ${item.highlight ? 'text-teal-500' : 'text-[var(--ff-text-primary)]'}`}>
+                  {item.value}
+                </p>
               </div>
             ))}
           </div>
@@ -266,11 +371,20 @@ export default function SupplierInvoiceDetailPage() {
             </table>
           </div>
 
-          {/* Notes */}
-          {invoice.notes && (
+          {/* Notes (inline edit supported) */}
+          {(invoice.notes || editing) && (
             <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
               <p className="text-xs text-[var(--ff-text-tertiary)] uppercase mb-1">Notes</p>
-              <p className="text-sm text-[var(--ff-text-secondary)]">{invoice.notes}</p>
+              {editing
+                ? <textarea
+                    name="notes"
+                    value={editForm.notes}
+                    onChange={e => setEditForm(p => ({ ...p, notes: e.target.value }))}
+                    rows={3}
+                    className="ff-input mt-1 text-sm w-full resize-none"
+                  />
+                : <p className="text-sm text-[var(--ff-text-secondary)]">{invoice.notes}</p>
+              }
             </div>
           )}
 
@@ -298,6 +412,45 @@ export default function SupplierInvoiceDetailPage() {
             ]}
           />
         </div>
+
+        {/* Cancel confirmation */}
+        {showCancelConfirm && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+            onClick={() => setShowCancelConfirm(false)}
+          >
+            <div
+              className="bg-[var(--ff-bg-secondary)] rounded-xl border border-[var(--ff-border-light)] shadow-2xl w-full max-w-sm mx-4 p-6"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-3 mb-3">
+                <div className="p-2 rounded-full bg-red-500/10">
+                  <XCircle className="h-5 w-5 text-red-400" />
+                </div>
+                <h3 className="text-lg font-semibold text-[var(--ff-text-primary)]">Cancel Invoice?</h3>
+              </div>
+              <p className="text-sm text-[var(--ff-text-secondary)] mb-6">
+                This will cancel <strong>{invoice.invoiceNumber}</strong>. This action cannot be undone.
+              </p>
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setShowCancelConfirm(false)}
+                  className="px-4 py-2 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] rounded-lg border border-[var(--ff-border-light)]"
+                >
+                  Keep Invoice
+                </button>
+                <button
+                  onClick={() => { setShowCancelConfirm(false); void handleAction('cancel'); }}
+                  disabled={!!actionLoading}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-red-600 text-white rounded-lg text-sm hover:bg-red-500 disabled:opacity-50"
+                >
+                  <XCircle className="h-4 w-4" />
+                  {actionLoading === 'cancel' ? 'Cancelling...' : 'Cancel Invoice'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </AppLayout>
   );
