@@ -16,6 +16,7 @@ import { log } from '@/lib/logger';
 import { PAGE_REGISTRY, DEFAULT_QUICK_ACTIONS, type PageMeta } from '@/modules/accounting/constants/pageRegistry';
 import { OverviewTables } from './OverviewTables';
 import { TodoWidget } from './TodoWidget';
+import { WorkbenchSection } from './WorkbenchSection';
 
 const LineChart = dynamic(() => import('recharts').then(m => m.LineChart), { ssr: false });
 const Line = dynamic(() => import('recharts').then(m => m.Line), { ssr: false });
@@ -130,6 +131,9 @@ export function OverviewTab() {
 
   return (
     <div className="space-y-6">
+      {/* Workbench — exception-first signals for accountants */}
+      <WorkbenchSection />
+
       {/* Action Items */}
       <TodoWidget />
 
