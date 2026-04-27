@@ -4,6 +4,10 @@ import type { TaggedSql, FindingsCollector } from './types';
  * Pre-flight check: ensure the seed actually ran before running the
  * walkthrough. Without this, a silent seed failure produces a false PASS
  * against stale data from a prior run.
+ *
+ * On mismatch, records a FAIL finding AND exits the process — a soft
+ * "log and continue" can't actually prevent downstream false-PASS verdicts
+ * because the journeys would still query the (stale or missing) data.
  */
 export async function assertSeedPresent(
   sql: TaggedSql, companyId: string, fc: FindingsCollector,
@@ -34,5 +38,11 @@ export async function assertSeedPresent(
     actual: mismatches.length === 0 ? 'all counts match' : `mismatch: ${mismatches.join('; ')}`,
     verdict: mismatches.length === 0 ? 'PASS' : 'FAIL',
   });
-  return mismatches.length === 0;
+
+  if (mismatches.length > 0) {
+    console.error('\n[preflight] FAILED — seed state does not match expected counts.');
+    console.error('             Run: QA_DESTRUCTIVE_OK=1 bunx tsx scripts/seed-qa-bookkeeping.ts --reset');
+    process.exit(1);
+  }
+  return true;
 }

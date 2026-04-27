@@ -8,7 +8,9 @@ export type HttpResponse = { status: number; body: unknown; setCookies: string[]
  */
 export class HttpClient {
   readonly jar = new CookieJar();
-  constructor(private readonly baseUrl: string) {}
+  // Public so callers (logging, tests) can read the target URL without an
+  // index-access cast. Marked readonly so it stays effectively a constructor arg.
+  constructor(public readonly baseUrl: string) {}
 
   async request(method: string, url: string, body?: unknown): Promise<HttpResponse> {
     const headers: Record<string, string> = { Cookie: this.jar.header() };
@@ -59,7 +61,7 @@ export class HttpClient {
 export async function authAndSwitchCompany(
   client: HttpClient, email: string, password: string, companyId: string,
 ): Promise<void> {
-  console.log(`[auth] base=${client['baseUrl']} as=${email}`);
+  console.log(`[auth] base=${client.baseUrl} as=${email}`);
 
   const login = await client.request('POST', '/api/auth/login', { email, password });
   if (login.status !== 200) {
