@@ -16,11 +16,19 @@ const RecipientSchema = z.object({
   email: z.string().email().max(254),
   role: z.string().min(1).max(100),
   receives: z.enum(['draft', 'final', 'both']),
-});
+}).strict();
 
+// Accepts the full ManagementPackConfig the UI round-trips on save.
+// Server-controlled fields (id, companyId) are accepted then stripped before
+// the service call so a strict schema doesn't reject the UI's full-object PUT.
 const PutConfigSchema = z.object({
+  id: z.string().uuid().optional(),
+  companyId: z.string().uuid().optional(),
+  enabled: z.boolean().optional(),
   deliveryDay: z.number().int().min(1).max(28).optional(),
   generationDay: z.number().int().min(1).max(28).optional(),
+  reviewRequired: z.boolean().optional(),
+  sectionsEnabled: z.record(z.string().min(1).max(100), z.boolean()).optional(),
   packStyle: z.enum(['executive', 'detailed', 'board']).optional(),
   comparisonMode: z.enum(['prior_month', 'prior_year', 'budget', 'all_three']).optional(),
   currencyDisplay: z.enum(['full', 'thousands', 'millions']).optional(),
@@ -45,7 +53,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       );
     }
     log.info('Upserting management pack config', { companyId }, 'management-pack-config-api');
-    const config = await upsertManagementPackConfig(companyId, parsed.data as Partial<ManagementPackConfig>);
+    const { id: _id, companyId: _cid, ...updates } = parsed.data;
+    const config = await upsertManagementPackConfig(companyId, updates as Partial<ManagementPackConfig>);
     return apiResponse.success(res, { config });
   }
 

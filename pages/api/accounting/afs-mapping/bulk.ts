@@ -13,7 +13,7 @@ import { bulkMapAccounts } from '@/modules/accounting/services/afs/afsMappingSer
 const MappingSchema = z.object({
   glAccountId: UUID,
   afsLineCode: z.string().min(1).max(50),
-});
+}).strict();
 
 const BodySchema = z.object({
   mappings: z.array(MappingSchema).min(1).max(5000),

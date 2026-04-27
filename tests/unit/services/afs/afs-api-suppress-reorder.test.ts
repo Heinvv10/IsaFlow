@@ -69,18 +69,56 @@ describe('POST /afs/[documentId]/sections/[sectionId]/suppress', () => {
     expect(apiResponse.methodNotAllowed).toHaveBeenCalled();
   });
 
-  it('rejects non-boolean suppress value', async () => {
+  it('rejects non-boolean suppress value with field-keyed error', async () => {
     const req = makeReq({ suppress: 'true' });
+    const res = makeRes();
+    await (suppressHandler as unknown as Handler)(req, res);
+    expect(apiResponse.validationError).toHaveBeenCalledWith(
+      res,
+      expect.objectContaining({ suppress: expect.any(Array) }),
+    );
+  });
+
+  it('rejects suppress=true with missing reason — error keyed on reason', async () => {
+    const req = makeReq({ suppress: true });
+    const res = makeRes();
+    await (suppressHandler as unknown as Handler)(req, res);
+    expect(apiResponse.validationError).toHaveBeenCalledWith(
+      res,
+      expect.objectContaining({ reason: expect.any(Array) }),
+    );
+  });
+
+  it('rejects suppress=true with whitespace-only reason', async () => {
+    const req = makeReq({ suppress: true, reason: '   ' });
+    const res = makeRes();
+    await (suppressHandler as unknown as Handler)(req, res);
+    expect(apiResponse.validationError).toHaveBeenCalledWith(
+      res,
+      expect.objectContaining({ reason: expect.any(Array) }),
+    );
+  });
+
+  it('rejects unknown body fields (.strict)', async () => {
+    const req = makeReq({ suppress: false, hackerField: 1 });
     const res = makeRes();
     await (suppressHandler as unknown as Handler)(req, res);
     expect(apiResponse.validationError).toHaveBeenCalled();
   });
 
-  it('rejects suppress=true without reason', async () => {
-    const req = makeReq({ suppress: true });
+  it('rejects non-UUID documentId path param', async () => {
+    const req = {
+      method:    'POST',
+      query:     { documentId: 'not-a-uuid', sectionId: SECTION_ID },
+      body:      { suppress: false },
+      companyId: COMPANY_ID,
+    } as unknown as NextApiRequest;
     const res = makeRes();
     await (suppressHandler as unknown as Handler)(req, res);
-    expect(apiResponse.validationError).toHaveBeenCalled();
+    expect(apiResponse.badRequest).toHaveBeenCalledWith(
+      res,
+      'documentId and sectionId must be valid UUIDs',
+    );
   });
 
   it('returns 404 when section not found', async () => {
@@ -145,14 +183,17 @@ describe('PUT /afs/[documentId]/sections/reorder', () => {
   const SECT_A = '44444444-4444-4444-9444-444444444444';
   const SECT_B = '55555555-5555-4555-9555-555555555555';
 
-  it('rejects empty sections array', async () => {
+  it('rejects empty sections array — error keyed on sections', async () => {
     const req = makeReq({ sections: [] });
     const res = makeRes();
     await (reorderHandler as unknown as Handler)(req, res);
-    expect(apiResponse.validationError).toHaveBeenCalled();
+    expect(apiResponse.validationError).toHaveBeenCalledWith(
+      res,
+      expect.objectContaining({ sections: expect.any(Array) }),
+    );
   });
 
-  it('rejects more than 50 sections', async () => {
+  it('rejects more than 50 sections — error keyed on sections', async () => {
     // All ids must be valid UUIDs to bypass element-level validation and
     // trip the 50-cap rule.
     const sections = Array.from({ length: 51 }, (_, i) => ({
@@ -162,10 +203,13 @@ describe('PUT /afs/[documentId]/sections/reorder', () => {
     const req = makeReq({ sections });
     const res = makeRes();
     await (reorderHandler as unknown as Handler)(req, res);
-    expect(apiResponse.validationError).toHaveBeenCalled();
+    expect(apiResponse.validationError).toHaveBeenCalledWith(
+      res,
+      expect.objectContaining({ sections: expect.any(Array) }),
+    );
   });
 
-  it('rejects duplicate newSortOrder values', async () => {
+  it('rejects duplicate newSortOrder values — error keyed on sections', async () => {
     const sections = [
       { id: SECT_A, newSortOrder: 1 },
       { id: SECT_B, newSortOrder: 1 },
@@ -173,7 +217,10 @@ describe('PUT /afs/[documentId]/sections/reorder', () => {
     const req = makeReq({ sections });
     const res = makeRes();
     await (reorderHandler as unknown as Handler)(req, res);
-    expect(apiResponse.validationError).toHaveBeenCalled();
+    expect(apiResponse.validationError).toHaveBeenCalledWith(
+      res,
+      expect.objectContaining({ sections: expect.any(Array) }),
+    );
   });
 
   it('rejects zero newSortOrder', async () => {
@@ -182,6 +229,34 @@ describe('PUT /afs/[documentId]/sections/reorder', () => {
     const res = makeRes();
     await (reorderHandler as unknown as Handler)(req, res);
     expect(apiResponse.validationError).toHaveBeenCalled();
+  });
+
+  it('rejects non-UUID id at element level', async () => {
+    const sections = [{ id: 'not-a-uuid', newSortOrder: 1 }];
+    const req = makeReq({ sections });
+    const res = makeRes();
+    await (reorderHandler as unknown as Handler)(req, res);
+    expect(apiResponse.validationError).toHaveBeenCalled();
+  });
+
+  it('rejects unknown fields in element (.strict on ReorderItemSchema)', async () => {
+    const sections = [{ id: SECT_A, newSortOrder: 1, hackerField: true }];
+    const req = makeReq({ sections });
+    const res = makeRes();
+    await (reorderHandler as unknown as Handler)(req, res);
+    expect(apiResponse.validationError).toHaveBeenCalled();
+  });
+
+  it('rejects non-UUID documentId path param', async () => {
+    const req = {
+      method:    'PUT',
+      query:     { documentId: 'not-a-uuid' },
+      body:      { sections: [{ id: SECT_A, newSortOrder: 1 }] },
+      companyId: COMPANY_ID,
+    } as unknown as NextApiRequest;
+    const res = makeRes();
+    await (reorderHandler as unknown as Handler)(req, res);
+    expect(apiResponse.badRequest).toHaveBeenCalledWith(res, 'documentId must be a valid UUID');
   });
 
   it('runs concurrent updates and returns { reordered: count }', async () => {

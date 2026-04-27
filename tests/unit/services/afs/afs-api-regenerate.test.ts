@@ -66,25 +66,63 @@ describe('POST /afs/[documentId]/sections/[sectionId]/regenerate', () => {
     expect(apiResponse.methodNotAllowed).toHaveBeenCalled();
   });
 
-  it('rejects missing fiscalYear', async () => {
+  it('rejects missing fiscalYear with field-keyed error', async () => {
     const req = makeReq({ body: { framework: 'full_ifrs' } });
     const res = makeRes();
     await (handler as unknown as Handler)(req, res);
-    expect(apiResponse.validationError).toHaveBeenCalled();
+    expect(apiResponse.validationError).toHaveBeenCalledWith(
+      res,
+      expect.objectContaining({ fiscalYear: expect.any(Array) }),
+    );
   });
 
-  it('rejects fiscalYear below 2000', async () => {
+  it('rejects fiscalYear below 2000 with field-keyed error', async () => {
     const req = makeReq({ body: { fiscalYear: 1999, framework: 'full_ifrs' } });
     const res = makeRes();
     await (handler as unknown as Handler)(req, res);
-    expect(apiResponse.validationError).toHaveBeenCalled();
+    expect(apiResponse.validationError).toHaveBeenCalledWith(
+      res,
+      expect.objectContaining({ fiscalYear: expect.any(Array) }),
+    );
   });
 
-  it('rejects invalid framework value', async () => {
+  it('rejects fiscalYear above currentYear+1 with field-keyed error', async () => {
+    // Upper bound is dynamic (`new Date().getFullYear() + 1`), so any
+    // far-future year stays out of bounds regardless of the wall clock.
+    const req = makeReq({ body: { fiscalYear: 9999, framework: 'full_ifrs' } });
+    const res = makeRes();
+    await (handler as unknown as Handler)(req, res);
+    expect(apiResponse.validationError).toHaveBeenCalledWith(
+      res,
+      expect.objectContaining({ fiscalYear: expect.any(Array) }),
+    );
+  });
+
+  it('rejects invalid framework value with field-keyed error', async () => {
     const req = makeReq({ body: { fiscalYear: 2025, framework: 'gaap' } });
     const res = makeRes();
     await (handler as unknown as Handler)(req, res);
+    expect(apiResponse.validationError).toHaveBeenCalledWith(
+      res,
+      expect.objectContaining({ framework: expect.any(Array) }),
+    );
+  });
+
+  it('rejects unknown body fields (.strict)', async () => {
+    const req = makeReq({ body: { fiscalYear: 2025, framework: 'full_ifrs', hackerField: 1 } });
+    const res = makeRes();
+    await (handler as unknown as Handler)(req, res);
     expect(apiResponse.validationError).toHaveBeenCalled();
+  });
+
+  it('rejects non-UUID documentId path param', async () => {
+    const req = makeReq({ query: { documentId: 'not-a-uuid', sectionId: SECTION_ID } });
+    const res = makeRes();
+    await (handler as unknown as Handler)(req, res);
+    expect(apiResponse.badRequest).toHaveBeenCalledWith(
+      res,
+      'documentId and sectionId must be valid UUIDs',
+    );
   });
 
   it('calls generateSection and returns { sectionId } on success', async () => {

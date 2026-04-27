@@ -12,7 +12,7 @@ import { sql } from '@/lib/neon';
 const ReorderItemSchema = z.object({
   id: UUID,
   newSortOrder: z.number().int().positive(),
-});
+}).strict();
 
 const BodySchema = z.object({
   sections: z.array(ReorderItemSchema).min(1).max(50),
