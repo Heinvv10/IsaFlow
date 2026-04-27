@@ -41,6 +41,8 @@ export interface Company {
   isActive?: boolean;
   // PRD-10 Layer 1: idle-timeout policy in minutes (default 480 = 8h).
   idleTimeoutMinutes?: number;
+  // Demo tenant flag — true for seeded demo tenants only.
+  isDemo?: boolean;
 }
 
 export interface CompanyUser {
@@ -117,6 +119,7 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
             defaultCurrency: c.default_currency || c.defaultCurrency,
             isActive: c.is_active ?? c.isActive ?? true,
             idleTimeoutMinutes: c.idle_timeout_minutes ?? c.idleTimeoutMinutes,
+            isDemo: c.is_demo ?? c.isDemo ?? false,
           };
           setActiveCompany(company);
           localStorage.setItem(STORAGE_KEY, JSON.stringify({ id: company.id, name: company.name }));
