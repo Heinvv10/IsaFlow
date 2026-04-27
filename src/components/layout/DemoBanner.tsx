@@ -64,12 +64,12 @@ export function DemoBanner() {
     <div
       role="status"
       aria-live="polite"
-      className="bg-amber-500/15 border-b border-amber-500/30 text-amber-200 px-4 py-2 flex items-center justify-center gap-3 text-xs"
+      className="bg-amber-100 dark:bg-amber-500/15 border-b border-amber-300 dark:border-amber-500/30 text-amber-800 dark:text-amber-200 px-4 py-2 flex items-center justify-center gap-3 text-xs"
     >
-      <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 text-amber-300" aria-hidden />
+      <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 text-amber-600 dark:text-amber-300" aria-hidden />
       <span className="text-center">
         <span className="font-semibold uppercase tracking-wider mr-2 text-[10px]">Demo</span>
-        You are viewing <span className="font-medium text-amber-100">ISAFlow Demo</span>.
+        You are viewing <span className="font-medium text-amber-900 dark:text-amber-100">ISAFlow Demo</span>.
         All data is illustrative; nothing posts to real books.
       </span>
 
@@ -78,7 +78,7 @@ export function DemoBanner() {
           type="button"
           onClick={() => { void handleSwitch(); }}
           disabled={switching}
-          className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-100 font-medium border border-amber-400/40 disabled:opacity-50"
+          className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-amber-200 hover:bg-amber-300 dark:bg-amber-500/20 dark:hover:bg-amber-500/30 text-amber-900 dark:text-amber-100 font-medium border border-amber-400 dark:border-amber-400/40 disabled:opacity-50"
         >
           {switching ? (
             <Loader2 className="h-3 w-3 animate-spin" />
@@ -90,7 +90,7 @@ export function DemoBanner() {
       ) : (
         <Link
           href="/onboarding"
-          className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-100 font-medium border border-amber-400/40"
+          className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-amber-200 hover:bg-amber-300 dark:bg-amber-500/20 dark:hover:bg-amber-500/30 text-amber-900 dark:text-amber-100 font-medium border border-amber-400 dark:border-amber-400/40"
         >
           <ArrowRight className="h-3 w-3" />
           Set up your own company
