@@ -3,7 +3,7 @@
  * Standalone layout (no AppLayout), matches login dark theme.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import {
   Check, Building2, MapPin, Image, Landmark,
@@ -44,6 +44,15 @@ export default function OnboardingWizard() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError]           = useState('');
   const [authChecked, setAuthChecked] = useState(false);
+  // True after 10 s if the loader is still visible — lets user escape to /accounting.
+  const [timedOut, setTimedOut]     = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 10-second fallback: if the auth check or redirect stalls, show an escape link.
+  useEffect(() => {
+    timeoutRef.current = setTimeout(() => setTimedOut(true), 10_000);
+    return () => { if (timeoutRef.current !== null) clearTimeout(timeoutRef.current); };
+  }, []);
 
   // Auth check — fires once on mount only.
   // router is intentionally excluded from deps: it is only used for navigation
@@ -53,32 +62,31 @@ export default function OnboardingWizard() {
   useEffect(() => {
     apiFetch('/api/auth/me').then(async (r) => {
       if (!r.ok) { void router.replace('/login'); return; }
-      const body = await r.json();
+      const body = await r.json() as {
+        data?: {
+          user?: { onboarding_completed?: boolean };
+          memberships?: unknown[];
+        };
+      };
 
-      // When adding a new company, skip both guards and go straight to the wizard.
+      // When adding a new company, skip all guards and go straight to the wizard.
       if (isAddNew) { setAuthChecked(true); return; }
 
-      if (body.data?.onboardingCompleted) { void router.replace('/accounting'); return; }
+      // /api/auth/me returns { data: { user: { onboarding_completed }, memberships } }.
+      // The flag was previously read from body.data?.onboardingCompleted (wrong path)
+      // which was always undefined, so this check never fired.
+      const onboardingDone = body.data?.user?.onboarding_completed === true;
+      if (onboardingDone) { void router.replace('/accounting'); return; }
 
-      // Invited users (and users coming back after completing the wizard)
-      // already have a company — skip onboarding and go straight to dashboard.
-      //
-      // The API shape is { data: { items: [...] } }; the previous version
-      // read compBody.data directly and then asked it for .length, which was
-      // always undefined, so this branch never fired.
-      try {
-        const compRes = await apiFetch('/api/accounting/companies?action=user-companies');
-        if (compRes.ok) {
-          const compBody = (await compRes.json()) as { data?: { items?: unknown[] } };
-          const companies = compBody.data?.items ?? [];
-          if (Array.isArray(companies) && companies.length > 0) {
-            await apiFetch('/api/onboarding/complete', { method: 'POST' });
-            void router.replace('/accounting');
-            return;
-          }
-        }
-      } catch {
-        // Non-fatal — fall through to show the wizard
+      // If the user already belongs to at least one company (populated by /api/auth/me),
+      // skip onboarding entirely. This covers admin / invited users whose
+      // onboarding_completed flag was never explicitly set.
+      const memberships = body.data?.memberships ?? [];
+      if (Array.isArray(memberships) && memberships.length > 0) {
+        // Best-effort: silently mark onboarding complete so future visits skip this check.
+        apiFetch('/api/onboarding/complete', { method: 'POST' }).catch(() => undefined);
+        void router.replace('/accounting');
+        return;
       }
 
       setAuthChecked(true);
@@ -208,7 +216,22 @@ export default function OnboardingWizard() {
   if (!authChecked) {
     return (
       <div className="min-h-screen bg-slate-50 dark:bg-gray-950 flex items-center justify-center">
-        <Loader2 className="w-8 h-8 text-teal-500 animate-spin" />
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="w-8 h-8 text-teal-500 animate-spin" />
+          {timedOut && (
+            <div className="text-center">
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+                We could not load onboarding setup.
+              </p>
+              <a
+                href="/accounting"
+                className="text-sm text-teal-500 hover:text-teal-400 underline underline-offset-2"
+              >
+                Go to Accounting Dashboard
+              </a>
+            </div>
+          )}
+        </div>
       </div>
     );
   }
