@@ -156,27 +156,31 @@ export async function submitVATReturn(
 
   // 4. Build journal lines — skip any zero-amount line. A nil VAT201 (no
   // output, no input) produces no lines and we record the submission without
-  // posting a journal.
+  // posting a journal. Use abs > 0.005 so credit notes inside the period
+  // (which can flip an output/input total negative) still create a line on
+  // the appropriate side.
   //    Payable:  DR vatOutput / CR vatInput / CR accruedExp (net)
   //    Refund:   DR vatOutput / DR accruedExp (net abs) / CR vatInput
   const lines: JournalLineInput[] = [];
 
-  if (totalOutputTax > 0.005) {
-    // DR 2120 VAT Output — closes the liability accumulated during the period
+  if (Math.abs(totalOutputTax) > 0.005) {
+    // Net DR 2120 VAT Output — closes the liability accumulated during the
+    // period. Negative output (credit notes > new sales) flips to a CR.
     lines.push({
       glAccountId: vatOutputAcc.id,
-      debit:       totalOutputTax,
-      credit:      0,
+      debit:       totalOutputTax > 0 ? totalOutputTax : 0,
+      credit:      totalOutputTax < 0 ? Math.abs(totalOutputTax) : 0,
       description: `VAT return submission ${periodStart} to ${periodEnd} — output tax`,
     });
   }
 
-  if (totalInputTax > 0.005) {
-    // CR 1140 VAT Input — closes the asset accumulated during the period
+  if (Math.abs(totalInputTax) > 0.005) {
+    // Net CR 1140 VAT Input — closes the asset accumulated during the
+    // period. Negative input (return-to-supplier > new claims) flips to a DR.
     lines.push({
       glAccountId: vatInputAcc.id,
-      debit:       0,
-      credit:      totalInputTax,
+      debit:       totalInputTax < 0 ? Math.abs(totalInputTax) : 0,
+      credit:      totalInputTax > 0 ? totalInputTax : 0,
       description: `VAT return submission ${periodStart} to ${periodEnd} — input tax`,
     });
   }

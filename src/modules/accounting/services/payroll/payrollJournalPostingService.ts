@@ -33,9 +33,16 @@ type Row = DbRow;
 
 // ── Account code constants ───────────────────────────────────────────────────
 
-const ACCOUNT_CODES = ['5200', '2140', '2150', '2160', '1110', '2175'] as const;
-type AccountCode = typeof ACCOUNT_CODES[number];
-type AccountMap = Record<AccountCode, string>; // code → UUID
+// 2175 (Other Employee Deductions Payable) is OPTIONAL — only needed when
+// voluntary deductions reduce net pay below gross−PAYE−employeeUif. Tenants
+// where mig 471 hasn't applied yet can still post statutory-only payroll
+// runs; resolveAccountIds returns 2175 only if it exists.
+const REQUIRED_ACCOUNT_CODES = ['5200', '2140', '2150', '2160', '1110'] as const;
+const OPTIONAL_ACCOUNT_CODES = ['2175'] as const;
+type RequiredAccountCode = typeof REQUIRED_ACCOUNT_CODES[number];
+type OptionalAccountCode = typeof OPTIONAL_ACCOUNT_CODES[number];
+type AccountCode = RequiredAccountCode | OptionalAccountCode;
+type AccountMap = Record<RequiredAccountCode, string> & Partial<Record<OptionalAccountCode, string>>;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -46,11 +53,12 @@ function lastDayOfMonth(year: number, month: number): string {
 }
 
 async function resolveAccountIds(companyId: string): Promise<AccountMap> {
+  const allCodes: readonly AccountCode[] = [...REQUIRED_ACCOUNT_CODES, ...OPTIONAL_ACCOUNT_CODES];
   const rows = (await sql`
     SELECT account_code, id
     FROM gl_accounts
     WHERE company_id = ${companyId}::uuid
-      AND account_code = ANY(ARRAY['5200','2140','2150','2160','1110','2175'])
+      AND account_code = ANY(${allCodes as unknown as string[]})
   `) as Row[];
 
   const map: Partial<AccountMap> = {};
@@ -58,7 +66,7 @@ async function resolveAccountIds(companyId: string): Promise<AccountMap> {
     map[String(r.account_code) as AccountCode] = String(r.id);
   }
 
-  const missing = ACCOUNT_CODES.filter(c => !map[c]);
+  const missing = REQUIRED_ACCOUNT_CODES.filter(c => !map[c]);
   if (missing.length > 0) {
     throw new Error(`Missing required GL accounts for payroll journal: ${missing.join(', ')}`);
   }
@@ -143,12 +151,29 @@ export async function postPayrollRunJournal(
   ];
 
   if (otherDeductions > 0.005) {
+    const otherDeductionsAccountId = accts['2175'];
+    if (!otherDeductionsAccountId) {
+      throw new Error(
+        `Payroll run has R${otherDeductions.toFixed(2)} of voluntary deductions (medical aid, pension, RA, etc.) ` +
+        `but the company has no GL account 2175 (Other Employee Deductions Payable). ` +
+        `Apply migration 471 or seed account 2175 manually before approving this run.`,
+      );
+    }
     lines.push({
-      glAccountId: accts['2175'],
+      glAccountId: otherDeductionsAccountId,
       debit: 0,
       credit: otherDeductions,
       description: 'Other employee deductions (medical aid, pension, RA, etc.)',
     });
+  } else if (otherDeductions < -0.005) {
+    // Negative residual usually means rounding noise in totalUif/2 or totalEti
+    // didn't reconcile cleanly. Log it so the operator can spot a data issue
+    // before the JE-balance assertion fails further down.
+    log.warn(
+      'Negative payroll deduction residual — likely UIF/ETI rounding mismatch',
+      { runId, otherDeductions, totalGross, totalPaye, employeeUif, totalNet },
+      'payrollJournal',
+    );
   }
 
   // 6. Verify the entry balances before touching GL (avoids orphaned draft entries)
