@@ -206,6 +206,7 @@ export default function BankTransactionsPage() {
     return (
       <AppLayout>
         <div className="min-h-screen bg-[var(--ff-bg-primary)]">
+          <h1 className="sr-only">Bank Transactions</h1>
           <BankEmptyState context="bank-transactions" />
         </div>
       </AppLayout>
