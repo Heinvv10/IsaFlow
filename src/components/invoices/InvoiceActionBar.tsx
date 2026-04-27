@@ -33,7 +33,6 @@ export interface InvoiceAction {
   variant?: 'primary' | 'secondary';
   /** Loading state — shows a spinner-like text prefix */
   loading?: boolean;
-  loadingLabel?: string;
 }
 
 export interface InvoiceActionGroup {
@@ -54,14 +53,12 @@ export interface InvoiceActionBarProps {
 
 function ActionButton({ action }: { action: InvoiceAction }) {
   const isSecondary = action.variant === 'secondary';
-  const isLoading = action.loading === true;
-  const label = isLoading && action.loadingLabel ? action.loadingLabel : action.label;
 
   return (
     <button
       type="button"
       onClick={action.onClick}
-      disabled={action.disabled || isLoading}
+      disabled={action.disabled || action.loading}
       className={cn(
         'inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50',
@@ -74,7 +71,7 @@ function ActionButton({ action }: { action: InvoiceAction }) {
       {action.icon && (
         <span className="flex-shrink-0 h-4 w-4 flex items-center">{action.icon}</span>
       )}
-      {label}
+      {action.label}
     </button>
   );
 }
@@ -84,8 +81,7 @@ function ActionButton({ action }: { action: InvoiceAction }) {
 // ---------------------------------------------------------------------------
 
 function ActionGroup({ group }: { group: InvoiceActionGroup }) {
-  const visibleActions = group.actions.filter(a => a !== null && a !== undefined);
-  if (visibleActions.length === 0) return null;
+  if (group.actions.length === 0) return null;
 
   return (
     <div className="flex flex-col gap-1">
@@ -93,7 +89,7 @@ function ActionGroup({ group }: { group: InvoiceActionGroup }) {
         {group.label}
       </span>
       <div className="flex items-center gap-1">
-        {visibleActions.map(action => (
+        {group.actions.map(action => (
           <ActionButton key={action.label} action={action} />
         ))}
       </div>
@@ -106,7 +102,7 @@ function ActionGroup({ group }: { group: InvoiceActionGroup }) {
 // ---------------------------------------------------------------------------
 
 export function InvoiceActionBar({ groups, overflowActions = [], className }: InvoiceActionBarProps) {
-  const visibleGroups = groups.filter(g => g.actions.some(a => a !== null && a !== undefined));
+  const visibleGroups = groups.filter(g => g.actions.length > 0);
 
   return (
     <div className={cn('flex items-end gap-3', className)}>
