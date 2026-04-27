@@ -104,4 +104,62 @@ describe('parseSupplierInvoiceFilters', () => {
     const f = ok(parseSupplierInvoiceFilters({ search: 'INV005388' }));
     expect(f.search).toBe('INV005388');
   });
+
+  // --- strict-boolean filter parser ---
+
+  describe('missing_document strict-boolean', () => {
+    it('rejects an invalid value and returns ok=false with a descriptive error', () => {
+      const r = parseSupplierInvoiceFilters({ missing_document: 'maybe' });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error).toMatch(/Invalid missing_document/i);
+    });
+
+    it('sets missingDocument=false when the param is absent', () => {
+      const f = ok(parseSupplierInvoiceFilters({}));
+      expect(f.missingDocument).toBe(false);
+    });
+  });
+
+  describe('possible_duplicate strict-boolean', () => {
+    it("accepts 'true' and sets possibleDuplicate=true", () => {
+      const f = ok(parseSupplierInvoiceFilters({ possible_duplicate: 'true' }));
+      expect(f.possibleDuplicate).toBe(true);
+    });
+
+    it("accepts '1' and sets possibleDuplicate=true", () => {
+      const f = ok(parseSupplierInvoiceFilters({ possible_duplicate: '1' }));
+      expect(f.possibleDuplicate).toBe(true);
+    });
+
+    it("accepts '0' and sets possibleDuplicate=false", () => {
+      const f = ok(parseSupplierInvoiceFilters({ possible_duplicate: '0' }));
+      expect(f.possibleDuplicate).toBe(false);
+    });
+
+    it("accepts 'false' and sets possibleDuplicate=false", () => {
+      const f = ok(parseSupplierInvoiceFilters({ possible_duplicate: 'false' }));
+      expect(f.possibleDuplicate).toBe(false);
+    });
+
+    it('sets possibleDuplicate=false when the param is absent', () => {
+      const f = ok(parseSupplierInvoiceFilters({}));
+      expect(f.possibleDuplicate).toBe(false);
+    });
+  });
+
+  describe('due_this_week strict-boolean', () => {
+    it('rejects an invalid value and returns ok=false', () => {
+      const r = parseSupplierInvoiceFilters({ due_this_week: 'yes' });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error).toMatch(/Invalid due_this_week/i);
+    });
+  });
+
+  describe('pay_run_ready strict-boolean', () => {
+    it('rejects an invalid value and returns ok=false', () => {
+      const r = parseSupplierInvoiceFilters({ pay_run_ready: 'on' });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error).toMatch(/Invalid pay_run_ready/i);
+    });
+  });
 });

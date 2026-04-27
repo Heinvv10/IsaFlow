@@ -37,6 +37,11 @@ export interface ParsedSupplierInvoiceFilters {
   sortOrder?: 'asc' | 'desc';
   limit?: number;
   offset?: number;
+  // Accountant signal filters
+  missingDocument?: boolean;
+  possibleDuplicate?: boolean;
+  dueThisWeek?: boolean;
+  payRunReady?: boolean;
 }
 
 export type FilterParseResult =
@@ -89,6 +94,29 @@ export function parseSupplierInvoiceFilters(query: Record<string, unknown>): Fil
   const limit = parseNumeric(query.limit);
   const offset = parseNumeric(query.offset);
 
+  // Boolean signal filters: accept '1' or 'true' → true; absent / undefined → false.
+  // Any other value is rejected so callers get feedback rather than silent false.
+  const BOOL_PARAMS = [
+    ['missing_document', 'missingDocument'],
+    ['possible_duplicate', 'possibleDuplicate'],
+    ['due_this_week', 'dueThisWeek'],
+    ['pay_run_ready', 'payRunReady'],
+  ] as const;
+
+  const boolValues: Record<string, boolean> = {};
+  for (const [queryKey, fieldKey] of BOOL_PARAMS) {
+    const raw = query[queryKey];
+    if (raw === undefined || raw === null || raw === '') {
+      boolValues[fieldKey] = false;
+    } else if (raw === '1' || raw === 'true') {
+      boolValues[fieldKey] = true;
+    } else if (raw === '0' || raw === 'false') {
+      boolValues[fieldKey] = false;
+    } else {
+      return { ok: false, error: `Invalid ${queryKey}: expected '1', 'true', '0', or 'false'` };
+    }
+  }
+
   return {
     ok: true,
     filters: {
@@ -106,6 +134,10 @@ export function parseSupplierInvoiceFilters(query: Record<string, unknown>): Fil
       sortOrder,
       limit: typeof limit === 'number' ? Math.min(limit, 200) : undefined,
       offset: typeof offset === 'number' && offset >= 0 ? offset : undefined,
+      missingDocument: boolValues.missingDocument,
+      possibleDuplicate: boolValues.possibleDuplicate,
+      dueThisWeek: boolValues.dueThisWeek,
+      payRunReady: boolValues.payRunReady,
     },
   };
 }
