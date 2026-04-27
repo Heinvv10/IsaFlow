@@ -9,12 +9,18 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { UUID } from '@/lib/schemas/common';
 import { withdrawDispute } from '@/modules/accounting/services/ar/disputeService';
+
+const BodySchema = z.object({
+  note: z.string().trim().max(2000).optional(),
+}).strict();
 
 async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void> {
   const { companyId, user } = req as CompanyAuthedRequest;
@@ -24,14 +30,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
     return;
   }
 
-  const { id } = req.query;
-  if (!id || typeof id !== 'string') {
-    apiResponse.badRequest(res, 'Dispute id is required');
+  const idParse = UUID.safeParse(req.query.id);
+  if (!idParse.success) {
+    apiResponse.badRequest(res, 'Dispute id must be a valid UUID');
     return;
   }
+  const id = idParse.data;
 
-  const body = req.body ?? {};
-  const note = typeof body.note === 'string' ? body.note.trim() : undefined;
+  const parsed = BodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
+    return;
+  }
+  const { note } = parsed.data;
 
   try {
     const dispute = await withdrawDispute(companyId, id, user.id, note);

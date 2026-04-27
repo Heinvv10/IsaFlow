@@ -5,33 +5,37 @@
  */
 
 import type { NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { UUID } from '@/lib/schemas/common';
 import {
   updateSentConnection,
   deleteSentConnection,
 } from '@/modules/accounting/services/ar/sentMirrorAdmin';
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-interface UpdateBody {
-  sentFolder?: string;
-  scanIntervalMinutes?: number;
-}
+const UpdateSchema = z.object({
+  sentFolder: z.string().max(200).optional(),
+  scanIntervalMinutes: z.number().int().min(1).max(1440).optional(),
+}).strict();
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const { companyId } = req;
-  const id = req.query.id as string;
-  if (!id || !UUID_RE.test(id)) return apiResponse.notFound(res, 'Sent mirror connection', id);
+  const idParse = UUID.safeParse(req.query.id);
+  if (!idParse.success) return apiResponse.notFound(res, 'Sent mirror connection', String(req.query.id ?? ''));
+  const id = idParse.data;
 
   if (req.method === 'PATCH') {
-    const body = (req.body ?? {}) as UpdateBody;
+    const parsed = UpdateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
+    }
     const updated = await updateSentConnection({
       id, companyId,
-      sentFolder: body.sentFolder,
-      scanIntervalMinutes: body.scanIntervalMinutes,
+      sentFolder: parsed.data.sentFolder,
+      scanIntervalMinutes: parsed.data.scanIntervalMinutes,
     });
     if (!updated) return apiResponse.notFound(res, 'Sent mirror connection', id);
     return apiResponse.success(res, { connection: updated });

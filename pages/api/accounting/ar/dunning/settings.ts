@@ -8,6 +8,7 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
@@ -17,6 +18,14 @@ import {
   getSettings,
   updateSettings,
 } from '@/modules/accounting/services/ar/dunningAdmin';
+
+const SettingsPatchSchema = z.object({
+  auto_send_enabled: z.boolean().optional(),
+  min_outstanding_zar: z.union([z.number(), z.string()])
+    .transform(v => Number(v))
+    .refine(n => Number.isFinite(n) && n >= 0, { message: 'min_outstanding_zar must be ≥ 0' })
+    .optional(),
+}).strict();
 
 async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void> {
   const { companyId } = req as CompanyAuthedRequest;
@@ -28,22 +37,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
   }
 
   if (req.method === 'PUT') {
-    const body = req.body ?? {};
-    const patch: { auto_send_enabled?: boolean; min_outstanding_zar?: number } = {};
-
-    if (typeof body.auto_send_enabled === 'boolean') {
-      patch.auto_send_enabled = body.auto_send_enabled;
+    const parsed = SettingsPatchSchema.safeParse(req.body);
+    if (!parsed.success) {
+      apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
+      return;
     }
-    if (body.min_outstanding_zar !== undefined) {
-      const n = Number(body.min_outstanding_zar);
-      if (!Number.isFinite(n) || n < 0) {
-        apiResponse.badRequest(res, 'min_outstanding_zar must be ≥ 0');
-        return;
-      }
-      patch.min_outstanding_zar = n;
-    }
-
-    const settings = await updateSettings(companyId, patch);
+    const settings = await updateSettings(companyId, parsed.data);
     apiResponse.success(res, { settings });
     return;
   }

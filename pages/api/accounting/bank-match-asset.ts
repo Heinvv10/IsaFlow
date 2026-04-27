@@ -10,19 +10,19 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-interface PostBody {
-  bankTransactionId?: string;
-  assetId?: string;
-}
+const BodySchema = z.object({
+  bankTransactionId: UUID,
+  assetId: UUID,
+}).strict();
 
 // ── Handler ───────────────────────────────────────────────────────────────────
 
@@ -32,11 +32,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const { companyId } = req as CompanyAuthedRequest;
-  const { bankTransactionId, assetId } = req.body as PostBody;
-
-  // ── Validation ─────────────────────────────────────────────────────────────
-  if (!bankTransactionId) return apiResponse.badRequest(res, 'bankTransactionId is required');
-  if (!assetId) return apiResponse.badRequest(res, 'assetId is required');
+  const parsed = BodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
+  }
+  const { bankTransactionId, assetId } = parsed.data;
 
   // ── Write reverse link on the asset ───────────────────────────────────────
   await sql`

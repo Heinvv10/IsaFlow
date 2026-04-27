@@ -6,78 +6,47 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { UUID } from '@/lib/schemas/common';
 import {
   updateTemplate,
   deactivateTemplate,
   type UpdateTemplateInput,
 } from '@/modules/accounting/services/ar/dunningAdmin';
-import type { DunningTone } from '@/modules/accounting/services/ar/dunningService';
 
-const TONES: DunningTone[] = ['polite', 'firm', 'final', 'legal'];
+const UpdateTemplateSchema = z.object({
+  name: z.string().trim().min(1).max(200).optional(),
+  tone: z.enum(['polite', 'firm', 'final', 'legal']).optional(),
+  escalation_order: z.number().int().min(1).optional(),
+  days_overdue_min: z.number().int().min(0).optional(),
+  days_overdue_max: z.number().int().nullable().optional(),
+  subject_template: z.string().trim().min(1).max(500).optional(),
+  body_template: z.string().trim().min(1).max(50_000).optional(),
+  send_weekdays_only: z.boolean().optional(),
+  active: z.boolean().optional(),
+}).strict();
 
 async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void> {
   const { companyId } = req as CompanyAuthedRequest;
-  const templateId = typeof req.query.id === 'string' ? req.query.id : '';
-  if (!templateId) {
-    apiResponse.badRequest(res, 'template id is required in path');
+  const idParse = UUID.safeParse(req.query.id);
+  if (!idParse.success) {
+    apiResponse.badRequest(res, 'template id must be a valid UUID');
     return;
   }
+  const templateId = idParse.data;
 
   if (req.method === 'PUT') {
-    const body = (req.body ?? {}) as Record<string, unknown>;
-    const input: UpdateTemplateInput = {};
-
-    if (typeof body.name === 'string' && body.name.trim()) input.name = body.name.trim();
-    if (typeof body.tone === 'string') {
-      if (!(TONES as string[]).includes(body.tone)) {
-        apiResponse.badRequest(res, `tone must be one of ${TONES.join(', ')}`);
-        return;
-      }
-      input.tone = body.tone as DunningTone;
+    const parsed = UpdateTemplateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
+      return;
     }
-    if (body.escalation_order !== undefined) {
-      const n = Number(body.escalation_order);
-      if (!Number.isInteger(n) || n < 1) {
-        apiResponse.badRequest(res, 'escalation_order must be a positive integer');
-        return;
-      }
-      input.escalation_order = n;
-    }
-    if (body.days_overdue_min !== undefined) {
-      const n = Number(body.days_overdue_min);
-      if (!Number.isInteger(n) || n < 0) {
-        apiResponse.badRequest(res, 'days_overdue_min must be ≥ 0');
-        return;
-      }
-      input.days_overdue_min = n;
-    }
-    if ('days_overdue_max' in body) {
-      if (body.days_overdue_max === null) {
-        input.days_overdue_max = null;
-      } else {
-        const n = Number(body.days_overdue_max);
-        if (!Number.isInteger(n)) {
-          apiResponse.badRequest(res, 'days_overdue_max must be an integer or null');
-          return;
-        }
-        input.days_overdue_max = n;
-      }
-    }
-    if (typeof body.subject_template === 'string' && body.subject_template.trim()) {
-      input.subject_template = body.subject_template;
-    }
-    if (typeof body.body_template === 'string' && body.body_template.trim()) {
-      input.body_template = body.body_template;
-    }
-    if (typeof body.send_weekdays_only === 'boolean') {
-      input.send_weekdays_only = body.send_weekdays_only;
-    }
-    if (typeof body.active === 'boolean') input.active = body.active;
+    const input: UpdateTemplateInput = parsed.data;
 
     try {
       const updated = await updateTemplate(companyId, templateId, input);

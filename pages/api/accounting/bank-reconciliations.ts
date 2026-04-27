@@ -5,16 +5,26 @@
  */
 
 import type { NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import {
   getReconciliations,
   getReconciliationById,
   startReconciliation,
 } from '@/modules/accounting/services/bank/bankReconciliationService';
+
+const StartReconSchema = z.object({
+  bankAccountId: UUID,
+  statementDate: z.string().min(8).max(30),
+  statementBalance: z.union([z.number(), z.string()]).transform(v => Number(v)).refine(n => Number.isFinite(n), {
+    message: 'statementBalance must be numeric',
+  }),
+}).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -41,17 +51,16 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'POST') {
     try {
-      const { bankAccountId, statementDate, statementBalance } = req.body;
+      const parsed = StartReconSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
+      }
+      const { bankAccountId, statementDate, statementBalance } = parsed.data;
       // User identity comes from JWT (req.user), never from client request body
       const userId = req.user.id;
 
-      if (!bankAccountId || !statementDate || statementBalance === undefined) {
-        return apiResponse.badRequest(res, 'bankAccountId, statementDate, and statementBalance are required');
-      }
-
       const recon = await startReconciliation(
-        companyId, String(bankAccountId), String(statementDate),
-        Number(statementBalance), userId
+        companyId, bankAccountId, statementDate, statementBalance, userId,
       );
       return apiResponse.created(res, recon);
     } catch (err) {

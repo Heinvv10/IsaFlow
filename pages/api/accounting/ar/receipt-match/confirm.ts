@@ -10,13 +10,23 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { confirmReceiptMatch } from '@/modules/accounting/services/ar/receiptMatchService';
+
+const BodySchema = z.object({
+  bankTxId: UUID,
+  customerInvoiceId: UUID,
+  amount: z.union([z.number(), z.string()]).transform(v => Number(v)).refine(n => Number.isFinite(n) && n > 0, {
+    message: 'amount must be a positive number',
+  }),
+}).strict();
 
 async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'POST') {
@@ -25,25 +35,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
   }
 
   const { companyId, user } = req as CompanyAuthedRequest;
-  const body = req.body ?? {};
-
-  const bankTxId = typeof body.bankTxId === 'string' ? body.bankTxId : '';
-  const customerInvoiceId =
-    typeof body.customerInvoiceId === 'string' ? body.customerInvoiceId : '';
-  const amount = Number(body.amount);
-
-  if (!bankTxId) {
-    apiResponse.badRequest(res, 'bankTxId is required');
+  const parsed = BodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
     return;
   }
-  if (!customerInvoiceId) {
-    apiResponse.badRequest(res, 'customerInvoiceId is required');
-    return;
-  }
-  if (!Number.isFinite(amount) || amount <= 0) {
-    apiResponse.badRequest(res, 'amount must be a positive number');
-    return;
-  }
+  const { bankTxId, customerInvoiceId, amount } = parsed.data;
 
   try {
     const result = await confirmReceiptMatch(companyId, {

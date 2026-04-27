@@ -5,12 +5,34 @@
  */
 
 import type { NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { listRules, upsertRule } from '@/modules/accounting/services/capture/supplierRulesService';
+
+// `strict()` — every field the UI in
+// pages/accounting/suppliers/[supplierId]/rules.tsx sends is now declared
+// explicitly below (including the two tolerance fields). passthrough() would
+// be needlessly permissive — `__proto__`, future typos, anything would flow
+// through to the service. The service has its own column allowlist as a
+// second line of defence, but the API contract should be tight.
+const UpsertSupplierRuleSchema = z.object({
+  supplierId: UUID,
+  defaultGlAccountId: UUID.nullable().optional(),
+  defaultVatCode: z.string().max(20).nullable().optional(),
+  defaultCostCentreId: UUID.nullable().optional(),
+  defaultProjectId: UUID.nullable().optional(),
+  autoPublish: z.boolean().optional(),
+  autoPublishMaxAmount: z.number().nullable().optional(),
+  autoPublishMinConfidence: z.number().min(0).max(1).optional(),
+  requirePoMatch: z.boolean().optional(),
+  qtyTolerancePct: z.number().min(0).max(100).optional(),
+  priceTolerancePct: z.number().min(0).max(100).optional(),
+}).strict();
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const { companyId } = req;
@@ -22,11 +44,16 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'POST') {
-    const { supplierId, ...patch } = req.body as Record<string, unknown>;
-
-    if (!supplierId || typeof supplierId !== 'string') {
-      return apiResponse.badRequest(res, 'supplierId is required');
+    const parsed = UpsertSupplierRuleSchema.safeParse(req.body);
+    if (!parsed.success) {
+      // Cast: Zod's flatten()() declares values as string[] | undefined while
+      // apiResponse.validationError signature is Record<string, string | string[]>.
+      return apiResponse.validationError(
+        res,
+        parsed.error.flatten().fieldErrors as Record<string, string | string[]>,
+      );
     }
+    const { supplierId, ...patch } = parsed.data;
 
     const rule = await upsertRule(companyId, supplierId, patch, userId);
     log.info('Supplier rule upserted via API', { companyId, supplierId }, 'supplier-rules-api');

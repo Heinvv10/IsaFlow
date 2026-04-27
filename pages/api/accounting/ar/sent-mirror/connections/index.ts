@@ -5,6 +5,7 @@
  */
 
 import type { NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
@@ -14,17 +15,17 @@ import {
   createSentImapConnection,
 } from '@/modules/accounting/services/ar/sentMirrorAdmin';
 
-interface CreateImapBody {
-  displayName?: string;
-  accountEmail?: string;
-  imapHost?: string;
-  imapPort?: number;
-  imapUseTls?: boolean;
-  imapUsername?: string;
-  imapPassword?: string;
-  sentFolder?: string;
-  scanIntervalMinutes?: number;
-}
+const CreateImapSchema = z.object({
+  displayName: z.string().min(1).max(200),
+  accountEmail: z.string().email().max(254),
+  imapHost: z.string().min(1).max(253),
+  imapPort: z.number().int().min(1).max(65535),
+  imapUseTls: z.boolean().optional(),
+  imapUsername: z.string().min(1).max(254),
+  imapPassword: z.string().min(1).max(500),
+  sentFolder: z.string().max(200).optional(),
+  scanIntervalMinutes: z.number().int().min(1).max(1440).optional(),
+}).strict();
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const { companyId } = req;
@@ -35,15 +36,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'POST') {
-    const body = (req.body ?? {}) as CreateImapBody;
-    if (!body.displayName || !body.accountEmail || !body.imapHost || !body.imapPort
-        || !body.imapUsername || !body.imapPassword) {
-      return apiResponse.badRequest(
-        res,
-        'displayName, accountEmail, imapHost, imapPort, imapUsername, imapPassword are required',
-      );
+    const parsed = CreateImapSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
     }
-
+    const body = parsed.data;
     const created = await createSentImapConnection({
       companyId,
       createdBy: req.user?.id ?? null,

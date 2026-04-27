@@ -6,11 +6,13 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { UUID } from '@/lib/schemas/common';
 import {
   listDisputes,
   raiseDispute,
@@ -18,6 +20,16 @@ import {
 } from '@/modules/accounting/services/ar/disputeService';
 
 const ALLOWED_STATUSES: DisputeStatus[] = ['open', 'resolved', 'withdrawn', 'rejected'];
+
+const RaiseDisputeSchema = z.object({
+  customerInvoiceId: UUID,
+  customerInvoiceLineId: UUID.nullable().optional(),
+  reason: z.string().trim().min(1).max(2000),
+  disputedAmount: z.union([z.number(), z.string()]).transform(v => Number(v)).refine(n => Number.isFinite(n) && n > 0, {
+    message: 'disputedAmount must be a positive number',
+  }),
+  sourceDocumentId: UUID.nullable().optional(),
+}).strict();
 
 async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void> {
   const { companyId, user } = req as CompanyAuthedRequest;
@@ -47,41 +59,24 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
   }
 
   if (req.method === 'POST') {
-    const body = req.body ?? {};
-    const customerInvoiceId =
-      typeof body.customerInvoiceId === 'string' ? body.customerInvoiceId : '';
-    const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
-    const disputedAmount = Number(body.disputedAmount);
-    const customerInvoiceLineId =
-      typeof body.customerInvoiceLineId === 'string' && body.customerInvoiceLineId.length > 0
-        ? body.customerInvoiceLineId
-        : null;
-    const sourceDocumentId =
-      typeof body.sourceDocumentId === 'string' && body.sourceDocumentId.length > 0
-        ? body.sourceDocumentId
-        : null;
-
-    if (!customerInvoiceId) {
-      apiResponse.badRequest(res, 'customerInvoiceId is required');
+    const parsed = RaiseDisputeSchema.safeParse(req.body);
+    if (!parsed.success) {
+      apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
       return;
     }
-    if (!reason) {
-      apiResponse.badRequest(res, 'reason is required');
-      return;
-    }
-    if (!Number.isFinite(disputedAmount) || disputedAmount <= 0) {
-      apiResponse.badRequest(res, 'disputedAmount must be a positive number');
-      return;
-    }
+    const {
+      customerInvoiceId, reason, disputedAmount,
+      customerInvoiceLineId, sourceDocumentId,
+    } = parsed.data;
 
     try {
       const dispute = await raiseDispute(companyId, {
         customerInvoiceId,
-        customerInvoiceLineId,
+        customerInvoiceLineId: customerInvoiceLineId ?? null,
         reason,
         disputedAmount,
         raisedBy: `user:${user.id}`,
-        sourceDocumentId,
+        sourceDocumentId: sourceDocumentId ?? null,
       });
       apiResponse.success(res, dispute);
     } catch (err) {

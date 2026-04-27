@@ -7,6 +7,7 @@
  */
 
 import type { NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withRole, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
@@ -14,11 +15,14 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql, transaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
-interface CategoryMapEntry {
-  originalCategory: string;
-  standardCategory: string;
-  glCode: number | string;
-}
+const CategoryMapEntrySchema = z.object({
+  originalCategory: z.string().min(1).max(500),
+  standardCategory: z.string().max(500).optional().default(''),
+  glCode: z.union([z.number(), z.string().max(50)]),
+});
+const BodySchema = z.object({
+  entries: z.array(CategoryMapEntrySchema).min(1).max(2000),
+}).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -29,11 +33,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   try {
     const userId = req.user.id;
-    const { entries } = req.body as { entries: CategoryMapEntry[] };
-
-    if (!Array.isArray(entries) || entries.length === 0) {
-      return apiResponse.badRequest(res, 'entries array is required');
+    const parsed = BodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
     }
+    const { entries } = parsed.data;
 
     // Fetch all GL accounts for this company in one query
      
