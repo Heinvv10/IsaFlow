@@ -60,6 +60,49 @@ export async function getCurrentFiscalPeriod(companyId: string): Promise<FiscalP
 }
 
 /**
+ * Resolve the period a tenant should be posting into right now.
+ *
+ * Selection rules (first match wins):
+ *   1. The OPEN period that contains today's date.
+ *   2. The most-recent OPEN period by start_date — covers (a) today
+ *      landing inside a *closed* period (clients lagging behind) and
+ *      (b) today being past the last open period (e.g. demo tenants
+ *      seeded into a future fiscal year).
+ *   3. null when no open period exists at all — caller must surface
+ *      "no postable period" instead of guessing.
+ *
+ * Two SQL calls at most; the fallback query is skipped when (1) hits.
+ */
+export async function getCurrentOpenPeriod(companyId: string): Promise<FiscalPeriod | null> {
+  try {
+    const inside = (await sql`
+      SELECT * FROM fiscal_periods
+      WHERE company_id = ${companyId}
+        AND status = 'open'
+        AND start_date <= CURRENT_DATE
+        AND end_date   >= CURRENT_DATE
+      ORDER BY start_date DESC
+      LIMIT 1
+    `) as Row[];
+
+    if (inside.length > 0 && inside[0]) return mapRow(inside[0]);
+
+    const fallback = (await sql`
+      SELECT * FROM fiscal_periods
+      WHERE company_id = ${companyId}
+        AND status = 'open'
+      ORDER BY start_date DESC
+      LIMIT 1
+    `) as Row[];
+
+    return fallback.length > 0 && fallback[0] ? mapRow(fallback[0]) : null;
+  } catch (err) {
+    log.error('Failed to get current open period', { error: err }, 'accounting');
+    throw err;
+  }
+}
+
+/**
  * Resolve the fiscal_period_id that contains the given date for this company.
  * Returns null if no period covers the date — callers must decide whether
  * to create a period or reject the posting.
