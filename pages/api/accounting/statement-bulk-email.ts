@@ -17,6 +17,7 @@ import {
   type CompanyAuthedRequest,
   type AuthenticatedNextApiRequest,
 } from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { sendStatementEmail } from '@/modules/accounting/services/ar/statementEmailService';
@@ -152,4 +153,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, { sent, failed, errors });
 }
 
-export default withAuth(withErrorHandler(withWriteAccess(handler as never)));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler as never))));

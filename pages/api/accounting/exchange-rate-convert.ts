@@ -10,6 +10,7 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { convertAmount as convertAmountPure } from '@/modules/accounting/services/core/multiCurrencyService';
 import { getLatestRate, getExchangeRates } from '@/modules/accounting/services/core/currencyService';
 import { log } from '@/lib/logger';
@@ -88,4 +89,4 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   return apiResponse.success(res, { result, rate, effectiveDate });
 }
 
-export default withAuth(withErrorHandler(handler));
+export default withAuth(withErrorHandler(withCsrf(handler)));

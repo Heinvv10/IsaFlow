@@ -11,6 +11,7 @@ import { sql } from '@/lib/neon';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 import type { PlatformAdminRequest } from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 
 const Body = z.object({
   eligible: z.boolean(),
@@ -54,4 +55,4 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
   return apiResponse.success(res, { companyId, eligible: rows[0]!.payg_eligible });
 }
 
-export default withAdmin(handler);
+export default withAdmin(withCsrf(handler));

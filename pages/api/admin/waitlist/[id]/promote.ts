@@ -12,6 +12,7 @@
 import type { NextApiResponse } from 'next';
 import { z } from 'zod';
 import type { PlatformAdminRequest } from '@/lib/auth/withPlatformAdmin';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
@@ -75,4 +76,4 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise
   }
 }
 
-export default withAdmin(handler);
+export default withAdmin(withCsrf(handler));

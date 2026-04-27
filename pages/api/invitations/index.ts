@@ -2,6 +2,7 @@
 import type { NextApiHandler } from 'next';
 import crypto from 'node:crypto';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth/withAuth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { adminCreateUser } from '@/lib/auth/gotrue';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { sql } from '@/lib/neon';
@@ -95,4 +96,4 @@ const handler: NextApiHandler = async (req, res) => {
   return res.status(405).json({ success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'GET or POST' } });
 };
 
-export default withAuth(handler);
+export default withAuth(withCsrf(handler));

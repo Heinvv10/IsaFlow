@@ -1,6 +1,7 @@
 // pages/api/invitations/[id]/revoke.ts
 import type { NextApiHandler } from 'next';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth/withAuth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { adminDeleteUser } from '@/lib/auth/gotrue';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -43,4 +44,4 @@ const handler: NextApiHandler = async (req, res) => {
   return res.status(200).json({ success: true, data: null });
 };
 
-export default withAuth(handler);
+export default withAuth(withCsrf(handler));

@@ -1,6 +1,7 @@
 // pages/api/auth/change-password.ts
 import type { NextApiHandler } from 'next';
 import { withUserAuth, type UserAuthedRequest } from '@/lib/auth/withUserAuth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { signIn, adminUpdateUser } from '@/lib/auth/gotrue';
 import { withRateLimit } from '@/lib/rateLimit';
 
@@ -35,4 +36,4 @@ const handler: NextApiHandler = async (req, res) => {
   return res.status(200).json({ success: true, data: null });
 };
 
-export default withRateLimit(withUserAuth(handler), { max: 10, windowSecs: 900 });
+export default withRateLimit(withUserAuth(withCsrf(handler)), { max: 10, windowSecs: 900 });

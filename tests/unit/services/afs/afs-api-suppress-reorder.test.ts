@@ -5,6 +5,9 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 vi.mock('@/lib/auth', () => ({
   withAuth: (handler: (req: NextApiRequest, res: NextApiResponse) => unknown) => handler,
 }));
+vi.mock('@/lib/auth/withCsrf', () => ({
+  withCsrf: (handler: (req: NextApiRequest, res: NextApiResponse) => unknown) => handler,
+}));
 vi.mock('@/lib/api-error-handler', () => ({
   withErrorHandler: (handler: (req: NextApiRequest, res: NextApiResponse) => unknown) => handler,
 }));

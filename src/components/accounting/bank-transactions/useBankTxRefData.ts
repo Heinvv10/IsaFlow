@@ -45,49 +45,59 @@ export function useBankTxRefData(setters: Setters): { refreshBankAccounts: () =>
   }, [setBankAccounts]);
 
   useEffect(() => {
-    Promise.all([
-      apiFetch('/api/accounting/bank-accounts').then(r => r.json()),
-      apiFetch('/api/accounting/chart-of-accounts').then(r => r.json()),
-      apiFetch('/api/accounting/suppliers-list?status=active').then(r => r.json()),
-      apiFetch('/api/accounting/customers').then(r => r.json()),
-      apiFetch('/api/accounting/cost-centres?cc_type=cc1&active=true').then(r => r.json()),
-      apiFetch('/api/accounting/cost-centres?cc_type=cc2&active=true').then(r => r.json()),
-      apiFetch('/api/accounting/cost-centres?active=true').then(r => r.json()),
-    ]).then(([bankJson, coaJson, suppJson, clientJson, cc1Json, cc2Json, deptJson]) => {
-      const bankList: BankAcct[] = Array.isArray(bankJson.data || bankJson) ? (bankJson.data || bankJson) : [];
+    // allSettled, not all: a 500 on a single ref-data endpoint (e.g.
+    // cost-centres when its schema is mid-migration) used to short-circuit
+    // the whole chain and leave the page stuck on "Loading…" with no bank
+    // accounts surfaced. Each fetch is now unwrapped independently.
+    const json = (r: PromiseSettledResult<Response>) =>
+      r.status === 'fulfilled' && r.value.ok
+        ? r.value.json().catch(() => null)
+        : Promise.resolve(null);
+
+    Promise.allSettled([
+      apiFetch('/api/accounting/bank-accounts'),
+      apiFetch('/api/accounting/chart-of-accounts'),
+      apiFetch('/api/accounting/suppliers-list?status=active'),
+      apiFetch('/api/accounting/customers'),
+      apiFetch('/api/accounting/cost-centres?cc_type=cc1&active=true'),
+      apiFetch('/api/accounting/cost-centres?cc_type=cc2&active=true'),
+      apiFetch('/api/accounting/cost-centres?active=true'),
+    ]).then(async ([bankRes, coaRes, suppRes, clientRes, cc1Res, cc2Res, deptRes]) => {
+      const [bankJson, coaJson, suppJson, clientJson, cc1Json, cc2Json, deptJson] = await Promise.all([
+        json(bankRes), json(coaRes), json(suppRes), json(clientRes), json(cc1Res), json(cc2Res), json(deptRes),
+      ]);
+
+      const bankRaw = bankJson?.data ?? bankJson;
+      const bankList: BankAcct[] = Array.isArray(bankRaw) ? bankRaw : [];
       setBankAccounts(bankList);
       if (bankList.length > 0) setSelectedBank(prev => prev || bankList[0]!.id);
 
-      const coaList = Array.isArray(coaJson.data || coaJson) ? (coaJson.data || coaJson) : [];
+      const coaRaw = coaJson?.data ?? coaJson;
+      const coaList: Array<SelectOption & { accountSubtype?: string; accountCode?: string; accountName?: string; defaultVatCode?: string }> = Array.isArray(coaRaw) ? coaRaw : [];
       setGlAccounts(coaList
-        .filter((a: SelectOption & { accountSubtype?: string }) => a.accountSubtype !== 'bank')
-        .map((a: SelectOption & { accountCode?: string; accountName?: string; defaultVatCode?: string }) => ({
-          id: a.id, code: a.accountCode || a.code, name: a.accountName || a.name, defaultVatCode: a.defaultVatCode,
-        }))
+        .filter(a => a.accountSubtype !== 'bank')
+        .map(a => ({ id: a.id, code: a.accountCode || a.code, name: a.accountName || a.name, defaultVatCode: a.defaultVatCode }))
       );
 
-      const suppD = suppJson.data ?? suppJson;
-      const suppList: { id: number | string; name: string; code?: string }[] = Array.isArray(suppD) ? suppD : (suppD.suppliers ?? []);
-      setSuppliers(suppList.map((s: { id: number | string; name: string; code?: string }) => ({
-        id: String(s.id), name: s.name, code: s.code,
-      })));
+      const suppD = suppJson?.data ?? suppJson;
+      const suppList: { id: number | string; name: string; code?: string }[] = Array.isArray(suppD) ? suppD : (suppD?.suppliers ?? []);
+      setSuppliers(suppList.map(s => ({ id: String(s.id), name: s.name, code: s.code })));
 
-      const clientList = Array.isArray(clientJson.data) ? clientJson.data : [];
+      const clientList = Array.isArray(clientJson?.data) ? clientJson.data : [];
       setCustomers(clientList.map((c: { id: string; name: string }) => ({ id: c.id, name: c.name || '' })));
 
-      const cc1List = Array.isArray(cc1Json.data?.items) ? cc1Json.data.items : [];
+      const cc1List = Array.isArray(cc1Json?.data?.items) ? cc1Json.data.items : [];
       setCc1Options(cc1List.map((c: { id: string; code: string; name: string }) => ({ id: c.id, code: c.code, name: c.name })));
 
-      const cc2List = Array.isArray(cc2Json.data?.items) ? cc2Json.data.items : [];
+      const cc2List = Array.isArray(cc2Json?.data?.items) ? cc2Json.data.items : [];
       setCc2Options(cc2List.map((c: { id: string; code: string; name: string }) => ({ id: c.id, code: c.code, name: c.name })));
 
-      const deptList = Array.isArray(deptJson.data || deptJson) ? (deptJson.data || deptJson) : [];
+      const deptRaw = deptJson?.data ?? deptJson;
+      const deptList = Array.isArray(deptRaw) ? deptRaw : [];
       setBuOptions(deptList
         .filter((d: { is_active?: boolean; isActive?: boolean }) => d.is_active !== false && d.isActive !== false)
         .map((d: { id: string; name: string; code?: string }) => ({ id: d.id, name: d.name, code: d.code })));
-    })
-      .catch(() => { /* non-critical: UI handles empty lists */ })
-      .finally(() => { setRefDataLoaded?.(true); });
+    }).finally(() => { setRefDataLoaded?.(true); });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

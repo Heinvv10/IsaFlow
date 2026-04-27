@@ -107,4 +107,5 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'POST']);
 }
 
-export default withAdmin(handler);
+import { withCsrf } from '@/lib/auth/withCsrf';
+export default withAdmin(withCsrf(handler));

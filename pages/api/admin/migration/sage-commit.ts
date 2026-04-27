@@ -431,4 +431,5 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, summary);
 }
 
-export default withAdmin(handler);
+import { withCsrf } from '@/lib/auth/withCsrf';
+export default withAdmin(withCsrf(handler));

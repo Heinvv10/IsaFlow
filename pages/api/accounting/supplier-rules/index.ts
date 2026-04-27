@@ -8,6 +8,7 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { listRules, upsertRule } from '@/modules/accounting/services/capture/supplierRulesService';
 
@@ -41,4 +42,4 @@ async function routedHandler(req: CompanyAuthedRequest, res: NextApiResponse) {
   return withWriteAccess(handler as Parameters<typeof withWriteAccess>[0])(req, res);
 }
 
-export default withAuth(withErrorHandler(routedHandler as Parameters<typeof withErrorHandler>[0]));
+export default withAuth(withErrorHandler(withCsrf(routedHandler as Parameters<typeof withErrorHandler>[0])));
