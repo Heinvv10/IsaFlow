@@ -4,6 +4,7 @@
 // PUT  — update company PIS input fields (employee_count, shareholder_count, etc.)
 
 import type { NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -12,6 +13,16 @@ import { sql } from '@/lib/neon';
 import { computePisBreakdown } from '@/modules/accounting/services/afs/pisCalculatorService';
 
 type DbRow = Record<string, unknown>;
+
+const PutPisSchema = z.object({
+  employeeCountBeginning: z.number().int().min(0).max(1_000_000).nullable().optional(),
+  employeeCountEnd: z.number().int().min(0).max(1_000_000).nullable().optional(),
+  shareholderCount: z.number().int().min(0).max(1_000_000).nullable().optional(),
+  allShareholdersAreDirectors: z.boolean().nullable().optional(),
+  natureOfBusiness: z.string().max(2000).nullable().optional(),
+  registeredAddress: z.string().max(2000).nullable().optional(),
+  entityType: z.enum(['pty', 'cc', 'trust']).nullable().optional(),
+}).strict();
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const { companyId } = req;
@@ -56,6 +67,13 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   // ── PUT: update PIS input fields ────────────────────────────────────────
   if (req.method === 'PUT') {
+    const parsed = PutPisSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return apiResponse.validationError(
+        res,
+        parsed.error.flatten().fieldErrors as Record<string, string | string[]>,
+      );
+    }
     const {
       employeeCountBeginning,
       employeeCountEnd,
@@ -64,12 +82,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       natureOfBusiness,
       registeredAddress,
       entityType,
-    } = req.body ?? {};
-
-    // Validate entity_type if provided
-    if (entityType !== undefined && !['pty', 'cc', 'trust'].includes(entityType)) {
-      return apiResponse.badRequest(res, 'entityType must be pty, cc, or trust');
-    }
+    } = parsed.data;
 
     await sql`
       UPDATE companies SET

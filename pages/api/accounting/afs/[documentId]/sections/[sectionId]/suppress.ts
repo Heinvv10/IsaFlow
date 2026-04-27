@@ -1,12 +1,24 @@
 // pages/api/accounting/afs/[documentId]/sections/[sectionId]/suppress.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+
+const BodySchema = z.object({
+  suppress: z.boolean(),
+  reason: z.string().trim().max(2000).optional(),
+}).strict().refine(
+  // `reason` is already trimmed by the field schema, so an empty/whitespace
+  // input arrives here as ''. Falsy check covers both undefined and ''.
+  v => !(v.suppress && !v.reason),
+  { message: 'reason is required when suppressing a section', path: ['reason'] },
+);
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -14,15 +26,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const { companyId } = req as CompanyAuthedRequest;
-  const { documentId, sectionId } = req.query as { documentId: string; sectionId: string };
-  const { suppress, reason } = req.body as { suppress?: unknown; reason?: unknown };
+  const docParse = UUID.safeParse(req.query.documentId);
+  const sectParse = UUID.safeParse(req.query.sectionId);
+  if (!docParse.success || !sectParse.success) {
+    return apiResponse.badRequest(res, 'documentId and sectionId must be valid UUIDs');
+  }
+  const documentId = docParse.data;
+  const sectionId = sectParse.data;
 
-  if (typeof suppress !== 'boolean') {
-    return apiResponse.badRequest(res, 'suppress must be a boolean');
+  const parsed = BodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    return apiResponse.validationError(
+      res,
+      parsed.error.flatten().fieldErrors as Record<string, string | string[]>,
+    );
   }
-  if (suppress && (typeof reason !== 'string' || reason.trim() === '')) {
-    return apiResponse.badRequest(res, 'reason is required when suppressing a section');
-  }
+  const { suppress, reason } = parsed.data;
 
   // Step 1 — Check current status
   const rows = (await sql`
@@ -51,7 +70,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       SET data_snapshot = jsonb_set(
             COALESCE(data_snapshot, '{}'::JSONB),
             '{suppressReason}',
-            ${JSON.stringify(reason as string)}::JSONB
+            ${JSON.stringify(reason)}::JSONB
           ),
           status = 'pending',
           updated_at = NOW()

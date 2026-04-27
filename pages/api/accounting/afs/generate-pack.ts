@@ -1,5 +1,6 @@
 // pages/api/accounting/afs/generate-pack.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
@@ -10,6 +11,10 @@ import { log } from '@/lib/logger';
 import { getManagementPackConfig } from '@/modules/accounting/services/afs/managementPackConfigService';
 import { generateManagementPack, DuplicatePackError } from '@/modules/accounting/services/afs/managementPackGeneratorService';
 
+const BodySchema = z.object({
+  period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'period must be YYYY-MM (e.g., 2026-04)'),
+}).strict();
+
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
 
@@ -17,11 +22,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
 
-  const { period } = req.body as { period?: string };
-
-  if (typeof period !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) {
-    return apiResponse.badRequest(res, 'period must be YYYY-MM (e.g., 2026-04)');
+  const parsed = BodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    return apiResponse.validationError(
+      res,
+      parsed.error.flatten().fieldErrors as Record<string, string | string[]>,
+    );
   }
+  const { period } = parsed.data;
 
   log.info('Manual pack generation triggered', { companyId, period }, 'generate-pack-api');
 

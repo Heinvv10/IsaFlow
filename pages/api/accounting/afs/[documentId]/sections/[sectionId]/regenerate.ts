@@ -1,33 +1,46 @@
 // pages/api/accounting/afs/[documentId]/sections/[sectionId]/regenerate.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { generateSection } from '@/modules/accounting/services/afs/noteEngineService';
-import type { ReportingFramework } from '@/modules/accounting/services/afs/afsTypes';
+
+const BodySchema = z.object({
+  fiscalYear: z.union([z.number(), z.string()]).transform(v => Number(v)).refine(
+    n => Number.isInteger(n) && n >= 2000 && n <= new Date().getFullYear() + 1,
+    { message: `fiscalYear must be an integer between 2000 and ${new Date().getFullYear() + 1}` },
+  ),
+  framework: z.enum(['ifrs_smes', 'full_ifrs']),
+}).strict();
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
 
   const { companyId } = req as CompanyAuthedRequest;
-  const { documentId, sectionId } = req.query as { documentId: string; sectionId: string };
-  const { fiscalYear, framework } = req.body as { fiscalYear?: unknown; framework?: unknown };
+  const docParse = UUID.safeParse(req.query.documentId);
+  const sectParse = UUID.safeParse(req.query.sectionId);
+  if (!docParse.success || !sectParse.success) {
+    return apiResponse.badRequest(res, 'documentId and sectionId must be valid UUIDs');
+  }
+  const documentId = docParse.data;
+  const sectionId = sectParse.data;
 
-  // Validation
-  const fy = Number(fiscalYear);
-  const currentYear = new Date().getFullYear();
-  if (!Number.isInteger(fy) || fy < 2000 || fy > currentYear + 1) {
-    return apiResponse.badRequest(res, 'fiscalYear must be a number between 2000 and ' + (currentYear + 1));
+  const parsed = BodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    return apiResponse.validationError(
+      res,
+      parsed.error.flatten().fieldErrors as Record<string, string | string[]>,
+    );
   }
-  if (framework !== 'ifrs_smes' && framework !== 'full_ifrs') {
-    return apiResponse.badRequest(res, "framework must be 'full_ifrs' or 'ifrs_smes'");
-  }
+  const { fiscalYear, framework } = parsed.data;
 
   log.info('Regenerating AFS section', { companyId, documentId, sectionId }, 'afs/regenerate');
 
-  await generateSection(companyId, documentId, sectionId, fy, framework as ReportingFramework);
+  await generateSection(companyId, documentId, sectionId, fiscalYear, framework);
 
   return apiResponse.success(res, { sectionId });
 }
