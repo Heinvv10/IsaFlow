@@ -42,12 +42,23 @@ export default function IncomeStatementPage() {
   const [periodResolved, setPeriodResolved] = useState(!!(qStart && qEnd));
   const isMountedRef = useRef(true);
 
+  // Sync-back effect: when router.query.period_start / period_end populate after
+  // mount (Next.js can hydrate router.query on a later tick, or client-side
+  // router.push can set them after the open-period fetch has already resolved),
+  // push the URL values into state so the report re-fetches correctly.
+  useEffect(() => {
+    if (qStart) setPeriodStart(qStart);
+    if (qEnd) setPeriodEnd(qEnd);
+  }, [qStart, qEnd]);
+
   // Fetch the current open period on mount to set smart default dates.
-  // If URL params were provided, honour them and skip the fetch.
+  // The open-period values are only written when no deep-link params are present
+  // (checked both at call-time and when the promise resolves).
   useEffect(() => {
     isMountedRef.current = true;
 
     if (qStart && qEnd) {
+      // Deep-link params present at mount — use them and skip the period fetch.
       setPeriodStart(qStart);
       setPeriodEnd(qEnd);
       setPeriodResolved(true);
@@ -58,16 +69,14 @@ export default function IncomeStatementPage() {
       .then(r => r.json())
       .then(json => {
         if (!isMountedRef.current) return;
-        // Re-read query in case deep-link params arrived after mount
-        const params = typeof window !== 'undefined'
+        // Guard: if deep-link params arrived after mount (router.query hydrates
+        // asynchronously), do not overwrite them with the fetched period dates.
+        const searchParams = typeof window !== 'undefined'
           ? new URLSearchParams(window.location.search)
           : null;
-        const latestStart = params?.get('period_start');
-        const latestEnd = params?.get('period_end');
-        if (latestStart && latestEnd) {
-          setPeriodStart(latestStart);
-          setPeriodEnd(latestEnd);
-        } else {
+        const latestStart = searchParams?.get('period_start');
+        const latestEnd = searchParams?.get('period_end');
+        if (!latestStart && !latestEnd) {
           const period = json.data as { startDate?: string; endDate?: string } | null;
           if (period?.startDate) setPeriodStart(period.startDate);
           if (period?.endDate) setPeriodEnd(clampToToday(period.endDate));

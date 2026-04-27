@@ -29,13 +29,22 @@ export default function BalanceSheetPage() {
   const [periodResolved, setPeriodResolved] = useState(!!qAsAt);
   const isMountedRef = useRef(true);
 
+  // Sync-back effect: when router.query.as_at_date populates after mount
+  // (Next.js can hydrate router.query on a later tick, or client-side
+  // router.push can set it after the open-period fetch has already resolved),
+  // push the URL value into state so the report re-fetches with the correct date.
+  useEffect(() => {
+    if (qAsAt) setAsAtDate(qAsAt);
+  }, [qAsAt]);
+
   // Fetch the current open period on mount to set a smart default as-at date.
-  // If a URL param was provided, honour it and skip the fetch.
+  // The open-period value is only written when no deep-link param is present
+  // (checked both at call-time and when the promise resolves).
   useEffect(() => {
     isMountedRef.current = true;
 
     if (qAsAt) {
-      // Deep-link param present — use it and skip the period fetch.
+      // Deep-link param present at mount — use it and skip the period fetch.
       setAsAtDate(qAsAt);
       setPeriodResolved(true);
       return;
@@ -45,13 +54,12 @@ export default function BalanceSheetPage() {
       .then(r => r.json())
       .then(json => {
         if (!isMountedRef.current) return;
-        // Re-read query in case a deep-link arrived after mount
+        // Guard: if a deep-link param arrived after mount (router.query hydrates
+        // asynchronously), do not overwrite it with the fetched period end.
         const latestParam = typeof window !== 'undefined'
           ? new URLSearchParams(window.location.search).get('as_at_date')
           : null;
-        if (latestParam) {
-          setAsAtDate(latestParam);
-        } else {
+        if (!latestParam) {
           const period = json.data as { endDate?: string } | null;
           if (period?.endDate) setAsAtDate(clampToToday(period.endDate));
         }

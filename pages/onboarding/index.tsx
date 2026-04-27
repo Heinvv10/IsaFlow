@@ -81,6 +81,21 @@ export default function OnboardingWizard() {
       // fall through to the membership check below.
       if (body.data?.user?.onboarding_completed === true) {
         window.clearTimeout(timeoutId);
+        // Await the POST so the Set-Cookie (ff_onboarding_done) is received
+        // before the redirect. Without this, middleware.ts:181-186 redirects
+        // any /accounting/* request without the cookie back to /onboarding,
+        // creating an infinite loop when the cookie is absent (incognito,
+        // cookie-clear, cross-domain) even though the DB flag is true.
+        const completeRes = await apiFetch('/api/onboarding/complete', { method: 'POST' });
+        if (!isMountedRef.current) return;
+        if (!completeRes.ok) {
+          log.warn('onboarding/complete POST failed on already-completed check', { status: completeRes.status }, 'onboarding');
+          if (isMountedRef.current) {
+            setError('Could not restore your session. Please try again.');
+            setAuthChecked(true);
+          }
+          return;
+        }
         window.location.href = '/accounting';
         return;
       }
