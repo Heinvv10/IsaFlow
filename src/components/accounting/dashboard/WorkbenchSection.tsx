@@ -1,5 +1,5 @@
 /**
- * WorkbenchSection — Accountant exception cards shown above the Financial Overview.
+ * WorkbenchSection - Accountant exception cards shown above the Financial Overview.
  *
  * Renders six cards that flag items needing attention:
  *   1. Unreconciled bank transactions
@@ -10,7 +10,7 @@
  *   6. VAT estimate (current period)
  *
  * Loading: skeleton placeholders (no layout shift).
- * Error: small banner — does not block the rest of the dashboard.
+ * Error: small banner - does not block the rest of the dashboard.
  */
 
 import { useEffect, useState } from 'react';
@@ -39,16 +39,15 @@ interface CardDef {
   href: string;
   icon: React.ElementType;
   severity: (value: number) => Severity;
-  /** Optional formatter — defaults to plain integer */
   format?: (value: number) => string;
 }
 
 function fmtCurrency(n: number): string {
   const abs = Math.abs(n);
-  const sign = n < 0 ? '-' : '';
-  if (abs >= 1_000_000) return `${sign}R ${(abs / 1_000_000).toFixed(1)}M`;
-  if (abs >= 1_000) return `${sign}R ${(abs / 1_000).toFixed(1)}K`;
-  return `${sign}R ${new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(abs)}`;
+  const prefix = (n < 0 ? '-' : '') + 'R ';
+  if (abs >= 1_000_000) return prefix + (abs / 1_000_000).toFixed(1) + 'M';
+  if (abs >= 1_000) return prefix + (abs / 1_000).toFixed(1) + 'K';
+  return prefix + new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(abs);
 }
 
 const CARDS: CardDef[] = [
@@ -164,7 +163,6 @@ export function WorkbenchSection() {
 
   return (
     <div>
-      {/* Section header */}
       <div className="flex items-center gap-2 mb-3">
         <AlertCircle className="h-4 w-4 text-amber-400" />
         <h2 className="text-xs font-semibold uppercase tracking-widest text-slate-400">
@@ -172,7 +170,6 @@ export function WorkbenchSection() {
         </h2>
       </div>
 
-      {/* Error banner — small, non-blocking */}
       {error && !loading && (
         <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-900/20 border border-red-500/30 text-red-400 text-xs mb-3">
           <AlertCircle className="h-3.5 w-3.5 shrink-0" />
@@ -180,7 +177,6 @@ export function WorkbenchSection() {
         </div>
       )}
 
-      {/* Cards grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
         {loading
           ? CARDS.map((c) => <SkeletonCard key={c.key} />)
