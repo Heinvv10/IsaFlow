@@ -171,24 +171,32 @@ describe('getWorkbenchMetrics', () => {
   it('returns different values for different companies (cross-tenant)', async () => {
     const sqlMock = sql as unknown as MockInstance;
 
-    // First call for COMPANY_A — non-zero values
-    let callIdx = 0;
-    sqlMock.mockImplementation(() => {
-      const idx = callIdx++;
-      if (idx < 6) {
-        if (idx === 5) return Promise.resolve([{ vat_estimate: '9000' }]);
-        return Promise.resolve([{ cnt: String(idx + 1) }]);
+    // Branch on the first interpolated argument (companyId) to prove the service
+    // actually threads the caller-supplied companyId into every SQL query.
+    // COMPANY_A → non-zero counts; COMPANY_B → zero counts.
+    sqlMock.mockImplementation((_template: TemplateStringsArray, ...args: unknown[]) => {
+      const companyId = args[0] as string;
+      if (companyId === COMPANY_A) {
+        // Return a generic non-zero row; vat_estimate queries use a different key
+        // but Number() on undefined falls back to 0, so use cnt for all — the
+        // service picks whichever key is present.
+        return Promise.resolve([{ cnt: '5', vat_estimate: '9000' }]);
       }
-      // Second call for COMPANY_B — all zeros (different tenant, empty data)
-      if (idx === 5 + 5) return Promise.resolve([{ vat_estimate: '0' }]);
-      return Promise.resolve([{ cnt: '0' }]);
+      if (companyId === COMPANY_B) {
+        return Promise.resolve([{ cnt: '0', vat_estimate: '0' }]);
+      }
+      return Promise.resolve([]);
     });
 
     const metricsA = await getWorkbenchMetrics(COMPANY_A);
     const metricsB = await getWorkbenchMetrics(COMPANY_B);
 
-    // Company A has data; Company B is empty
-    expect(metricsA.unreconciledBankTxns).toBe(1);
+    // COMPANY_A: service reads cnt/vat_estimate from the mock → non-zero
+    expect(metricsA.unreconciledBankTxns).toBe(5);
+    expect(metricsA.vatEstimateCurrentPeriod).toBe(9000);
+
+    // COMPANY_B: different tenant → all zeros
     expect(metricsB.unreconciledBankTxns).toBe(0);
+    expect(metricsB.vatEstimateCurrentPeriod).toBe(0);
   });
 });

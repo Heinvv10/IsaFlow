@@ -2,12 +2,12 @@
  * WorkbenchSection - Accountant exception cards shown above the Financial Overview.
  *
  * Renders six cards that flag items needing attention:
- *   1. Unreconciled bank transactions
- *   2. Draft invoices (customer + supplier)
- *   3. AP due this week
- *   4. Unposted journals
- *   5. Open prior periods
- *   6. VAT estimate (current period)
+ *   1. Unreconciled bank transactions  → /accounting/bank-transactions
+ *   2. Draft invoices                  → /accounting/customer-invoices?filter=draft
+ *   3. AP due this week                → /accounting/supplier-invoices?due_this_week=1
+ *   4. Unposted journals               → /accounting/journal-entries
+ *   5. Open prior periods              → /accounting/fiscal-periods
+ *   6. VAT estimate (current period)   → /accounting/reports/vat-return
  *
  * Loading: skeleton placeholders (no layout shift).
  * Error: small banner - does not block the rest of the dashboard.
@@ -61,14 +61,14 @@ const CARDS: CardDef[] = [
   {
     key: 'draftInvoices',
     label: 'Draft invoices',
-    href: '/accounting/ar',
+    href: '/accounting/customer-invoices?filter=draft',
     icon: FileText,
     severity: (v) => (v > 10 ? 'amber' : 'normal'),
   },
   {
     key: 'apDueThisWeek',
     label: 'AP due this week',
-    href: '/accounting/ap?signal=due-this-week',
+    href: '/accounting/supplier-invoices?due_this_week=1',
     icon: Clock,
     severity: (v) => (v > 0 ? 'amber' : 'normal'),
   },
@@ -89,7 +89,7 @@ const CARDS: CardDef[] = [
   {
     key: 'vatEstimateCurrentPeriod',
     label: 'VAT estimate (current period)',
-    href: '/accounting/vat-returns',
+    href: '/accounting/reports/vat-return',
     icon: Receipt,
     severity: () => 'normal',
     format: fmtCurrency,
@@ -162,10 +162,10 @@ export function WorkbenchSection() {
   }, []);
 
   return (
-    <div>
+    <section role="region" aria-labelledby="workbench-heading">
       <div className="flex items-center gap-2 mb-3">
         <AlertCircle className="h-4 w-4 text-amber-400" />
-        <h2 className="text-xs font-semibold uppercase tracking-widest text-slate-400">
+        <h2 id="workbench-heading" className="text-xs font-semibold uppercase tracking-widest text-slate-400">
           Today in the books
         </h2>
       </div>
@@ -191,6 +191,7 @@ export function WorkbenchSection() {
                 <Link
                   key={card.key}
                   href={card.href}
+                  aria-label={`${card.label}: ${displayValue}. Click to view.`}
                   className={`group flex flex-col gap-2 rounded-xl border p-4 hover:shadow-md transition-all no-underline ${styles.card}`}
                 >
                   <div className="flex items-center gap-2">
@@ -216,6 +217,6 @@ export function WorkbenchSection() {
               );
             })}
       </div>
-    </div>
+    </section>
   );
 }
