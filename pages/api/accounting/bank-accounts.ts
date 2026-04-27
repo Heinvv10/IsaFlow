@@ -114,7 +114,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       WHERE ga.account_subtype = 'bank'
         AND ga.is_active = TRUE
         AND ga.company_id = ${companyId}
-        AND ga.parent_account_id IS NULL
+        -- Show only leaf bank accounts. Tenants commonly nest 1110 Bank under
+        -- 1100 Current Assets, and some nest per-employee paycards under a
+        -- bank-subtype rollup; both used to hide every nested bank from this
+        -- list. We keep rollup parents out by excluding any row that has a
+        -- bank-subtype child.
+        AND NOT EXISTS (
+          SELECT 1 FROM gl_accounts child
+           WHERE child.parent_account_id = ga.id
+             AND child.account_subtype = 'bank'
+        )
       ORDER BY ga.account_code
     `;
 
