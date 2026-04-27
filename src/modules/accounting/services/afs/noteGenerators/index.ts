@@ -125,6 +125,26 @@ export {
   generateNote30StandardsNotYetEffective,
 };
 
+// ── Primary statements ──────────────────────────────────────────────────────
+
+import {
+  generateCover,
+  generateDirectorsReport,
+  generateStatementOfFinancialPosition,
+  generateIncomeStatement,
+  generateChangesInEquity,
+  generateCashFlow,
+} from './primaryStatements';
+
+export {
+  generateCover,
+  generateDirectorsReport,
+  generateStatementOfFinancialPosition,
+  generateIncomeStatement,
+  generateChangesInEquity,
+  generateCashFlow,
+};
+
 // ── Adapters: wrap 2-arg generators to match 3-arg NoteGeneratorFn ───────────
 
 // Wrap 2-arg generators to match the uniform 3-arg NoteGeneratorFn signature.
@@ -181,4 +201,11 @@ export const NOTE_GENERATOR_MAP: Partial<Record<SectionType, NoteGeneratorFn>> =
   note_28: wrapFullIfrs(generateNote28SegmentInformation,        'Segment Information'),
   note_29: wrapFullIfrs(generateNote29FinancialInstrumentsRisk,  'Financial Instruments Risk'),
   note_30: wrap(generateNote30StandardsNotYetEffective),
+  // Primary statements — already 3-arg, no wrap needed.
+  cover:             generateCover,
+  directors_report:  generateDirectorsReport,
+  statement_of_fp:   generateStatementOfFinancialPosition,
+  income_statement:  generateIncomeStatement,
+  changes_in_equity: generateChangesInEquity,
+  cash_flow:         generateCashFlow,
 };
