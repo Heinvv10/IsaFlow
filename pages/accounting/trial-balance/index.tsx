@@ -56,17 +56,27 @@ export default function TrialBalancePage() {
       .catch(() => { /* reference data load failure — non-critical, cost centre filter will be empty */ });
   }, []);
 
-  // Load fiscal periods
+  // Load fiscal periods — prefer the open period containing today, then most recent open
   useEffect(() => {
+    const todayIso = new Date().toISOString().substring(0, 10);
     apiFetch('/api/accounting/fiscal-periods', { credentials: 'include' })
       .then(r => r.json())
       .then(res => {
-        const items = res.data?.items || res.data || [];
+        const items: FiscalPeriod[] = res.data?.items || res.data || [];
         setPeriods(items);
-        const open = items.find((p: FiscalPeriod) => p.status === 'open');
-        if (open) setSelectedPeriod(open.id);
-        else if (items.length > 0) setSelectedPeriod(items[0].id);
-      });
+        // Priority 1: open period whose date range contains today
+        const openContainingToday = items.find(
+          p => p.status === 'open'
+            && p.startDate.substring(0, 10) <= todayIso
+            && p.endDate.substring(0, 10) >= todayIso,
+        );
+        // Priority 2: any open period
+        const anyOpen = items.find(p => p.status === 'open');
+        const best = openContainingToday ?? anyOpen;
+        if (best) setSelectedPeriod(best.id);
+        else if (items.length > 0) setSelectedPeriod(items[0]!.id);
+      })
+      .catch(() => { /* non-critical — period selector remains empty */ });
   }, []);
 
   const loadTB = useCallback(async () => {

@@ -41,6 +41,8 @@ export interface Company {
   isActive?: boolean;
   // PRD-10 Layer 1: idle-timeout policy in minutes (default 480 = 8h).
   idleTimeoutMinutes?: number;
+  // Demo tenant flag — persisted into localStorage so DemoBanner renders on first paint.
+  isDemo?: boolean;
 }
 
 export interface CompanyUser {
@@ -72,8 +74,10 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
     try {
       const stored = window.localStorage.getItem(STORAGE_KEY);
       if (!stored) return null;
-      const parsed = JSON.parse(stored) as { id?: string; name?: string };
-      if (parsed?.id && parsed?.name) return { id: parsed.id, name: parsed.name };
+      const parsed = JSON.parse(stored) as { id?: string; name?: string; isDemo?: boolean };
+      if (parsed?.id && parsed?.name) {
+        return { id: parsed.id, name: parsed.name, isDemo: parsed.isDemo ?? false };
+      }
     } catch {
       // Malformed entry — fall through to null and let the fetch drive state.
     }
@@ -117,9 +121,14 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
             defaultCurrency: c.default_currency || c.defaultCurrency,
             isActive: c.is_active ?? c.isActive ?? true,
             idleTimeoutMinutes: c.idle_timeout_minutes ?? c.idleTimeoutMinutes,
+            isDemo: c.is_demo ?? c.isDemo ?? false,
           };
           setActiveCompany(company);
-          localStorage.setItem(STORAGE_KEY, JSON.stringify({ id: company.id, name: company.name }));
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({
+            id: company.id,
+            name: company.name,
+            isDemo: company.isDemo ?? false,
+          }));
           return company;
         }
       }
@@ -242,7 +251,9 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
     // tenant's name while every API call uses the new cookie = mismatched UI).
     if (typeof window !== 'undefined') {
       const newName = match?.companyName ?? '';
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ id: companyId, name: newName }));
+      // isDemo is not known for the target company at switch time — clear it so
+      // loadCompanyDetails can re-hydrate the correct value after reload.
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ id: companyId, name: newName, isDemo: false }));
       window.location.reload();
       return;
     }
