@@ -19,7 +19,30 @@ interface CostCentre { id: string; code: string; name: string }
 export default function BalanceSheetPage() {
   const router = useRouter();
   const qAsAt = typeof router.query.as_at_date === 'string' ? router.query.as_at_date : '';
-  const [asAtDate, setAsAtDate] = useState(qAsAt || new Date().toISOString().split('T')[0]);
+  // Initialise to today; overridden once we resolve the current open period below.
+  const [asAtDate, setAsAtDate] = useState(qAsAt || new Date().toISOString().split('T')[0]!);
+  const [periodResolved, setPeriodResolved] = useState(!!qAsAt);
+
+  // Resolve default as-at date from current open fiscal period (avoids defaulting
+  // to future demo data or a already-closed period).
+  useEffect(() => {
+    if (qAsAt) { setPeriodResolved(true); return; }
+    apiFetch('/api/accounting/fiscal-periods?open_period=true', { credentials: 'include' })
+      .then(r => r.json())
+      .then(res => {
+        const period = res.data ?? null;
+        if (period?.endDate) {
+          const endDate = typeof period.endDate === 'string'
+            ? period.endDate.substring(0, 10)
+            : (period.endDate as Date).toISOString().substring(0, 10);
+          setAsAtDate(endDate);
+        }
+        setPeriodResolved(true);
+      })
+      .catch(() => setPeriodResolved(true));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => { if (qAsAt && qAsAt !== asAtDate) setAsAtDate(qAsAt); }, [qAsAt, asAtDate]);
   const [report, setReport] = useState<BalanceSheetReport | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -38,7 +61,7 @@ export default function BalanceSheetPage() {
   }, []);
 
   const loadReport = useCallback(async () => {
-    if (!asAtDate) return;
+    if (!asAtDate || !periodResolved) return;
     setIsLoading(true);
     setError('');
     try {
@@ -58,7 +81,7 @@ export default function BalanceSheetPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [asAtDate, costCentreId, showComparative]);
+  }, [asAtDate, costCentreId, showComparative, periodResolved]);
 
   useEffect(() => { loadReport(); }, [loadReport]);
 

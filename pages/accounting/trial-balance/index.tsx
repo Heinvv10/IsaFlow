@@ -56,17 +56,38 @@ export default function TrialBalancePage() {
       .catch(() => { /* reference data load failure — non-critical, cost centre filter will be empty */ });
   }, []);
 
-  // Load fiscal periods
+  // Load fiscal periods and default to the current open period (contains today,
+  // or most recent open period as fallback — avoids defaulting to future demo data).
   useEffect(() => {
-    apiFetch('/api/accounting/fiscal-periods', { credentials: 'include' })
-      .then(r => r.json())
-      .then(res => {
-        const items = res.data?.items || res.data || [];
-        setPeriods(items);
-        const open = items.find((p: FiscalPeriod) => p.status === 'open');
-        if (open) setSelectedPeriod(open.id);
-        else if (items.length > 0) setSelectedPeriod(items[0].id);
-      });
+    const today = new Date().toISOString().substring(0, 10);
+
+    Promise.all([
+      apiFetch('/api/accounting/fiscal-periods', { credentials: 'include' }).then(r => r.json()),
+      apiFetch('/api/accounting/fiscal-periods?open_period=true', { credentials: 'include' }).then(r => r.json()),
+    ]).then(([listRes, openRes]) => {
+      const items: FiscalPeriod[] = listRes.data?.items || listRes.data || [];
+      setPeriods(items);
+
+      // Prefer the resolved current open period from the service
+      const openPeriod: FiscalPeriod | null = openRes.data ?? null;
+      if (openPeriod) {
+        setSelectedPeriod(openPeriod.id);
+        return;
+      }
+
+      // Secondary: any open period whose range contains today
+      const todayPeriod = items.find(
+        (p: FiscalPeriod) => p.status === 'open' && p.startDate <= today && p.endDate >= today,
+      );
+      if (todayPeriod) { setSelectedPeriod(todayPeriod.id); return; }
+
+      // Tertiary: first open period in the list
+      const firstOpen = items.find((p: FiscalPeriod) => p.status === 'open');
+      if (firstOpen) { setSelectedPeriod(firstOpen.id); return; }
+
+      // Last resort: first period in the list
+      if (items.length > 0) setSelectedPeriod(items[0]!.id);
+    }).catch(() => { /* period list load failure — selector will be empty */ });
   }, []);
 
   const loadTB = useCallback(async () => {
