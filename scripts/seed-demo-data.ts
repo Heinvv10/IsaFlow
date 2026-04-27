@@ -638,6 +638,37 @@ async function seedBankTransactions(
   const bankAcctId = gl['1110'];
   if (!bankAcctId) { console.log('[bank] No bank account found, skipping.'); return; }
 
+  // Ensure the demo's primary bank GL account is fully configured (idempotent).
+  // Without this, the Bank Accounts UI shows "Bank - Primary" with blank
+  // bank name / account number / branch — which looks unconfigured to users.
+  await sql.query(
+    `UPDATE gl_accounts
+        SET bank_name                   = COALESCE(NULLIF(bank_name,''),                   'FNB'),
+            bank_account_number         = COALESCE(NULLIF(bank_account_number,''),         '62012345678'),
+            bank_branch_name            = COALESCE(NULLIF(bank_branch_name,''),            'FNB Business Banking'),
+            bank_branch_code            = COALESCE(NULLIF(bank_branch_code,''),            '250655'),
+            bank_account_type           = COALESCE(NULLIF(bank_account_type,''),           'current'),
+            bank_default_payment_method = COALESCE(NULLIF(bank_default_payment_method,''), 'eft'),
+            bank_is_default             = COALESCE(bank_is_default, FALSE) OR TRUE,
+            bank_opening_balance        = COALESCE(bank_opening_balance, 0),
+            bank_opening_balance_date   = COALESCE(bank_opening_balance_date, '2024-02-29'::date),
+            description                 = COALESCE(NULLIF(description,''),                 'Primary operating bank account (demo)'),
+            updated_at                  = NOW()
+      WHERE id = $1::uuid AND company_id = $2::uuid`,
+    [bankAcctId, COMPANY_ID]
+  );
+
+  // Suppress any stray QA-generated bank account that leaked onto the demo.
+  await sql.query(
+    `UPDATE gl_accounts
+        SET is_active = FALSE, updated_at = NOW()
+      WHERE company_id = $1::uuid
+        AND account_subtype = 'bank'
+        AND account_code <> '1110'
+        AND (account_name ILIKE 'QA Test Bank%' OR account_name ILIKE '%QA%Test%')`,
+    [COMPANY_ID]
+  );
+
   const TODAY = new Date();
 
   for (const { year, month } of monthRange()) {

@@ -72,7 +72,9 @@ describe.skipIf(!hasRealDb)('SARS Source Codes (DB-backed lookup)', () => {
 // IRP5 SOURCE CODE CALCULATION
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe('IRP5 Source Code Calculation', () => {
+// calculateIRP5SourceCodes resolves descriptions via sarsCodesService.getSarsCode,
+// which queries sars_source_codes — so this block needs a real DB.
+describe.skipIf(!hasRealDb)('IRP5 Source Code Calculation', () => {
   const sampleEmployee: IRP5EmployeeData = {
     grossSalary: 360000,
     commission: 0,
@@ -148,7 +150,8 @@ describe('IRP5 Source Code Calculation', () => {
 // IRP5 CERTIFICATE BUILDING
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe('IRP5 Certificate Building', () => {
+// buildIRP5Certificate composes calculateIRP5SourceCodes — same DB dependency.
+describe.skipIf(!hasRealDb)('IRP5 Certificate Building', () => {
   const sampleData: IRP5EmployeeData = {
     grossSalary: 300000,
     commission: 0,
