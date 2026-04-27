@@ -8,33 +8,38 @@
  */
 
 import type { NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import {
   allocateTransaction,
-  type AllocationType,
 } from '@/modules/accounting/services/bank/bankReconciliationService';
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-interface ManualTxBody {
-  type: 'spend' | 'receive';
-  bankAccountId: string;
-  date: string;
-  amount: number | string;
-  reference?: string;
-  description?: string;
-  allocationType: AllocationType;
-  /** GL account ID (when allocationType === 'account') */
-  contraAccountId?: string;
-  /** Supplier or Customer ID (when allocationType is supplier/customer) */
-  entityId?: string;
-  vatCode?: string;
-}
+const ManualTxSchema = z.object({
+  type: z.enum(['spend', 'receive']),
+  bankAccountId: UUID,
+  date: z.string().min(8).max(30),
+  amount: z.union([z.number(), z.string()]).transform(v => Number(v)).refine(n => Number.isFinite(n) && n > 0, {
+    message: 'amount must be a positive number',
+  }),
+  reference: z.string().max(200).optional(),
+  description: z.string().max(500).optional(),
+  allocationType: z.enum(['account', 'supplier', 'customer', 'transfer']),
+  contraAccountId: UUID.optional(),
+  entityId: z.string().max(100).optional(),
+  vatCode: z.string().max(20).optional(),
+}).refine(
+  v => !(v.allocationType === 'account' && !v.contraAccountId),
+  { message: 'contraAccountId is required when allocationType is account' },
+).refine(
+  v => !((v.allocationType === 'supplier' || v.allocationType === 'customer') && !v.entityId),
+  { message: 'entityId is required when allocationType is supplier or customer' },
+);
 
 // ── Handler ───────────────────────────────────────────────────────────────────
 
@@ -46,44 +51,14 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const { companyId } = req;
   const userId: string = req.user?.id ?? 'system';
 
-  const body = req.body as ManualTxBody;
+  const parsed = ManualTxSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
+  }
   const {
-    type,
-    bankAccountId,
-    date,
-    amount: rawAmount,
-    reference,
-    description,
-    allocationType,
-    contraAccountId,
-    entityId,
-    vatCode,
-  } = body;
-
-  // ── Validation ─────────────────────────────────────────────────────────────
-
-  if (!type || (type !== 'spend' && type !== 'receive')) {
-    return apiResponse.badRequest(res, "type must be 'spend' or 'receive'");
-  }
-  if (!bankAccountId) {
-    return apiResponse.badRequest(res, 'bankAccountId is required');
-  }
-  if (!date) {
-    return apiResponse.badRequest(res, 'date is required');
-  }
-  const numericAmount = Number(rawAmount);
-  if (!rawAmount || isNaN(numericAmount) || numericAmount <= 0) {
-    return apiResponse.badRequest(res, 'amount must be a positive number');
-  }
-  if (!allocationType) {
-    return apiResponse.badRequest(res, 'allocationType is required');
-  }
-  if (allocationType === 'account' && !contraAccountId) {
-    return apiResponse.badRequest(res, 'contraAccountId is required when allocationType is account');
-  }
-  if ((allocationType === 'supplier' || allocationType === 'customer') && !entityId) {
-    return apiResponse.badRequest(res, 'entityId is required when allocationType is supplier or customer');
-  }
+    type, bankAccountId, date, amount: numericAmount,
+    reference, description, allocationType, contraAccountId, entityId, vatCode,
+  } = parsed.data;
 
   // ── Amount sign — negative for spend, positive for receive ─────────────────
 

@@ -28,10 +28,12 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { UUID } from '@/lib/schemas/common';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -44,7 +46,7 @@ import {
   type HashableTransaction,
 } from '@/modules/accounting/utils/bankTransactionHash';
 import { compareBankAccountNumbers } from '@/modules/accounting/utils/bankAccountNumberMatch';
-import type { BankCsvParseResult, BankFormat } from '@/modules/accounting/types/bank.types';
+import type { BankCsvParseResult } from '@/modules/accounting/types/bank.types';
 
 export const config = {
   api: { bodyParser: { sizeLimit: '30mb' } },
@@ -52,14 +54,14 @@ export const config = {
 
 export type AccountMatchStatus = 'match' | 'mismatch' | 'inconclusive' | 'parse_error';
 
-interface BulkPreviewRequest {
-  bankAccountId?: string;
-  fileType?: StatementFileType;
-  filename?: string;
-  pdfBase64?: string;
-  csvContent?: string;
-  bankFormat?: BankFormat;
-}
+const BulkPreviewSchema = z.object({
+  bankAccountId: UUID,
+  fileType: z.enum(['pdf', 'csv', 'ofx', 'qif']).optional(),
+  filename: z.string().min(1).max(500),
+  pdfBase64: z.string().optional(),
+  csvContent: z.string().optional(),
+  bankFormat: z.enum(['fnb', 'standard_bank', 'nedbank', 'absa', 'capitec', 'ofx', 'qif', 'unknown']).optional(),
+}).strict();
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -67,22 +69,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const { companyId } = req as CompanyAuthedRequest;
-  const body = (req.body ?? {}) as BulkPreviewRequest;
-  const {
-    bankAccountId,
-    fileType,
-    filename,
-    pdfBase64,
-    csvContent,
-    bankFormat,
-  } = body;
-
-  if (!bankAccountId) {
-    return apiResponse.badRequest(res, 'bankAccountId is required for bulk preview');
+  const parsed = BulkPreviewSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
   }
-  if (!filename) {
-    return apiResponse.badRequest(res, 'filename is required for bulk preview');
-  }
+  const { bankAccountId, fileType, filename, pdfBase64, csvContent, bankFormat } = parsed.data;
 
   // Pentest M16: cap decoded base64 size before decoding. 30 MB body allows
   // ~22 MB decoded, buffered entirely in RAM by parseStatement. Bound the

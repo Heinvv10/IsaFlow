@@ -9,12 +9,16 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { UUID } from '@/lib/schemas/common';
 import { renderTemplate } from '@/modules/accounting/services/ar/dunningService';
+
+const BodySchema = z.object({ invoiceId: UUID }).strict();
 
 async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'POST') {
@@ -22,17 +26,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
     return;
   }
   const { companyId } = req as CompanyAuthedRequest;
-  const templateId = typeof req.query.id === 'string' ? req.query.id : '';
-  const invoiceId = typeof req.body?.invoiceId === 'string' ? req.body.invoiceId : '';
+  const idParse = UUID.safeParse(req.query.id);
+  if (!idParse.success) {
+    apiResponse.badRequest(res, 'template id must be a valid UUID');
+    return;
+  }
+  const templateId = idParse.data;
 
-  if (!templateId) {
-    apiResponse.badRequest(res, 'template id is required in path');
+  const parsed = BodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
     return;
   }
-  if (!invoiceId) {
-    apiResponse.badRequest(res, 'invoiceId is required in body');
-    return;
-  }
+  const { invoiceId } = parsed.data;
 
   try {
     const portalBaseUrl = process.env.PUBLIC_APP_URL ?? process.env.NEXT_PUBLIC_APP_URL;

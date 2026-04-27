@@ -5,6 +5,7 @@
  */
 
 import type { NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
@@ -14,10 +15,14 @@ import {
   listBankFeedConnections,
   createBankFeedConnection,
   type BankFeedConnectionInput,
-  type Provider,
 } from '@/modules/accounting/services/bank/openBankingService';
 
-const VALID_PROVIDERS: Provider[] = ['manual_csv', 'basiq', 'tink', 'plaid'];
+const CreateConnectionSchema = z.object({
+  provider: z.enum(['manual_csv', 'basiq', 'tink', 'plaid']),
+  accountId: z.string().max(200).optional(),
+  externalAccountId: z.string().max(200).optional(),
+  config: z.record(z.string(), z.unknown()).optional(),
+}).strict();
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const { companyId } = req;
@@ -29,26 +34,18 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'POST') {
-    const body = req.body as Record<string, unknown>;
-    const provider = body.provider as string | undefined;
-
-    if (!provider || !VALID_PROVIDERS.includes(provider as Provider)) {
-      return apiResponse.badRequest(
-        res,
-        `provider is required. Must be one of: ${VALID_PROVIDERS.join(', ')}`,
-      );
+    const parsed = CreateConnectionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
     }
-
     const input: BankFeedConnectionInput = {
-      provider: provider as Provider,
-      accountId: typeof body.accountId === 'string' ? body.accountId : undefined,
-      externalAccountId: typeof body.externalAccountId === 'string' ? body.externalAccountId : undefined,
-      config: typeof body.config === 'object' && body.config !== null
-        ? (body.config as Record<string, unknown>)
-        : {},
+      provider: parsed.data.provider,
+      accountId: parsed.data.accountId,
+      externalAccountId: parsed.data.externalAccountId,
+      config: parsed.data.config ?? {},
     };
 
-    log.info('Creating bank feed connection', { provider, companyId }, 'open-banking-api');
+    log.info('Creating bank feed connection', { provider: input.provider, companyId }, 'open-banking-api');
     const connection = await createBankFeedConnection(companyId, input, userId);
     return apiResponse.success(res, connection, 'Connection created', 201);
   }

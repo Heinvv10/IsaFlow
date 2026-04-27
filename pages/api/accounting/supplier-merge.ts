@@ -7,17 +7,21 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withTransaction } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { UUID } from '@/lib/schemas/common';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { log } from '@/lib/logger';
 
-interface MergeBody {
-  source_id: string;
-  target_id: string;
-}
+const MergeBodySchema = z.object({
+  source_id: UUID,
+  target_id: UUID,
+}).strict().refine(v => v.source_id !== v.target_id, {
+  message: 'source_id and target_id must be different suppliers',
+});
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -25,15 +29,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const { companyId } = req as CompanyAuthedRequest;
-  const body = req.body as MergeBody;
-  const { source_id, target_id } = body;
-
-  if (!source_id?.trim() || !target_id?.trim()) {
-    return apiResponse.badRequest(res, 'source_id and target_id are required');
+  const parsed = MergeBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
   }
-  if (source_id === target_id) {
-    return apiResponse.badRequest(res, 'source_id and target_id must be different suppliers');
-  }
+  const { source_id, target_id } = parsed.data;
 
   try {
     await withTransaction(async (tx) => {

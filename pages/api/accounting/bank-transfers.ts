@@ -7,11 +7,25 @@ import { sql, withTransaction } from '@/lib/neon';
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
+
+const TransferSchema = z.object({
+  fromAccountId: UUID,
+  toAccountId: UUID,
+  amount: z.union([z.number(), z.string()]).transform(v => Number(v)).refine(n => Number.isFinite(n) && n > 0, {
+    message: 'Transfer amount must be a positive number',
+  }),
+  reference: z.string().max(500).optional(),
+  transferDate: z.string().max(30).optional(),
+}).refine(v => v.fromAccountId !== v.toAccountId, {
+  message: 'Source and destination accounts must be different',
+});
 
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -21,24 +35,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const { companyId } = req as CompanyAuthedRequest;
   const userId = (req as AuthenticatedNextApiRequest).user.id;
-  const { fromAccountId, toAccountId, amount, reference, transferDate } = req.body;
-
-  if (!fromAccountId || !toAccountId || !amount) {
-    return apiResponse.validationError(res, {
-      ...((!fromAccountId) && { fromAccountId: 'Required' }),
-      ...((!toAccountId) && { toAccountId: 'Required' }),
-      ...((!amount) && { amount: 'Required' }),
-    });
+  const parsed = TransferSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
   }
-
-  if (fromAccountId === toAccountId) {
-    return apiResponse.badRequest(res, 'Source and destination accounts must be different');
-  }
-
-  const numAmount = Number(amount);
-  if (isNaN(numAmount) || numAmount <= 0) {
-    return apiResponse.badRequest(res, 'Transfer amount must be a positive number');
-  }
+  const { fromAccountId, toAccountId, amount, reference, transferDate } = parsed.data;
 
   try {
     // Verify both accounts exist and are bank accounts
