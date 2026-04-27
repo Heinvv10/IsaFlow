@@ -26,7 +26,7 @@ const BodySchema = z.object({
   creditDate: z.string().max(30).optional(),
 }).refine(
   v => !(v.mode === 'resolve_with_credit' && !v.creditDate),
-  { message: 'creditDate is required when resolving with credit' },
+  { message: 'creditDate is required when resolving with credit', path: ['creditDate'] },
 );
 
 async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void> {

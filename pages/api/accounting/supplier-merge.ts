@@ -21,6 +21,7 @@ const MergeBodySchema = z.object({
   target_id: UUID,
 }).strict().refine(v => v.source_id !== v.target_id, {
   message: 'source_id and target_id must be different suppliers',
+  path: ['target_id'],
 });
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {

@@ -25,6 +25,7 @@ const TransferSchema = z.object({
   transferDate: z.string().max(30).optional(),
 }).refine(v => v.fromAccountId !== v.toAccountId, {
   message: 'Source and destination accounts must be different',
+  path: ['toAccountId'],
 });
 
 

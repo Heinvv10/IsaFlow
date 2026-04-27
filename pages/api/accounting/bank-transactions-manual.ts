@@ -31,14 +31,15 @@ const ManualTxSchema = z.object({
   description: z.string().max(500).optional(),
   allocationType: z.enum(['account', 'supplier', 'customer', 'transfer']),
   contraAccountId: UUID.optional(),
-  entityId: z.string().max(100).optional(),
+  // entityId is a supplier or customer UUID; service casts to ::UUID downstream.
+  entityId: UUID.optional(),
   vatCode: z.string().max(20).optional(),
 }).refine(
   v => !(v.allocationType === 'account' && !v.contraAccountId),
-  { message: 'contraAccountId is required when allocationType is account' },
+  { message: 'contraAccountId is required when allocationType is account', path: ['contraAccountId'] },
 ).refine(
   v => !((v.allocationType === 'supplier' || v.allocationType === 'customer') && !v.entityId),
-  { message: 'entityId is required when allocationType is supplier or customer' },
+  { message: 'entityId is required when allocationType is supplier or customer', path: ['entityId'] },
 );
 
 // ── Handler ───────────────────────────────────────────────────────────────────

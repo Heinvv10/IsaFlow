@@ -20,12 +20,11 @@ import {
   deleteRule,
 } from '@/modules/accounting/services/capture/supplierRulesService';
 
-// `passthrough()` (not strict) — the UI sends a few fields the service
-// intentionally ignores (`qtyTolerancePct`, `priceTolerancePct`, plus
-// `supplierId` redundantly because the URL already carries it). The validated
-// fields below are the contract; anything else flows through and the service
-// drops it via its own column allowlist. Strict-rejecting these would block
-// every UI PATCH.
+// `strict()` — the UI sends `qtyTolerancePct`, `priceTolerancePct`, and
+// `supplierId` (redundantly, because the URL already carries it). All three
+// are now declared explicitly below; the body `supplierId` is dropped before
+// reaching the service so the URL stays the source of truth. passthrough()
+// would let unknown keys flow into the service patch object.
 const PatchSchema = z.object({
   supplierId: UUID.optional(),
   defaultGlAccountId: UUID.nullable().optional(),
@@ -38,7 +37,7 @@ const PatchSchema = z.object({
   requirePoMatch: z.boolean().optional(),
   qtyTolerancePct: z.number().min(0).max(100).optional(),
   priceTolerancePct: z.number().min(0).max(100).optional(),
-}).passthrough();
+}).strict();
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const { companyId } = req;

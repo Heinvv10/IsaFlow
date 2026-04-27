@@ -14,12 +14,12 @@ import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { listRules, upsertRule } from '@/modules/accounting/services/capture/supplierRulesService';
 
-// `passthrough()` (not strict) — the UI in
-// pages/accounting/suppliers/[supplierId]/rules.tsx also sends
-// `qtyTolerancePct` and `priceTolerancePct`. The columns are validated below
-// for the fields the schema knows about; extras flow through to the service
-// which only writes its own column allowlist, so unknown fields are dropped
-// silently. Strict-rejecting them would break every UI save.
+// `strict()` — every field the UI in
+// pages/accounting/suppliers/[supplierId]/rules.tsx sends is now declared
+// explicitly below (including the two tolerance fields). passthrough() would
+// be needlessly permissive — `__proto__`, future typos, anything would flow
+// through to the service. The service has its own column allowlist as a
+// second line of defence, but the API contract should be tight.
 const UpsertSupplierRuleSchema = z.object({
   supplierId: UUID,
   defaultGlAccountId: UUID.nullable().optional(),
@@ -32,7 +32,7 @@ const UpsertSupplierRuleSchema = z.object({
   requirePoMatch: z.boolean().optional(),
   qtyTolerancePct: z.number().min(0).max(100).optional(),
   priceTolerancePct: z.number().min(0).max(100).optional(),
-}).passthrough();
+}).strict();
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const { companyId } = req;
