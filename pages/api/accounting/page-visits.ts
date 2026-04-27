@@ -8,6 +8,7 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { PAGE_REGISTRY } from '@/modules/accounting/constants/pageRegistry';
 
@@ -65,4 +66,4 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
 // Per-user navigation tracking — viewers need to POST their own page visits,
 // so the write-access gate is explicitly disabled for this endpoint.
-export default withAuth(withErrorHandler(withWriteAccess(handler, { allowedRoles: null })));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler, { allowedRoles: null }))));

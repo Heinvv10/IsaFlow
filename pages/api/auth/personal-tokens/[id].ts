@@ -7,6 +7,7 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { revokePat } from '@/lib/auth/personalAccessTokens';
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
@@ -25,4 +26,4 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   return apiResponse.success(res, { revoked: true });
 }
 
-export default withAuth(withErrorHandler(handler as Parameters<typeof withErrorHandler>[0]));
+export default withAuth(withErrorHandler(withCsrf(handler as Parameters<typeof withErrorHandler>[0])));

@@ -4,6 +4,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { apiResponse } from '@/lib/apiResponse';
 import { autoMapAccounts } from '@/modules/accounting/services/afs/afsMappingService';
 
@@ -15,4 +16,4 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   return apiResponse.success(res, result, `Mapped ${result.mapped} accounts automatically`);
 }
 
-export default withAuth(withErrorHandler(withWriteAccess(handler)));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

@@ -4,6 +4,7 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { scanCompanyForFraud } from '@/modules/accounting/services/capture/supplierGraphService';
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
@@ -13,4 +14,4 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   return apiResponse.success(res, result);
 }
 
-export default withAuth(withErrorHandler(withWriteAccess(handler as Parameters<typeof withWriteAccess>[0])));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler as Parameters<typeof withWriteAccess>[0]))));

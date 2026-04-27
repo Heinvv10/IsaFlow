@@ -10,6 +10,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { apiResponse } from '@/lib/apiResponse';
 import { withUserAuth, type AuthenticatedNextApiRequest } from '@/lib/auth/withUserAuth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { serialize } from 'cookie';
 type Row = Record<string, unknown>;
 
@@ -145,7 +146,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
-const postHandler = withUserAuth(handlePost);
+const postHandler = withUserAuth(withCsrf(handlePost));
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {

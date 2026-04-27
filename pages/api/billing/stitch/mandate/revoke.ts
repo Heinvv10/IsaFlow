@@ -6,6 +6,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withAuth, withRole, type CompanyAuthedRequest } from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
@@ -35,4 +36,4 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   return apiResponse.success(res, { mandateId: updated[0].id, revoked: true });
 }
 
-export default withAuth(withRole('admin')(withErrorHandler(handler)));
+export default withAuth(withRole('admin')(withErrorHandler(withCsrf(handler))));

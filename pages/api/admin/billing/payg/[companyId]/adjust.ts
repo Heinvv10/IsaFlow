@@ -12,6 +12,7 @@ import { adminAdjust, InsufficientFlowsError } from '@/modules/billing/services/
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 import type { PlatformAdminRequest } from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 
 const Body = z.object({
   flows:  z.number().int().refine((v) => v !== 0, 'flows must be non-zero'),
@@ -52,4 +53,4 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
   }
 }
 
-export default withAdmin(handler);
+export default withAdmin(withCsrf(handler));

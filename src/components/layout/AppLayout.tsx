@@ -495,8 +495,10 @@ export function AppLayout({ children }: AppLayoutProps) {
         shortcuts={globalShortcuts}
       />
 
-      {/* Onboarding Tour */}
-      <AccountingTour />
+      {/* Onboarding Tour — gated to the dashboard. The tour orients the
+          user around top-level navigation; popping it open over banking,
+          AR, AP, or VAT screens interrupts task work. Audit Finding 1. */}
+      {router.pathname === '/accounting' && !isAdminHost && <AccountingTour />}
     </div>
   );
 }

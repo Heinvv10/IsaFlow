@@ -131,7 +131,9 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
   const [pattern, setPattern] = useState(() => extractPattern(transaction.description || ''));
   const [matchType, setMatchType] = useState<RuleMatchType>('contains');
   const [ruleName, setRuleName] = useState(() => extractPattern(transaction.description || ''));
-  const [autoCreateEntry, setAutoCreateEntry] = useState(true);
+  // Default to suggest-only. Auto-posting creates a journal entry on every
+  // match, so it has to be an explicit opt-in. Audit Finding 4.
+  const [autoCreateEntry, setAutoCreateEntry] = useState(false);
 
   const [allocType, setAllocType] = useState<AllocType>(() => {
     const t = selection?.type;
@@ -389,16 +391,21 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
             />
           </div>
 
-          {/* Auto-create toggle */}
-          <label className="flex items-center gap-2 cursor-pointer">
+          {/* Effect toggle. Suggest-only by default; auto-post is an explicit
+              opt-in because it creates and posts a journal entry on every match. */}
+          <label className="flex cursor-pointer items-start gap-2">
             <input
               type="checkbox"
               checked={autoCreateEntry}
               onChange={e => setAutoCreateEntry(e.target.checked)}
-              className="accent-teal-500"
+              className="mt-0.5 accent-amber-500"
             />
             <span className="text-xs text-[var(--ff-text-secondary)]">
-              Auto-allocate matching transactions (creates journal entries)
+              Auto-post journal entries when this rule matches
+              <span className="mt-0.5 block text-[11px] text-[var(--ff-text-muted)]">
+                Off: rule attaches a category for review. On: rule also posts a
+                journal entry — make sure the GL account/supplier/customer is correct.
+              </span>
             </span>
           </label>
         </div>

@@ -7,6 +7,7 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { testConnection } from '@/modules/accounting/services/ap/netcashService';
 import { log } from '@/lib/logger';
 
@@ -23,4 +24,4 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   return apiResponse.success(res, result);
 }
 
-export default withAuth(withErrorHandler(handler as Parameters<typeof withAuth>[0]));
+export default withAuth(withErrorHandler(withCsrf(handler as Parameters<typeof withAuth>[0])));
