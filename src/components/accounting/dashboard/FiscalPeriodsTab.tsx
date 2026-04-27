@@ -3,10 +3,11 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Loader2, CheckCircle2, Clock, Lock, Plus, Calendar, X } from 'lucide-react';
+import { Loader2, CheckCircle2, Clock, Lock, Plus, Calendar, X, ClipboardCheck } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { FiscalPeriod } from '@/modules/accounting/types/gl.types';
+import { CloseReadinessChecklist } from '@/components/accounting/fiscal-periods/CloseReadinessChecklist';
 
 const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm';
 
@@ -93,6 +94,7 @@ export function FiscalPeriodsTab() {
   const [isLoading, setIsLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [selectedPeriodId, setSelectedPeriodId] = useState<string | null>(null);
 
   useEffect(() => { void loadPeriods(); }, []);
 
@@ -120,6 +122,10 @@ export function FiscalPeriodsTab() {
       log.error('Fiscal period action failed', { error: err, periodId, action }, 'accounting-ui');
     } finally { setActionLoading(null); }
   };
+
+  const selectedPeriod = selectedPeriodId
+    ? (periods.find(p => p.id === selectedPeriodId) ?? null)
+    : null;
 
   return (
     <div className="space-y-4">
@@ -153,8 +159,19 @@ export function FiscalPeriodsTab() {
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {periods.map(period => (
-                <tr key={period.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
-                  <td className="px-5 py-3.5 font-medium text-slate-900 dark:text-slate-100">{period.periodName}</td>
+                <tr
+                  key={period.id}
+                  className={`transition-colors cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/30 ${selectedPeriodId === period.id ? 'bg-teal-50/50 dark:bg-teal-900/10' : ''}`}
+                  onClick={() => setSelectedPeriodId(prev => prev === period.id ? null : period.id)}
+                >
+                  <td className="px-5 py-3.5 font-medium text-slate-900 dark:text-slate-100">
+                    <div className="flex items-center gap-2">
+                      {selectedPeriodId === period.id && (
+                        <ClipboardCheck className="h-3.5 w-3.5 text-teal-500 flex-shrink-0" />
+                      )}
+                      {period.periodName}
+                    </div>
+                  </td>
                   <td className="px-5 py-3.5 font-mono text-amber-500 font-semibold">{period.fiscalYear}</td>
                   <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{new Date(period.startDate).toLocaleDateString('en-ZA')}</td>
                   <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{new Date(period.endDate).toLocaleDateString('en-ZA')}</td>
@@ -164,7 +181,7 @@ export function FiscalPeriodsTab() {
                     </span>
                   </td>
                   <td className="px-5 py-3.5 text-right">
-                    <div className="flex items-center justify-end gap-1.5">
+                    <div className="flex items-center justify-end gap-1.5" onClick={e => e.stopPropagation()}>
                       {period.status === 'open' && (
                         <button onClick={() => handlePeriodAction(period.id, 'close')} disabled={actionLoading === period.id}
                           className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors disabled:opacity-40">
@@ -186,6 +203,20 @@ export function FiscalPeriodsTab() {
           </table>
         )}
       </div>
+
+      {selectedPeriod && (
+        <CloseReadinessChecklist
+          periodId={selectedPeriod.id}
+          periodName={selectedPeriod.periodName}
+        />
+      )}
+
+      {!selectedPeriod && !isLoading && periods.length > 0 && (
+        <p className="text-xs text-center text-slate-400 dark:text-slate-500">
+          Click a period row to view its close-readiness checklist.
+        </p>
+      )}
+
       {showCreate && <CreateYearModal onClose={() => setShowCreate(false)} onCreated={loadPeriods} />}
     </div>
   );
