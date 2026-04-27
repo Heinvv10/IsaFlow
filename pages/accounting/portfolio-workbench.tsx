@@ -6,7 +6,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import Link from 'next/link';
+import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
@@ -34,6 +34,16 @@ const STATUS_DOT: Record<CardStatus, string> = {
   not_started: 'bg-zinc-600',
 };
 
+// Glyph alongside the dot — communicates status to colour-blind users and
+// screen readers via aria-label, not by colour alone.
+const STATUS_GLYPH: Record<CardStatus, string> = {
+  ready:       '✓',
+  in_progress: '⏳',
+  attention:   '!',
+  blocked:     '✗',
+  not_started: '⌀',
+};
+
 const STATUS_LABEL: Record<CardStatus, string> = {
   ready: 'Ready', in_progress: 'In progress', attention: 'Needs attention', blocked: 'Blocked', not_started: 'Not started',
 };
@@ -58,8 +68,14 @@ function StatusCell({ row, columnId }: { row: PortfolioRow; columnId: string }) 
   }
   return (
     <td className="px-2 py-2 text-center">
-      <div className="flex items-center justify-center gap-1.5" title={`${STATUS_LABEL[card.status]} · ${card.primary}`}>
-        <span className={`w-2 h-2 rounded-full ${STATUS_DOT[card.status]}`} aria-label={STATUS_LABEL[card.status]} />
+      <div
+        className="flex items-center justify-center gap-1.5"
+        title={`${STATUS_LABEL[card.status]} · ${card.primary}`}
+      >
+        <span className={`w-2 h-2 rounded-full ${STATUS_DOT[card.status]}`} aria-hidden="true" />
+        <span className="text-xs text-zinc-300 font-mono" aria-label={STATUS_LABEL[card.status]}>
+          {STATUS_GLYPH[card.status]}
+        </span>
       </div>
     </td>
   );
@@ -70,7 +86,8 @@ function StatusLegend() {
     <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-500">
       {(['ready', 'in_progress', 'attention', 'blocked', 'not_started'] as CardStatus[]).map(s => (
         <span key={s} className="flex items-center gap-1.5">
-          <span className={`w-2 h-2 rounded-full ${STATUS_DOT[s]}`} />
+          <span className={`w-2 h-2 rounded-full ${STATUS_DOT[s]}`} aria-hidden="true" />
+          <span className="font-mono" aria-hidden="true">{STATUS_GLYPH[s]}</span>
           {STATUS_LABEL[s]}
         </span>
       ))}
@@ -79,11 +96,35 @@ function StatusLegend() {
 }
 
 export default function PortfolioWorkbenchPage() {
+  const router = useRouter();
   const [period, setPeriod] = useState<string>(defaultPeriod());
   const [data, setData] = useState<PortfolioWorkbench | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [switching, setSwitching] = useState<string | null>(null);
+
+  const openClientWorkbench = useCallback(async (companyId: string) => {
+    // Switch active company server-side first (sets the cookie + verifies
+    // membership), THEN navigate. The per-client workbench reads the cookie,
+    // so without the switch it would just show the previous active client.
+    setSwitching(companyId);
+    try {
+      const res = await apiFetch('/api/auth/switch-company', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyId }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({})) as { error?: { message?: string } };
+        throw new Error(json.error?.message ?? `Switch failed (${res.status})`);
+      }
+      await router.push(`/accounting/month-end-workbench?period=${encodeURIComponent(period)}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to switch company');
+      setSwitching(null);
+    }
+  }, [period, router]);
 
   const load = useCallback(async (p: string) => {
     setLoading(true);
@@ -189,12 +230,17 @@ export default function PortfolioWorkbenchPage() {
                 {filteredRows.map(row => (
                   <tr key={row.companyId} className="hover:bg-zinc-900/40">
                     <td className="px-4 py-2.5">
-                      <Link
-                        href={`/accounting/month-end-workbench?company=${row.companyId}&period=${period}`}
-                        className="text-zinc-100 hover:text-teal-300 font-medium"
+                      <button
+                        type="button"
+                        onClick={() => void openClientWorkbench(row.companyId)}
+                        disabled={switching !== null}
+                        className="text-zinc-100 hover:text-teal-300 font-medium text-left disabled:opacity-50 disabled:cursor-wait"
                       >
                         {row.companyName}
-                      </Link>
+                      </button>
+                      {switching === row.companyId && (
+                        <span className="ml-2 text-xs text-zinc-500">switching…</span>
+                      )}
                       {row.failed && (
                         <span className="ml-2 text-xs text-rose-400">{row.failedReason}</span>
                       )}

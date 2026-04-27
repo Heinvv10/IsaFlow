@@ -29,7 +29,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
   }
-  const userId = (req as CompanyAuthedRequest).user.id;
+  // withAuth guarantees req.user.id when it doesn't 401, but a defensive
+  // check costs nothing and protects this route if auth wrapping ever
+  // regresses (e.g. a future refactor mounts this handler outside withAuth).
+  const userId = (req as CompanyAuthedRequest).user?.id;
+  if (!userId) {
+    return apiResponse.unauthorized(res);
+  }
   const requested = typeof req.query.period === 'string' ? req.query.period : '';
   if (requested && !PERIOD_RE.test(requested)) {
     return apiResponse.badRequest(res, 'period must be YYYY-MM (month 01–12)');
