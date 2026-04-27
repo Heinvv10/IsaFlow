@@ -1,9 +1,11 @@
 // pages/api/accounting/afs/[documentId]/sections/[sectionId]/overrides.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import {
@@ -15,6 +17,12 @@ import {
   VersionHistoryError,
 } from '@/modules/accounting/services/afs/afsVersionHistoryService';
 
+// `overrides` is a free-form JSONB blob (per-tenant section overrides).
+// Validate it's a JSON object; the structure varies by note generator.
+const BodySchema = z.object({
+  overrides: z.record(z.string(), z.unknown()),
+}).strict();
+
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'PUT') {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['PUT']);
@@ -23,13 +31,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const companyReq = req as CompanyAuthedRequest;
   const { companyId } = companyReq;
   const userId = companyReq.user.id;
-  const documentId = req.query.documentId as string;
-  const sectionId = req.query.sectionId as string;
-  const { overrides } = req.body ?? {};
-
-  if (!overrides || typeof overrides !== 'object') {
-    return apiResponse.badRequest(res, 'Request body must include an "overrides" object');
+  const docParse = UUID.safeParse(req.query.documentId);
+  const sectParse = UUID.safeParse(req.query.sectionId);
+  if (!docParse.success || !sectParse.success) {
+    return apiResponse.badRequest(res, 'documentId and sectionId must be valid UUIDs');
   }
+  const documentId = docParse.data;
+  const sectionId = sectParse.data;
+
+  const parsed = BodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    return apiResponse.validationError(
+      res,
+      parsed.error.flatten().fieldErrors as Record<string, string | string[]>,
+    );
+  }
+  const { overrides } = parsed.data;
 
   log.info('Section overrides update', { companyId, documentId, sectionId, userId }, 'afs-overrides-api');
 

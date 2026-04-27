@@ -2,6 +2,7 @@
 // Auth: withAuth (staff-only)
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
@@ -11,9 +12,12 @@ import {
   listPortalContacts,
   createPortalContact,
 } from '@/modules/accounting/services/afs/portalContactsService';
-import type { PortalRole } from '@/modules/accounting/services/afs/afsTypes';
 
-const VALID_ROLES: PortalRole[] = ['director', 'cfo', 'shareholder_readonly', 'external_auditor'];
+const CreateContactSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  email: z.string().email().max(254),
+  role: z.enum(['director', 'cfo', 'shareholder_readonly', 'external_auditor']),
+}).strict();
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -25,22 +29,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'POST') {
-    const { name, email, role } = req.body as { name?: string; email?: string; role?: PortalRole };
-
-    if (!name || typeof name !== 'string' || !name.trim()) {
-      return apiResponse.badRequest(res, 'name is required');
+    const parsed = CreateContactSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return apiResponse.validationError(
+        res,
+        parsed.error.flatten().fieldErrors as Record<string, string | string[]>,
+      );
     }
-    if (!email || typeof email !== 'string' || !email.includes('@')) {
-      return apiResponse.badRequest(res, 'A valid email is required');
-    }
-    if (!role || !VALID_ROLES.includes(role)) {
-      return apiResponse.badRequest(res, `role must be one of: ${VALID_ROLES.join(', ')}`);
-    }
+    const { name, email, role } = parsed.data;
 
     try {
       const contact = await createPortalContact(companyId, {
-        name: name.trim(),
-        email: email.trim().toLowerCase(),
+        name,
+        email: email.toLowerCase(),
         role,
       });
       return apiResponse.created(res, { contact }, 'Portal contact created');

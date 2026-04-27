@@ -1,9 +1,11 @@
 // pages/api/accounting/afs/[documentId]/sections/[sectionId]/versions.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import {
   assertDocumentEditable,
@@ -15,11 +17,20 @@ import {
   VersionHistoryError,
 } from '@/modules/accounting/services/afs/afsVersionHistoryService';
 
+const RestoreSchema = z.object({
+  version: z.number().int().min(1),
+}).strict();
+
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const companyReq = req as CompanyAuthedRequest;
   const { companyId } = companyReq;
-  const documentId = req.query.documentId as string;
-  const sectionId = req.query.sectionId as string;
+  const docParse = UUID.safeParse(req.query.documentId);
+  const sectParse = UUID.safeParse(req.query.sectionId);
+  if (!docParse.success || !sectParse.success) {
+    return apiResponse.badRequest(res, 'documentId and sectionId must be valid UUIDs');
+  }
+  const documentId = docParse.data;
+  const sectionId = sectParse.data;
 
   if (req.method === 'GET') {
     try {
@@ -35,11 +46,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'POST') {
     const userId = companyReq.user.id;
-    const { version } = req.body ?? {};
-
-    if (typeof version !== 'number' || version < 1) {
-      return apiResponse.badRequest(res, '"version" must be a positive integer');
+    const parsed = RestoreSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return apiResponse.validationError(
+        res,
+        parsed.error.flatten().fieldErrors as Record<string, string | string[]>,
+      );
     }
+    const { version } = parsed.data;
 
     log.info('Version restore requested', { companyId, documentId, sectionId, version, userId }, 'afs-versions-api');
 

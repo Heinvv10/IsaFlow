@@ -1,5 +1,6 @@
 // pages/api/accounting/afs/brand-profile.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
@@ -9,46 +10,17 @@ import {
   getBrandProfile,
   upsertBrandProfile,
 } from '@/modules/accounting/services/afs/brandProfileService';
-import type { UpsertBrandProfileInput } from '@/modules/accounting/services/afs/afsTypes';
 
 const HEX_COLOUR_RE = /^#[0-9a-fA-F]{6}$/;
-const ALLOWED_FONT_FAMILIES = ['professional', 'modern', 'executive', 'bold'] as const;
-const ALLOWED_COVER_STYLES = ['classic', 'modern', 'bold', 'minimal'] as const;
 
-type FontFamily = typeof ALLOWED_FONT_FAMILIES[number];
-type CoverStyle = typeof ALLOWED_COVER_STYLES[number];
-
-function validatePutBody(body: Record<string, unknown>): { valid: true; input: UpsertBrandProfileInput } | { valid: false; error: string } {
-  const { primaryColour, secondaryColour, fontFamily, coverStyle } = body;
-
-  if (primaryColour !== undefined && !HEX_COLOUR_RE.test(primaryColour as string)) {
-    return { valid: false, error: 'primaryColour must be a valid hex colour (e.g. #RRGGBB)' };
-  }
-
-  if (secondaryColour !== undefined && !HEX_COLOUR_RE.test(secondaryColour as string)) {
-    return { valid: false, error: 'secondaryColour must be a valid hex colour (e.g. #RRGGBB)' };
-  }
-
-  if (fontFamily !== undefined && !(ALLOWED_FONT_FAMILIES as readonly unknown[]).includes(fontFamily)) {
-    return { valid: false, error: `fontFamily must be one of: ${ALLOWED_FONT_FAMILIES.join(', ')}` };
-  }
-
-  if (coverStyle !== undefined && !(ALLOWED_COVER_STYLES as readonly unknown[]).includes(coverStyle)) {
-    return { valid: false, error: `coverStyle must be one of: ${ALLOWED_COVER_STYLES.join(', ')}` };
-  }
-
-  return {
-    valid: true,
-    input: {
-      primaryColour: (primaryColour as string | undefined) ?? '#000000',
-      secondaryColour: (secondaryColour as string | undefined) ?? '#000000',
-      fontFamily: (fontFamily as FontFamily | undefined) ?? 'professional',
-      coverStyle: (coverStyle as CoverStyle | undefined) ?? 'classic',
-      logoUrl: (body.logoUrl as string | null | undefined) ?? null,
-      reportFooterText: (body.reportFooterText as string | null | undefined) ?? null,
-    },
-  };
-}
+const PutBrandProfileSchema = z.object({
+  primaryColour: z.string().regex(HEX_COLOUR_RE, 'primaryColour must be a valid hex colour (e.g. #RRGGBB)').optional(),
+  secondaryColour: z.string().regex(HEX_COLOUR_RE, 'secondaryColour must be a valid hex colour (e.g. #RRGGBB)').optional(),
+  fontFamily: z.enum(['professional', 'modern', 'executive', 'bold']).optional(),
+  coverStyle: z.enum(['classic', 'modern', 'bold', 'minimal']).optional(),
+  logoUrl: z.string().max(2000).nullable().optional(),
+  reportFooterText: z.string().max(2000).nullable().optional(),
+}).strict();
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -62,13 +34,21 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'PUT') {
     log.info('Upserting AFS brand profile', { companyId }, 'afs-brand-profile-api');
 
-    const body = (req.body ?? {}) as Record<string, unknown>;
-    const validation = validatePutBody(body);
-    if (!validation.valid) {
-      return apiResponse.badRequest(res, validation.error);
+    const parsed = PutBrandProfileSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return apiResponse.validationError(
+        res,
+        parsed.error.flatten().fieldErrors as Record<string, string | string[]>,
+      );
     }
-
-    const profile = await upsertBrandProfile(companyId, validation.input);
+    const profile = await upsertBrandProfile(companyId, {
+      primaryColour: parsed.data.primaryColour ?? '#000000',
+      secondaryColour: parsed.data.secondaryColour ?? '#000000',
+      fontFamily: parsed.data.fontFamily ?? 'professional',
+      coverStyle: parsed.data.coverStyle ?? 'classic',
+      logoUrl: parsed.data.logoUrl ?? null,
+      reportFooterText: parsed.data.reportFooterText ?? null,
+    });
     return apiResponse.success(res, profile);
   }
 

@@ -21,6 +21,7 @@ vi.mock('@/lib/apiResponse', () => ({
     badRequest:       vi.fn(),
     notFound:         vi.fn(),
     methodNotAllowed: vi.fn(),
+    validationError:  vi.fn(),
   },
 }));
 
@@ -33,9 +34,11 @@ import suppressHandler from '../../../../pages/api/accounting/afs/[documentId]/s
 // @ts-ignore — pages/ is outside src/ so relative path required
 import reorderHandler  from '../../../../pages/api/accounting/afs/[documentId]/sections/reorder';
 
-const COMPANY_ID  = 'ccc11111-0000-0000-0000-000000000001';
-const DOCUMENT_ID = 'ddd22222-0000-0000-0000-000000000002';
-const SECTION_ID  = 'sss33333-0000-0000-0000-000000000003';
+// v4-format UUIDs — required because the handler's UUID-validated path
+// now rejects non-conforming IDs.
+const COMPANY_ID  = '11111111-1111-4111-9111-111111111111';
+const DOCUMENT_ID = '22222222-2222-4222-9222-222222222222';
+const SECTION_ID  = '33333333-3333-4333-9333-333333333333';
 
 type Handler = (req: NextApiRequest, res: NextApiResponse) => Promise<void>;
 
@@ -70,14 +73,14 @@ describe('POST /afs/[documentId]/sections/[sectionId]/suppress', () => {
     const req = makeReq({ suppress: 'true' });
     const res = makeRes();
     await (suppressHandler as unknown as Handler)(req, res);
-    expect(apiResponse.badRequest).toHaveBeenCalledWith(res, 'suppress must be a boolean');
+    expect(apiResponse.validationError).toHaveBeenCalled();
   });
 
   it('rejects suppress=true without reason', async () => {
     const req = makeReq({ suppress: true });
     const res = makeRes();
     await (suppressHandler as unknown as Handler)(req, res);
-    expect(apiResponse.badRequest).toHaveBeenCalledWith(res, 'reason is required when suppressing a section');
+    expect(apiResponse.validationError).toHaveBeenCalled();
   });
 
   it('returns 404 when section not found', async () => {
@@ -138,44 +141,53 @@ describe('PUT /afs/[documentId]/sections/reorder', () => {
     expect(apiResponse.methodNotAllowed).toHaveBeenCalled();
   });
 
+  // Two real v4 UUIDs for use in valid reorder bodies.
+  const SECT_A = '44444444-4444-4444-9444-444444444444';
+  const SECT_B = '55555555-5555-4555-9555-555555555555';
+
   it('rejects empty sections array', async () => {
     const req = makeReq({ sections: [] });
     const res = makeRes();
     await (reorderHandler as unknown as Handler)(req, res);
-    expect(apiResponse.badRequest).toHaveBeenCalledWith(res, 'sections must be a non-empty array');
+    expect(apiResponse.validationError).toHaveBeenCalled();
   });
 
   it('rejects more than 50 sections', async () => {
-    const sections = Array.from({ length: 51 }, (_, i) => ({ id: `id-${i}`, newSortOrder: i + 1 }));
+    // All ids must be valid UUIDs to bypass element-level validation and
+    // trip the 50-cap rule.
+    const sections = Array.from({ length: 51 }, (_, i) => ({
+      id: `${i.toString(16).padStart(8, '0')}-1111-4111-9111-111111111111`,
+      newSortOrder: i + 1,
+    }));
     const req = makeReq({ sections });
     const res = makeRes();
     await (reorderHandler as unknown as Handler)(req, res);
-    expect(apiResponse.badRequest).toHaveBeenCalledWith(res, expect.stringContaining('50'));
+    expect(apiResponse.validationError).toHaveBeenCalled();
   });
 
   it('rejects duplicate newSortOrder values', async () => {
     const sections = [
-      { id: 'id-1', newSortOrder: 1 },
-      { id: 'id-2', newSortOrder: 1 },
+      { id: SECT_A, newSortOrder: 1 },
+      { id: SECT_B, newSortOrder: 1 },
     ];
     const req = makeReq({ sections });
     const res = makeRes();
     await (reorderHandler as unknown as Handler)(req, res);
-    expect(apiResponse.badRequest).toHaveBeenCalledWith(res, expect.stringContaining('Duplicate'));
+    expect(apiResponse.validationError).toHaveBeenCalled();
   });
 
   it('rejects zero newSortOrder', async () => {
-    const sections = [{ id: 'id-1', newSortOrder: 0 }];
+    const sections = [{ id: SECT_A, newSortOrder: 0 }];
     const req = makeReq({ sections });
     const res = makeRes();
     await (reorderHandler as unknown as Handler)(req, res);
-    expect(apiResponse.badRequest).toHaveBeenCalledWith(res, expect.stringContaining('id'));
+    expect(apiResponse.validationError).toHaveBeenCalled();
   });
 
   it('runs concurrent updates and returns { reordered: count }', async () => {
     const sections = [
       { id: SECTION_ID, newSortOrder: 2 },
-      { id: 'sss44444-0000-0000-0000-000000000004', newSortOrder: 1 },
+      { id: SECT_A, newSortOrder: 1 },
     ];
     vi.mocked(sql)
       .mockResolvedValueOnce([] as never)

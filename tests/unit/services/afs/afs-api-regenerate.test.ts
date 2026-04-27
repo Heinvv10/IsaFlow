@@ -22,6 +22,7 @@ vi.mock('@/lib/apiResponse', () => ({
     success:          vi.fn(),
     badRequest:       vi.fn(),
     methodNotAllowed: vi.fn(),
+    validationError:  vi.fn(),
   },
 }));
 
@@ -31,9 +32,11 @@ import { apiResponse } from '@/lib/apiResponse';
 // @ts-ignore — pages/ is outside src/ so @/ alias won't resolve; relative path needed
 import handler from '../../../../pages/api/accounting/afs/[documentId]/sections/[sectionId]/regenerate';
 
-const COMPANY_ID  = 'ccc11111-0000-0000-0000-000000000001';
-const DOCUMENT_ID = 'ddd22222-0000-0000-0000-000000000002';
-const SECTION_ID  = 'sss33333-0000-0000-0000-000000000003';
+// v4-format UUIDs (3rd group must start with 4, 4th with 8-b) — required
+// because the handler's UUID-validated path now rejects non-conforming IDs.
+const COMPANY_ID  = '11111111-1111-4111-9111-111111111111';
+const DOCUMENT_ID = '22222222-2222-4222-9222-222222222222';
+const SECTION_ID  = '33333333-3333-4333-9333-333333333333';
 
 type Handler = (req: NextApiRequest, res: NextApiResponse) => Promise<void>;
 
@@ -67,21 +70,21 @@ describe('POST /afs/[documentId]/sections/[sectionId]/regenerate', () => {
     const req = makeReq({ body: { framework: 'full_ifrs' } });
     const res = makeRes();
     await (handler as unknown as Handler)(req, res);
-    expect(apiResponse.badRequest).toHaveBeenCalledWith(res, expect.stringContaining('fiscalYear'));
+    expect(apiResponse.validationError).toHaveBeenCalled();
   });
 
   it('rejects fiscalYear below 2000', async () => {
     const req = makeReq({ body: { fiscalYear: 1999, framework: 'full_ifrs' } });
     const res = makeRes();
     await (handler as unknown as Handler)(req, res);
-    expect(apiResponse.badRequest).toHaveBeenCalledWith(res, expect.stringContaining('fiscalYear'));
+    expect(apiResponse.validationError).toHaveBeenCalled();
   });
 
   it('rejects invalid framework value', async () => {
     const req = makeReq({ body: { fiscalYear: 2025, framework: 'gaap' } });
     const res = makeRes();
     await (handler as unknown as Handler)(req, res);
-    expect(apiResponse.badRequest).toHaveBeenCalledWith(res, expect.stringContaining('framework'));
+    expect(apiResponse.validationError).toHaveBeenCalled();
   });
 
   it('calls generateSection and returns { sectionId } on success', async () => {

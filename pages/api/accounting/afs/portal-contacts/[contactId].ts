@@ -2,34 +2,40 @@
 // Auth: withAuth (staff-only)
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import {
   updatePortalContact,
   deletePortalContact,
 } from '@/modules/accounting/services/afs/portalContactsService';
-import type { PortalRole } from '@/modules/accounting/services/afs/afsTypes';
+
+const UpdateContactSchema = z.object({
+  name: z.string().trim().min(1).max(200).optional(),
+  role: z.enum(['director', 'cfo', 'shareholder_readonly', 'external_auditor']).optional(),
+  active: z.boolean().optional(),
+}).strict();
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
-  const contactId = req.query.contactId as string;
-  if (!contactId) return apiResponse.badRequest(res, 'contactId is required');
+  const idParse = UUID.safeParse(req.query.contactId);
+  if (!idParse.success) return apiResponse.badRequest(res, 'contactId must be a valid UUID');
+  const contactId = idParse.data;
 
   if (req.method === 'PUT') {
-    const { name, role, active } = req.body as {
-      name?: string;
-      role?: PortalRole;
-      active?: boolean;
-    };
+    const parsed = UpdateContactSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return apiResponse.validationError(
+        res,
+        parsed.error.flatten().fieldErrors as Record<string, string | string[]>,
+      );
+    }
     try {
-      const contact = await updatePortalContact(companyId, contactId, {
-        name,
-        role,
-        active,
-      });
+      const contact = await updatePortalContact(companyId, contactId, parsed.data);
       return apiResponse.success(res, { contact });
     } catch (err) {
       if (err instanceof Error && err.message === 'CONTACT_NOT_FOUND') {

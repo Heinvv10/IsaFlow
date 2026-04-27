@@ -1,9 +1,11 @@
 // pages/api/accounting/afs/[documentId]/sections/[sectionId]/comments.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import {
   listComments,
@@ -11,10 +13,17 @@ import {
   CommentError,
 } from '@/modules/accounting/services/afs/afsSectionCommentService';
 
+const AddCommentSchema = z.object({
+  body: z.string().trim().min(1).max(10_000),
+  parentId: UUID.optional(),
+}).strict();
+
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const companyReq = req as CompanyAuthedRequest;
   const { companyId } = companyReq;
-  const sectionId = req.query.sectionId as string;
+  const sectParse = UUID.safeParse(req.query.sectionId);
+  if (!sectParse.success) return apiResponse.badRequest(res, 'sectionId must be a valid UUID');
+  const sectionId = sectParse.data;
 
   if (req.method === 'GET') {
     const items = await listComments(companyId, sectionId);
@@ -23,16 +32,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'POST') {
     const userId = companyReq.user.id;
-    const { body, parentId } = req.body ?? {};
-
-    if (!body || typeof body !== 'string' || body.trim().length === 0) {
-      return apiResponse.badRequest(res, 'Comment body is required');
+    const parsed = AddCommentSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return apiResponse.validationError(
+        res,
+        parsed.error.flatten().fieldErrors as Record<string, string | string[]>,
+      );
     }
+    const { body, parentId } = parsed.data;
 
     log.info('Adding comment', { companyId, sectionId, userId, parentId }, 'afs-comments-api');
 
     try {
-      const comment = await addComment(companyId, sectionId, userId, body.trim(), parentId);
+      const comment = await addComment(companyId, sectionId, userId, body, parentId);
       return apiResponse.created(res, comment, 'Comment added');
     } catch (err) {
       if (err instanceof CommentError && err.code === 'NOT_FOUND') {
