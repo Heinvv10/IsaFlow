@@ -3,8 +3,9 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
-import { listAfsDocuments, createAfsDocument } from '@/modules/accounting/services/afs/afsDocumentService';
+import { listAfsDocuments, createAfsDocument, AfsDocumentDuplicateError } from '@/modules/accounting/services/afs/afsDocumentService';
 import type { DocumentType, ReportingFramework } from '@/modules/accounting/services/afs/afsTypes';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -48,11 +49,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     log.info('Creating AFS document', { companyId, documentType, fiscalYear, period }, 'afs-index-api');
 
-    const document = await createAfsDocument({ companyId, fiscalYear, period, documentType, reportingFramework });
-    return apiResponse.created(res, { document }, 'AFS document created');
+    try {
+      const document = await createAfsDocument({ companyId, fiscalYear, period, documentType, reportingFramework });
+      return apiResponse.created(res, { document }, 'AFS document created');
+    } catch (err) {
+      if (err instanceof AfsDocumentDuplicateError) {
+        return apiResponse.badRequest(res, err.message);
+      }
+      throw err;
+    }
   }
 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST']);
 }
 
-export default withAuth(withErrorHandler(handler as never));
+export default withAuth(withErrorHandler(withCsrf(handler as never)));

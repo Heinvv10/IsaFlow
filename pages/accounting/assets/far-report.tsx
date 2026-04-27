@@ -47,6 +47,7 @@ interface FarReport {
   asAt: string;
   assets: FarAsset[];
   totals: FarTotals;
+  setupRequired?: string;
 }
 
 const zar = new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -130,8 +131,23 @@ export default function FarReportPage() {
 
       {/* ── State: error ──────────────────────────────────────── */}
       {error && (
-        <div className="mb-4 px-4 py-3 rounded-lg bg-red-900/30 border border-red-800 text-red-300 text-sm">
-          {error}
+        <div className="mb-4 px-4 py-3 rounded-lg bg-red-900/30 border border-red-800 text-red-300 text-sm flex items-start justify-between gap-3">
+          <span>{error}</span>
+          <button
+            type="button"
+            onClick={() => load(asAt)}
+            className="px-2 py-1 rounded bg-red-800/60 hover:bg-red-700 text-red-100 text-xs font-medium"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* ── State: setup required ─────────────────────────────── */}
+      {!loading && report?.setupRequired && (
+        <div className="mb-4 px-4 py-3 rounded-lg bg-amber-900/30 border border-amber-800 text-amber-200 text-sm">
+          <div className="font-medium mb-1">Report not ready</div>
+          <div className="text-amber-300/80">{report.setupRequired}</div>
         </div>
       )}
 

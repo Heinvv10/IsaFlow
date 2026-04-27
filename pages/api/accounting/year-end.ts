@@ -22,7 +22,13 @@ async function getHandler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, { years });
   } catch (err) {
     log.error('Failed to fetch fiscal years', { error: err, module: 'accounting' });
-    return apiResponse.databaseError(res, err, 'Failed to fetch fiscal years');
+    // Year-end is a read-only listing screen — return an empty list with a
+    // setupRequired hint instead of 500ing so the page renders an actionable
+    // empty state. The error is still logged for ops triage.
+    return apiResponse.success(res, {
+      years: [],
+      setupRequired: 'Could not load fiscal years. Confirm fiscal periods are configured for this company in Accounts > Fiscal Periods.',
+    });
   }
 }
 

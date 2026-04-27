@@ -41,8 +41,33 @@ export default function AfsIndexPage() {
 
   useEffect(() => { void loadDocuments(); }, [loadDocuments]);
 
+  function pickNextAfsYear(): number {
+    // Pick the most recent fiscal year not already used by an AFS doc.
+    // Prevents the duplicate-year 409 by guessing intelligently before asking.
+    const used = new Set(
+      documents
+        .filter(d => d.documentType === 'afs' && d.fiscalYear != null)
+        .map(d => d.fiscalYear as number),
+    );
+    const thisYear = new Date().getFullYear();
+    for (let candidate = thisYear; candidate >= thisYear - 10; candidate--) {
+      if (!used.has(candidate)) return candidate;
+    }
+    return thisYear;
+  }
+
   async function handleCreateAfs() {
-    const year = new Date().getFullYear();
+    setError('');
+    const suggested = pickNextAfsYear();
+    const input = typeof window !== 'undefined'
+      ? window.prompt('Fiscal year for new AFS', String(suggested))
+      : String(suggested);
+    if (input == null || input.trim() === '') return;
+    const year = Number(input);
+    if (!Number.isFinite(year) || year < 2000 || year > 2100) {
+      setError('Fiscal year must be a valid 4-digit year (e.g. 2026).');
+      return;
+    }
     setIsCreating(true);
     try {
       const res = await apiFetch('/api/accounting/afs', {

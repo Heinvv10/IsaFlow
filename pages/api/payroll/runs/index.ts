@@ -16,6 +16,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import {
   listPayrollRuns,
   createPayrollRun,
+  PayrollRunDuplicateError,
 } from '@/modules/accounting/services/payroll/payrollRunService';
 
 async function handler(
@@ -31,17 +32,29 @@ async function handler(
 
   if (req.method === 'POST') {
     const { month, year } = req.body as Record<string, unknown>;
-    if (!month || !year) {
-      return apiResponse.badRequest(res, 'month and year are required');
+    const monthNum = Number(month);
+    const yearNum = Number(year);
+    if (!Number.isInteger(monthNum) || monthNum < 1 || monthNum > 12) {
+      return apiResponse.badRequest(res, 'month must be an integer between 1 and 12');
+    }
+    if (!Number.isInteger(yearNum) || yearNum < 2000 || yearNum > 2100) {
+      return apiResponse.badRequest(res, 'year must be a 4-digit fiscal year');
     }
 
     const userId = (req as CompanyAuthedRequest).user?.id;
-    const run = await createPayrollRun(
-      companyId,
-      { month: Number(month), year: Number(year) },
-      userId,
-    );
-    return apiResponse.created(res, run);
+    try {
+      const run = await createPayrollRun(
+        companyId,
+        { month: monthNum, year: yearNum },
+        userId,
+      );
+      return apiResponse.created(res, run);
+    } catch (err) {
+      if (err instanceof PayrollRunDuplicateError) {
+        return apiResponse.badRequest(res, err.message);
+      }
+      throw err;
+    }
   }
 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST']);

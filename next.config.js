@@ -64,6 +64,8 @@ const nextConfig = {
       { source: '/accounting/reports/supplier', destination: '/accounting/reports/supplier-reports', permanent: true },
       { source: '/accounting/reports/trial-balance', destination: '/accounting/trial-balance', permanent: true },
       { source: '/accounting/balance-sheet', destination: '/accounting/reports/balance-sheet', permanent: true },
+      { source: '/accounting/bank-statements', destination: '/accounting/bank/statements', permanent: false },
+      { source: '/accounting/bank-statements/:path*', destination: '/accounting/bank/statements/:path*', permanent: false },
       { source: '/accounting/income-statement', destination: '/accounting/reports/income-statement', permanent: true },
       { source: '/accounting/quotes', destination: '/accounting/customer-quotes', permanent: false },
       { source: '/accounting/sales-orders', destination: '/accounting/customer-sales-orders', permanent: false },
@@ -73,6 +75,7 @@ const nextConfig = {
       { source: '/accounting/vat', destination: '/accounting/reports/vat-return', permanent: false },
       { source: '/payroll', destination: '/payroll/employees', permanent: false },
       { source: '/payroll/dashboard', destination: '/payroll/employees', permanent: false },
+      { source: '/payroll/year-end', destination: '/accounting/year-end', permanent: false },
     ];
   },
 

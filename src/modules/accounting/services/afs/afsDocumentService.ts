@@ -27,27 +27,53 @@ function rowToAfsDocument(row: Record<string, unknown>): AfsDocument {
   };
 }
 
+export class AfsDocumentDuplicateError extends Error {
+  readonly existing: { fiscalYear: number | null; period: string | null; documentType: DocumentType };
+  constructor(existing: { fiscalYear: number | null; period: string | null; documentType: DocumentType }) {
+    super(
+      existing.documentType === 'afs'
+        ? `An AFS document for fiscal year ${existing.fiscalYear} already exists.`
+        : `A management pack for ${existing.period} already exists.`
+    );
+    this.name = 'AfsDocumentDuplicateError';
+    this.existing = existing;
+  }
+}
+
 export async function createAfsDocument(input: CreateAfsDocumentInput): Promise<AfsDocument> {
   log.info('Creating AFS document', { companyId: input.companyId, documentType: input.documentType }, 'afsDocumentService');
 
-  const rows = await sql`
-    INSERT INTO afs_documents (
-      company_id, fiscal_year, period, document_type, reporting_framework
-    ) VALUES (
-      ${input.companyId}::UUID,
-      ${input.fiscalYear ?? null},
-      ${input.period ?? null},
-      ${input.documentType},
-      ${input.reportingFramework}
-    )
-    RETURNING *
-  `;
+  try {
+    const rows = await sql`
+      INSERT INTO afs_documents (
+        company_id, fiscal_year, period, document_type, reporting_framework
+      ) VALUES (
+        ${input.companyId}::UUID,
+        ${input.fiscalYear ?? null},
+        ${input.period ?? null},
+        ${input.documentType},
+        ${input.reportingFramework}
+      )
+      RETURNING *
+    `;
 
-  if (rows.length === 0) {
-    throw new Error('Failed to create AFS document');
+    if (rows.length === 0) {
+      throw new Error('Failed to create AFS document');
+    }
+
+    return rowToAfsDocument(rows[0] as Record<string, unknown>);
+  } catch (err) {
+    // Postgres unique violation: 23505. Translate to a friendly domain error
+    // so the route handler can return a 409 with a clear message instead of 500.
+    if (err instanceof Error && /unique|duplicate key/i.test(err.message)) {
+      throw new AfsDocumentDuplicateError({
+        fiscalYear: input.fiscalYear ?? null,
+        period: input.period ?? null,
+        documentType: input.documentType,
+      });
+    }
+    throw err;
   }
-
-  return rowToAfsDocument(rows[0] as Record<string, unknown>);
 }
 
 export async function getAfsDocument(

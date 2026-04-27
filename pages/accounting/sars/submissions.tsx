@@ -68,18 +68,25 @@ export default function SubmissionsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 30_000);
     try {
       const typeParam = filter !== 'all' ? `?type=${filter}` : '';
       const res = await apiFetch(
         `/api/accounting/sars/sars-submissions${typeParam}`,
-        { credentials: 'include' }
+        { credentials: 'include', signal: controller.signal },
       );
       const json = await res.json();
       if (!res.ok) throw new Error(json.error?.message || json.message || 'Failed');
       setSubmissions(json.data?.items || []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load submissions');
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        setError('Request timed out after 30 seconds. Click Retry to try again.');
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to load submissions');
+      }
     } finally {
+      window.clearTimeout(timer);
       setLoading(false);
     }
   }, [filter]);
@@ -130,7 +137,18 @@ export default function SubmissionsPage() {
         </div>
 
         <div className="p-6 space-y-4">
-          {error && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{error}</div>}
+          {error && (
+            <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm flex items-center justify-between gap-3">
+              <span>{error}</span>
+              <button
+                type="button"
+                onClick={() => load()}
+                className="px-3 py-1 rounded bg-red-500/20 hover:bg-red-500/30 text-red-300 text-xs font-medium"
+              >
+                Retry
+              </button>
+            </div>
+          )}
 
           {/* Filter Tabs */}
           <div className="flex gap-1 bg-[var(--ff-bg-secondary)] rounded-lg p-1 w-fit border border-[var(--ff-border-light)]">
