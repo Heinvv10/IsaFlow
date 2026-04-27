@@ -54,9 +54,9 @@ export async function listAccountReportingGroups(
         json_agg(
           json_build_object(
             'gl_account_id', a.id,
-            'account_code', a.code,
-            'account_name', a.name
-          ) ORDER BY a.code
+            'account_code', a.account_code,
+            'account_name', a.account_name
+          ) ORDER BY a.account_code
         ) FILTER (WHERE a.id IS NOT NULL),
         '[]'
       ) AS members
@@ -90,9 +90,9 @@ export async function getAccountReportingGroup(
         json_agg(
           json_build_object(
             'gl_account_id', a.id,
-            'account_code', a.code,
-            'account_name', a.name
-          ) ORDER BY a.code
+            'account_code', a.account_code,
+            'account_name', a.account_name
+          ) ORDER BY a.account_code
         ) FILTER (WHERE a.id IS NOT NULL),
         '[]'
       ) AS members

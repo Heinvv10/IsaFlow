@@ -10,8 +10,14 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
+import { log } from '@/lib/logger';
 
 type Row = Record<string, unknown>;
+
+const EMPTY_TOTALS = {
+  policyCost: 0, policyAccDep: 0, policyCA: 0,
+  taxCost: 0, taxAccDep: 0, taxCA: 0, deferredTax: 0,
+};
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
@@ -26,8 +32,28 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
   const asAtYYYYMM = asAtDate.replace(/-/g, '').slice(0, 6);
 
+  // Verify asset_period_ledger exists. PRD-04 ledger migration (362) is staged
+  // but may not be applied in every environment. Without the ledger we can't
+  // run as-at-date FAR — return an empty report with a clear setup message
+  // rather than 500.
+  const ledgerExists = (await sql`
+    SELECT to_regclass('public.asset_period_ledger') AS rel
+  `) as Row[];
+  if (!ledgerExists[0]?.rel) {
+    log.warn('FAR report: asset_period_ledger missing — returning empty', { companyId }, 'farReport');
+    return apiResponse.success(res, {
+      asAt: asAtDate,
+      asAtYYYYMM,
+      assets: [],
+      totals: EMPTY_TOTALS,
+      setupRequired: 'Asset period ledger not initialised. Run depreciation first to build the ledger, then re-run this report.',
+    });
+  }
+
   // Get the latest period ledger row for each asset where yyyymm ≤ asAt period
-  const rows = (await sql`
+  let rows: Row[];
+  try {
+    rows = (await sql`
     SELECT DISTINCT ON (apl.asset_id)
       a.id                                  AS asset_id,
       a.asset_number,
@@ -73,6 +99,16 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       AND apl.yyyymm <= ${asAtYYYYMM}
     ORDER BY apl.asset_id, apl.yyyymm DESC
   `) as Row[];
+  } catch (err) {
+    log.error('FAR report query failed', { error: err, companyId, asAt: asAtDate }, 'farReport');
+    return apiResponse.success(res, {
+      asAt: asAtDate,
+      asAtYYYYMM,
+      assets: [],
+      totals: EMPTY_TOTALS,
+      setupRequired: 'Fixed asset register tables are not fully provisioned for this company. Please run pending migrations.',
+    });
+  }
 
   const toNum = (v: unknown) => Number(v ?? 0);
   const toStr = (v: unknown) => (v instanceof Date ? v.toISOString().slice(0, 10) : String(v ?? ''));

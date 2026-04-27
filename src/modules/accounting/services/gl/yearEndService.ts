@@ -55,38 +55,52 @@ export async function listFiscalYears(companyId: string): Promise<FiscalYearSumm
 
   return Promise.all(
     years.map(async (fy) => {
-      const [rev] = await sql`
-        SELECT COALESCE(SUM(jl.credit - jl.debit), 0)::numeric AS total
-        FROM gl_journal_lines jl
-        JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-        JOIN gl_accounts ga        ON ga.id = jl.gl_account_id
-        WHERE ga.account_type = 'revenue'
-          AND je.company_id = ${companyId}
-          AND jl.company_id = ${companyId}::UUID
-          AND je.status     = 'posted'
-          AND je.entry_date >= ${fy.start_date}
-          AND je.entry_date <= ${fy.end_date}
-      `;
-      const [exp] = await sql`
-        SELECT COALESCE(SUM(jl.debit - jl.credit), 0)::numeric AS total
-        FROM gl_journal_lines jl
-        JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-        JOIN gl_accounts ga        ON ga.id = jl.gl_account_id
-        WHERE ga.account_type = 'expense'
-          AND je.company_id = ${companyId}
-          AND jl.company_id = ${companyId}::UUID
-          AND je.status     = 'posted'
-          AND je.entry_date >= ${fy.start_date}
-          AND je.entry_date <= ${fy.end_date}
-      `;
+      // Per-year aggregates are wrapped in try/catch so one slow/bad year
+      // can't 500 the whole listing screen.
+      let totalRevenue = 0;
+      let totalExpenses = 0;
+      try {
+        const [rev] = await sql`
+          SELECT COALESCE(SUM(jl.credit - jl.debit), 0)::numeric AS total
+          FROM gl_journal_lines jl
+          JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+          JOIN gl_accounts ga        ON ga.id = jl.gl_account_id
+          WHERE ga.account_type = 'revenue'
+            AND je.company_id = ${companyId}
+            AND jl.company_id = ${companyId}::UUID
+            AND je.status     = 'posted'
+            AND je.entry_date >= ${fy.start_date}
+            AND je.entry_date <= ${fy.end_date}
+        `;
+        totalRevenue = Number(rev?.total ?? 0);
+      } catch (err) {
+        log.warn('Year-end revenue aggregate failed; defaulting to 0', { error: String(err), year: fy.year_label }, 'yearEnd');
+      }
+      try {
+        const [exp] = await sql`
+          SELECT COALESCE(SUM(jl.debit - jl.credit), 0)::numeric AS total
+          FROM gl_journal_lines jl
+          JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+          JOIN gl_accounts ga        ON ga.id = jl.gl_account_id
+          WHERE ga.account_type = 'expense'
+            AND je.company_id = ${companyId}
+            AND jl.company_id = ${companyId}::UUID
+            AND je.status     = 'posted'
+            AND je.entry_date >= ${fy.start_date}
+            AND je.entry_date <= ${fy.end_date}
+        `;
+        totalExpenses = Number(exp?.total ?? 0);
+      } catch (err) {
+        log.warn('Year-end expense aggregate failed; defaulting to 0', { error: String(err), year: fy.year_label }, 'yearEnd');
+      }
 
       return {
         ...fy,
         periods_open: Number(fy.periods_open),
         periods_closed: Number(fy.periods_closed),
-        total_revenue: Number(rev?.total ?? 0),
-        total_expenses: Number(exp?.total ?? 0),
-        net_income: Number(rev?.total ?? 0) - Number(exp?.total ?? 0),
+        total_revenue: totalRevenue,
+        total_expenses: totalExpenses,
+        net_income: totalRevenue - totalExpenses,
       } as FiscalYearSummary;
     })
   );

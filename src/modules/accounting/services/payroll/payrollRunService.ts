@@ -65,6 +65,17 @@ export async function listPayrollRuns(companyId: string): Promise<PayrollRunSumm
   return rows.map(mapRunRow);
 }
 
+export class PayrollRunDuplicateError extends Error {
+  readonly month: number;
+  readonly year: number;
+  constructor(month: number, year: number) {
+    super(`A payroll run for ${month}/${year} already exists.`);
+    this.name = 'PayrollRunDuplicateError';
+    this.month = month;
+    this.year = year;
+  }
+}
+
 export async function createPayrollRun(
   companyId: string,
   period: PayrollPeriod,
@@ -78,7 +89,7 @@ export async function createPayrollRun(
     RETURNING *
   `) as Row[];
   if (rows.length === 0) {
-    throw new Error(`Payroll run for ${period.month}/${period.year} already exists`);
+    throw new PayrollRunDuplicateError(period.month, period.year);
   }
   if (!rows[0]) throw new Error('INSERT returned no row');
   return mapRunRow(rows[0]);
