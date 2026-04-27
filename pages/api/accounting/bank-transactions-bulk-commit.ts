@@ -39,10 +39,12 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { UUID } from '@/lib/schemas/common';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { getCompanyPlan } from '@/lib/billing/getCompanyPlan';
 import {
@@ -66,27 +68,25 @@ import {
   bankTransactionHash,
   type HashableTransaction,
 } from '@/modules/accounting/utils/bankTransactionHash';
-import type { BankCsvParseResult, BankFormat } from '@/modules/accounting/types/bank.types';
+import type { BankCsvParseResult } from '@/modules/accounting/types/bank.types';
 
 export const config = {
   api: { bodyParser: { sizeLimit: '30mb' } },
 };
 
-interface BulkCommitRequest {
-  bankAccountId?: string;
-  bulkImportId?: string;
-  bulkSequence?: number;
-  filename?: string;
-  fileType?: StatementFileType;
-  statementDate?: string;
-  sourceFileSizeBytes?: number;
-  pdfBase64?: string;
-  csvContent?: string;
-  bankFormat?: BankFormat;
-  applyBankRules?: boolean;
-}
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const BulkCommitSchema = z.object({
+  bankAccountId: UUID,
+  bulkImportId: UUID,
+  bulkSequence: z.number().int().min(1),
+  filename: z.string().min(1).max(500),
+  fileType: z.enum(['pdf', 'csv', 'ofx', 'qif']).optional(),
+  statementDate: z.string().min(8).max(30),
+  sourceFileSizeBytes: z.number().int().nonnegative().optional(),
+  pdfBase64: z.string().optional(),
+  csvContent: z.string().optional(),
+  bankFormat: z.enum(['fnb', 'standard_bank', 'nedbank', 'absa', 'capitec', 'ofx', 'qif', 'unknown']).optional(),
+  applyBankRules: z.boolean().optional(),
+}).strict();
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -95,30 +95,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const authReq = req as CompanyAuthedRequest;
   const { companyId } = authReq;
-  const body = (req.body ?? {}) as BulkCommitRequest;
+  const parsed = BulkCommitSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
+  }
   const {
-    bankAccountId,
-    bulkImportId,
-    bulkSequence,
-    filename,
-    fileType,
-    statementDate,
-    sourceFileSizeBytes,
-    pdfBase64,
-    csvContent,
-    bankFormat,
-    applyBankRules,
-  } = body;
-
-  if (!bankAccountId) return apiResponse.badRequest(res, 'bankAccountId is required');
-  if (!bulkImportId || !UUID_RE.test(bulkImportId)) {
-    return apiResponse.badRequest(res, 'bulkImportId must be a valid UUID');
-  }
-  if (!Number.isInteger(bulkSequence) || (bulkSequence as number) < 1) {
-    return apiResponse.badRequest(res, 'bulkSequence must be a positive integer');
-  }
-  if (!filename) return apiResponse.badRequest(res, 'filename is required');
-  if (!statementDate) return apiResponse.badRequest(res, 'statementDate is required');
+    bankAccountId, bulkImportId, bulkSequence, filename, fileType,
+    statementDate, sourceFileSizeBytes, pdfBase64, csvContent, bankFormat, applyBankRules,
+  } = parsed.data;
 
   // Pentest M16: cap decoded base64 size before decoding.
   if (pdfBase64 && Buffer.byteLength(pdfBase64, 'base64') > 15 * 1024 * 1024) {

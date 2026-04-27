@@ -7,16 +7,25 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { UUID } from '@/lib/schemas/common';
 import {
   listOverrides,
   setOverride,
   type UpsertOverrideInput,
 } from '@/modules/accounting/services/ar/dunningOverridesService';
+
+const UpsertOverrideSchema = z.object({
+  customerId: UUID,
+  suppress_dunning: z.boolean().optional(),
+  template_id_override: UUID.nullable().optional(),
+  note: z.string().trim().max(2000).nullable().optional(),
+}).strict();
 
 async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void> {
   const { companyId } = req as CompanyAuthedRequest;
@@ -28,26 +37,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
   }
 
   if (req.method === 'POST') {
-    const body = (req.body ?? {}) as Record<string, unknown>;
-    const customerId = typeof body.customerId === 'string' ? body.customerId : '';
-    if (!customerId) {
-      apiResponse.badRequest(res, 'customerId is required');
+    const parsed = UpsertOverrideSchema.safeParse(req.body);
+    if (!parsed.success) {
+      apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
       return;
     }
-
+    const { customerId, ...rest } = parsed.data;
     const input: UpsertOverrideInput = {};
-    if (typeof body.suppress_dunning === 'boolean') input.suppress_dunning = body.suppress_dunning;
-    if ('template_id_override' in body) {
-      input.template_id_override =
-        typeof body.template_id_override === 'string' && body.template_id_override.length > 0
-          ? body.template_id_override
-          : null;
-    }
-    if ('note' in body) {
-      input.note = typeof body.note === 'string' && body.note.trim().length > 0
-        ? body.note.trim()
-        : null;
-    }
+    if (rest.suppress_dunning !== undefined) input.suppress_dunning = rest.suppress_dunning;
+    if (rest.template_id_override !== undefined) input.template_id_override = rest.template_id_override;
+    if (rest.note !== undefined) input.note = rest.note ?? null;
 
     try {
       const override = await setOverride(companyId, customerId, input);
@@ -55,7 +54,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (/template .* not found/i.test(msg)) {
-        apiResponse.notFound(res, 'Template', String(body.template_id_override ?? ''));
+        apiResponse.notFound(res, 'Template', String(rest.template_id_override ?? ''));
         return;
       }
       apiResponse.badRequest(res, msg);

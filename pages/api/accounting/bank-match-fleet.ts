@@ -10,22 +10,20 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-type FleetEntityType = 'fuel' | 'service';
-
-interface PostBody {
-  bankTransactionId?: string;
-  fleetEntityType?: FleetEntityType;
-  fleetEntityId?: string;
-}
+const BodySchema = z.object({
+  bankTransactionId: UUID,
+  fleetEntityType: z.enum(['fuel', 'service']),
+  fleetEntityId: UUID,
+}).strict();
 
 // ── Handler ───────────────────────────────────────────────────────────────────
 
@@ -35,14 +33,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const { companyId } = req as CompanyAuthedRequest;
-  const { bankTransactionId, fleetEntityType, fleetEntityId } = req.body as PostBody;
-
-  // ── Validation ─────────────────────────────────────────────────────────────
-  if (!bankTransactionId) return apiResponse.badRequest(res, 'bankTransactionId is required');
-  if (!fleetEntityId) return apiResponse.badRequest(res, 'fleetEntityId is required');
-  if (!fleetEntityType || !['fuel', 'service'].includes(fleetEntityType)) {
-    return apiResponse.badRequest(res, "fleetEntityType must be 'fuel' or 'service'");
+  const parsed = BodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
   }
+  const { bankTransactionId, fleetEntityType, fleetEntityId } = parsed.data;
 
   if (fleetEntityType === 'fuel') {
     // ── Fuel transaction link ──────────────────────────────────────────────

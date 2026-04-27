@@ -7,26 +7,35 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { UUID } from '@/lib/schemas/common';
 import { sql, transaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 type Row = Record<string, unknown>;
 
-interface ClassifiedBankTx {
-  transactionDate: string;
-  description: string;
-  debit?: number;
-  credit?: number;
-  category?: string;
-  costCentreT1?: string;
-  costCentreT2?: string;
-  businessUnit?: string;
-  statementRef?: string;
-  source?: string;
-}
+const ClassifiedBankTxSchema = z.object({
+  transactionDate: z.string().min(8).max(30),
+  description: z.string().max(500),
+  debit: z.number().nonnegative().optional(),
+  credit: z.number().nonnegative().optional(),
+  category: z.string().max(200).optional(),
+  costCentreT1: z.string().max(100).optional(),
+  costCentreT2: z.string().max(100).optional(),
+  businessUnit: z.string().max(100).optional(),
+  statementRef: z.string().max(200).optional(),
+  source: z.string().max(50).optional(),
+});
+
+const BodySchema = z.object({
+  bankAccountId: UUID,
+  transactions: z.array(ClassifiedBankTxSchema).min(1).max(10_000),
+}).strict();
+
+type ClassifiedBankTx = z.infer<typeof ClassifiedBankTxSchema>;
 
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -37,17 +46,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
 
   try {
-    const { bankAccountId, transactions } = req.body as {
-      bankAccountId: string;
-      transactions: ClassifiedBankTx[];
-    };
-
-    if (!bankAccountId) {
-      return apiResponse.badRequest(res, 'bankAccountId is required');
+    const parsed = BodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
     }
-    if (!Array.isArray(transactions) || transactions.length === 0) {
-      return apiResponse.badRequest(res, 'transactions array is required');
-    }
+    const { bankAccountId, transactions } = parsed.data;
 
     // Verify bank account exists
     const bankCheck = (await sql`

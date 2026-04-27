@@ -13,10 +13,12 @@
  */
 
 import type { NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { extractFromPdf, extractFromImage } from '@/modules/accounting/services/core/ocrService';
@@ -29,12 +31,14 @@ import { isVlmAvailable } from '@/modules/accounting/services/bank/vlmService';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SqlRow = Record<string, any>;
 
-interface PostBody {
-  bankTransactionId?: string;
-  fileName?: string;
-  fileData?: string; // base64 data URL: "data:<mime>;base64,<data>"
-  fileSize?: number;
-}
+const PostBodySchema = z.object({
+  bankTransactionId: UUID,
+  fileName: z.string().min(1).max(500),
+  // base64 data URL — clamp at ~3 MB to give a margin over the 2 MB raw limit
+  // (data URLs expand ~33%). The byte-size estimate below catches the real cap.
+  fileData: z.string().min(20).max(3_500_000),
+  fileSize: z.number().nonnegative().optional(),
+}).strict();
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -103,20 +107,17 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   // ── POST ───────────────────────────────────────────────────────────────────
   if (req.method === 'POST') {
-    const { bankTransactionId, fileName, fileData } = req.body as PostBody;
-
-    if (!bankTransactionId) return apiResponse.badRequest(res, 'bankTransactionId is required');
+    const parsed = PostBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
+    }
+    const { bankTransactionId, fileName, fileData } = parsed.data;
 
     // Verify ownership before insert
     const [btCheck] = await sql`
       SELECT id FROM bank_transactions WHERE id = ${bankTransactionId}::UUID AND company_id = ${companyId}
     ` as SqlRow[];
     if (!btCheck) return apiResponse.forbidden(res, 'Bank transaction does not belong to your company');
-
-    if (!fileName) return apiResponse.badRequest(res, 'fileName is required');
-    if (!fileData || typeof fileData !== 'string') {
-      return apiResponse.badRequest(res, 'fileData (base64 data URL) is required');
-    }
 
     // Validate MIME type against data URL header
     const mime = extractMime(fileData);

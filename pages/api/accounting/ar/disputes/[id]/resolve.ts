@@ -11,15 +11,23 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { UUID } from '@/lib/schemas/common';
 import { resolveDispute } from '@/modules/accounting/services/ar/disputeService';
 
-type ResolveMode = 'resolve_with_credit' | 'resolve_no_credit' | 'rejected';
-const ALLOWED_MODES: ResolveMode[] = ['resolve_with_credit', 'resolve_no_credit', 'rejected'];
+const BodySchema = z.object({
+  mode: z.enum(['resolve_with_credit', 'resolve_no_credit', 'rejected']),
+  note: z.string().trim().max(2000).optional(),
+  creditDate: z.string().max(30).optional(),
+}).refine(
+  v => !(v.mode === 'resolve_with_credit' && !v.creditDate),
+  { message: 'creditDate is required when resolving with credit', path: ['creditDate'] },
+);
 
 async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void> {
   const { companyId, user } = req as CompanyAuthedRequest;
@@ -29,29 +37,23 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
     return;
   }
 
-  const { id } = req.query;
-  if (!id || typeof id !== 'string') {
-    apiResponse.badRequest(res, 'Dispute id is required');
+  const idParse = UUID.safeParse(req.query.id);
+  if (!idParse.success) {
+    apiResponse.badRequest(res, 'Dispute id must be a valid UUID');
     return;
   }
+  const id = idParse.data;
 
-  const body = req.body ?? {};
-  const mode = typeof body.mode === 'string' ? body.mode : '';
-  const note = typeof body.note === 'string' ? body.note.trim() : undefined;
-  const creditDate = typeof body.creditDate === 'string' ? body.creditDate : undefined;
-
-  if (!(ALLOWED_MODES as string[]).includes(mode)) {
-    apiResponse.badRequest(res, `mode must be one of: ${ALLOWED_MODES.join(', ')}`);
+  const parsed = BodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
     return;
   }
-  if (mode === 'resolve_with_credit' && !creditDate) {
-    apiResponse.badRequest(res, 'creditDate is required when resolving with credit');
-    return;
-  }
+  const { mode, note, creditDate } = parsed.data;
 
   try {
     const dispute = await resolveDispute(companyId, id, user.id, {
-      mode: mode as ResolveMode,
+      mode,
       note,
       creditDate,
     });

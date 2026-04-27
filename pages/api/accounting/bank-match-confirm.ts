@@ -13,18 +13,28 @@
  */
 
 import type { NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import {
   allocateTransaction,
   matchTransaction,
 } from '@/modules/accounting/services/bank/bankReconciliationService';
-import type { CandidateType } from '@/modules/accounting/types/bank-match.types';
 type Row = Record<string, unknown>;
+
+const BodySchema = z.object({
+  bankTransactionId: UUID,
+  candidateType: z.enum([
+    'supplier_invoice', 'customer_invoice', 'purchase_order',
+    'journal_line', 'bank_transfer',
+  ]),
+  candidateId: UUID,
+}).strict();
 
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
@@ -32,27 +42,14 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
 
-  const {
-    bankTransactionId,
-    candidateType,
-    candidateId,
-  } = req.body as {
-    bankTransactionId?: string;
-    candidateType?: CandidateType;
-    candidateId?: string;
-  };
+  const parsed = BodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
+  }
+  const { bankTransactionId, candidateType, candidateId } = parsed.data;
 
   const { companyId } = req;
   const userId: string = req.user?.id ?? 'system';
-
-  if (!bankTransactionId) return apiResponse.badRequest(res, 'bankTransactionId is required');
-  if (!candidateType) return apiResponse.badRequest(res, 'candidateType is required');
-  if (!candidateId) return apiResponse.badRequest(res, 'candidateId is required');
-
-  const validTypes: CandidateType[] = ['supplier_invoice', 'customer_invoice', 'purchase_order', 'journal_line', 'bank_transfer'];
-  if (!validTypes.includes(candidateType)) {
-    return apiResponse.badRequest(res, `candidateType must be one of: ${validTypes.join(', ')}`);
-  }
 
   try {
     // Get the bank transaction amount for partial payment calculations
