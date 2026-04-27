@@ -158,6 +158,8 @@ export interface Company {
   portalPrimaryColor: string | null;
   // Session UX (PRD-10 Layer 1)
   idleTimeoutMinutes: number;
+  // Demo tenant flag
+  isDemo: boolean;
 }
 
 export interface CompanyUser {
@@ -307,5 +309,6 @@ export function mapCompany(r: Record<string, unknown>): Company {
     portalWelcomeMessage: strN(r.portal_welcome_message),
     portalPrimaryColor: strN(r.portal_primary_color),
     idleTimeoutMinutes: num(r.idle_timeout_minutes, 480),
+    isDemo: bool(r.is_demo, false),
   };
 }

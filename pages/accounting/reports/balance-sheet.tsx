@@ -3,7 +3,7 @@
  * PRD-060 Phase 5: Assets, Liabilities, Equity
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
@@ -16,11 +16,63 @@ import { EvidenceDrillModal } from '@/components/accounting/evidence/EvidenceDri
 
 interface CostCentre { id: string; code: string; name: string }
 
+function clampToToday(dateStr: string): string {
+  const today = new Date().toISOString().split('T')[0] ?? '';
+  return dateStr > today ? today : dateStr;
+}
+
 export default function BalanceSheetPage() {
   const router = useRouter();
   const qAsAt = typeof router.query.as_at_date === 'string' ? router.query.as_at_date : '';
-  const [asAtDate, setAsAtDate] = useState(qAsAt || new Date().toISOString().split('T')[0]);
-  useEffect(() => { if (qAsAt && qAsAt !== asAtDate) setAsAtDate(qAsAt); }, [qAsAt, asAtDate]);
+  const today = new Date().toISOString().split('T')[0] ?? '';
+  const [asAtDate, setAsAtDate] = useState(qAsAt || today);
+  const [periodResolved, setPeriodResolved] = useState(!!qAsAt);
+  const isMountedRef = useRef(true);
+
+  // Sync-back effect: when router.query.as_at_date populates after mount
+  // (Next.js can hydrate router.query on a later tick, or client-side
+  // router.push can set it after the open-period fetch has already resolved),
+  // push the URL value into state so the report re-fetches with the correct date.
+  useEffect(() => {
+    if (qAsAt) setAsAtDate(qAsAt);
+  }, [qAsAt]);
+
+  // Fetch the current open period on mount to set a smart default as-at date.
+  // The open-period value is only written when no deep-link param is present
+  // (checked both at call-time and when the promise resolves).
+  useEffect(() => {
+    isMountedRef.current = true;
+
+    if (qAsAt) {
+      // Deep-link param present at mount — use it and skip the period fetch.
+      setAsAtDate(qAsAt);
+      setPeriodResolved(true);
+      return;
+    }
+
+    apiFetch('/api/accounting/fiscal-periods?open_period=true', { credentials: 'include' })
+      .then(r => r.json())
+      .then(json => {
+        if (!isMountedRef.current) return;
+        // Guard: if a deep-link param arrived after mount (router.query hydrates
+        // asynchronously), do not overwrite it with the fetched period end.
+        const latestParam = typeof window !== 'undefined'
+          ? new URLSearchParams(window.location.search).get('as_at_date')
+          : null;
+        if (!latestParam) {
+          const period = json.data as { endDate?: string } | null;
+          if (period?.endDate) setAsAtDate(clampToToday(period.endDate));
+        }
+        setPeriodResolved(true);
+      })
+      .catch(() => {
+        if (isMountedRef.current) setPeriodResolved(true);
+      });
+
+    return () => { isMountedRef.current = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [report, setReport] = useState<BalanceSheetReport | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -38,7 +90,7 @@ export default function BalanceSheetPage() {
   }, []);
 
   const loadReport = useCallback(async () => {
-    if (!asAtDate) return;
+    if (!asAtDate || !periodResolved) return;
     setIsLoading(true);
     setError('');
     try {
@@ -58,7 +110,7 @@ export default function BalanceSheetPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [asAtDate, costCentreId, showComparative]);
+  }, [asAtDate, costCentreId, showComparative, periodResolved]);
 
   useEffect(() => { loadReport(); }, [loadReport]);
 

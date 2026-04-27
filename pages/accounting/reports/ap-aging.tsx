@@ -8,6 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Building2, Loader2, AlertCircle, Download } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { formatOverdueDaysCompact } from '@/lib/format/aging';
 
 type Bucket = 'current' | '1-30' | '31-60' | '61-90' | '90+';
 
@@ -258,7 +259,7 @@ export default function APAgingPage() {
                           <td className="px-4 py-3 text-right font-mono font-semibold text-[var(--ff-text-primary)]">{fmt(r.balance_due)}</td>
                           <td className="px-4 py-3 text-right">
                             <span className={`font-semibold ${BUCKET_COLORS[r.bucket]}`}>
-                              {r.days_overdue > 0 ? r.days_overdue : '—'}
+                              {formatOverdueDaysCompact(r.days_overdue)}
                             </span>
                           </td>
                           <td className="px-4 py-3">

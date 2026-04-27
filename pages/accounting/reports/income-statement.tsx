@@ -3,7 +3,7 @@
  * PRD-060 Phase 5: Revenue, Cost of Sales, Operating Expenses
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
@@ -17,6 +17,11 @@ import { apiFetch } from '@/lib/apiFetch';
 import { EvidenceDrillModal } from '@/components/accounting/evidence/EvidenceDrillModal';
 
 interface CostCentre { id: string; code: string; name: string }
+
+function clampToToday(dateStr: string): string {
+  const today = new Date().toISOString().split('T')[0] ?? '';
+  return dateStr > today ? today : dateStr;
+}
 
 function getDefaultDates(): { periodStart: string; periodEnd: string } {
   const now = new Date();
@@ -34,7 +39,57 @@ export default function IncomeStatementPage() {
   const defaults = getDefaultDates();
   const [periodStart, setPeriodStart] = useState(qStart || defaults.periodStart);
   const [periodEnd, setPeriodEnd] = useState(qEnd || defaults.periodEnd);
-  useEffect(() => { if (qStart && qStart !== periodStart) setPeriodStart(qStart); if (qEnd && qEnd !== periodEnd) setPeriodEnd(qEnd); }, [qStart, qEnd, periodStart, periodEnd]);
+  const [periodResolved, setPeriodResolved] = useState(!!(qStart && qEnd));
+  const isMountedRef = useRef(true);
+
+  // Sync-back effect: when router.query.period_start / period_end populate after
+  // mount (Next.js can hydrate router.query on a later tick, or client-side
+  // router.push can set them after the open-period fetch has already resolved),
+  // push the URL values into state so the report re-fetches correctly.
+  useEffect(() => {
+    if (qStart) setPeriodStart(qStart);
+    if (qEnd) setPeriodEnd(qEnd);
+  }, [qStart, qEnd]);
+
+  // Fetch the current open period on mount to set smart default dates.
+  // The open-period values are only written when no deep-link params are present
+  // (checked both at call-time and when the promise resolves).
+  useEffect(() => {
+    isMountedRef.current = true;
+
+    if (qStart && qEnd) {
+      // Deep-link params present at mount — use them and skip the period fetch.
+      setPeriodStart(qStart);
+      setPeriodEnd(qEnd);
+      setPeriodResolved(true);
+      return;
+    }
+
+    apiFetch('/api/accounting/fiscal-periods?open_period=true', { credentials: 'include' })
+      .then(r => r.json())
+      .then(json => {
+        if (!isMountedRef.current) return;
+        // Guard: if deep-link params arrived after mount (router.query hydrates
+        // asynchronously), do not overwrite them with the fetched period dates.
+        const searchParams = typeof window !== 'undefined'
+          ? new URLSearchParams(window.location.search)
+          : null;
+        const latestStart = searchParams?.get('period_start');
+        const latestEnd = searchParams?.get('period_end');
+        if (!latestStart && !latestEnd) {
+          const period = json.data as { startDate?: string; endDate?: string } | null;
+          if (period?.startDate) setPeriodStart(period.startDate);
+          if (period?.endDate) setPeriodEnd(clampToToday(period.endDate));
+        }
+        setPeriodResolved(true);
+      })
+      .catch(() => {
+        if (isMountedRef.current) setPeriodResolved(true);
+      });
+
+    return () => { isMountedRef.current = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [report, setReport] = useState<IncomeStatementReport | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -68,7 +123,7 @@ export default function IncomeStatementPage() {
   }
 
   const loadReport = useCallback(async () => {
-    if (!periodStart || !periodEnd) return;
+    if (!periodStart || !periodEnd || !periodResolved) return;
     setIsLoading(true);
     setError('');
     try {
@@ -92,7 +147,7 @@ export default function IncomeStatementPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [periodStart, periodEnd, costCentreId, showComparative]);
+  }, [periodStart, periodEnd, costCentreId, showComparative, periodResolved]);
 
   useEffect(() => { loadReport(); }, [loadReport]);
 
