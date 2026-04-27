@@ -3,28 +3,11 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { FileText, Plus, Loader2, AlertCircle, Clock, CheckCircle, Lock } from 'lucide-react';
+import { FileText, Plus, Loader2, AlertCircle } from 'lucide-react';
 import { PageHeader } from '@/components/ui';
+import { StatusBadge } from '@/components/ui/StatusBadge';
 import { apiFetch } from '@/lib/apiFetch';
-import type { AfsDocument, DocumentStatus } from '@/modules/accounting/services/afs/afsTypes';
-
-const STATUS_CONFIG: Record<DocumentStatus, { label: string; colour: string; icon: React.ReactNode }> = {
-  draft:          { label: 'Draft',           colour: 'bg-zinc-100 text-zinc-700',     icon: <Clock className="w-3 h-3" /> },
-  in_review:      { label: 'In Review',       colour: 'bg-blue-100 text-blue-700',     icon: <Clock className="w-3 h-3" /> },
-  partner_review: { label: 'Partner Review',  colour: 'bg-yellow-100 text-yellow-700', icon: <Clock className="w-3 h-3" /> },
-  signed_off:     { label: 'Signed Off',      colour: 'bg-green-100 text-green-700',   icon: <CheckCircle className="w-3 h-3" /> },
-  filed:          { label: 'Filed',           colour: 'bg-purple-100 text-purple-700', icon: <Lock className="w-3 h-3" /> },
-};
-
-function StatusBadge({ status }: { status: DocumentStatus }) {
-  const cfg = STATUS_CONFIG[status];
-  return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cfg.colour}`}>
-      {cfg.icon}
-      {cfg.label}
-    </span>
-  );
-}
+import type { AfsDocument } from '@/modules/accounting/services/afs/afsTypes';
 
 export default function AfsIndexPage() {
   const router = useRouter();

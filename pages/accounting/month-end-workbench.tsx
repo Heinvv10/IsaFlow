@@ -11,6 +11,7 @@ import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, AlertCircle, CheckCircle2, Clock, AlertTriangle, Circle, ChevronRight } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { STATUS_TONE_CLASSES, type StatusTone } from '@/lib/statusVocabulary';
 import type {
   MonthEndWorkbench,
   WorkbenchCard,
@@ -27,12 +28,16 @@ function periodLabel(period: string): string {
   return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-ZA', { month: 'long', year: 'numeric', timeZone: 'UTC' });
 }
 
-const STATUS_META: Record<CardStatus, { label: string; pill: string; iconColor: string; Icon: React.ComponentType<{ className?: string }> }> = {
-  ready:       { label: 'Ready',         pill: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', iconColor: 'text-emerald-400', Icon: CheckCircle2 },
-  in_progress: { label: 'In progress',   pill: 'bg-amber-500/10 text-amber-300 border-amber-500/30',         iconColor: 'text-amber-400',   Icon: Clock },
-  attention:   { label: 'Needs attention', pill: 'bg-red-500/10 text-red-300 border-red-500/30',             iconColor: 'text-red-400',     Icon: AlertTriangle },
-  blocked:     { label: 'Blocked',       pill: 'bg-rose-500/10 text-rose-300 border-rose-500/30',            iconColor: 'text-rose-400',    Icon: AlertCircle },
-  not_started: { label: 'Not started',   pill: 'bg-zinc-500/10 text-zinc-300 border-zinc-500/30',            iconColor: 'text-zinc-400',    Icon: Circle },
+// Workflow-card statuses are a sibling vocabulary to record statuses
+// (drafts/approved/posted on invoices). Labels are workflow-progression
+// terms ("Ready", "Needs attention"); tone classes come from the central
+// palette in statusVocabulary so the colour scheme is consistent.
+const STATUS_META: Record<CardStatus, { label: string; tone: StatusTone; iconColor: string; Icon: React.ComponentType<{ className?: string }> }> = {
+  ready:       { label: 'Ready',         tone: 'success',   iconColor: 'text-emerald-400', Icon: CheckCircle2 },
+  in_progress: { label: 'In progress',   tone: 'progress',  iconColor: 'text-amber-400',   Icon: Clock },
+  attention:   { label: 'Needs attention', tone: 'attention', iconColor: 'text-red-400',     Icon: AlertTriangle },
+  blocked:     { label: 'Blocked',       tone: 'danger',    iconColor: 'text-rose-400',    Icon: AlertCircle },
+  not_started: { label: 'Not started',   tone: 'neutral',   iconColor: 'text-zinc-400',    Icon: Circle },
 };
 
 interface CardProps { card: WorkbenchCard }
@@ -46,7 +51,7 @@ function CardTile({ card }: CardProps) {
           <Icon className={`w-4 h-4 ${meta.iconColor}`} aria-hidden />
           <h3 className="text-sm font-medium text-zinc-200">{card.title}</h3>
         </div>
-        <span className={`text-[10px] uppercase tracking-wide font-semibold px-2 py-0.5 rounded border ${meta.pill}`}>
+        <span className={`text-[10px] uppercase tracking-wide font-semibold px-2 py-0.5 rounded border ${STATUS_TONE_CLASSES[meta.tone]}`}>
           {meta.label}
         </span>
       </div>
