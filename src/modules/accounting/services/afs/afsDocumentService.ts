@@ -63,9 +63,9 @@ export async function createAfsDocument(input: CreateAfsDocumentInput): Promise<
 
     return rowToAfsDocument(rows[0] as Record<string, unknown>);
   } catch (err) {
-    // Postgres unique violation: 23505. Translate to a friendly domain error
-    // so the route handler can return a 409 with a clear message instead of 500.
-    if (err instanceof Error && /unique|duplicate key/i.test(err.message)) {
+    // Postgres unique violation: SQLSTATE 23505. Match by code (locale-independent
+    // and stable across PG versions), not by error message.
+    if (isPostgresUniqueViolation(err)) {
       throw new AfsDocumentDuplicateError({
         fiscalYear: input.fiscalYear ?? null,
         period: input.period ?? null,
@@ -74,6 +74,12 @@ export async function createAfsDocument(input: CreateAfsDocumentInput): Promise<
     }
     throw err;
   }
+}
+
+function isPostgresUniqueViolation(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  const code = (err as { code?: unknown }).code;
+  return typeof code === 'string' && code === '23505';
 }
 
 export async function getAfsDocument(

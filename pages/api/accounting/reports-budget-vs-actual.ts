@@ -14,6 +14,10 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
+import {
+  buildBudgetVsActualLines,
+  type RawActualRow,
+} from '@/modules/accounting/services/reports/budgetVsActualLines';
 
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -84,9 +88,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     // Get actual GL balances for expense and revenue accounts. We don't filter
     // by ga.level — many companies don't populate the hierarchy fully and that
-    // filter previously returned an empty list. Accounts that are themselves
-    // headers (have children) will simply post as zero and fall out via the
-    // empty-state filter below.
+    // filter previously returned an empty list. Accounts with no budget AND no
+    // actual movement are dropped from the response (see filter below) so that
+    // header rows don't pollute the report with empty entries.
     const actuals = await sql`
       SELECT
         ga.id, ga.account_code, ga.account_name, ga.account_type,
@@ -110,28 +114,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       ORDER BY ga.account_code
     `;
 
-    const lines = actuals.map(a => {
-      const budgetAmount = Number(budgets[a.account_code] || budgets[a.id] || 0);
-      const actualAmount = Number(a.actual_amount);
-      // Revenue: positive variance = good (actual > budget)
-      // Expense: positive variance = good (actual < budget, i.e. under budget)
-      const variance = a.account_type === 'revenue'
-        ? actualAmount - budgetAmount
-        : budgetAmount - actualAmount;
-      const variancePct = budgetAmount > 0
-        ? (variance / budgetAmount) * 100
-        : actualAmount > 0 ? -100 : 0;
-
-      return {
-        account_code: a.account_code,
-        account_name: a.account_name,
-        account_type: a.account_type,
-        budget_amount: budgetAmount,
-        actual_amount: actualAmount,
-        variance,
-        variance_pct: variancePct,
-      };
-    });
+    const lines = buildBudgetVsActualLines(actuals as unknown as RawActualRow[], budgets);
 
     const report = {
       period: `${startDate} to ${endDate}`,

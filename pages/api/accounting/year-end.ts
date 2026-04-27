@@ -15,6 +15,19 @@ import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
 import { listFiscalYears, closeFiscalYear } from '@/modules/accounting/services/gl/yearEndService';
 
+/**
+ * Postgres "undefined_table" / "undefined_column" SQLSTATEs. Schema-not-ready
+ * is the only failure mode that should resolve to an empty 200 + setupRequired
+ * hint — every other DB error must surface as a real 500 so monitoring fires.
+ */
+const SCHEMA_MISSING_CODES = new Set(['42P01', '42703']);
+
+function isSchemaMissingError(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  const code = (err as { code?: unknown }).code;
+  return typeof code === 'string' && SCHEMA_MISSING_CODES.has(code);
+}
+
 async function getHandler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
   try {
@@ -22,13 +35,19 @@ async function getHandler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, { years });
   } catch (err) {
     log.error('Failed to fetch fiscal years', { error: err, module: 'accounting' });
-    // Year-end is a read-only listing screen — return an empty list with a
-    // setupRequired hint instead of 500ing so the page renders an actionable
-    // empty state. The error is still logged for ops triage.
-    return apiResponse.success(res, {
-      years: [],
-      setupRequired: 'Could not load fiscal years. Confirm fiscal periods are configured for this company in Accounts > Fiscal Periods.',
-    });
+    if (isSchemaMissingError(err)) {
+      // Specific known case: the fiscal_periods table or one of its columns
+      // doesn't exist in this environment yet. Return an empty list with a
+      // setupRequired hint so the page renders an actionable empty state.
+      return apiResponse.success(res, {
+        years: [],
+        setupRequired: 'Fiscal periods schema is not yet provisioned for this company. Configure fiscal periods in Accounts > Fiscal Periods.',
+      });
+    }
+    // Anything else (connection pool exhaustion, permission errors, etc.)
+    // is a genuine infrastructure failure — surface as 500 so monitoring
+    // catches it.
+    return apiResponse.databaseError(res, err, 'Failed to fetch fiscal years');
   }
 }
 

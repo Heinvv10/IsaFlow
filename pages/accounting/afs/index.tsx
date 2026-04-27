@@ -3,11 +3,44 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { FileText, Plus, Loader2, AlertCircle } from 'lucide-react';
+import { FileText, Plus, Loader2, AlertCircle, Clock, CheckCircle, Lock } from 'lucide-react';
 import { PageHeader } from '@/components/ui';
-import { StatusBadge } from '@/components/ui/StatusBadge';
 import { apiFetch } from '@/lib/apiFetch';
-import type { AfsDocument } from '@/modules/accounting/services/afs/afsTypes';
+import type { AfsDocument, DocumentStatus } from '@/modules/accounting/services/afs/afsTypes';
+import { AfsCreateModal, type AfsCreateValues } from '@/components/accounting/afs/AfsCreateModal';
+
+const STATUS_CONFIG: Record<DocumentStatus, { label: string; colour: string; icon: React.ReactNode }> = {
+  draft:          { label: 'Draft',           colour: 'bg-zinc-100 text-zinc-700',     icon: <Clock className="w-3 h-3" /> },
+  in_review:      { label: 'In Review',       colour: 'bg-blue-100 text-blue-700',     icon: <Clock className="w-3 h-3" /> },
+  partner_review: { label: 'Partner Review',  colour: 'bg-yellow-100 text-yellow-700', icon: <Clock className="w-3 h-3" /> },
+  signed_off:     { label: 'Signed Off',      colour: 'bg-green-100 text-green-700',   icon: <CheckCircle className="w-3 h-3" /> },
+  filed:          { label: 'Filed',           colour: 'bg-purple-100 text-purple-700', icon: <Lock className="w-3 h-3" /> },
+};
+
+function StatusBadge({ status }: { status: DocumentStatus }) {
+  const cfg = STATUS_CONFIG[status];
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cfg.colour}`}>
+      {cfg.icon}
+      {cfg.label}
+    </span>
+  );
+}
+
+function pickNextAfsYear(documents: AfsDocument[]): number {
+  // Pick the most recent fiscal year not already used by an AFS doc.
+  // Prevents the duplicate-year 409 by guessing intelligently before asking.
+  const used = new Set(
+    documents
+      .filter(d => d.documentType === 'afs' && d.fiscalYear != null)
+      .map(d => d.fiscalYear as number),
+  );
+  const thisYear = new Date().getFullYear();
+  for (let candidate = thisYear; candidate >= thisYear - 10; candidate--) {
+    if (!used.has(candidate)) return candidate;
+  }
+  return thisYear;
+}
 
 export default function AfsIndexPage() {
   const router = useRouter();
@@ -15,9 +48,8 @@ export default function AfsIndexPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
-  // Filter by ?type=<documentType> from menu deep links (e.g. ?type=management_pack
-  // when user clicks AFS → Management Packs → Pack Documents).
   const typeFilter = typeof router.query.type === 'string' ? router.query.type : '';
   const visibleDocuments = useMemo(
     () => typeFilter ? documents.filter(d => (d as { documentType?: string }).documentType === typeFilter) : documents,
@@ -41,50 +73,30 @@ export default function AfsIndexPage() {
 
   useEffect(() => { void loadDocuments(); }, [loadDocuments]);
 
-  function pickNextAfsYear(): number {
-    // Pick the most recent fiscal year not already used by an AFS doc.
-    // Prevents the duplicate-year 409 by guessing intelligently before asking.
-    const used = new Set(
-      documents
-        .filter(d => d.documentType === 'afs' && d.fiscalYear != null)
-        .map(d => d.fiscalYear as number),
-    );
-    const thisYear = new Date().getFullYear();
-    for (let candidate = thisYear; candidate >= thisYear - 10; candidate--) {
-      if (!used.has(candidate)) return candidate;
-    }
-    return thisYear;
-  }
-
-  async function handleCreateAfs() {
-    setError('');
-    const suggested = pickNextAfsYear();
-    const input = typeof window !== 'undefined'
-      ? window.prompt('Fiscal year for new AFS', String(suggested))
-      : String(suggested);
-    if (input == null || input.trim() === '') return;
-    const year = Number(input);
-    if (!Number.isFinite(year) || year < 2000 || year > 2100) {
-      setError('Fiscal year must be a valid 4-digit year (e.g. 2026).');
-      return;
-    }
+  const handleCreateAfs = useCallback(async (values: AfsCreateValues): Promise<string | null> => {
     setIsCreating(true);
     try {
       const res = await apiFetch('/api/accounting/afs', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ documentType: 'afs', reportingFramework: 'ifrs_smes', fiscalYear: year }),
+        body: JSON.stringify({
+          documentType: 'afs',
+          reportingFramework: values.reportingFramework,
+          fiscalYear: values.fiscalYear,
+        }),
       });
       const json = await res.json() as { data?: { document?: AfsDocument }; error?: { message?: string } };
-      if (!res.ok) throw new Error(json.error?.message ?? 'Failed to create document');
+      if (!res.ok) return json.error?.message ?? 'Failed to create document';
       if (json.data?.document) setDocuments(prev => [json.data!.document!, ...prev]);
+      setShowCreateModal(false);
+      return null;
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create AFS document');
+      return err instanceof Error ? err.message : 'Failed to create AFS document';
     } finally {
       setIsCreating(false);
     }
-  }
+  }, []);
 
   return (
     <AppLayout>
@@ -95,7 +107,7 @@ export default function AfsIndexPage() {
           subtitle="IFRS-compliant AFS bundle generation and review"
           actions={
             <button
-              onClick={() => { void handleCreateAfs(); }}
+              onClick={() => setShowCreateModal(true)}
               disabled={isCreating}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium disabled:opacity-50 transition-colors"
             >
@@ -103,6 +115,14 @@ export default function AfsIndexPage() {
               New AFS
             </button>
           }
+        />
+
+        <AfsCreateModal
+          open={showCreateModal}
+          initialYear={pickNextAfsYear(documents)}
+          isCreating={isCreating}
+          onSubmit={handleCreateAfs}
+          onClose={() => { if (!isCreating) setShowCreateModal(false); }}
         />
 
         {error && (

@@ -23,6 +23,15 @@ export interface FiscalYearSummary {
   total_revenue: number;
   total_expenses: number;
   net_income: number;
+  /**
+   * Set when the per-year revenue or expense aggregate query fails. The total
+   * for the affected dimension is shown as 0 but the UI must surface a
+   * warning instead of presenting it as a real "zero year". Either flag
+   * means net_income is unreliable and should not be displayed without a
+   * caveat.
+   */
+  revenue_error?: boolean;
+  expense_error?: boolean;
 }
 
 export interface CloseYearResult {
@@ -56,9 +65,13 @@ export async function listFiscalYears(companyId: string): Promise<FiscalYearSumm
   return Promise.all(
     years.map(async (fy) => {
       // Per-year aggregates are wrapped in try/catch so one slow/bad year
-      // can't 500 the whole listing screen.
+      // can't 500 the whole listing screen. When a query fails we set the
+      // matching *_error flag so the UI can render an explicit warning
+      // (rather than presenting 0 as if it were the real total).
       let totalRevenue = 0;
       let totalExpenses = 0;
+      let revenueError = false;
+      let expenseError = false;
       try {
         const [rev] = await sql`
           SELECT COALESCE(SUM(jl.credit - jl.debit), 0)::numeric AS total
@@ -74,7 +87,8 @@ export async function listFiscalYears(companyId: string): Promise<FiscalYearSumm
         `;
         totalRevenue = Number(rev?.total ?? 0);
       } catch (err) {
-        log.warn('Year-end revenue aggregate failed; defaulting to 0', { error: String(err), year: fy.year_label }, 'yearEnd');
+        revenueError = true;
+        log.warn('Year-end revenue aggregate failed; flagging revenue_error', { error: String(err), year: fy.year_label }, 'yearEnd');
       }
       try {
         const [exp] = await sql`
@@ -91,17 +105,21 @@ export async function listFiscalYears(companyId: string): Promise<FiscalYearSumm
         `;
         totalExpenses = Number(exp?.total ?? 0);
       } catch (err) {
-        log.warn('Year-end expense aggregate failed; defaulting to 0', { error: String(err), year: fy.year_label }, 'yearEnd');
+        expenseError = true;
+        log.warn('Year-end expense aggregate failed; flagging expense_error', { error: String(err), year: fy.year_label }, 'yearEnd');
       }
 
-      return {
-        ...fy,
+      const summary: FiscalYearSummary = {
+        ...(fy as unknown as FiscalYearSummary),
         periods_open: Number(fy.periods_open),
         periods_closed: Number(fy.periods_closed),
         total_revenue: totalRevenue,
         total_expenses: totalExpenses,
         net_income: totalRevenue - totalExpenses,
-      } as FiscalYearSummary;
+      };
+      if (revenueError) summary.revenue_error = true;
+      if (expenseError) summary.expense_error = true;
+      return summary;
     })
   );
 }

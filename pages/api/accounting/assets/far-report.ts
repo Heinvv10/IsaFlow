@@ -93,8 +93,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       -- Deferred tax
       apl.deferred_tax
     FROM asset_period_ledger apl
-    JOIN assets a ON a.id = apl.asset_id
-    LEFT JOIN asset_categories c ON c.id = a.category_id
+    JOIN assets a ON a.id = apl.asset_id AND a.company_id = ${companyId}::UUID
+    LEFT JOIN asset_categories c ON c.id = a.category_id AND c.company_id = ${companyId}::UUID
     WHERE apl.company_id = ${companyId}::UUID
       AND apl.yyyymm <= ${asAtYYYYMM}
     ORDER BY apl.asset_id, apl.yyyymm DESC

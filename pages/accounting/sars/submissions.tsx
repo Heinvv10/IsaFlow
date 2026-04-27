@@ -3,34 +3,21 @@
  * Table of all past submissions with type, period, status, reference, and details.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import {
   FileText, Loader2, ChevronLeft,
   CheckCircle2, Clock, XCircle, AlertTriangle,
-  Eye, X,
+  Eye,
 } from 'lucide-react';
 import { formatDate } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
+import { SubmissionDetailModal, type SubmissionDetail } from '@/components/accounting/sars/SubmissionDetailModal';
 
-interface Submission {
-  id: string;
-  formType: string;
-  periodStart: string;
-  periodEnd: string;
-  status: string;
-  formData: Record<string, unknown>;
-  submissionReference: string | null;
-  submittedAt: string | null;
+interface Submission extends SubmissionDetail {
   submittedBy: string | null;
-  notes: string | null;
-  createdAt: string;
-  updatedAt: string;
 }
-
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
 const formatDateTime = (d: string) => {
   if (!d) return '—';
@@ -65,10 +52,15 @@ export default function SubmissionsPage() {
   const [filter, setFilter] = useState<string>('all');
   const [detail, setDetail] = useState<Submission | null>(null);
 
+  // Track the in-flight controller so we can abort on filter change / unmount.
+  const inFlight = useRef<AbortController | null>(null);
+
   const load = useCallback(async () => {
+    inFlight.current?.abort();
+    const controller = new AbortController();
+    inFlight.current = controller;
     setLoading(true);
     setError('');
-    const controller = new AbortController();
     const timer = window.setTimeout(() => controller.abort(), 30_000);
     try {
       const typeParam = filter !== 'all' ? `?type=${filter}` : '';
@@ -81,17 +73,31 @@ export default function SubmissionsPage() {
       setSubmissions(json.data?.items || []);
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
-        setError('Request timed out after 30 seconds. Click Retry to try again.');
+        // Distinguish timeout from a fresh load preempting this one. If
+        // inFlight has been replaced, this abort came from the next load —
+        // don't surface a timeout error in that case.
+        if (inFlight.current === controller) {
+          setError('Request timed out after 30 seconds. Click Retry to try again.');
+        }
       } else {
         setError(err instanceof Error ? err.message : 'Failed to load submissions');
       }
     } finally {
       window.clearTimeout(timer);
-      setLoading(false);
+      if (inFlight.current === controller) {
+        inFlight.current = null;
+        setLoading(false);
+      }
     }
   }, [filter]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    void load();
+    return () => {
+      inFlight.current?.abort();
+      inFlight.current = null;
+    };
+  }, [load]);
 
   const viewDetail = async (id: string) => {
     try {
@@ -235,126 +241,8 @@ export default function SubmissionsPage() {
           </div>
         </div>
 
-        {/* Detail Modal */}
-        {detail && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] w-full max-w-2xl mx-4 max-h-[80vh] overflow-auto">
-              <div className="px-6 py-4 border-b border-[var(--ff-border-light)] flex items-center justify-between sticky top-0 bg-[var(--ff-bg-secondary)]">
-                <h3 className="text-lg font-semibold text-[var(--ff-text-primary)]">
-                  {detail.formType} — {formatDate(detail.periodStart)} to {formatDate(detail.periodEnd)}
-                </h3>
-                <button
-                  onClick={() => setDetail(null)}
-                  className="p-1 rounded hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-secondary)]"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-
-              <div className="p-6 space-y-4">
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <p className="text-[var(--ff-text-tertiary)] text-xs mb-1">Status</p>
-                    {statusBadge(detail.status)}
-                  </div>
-                  <div>
-                    <p className="text-[var(--ff-text-tertiary)] text-xs mb-1">SARS Reference</p>
-                    <p className="text-[var(--ff-text-primary)] font-mono">
-                      {detail.submissionReference || '—'}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[var(--ff-text-tertiary)] text-xs mb-1">Submitted</p>
-                    <p className="text-[var(--ff-text-secondary)]">
-                      {detail.submittedAt ? formatDateTime(detail.submittedAt) : '—'}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[var(--ff-text-tertiary)] text-xs mb-1">Created</p>
-                    <p className="text-[var(--ff-text-secondary)]">
-                      {formatDateTime(detail.createdAt)}
-                    </p>
-                  </div>
-                </div>
-
-                {detail.notes && (
-                  <div>
-                    <p className="text-[var(--ff-text-tertiary)] text-xs mb-1">Notes</p>
-                    <p className="text-[var(--ff-text-secondary)] text-sm">{detail.notes}</p>
-                  </div>
-                )}
-
-                {/* Form Data */}
-                <div>
-                  <p className="text-[var(--ff-text-tertiary)] text-xs mb-2">Form Data</p>
-                  <div className="bg-[var(--ff-bg-primary)] rounded-lg p-4 border border-[var(--ff-border-light)]">
-                    {detail.formType === 'VAT201' && <VAT201Detail data={detail.formData} />}
-                    {detail.formType === 'EMP201' && <EMP201Detail data={detail.formData} />}
-                    {detail.formType !== 'VAT201' && detail.formType !== 'EMP201' && (
-                      <pre className="text-xs text-[var(--ff-text-secondary)] overflow-auto">
-                        {JSON.stringify(detail.formData, null, 2)}
-                      </pre>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        <SubmissionDetailModal detail={detail} onClose={() => setDetail(null)} />
       </div>
     </AppLayout>
-  );
-}
-
-function VAT201Detail({ data }: { data: Record<string, unknown> }) {
-  const fields = [
-    { key: 'field1_standardRatedSupplies', label: '1. Standard-rated supplies' },
-    { key: 'field2_zeroRatedSupplies', label: '2. Zero-rated supplies' },
-    { key: 'field3_exemptSupplies', label: '3. Exempt supplies' },
-    { key: 'field4_totalImports', label: '4. Total imports' },
-    { key: 'field5_outputVAT', label: '5. Output VAT' },
-    { key: 'field6_capitalGoods', label: '6. Input VAT — Capital goods' },
-    { key: 'field7_otherGoods', label: '7. Input VAT — Other goods' },
-    { key: 'field8_services', label: '8. Input VAT — Services' },
-    { key: 'field9_imports', label: '9. Input VAT — Imports' },
-    { key: 'field10_totalInputVAT', label: '10. Total input VAT' },
-    { key: 'field11_vatPayableOrRefundable', label: '11. VAT payable/(refundable)' },
-  ];
-
-  return (
-    <div className="space-y-1 text-sm">
-      {fields.map((f) => (
-        <div key={f.key} className="flex justify-between py-1">
-          <span className="text-[var(--ff-text-secondary)]">{f.label}</span>
-          <span className="text-[var(--ff-text-primary)] font-medium">
-            {fmt(Number(data[f.key]) || 0)}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function EMP201Detail({ data }: { data: Record<string, unknown> }) {
-  const fields = [
-    { key: 'employeeCount', label: 'Employees', isCurrency: false },
-    { key: 'totalTaxableRemuneration', label: 'Total remuneration', isCurrency: true },
-    { key: 'totalPAYE', label: 'PAYE', isCurrency: true },
-    { key: 'totalUIF', label: 'Total UIF', isCurrency: true },
-    { key: 'totalSDL', label: 'SDL', isCurrency: true },
-    { key: 'totalDeductions', label: 'Total payable', isCurrency: true },
-  ];
-
-  return (
-    <div className="space-y-1 text-sm">
-      {fields.map((f) => (
-        <div key={f.key} className="flex justify-between py-1">
-          <span className="text-[var(--ff-text-secondary)]">{f.label}</span>
-          <span className="text-[var(--ff-text-primary)] font-medium">
-            {f.isCurrency ? fmt(Number(data[f.key]) || 0) : String(data[f.key] || 0)}
-          </span>
-        </div>
-      ))}
-    </div>
   );
 }

@@ -204,6 +204,18 @@ export class ApiResponseHelper {
   }
 
   /**
+   * Send conflict error response (409). Use for duplicate-resource situations
+   * like a unique-key violation when creating an entity that already exists.
+   */
+  static conflict(
+    res: NextApiResponse,
+    message = 'Resource already exists',
+    details?: Record<string, unknown>,
+  ): void {
+    this.error(res, ErrorCode.CONFLICT, message, details);
+  }
+
+  /**
    * Send payment-required error response (402).
    * Used by the PAYG Flow metering middleware when a tenant's wallet balance
    * is below the cost of the requested operation.
@@ -317,6 +329,7 @@ export const apiResponse = {
   notFound: ApiResponseHelper.notFound.bind(ApiResponseHelper),
   unauthorized: ApiResponseHelper.unauthorized.bind(ApiResponseHelper),
   forbidden: ApiResponseHelper.forbidden.bind(ApiResponseHelper),
+  conflict: ApiResponseHelper.conflict.bind(ApiResponseHelper),
   paymentRequired: ApiResponseHelper.paymentRequired.bind(ApiResponseHelper),
   methodNotAllowed: ApiResponseHelper.methodNotAllowed.bind(ApiResponseHelper),
   internalError: ApiResponseHelper.internalError.bind(ApiResponseHelper),

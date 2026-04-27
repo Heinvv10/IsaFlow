@@ -54,7 +54,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.created(res, { document }, 'AFS document created');
     } catch (err) {
       if (err instanceof AfsDocumentDuplicateError) {
-        return apiResponse.badRequest(res, err.message);
+        return apiResponse.conflict(res, err.message, { existing: err.existing });
       }
       throw err;
     }
