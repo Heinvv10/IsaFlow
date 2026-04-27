@@ -14,6 +14,7 @@ import { log } from '@/lib/logger';
 import {
   getFiscalPeriods,
   getCurrentFiscalPeriod,
+  getCurrentOpenPeriod,
   createFiscalYear,
   getJournalCountsByYear,
 } from '@/modules/accounting/services/gl/fiscalPeriodService';
@@ -27,6 +28,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
       if (current === 'true') {
         const period = await getCurrentFiscalPeriod(companyId);
+        return apiResponse.success(res, period);
+      }
+
+      if (req.query.open_period === 'true') {
+        const period = await getCurrentOpenPeriod(companyId);
+        if (!period) return apiResponse.notFound(res, 'No open fiscal period found');
         return apiResponse.success(res, period);
       }
 

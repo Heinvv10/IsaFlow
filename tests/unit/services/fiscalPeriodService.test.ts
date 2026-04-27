@@ -60,6 +60,33 @@ describe('getCurrentOpenPeriod', () => {
     expect(mockSql).toHaveBeenCalledTimes(1);
   });
 
+  it('passes company_id as the first interpolated argument (multi-tenant safety)', async () => {
+    const row = makeRow({ id: 'today-period', status: 'open' });
+    mockSql.mockResolvedValueOnce([row]);
+
+    await getCurrentOpenPeriod(COMPANY_ID);
+
+    // The first sql call's second element (interpolated args[0]) must be the company_id.
+    // This guards against SQL injection by ensuring tenant scope is always parameterised.
+    const firstCallArgs = mockSql.mock.calls[0];
+    expect(firstCallArgs).toBeDefined();
+    // sql tagged template: args[0] is the TemplateStringsArray, args[1..] are interpolated values
+    expect(firstCallArgs![1]).toBe(COMPANY_ID);
+  });
+
+  it('passes company_id in the fallback SQL call as well', async () => {
+    const fallbackRow = makeRow({ id: 'fallback-period', status: 'open' });
+    mockSql.mockResolvedValueOnce([]);
+    mockSql.mockResolvedValueOnce([fallbackRow]);
+
+    await getCurrentOpenPeriod(COMPANY_ID);
+
+    expect(mockSql).toHaveBeenCalledTimes(2);
+    // Both calls must carry company_id
+    expect(mockSql.mock.calls[0]![1]).toBe(COMPANY_ID);
+    expect(mockSql.mock.calls[1]![1]).toBe(COMPANY_ID);
+  });
+
   it('falls back to most recent open period when today is inside a closed period', async () => {
     const fallbackRow = makeRow({
       id: 'fallback-period',

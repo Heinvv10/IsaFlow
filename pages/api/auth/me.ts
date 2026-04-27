@@ -10,9 +10,9 @@ const handler: NextApiHandler = async (req, res) => {
 
   const profile = await sql<{
     id: string; email: string; first_name: string | null; last_name: string | null;
-    role: string | null; permissions: unknown;
+    role: string | null; permissions: unknown; onboarding_completed: boolean | null;
   }>`
-    SELECT id, email, first_name, last_name, role, permissions
+    SELECT id, email, first_name, last_name, role, permissions, onboarding_completed
     FROM users
     WHERE id = ${user.id}
     LIMIT 1
@@ -26,10 +26,16 @@ const handler: NextApiHandler = async (req, res) => {
     ORDER BY cu.is_default DESC, cu.created_at ASC
   `;
 
+  const profileRow = profile[0] ?? null;
   return res.status(200).json({
     success: true,
     data: {
-      user: profile[0] ?? { id: user.id, email: user.email ?? '' },
+      user: profileRow
+        ? {
+            ...profileRow,
+            onboarding_completed: profileRow.onboarding_completed ?? null,
+          }
+        : { id: user.id, email: user.email ?? '', onboarding_completed: null },
       memberships,
       activeCompanyId,
     },
