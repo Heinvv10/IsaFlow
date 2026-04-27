@@ -20,6 +20,7 @@ import {
   type SortKey,
   type SortOrder,
   type PerPage,
+  type APSignalChip,
 } from './listTypes';
 import { presetToRange } from './datePresets';
 
@@ -44,10 +45,19 @@ const DEFAULTS: SupplierInvoiceListFilters = {
   sortOrder: 'desc',
   page: 1,
   perPage: 50,
+  missingDocument: false,
+  possibleDuplicate: false,
+  dueThisWeek: false,
+  payRunReady: false,
 };
 
 function pickStr(q: Record<string, string | string[] | undefined>, k: string): string {
   return typeof q[k] === 'string' ? (q[k] as string) : '';
+}
+
+function pickBool(q: Record<string, string | string[] | undefined>, k: string): boolean {
+  const v = q[k];
+  return v === '1' || v === 'true';
 }
 
 function hydrateFromQuery(query: Record<string, string | string[] | undefined>): SupplierInvoiceListFilters {
@@ -93,6 +103,10 @@ function hydrateFromQuery(query: Record<string, string | string[] | undefined>):
     sortOrder,
     page,
     perPage,
+    missingDocument: pickBool(query, 'missing_document'),
+    possibleDuplicate: pickBool(query, 'possible_duplicate'),
+    dueThisWeek: pickBool(query, 'due_this_week'),
+    payRunReady: pickBool(query, 'pay_run_ready'),
   };
 }
 
@@ -115,6 +129,10 @@ function filtersToQuery(f: SupplierInvoiceListFilters): Record<string, string> {
   if (f.sortOrder !== 'desc') q.sort_order = f.sortOrder;
   if (f.page !== 1) q.page = String(f.page);
   if (f.perPage !== 50) q.per_page = String(f.perPage);
+  if (f.missingDocument) q.missing_document = '1';
+  if (f.possibleDuplicate) q.possible_duplicate = '1';
+  if (f.dueThisWeek) q.due_this_week = '1';
+  if (f.payRunReady) q.pay_run_ready = '1';
   return q;
 }
 
@@ -140,6 +158,8 @@ export interface SupplierInvoiceListState {
   setPage: (p: number) => void;
   setPerPage: (n: PerPage) => void;
   resetFilters: () => void;
+  toggleSignalChip: (chip: APSignalChip) => void;
+  clearSignalChips: () => void;
   filtersActive: boolean;
 }
 
@@ -158,8 +178,6 @@ export function useSupplierInvoiceListState(): SupplierInvoiceListState {
     setHydrated(true);
   }, [router.isReady, router.query, hydrated]);
 
-  // Imperative setter — applies a patch then pushes the URL only when the
-  // resulting query string differs from the last one we pushed.
   const update = useCallback((patch: Partial<SupplierInvoiceListFilters>) => {
     setFilters((prev) => {
       const next = { ...prev, ...patch };
@@ -200,6 +218,14 @@ export function useSupplierInvoiceListState(): SupplierInvoiceListState {
     update({ [key]: value, page: 1 } as Partial<SupplierInvoiceListFilters>);
   }, [update]);
 
+  const toggleSignalChip = useCallback((chip: APSignalChip) => {
+    update({ [chip]: !filters[chip], page: 1 } as Partial<SupplierInvoiceListFilters>);
+  }, [update, filters]);
+
+  const clearSignalChips = useCallback(() => {
+    update({ missingDocument: false, possibleDuplicate: false, dueThisWeek: false, payRunReady: false, page: 1 });
+  }, [update]);
+
   const toggleSort = useCallback((col: SortKey) => {
     setFilters((prev) => {
       const nextSortOrder: SortOrder = prev.sort === col
@@ -237,6 +263,10 @@ export function useSupplierInvoiceListState(): SupplierInvoiceListState {
     || !!filters.toAmount
     || !!filters.fromBalance
     || !!filters.toBalance
+    || filters.missingDocument
+    || filters.possibleDuplicate
+    || filters.dueThisWeek
+    || filters.payRunReady
   ), [filters]);
 
   return {
@@ -245,6 +275,8 @@ export function useSupplierInvoiceListState(): SupplierInvoiceListState {
     selectSupplier, clearSupplier,
     setDatePreset, setCustomDate, setAmountRange,
     toggleSort, setPage, setPerPage, resetFilters,
+    toggleSignalChip,
+    clearSignalChips,
     filtersActive,
   };
 }

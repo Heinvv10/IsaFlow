@@ -54,6 +54,11 @@ export interface SupplierInvoice {
   supplierName?: string;
   poNumber?: string;
   items?: SupplierInvoiceItem[];
+  // Accountant signals (computed server-side on list queries)
+  hasDocument?: boolean;
+  hasPo?: boolean;
+  isPossibleDuplicate?: boolean;
+  paymentRunEligible?: boolean;
 }
 
 export interface SupplierInvoiceItem {

@@ -54,4 +54,17 @@ export interface SupplierInvoiceListFilters {
   sortOrder: SortOrder;
   page: number;
   perPage: PerPage;
+  // Accountant signal filters
+  missingDocument: boolean;
+  possibleDuplicate: boolean;
+  dueThisWeek: boolean;
+  payRunReady: boolean;
 }
+
+export const AP_SIGNAL_CHIP_LABELS = {
+  missingDocument: 'Missing document',
+  possibleDuplicate: 'Possible duplicate',
+  dueThisWeek: 'Due this week',
+  payRunReady: 'Pay run ready',
+} as const;
+export type APSignalChip = keyof typeof AP_SIGNAL_CHIP_LABELS;

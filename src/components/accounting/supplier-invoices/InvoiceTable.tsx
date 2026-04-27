@@ -8,6 +8,7 @@ import Link from 'next/link';
 import {
   ChevronRight, ChevronLeft, ChevronsLeft, ChevronsRight,
   ArrowUp, ArrowDown, ArrowUpDown, FileText,
+  Paperclip, AlertTriangle, CreditCard,
 } from 'lucide-react';
 import type { SupplierInvoice } from '@/modules/accounting/types/ap.types';
 import { formatCurrency, formatDate } from '@/utils/formatters';
@@ -79,6 +80,7 @@ export function InvoiceTable({
             <SortHeader col="total_amount" label="Total" sort={sort} order={sortOrder} onClick={onSort} align="right" />
             <SortHeader col="balance" label="Outstanding" sort={sort} order={sortOrder} onClick={onSort} align="right" />
             <SortHeader col="status" label="Status" sort={sort} order={sortOrder} onClick={onSort} />
+            <th className="px-3 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider whitespace-nowrap">Signals</th>
             <th className="w-10" />
           </tr>
         </thead>
@@ -110,6 +112,9 @@ export function InvoiceTable({
                   {formatCurrency(outstanding)}
                 </td>
                 <td className="px-5 py-3.5"><StatusPill status={inv.status} /></td>
+                <td className="px-3 py-3.5">
+                  <SignalBadges inv={inv} />
+                </td>
                 <td className="px-4 py-3.5 text-right">
                   <Link href={`/accounting/supplier-invoices/${inv.id}`} className="text-slate-500 dark:text-slate-400 hover:text-amber-500 transition-colors">
                     <ChevronRight className="h-4 w-4" />
@@ -146,6 +151,44 @@ export function InvoiceTable({
         </div>
       </div>
     </>
+  );
+}
+
+function SignalBadges({ inv }: { inv: SupplierInvoice }) {
+  return (
+    <div className="flex items-center gap-1.5 flex-nowrap">
+      <span
+        title={inv.hasDocument ? 'Document attached' : 'No document'}
+        aria-label={inv.hasDocument ? 'Document attached' : 'No document'}
+        className={inv.hasDocument
+          ? 'text-emerald-500 dark:text-emerald-400'
+          : 'text-slate-300 dark:text-slate-600'}
+      >
+        <Paperclip className="h-3.5 w-3.5" aria-hidden />
+      </span>
+      {inv.hasPo && (
+        <span
+          title="Linked to purchase order"
+          className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 leading-none"
+        >
+          PO
+        </span>
+      )}
+      {inv.isPossibleDuplicate && (
+        <span title="Possible duplicate invoice" aria-label="Possible duplicate">
+          <AlertTriangle className="h-3.5 w-3.5 text-yellow-500 dark:text-yellow-400" aria-hidden />
+        </span>
+      )}
+      {inv.paymentRunEligible && (
+        <span
+          title="Ready for payment run"
+          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 leading-none"
+        >
+          <CreditCard className="h-2.5 w-2.5" aria-hidden />
+          Pay
+        </span>
+      )}
+    </div>
   );
 }
 

@@ -20,6 +20,7 @@ import { FilterBar } from '@/components/accounting/supplier-invoices/FilterBar';
 import { StatusTabs } from '@/components/accounting/supplier-invoices/StatusTabs';
 import { BulkActionBar } from '@/components/accounting/supplier-invoices/BulkActionBar';
 import { InvoiceTable } from '@/components/accounting/supplier-invoices/InvoiceTable';
+import { APFilters } from '@/components/invoices/APFilters';
 
 interface ListResult {
   invoices: SupplierInvoice[];
@@ -51,6 +52,10 @@ export default function SupplierInvoicesPage() {
     if (filters.toAmount) p.set('to_amount', filters.toAmount);
     if (filters.fromBalance) p.set('from_balance', filters.fromBalance);
     if (filters.toBalance) p.set('to_balance', filters.toBalance);
+    if (filters.missingDocument) p.set('missing_document', '1');
+    if (filters.possibleDuplicate) p.set('possible_duplicate', '1');
+    if (filters.dueThisWeek) p.set('due_this_week', '1');
+    if (filters.payRunReady) p.set('pay_run_ready', '1');
     p.set('sort', filters.sort);
     p.set('sort_order', filters.sortOrder);
     p.set('limit', String(filters.perPage));
@@ -144,6 +149,8 @@ export default function SupplierInvoicesPage() {
             setAmountRange={state.setAmountRange}
             resetFilters={state.resetFilters}
           />
+
+          <APFilters filters={filters} onToggle={state.toggleSignalChip} onClear={state.clearSignalChips} />
 
           <BulkActionBar
             selected={selected}

@@ -37,6 +37,11 @@ export interface ParsedSupplierInvoiceFilters {
   sortOrder?: 'asc' | 'desc';
   limit?: number;
   offset?: number;
+  // Accountant signal filters
+  missingDocument?: boolean;
+  possibleDuplicate?: boolean;
+  dueThisWeek?: boolean;
+  payRunReady?: boolean;
 }
 
 export type FilterParseResult =
@@ -106,6 +111,10 @@ export function parseSupplierInvoiceFilters(query: Record<string, unknown>): Fil
       sortOrder,
       limit: typeof limit === 'number' ? Math.min(limit, 200) : undefined,
       offset: typeof offset === 'number' && offset >= 0 ? offset : undefined,
+      missingDocument: query.missing_document === '1' || query.missing_document === 'true',
+      possibleDuplicate: query.possible_duplicate === '1' || query.possible_duplicate === 'true',
+      dueThisWeek: query.due_this_week === '1' || query.due_this_week === 'true',
+      payRunReady: query.pay_run_ready === '1' || query.pay_run_ready === 'true',
     },
   };
 }
