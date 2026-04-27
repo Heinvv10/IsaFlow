@@ -19,7 +19,7 @@ function defaultPeriod(): string {
   return `${y}-${m}`;
 }
 
-const PERIOD_RE = /^\d{4}-\d{2}$/;
+const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {

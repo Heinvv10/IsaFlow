@@ -10,6 +10,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { log } from '@/lib/logger';
 import { getARAging } from '@/modules/accounting/services/ar/arAgingService';
 import { getAPAging } from '@/modules/accounting/services/ap/apAgingService';
 import { listPayrollRuns } from '@/modules/accounting/services/payroll/payrollRunService';
@@ -40,8 +41,8 @@ export interface MonthEndWorkbench {
 }
 
 function parsePeriod(period: string): { start: string; end: string } {
-  const match = /^(\d{4})-(\d{2})$/.exec(period);
-  if (!match) throw new Error(`Invalid period: ${period} (expected YYYY-MM)`);
+  const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(period);
+  if (!match) throw new Error(`Invalid period: ${period} (expected YYYY-MM, month 01–12)`);
   const year = Number(match[1]);
   const month = Number(match[2]);
   const start = `${year}-${String(month).padStart(2, '0')}-01`;
@@ -308,14 +309,23 @@ async function buildTrialBalance(
   return { balanced: Math.abs(diff) < 0.01, diff };
 }
 
-function failedCard(id: string, title: string, err: unknown): WorkbenchCard {
-  const msg = err instanceof Error ? err.message : String(err);
+function failedCard(
+  id: string,
+  title: string,
+  err: unknown,
+  companyId: string,
+  period: string,
+): WorkbenchCard {
+  // Never surface raw error messages to the tenant — Postgres errors include
+  // column/table names that disclose schema. Log server-side with full
+  // context, return a generic message to the user.
+  log.error('Workbench card failed', { id, title, error: err, companyId, period }, 'workbench');
   return {
     id,
     title,
     status: 'blocked',
     primary: 'Unable to load',
-    secondary: msg.slice(0, 120),
+    secondary: 'Card failed to load — check the server logs.',
   };
 }
 
@@ -352,7 +362,7 @@ export async function getMonthEndWorkbench(
   const cardResults: WorkbenchCard[] = cardLabels.map((label, i) => {
     const r = settled[i]!;
     if (r.status === 'fulfilled') return r.value as WorkbenchCard;
-    return failedCard(label.id, label.title, r.reason);
+    return failedCard(label.id, label.title, r.reason, companyId, period);
   });
 
   const tbResult = settled[8]!;
