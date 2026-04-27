@@ -13,9 +13,8 @@ type Row = DbRow;
 
 /**
  * Map a raw Neon/Supabase row to the typed SupplierInvoice domain object.
- * Boolean columns from Postgres arrive as `true`/`false` (JS booleans) via
- * the driver, but may occasionally arrive as the string `'t'` when nested
- * inside CASE or computed expressions — handle both shapes defensively.
+ * Boolean columns from Postgres always arrive as native JS booleans via the
+ * driver — never as the string `'t'`.
  */
 export function mapInvoiceRow(row: Row): SupplierInvoice {
   return {
@@ -50,9 +49,9 @@ export function mapInvoiceRow(row: Row): SupplierInvoice {
     updatedAt: String(row.updated_at),
     supplierName: row.supplier_name ? String(row.supplier_name) : undefined,
     poNumber: row.po_number ? String(row.po_number) : undefined,
-    hasDocument: row.has_document === true || row.has_document === 't',
-    hasPo: row.has_po === true || row.has_po === 't',
-    isPossibleDuplicate: row.is_possible_duplicate === true || row.is_possible_duplicate === 't',
-    paymentRunEligible: row.payment_run_eligible === true || row.payment_run_eligible === 't',
+    hasDocument: row.has_document === true,
+    hasPo: row.has_po === true,
+    isPossibleDuplicate: row.is_possible_duplicate === true,
+    paymentRunEligible: row.payment_run_eligible === true,
   };
 }
