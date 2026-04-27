@@ -19,6 +19,7 @@ import {
   getTopCustomers,
   getTopExpenseCategories,
 } from '@/modules/accounting/services/reports/kpiService';
+import { hasBankAccount } from '@/modules/accounting/services/bank/hasBankAccountService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -42,7 +43,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       : now.toISOString().slice(0, 10);
     const months = Math.max(1, Math.min(Number(req.query.months) || 6, 120));
 
-    const [kpis, revenueChart, cashFlowChart, arAging, apAging, topCustomers, topExpenses] =
+    const [kpis, revenueChart, cashFlowChart, arAging, apAging, topCustomers, topExpenses, bankConfigured] =
       await Promise.all([
         getDashboardKPIs(companyId, from, to),
         getRevenueChart(companyId, months),
@@ -51,6 +52,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         getAgingBreakdown(companyId, 'ap'),
         getTopCustomers(companyId, 5),
         getTopExpenseCategories(companyId, 5),
+        hasBankAccount(companyId),
       ]);
 
     return apiResponse.success(res, {
@@ -61,6 +63,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       apAging,
       topCustomers,
       topExpenses,
+      hasBankAccount: bankConfigured,
     });
   } catch (err) {
     log.error('Failed to load KPI dashboard', { error: err }, 'accounting-api');

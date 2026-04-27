@@ -17,6 +17,7 @@ import { PAGE_REGISTRY, DEFAULT_QUICK_ACTIONS, type PageMeta } from '@/modules/a
 import { OverviewTables } from './OverviewTables';
 import { TodoWidget } from './TodoWidget';
 import { WorkbenchSection } from './WorkbenchSection';
+import { NoBankAccountWarning } from '@/components/accounting/banking/NoBankAccountWarning';
 
 const LineChart = dynamic(() => import('recharts').then(m => m.LineChart), { ssr: false });
 const Line = dynamic(() => import('recharts').then(m => m.Line), { ssr: false });
@@ -46,6 +47,7 @@ interface KPIData {
   apAging: { name: string; value: number }[];
   topCustomers: { name: string; revenue: number; invoiceCount: number }[];
   topExpenses: { accountName: string; total: number; percentOfExpenses: number }[];
+  hasBankAccount: boolean;
 }
 
 const ICON_MAP: Record<string, React.ElementType> = {
@@ -190,6 +192,11 @@ export function OverviewTab() {
           </div>
           <ArrowRight className={`h-4 w-4 transition-colors shrink-0 ${missingInvoiceCount >= 3 ? 'text-red-400/60 group-hover:text-red-400' : 'text-amber-400/60 group-hover:text-amber-400'}`} />
         </Link>
+      )}
+
+      {/* No bank account warning — shown when cash KPI is non-zero but no bank account configured */}
+      {data !== null && !data.hasBankAccount && (kpis?.cash.total ?? 0) !== 0 && (
+        <NoBankAccountWarning />
       )}
 
       {/* KPI Cards */}
