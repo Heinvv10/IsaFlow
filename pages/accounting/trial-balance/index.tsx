@@ -5,6 +5,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Scale, Loader2, AlertCircle, Download, ChevronDown, ChevronRight, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
@@ -225,7 +226,15 @@ export default function TrialBalancePage() {
                             {r.accountCode}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-[var(--ff-text-primary)]">{r.accountName}</td>
+                        <td className="px-4 py-3 text-[var(--ff-text-primary)]">
+                          <Link
+                            href={`/accounting/reports/account-detail/${encodeURIComponent(r.accountCode)}?from=${encodeURIComponent(drillDownStart)}&to=${encodeURIComponent(drillDownEnd)}&source=tb`}
+                            onClick={e => e.stopPropagation()}
+                            className="hover:underline hover:text-indigo-400 transition-colors"
+                          >
+                            {r.accountName}
+                          </Link>
+                        </td>
                         <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded text-xs font-medium uppercase tracking-wide ${TYPE_PILL[r.accountType.toLowerCase()] ?? NEUTRAL_PILL}`}>{r.accountType}</span></td>
                         <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{r.debitBalance > 0 ? fmt(r.debitBalance) : '—'}</td>
                         <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{r.creditBalance > 0 ? fmt(r.creditBalance) : '—'}</td>

@@ -231,7 +231,14 @@ export default function BalanceSheetPage() {
                           <button onClick={() => setExpandedAccount(expandedAccount === a.accountCode ? null : a.accountCode)}
                             className="flex items-center gap-1 text-[var(--ff-text-secondary)] flex-1 text-left cursor-pointer">
                             {expandedAccount === a.accountCode ? <ChevronDown className="h-3 w-3 text-[var(--ff-text-tertiary)]" /> : <ChevronRight className="h-3 w-3 text-[var(--ff-text-tertiary)]" />}
-                            <span className="font-mono text-xs mr-2">{a.accountCode}</span>{a.accountName}
+                            <span className="font-mono text-xs mr-2">{a.accountCode}</span>
+                            <Link
+                              href={`/accounting/reports/account-detail/${encodeURIComponent(a.accountCode)}?from=${encodeURIComponent(drillDownStart)}&to=${encodeURIComponent(drillDownEnd)}&source=bs`}
+                              onClick={e => e.stopPropagation()}
+                              className="hover:underline hover:text-indigo-400 transition-colors"
+                            >
+                              {a.accountName}
+                            </Link>
                           </button>
                           {showComparative && a.priorBalance !== undefined ? (
                             <span className="flex items-center gap-3">
@@ -277,7 +284,14 @@ export default function BalanceSheetPage() {
                             <button onClick={() => setExpandedAccount(expandedAccount === l.accountCode ? null : l.accountCode)}
                               className="flex items-center gap-1 text-[var(--ff-text-secondary)] flex-1 text-left cursor-pointer">
                               {expandedAccount === l.accountCode ? <ChevronDown className="h-3 w-3 text-[var(--ff-text-tertiary)]" /> : <ChevronRight className="h-3 w-3 text-[var(--ff-text-tertiary)]" />}
-                              <span className="font-mono text-xs mr-2">{l.accountCode}</span>{l.accountName}
+                              <span className="font-mono text-xs mr-2">{l.accountCode}</span>
+                              <Link
+                                href={`/accounting/reports/account-detail/${encodeURIComponent(l.accountCode)}?from=${encodeURIComponent(drillDownStart)}&to=${encodeURIComponent(drillDownEnd)}&source=bs`}
+                                onClick={e => e.stopPropagation()}
+                                className="hover:underline hover:text-indigo-400 transition-colors"
+                              >
+                                {l.accountName}
+                              </Link>
                             </button>
                             {showComparative && l.priorBalance !== undefined ? (
                               <span className="flex items-center gap-3">
@@ -321,7 +335,14 @@ export default function BalanceSheetPage() {
                             <button onClick={() => setExpandedAccount(expandedAccount === e.accountCode ? null : e.accountCode)}
                               className="flex items-center gap-1 text-[var(--ff-text-secondary)] flex-1 text-left cursor-pointer">
                               {expandedAccount === e.accountCode ? <ChevronDown className="h-3 w-3 text-[var(--ff-text-tertiary)]" /> : <ChevronRight className="h-3 w-3 text-[var(--ff-text-tertiary)]" />}
-                              <span className="font-mono text-xs mr-2">{e.accountCode}</span>{e.accountName}
+                              <span className="font-mono text-xs mr-2">{e.accountCode}</span>
+                              <Link
+                                href={`/accounting/reports/account-detail/${encodeURIComponent(e.accountCode)}?from=${encodeURIComponent(drillDownStart)}&to=${encodeURIComponent(drillDownEnd)}&source=bs`}
+                                onClick={e2 => e2.stopPropagation()}
+                                className="hover:underline hover:text-indigo-400 transition-colors"
+                              >
+                                {e.accountName}
+                              </Link>
                             </button>
                             {showComparative && e.priorBalance !== undefined ? (
                               <span className="flex items-center gap-3">
