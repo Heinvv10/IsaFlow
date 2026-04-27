@@ -128,9 +128,56 @@ describe('yearEndService — tenant isolation (S-002)', () => {
         .mockResolvedValueOnce([]); // no expense rows
 
       const result = await listFiscalYears(COMPANY_A);
-      expect(result[0].total_revenue).toBe(0);
-      expect(result[0].total_expenses).toBe(0);
-      expect(result[0].net_income).toBe(0);
+      expect(result[0]?.total_revenue).toBe(0);
+      expect(result[0]?.total_expenses).toBe(0);
+      expect(result[0]?.net_income).toBe(0);
+      // Genuine zero year — no error flags
+      expect(result[0]?.revenue_error).toBeUndefined();
+      expect(result[0]?.expense_error).toBeUndefined();
+    });
+
+    it('flags revenue_error when the revenue aggregate query fails — total falls back to 0 but the flag distinguishes failure from a real zero', async () => {
+      sqlMock
+        .mockResolvedValueOnce([makeFiscalPeriodRow()])
+        .mockRejectedValueOnce(new Error('connection terminated'))   // revenue fails
+        .mockResolvedValueOnce([makeExpenseTotal(750)]);             // expense succeeds
+
+      const result = await listFiscalYears(COMPANY_A);
+
+      expect(result[0]?.revenue_error).toBe(true);
+      expect(result[0]?.expense_error).toBeUndefined();
+      expect(result[0]?.total_revenue).toBe(0);          // safe default
+      expect(result[0]?.total_expenses).toBe(750);
+      // net_income inherits the unreliable revenue — UI must render warning
+      expect(result[0]?.net_income).toBe(-750);
+    });
+
+    it('flags expense_error when the expense aggregate query fails — independently of revenue', async () => {
+      sqlMock
+        .mockResolvedValueOnce([makeFiscalPeriodRow()])
+        .mockResolvedValueOnce([makeRevenueTotal(1200)])
+        .mockRejectedValueOnce(new Error('statement timeout'));
+
+      const result = await listFiscalYears(COMPANY_A);
+
+      expect(result[0]?.revenue_error).toBeUndefined();
+      expect(result[0]?.expense_error).toBe(true);
+      expect(result[0]?.total_revenue).toBe(1200);
+      expect(result[0]?.total_expenses).toBe(0);
+    });
+
+    it('flags both *_error fields when both aggregates fail', async () => {
+      sqlMock
+        .mockResolvedValueOnce([makeFiscalPeriodRow()])
+        .mockRejectedValueOnce(new Error('rev down'))
+        .mockRejectedValueOnce(new Error('exp down'));
+
+      const result = await listFiscalYears(COMPANY_A);
+
+      expect(result[0]?.revenue_error).toBe(true);
+      expect(result[0]?.expense_error).toBe(true);
+      expect(result[0]?.total_revenue).toBe(0);
+      expect(result[0]?.total_expenses).toBe(0);
     });
   });
 

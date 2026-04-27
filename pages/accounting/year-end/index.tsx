@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { CalendarCheck, Loader2, AlertCircle, CheckCircle2, Lock } from 'lucide-react';
+import { CalendarCheck, Loader2, AlertCircle, AlertTriangle, CheckCircle2, Lock } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
@@ -21,6 +21,9 @@ interface FiscalYear {
   total_revenue: number;
   total_expenses: number;
   net_income: number;
+  /** Set by the API when the per-year revenue/expense aggregate failed. */
+  revenue_error?: boolean;
+  expense_error?: boolean;
 }
 
 export default function YearEndPage() {
@@ -147,17 +150,40 @@ export default function YearEndPage() {
                     </span>
                   </div>
 
+                  {(fy.revenue_error || fy.expense_error) && (
+                    <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs mb-3">
+                      <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="font-medium">Totals unreliable for this year</p>
+                        <p className="mt-0.5 text-amber-300/80">
+                          {fy.revenue_error && fy.expense_error && 'Both revenue and expense aggregates failed to load — totals shown are not real.'}
+                          {fy.revenue_error && !fy.expense_error && 'Revenue aggregate failed to load — Total Revenue and Net Income are unreliable.'}
+                          {!fy.revenue_error && fy.expense_error && 'Expense aggregate failed to load — Total Expenses and Net Income are unreliable.'}
+                          {' '}Do NOT close this year until the values can be verified.
+                        </p>
+                      </div>
+                    </div>
+                  )}
                   <div className="grid grid-cols-3 gap-4 mb-4">
-                    <div className="p-3 rounded-lg bg-[var(--ff-bg-tertiary)]">
-                      <p className="text-xs text-[var(--ff-text-tertiary)]">Total Revenue</p>
+                    <div className="p-3 rounded-lg bg-[var(--ff-bg-tertiary)]" title={fy.revenue_error ? 'Revenue aggregate failed to load — value shown is 0 by default' : undefined}>
+                      <p className="text-xs text-[var(--ff-text-tertiary)] flex items-center gap-1">
+                        Total Revenue
+                        {fy.revenue_error && <AlertTriangle className="h-3 w-3 text-amber-400" aria-label="Aggregate failed" />}
+                      </p>
                       <p className="text-lg font-bold text-teal-400">{formatCurrency(fy.total_revenue)}</p>
                     </div>
-                    <div className="p-3 rounded-lg bg-[var(--ff-bg-tertiary)]">
-                      <p className="text-xs text-[var(--ff-text-tertiary)]">Total Expenses</p>
+                    <div className="p-3 rounded-lg bg-[var(--ff-bg-tertiary)]" title={fy.expense_error ? 'Expense aggregate failed to load — value shown is 0 by default' : undefined}>
+                      <p className="text-xs text-[var(--ff-text-tertiary)] flex items-center gap-1">
+                        Total Expenses
+                        {fy.expense_error && <AlertTriangle className="h-3 w-3 text-amber-400" aria-label="Aggregate failed" />}
+                      </p>
                       <p className="text-lg font-bold text-red-400">{formatCurrency(fy.total_expenses)}</p>
                     </div>
-                    <div className="p-3 rounded-lg bg-[var(--ff-bg-tertiary)]">
-                      <p className="text-xs text-[var(--ff-text-tertiary)]">Net Income</p>
+                    <div className="p-3 rounded-lg bg-[var(--ff-bg-tertiary)]" title={(fy.revenue_error || fy.expense_error) ? 'Net income is unreliable because at least one component aggregate failed' : undefined}>
+                      <p className="text-xs text-[var(--ff-text-tertiary)] flex items-center gap-1">
+                        Net Income
+                        {(fy.revenue_error || fy.expense_error) && <AlertTriangle className="h-3 w-3 text-amber-400" aria-label="Components unreliable" />}
+                      </p>
                       <p className={`text-lg font-bold ${fy.net_income >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
                         {formatCurrency(fy.net_income)}
                       </p>
@@ -167,11 +193,15 @@ export default function YearEndPage() {
                   {fy.status !== 'closed' && (
                     <button
                       onClick={() => processYearEnd(fy.year_label)}
-                      disabled={isProcessing || fy.periods_open > 0}
+                      disabled={isProcessing || fy.periods_open > 0 || fy.revenue_error || fy.expense_error}
                       className="px-4 py-2 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded-lg flex items-center gap-2 text-sm"
                     >
                       {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
-                      {fy.periods_open > 0 ? 'Close all periods first' : 'Process Year-End'}
+                      {fy.periods_open > 0
+                        ? 'Close all periods first'
+                        : (fy.revenue_error || fy.expense_error)
+                          ? 'Cannot close — totals unreliable'
+                          : 'Process Year-End'}
                     </button>
                   )}
                 </div>

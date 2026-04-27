@@ -64,8 +64,15 @@ const nextConfig = {
       { source: '/accounting/reports/supplier', destination: '/accounting/reports/supplier-reports', permanent: true },
       { source: '/accounting/reports/trial-balance', destination: '/accounting/trial-balance', permanent: true },
       { source: '/accounting/balance-sheet', destination: '/accounting/reports/balance-sheet', permanent: true },
-      { source: '/accounting/bank-statements', destination: '/accounting/bank/statements', permanent: false },
-      { source: '/accounting/bank-statements/:path*', destination: '/accounting/bank/statements/:path*', permanent: false },
+      // bank-statements: 308 (permanent). The destination URL has been stable
+      // since the page first shipped under /accounting/bank/statements. The
+      // legacy short path /accounting/bank-statements is the rename source —
+      // we own both, and there is no plan to relocate the destination again.
+      // 308 lets browsers and CDN edges cache the redirect; if the destination
+      // ever moves, we'd need to retire this redirect via a deploy that
+      // explicitly invalidates the cached redirect.
+      { source: '/accounting/bank-statements', destination: '/accounting/bank/statements', permanent: true },
+      { source: '/accounting/bank-statements/:path*', destination: '/accounting/bank/statements/:path*', permanent: true },
       { source: '/accounting/income-statement', destination: '/accounting/reports/income-statement', permanent: true },
       { source: '/accounting/quotes', destination: '/accounting/customer-quotes', permanent: false },
       { source: '/accounting/sales-orders', destination: '/accounting/customer-sales-orders', permanent: false },

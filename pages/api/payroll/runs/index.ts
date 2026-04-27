@@ -51,7 +51,7 @@ async function handler(
       return apiResponse.created(res, run);
     } catch (err) {
       if (err instanceof PayrollRunDuplicateError) {
-        return apiResponse.badRequest(res, err.message);
+        return apiResponse.conflict(res, err.message, { month: err.month, year: err.year });
       }
       throw err;
     }
