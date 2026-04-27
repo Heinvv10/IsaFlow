@@ -13,7 +13,6 @@
  * The parent page reads router.query.aging and passes it down as selectedFilters.
  */
 
-import { useRouter } from 'next/router';
 import { Calendar, AlertTriangle, Eye } from 'lucide-react';
 import type { AgingBucketKey } from '@/lib/format/aging';
 
@@ -122,9 +121,6 @@ export function parseAgingParam(raw: string | string[] | undefined): AgingFilter
 export function encodeAgingParam(filters: AgingFilterId[]): string | undefined {
   return filters.length > 0 ? filters.join(',') : undefined;
 }
-
-// Re-export useRouter so callers can handle URL sync without importing next/router directly.
-export { useRouter };
 
 /**
  * Map the server-side aging_bucket string to a AgingBucketKey for color/label lookup.
