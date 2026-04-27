@@ -1,15 +1,20 @@
 /**
  * Balance Sheet Report Page
  * PRD-060 Phase 5: Assets, Liabilities, Equity
+ * HTML audit: chevron toggle and account-name link are siblings (BalanceSheetRow),
+ * never nested — no invalid interactive-in-button.
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, BarChart3, Loader2, AlertCircle, CheckCircle2, ChevronDown, ChevronRight, Download, FileSpreadsheet } from 'lucide-react';
+import {
+  ArrowLeft, BarChart3, Loader2, AlertCircle, CheckCircle2,
+  Download, FileSpreadsheet,
+} from 'lucide-react';
 import type { BalanceSheetReport } from '@/modules/accounting/types/gl.types';
-import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
+import { BalanceSheetRow } from '@/components/reports/BalanceSheetRow';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
 import { EvidenceDrillModal } from '@/components/accounting/evidence/EvidenceDrillModal';
@@ -29,46 +34,26 @@ export default function BalanceSheetPage() {
   const [periodResolved, setPeriodResolved] = useState(!!qAsAt);
   const isMountedRef = useRef(true);
 
-  // Sync-back effect: when router.query.as_at_date populates after mount
-  // (Next.js can hydrate router.query on a later tick, or client-side
-  // router.push can set it after the open-period fetch has already resolved),
-  // push the URL value into state so the report re-fetches with the correct date.
   useEffect(() => {
     if (qAsAt) setAsAtDate(qAsAt);
   }, [qAsAt]);
 
-  // Fetch the current open period on mount to set a smart default as-at date.
-  // The open-period value is only written when no deep-link param is present
-  // (checked both at call-time and when the promise resolves).
   useEffect(() => {
     isMountedRef.current = true;
-
-    if (qAsAt) {
-      // Deep-link param present at mount — use it and skip the period fetch.
-      setAsAtDate(qAsAt);
-      setPeriodResolved(true);
-      return;
-    }
-
+    if (qAsAt) { setAsAtDate(qAsAt); setPeriodResolved(true); return; }
     apiFetch('/api/accounting/fiscal-periods?open_period=true', { credentials: 'include' })
       .then(r => r.json())
       .then(json => {
         if (!isMountedRef.current) return;
-        // Guard: if a deep-link param arrived after mount (router.query hydrates
-        // asynchronously), do not overwrite it with the fetched period end.
         const latestParam = typeof window !== 'undefined'
-          ? new URLSearchParams(window.location.search).get('as_at_date')
-          : null;
+          ? new URLSearchParams(window.location.search).get('as_at_date') : null;
         if (!latestParam) {
           const period = json.data as { endDate?: string } | null;
           if (period?.endDate) setAsAtDate(clampToToday(period.endDate));
         }
         setPeriodResolved(true);
       })
-      .catch(() => {
-        if (isMountedRef.current) setPeriodResolved(true);
-      });
-
+      .catch(() => { if (isMountedRef.current) setPeriodResolved(true); });
     return () => { isMountedRef.current = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -86,19 +71,17 @@ export default function BalanceSheetPage() {
     apiFetch('/api/accounting/cost-centres?active_only=true', { credentials: 'include' })
       .then(r => r.json())
       .then(json => setCostCentres(json.data?.items || json.data || []))
-      .catch(() => { /* reference data load failure — non-critical, cost centre filter will be empty */ });
+      .catch(() => { /* reference data load failure — non-critical */ });
   }, []);
 
   const loadReport = useCallback(async () => {
     if (!asAtDate || !periodResolved) return;
-    setIsLoading(true);
-    setError('');
+    setIsLoading(true); setError('');
     try {
       const params = new URLSearchParams({ as_at_date: asAtDate });
       if (costCentreId) params.set('cost_centre_id', costCentreId);
       if (showComparative) {
-        const d = new Date(asAtDate);
-        d.setFullYear(d.getFullYear() - 1);
+        const d = new Date(asAtDate); d.setFullYear(d.getFullYear() - 1);
         params.set('compare_date', d.toISOString().slice(0, 10));
       }
       const res = await apiFetch(`/api/accounting/reports-balance-sheet?${params}`);
@@ -107,32 +90,25 @@ export default function BalanceSheetPage() {
       setReport(json.data || json);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load balance sheet');
-    } finally {
-      setIsLoading(false);
-    }
+    } finally { setIsLoading(false); }
   }, [asAtDate, costCentreId, showComparative, periodResolved]);
 
   useEffect(() => { loadReport(); }, [loadReport]);
 
-  function handleExport() {
-    if (!asAtDate) return;
-    const params = new URLSearchParams({ as_at_date: asAtDate });
-    if (costCentreId) params.set('cost_centre_id', costCentreId);
-    window.open(`/api/accounting/balance-sheet-export?${params}`, '_blank');
+  function makeExportParams() {
+    const p = new URLSearchParams({ as_at_date: asAtDate });
+    if (costCentreId) p.set('cost_centre_id', costCentreId);
+    return p;
   }
+  function handleExport() { if (asAtDate) window.open(`/api/accounting/balance-sheet-export?${makeExportParams()}`, '_blank'); }
+  function handleXlsxExport() { if (asAtDate) window.open(`/api/accounting/balance-sheet-xlsx?${makeExportParams()}`, '_blank'); }
 
-  function handleXlsxExport() {
-    if (!asAtDate) return;
-    const params = new URLSearchParams({ as_at_date: asAtDate });
-    if (costCentreId) params.set('cost_centre_id', costCentreId);
-    window.open(`/api/accounting/balance-sheet-xlsx?${params}`, '_blank');
-  }
-
-  const balanced = report ? Math.abs(report.totalAssets - (report.totalLiabilities + report.totalEquity)) < 0.02 : false;
+  const balanced = report
+    ? Math.abs(report.totalAssets - (report.totalLiabilities + report.totalEquity)) < 0.02
+    : false;
   const drillDownStart = (asAtDate ?? '').slice(0, 4) + '-01-01';
   const drillDownEnd = asAtDate ?? '';
 
-  // Shared comparative column header for section panels
   const compHeader = showComparative ? (
     <span className="flex items-center gap-3 text-xs text-[var(--ff-text-tertiary)] ml-auto">
       <span className="w-24 text-right">Prior</span>
@@ -140,6 +116,16 @@ export default function BalanceSheetPage() {
       <span className="w-20 text-right">Variance</span>
     </span>
   ) : <span className="text-xs text-[var(--ff-text-tertiary)] ml-auto">Click to drill down</span>;
+
+  function toggleAccount(code: string) {
+    setExpandedAccount(prev => prev === code ? null : code);
+  }
+
+  function handleEvidence(accountId: string, accountName: string) {
+    setEvidenceTarget({ accountId, accountName });
+  }
+
+  const rowProps = { onToggle: toggleAccount, onEvidenceClick: handleEvidence, showComparative, drillDownStart, drillDownEnd };
 
   return (
     <AppLayout>
@@ -171,7 +157,6 @@ export default function BalanceSheetPage() {
         </div>
 
         <div className="p-6 max-w-4xl space-y-6">
-          {/* Filters */}
           <div className="flex flex-wrap items-end gap-4">
             <div>
               <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">As at</label>
@@ -179,8 +164,7 @@ export default function BalanceSheetPage() {
             </div>
             <div>
               <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Cost Centre</label>
-              <select value={costCentreId} onChange={e => setCostCentreId(e.target.value)}
-                className="ff-input text-sm min-w-[160px]">
+              <select value={costCentreId} onChange={e => setCostCentreId(e.target.value)} className="ff-input text-sm min-w-[160px]">
                 <option value="">All Cost Centres</option>
                 {costCentres.map(cc => (
                   <option key={cc.id} value={cc.id}>{cc.code} — {cc.name}</option>
@@ -226,36 +210,7 @@ export default function BalanceSheetPage() {
                   </div>
                   <div className="divide-y divide-[var(--ff-border-light)]">
                     {report.assets.map(a => (
-                      <div key={a.accountCode}>
-                        <div className="w-full px-6 py-2 flex justify-between text-sm hover:bg-[var(--ff-bg-tertiary)]">
-                          <button onClick={() => setExpandedAccount(expandedAccount === a.accountCode ? null : a.accountCode)}
-                            className="flex items-center gap-1 text-[var(--ff-text-secondary)] flex-1 text-left cursor-pointer">
-                            {expandedAccount === a.accountCode ? <ChevronDown className="h-3 w-3 text-[var(--ff-text-tertiary)]" /> : <ChevronRight className="h-3 w-3 text-[var(--ff-text-tertiary)]" />}
-                            <span className="font-mono text-xs mr-2">{a.accountCode}</span>
-                            <Link
-                              href={`/accounting/reports/account-detail/${encodeURIComponent(a.accountCode)}?from=${encodeURIComponent(drillDownStart)}&to=${encodeURIComponent(drillDownEnd)}&source=bs`}
-                              onClick={e => e.stopPropagation()}
-                              className="hover:underline hover:text-indigo-400 transition-colors"
-                            >
-                              {a.accountName}
-                            </Link>
-                          </button>
-                          {showComparative && a.priorBalance !== undefined ? (
-                            <span className="flex items-center gap-3">
-                              <span className="font-mono text-[var(--ff-text-tertiary)] text-xs w-24 text-right">{formatCurrency(a.priorBalance)}</span>
-                              <button onClick={() => setEvidenceTarget({ accountId: a.accountCode, accountName: a.accountName })} className="font-mono text-[var(--ff-text-primary)] w-24 text-right hover:text-indigo-400">{formatCurrency(a.balance)}</button>
-                              <span className={`font-mono text-xs w-20 text-right ${(a.variance ?? 0) >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
-                                {(a.variance ?? 0) >= 0 ? '+' : ''}{formatCurrency(a.variance ?? 0)}
-                              </span>
-                            </span>
-                          ) : (
-                            <button onClick={() => setEvidenceTarget({ accountId: a.accountCode, accountName: a.accountName })} className="font-mono text-[var(--ff-text-primary)] hover:text-indigo-400">{formatCurrency(a.balance)}</button>
-                          )}
-                        </div>
-                        {expandedAccount === a.accountCode && (
-                          <AccountDrillDown accountCode={a.accountCode} periodStart={drillDownStart} periodEnd={drillDownEnd} />
-                        )}
-                      </div>
+                      <BalanceSheetRow key={a.accountCode} account={a} isExpanded={expandedAccount === a.accountCode} {...rowProps} />
                     ))}
                     {report.assets.length === 0 && <div className="px-6 py-3 text-sm text-[var(--ff-text-tertiary)]">No asset balances</div>}
                   </div>
@@ -271,7 +226,6 @@ export default function BalanceSheetPage() {
 
                 {/* Liabilities + Equity */}
                 <div className="space-y-4">
-                  {/* Liabilities */}
                   <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)]">
                     <div className="px-6 py-3 border-b border-[var(--ff-border-light)] bg-amber-500/5 flex items-center">
                       <h3 className="font-semibold text-amber-400">Liabilities</h3>
@@ -279,36 +233,7 @@ export default function BalanceSheetPage() {
                     </div>
                     <div className="divide-y divide-[var(--ff-border-light)]">
                       {report.liabilities.map(l => (
-                        <div key={l.accountCode}>
-                          <div className="w-full px-6 py-2 flex justify-between text-sm hover:bg-[var(--ff-bg-tertiary)]">
-                            <button onClick={() => setExpandedAccount(expandedAccount === l.accountCode ? null : l.accountCode)}
-                              className="flex items-center gap-1 text-[var(--ff-text-secondary)] flex-1 text-left cursor-pointer">
-                              {expandedAccount === l.accountCode ? <ChevronDown className="h-3 w-3 text-[var(--ff-text-tertiary)]" /> : <ChevronRight className="h-3 w-3 text-[var(--ff-text-tertiary)]" />}
-                              <span className="font-mono text-xs mr-2">{l.accountCode}</span>
-                              <Link
-                                href={`/accounting/reports/account-detail/${encodeURIComponent(l.accountCode)}?from=${encodeURIComponent(drillDownStart)}&to=${encodeURIComponent(drillDownEnd)}&source=bs`}
-                                onClick={e => e.stopPropagation()}
-                                className="hover:underline hover:text-indigo-400 transition-colors"
-                              >
-                                {l.accountName}
-                              </Link>
-                            </button>
-                            {showComparative && l.priorBalance !== undefined ? (
-                              <span className="flex items-center gap-3">
-                                <span className="font-mono text-[var(--ff-text-tertiary)] text-xs w-24 text-right">{formatCurrency(l.priorBalance)}</span>
-                                <button onClick={() => setEvidenceTarget({ accountId: l.accountCode, accountName: l.accountName })} className="font-mono text-[var(--ff-text-primary)] w-24 text-right hover:text-indigo-400">{formatCurrency(l.balance)}</button>
-                                <span className={`font-mono text-xs w-20 text-right ${(l.variance ?? 0) >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
-                                  {(l.variance ?? 0) >= 0 ? '+' : ''}{formatCurrency(l.variance ?? 0)}
-                                </span>
-                              </span>
-                            ) : (
-                              <button onClick={() => setEvidenceTarget({ accountId: l.accountCode, accountName: l.accountName })} className="font-mono text-[var(--ff-text-primary)] hover:text-indigo-400">{formatCurrency(l.balance)}</button>
-                            )}
-                          </div>
-                          {expandedAccount === l.accountCode && (
-                            <AccountDrillDown accountCode={l.accountCode} periodStart={drillDownStart} periodEnd={drillDownEnd} />
-                          )}
-                        </div>
+                        <BalanceSheetRow key={l.accountCode} account={l} isExpanded={expandedAccount === l.accountCode} {...rowProps} />
                       ))}
                       {report.liabilities.length === 0 && <div className="px-6 py-3 text-sm text-[var(--ff-text-tertiary)]">No liability balances</div>}
                     </div>
@@ -322,7 +247,6 @@ export default function BalanceSheetPage() {
                     </div>
                   </div>
 
-                  {/* Equity */}
                   <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)]">
                     <div className="px-6 py-3 border-b border-[var(--ff-border-light)] bg-purple-500/5 flex items-center">
                       <h3 className="font-semibold text-purple-400">Equity</h3>
@@ -330,36 +254,7 @@ export default function BalanceSheetPage() {
                     </div>
                     <div className="divide-y divide-[var(--ff-border-light)]">
                       {report.equity.map(e => (
-                        <div key={e.accountCode}>
-                          <div className="w-full px-6 py-2 flex justify-between text-sm hover:bg-[var(--ff-bg-tertiary)]">
-                            <button onClick={() => setExpandedAccount(expandedAccount === e.accountCode ? null : e.accountCode)}
-                              className="flex items-center gap-1 text-[var(--ff-text-secondary)] flex-1 text-left cursor-pointer">
-                              {expandedAccount === e.accountCode ? <ChevronDown className="h-3 w-3 text-[var(--ff-text-tertiary)]" /> : <ChevronRight className="h-3 w-3 text-[var(--ff-text-tertiary)]" />}
-                              <span className="font-mono text-xs mr-2">{e.accountCode}</span>
-                              <Link
-                                href={`/accounting/reports/account-detail/${encodeURIComponent(e.accountCode)}?from=${encodeURIComponent(drillDownStart)}&to=${encodeURIComponent(drillDownEnd)}&source=bs`}
-                                onClick={e2 => e2.stopPropagation()}
-                                className="hover:underline hover:text-indigo-400 transition-colors"
-                              >
-                                {e.accountName}
-                              </Link>
-                            </button>
-                            {showComparative && e.priorBalance !== undefined ? (
-                              <span className="flex items-center gap-3">
-                                <span className="font-mono text-[var(--ff-text-tertiary)] text-xs w-24 text-right">{formatCurrency(e.priorBalance)}</span>
-                                <button onClick={() => setEvidenceTarget({ accountId: e.accountCode, accountName: e.accountName })} className="font-mono text-[var(--ff-text-primary)] w-24 text-right hover:text-indigo-400">{formatCurrency(e.balance)}</button>
-                                <span className={`font-mono text-xs w-20 text-right ${(e.variance ?? 0) >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
-                                  {(e.variance ?? 0) >= 0 ? '+' : ''}{formatCurrency(e.variance ?? 0)}
-                                </span>
-                              </span>
-                            ) : (
-                              <button onClick={() => setEvidenceTarget({ accountId: e.accountCode, accountName: e.accountName })} className="font-mono text-[var(--ff-text-primary)] hover:text-indigo-400">{formatCurrency(e.balance)}</button>
-                            )}
-                          </div>
-                          {expandedAccount === e.accountCode && (
-                            <AccountDrillDown accountCode={e.accountCode} periodStart={drillDownStart} periodEnd={drillDownEnd} />
-                          )}
-                        </div>
+                        <BalanceSheetRow key={e.accountCode} account={e} isExpanded={expandedAccount === e.accountCode} {...rowProps} />
                       ))}
                       {report.equity.length === 0 && <div className="px-6 py-3 text-sm text-[var(--ff-text-tertiary)]">No equity balances</div>}
                     </div>
@@ -373,7 +268,6 @@ export default function BalanceSheetPage() {
                     </div>
                   </div>
 
-                  {/* L + E Total */}
                   <div className="px-6 py-3 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] flex justify-between">
                     <span className="font-semibold text-[var(--ff-text-primary)]">Total L + E</span>
                     <span className="font-bold font-mono text-blue-400">{formatCurrency(report.totalLiabilities + report.totalEquity)}</span>
@@ -384,7 +278,15 @@ export default function BalanceSheetPage() {
           ) : null}
         </div>
       </div>
-      {evidenceTarget && <EvidenceDrillModal accountId={evidenceTarget.accountId} accountName={evidenceTarget.accountName} periodStart={drillDownStart} periodEnd={drillDownEnd} onClose={() => setEvidenceTarget(null)} />}
+      {evidenceTarget && (
+        <EvidenceDrillModal
+          accountId={evidenceTarget.accountId}
+          accountName={evidenceTarget.accountName}
+          periodStart={drillDownStart}
+          periodEnd={drillDownEnd}
+          onClose={() => setEvidenceTarget(null)}
+        />
+      )}
     </AppLayout>
   );
 }

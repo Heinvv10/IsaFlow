@@ -1,6 +1,9 @@
 /**
  * Account Ledger API
- * GET /api/accounting/reports/account-ledger
+ * GET /api/accounting/reports-account-ledger
+ *
+ * Moved from /api/accounting/reports/account-ledger so the route falls under
+ * the /api/accounting/reports- prefix that withAuth auto-rate-limits.
  *
  * Query params:
  *   account_id   — UUID of the GL account  (one of account_id or account_code required)
@@ -11,19 +14,17 @@
  *   limit        — integer 1–500 (default: 200)
  *   offset       — integer >= 0  (default: 0)
  *
- * Response: { success: true, data: { rows, total, openingBalance, meta } }
+ * Response: { success: true, data: { rows, total, openingBalance, periodNet, periodClosingBalance, meta } }
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
-import { log } from '@/lib/logger';
+import { UUID_RE } from '@/lib/validation';
 import { getAccountLedger } from '@/modules/accounting/services/reports/accountLedgerService';
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -42,7 +43,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     offset: offsetParam = '0',
   } = req.query as Record<string, string | undefined>;
 
-  // Validate: at least one account identifier required
   const hasId = typeof account_id === 'string' && account_id.length > 0;
   const hasCode = typeof account_code === 'string' && account_code.length > 0;
   if (!hasId && !hasCode) {
@@ -73,27 +73,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const postedOnly = String(posted_only).toLowerCase() !== 'false';
 
-  try {
-    const result = await getAccountLedger({
-      companyId,
-      accountId: hasId ? (account_id as string) : undefined,
-      accountCode: !hasId && hasCode ? (account_code as string) : undefined,
-      fromDate: from,
-      toDate: to,
-      postedOnly,
-      limit,
-      offset,
-    });
+  // withErrorHandler catches any thrown error — no local try/catch needed here.
+  // Service-level log.error provides structured context for Bugsink.
+  const result = await getAccountLedger({
+    companyId,
+    accountId: hasId ? (account_id as string) : undefined,
+    accountCode: !hasId && hasCode ? (account_code as string) : undefined,
+    fromDate: from,
+    toDate: to,
+    postedOnly,
+    limit,
+    offset,
+  });
 
-    return apiResponse.success(res, result);
-  } catch (err) {
-    log.error(
-      'Account ledger API failed',
-      { error: err, account_id, account_code },
-      'accounting-api',
-    );
-    return apiResponse.internalError(res, err, 'Failed to load account ledger');
-  }
+  return apiResponse.success(res, result);
 }
 
 export default withAuth(withErrorHandler(withWriteAccess(handler)));

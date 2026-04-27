@@ -1,22 +1,11 @@
 /**
- * Account Ledger Service
- * Returns paginated GL journal lines for a given account in a date range,
- * together with an opening balance and running balance column.
- *
- * The account can be identified by:
- *   - UUID (accountId param)  — preferred when caller has the GL account pk
- *   - account_code (accountCode param) — used when caller only has the code
- *     (e.g. Trial Balance and Balance Sheet rows)
- *
- * Multi-tenant: EVERY query is scoped by company_id on BOTH gl_journal_entries
- * and gl_journal_lines. This is a financial report — a cross-tenant leak here
- * means another company sees your books.
- *
- * SQL security review checklist (re-read before every merge):
- *   [x] Account-meta query:        ga.company_id = ${companyId} is FIRST condition
- *   [x] Opening-balance query:     jl.company_id AND je.company_id both present
- *   [x] Count query:               jl.company_id AND je.company_id both present
- *   [x] Ledger query:              jl.company_id AND je.company_id both present
+ * Account Ledger Service — paginated GL journal lines for a given account/date range.
+ * Identifies account by UUID (accountId) or account_code.
+ * Multi-tenant: every query is company_id-scoped on BOTH gl_journal_entries and gl_journal_lines.
+ * SQL checklist (re-read before merge):
+ *   [x] Account-meta: company_id FIRST   [x] Opening-balance: jl + je scoped
+ *   [x] Count: jl + je scoped            [x] Ledger rows: jl + je scoped
+ *   [x] Period-totals aggregate: jl + je scoped
  */
 
 import { sql } from '@/lib/neon';
@@ -49,6 +38,10 @@ export interface AccountLedgerResult {
   rows: AccountLedgerRow[];
   total: number;
   openingBalance: number;
+  /** Sum of (debits − credits) over the FULL date range — server-computed, not a client-side slice reduce. */
+  periodNet: number;
+  /** Opening balance + periodNet — the true period closing balance regardless of pagination. */
+  periodClosingBalance: number;
   meta: AccountLedgerMeta;
 }
 
@@ -252,11 +245,48 @@ export async function getAccountLedger(
       };
     });
 
-    return { rows, total, openingBalance, meta };
+    // 6. Period totals aggregate — full date range, company_id scoped on BOTH tables.
+    //    One extra round-trip; acceptable for a drill-down page.
+    //    Returns the true closing balance regardless of pagination.
+    const periodRows = postedOnly
+      ? (await sql`
+          SELECT
+            COALESCE(SUM(jl.debit), 0)  AS period_debit,
+            COALESCE(SUM(jl.credit), 0) AS period_credit
+          FROM gl_journal_lines jl
+          JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+          WHERE jl.company_id    = ${companyId}::UUID
+            AND je.company_id    = ${companyId}::UUID
+            AND jl.gl_account_id = ${resolvedAccountId}::UUID
+            AND je.entry_date   >= ${fromDate}
+            AND je.entry_date   <= ${toDate}
+            AND je.status        = 'posted'
+        `) as Row[]
+      : (await sql`
+          SELECT
+            COALESCE(SUM(jl.debit), 0)  AS period_debit,
+            COALESCE(SUM(jl.credit), 0) AS period_credit
+          FROM gl_journal_lines jl
+          JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+          WHERE jl.company_id    = ${companyId}::UUID
+            AND je.company_id    = ${companyId}::UUID
+            AND jl.gl_account_id = ${resolvedAccountId}::UUID
+            AND je.entry_date   >= ${fromDate}
+            AND je.entry_date   <= ${toDate}
+        `) as Row[];
+
+    const periodDebit = Number(periodRows[0]?.period_debit ?? 0);
+    const periodCredit = Number(periodRows[0]?.period_credit ?? 0);
+    const periodNet =
+      normalBalance === 'debit' ? periodDebit - periodCredit : periodCredit - periodDebit;
+    const periodClosingBalance = openingBalance + periodNet;
+
+    return { rows, total, openingBalance, periodNet, periodClosingBalance, meta };
   } catch (err) {
+    // companyId is already tagged on the Bugsink event via setTenantTags — omit here.
     log.error(
       'getAccountLedger failed',
-      { error: err, accountId, accountCode, companyId },
+      { error: err, accountId, accountCode },
       'accounting',
     );
     throw err;
