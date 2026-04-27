@@ -18,7 +18,14 @@ const PutBrandProfileSchema = z.object({
   secondaryColour: z.string().regex(HEX_COLOUR_RE, 'secondaryColour must be a valid hex colour (e.g. #RRGGBB)').optional(),
   fontFamily: z.enum(['professional', 'modern', 'executive', 'bold']).optional(),
   coverStyle: z.enum(['classic', 'modern', 'bold', 'minimal']).optional(),
-  logoUrl: z.string().max(2000).nullable().optional(),
+  // Logo is rendered into PDF/HTML reports — restrict to https URLs to
+  // close the `javascript:`/`data:` XSS and SSRF (internal-IP) surface.
+  logoUrl: z.string()
+    .url('logoUrl must be a valid URL')
+    .startsWith('https://', 'logoUrl must be an https:// URL')
+    .max(2000)
+    .nullable()
+    .optional(),
   reportFooterText: z.string().max(2000).nullable().optional(),
 }).strict();
 

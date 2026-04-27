@@ -15,7 +15,11 @@ const TagEnum = z.enum(['cover', 'section_divider', 'inline']);
 
 const CreateImageSchema = z.object({
   filename: z.string().min(1).max(500),
-  url: z.string().min(1).max(2000),
+  // Image URLs are rendered into PDF/HTML reports — restrict to https.
+  url: z.string()
+    .url('url must be a valid URL')
+    .startsWith('https://', 'url must be an https:// URL')
+    .max(2000),
   tag: TagEnum,
   widthPx: z.number().int().min(1).max(20000).optional(),
   heightPx: z.number().int().min(1).max(20000).optional(),
@@ -49,7 +53,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
     log.info('Creating AFS image', { companyId, filename: parsed.data.filename, tag: parsed.data.tag }, 'afs-images-api');
     const image = await createImage(companyId, parsed.data);
-    return res.status(201).json({ success: true, data: image, message: 'Image uploaded' });
+    return apiResponse.created(res, { image }, 'Image uploaded');
   }
 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST']);

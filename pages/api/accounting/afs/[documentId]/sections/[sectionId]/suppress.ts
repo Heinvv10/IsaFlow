@@ -14,7 +14,9 @@ const BodySchema = z.object({
   suppress: z.boolean(),
   reason: z.string().trim().max(2000).optional(),
 }).strict().refine(
-  v => !(v.suppress && (!v.reason || v.reason.trim() === '')),
+  // `reason` is already trimmed by the field schema, so an empty/whitespace
+  // input arrives here as ''. Falsy check covers both undefined and ''.
+  v => !(v.suppress && !v.reason),
   { message: 'reason is required when suppressing a section', path: ['reason'] },
 );
 

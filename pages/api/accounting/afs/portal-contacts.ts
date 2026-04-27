@@ -41,7 +41,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     try {
       const contact = await createPortalContact(companyId, {
         name,
-        email: email.toLowerCase(),
+        email: email.trim().toLowerCase(),
         role,
       });
       return apiResponse.created(res, { contact }, 'Portal contact created');

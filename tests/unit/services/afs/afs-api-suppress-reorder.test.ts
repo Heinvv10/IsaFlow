@@ -223,20 +223,26 @@ describe('PUT /afs/[documentId]/sections/reorder', () => {
     );
   });
 
-  it('rejects zero newSortOrder', async () => {
+  it('rejects zero newSortOrder — error keyed on sections', async () => {
     const sections = [{ id: SECT_A, newSortOrder: 0 }];
     const req = makeReq({ sections });
     const res = makeRes();
     await (reorderHandler as unknown as Handler)(req, res);
-    expect(apiResponse.validationError).toHaveBeenCalled();
+    expect(apiResponse.validationError).toHaveBeenCalledWith(
+      res,
+      expect.objectContaining({ sections: expect.any(Array) }),
+    );
   });
 
-  it('rejects non-UUID id at element level', async () => {
+  it('rejects non-UUID id at element level — error keyed on sections', async () => {
     const sections = [{ id: 'not-a-uuid', newSortOrder: 1 }];
     const req = makeReq({ sections });
     const res = makeRes();
     await (reorderHandler as unknown as Handler)(req, res);
-    expect(apiResponse.validationError).toHaveBeenCalled();
+    expect(apiResponse.validationError).toHaveBeenCalledWith(
+      res,
+      expect.objectContaining({ sections: expect.any(Array) }),
+    );
   });
 
   it('rejects unknown fields in element (.strict on ReorderItemSchema)', async () => {
@@ -244,7 +250,10 @@ describe('PUT /afs/[documentId]/sections/reorder', () => {
     const req = makeReq({ sections });
     const res = makeRes();
     await (reorderHandler as unknown as Handler)(req, res);
-    expect(apiResponse.validationError).toHaveBeenCalled();
+    expect(apiResponse.validationError).toHaveBeenCalledWith(
+      res,
+      expect.objectContaining({ sections: expect.any(Array) }),
+    );
   });
 
   it('rejects non-UUID documentId path param', async () => {
