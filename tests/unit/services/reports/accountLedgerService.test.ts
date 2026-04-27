@@ -7,8 +7,10 @@
  *   - Opening balance computed correctly for debit-normal accounts
  *   - Opening balance computed correctly for credit-normal accounts
  *   - company_id is the FIRST interpolated SQL argument in every query
+ *   - Semantic cross-tenant isolation: COMPANY_A's account with COMPANY_B's companyId rejects
  *   - posted_only=true vs posted_only=false produces different SQL branches
  *   - lookup by accountCode (not UUID)
+ *   - periodNet and periodClosingBalance are returned correctly
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -62,6 +64,10 @@ function makeCountRow(total: number) {
   return { total: String(total) };
 }
 
+function makePeriodRow(debit = 0, credit = 0) {
+  return { period_debit: String(debit), period_credit: String(credit) };
+}
+
 function makeTxnRow(opts: {
   id?: string;
   date?: string | Date;
@@ -107,7 +113,8 @@ describe('accountLedgerService — getAccountLedger', () => {
         .mockResolvedValueOnce([makeAcctRow()])   // acct meta
         .mockResolvedValueOnce([makeObRow()])       // opening balance
         .mockResolvedValueOnce([makeCountRow(0)])   // count
-        .mockResolvedValueOnce([]);                 // ledger rows
+        .mockResolvedValueOnce([])                  // ledger rows
+        .mockResolvedValueOnce([makePeriodRow()]);  // period totals aggregate
 
       await getAccountLedger({
         companyId: COMPANY_A,
@@ -129,7 +136,8 @@ describe('accountLedgerService — getAccountLedger', () => {
         .mockResolvedValueOnce([makeAcctRow()])
         .mockResolvedValueOnce([makeObRow(1000)])
         .mockResolvedValueOnce([makeCountRow(1)])
-        .mockResolvedValueOnce([makeTxnRow({ debit: 500 })]);
+        .mockResolvedValueOnce([makeTxnRow({ debit: 500 })])
+        .mockResolvedValueOnce([makePeriodRow(500)]);
 
       await getAccountLedger({
         companyId: COMPANY_A,
@@ -149,7 +157,8 @@ describe('accountLedgerService — getAccountLedger', () => {
         .mockResolvedValueOnce([makeAcctRow()])
         .mockResolvedValueOnce([makeObRow()])
         .mockResolvedValueOnce([makeCountRow(5)])
-        .mockResolvedValueOnce([]);
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([makePeriodRow()]);
 
       await getAccountLedger({
         companyId: COMPANY_A,
@@ -169,7 +178,8 @@ describe('accountLedgerService — getAccountLedger', () => {
         .mockResolvedValueOnce([makeAcctRow()])
         .mockResolvedValueOnce([makeObRow()])
         .mockResolvedValueOnce([makeCountRow(1)])
-        .mockResolvedValueOnce([makeTxnRow({ debit: 100 })]);
+        .mockResolvedValueOnce([makeTxnRow({ debit: 100 })])
+        .mockResolvedValueOnce([makePeriodRow(100)]);
 
       await getAccountLedger({
         companyId: COMPANY_A,
@@ -189,7 +199,8 @@ describe('accountLedgerService — getAccountLedger', () => {
         .mockResolvedValueOnce([makeAcctRow()])
         .mockResolvedValueOnce([makeObRow(500)])
         .mockResolvedValueOnce([makeCountRow(1)])
-        .mockResolvedValueOnce([makeTxnRow({ debit: 200 })]);
+        .mockResolvedValueOnce([makeTxnRow({ debit: 200 })])
+        .mockResolvedValueOnce([makePeriodRow(200)]);
 
       await getAccountLedger({
         companyId: COMPANY_A,
@@ -202,6 +213,49 @@ describe('accountLedgerService — getAccountLedger', () => {
       expect(allArgs).toContain(COMPANY_A);
       expect(allArgs).not.toContain(COMPANY_B);
     });
+
+    it('semantic cross-tenant: COMPANY_A account with COMPANY_B companyId rejects', async () => {
+      /**
+       * Structural tests verify company_id is first. This test verifies the
+       * semantic failure mode: the account meta query returns empty (as it would
+       * in production when account belongs to COMPANY_A but caller passes COMPANY_B),
+       * and the service throws "not found" rather than leaking data.
+       */
+      sqlMock.mockResolvedValueOnce([]); // empty = account not found for COMPANY_B
+
+      await expect(
+        getAccountLedger({
+          companyId: COMPANY_B,
+          accountId: ACCOUNT_ID, // ACCOUNT_ID belongs to COMPANY_A
+          fromDate: FROM,
+          toDate: TO,
+        }),
+      ).rejects.toThrow(/not found/i);
+
+      // Only 1 SQL call made — service short-circuits on missing account.
+      expect(sqlMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('company_id is the first interpolated value in the period-totals aggregate query', async () => {
+      sqlMock
+        .mockResolvedValueOnce([makeAcctRow()])
+        .mockResolvedValueOnce([makeObRow()])
+        .mockResolvedValueOnce([makeCountRow(0)])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([makePeriodRow()]);
+
+      await getAccountLedger({
+        companyId: COMPANY_A,
+        accountId: ACCOUNT_ID,
+        fromDate: FROM,
+        toDate: TO,
+      });
+
+      // call[4] = period totals aggregate
+      const periodCallArgs = sqlMock.mock.calls[4]?.slice(1) ?? [];
+      expect(periodCallArgs[0]).toBe(COMPANY_A);
+      expect(periodCallArgs).not.toContain(COMPANY_B);
+    });
   });
 
   // ── Happy path ───────────────────────────────────────────────────────────────
@@ -212,10 +266,11 @@ describe('accountLedgerService — getAccountLedger', () => {
       const txn2 = makeTxnRow({ id: 'je-002', date: new Date('2025-02-15'), debit: 500 });
 
       sqlMock
-        .mockResolvedValueOnce([makeAcctRow()])         // acct meta
-        .mockResolvedValueOnce([makeObRow(2000, 500)])  // opening balance: 2000dr - 500cr = 1500
-        .mockResolvedValueOnce([makeCountRow(2)])        // total
-        .mockResolvedValueOnce([txn1, txn2]);            // rows
+        .mockResolvedValueOnce([makeAcctRow()])          // acct meta
+        .mockResolvedValueOnce([makeObRow(2000, 500)])   // opening balance: 2000dr - 500cr = 1500
+        .mockResolvedValueOnce([makeCountRow(2)])         // total
+        .mockResolvedValueOnce([txn1, txn2])              // rows
+        .mockResolvedValueOnce([makePeriodRow(1500)]);   // period totals: 1000+500 = 1500 debit
 
       const result = await getAccountLedger({
         companyId: COMPANY_A,
@@ -232,6 +287,9 @@ describe('accountLedgerService — getAccountLedger', () => {
       expect(result.rows[0]?.runningBalance).toBe(2500);
       // Second row: 2500 + 500 debit = 3000
       expect(result.rows[1]?.runningBalance).toBe(3000);
+      // Period totals
+      expect(result.periodNet).toBe(1500);
+      expect(result.periodClosingBalance).toBe(3000); // 1500 opening + 1500 net
     });
 
     it('maps row fields correctly', async () => {
@@ -250,7 +308,8 @@ describe('accountLedgerService — getAccountLedger', () => {
         .mockResolvedValueOnce([makeAcctRow()])
         .mockResolvedValueOnce([makeObRow(0)])
         .mockResolvedValueOnce([makeCountRow(1)])
-        .mockResolvedValueOnce([txn]);
+        .mockResolvedValueOnce([txn])
+        .mockResolvedValueOnce([makePeriodRow(800)]);
 
       const result = await getAccountLedger({
         companyId: COMPANY_A,
@@ -276,7 +335,8 @@ describe('accountLedgerService — getAccountLedger', () => {
         .mockResolvedValueOnce([makeAcctRow()])
         .mockResolvedValueOnce([makeObRow()])
         .mockResolvedValueOnce([makeCountRow(0)])
-        .mockResolvedValueOnce([]);
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([makePeriodRow()]);
 
       const result = await getAccountLedger({
         companyId: COMPANY_A,
@@ -303,7 +363,8 @@ describe('accountLedgerService — getAccountLedger', () => {
         .mockResolvedValueOnce([makeAcctRow()])
         .mockResolvedValueOnce([makeObRow(0, 0)])
         .mockResolvedValueOnce([makeCountRow(0)])
-        .mockResolvedValueOnce([]);
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([makePeriodRow(0, 0)]);
 
       const result = await getAccountLedger({
         companyId: COMPANY_A,
@@ -315,6 +376,8 @@ describe('accountLedgerService — getAccountLedger', () => {
       expect(result.rows).toEqual([]);
       expect(result.total).toBe(0);
       expect(result.openingBalance).toBe(0);
+      expect(result.periodNet).toBe(0);
+      expect(result.periodClosingBalance).toBe(0);
     });
   });
 
@@ -326,7 +389,8 @@ describe('accountLedgerService — getAccountLedger', () => {
         .mockResolvedValueOnce([makeAcctRow({ normal_balance: 'debit' })])
         .mockResolvedValueOnce([makeObRow(3000, 1200)])
         .mockResolvedValueOnce([makeCountRow(0)])
-        .mockResolvedValueOnce([]);
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([makePeriodRow()]);
 
       const result = await getAccountLedger({
         companyId: COMPANY_A,
@@ -344,7 +408,8 @@ describe('accountLedgerService — getAccountLedger', () => {
         .mockResolvedValueOnce([makeAcctRow({ normal_balance: 'credit', account_type: 'liability' })])
         .mockResolvedValueOnce([makeObRow(500, 2000)])
         .mockResolvedValueOnce([makeCountRow(0)])
-        .mockResolvedValueOnce([]);
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([makePeriodRow()]);
 
       const result = await getAccountLedger({
         companyId: COMPANY_A,
@@ -364,7 +429,8 @@ describe('accountLedgerService — getAccountLedger', () => {
         .mockResolvedValueOnce([makeAcctRow({ normal_balance: 'credit', account_type: 'liability' })])
         .mockResolvedValueOnce([makeObRow(0, 1000)])  // opening: 1000
         .mockResolvedValueOnce([makeCountRow(1)])
-        .mockResolvedValueOnce([txn]);
+        .mockResolvedValueOnce([txn])
+        .mockResolvedValueOnce([makePeriodRow(0, 300)]);
 
       const result = await getAccountLedger({
         companyId: COMPANY_A,
@@ -382,13 +448,14 @@ describe('accountLedgerService — getAccountLedger', () => {
   // ── posted_only flag ─────────────────────────────────────────────────────────
 
   describe('posted_only flag', () => {
-    it('makes 4 SQL calls regardless of posted_only flag', async () => {
+    it('makes 5 SQL calls regardless of posted_only flag', async () => {
       // posted_only = true
       sqlMock
         .mockResolvedValueOnce([makeAcctRow()])
         .mockResolvedValueOnce([makeObRow()])
         .mockResolvedValueOnce([makeCountRow(0)])
-        .mockResolvedValueOnce([]);
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([makePeriodRow()]);
 
       await getAccountLedger({
         companyId: COMPANY_A,
@@ -397,15 +464,16 @@ describe('accountLedgerService — getAccountLedger', () => {
         toDate: TO,
         postedOnly: true,
       });
-      expect(sqlMock).toHaveBeenCalledTimes(4);
+      expect(sqlMock).toHaveBeenCalledTimes(5);
     });
 
-    it('calls 4 SQL queries when postedOnly=false', async () => {
+    it('calls 5 SQL queries when postedOnly=false', async () => {
       sqlMock
         .mockResolvedValueOnce([makeAcctRow()])
         .mockResolvedValueOnce([makeObRow()])
         .mockResolvedValueOnce([makeCountRow(0)])
-        .mockResolvedValueOnce([]);
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([makePeriodRow()]);
 
       await getAccountLedger({
         companyId: COMPANY_A,
@@ -414,7 +482,7 @@ describe('accountLedgerService — getAccountLedger', () => {
         toDate: TO,
         postedOnly: false,
       });
-      expect(sqlMock).toHaveBeenCalledTimes(4);
+      expect(sqlMock).toHaveBeenCalledTimes(5);
     });
   });
 
@@ -426,7 +494,8 @@ describe('accountLedgerService — getAccountLedger', () => {
         .mockResolvedValueOnce([makeAcctRow()])
         .mockResolvedValueOnce([makeObRow()])
         .mockResolvedValueOnce([makeCountRow(0)])
-        .mockResolvedValueOnce([]);
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([makePeriodRow()]);
 
       const result = await getAccountLedger({
         companyId: COMPANY_A,
@@ -446,7 +515,8 @@ describe('accountLedgerService — getAccountLedger', () => {
         .mockResolvedValueOnce([makeAcctRow()])
         .mockResolvedValueOnce([makeObRow()])
         .mockResolvedValueOnce([makeCountRow(0)])
-        .mockResolvedValueOnce([]);
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([makePeriodRow()]);
 
       await getAccountLedger({
         companyId: COMPANY_A,
