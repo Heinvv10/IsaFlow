@@ -18,23 +18,48 @@ import { EvidenceDrillModal } from '@/components/accounting/evidence/EvidenceDri
 
 interface CostCentre { id: string; code: string; name: string }
 
-function getDefaultDates(): { periodStart: string; periodEnd: string } {
+function calendarMonthStart(): string {
   const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), 1);
-  return {
-    periodStart: start.toISOString().split('T')[0] ?? '',
-    periodEnd: now.toISOString().split('T')[0] ?? '',
-  };
+  return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0] ?? '';
 }
 
 export default function IncomeStatementPage() {
   const router = useRouter();
   const qStart = typeof router.query.period_start === 'string' ? router.query.period_start : '';
   const qEnd = typeof router.query.period_end === 'string' ? router.query.period_end : '';
-  const defaults = getDefaultDates();
-  const [periodStart, setPeriodStart] = useState(qStart || defaults.periodStart);
-  const [periodEnd, setPeriodEnd] = useState(qEnd || defaults.periodEnd);
-  useEffect(() => { if (qStart && qStart !== periodStart) setPeriodStart(qStart); if (qEnd && qEnd !== periodEnd) setPeriodEnd(qEnd); }, [qStart, qEnd, periodStart, periodEnd]);
+  // Initialise to calendar-month defaults; overridden once we resolve the open period below.
+  const [periodStart, setPeriodStart] = useState(qStart || calendarMonthStart());
+  const [periodEnd, setPeriodEnd] = useState(qEnd || new Date().toISOString().split('T')[0]!);
+  const [periodResolved, setPeriodResolved] = useState(!!(qStart && qEnd));
+
+  // Resolve default date range from current open fiscal period (avoids defaulting
+  // to future demo data or a calendar month that spans a closed period).
+  useEffect(() => {
+    if (qStart && qEnd) { setPeriodResolved(true); return; }
+    apiFetch('/api/accounting/fiscal-periods?open_period=true', { credentials: 'include' })
+      .then(r => r.json())
+      .then(res => {
+        const period = res.data ?? null;
+        if (period?.startDate && period?.endDate) {
+          const start = typeof period.startDate === 'string'
+            ? period.startDate.substring(0, 10)
+            : (period.startDate as Date).toISOString().substring(0, 10);
+          const end = typeof period.endDate === 'string'
+            ? period.endDate.substring(0, 10)
+            : (period.endDate as Date).toISOString().substring(0, 10);
+          setPeriodStart(start);
+          setPeriodEnd(end);
+        }
+        setPeriodResolved(true);
+      })
+      .catch(() => setPeriodResolved(true));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (qStart && qStart !== periodStart) setPeriodStart(qStart);
+    if (qEnd && qEnd !== periodEnd) setPeriodEnd(qEnd);
+  }, [qStart, qEnd, periodStart, periodEnd]);
   const [report, setReport] = useState<IncomeStatementReport | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -68,7 +93,7 @@ export default function IncomeStatementPage() {
   }
 
   const loadReport = useCallback(async () => {
-    if (!periodStart || !periodEnd) return;
+    if (!periodStart || !periodEnd || !periodResolved) return;
     setIsLoading(true);
     setError('');
     try {
@@ -92,7 +117,7 @@ export default function IncomeStatementPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [periodStart, periodEnd, costCentreId, showComparative]);
+  }, [periodStart, periodEnd, costCentreId, showComparative, periodResolved]);
 
   useEffect(() => { loadReport(); }, [loadReport]);
 
