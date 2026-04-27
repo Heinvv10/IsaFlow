@@ -1,7 +1,10 @@
 /**
  * Customer Tax Invoices - Accounting view
  * Sage equivalent: Customers > Tax Invoices
- * Lists all customer invoices across projects with GL posting status
+ * Lists all customer invoices across projects with GL posting status.
+ *
+ * 2026-04-27: Added AR aging column (aging_bucket + days_overdue from server)
+ * and ARFilters chip strip. Aging filter persists in URL (?aging=...).
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -13,6 +16,9 @@ import { StatusPill, KpiStrip } from '@/components/ui';
 import Link from 'next/link';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
+import { ARFilters, parseAgingParam, encodeAgingParam, toBucketKey, relativeTimeSince } from '@/components/invoices/ARFilters';
+import type { AgingFilterId } from '@/components/invoices/ARFilters';
+import { BUCKET_COLORS, BUCKET_LABELS } from '@/lib/format/aging';
 
 const VALID_STATUSES = new Set(['all', 'draft', 'approved', 'sent', 'partially_paid', 'paid', 'overdue']);
 
@@ -30,21 +36,8 @@ interface Invoice {
   due_date?: string;
   last_viewed_at?: string | null;
   view_count?: number;
-}
-
-function relativeTimeSince(iso: string): string {
-  const now = Date.now();
-  const then = new Date(iso).getTime();
-  if (!Number.isFinite(then)) return '—';
-  const diffSec = Math.max(0, Math.floor((now - then) / 1000));
-  if (diffSec < 60) return 'just now';
-  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
-  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
-  const days = Math.floor(diffSec / 86400);
-  if (days < 30) return `${days}d ago`;
-  const months = Math.floor(days / 30);
-  if (months < 12) return `${months}mo ago`;
-  return `${Math.floor(months / 12)}y ago`;
+  days_overdue?: number | null;
+  aging_bucket?: string | null;
 }
 
 const LIMIT = 25;
@@ -59,13 +52,15 @@ export default function CustomerInvoicesPage() {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  const [agingFilters, setAgingFilters] = useState<AgingFilterId[]>([]);
 
-  // Honour ?filter=<status> deep links from the dashboard Action Items.
+  // Honour ?filter=<status> and ?aging=<chips> deep links from the dashboard.
   useEffect(() => {
     if (!router.isReady) return;
     const f = router.query.filter;
     if (typeof f === 'string' && VALID_STATUSES.has(f)) setStatusFilter(f);
-  }, [router.isReady, router.query.filter]);
+    setAgingFilters(parseAgingParam(router.query.aging));
+  }, [router.isReady, router.query.filter, router.query.aging]);
 
   // Debounce search input
   useEffect(() => {
@@ -76,8 +71,8 @@ export default function CustomerInvoicesPage() {
     return () => clearTimeout(t);
   }, [search]);
 
-  // Reset page when filter changes
-  useEffect(() => { setPage(1); }, [statusFilter]);
+  // Reset page when filters change
+  useEffect(() => { setPage(1); }, [statusFilter, agingFilters]);
 
   const loadInvoices = useCallback(async () => {
     setIsLoading(true);
@@ -88,6 +83,7 @@ export default function CustomerInvoicesPage() {
       if (debouncedSearch) params.set('q', debouncedSearch);
       params.set('page', String(page));
       params.set('limit', String(LIMIT));
+      if (agingFilters.length > 0) params.set('aging', agingFilters.join(','));
       const res = await apiFetch(`/api/accounting/customer-invoices-list?${params}`);
       const json = await res.json();
       const data = json.data || json;
@@ -98,9 +94,21 @@ export default function CustomerInvoicesPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [statusFilter, debouncedSearch, page]);
+  }, [statusFilter, debouncedSearch, page, agingFilters]);
 
   useEffect(() => { loadInvoices(); }, [loadInvoices]);
+
+  function handleAgingChange(next: AgingFilterId[]) {
+    setAgingFilters(next);
+    const query = { ...router.query };
+    const encoded = encodeAgingParam(next);
+    if (encoded) {
+      query.aging = encoded;
+    } else {
+      delete query.aging;
+    }
+    void router.replace({ query }, undefined, { shallow: true });
+  }
 
   const statuses = ['all', 'draft', 'approved', 'sent', 'partially_paid', 'paid', 'overdue'];
 
@@ -116,9 +124,7 @@ export default function CustomerInvoicesPage() {
                 </div>
                 <div>
                   <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Tax Invoices</h1>
-                  <p className="text-sm text-[var(--ff-text-secondary)]">
-                    Customer invoices across all projects
-                  </p>
+                  <p className="text-sm text-[var(--ff-text-secondary)]">Customer invoices across all projects</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -132,7 +138,7 @@ export default function CustomerInvoicesPage() {
         </div>
 
         <div className="p-6">
-          {/* KPI strip — computed from current page; sums reflect visible invoices */}
+          {/* KPI strip */}
           {!isLoading && invoices.length > 0 && (() => {
             const visTotal = invoices.reduce((s, i) => s + Number(i.total_amount || 0), 0);
             const visOutstanding = invoices.reduce((s, i) => s + (Number(i.total_amount || 0) - Number(i.amount_paid || 0)), 0);
@@ -147,29 +153,33 @@ export default function CustomerInvoicesPage() {
               ]} />
             );
           })()}
-          {/* Filters */}
-          <div className="flex items-center gap-3 mb-6">
-            <select
-              name="statusFilter"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm"
-            >
-              {statuses.map(s => (
-                <option key={s} value={s}>{s === 'all' ? 'All Statuses' : s.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}</option>
-              ))}
-            </select>
-            <input
-              type="text"
-              name="search"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search invoice # or client..."
-              className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm w-64"
-            />
-            {!isLoading && (
-              <span className="text-sm text-[var(--ff-text-secondary)]">{total} invoice{total !== 1 ? 's' : ''}</span>
-            )}
+
+          {/* Filters row */}
+          <div className="flex flex-col gap-3 mb-6">
+            <div className="flex items-center gap-3">
+              <select
+                name="statusFilter"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm"
+              >
+                {statuses.map(s => (
+                  <option key={s} value={s}>{s === 'all' ? 'All Statuses' : s.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}</option>
+                ))}
+              </select>
+              <input
+                type="text"
+                name="search"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search invoice # or client..."
+                className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm w-64"
+              />
+              {!isLoading && (
+                <span className="text-sm text-[var(--ff-text-secondary)]">{total} invoice{total !== 1 ? 's' : ''}</span>
+              )}
+            </div>
+            <ARFilters selectedFilters={agingFilters} onChange={handleAgingChange} />
           </div>
 
           {/* Content */}
@@ -186,9 +196,7 @@ export default function CustomerInvoicesPage() {
             <div className="text-center py-12">
               <FileText className="h-12 w-12 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
               <p className="text-[var(--ff-text-secondary)]">No customer invoices found</p>
-              <p className="text-sm text-[var(--ff-text-tertiary)] mt-1">
-                Customer invoices are created from project billing
-              </p>
+              <p className="text-sm text-[var(--ff-text-tertiary)] mt-1">Customer invoices are created from project billing</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -201,6 +209,7 @@ export default function CustomerInvoicesPage() {
                     <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Date</th>
                     <th className="text-right py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Amount</th>
                     <th className="text-right py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Outstanding</th>
+                    <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Aging</th>
                     <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Last Viewed</th>
                     <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Status</th>
                   </tr>
@@ -208,19 +217,31 @@ export default function CustomerInvoicesPage() {
                 <tbody>
                   {invoices.map((inv) => {
                     const outstanding = Number(inv.total_amount) - Number(inv.amount_paid);
+                    const bucketKey = toBucketKey(inv.aging_bucket);
+                    const bucketLabel = inv.aging_bucket === 'Current' ? 'Current' : (bucketKey ? BUCKET_LABELS[bucketKey] : null);
+                    const bucketColor = bucketKey ? BUCKET_COLORS[bucketKey] : 'text-teal-500';
                     return (
                       <tr key={inv.id} className="border-b border-[var(--ff-border-light)] hover:bg-teal-500/[0.04]">
                         <td className="py-3 px-4 font-mono">
                           <Link href={`/accounting/customer-invoices/${inv.id}`} className="text-blue-400 hover:text-blue-300">{inv.invoice_number}</Link>
                         </td>
                         <td className="py-3 px-4 text-[var(--ff-text-primary)]">{inv.client_name || '-'}</td>
-                        <td className="py-3 px-4 text-[var(--ff-text-tertiary)] max-w-[240px] truncate" title={inv.reference}>
+                        <td className="py-3 px-4 text-[var(--ff-text-tertiary)] max-w-[200px] truncate" title={inv.reference}>
                           {inv.reference || inv.project_name || '-'}
                         </td>
                         <td className="py-3 px-4 text-[var(--ff-text-secondary)] whitespace-nowrap">{formatDate(inv.invoice_date)}</td>
                         <td className="py-3 px-4 text-right font-mono tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(Number(inv.total_amount))}</td>
                         <td className={`py-3 px-4 text-right font-mono tabular-nums ${outstanding > 0 ? 'text-amber-400' : 'text-teal-400'}`}>
                           {formatCurrency(outstanding)}
+                        </td>
+                        <td className="py-3 px-4 whitespace-nowrap">
+                          {inv.status === 'paid' ? (
+                            <span className="text-xs text-[var(--ff-text-tertiary)]">Paid</span>
+                          ) : bucketLabel ? (
+                            <span className={`text-xs font-medium ${bucketColor}`}>{bucketLabel}</span>
+                          ) : (
+                            <span className="text-xs text-[var(--ff-text-tertiary)]">—</span>
+                          )}
                         </td>
                         <td className="py-3 px-4 whitespace-nowrap">
                           {inv.last_viewed_at ? (
@@ -251,18 +272,10 @@ export default function CustomerInvoicesPage() {
                     Showing {(page - 1) * LIMIT + 1}–{Math.min(page * LIMIT, total)} of {total}
                   </span>
                   <div className="flex gap-2">
-                    <button
-                      onClick={() => setPage(p => Math.max(1, p - 1))}
-                      disabled={page === 1}
-                      className="px-3 py-1.5 text-sm bg-[var(--ff-bg-tertiary)] hover:bg-[var(--ff-bg-secondary)] disabled:opacity-40 rounded-lg text-[var(--ff-text-primary)] border border-[var(--ff-border-light)]"
-                    >
+                    <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="px-3 py-1.5 text-sm bg-[var(--ff-bg-tertiary)] hover:bg-[var(--ff-bg-secondary)] disabled:opacity-40 rounded-lg text-[var(--ff-text-primary)] border border-[var(--ff-border-light)]">
                       Previous
                     </button>
-                    <button
-                      onClick={() => setPage(p => p + 1)}
-                      disabled={page * LIMIT >= total}
-                      className="px-3 py-1.5 text-sm bg-[var(--ff-bg-tertiary)] hover:bg-[var(--ff-bg-secondary)] disabled:opacity-40 rounded-lg text-[var(--ff-text-primary)] border border-[var(--ff-border-light)]"
-                    >
+                    <button onClick={() => setPage(p => p + 1)} disabled={page * LIMIT >= total} className="px-3 py-1.5 text-sm bg-[var(--ff-bg-tertiary)] hover:bg-[var(--ff-bg-secondary)] disabled:opacity-40 rounded-lg text-[var(--ff-text-primary)] border border-[var(--ff-border-light)]">
                       Next
                     </button>
                   </div>
