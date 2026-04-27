@@ -18,8 +18,8 @@ import { BankTxBatchPanel, type RulePrompt } from '@/components/accounting/bank-
 import { BankTxModals } from '@/components/accounting/bank-transactions/BankTxModals';
 import { buildBankTxActions } from '@/components/accounting/bank-transactions/useBankTxActions';
 import { useBankTxRefData } from '@/components/accounting/bank-transactions/useBankTxRefData';
-import Link from 'next/link';
-import { Loader2, AlertCircle, Landmark } from 'lucide-react';
+import { Loader2, AlertCircle } from 'lucide-react';
+import { BankEmptyState } from '@/components/accounting/banking/BankEmptyState';
 
 type Tab = 'new' | 'reviewed' | 'excluded';
 const PAGE_SIZE = 25;
@@ -205,22 +205,8 @@ export default function BankTransactionsPage() {
   if (noBankAccounts) {
     return (
       <AppLayout>
-        <div className="min-h-screen bg-[var(--ff-bg-primary)] flex items-start justify-center px-6 py-16">
-          <div className="max-w-lg w-full bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-xl p-8 text-center">
-            <div className="mx-auto w-14 h-14 rounded-full bg-teal-500/10 border border-teal-500/30 flex items-center justify-center mb-4">
-              <Landmark className="h-7 w-7 text-teal-400" />
-            </div>
-            <h1 className="text-xl font-semibold text-[var(--ff-text-primary)] mb-2">No bank accounts yet</h1>
-            <p className="text-sm text-[var(--ff-text-secondary)] mb-6">
-              Set up a bank account first — then you can import statements or capture transactions against it here.
-            </p>
-            <div className="flex items-center justify-center">
-              <Link href="/accounting/bank-accounts"
-                className="px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-lg text-sm font-medium transition-colors">
-                Go to bank accounts
-              </Link>
-            </div>
-          </div>
+        <div className="min-h-screen bg-[var(--ff-bg-primary)]">
+          <BankEmptyState context="bank-transactions" />
         </div>
       </AppLayout>
     );

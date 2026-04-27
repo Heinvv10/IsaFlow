@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Landmark, Loader2, AlertCircle, Plus, ArrowUpRight, ArrowDownRight, X, Pencil, ExternalLink } from 'lucide-react';
+import { BankEmptyState } from '@/components/accounting/banking/BankEmptyState';
 import { notify } from '@/utils/toast';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
@@ -220,13 +221,7 @@ export default function BankAccountsPage() {
               <span>{error}</span>
             </div>
           ) : accounts.length === 0 ? (
-            <div className="text-center py-12">
-              <Landmark className="h-12 w-12 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
-              <p className="text-[var(--ff-text-secondary)]">No bank accounts configured</p>
-              <p className="text-sm text-[var(--ff-text-tertiary)] mt-1">
-                Bank accounts are GL accounts with subtype &quot;bank&quot;
-              </p>
-            </div>
+            <BankEmptyState context="bank-accounts" onAddBankAccount={openAddModal} />
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {accounts.map((acct) => (
