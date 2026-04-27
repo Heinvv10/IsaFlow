@@ -321,7 +321,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           {/* Collapse toggle */}
           <button
             onClick={() => setCollapsed(c => !c)}
-            className="flex items-center justify-center h-10 text-slate-500 hover:text-slate-100 hover:bg-white/5 transition-colors"
+            className="flex items-center justify-center h-10 text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
             style={{ borderTop: '1px solid var(--ff-canvas-border)' }}
             title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
@@ -411,7 +411,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           {/* Mobile search icon */}
           <button
             onClick={() => setCommandPaletteOpen(true)}
-            className="sm:hidden p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-100 hover:bg-white/5 transition-colors"
+            className="sm:hidden p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
             title="Search"
             aria-label="Open search"
           >
@@ -427,7 +427,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           {/* Nav mode toggle */}
           <button
             onClick={toggleNavMode}
-            className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-100 hover:bg-white/5 transition-colors"
+            className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
             title={navMode === 'top' ? 'Switch to sidebar navigation' : 'Switch to top navigation'}
           >
             {navMode === 'top' ? <PanelLeft className="w-4 h-4" /> : <PanelTop className="w-4 h-4" />}
@@ -436,7 +436,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           {/* Theme toggle */}
           <button
             onClick={toggleTheme}
-            className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-100 hover:bg-white/5 transition-colors"
+            className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
             title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
           >
             {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
@@ -456,7 +456,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           {!showSidebar && (
             <button
               onClick={() => void logout()}
-              className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-red-400 hover:bg-white/5 transition-colors"
+              className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
               title="Log out"
             >
               <LogOut className="w-4 h-4" />
