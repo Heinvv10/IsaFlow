@@ -649,7 +649,8 @@ async function seedBankTransactions(
             bank_branch_code            = COALESCE(NULLIF(bank_branch_code,''),            '250655'),
             bank_account_type           = COALESCE(NULLIF(bank_account_type,''),           'current'),
             bank_default_payment_method = COALESCE(NULLIF(bank_default_payment_method,''), 'eft'),
-            bank_is_default             = COALESCE(bank_is_default, FALSE) OR TRUE,
+            -- Demo's 1110 is the canonical default bank; force TRUE on every reseed.
+            bank_is_default             = TRUE,
             bank_opening_balance        = COALESCE(bank_opening_balance, 0),
             bank_opening_balance_date   = COALESCE(bank_opening_balance_date, '2024-02-29'::date),
             description                 = COALESCE(NULLIF(description,''),                 'Primary operating bank account (demo)'),
