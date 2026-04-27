@@ -122,6 +122,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         AND NOT EXISTS (
           SELECT 1 FROM gl_accounts child
            WHERE child.parent_account_id = ga.id
+             AND child.company_id = ga.company_id
              AND child.account_subtype = 'bank'
         )
       ORDER BY ga.account_code
