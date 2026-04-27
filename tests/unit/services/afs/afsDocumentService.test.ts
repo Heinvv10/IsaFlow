@@ -11,6 +11,7 @@ import {
   getAfsDocument,
   listAfsDocuments,
   lockAfsDocument,
+  AfsDocumentDuplicateError,
 } from '@/modules/accounting/services/afs/afsDocumentService';
 import type { AfsDocument } from '@/modules/accounting/services/afs/afsTypes';
 
@@ -61,7 +62,7 @@ describe('afsDocumentService', () => {
       expect(mockSql).toHaveBeenCalledTimes(1);
     });
 
-    it('throws when sql returns empty array (conflict / DB constraint)', async () => {
+    it('throws when sql returns empty array (DO NOTHING silent conflict)', async () => {
       mockSql.mockResolvedValueOnce([]);
 
       await expect(
@@ -72,6 +73,72 @@ describe('afsDocumentService', () => {
           reportingFramework: 'ifrs_smes',
         })
       ).rejects.toThrow('Failed to create AFS document');
+    });
+
+    it('translates Postgres unique-violation (SQLSTATE 23505) into AfsDocumentDuplicateError', async () => {
+      // Simulate a real Postgres error object — the matcher must inspect
+      // err.code, not err.message, so message-locale changes don't break it.
+      const pgErr = Object.assign(new Error('duplicate key value violates unique constraint'), {
+        code: '23505',
+      });
+      mockSql.mockRejectedValueOnce(pgErr);
+
+      const promise = createAfsDocument({
+        companyId: COMPANY_ID,
+        fiscalYear: 2025,
+        documentType: 'afs',
+        reportingFramework: 'ifrs_smes',
+      });
+
+      await expect(promise).rejects.toThrow(AfsDocumentDuplicateError);
+      await expect(promise).rejects.toThrow('AFS document for fiscal year 2025');
+    });
+
+    it('translates 23505 for management_pack with the period in the message', async () => {
+      const pgErr = Object.assign(new Error('uq_afs_documents_company_period'), { code: '23505' });
+      mockSql.mockRejectedValueOnce(pgErr);
+
+      const promise = createAfsDocument({
+        companyId: COMPANY_ID,
+        period: '2026-01',
+        documentType: 'management_pack',
+        reportingFramework: 'ifrs_smes',
+      });
+
+      await expect(promise).rejects.toThrow(AfsDocumentDuplicateError);
+      await expect(promise).rejects.toThrow('management pack for 2026-01');
+    });
+
+    it('does NOT translate non-23505 errors (lets the real DB error propagate)', async () => {
+      const pgErr = Object.assign(new Error('connection terminated'), { code: '57P01' });
+      mockSql.mockRejectedValueOnce(pgErr);
+
+      const promise = createAfsDocument({
+        companyId: COMPANY_ID,
+        fiscalYear: 2025,
+        documentType: 'afs',
+        reportingFramework: 'ifrs_smes',
+      });
+
+      await expect(promise).rejects.not.toBeInstanceOf(AfsDocumentDuplicateError);
+      await expect(promise).rejects.toThrow('connection terminated');
+    });
+
+    it('does NOT translate when error has no code (locale-independent guard)', async () => {
+      const plainErr = new Error('unique constraint violated');
+      mockSql.mockRejectedValueOnce(plainErr);
+
+      // Pre-fix this test would have falsely matched on the message regex.
+      // Now the matcher only checks err.code === '23505'.
+      const promise = createAfsDocument({
+        companyId: COMPANY_ID,
+        fiscalYear: 2025,
+        documentType: 'afs',
+        reportingFramework: 'ifrs_smes',
+      });
+
+      await expect(promise).rejects.not.toBeInstanceOf(AfsDocumentDuplicateError);
+      await expect(promise).rejects.toThrow('unique constraint violated');
     });
   });
 
