@@ -8,6 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { AlertCircle, Loader2, Mail, MessageSquare, X, CheckCircle2, Clock, Search, FileQuestion, Zap } from 'lucide-react';
 import { MissingInvoiceModals, type ExpectedAlert } from '@/components/accounting/suppliers/MissingInvoiceModals';
+import { formatOverdueDays } from '@/lib/format/aging';
 
 type StatusFilter = 'pending' | 'chased' | 'resolved' | 'dismissed';
 type Toast = { msg: string; kind: 'ok' | 'err' | 'warn' } | null;
@@ -23,7 +24,7 @@ export const fmtDate = (s: string | Date | null) => {
 
 function DaysOverdueBadge({ d }: { d: number }) {
   const cls = d > 7 ? 'text-red-400' : d >= 3 ? 'text-amber-400' : 'text-[var(--ff-text-tertiary)]';
-  return <span className={`text-xs font-medium ${cls}`}>{d}d</span>;
+  return <span className={`text-xs font-medium ${cls}`}>{formatOverdueDays(d)}</span>;
 }
 
 export default function MissingInvoicesPage() {

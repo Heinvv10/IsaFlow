@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { formatDate } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
+import { formatOverdueDays } from '@/lib/format/aging';
 
 interface ComplianceEvent {
   id?: string;
@@ -234,7 +235,7 @@ export default function SARSDashboard() {
                             <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDate(evt.dueDate)}</td>
                             <td className="px-4 py-3">
                               <span className={`font-medium ${ days < 0 ? 'text-red-400' : days <= 14 ? 'text-amber-400' : 'text-[var(--ff-text-secondary)]' }`}>
-                                {days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? 'Today' : `${days}d`}
+                                {days < 0 ? formatOverdueDays(Math.abs(days)) : days === 0 ? 'Today' : `${days}d`}
                               </span>
                             </td>
                             <td className="px-4 py-3">{statusBadge(evt.status)}</td>
