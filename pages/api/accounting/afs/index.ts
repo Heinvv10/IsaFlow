@@ -1,12 +1,26 @@
 // pages/api/accounting/afs/index.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { listAfsDocuments, createAfsDocument, AfsDocumentDuplicateError } from '@/modules/accounting/services/afs/afsDocumentService';
-import type { DocumentType, ReportingFramework } from '@/modules/accounting/services/afs/afsTypes';
+
+const CreateAfsSchema = z.object({
+  fiscalYear: z.number().int().min(2000).max(2100).optional(),
+  // YYYY-MM (management_pack)
+  period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'period must be YYYY-MM').optional(),
+  documentType: z.enum(['afs', 'management_pack']),
+  reportingFramework: z.enum(['ifrs_smes', 'full_ifrs']),
+}).strict().refine(
+  v => !(v.documentType === 'afs' && !v.fiscalYear),
+  { message: 'fiscalYear is required for AFS documents', path: ['fiscalYear'] },
+).refine(
+  v => !(v.documentType === 'management_pack' && !v.period),
+  { message: 'period (YYYY-MM) is required for management_pack documents', path: ['period'] },
+);
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -18,34 +32,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'POST') {
-    const { fiscalYear, period, documentType, reportingFramework } = req.body as {
-      fiscalYear?: number;
-      period?: string;
-      documentType: DocumentType;
-      reportingFramework: ReportingFramework;
-    };
-
-    if (!documentType || !reportingFramework) {
-      return apiResponse.badRequest(res, 'documentType and reportingFramework are required');
+    const parsed = CreateAfsSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return apiResponse.validationError(
+        res,
+        parsed.error.flatten().fieldErrors as Record<string, string | string[]>,
+      );
     }
-
-    const validDocumentTypes: DocumentType[] = ['afs', 'management_pack'];
-    if (!validDocumentTypes.includes(documentType)) {
-      return apiResponse.badRequest(res, `documentType must be one of: ${validDocumentTypes.join(', ')}`);
-    }
-
-    const validFrameworks: ReportingFramework[] = ['ifrs_smes', 'full_ifrs'];
-    if (!validFrameworks.includes(reportingFramework)) {
-      return apiResponse.badRequest(res, `reportingFramework must be one of: ${validFrameworks.join(', ')}`);
-    }
-
-    if (documentType === 'afs' && !fiscalYear) {
-      return apiResponse.badRequest(res, 'fiscalYear is required for AFS documents');
-    }
-
-    if (documentType === 'management_pack' && !period) {
-      return apiResponse.badRequest(res, 'period (YYYY-MM) is required for management_pack documents');
-    }
+    const { fiscalYear, period, documentType, reportingFramework } = parsed.data;
 
     log.info('Creating AFS document', { companyId, documentType, fiscalYear, period }, 'afs-index-api');
 

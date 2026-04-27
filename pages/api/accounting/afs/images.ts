@@ -1,5 +1,6 @@
 // pages/api/accounting/afs/images.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
@@ -9,22 +10,32 @@ import {
   listImages,
   createImage,
 } from '@/modules/accounting/services/afs/imageLibraryService';
-import type { AfsUploadedImage, CreateImageInput } from '@/modules/accounting/services/afs/afsTypes';
 
-const ALLOWED_TAGS = ['cover', 'section_divider', 'inline'] as const;
-type ImageTag = AfsUploadedImage['tag'];
+const TagEnum = z.enum(['cover', 'section_divider', 'inline']);
+
+const CreateImageSchema = z.object({
+  filename: z.string().min(1).max(500),
+  // Image URLs are rendered into PDF/HTML reports — restrict to https.
+  url: z.string()
+    .url('url must be a valid URL')
+    .startsWith('https://', 'url must be an https:// URL')
+    .max(2000),
+  tag: TagEnum,
+  widthPx: z.number().int().min(1).max(20000).optional(),
+  heightPx: z.number().int().min(1).max(20000).optional(),
+  dpi: z.number().int().min(1).max(2400).optional(),
+}).strict();
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
 
   if (req.method === 'GET') {
-    const tagParam = req.query.tag as string | undefined;
-
-    if (tagParam !== undefined && !(ALLOWED_TAGS as readonly string[]).includes(tagParam)) {
-      return apiResponse.badRequest(res, `tag must be one of: ${ALLOWED_TAGS.join(', ')}`);
+    const tagParam = req.query.tag;
+    const tagParse = tagParam !== undefined ? TagEnum.safeParse(tagParam) : { success: true as const, data: undefined };
+    if (!tagParse.success) {
+      return apiResponse.badRequest(res, 'tag must be one of: cover, section_divider, inline');
     }
-
-    const tag = tagParam as ImageTag | undefined;
+    const tag = tagParse.data;
 
     log.info('Listing AFS images', { companyId, tag }, 'afs-images-api');
 
@@ -33,34 +44,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'POST') {
-    const body = (req.body ?? {}) as Record<string, unknown>;
-    const { filename, url, tag, widthPx, heightPx, dpi } = body;
-
-    if (!filename || typeof filename !== 'string') {
-      return apiResponse.badRequest(res, 'filename is required');
+    const parsed = CreateImageSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return apiResponse.validationError(
+        res,
+        parsed.error.flatten().fieldErrors as Record<string, string | string[]>,
+      );
     }
-
-    if (!url || typeof url !== 'string') {
-      return apiResponse.badRequest(res, 'url is required');
-    }
-
-    if (!tag || !(ALLOWED_TAGS as readonly unknown[]).includes(tag)) {
-      return apiResponse.badRequest(res, `tag must be one of: ${ALLOWED_TAGS.join(', ')}`);
-    }
-
-    log.info('Creating AFS image', { companyId, filename, tag }, 'afs-images-api');
-
-    const input: CreateImageInput = {
-      filename,
-      url,
-      tag: tag as ImageTag,
-      widthPx: widthPx !== undefined ? Number(widthPx) : undefined,
-      heightPx: heightPx !== undefined ? Number(heightPx) : undefined,
-      dpi: dpi !== undefined ? Number(dpi) : undefined,
-    };
-
-    const image = await createImage(companyId, input);
-    return res.status(201).json({ success: true, data: image, message: 'Image uploaded' });
+    log.info('Creating AFS image', { companyId, filename: parsed.data.filename, tag: parsed.data.tag }, 'afs-images-api');
+    const image = await createImage(companyId, parsed.data);
+    return apiResponse.created(res, { image }, 'Image uploaded');
   }
 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST']);

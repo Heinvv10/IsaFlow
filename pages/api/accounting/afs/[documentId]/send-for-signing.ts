@@ -3,12 +3,14 @@
 // Reads rendered AFS HTML, calls Signum, sends per-signer notifications.
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { z } from 'zod';
 import fs from 'fs/promises';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { afsHtmlPath } from '@/lib/storage/afsStorage';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { sendForSigning } from '@/modules/accounting/services/afs/signumIntegrationService';
@@ -17,19 +19,28 @@ import type { PortalRole } from '@/modules/accounting/services/afs/afsTypes';
 
 const SIGNER_ROLES: PortalRole[] = ['director', 'cfo'];
 
+const BodySchema = z.object({
+  signerContactIds: z.array(UUID).min(1).max(20),
+}).strict();
+
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
 
   const { companyId } = req as CompanyAuthedRequest;
-  const documentId = req.query.documentId as string;
-  if (!documentId) return apiResponse.badRequest(res, 'documentId is required');
+  const docParse = UUID.safeParse(req.query.documentId);
+  if (!docParse.success) return apiResponse.badRequest(res, 'documentId must be a valid UUID');
+  const documentId = docParse.data;
 
-  const { signerContactIds } = req.body as { signerContactIds?: string[] };
-  if (!signerContactIds || !Array.isArray(signerContactIds) || signerContactIds.length === 0) {
-    return apiResponse.badRequest(res, 'signerContactIds must be a non-empty array');
+  const parsed = BodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    return apiResponse.validationError(
+      res,
+      parsed.error.flatten().fieldErrors as Record<string, string | string[]>,
+    );
   }
+  const { signerContactIds } = parsed.data;
 
   // 1. Load and verify the document
   const docs = (await sql`
