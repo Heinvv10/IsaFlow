@@ -76,13 +76,19 @@ BEGIN
     ('2160', 'SDL Payable',                             'liability', 'payroll_liability',        'credit', 216, true,  '2100'),
     ('2170', 'Net Salaries Payable',                    'liability', 'payroll_liability',        'credit', 217, true,  '2100'),
     ('2175', 'Other Employee Deductions Payable',       'liability', 'payroll_liability',        'credit', 218, true,  '2100'),
+    -- 2215 lives under 2100 (Current Liabilities) per mig 471 — code prefix
+    -- "22xx" is the LT-loans family, but the current PORTION is a current
+    -- liability, hence the parent here.
     ('2215', 'Current Portion of LT Debt',              'liability', 'current_liability',        'credit', 219, true,  '2100'),
     -- Non-Current Liabilities
     ('2210', 'Long-term Loans',                         'liability', NULL,                       'credit', 221, false, '2200'),
     -- Equity
     ('3100', 'Share Capital',                           'equity',    'equity',                   'credit', 310, true,  '3000'),
     ('3200', 'Retained Earnings',                       'equity',    'retained_earnings',        'credit', 320, true,  '3000'),
-    -- Revenue
+    -- Revenue. NOTE: 4100/4200 deliberately renamed from mig 200's
+    -- "Activation Revenue" / "Maintenance Revenue" (which were
+    -- fibre-industry-specific) to generic SaaS-friendly defaults.
+    -- Tenants who customised these labels are unaffected (NOT EXISTS guard).
     ('4100', 'Sales Revenue',                           'revenue',   'default_revenue',          'credit', 410, true,  '4000'),
     ('4200', 'Service Revenue',                         'revenue',   'revenue',                  'credit', 420, false, '4000'),
     ('4300', 'Other Income',                            'revenue',   'other_income',             'credit', 430, false, '4000'),
@@ -104,7 +110,16 @@ END;
 $$;
 
 REVOKE ALL ON FUNCTION public.seed_company_chart_of_accounts(uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.seed_company_chart_of_accounts(uuid) TO app_user, migration_admin;
+-- Explicit REVOKE FROM app_user — defends against prior versions of this
+-- migration (or a future re-grant) leaving the privesc surface in place.
+-- REVOKE on a role that doesn't have the grant is a no-op.
+REVOKE EXECUTE ON FUNCTION public.seed_company_chart_of_accounts(uuid) FROM app_user;
+-- DELIBERATELY NOT GRANTed to app_user. SECURITY DEFINER + arbitrary
+-- p_company_id would let any authenticated tenant write GL rows under
+-- another tenant's company_id (no membership check inside the function).
+-- The only legitimate caller is create_company_with_owner, which runs as
+-- definer and has its own auth check on auth.uid().
+GRANT EXECUTE ON FUNCTION public.seed_company_chart_of_accounts(uuid) TO migration_admin;
 
 -- ── Helper 2: Fiscal Periods for current + next calendar year ───────────────
 --
@@ -120,14 +135,12 @@ DECLARE
   yr integer;
   m  integer;
 BEGIN
-  -- fiscal_periods has no unique index on (company_id, fiscal_year,
-  -- period_number) yet, so we can't use ON CONFLICT — gate on NOT EXISTS.
+  -- Use uq_fiscal_periods_company_year_period (mig 220) for ON CONFLICT.
   FOR yr IN cur_year..(cur_year + 1) LOOP
     FOR m IN 1..12 LOOP
       INSERT INTO fiscal_periods (
         company_id, period_name, period_number, fiscal_year, start_date, end_date, status
-      )
-      SELECT
+      ) VALUES (
         p_company_id,
         TO_CHAR(MAKE_DATE(yr, m, 1), 'FMMonth YYYY'),
         m,
@@ -135,19 +148,16 @@ BEGIN
         MAKE_DATE(yr, m, 1),
         (MAKE_DATE(yr, m, 1) + INTERVAL '1 month' - INTERVAL '1 day')::date,
         'open'
-      WHERE NOT EXISTS (
-        SELECT 1 FROM fiscal_periods
-        WHERE company_id = p_company_id
-          AND fiscal_year = yr
-          AND period_number = m
-      );
+      ) ON CONFLICT (company_id, fiscal_year, period_number) DO NOTHING;
     END LOOP;
   END LOOP;
 END;
 $$;
 
 REVOKE ALL ON FUNCTION public.seed_company_fiscal_periods(uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.seed_company_fiscal_periods(uuid) TO app_user, migration_admin;
+REVOKE EXECUTE ON FUNCTION public.seed_company_fiscal_periods(uuid) FROM app_user;
+-- See note on seed_company_chart_of_accounts above — same privesc reasoning.
+GRANT EXECUTE ON FUNCTION public.seed_company_fiscal_periods(uuid) TO migration_admin;
 
 -- ── Helper 3: Umbrella seeder (call all sub-seeders) ────────────────────────
 CREATE OR REPLACE FUNCTION public.seed_company_default_taxonomy(p_company_id uuid)
@@ -166,7 +176,11 @@ END;
 $$;
 
 REVOKE ALL ON FUNCTION public.seed_company_default_taxonomy(uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.seed_company_default_taxonomy(uuid) TO app_user, migration_admin;
+REVOKE EXECUTE ON FUNCTION public.seed_company_default_taxonomy(uuid) FROM app_user;
+-- See note on seed_company_chart_of_accounts above — same privesc reasoning.
+-- create_company_with_owner is the only intended caller; it runs as definer
+-- so it can call this function via ownership chain without needing GRANT.
+GRANT EXECUTE ON FUNCTION public.seed_company_default_taxonomy(uuid) TO migration_admin;
 
 -- ── Wire the umbrella into create_company_with_owner ────────────────────────
 --
