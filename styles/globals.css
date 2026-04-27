@@ -63,6 +63,7 @@
     --ff-border-primary: #e5e7eb;
     --ff-border-secondary: #d1d5db;
     --ff-border-subtle: #f3f4f6;
+    --ff-border-light: #e5e7eb;
 
     --ff-success-500: #22c55e;
     --ff-warning-500: #f59e0b;
@@ -134,9 +135,10 @@
     --ff-text-secondary: #e2e8f0;
     --ff-text-tertiary: #94a3b8;
 
-    --ff-border-primary: #334155;
-    --ff-border-secondary: #475569;
+    --ff-border-primary: rgba(51, 65, 85, 0.55);
+    --ff-border-secondary: rgba(71, 85, 105, 0.6);
     --ff-border-subtle: #1e293b;
+    --ff-border-light: rgba(255, 255, 255, 0.07);
   }
 
   * {
