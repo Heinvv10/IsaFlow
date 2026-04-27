@@ -99,33 +99,48 @@ async function buildOneClientRow(
   userId: string,
   period: string,
 ): Promise<PortfolioRow> {
-  // Set the GUC so RLS-aware queries (and audit triggers calling auth.uid())
-  // see the right company even though we're on a BYPASSRLS connection.
-  await client.query(`SELECT set_config('app.current_company_id', $1, true)`, [cu.companyId]);
+  // Wrap the iteration in a real transaction. Without BEGIN, set_config
+  // with is_local=true reverts immediately on the implicit single-statement
+  // tx, so the GUC would never be visible to the inner workbench queries.
+  // The inner workbench is read-only today and tenant isolation rests on
+  // its explicit `WHERE company_id = ${companyId}` filters — but this BEGIN
+  // block makes the GUC actually take effect, so any future write or
+  // RLS-aware sub-query inside getMonthEndWorkbench inherits the right
+  // tenant context. Also gives us transactional rollback if mid-iteration
+  // queries fail.
+  await client.query('BEGIN READ ONLY');
+  try {
+    await client.query(`SELECT set_config('app.current_company_id', $1, true)`, [cu.companyId]);
 
-  // Run the workbench for this company under an ALS context that points at
-  // this iteration's client, so the inner sql tagged template routes through
-  // the right transaction.
-  const wb = await als.run(
-    { client, userId, companyId: cu.companyId, claims: {} },
-    () => getMonthEndWorkbench(cu.companyId, period),
-  );
+    // Run the workbench for this company under an ALS context that points at
+    // this iteration's client, so the inner sql tagged template routes through
+    // the right transaction.
+    const wb = await als.run(
+      { client, userId, companyId: cu.companyId, claims: {} },
+      () => getMonthEndWorkbench(cu.companyId, period),
+    );
 
-  const readyCount = wb.cards.filter(c => c.status === 'ready').length;
-  const attentionCount = wb.cards.filter(c => c.status === 'attention').length;
-  const blockedCount = wb.cards.filter(c => c.status === 'blocked').length;
-  return {
-    companyId: cu.companyId,
-    companyName: cu.companyName,
-    isDefault: cu.isDefault,
-    role: cu.role,
-    trialBalanceBalanced: wb.trialBalanceBalanced,
-    cards: wb.cards,
-    readyCount,
-    attentionCount,
-    blockedCount,
-    failed: false,
-  };
+    await client.query('COMMIT');
+
+    const readyCount = wb.cards.filter(c => c.status === 'ready').length;
+    const attentionCount = wb.cards.filter(c => c.status === 'attention').length;
+    const blockedCount = wb.cards.filter(c => c.status === 'blocked').length;
+    return {
+      companyId: cu.companyId,
+      companyName: cu.companyName,
+      isDefault: cu.isDefault,
+      role: cu.role,
+      trialBalanceBalanced: wb.trialBalanceBalanced,
+      cards: wb.cards,
+      readyCount,
+      attentionCount,
+      blockedCount,
+      failed: false,
+    };
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch { /* secondary */ }
+    throw err;
+  }
 }
 
 function classifyError(err: unknown): string {
