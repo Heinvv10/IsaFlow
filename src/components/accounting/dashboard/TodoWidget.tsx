@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { AlertCircle, CheckCircle2, Loader2, ChevronRight } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { formatOverdueDays } from '@/lib/format/aging';
 
 interface OverdueInvoice {
   id: string;
@@ -79,7 +80,7 @@ function InvoiceDetailRow({ invoice }: { invoice: OverdueInvoice }) {
       </div>
       <div className="flex items-center gap-3 flex-shrink-0">
         <span className="text-xs font-medium text-[var(--ff-text-primary)]">{fmtZAR(invoice.amount)}</span>
-        <span className="text-xs text-rose-500 font-medium">{invoice.daysOverdue}d overdue</span>
+        <span className="text-xs text-rose-500 font-medium">{formatOverdueDays(invoice.daysOverdue)}</span>
       </div>
     </div>
   );

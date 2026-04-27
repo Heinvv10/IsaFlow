@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, AlertCircle, Users, TrendingDown, Clock, Percent, ChevronDown, ChevronRight, Search } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { formatOverdueDays } from '@/lib/format/aging';
 import type {
   DebtorSummary,
   CollectionStats,
@@ -98,7 +99,7 @@ function DebtorDetailPanel({ clientId, clientName }: { clientId: string; clientN
                 <td className="px-4 py-2 text-sm text-right font-mono text-teal-500">{inv.amountPaid > 0 ? fmt(inv.amountPaid) : '—'}</td>
                 <td className={`px-4 py-2 text-sm text-right font-mono font-bold ${BUCKET_COLORS[inv.agingBucket]}`}>{fmt(inv.outstanding)}</td>
                 <td className={`px-4 py-2 text-sm text-right font-mono ${inv.daysOverdue > 0 ? 'text-red-400' : 'text-teal-500'}`}>
-                  {inv.daysOverdue > 0 ? `${inv.daysOverdue}d` : 'Current'}
+                  {inv.daysOverdue > 0 ? formatOverdueDays(inv.daysOverdue) : 'Current'}
                 </td>
               </tr>
             ))}
@@ -283,7 +284,7 @@ export default function DebtorsManagerPage() {
                       <td className="px-4 py-2 text-sm font-mono text-[var(--ff-text-primary)]">{inv.invoiceNumber}</td>
                       <td className="px-4 py-2 text-sm text-[var(--ff-text-secondary)]">{inv.clientName}</td>
                       <td className="px-4 py-2 text-sm text-[var(--ff-text-secondary)]">{fmtDate(inv.dueDate)}</td>
-                      <td className="px-4 py-2 text-sm text-right font-mono tabular-nums text-red-400">{inv.daysOverdue}d</td>
+                      <td className="px-4 py-2 text-sm text-right font-mono tabular-nums text-red-400">{formatOverdueDays(inv.daysOverdue)}</td>
                       <td className="px-4 py-2 text-sm text-right font-mono tabular-nums font-bold text-red-500">{fmt(inv.outstanding)}</td>
                     </tr>
                   ))}
