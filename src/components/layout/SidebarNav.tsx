@@ -20,11 +20,13 @@ import {
 
 // ─── Shared styles ──────────────────────────────────────────────────────────
 
-const panelCls = 'bg-[var(--ff-canvas-mid)] border border-[rgba(255,255,255,0.08)] rounded-lg shadow-2xl min-w-[210px] py-1';
+const panelCls = 'bg-[var(--ff-canvas-mid)] border border-[var(--ff-canvas-border)] rounded-lg shadow-2xl min-w-[210px] py-1';
 
 const linkCls = (active: boolean) =>
   `block px-4 py-1.5 text-sm whitespace-nowrap transition-colors ${
-    active ? 'text-teal-300 bg-teal-500/[0.08] font-medium' : 'text-slate-400 hover:text-slate-100 hover:bg-white/5'
+    active
+      ? 'text-teal-700 dark:text-teal-300 bg-teal-500/[0.08] font-medium'
+      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/5'
   }`;
 
 // ─── Recursive section flyout using portals ─────────────────────────────────
@@ -64,7 +66,9 @@ function SectionFlyout({
   return (
     <div ref={ref} onMouseEnter={handleEnter} onMouseLeave={dl}>
       <div className={`flex items-center justify-between px-4 py-2 text-sm cursor-default transition-colors ${
-        open ? 'bg-white/10 text-slate-100' : 'text-slate-400 hover:text-slate-100 hover:bg-white/5'
+        open
+          ? 'bg-slate-100 dark:bg-white/10 text-slate-900 dark:text-slate-100'
+          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/5'
       }`}>
         <span className="font-medium">{label}</span>
         <ChevronRight className="h-3.5 w-3.5 ml-4 flex-shrink-0" />
@@ -115,11 +119,11 @@ function TabFlyoutContent({ tab, asPath, onNav }: { tab: Tab; asPath: string; on
       {/* Quick actions */}
       {tab.topItems?.map(item => (
         <Link key={item.href} href={item.href} onClick={onNav}
-          className="block px-4 py-2 text-sm text-teal-400 hover:bg-white/5 transition-colors whitespace-nowrap">
+          className="block px-4 py-2 text-sm text-teal-600 dark:text-teal-400 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors whitespace-nowrap">
           + {item.label}
         </Link>
       ))}
-      {tab.topItems && tab.topItems.length > 0 && <div className="border-t border-[rgba(255,255,255,0.08)] my-1" />}
+      {tab.topItems && tab.topItems.length > 0 && <div className="border-t border-[var(--ff-canvas-border)] my-1" />}
 
       {/* Sections with sub-flyouts */}
       {hasSections && tab.items?.map(item => {
@@ -188,8 +192,9 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
             return (
               <Link key={tab.id} href={tab.href}
                 className={`flex items-center px-4 py-2 text-sm font-medium transition-colors border-l-[3px] ${
-                  active ? 'text-teal-300 bg-teal-500/[0.08] border-teal-400'
-                    : 'text-slate-400 hover:text-slate-100 hover:bg-white/5 border-transparent'
+                  active
+                    ? 'text-teal-700 dark:text-teal-300 bg-teal-500/[0.08] border-teal-500 dark:border-teal-400'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/5 border-transparent'
                 } ${collapsed ? 'justify-center px-0' : ''}`}
                 title={collapsed ? tab.label : undefined}>
                 {collapsed ? tab.label.slice(0, 2) : tab.label}
@@ -202,12 +207,13 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
               onMouseEnter={(e) => openFlyout(tab.id, e.currentTarget)}
               onMouseLeave={dl}
               className={`flex items-center justify-between px-4 py-2 text-sm font-medium cursor-pointer transition-colors border-l-[3px] ${
-                active || isOpen ? 'text-teal-300 bg-teal-500/[0.08] border-teal-400'
-                  : 'text-slate-400 hover:text-slate-100 hover:bg-white/5 border-transparent'
+                active || isOpen
+                  ? 'text-teal-700 dark:text-teal-300 bg-teal-500/[0.08] border-teal-500 dark:border-teal-400'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/5 border-transparent'
               } ${collapsed ? 'justify-center px-0' : ''}`}
               title={collapsed ? tab.label : undefined}>
               <span>{collapsed ? tab.label.slice(0, 2) : tab.label}</span>
-              {!collapsed && <ChevronRight className={`w-3.5 h-3.5 flex-shrink-0 ${isOpen ? 'text-teal-400' : 'text-slate-500'}`} />}
+              {!collapsed && <ChevronRight className={`w-3.5 h-3.5 flex-shrink-0 ${isOpen ? 'text-teal-600 dark:text-teal-400' : 'text-slate-400 dark:text-slate-500'}`} />}
             </div>
           );
         })}
