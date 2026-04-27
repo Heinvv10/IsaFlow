@@ -109,10 +109,13 @@ export default function MonthEndWorkbenchPage() {
             </p>
           </div>
           <div className="flex items-center gap-3">
+            <label htmlFor="workbench-period" className="sr-only">Period</label>
             <input
+              id="workbench-period"
               type="month"
               value={period}
               onChange={e => setPeriod(e.target.value)}
+              aria-label="Period"
               className="bg-zinc-900 border border-zinc-700 text-zinc-200 text-sm rounded-md px-3 py-1.5 focus:outline-none focus:border-teal-500"
             />
           </div>

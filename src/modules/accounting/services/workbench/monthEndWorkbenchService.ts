@@ -70,21 +70,27 @@ function fmtR(n: number): string {
 }
 
 async function buildBankingCard(companyId: string, periodEnd: string): Promise<WorkbenchCard> {
-  const rows = (await sql`
+  // Two separate queries — joining bank_transactions to bank_reconciliations
+  // would multiply the txn count rows by the number of completed recons per
+  // account, so the COUNT(*) FILTER values come out wrong.
+  const txnRows = (await sql`
     SELECT
-      COUNT(*) FILTER (WHERE bt.status = 'imported' AND bt.transaction_date <= ${periodEnd}::date) AS unmatched,
-      COUNT(*) FILTER (WHERE bt.matched_journal_line_id IS NOT NULL AND bt.transaction_date <= ${periodEnd}::date) AS matched,
-      MAX(br.completed_at) AS last_recon_completed_at
-    FROM bank_transactions bt
-    LEFT JOIN bank_reconciliations br ON br.bank_account_id = bt.bank_account_id
-      AND br.company_id = bt.company_id
-      AND br.status = 'completed'
-    WHERE bt.company_id = ${companyId}::uuid
+      COUNT(*) FILTER (WHERE status = 'imported' AND transaction_date <= ${periodEnd}::date) AS unmatched,
+      COUNT(*) FILTER (WHERE matched_journal_line_id IS NOT NULL AND transaction_date <= ${periodEnd}::date) AS matched
+    FROM bank_transactions
+    WHERE company_id = ${companyId}::uuid
   `) as DbRow[];
-  const r = rows[0]!;
-  const unmatched = Number(r.unmatched) || 0;
-  const matched = Number(r.matched) || 0;
-  const lastRecon = r.last_recon_completed_at ? String(r.last_recon_completed_at).slice(0, 10) : 'never';
+  const reconRows = (await sql`
+    SELECT MAX(completed_at) AS last_recon_completed_at
+    FROM bank_reconciliations
+    WHERE company_id = ${companyId}::uuid AND status = 'completed'
+  `) as DbRow[];
+
+  const t = txnRows[0]!;
+  const unmatched = Number(t.unmatched) || 0;
+  const matched = Number(t.matched) || 0;
+  const lastReconRaw = reconRows[0]?.last_recon_completed_at;
+  const lastRecon = lastReconRaw ? String(lastReconRaw).slice(0, 10) : 'never';
   const status: CardStatus = unmatched === 0 ? 'ready' : unmatched < 20 ? 'in_progress' : 'attention';
   return {
     id: 'banking',
@@ -126,12 +132,16 @@ async function buildPurchasesCard(companyId: string, periodEnd: string): Promise
 }
 
 async function buildVatCard(companyId: string, periodStart: string, periodEnd: string): Promise<WorkbenchCard> {
+  // Match a return whose period is wholly inside the requested month-range,
+  // not any return that overlaps it. Bi-monthly tenants will get whichever
+  // return covers their canonical period; a tenant on monthly VAT will get
+  // the exact month.
   const rows = (await sql`
     SELECT status, net_vat
     FROM vat_returns
-    WHERE company_id = ${companyId}::uuid
-      AND period_end >= ${periodStart}::date
-      AND period_start <= ${periodEnd}::date
+    WHERE company_id   = ${companyId}::uuid
+      AND period_start >= ${periodStart}::date
+      AND period_end   <= ${periodEnd}::date
     ORDER BY period_end DESC
     LIMIT 1
   `) as DbRow[];
@@ -142,7 +152,7 @@ async function buildVatCard(companyId: string, periodStart: string, periodEnd: s
       status: 'not_started',
       primary: 'No return drafted',
       secondary: 'Period awaits preparation',
-      href: '/accounting/reports/vat-201',
+      href: '/accounting/reports/vat-return',
     };
   }
   const r = rows[0]!;
@@ -154,7 +164,7 @@ async function buildVatCard(companyId: string, periodStart: string, periodEnd: s
     status,
     primary: `${fmtR(Math.abs(netVat))} ${netVat >= 0 ? 'payable' : 'refund'}`,
     secondary: String(r.status ?? 'draft'),
-    href: '/accounting/reports/vat-201',
+    href: '/accounting/reports/vat-return',
   };
 }
 
@@ -201,7 +211,9 @@ async function buildAfsCard(companyId: string, period: string): Promise<Workbenc
     SELECT
       COUNT(*) FILTER (WHERE status = 'auto_generated' AND content IS NOT NULL) AS populated,
       COUNT(*) AS total
-    FROM afs_sections WHERE document_id = ${thisDoc.id}::uuid
+    FROM afs_sections
+    WHERE document_id = ${thisDoc.id}::uuid
+      AND company_id  = ${companyId}::uuid
   `) as DbRow[];
   const populated = Number(sectionRows[0]?.populated) || 0;
   const total = Number(sectionRows[0]?.total) || 0;
@@ -241,12 +253,21 @@ async function buildExceptionsCard(companyId: string, periodEnd: string): Promis
   };
 }
 
-async function buildReviewCard(companyId: string, period: string): Promise<WorkbenchCard> {
+async function buildReviewCard(
+  companyId: string,
+  periodStart: string,
+  periodEnd: string,
+  period: string,
+): Promise<WorkbenchCard> {
+  // Range predicate on the indexed start_date column instead of LIKE on a
+  // text cast — both faster and not dependent on Postgres's default DATE
+  // serialization. periodStart/End come from parsePeriod, not raw user input.
   const rows = (await sql`
     SELECT status
     FROM fiscal_periods
     WHERE company_id = ${companyId}::uuid
-      AND start_date::text LIKE ${period + '%'}
+      AND start_date >= ${periodStart}::date
+      AND start_date <= ${periodEnd}::date
     LIMIT 1
   `) as DbRow[];
   const status = rows[0]?.status ? String(rows[0].status) : null;
@@ -256,12 +277,20 @@ async function buildReviewCard(companyId: string, period: string): Promise<Workb
     title: 'Review & Sign-off',
     status: closed ? 'ready' : 'in_progress',
     primary: closed ? 'Period closed' : 'Awaiting review',
-    secondary: closed ? `Status: ${status}` : status ? `Status: ${status}` : 'Reviewer to confirm and close',
-    href: '/accounting/period-management',
+    secondary: closed ? `Status: ${status} for ${period}` : status ? `Status: ${status}` : 'Reviewer to confirm and close',
+    href: '/accounting/fiscal-periods',
   };
 }
 
-async function buildTrialBalance(companyId: string, periodEnd: string): Promise<{ balanced: boolean; diff: number }> {
+async function buildTrialBalance(
+  companyId: string,
+  periodStart: string,
+  periodEnd: string,
+): Promise<{ balanced: boolean; diff: number }> {
+  // Period-only check — entries posted strictly inside [periodStart, periodEnd].
+  // Cumulative-to-date trivially balances for any consistent ledger and the
+  // indicator carries no signal; the reviewer flagged the previous version
+  // as a tautology.
   const rows = (await sql`
     SELECT
       COALESCE(SUM(gjl.debit), 0) AS dr,
@@ -269,7 +298,8 @@ async function buildTrialBalance(companyId: string, periodEnd: string): Promise<
     FROM gl_journal_lines gjl
     JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
     WHERE gje.company_id = ${companyId}::uuid
-      AND gje.status = 'posted'
+      AND gje.status     = 'posted'
+      AND gje.entry_date >= ${periodStart}::date
       AND gje.entry_date <= ${periodEnd}::date
   `) as DbRow[];
   const dr = Number(rows[0]?.dr) || 0;
@@ -278,13 +308,26 @@ async function buildTrialBalance(companyId: string, periodEnd: string): Promise<
   return { balanced: Math.abs(diff) < 0.01, diff };
 }
 
+function failedCard(id: string, title: string, err: unknown): WorkbenchCard {
+  const msg = err instanceof Error ? err.message : String(err);
+  return {
+    id,
+    title,
+    status: 'blocked',
+    primary: 'Unable to load',
+    secondary: msg.slice(0, 120),
+  };
+}
+
 export async function getMonthEndWorkbench(
   companyId: string,
   period: string,
 ): Promise<MonthEndWorkbench> {
   const { start, end } = parsePeriod(period);
 
-  const [banking, sales, purchases, vat, payroll, afs, exceptions, review, tb] = await Promise.all([
+  // Each card runs independently — one broken sub-query (e.g. a missing
+  // column after a future migration) must not blank the whole workbench.
+  const settled = await Promise.allSettled([
     buildBankingCard(companyId, end),
     buildSalesCard(companyId, end),
     buildPurchasesCard(companyId, end),
@@ -292,9 +335,39 @@ export async function getMonthEndWorkbench(
     buildPayrollCard(companyId, period),
     buildAfsCard(companyId, period),
     buildExceptionsCard(companyId, end),
-    buildReviewCard(companyId, period),
-    buildTrialBalance(companyId, end),
+    buildReviewCard(companyId, start, end, period),
+    buildTrialBalance(companyId, start, end),
   ]);
+
+  const cardLabels: ReadonlyArray<{ id: string; title: string }> = [
+    { id: 'banking',     title: 'Bank Reconciliation' },
+    { id: 'sales',       title: 'Sales & Receivables' },
+    { id: 'purchases',   title: 'Supplier Bills & Payments' },
+    { id: 'vat',         title: 'VAT Readiness' },
+    { id: 'payroll',     title: 'Payroll Run' },
+    { id: 'afs',         title: 'Management Pack / AFS' },
+    { id: 'exceptions',  title: 'Exceptions' },
+    { id: 'review',      title: 'Review & Sign-off' },
+  ];
+  const cardResults: WorkbenchCard[] = cardLabels.map((label, i) => {
+    const r = settled[i]!;
+    if (r.status === 'fulfilled') return r.value as WorkbenchCard;
+    return failedCard(label.id, label.title, r.reason);
+  });
+
+  const tbResult = settled[8]!;
+  const tb = tbResult.status === 'fulfilled'
+    ? tbResult.value as { balanced: boolean; diff: number }
+    : { balanced: false, diff: 0 };
+
+  const banking = cardResults[0]!;
+  const sales = cardResults[1]!;
+  const purchases = cardResults[2]!;
+  const vat = cardResults[3]!;
+  const payroll = cardResults[4]!;
+  const afs = cardResults[5]!;
+  const exceptions = cardResults[6]!;
+  const review = cardResults[7]!;
 
   return {
     companyId,
