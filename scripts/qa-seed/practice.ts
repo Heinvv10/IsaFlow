@@ -15,6 +15,22 @@ function daysAgo(n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * ISO date for the current month at `dayOfMonth`. Anchors time entries to a
+ * stable in-month date so the date-filter assertion in journeyApprovals
+ * (which checks "all entries fall in current month") doesn't fail when the
+ * seed runs near a month boundary — `daysAgo(0..4)` would straddle it on May 1.
+ */
+function inCurrentMonth(dayOfMonth: number): string {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = today.getMonth() + 1;
+  // Clamp so a day=28 request doesn't roll into next month in February.
+  const lastDay = new Date(year, month, 0).getDate();
+  const d = Math.max(1, Math.min(dayOfMonth, lastDay));
+  return `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
 export async function seedStaffRates(sql: TaggedSql, companyId: string): Promise<void> {
   const users = await sql`
     SELECT u.id FROM users u
@@ -81,7 +97,7 @@ export async function seedPracticeClients(
     if (row.length === 0) {
       row = await sql`
         INSERT INTO practice_clients (company_id, legal_name, trading_name, billing_model, status, link_customer_id)
-        VALUES (${companyId}::uuid, ${c.name}, ${c.name}, 'hourly', 'active', ${c.linked ? `${c.linked}` : null}::uuid)
+        VALUES (${companyId}::uuid, ${c.name}, ${c.name}, 'hourly', 'active', ${c.linked ?? null})
         RETURNING id
       ` as Array<{ id: string }>;
     }
@@ -145,15 +161,20 @@ export async function seedTimeEntries(
   const bookkeepingItems = workItems.filter((w) => w.catName === 'Bookkeeping');
   const advisoryItems = workItems.filter((w) => w.catName === 'Advisory');
 
+  // Anchor entries to fixed days-of-month so the seed produces stable
+  // in-current-month rows regardless of when the script runs. `daysAgo(0..4)`
+  // would straddle the month boundary on May 1; the journeyApprovals
+  // date-filter assertion ("all entries fall in current month") would then
+  // FAIL the day after rolling over.
   const entries: Array<{ day: number; hrs: number; item: WorkItem | undefined; billable: boolean; desc: string }> = [
-    { day: 0, hrs: 1.5, item: bookkeepingItems[0], billable: true,  desc: 'Capture April bank txns' },
-    { day: 0, hrs: 0.5, item: advisoryItems[0],   billable: false, desc: 'Internal team standup' },
-    { day: 1, hrs: 2.0, item: bookkeepingItems[1], billable: true,  desc: 'Reconcile FNB cheque' },
-    { day: 2, hrs: 1.0, item: bookkeepingItems[0], billable: true,  desc: 'Continue txn capture' },
-    { day: 2, hrs: 1.5, item: bookkeepingItems[2], billable: true,  desc: 'Month-end review pass 1' },
-    { day: 3, hrs: 0.75, item: advisoryItems[1],  billable: false, desc: 'Software training' },
-    { day: 3, hrs: 1.25, item: bookkeepingItems[1], billable: true, desc: 'Bank rec adjustments' },
-    { day: 4, hrs: 1.0, item: bookkeepingItems[2], billable: true,  desc: 'Sign-off review' },
+    { day: 1, hrs: 1.5,  item: bookkeepingItems[0], billable: true,  desc: 'Capture month bank txns' },
+    { day: 1, hrs: 0.5,  item: advisoryItems[0],    billable: false, desc: 'Internal team standup' },
+    { day: 2, hrs: 2.0,  item: bookkeepingItems[1], billable: true,  desc: 'Reconcile FNB cheque' },
+    { day: 3, hrs: 1.0,  item: bookkeepingItems[0], billable: true,  desc: 'Continue txn capture' },
+    { day: 3, hrs: 1.5,  item: bookkeepingItems[2], billable: true,  desc: 'Month-end review pass 1' },
+    { day: 4, hrs: 0.75, item: advisoryItems[1],    billable: false, desc: 'Software training' },
+    { day: 4, hrs: 1.25, item: bookkeepingItems[1], billable: true,  desc: 'Bank rec adjustments' },
+    { day: 5, hrs: 1.0,  item: bookkeepingItems[2], billable: true,  desc: 'Sign-off review' },
   ];
 
   for (let i = 0; i < entries.length; i++) {
@@ -167,7 +188,7 @@ export async function seedTimeEntries(
         practice_client_id, job_category_id, work_item_id, applied_rate, line_total,
         task_description, notes, job_id, origin
       ) VALUES (
-        ${companyId}::uuid, ${adminId}, ${daysAgo(e.day)}::date, ${e.hrs}, ${rate}, ${e.billable}, 'draft',
+        ${companyId}::uuid, ${adminId}, ${inCurrentMonth(e.day)}::date, ${e.hrs}, ${rate}, ${e.billable}, 'draft',
         ${practiceClient.id}::uuid, ${e.item.catId}::uuid, ${e.item.itemId}::uuid, ${rate}, ${e.hrs * rate},
         ${e.desc}, ${tag}, ${jobId}::uuid, 'manual'
       )

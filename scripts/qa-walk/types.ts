@@ -1,5 +1,4 @@
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type TaggedSql = <T = Record<string, any>>(strings: TemplateStringsArray, ...values: unknown[]) => Promise<T[]>;
+export type { TaggedSql } from '../_pg';
 
 export type Verdict = 'PASS' | 'FAIL' | 'BLOCKED' | 'INFO';
 
