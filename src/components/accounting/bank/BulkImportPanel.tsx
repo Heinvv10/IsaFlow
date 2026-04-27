@@ -464,15 +464,21 @@ export function BulkImportPanel() {
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--ff-border)] bg-[var(--ff-bg-secondary)] px-3 py-2.5">
-        <label className="inline-flex items-center gap-2 text-sm text-[var(--ff-text-primary)]">
+        <label className="inline-flex max-w-xl items-start gap-2 text-sm text-[var(--ff-text-primary)]">
           <input
             type="checkbox"
             checked={applyBankRules}
             onChange={e => setApplyBankRules(e.target.checked)}
             disabled={isCommitting}
-            className="h-4 w-4 rounded border-[var(--ff-border)]"
+            className="mt-0.5 h-4 w-4 rounded border-[var(--ff-border)]"
           />
-          Apply existing bank rules to the imported transactions
+          <span>
+            Run bank rules against the imported transactions
+            <span className="mt-0.5 block text-xs text-[var(--ff-text-muted)]">
+              Suggest-only rules attach a category. Auto-post rules also create
+              and post a journal entry. Set per rule on the Rules page.
+            </span>
+          </span>
         </label>
         <button
           type="button"

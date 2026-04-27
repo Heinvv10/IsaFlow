@@ -8,6 +8,7 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withRole, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { postDualDepreciationToLedger } from '@/modules/accounting/services/gl/glCrossModuleHooks';
@@ -113,4 +114,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   });
 }
 
-export default withAuth(withRole('admin')(withErrorHandler(handler)));
+export default withAuth(withRole('admin')(withErrorHandler(withCsrf(handler))));

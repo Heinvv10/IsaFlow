@@ -14,6 +14,7 @@ import {
   type AuthenticatedNextApiRequest,
   type CompanyAuthedRequest,
 } from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { generateInvoiceFromRecurring } from '@/modules/accounting/services/ar/recurringInvoiceService';
@@ -88,4 +89,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, result);
 }
 
-export default withAuth(withErrorHandler(withWriteAccess(handler as never)));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler as never))));

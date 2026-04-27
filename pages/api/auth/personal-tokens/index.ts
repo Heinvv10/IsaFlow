@@ -11,6 +11,7 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { createPat, listPats, PAT_SCOPES } from '@/lib/auth/personalAccessTokens';
 
@@ -73,4 +74,4 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method ?? '', ['GET', 'POST']);
 }
 
-export default withAuth(withErrorHandler(handler as Parameters<typeof withErrorHandler>[0]));
+export default withAuth(withErrorHandler(withCsrf(handler as Parameters<typeof withErrorHandler>[0])));

@@ -1,6 +1,7 @@
 // pages/api/auth/switch-company.ts
 import type { NextApiHandler } from 'next';
 import { withUserAuth, type UserAuthedRequest } from '@/lib/auth/withUserAuth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { setActiveCompanyCookie } from '@/lib/auth/cookies';
 
@@ -25,4 +26,4 @@ const handler: NextApiHandler = async (req, res) => {
   return res.status(200).json({ success: true, data: { activeCompanyId: companyId } });
 };
 
-export default withUserAuth(handler);
+export default withUserAuth(withCsrf(handler));

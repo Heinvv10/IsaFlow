@@ -9,6 +9,7 @@ import formidable from 'formidable';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess} from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import {
   parsePayslipExtractionResponse,
@@ -148,4 +149,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
  
-export default withAuth(withErrorHandler(withWriteAccess(handler)));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

@@ -7,6 +7,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { runComplianceCheck } from '@/modules/accounting/services/afs/complianceCheckerService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -25,4 +26,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, result);
 }
 
-export default withAuth(withErrorHandler(handler as never));
+export default withAuth(withErrorHandler(withCsrf(handler as never)));

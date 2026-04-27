@@ -3,6 +3,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { generateSection } from '@/modules/accounting/services/afs/noteEngineService';
 import type { ReportingFramework } from '@/modules/accounting/services/afs/afsTypes';
@@ -31,4 +32,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, { sectionId });
 }
 
-export default withAuth(withErrorHandler(handler as never));
+export default withAuth(withErrorHandler(withCsrf(handler as never)));

@@ -6,6 +6,7 @@
 import type { NextApiResponse } from 'next';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import type { PlatformAdminRequest } from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { adminListUserFactors, adminUnenrollFactor, GotrueMfaError } from '@/lib/auth/gotrue-mfa';
 import { log } from '@/lib/logger';
 
@@ -49,4 +50,4 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise
   res.status(200).json({ success: true, data: { factors_removed: removed } });
 }
 
-export default withAdmin(handler);
+export default withAdmin(withCsrf(handler));

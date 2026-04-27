@@ -11,6 +11,7 @@ import formidable from 'formidable';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { validateCaptureApiKey, extractBearerToken } from '@/lib/auth/captureApiKeyAuth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
@@ -201,8 +202,9 @@ async function authAndHandle(req: NextApiRequest, res: NextApiResponse) {
   }
 
   // Fall back to normal session auth (cookie-based)
+  // Cookie-session path also needs CSRF; the API-key path bypasses it.
   return withAuth(
-    withErrorHandler(withWriteAccess(handler as Parameters<typeof withWriteAccess>[0])),
+    withErrorHandler(withCsrf(withWriteAccess(handler as Parameters<typeof withWriteAccess>[0]))),
   )(req, res);
 }
 

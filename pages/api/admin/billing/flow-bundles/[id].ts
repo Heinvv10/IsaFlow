@@ -12,6 +12,7 @@ import { sql } from '@/lib/neon';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 import type { PlatformAdminRequest } from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 
 const PatchBody = z.object({
   name:         z.string().min(1).max(100).optional(),
@@ -84,4 +85,4 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'PATCH', 'DELETE']);
 }
 
-export default withAdmin(handler);
+export default withAdmin(withCsrf(handler));

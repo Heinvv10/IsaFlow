@@ -10,6 +10,7 @@
 import type { NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withUserAuth, type UserAuthedRequest } from '@/lib/auth/withUserAuth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
@@ -86,4 +87,4 @@ async function handler(req: UserAuthedRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'POST', 'DELETE']);
 }
 
-export default withUserAuth(withErrorHandler(handler));
+export default withUserAuth(withErrorHandler(withCsrf(handler)));

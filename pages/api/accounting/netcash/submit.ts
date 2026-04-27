@@ -8,6 +8,7 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { submitEftBatch, type NetcashPayment } from '@/modules/accounting/services/ap/netcashService';
@@ -119,4 +120,4 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   });
 }
 
-export default withAuth(withErrorHandler(handler as Parameters<typeof withAuth>[0]));
+export default withAuth(withErrorHandler(withCsrf(handler as Parameters<typeof withAuth>[0])));

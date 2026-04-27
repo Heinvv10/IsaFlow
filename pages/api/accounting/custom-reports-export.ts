@@ -8,6 +8,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { runReport, type ReportConfig } from '@/modules/accounting/services/reports/customReportService';
 import { escapeCsv } from '@/lib/csv';
@@ -75,4 +76,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   res.status(200).send('\uFEFF' + csv); // BOM for Excel compatibility
 }
 
-export default withAuth(withErrorHandler(withWriteAccess(handler) as never));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler) as never)));

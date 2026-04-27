@@ -21,6 +21,7 @@
 import type { NextApiHandler } from 'next';
 import { z } from 'zod';
 import { withUserAuth, type UserAuthedRequest } from '@/lib/auth/withUserAuth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { signIn, adminUpdateUser } from '@/lib/auth/gotrue';
 import { withRateLimit } from '@/lib/rateLimit';
 import { sql } from '@/lib/neon';
@@ -107,4 +108,4 @@ const handler: NextApiHandler = async (req, res) => {
   });
 };
 
-export default withRateLimit(withUserAuth(handler), { max: 5, windowSecs: 900 });
+export default withRateLimit(withUserAuth(withCsrf(handler)), { max: 5, windowSecs: 900 });

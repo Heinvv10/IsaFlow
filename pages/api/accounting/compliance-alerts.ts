@@ -13,6 +13,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { checkComplianceAlerts } from '@/modules/accounting/services/reports/statutoryDocService';
 import {
   getActiveAfsAlerts,
@@ -44,4 +45,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
 // withWriteAccess passes GET through; blocks POST for viewer role
-export default withAuth(withErrorHandler(withWriteAccess(handler as never)));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler as never))));
