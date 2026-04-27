@@ -84,7 +84,7 @@ const EnhancedStatCardComponent = ({
   if (isLoading) {
     return (
       <div className={cn(
-        'bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm animate-pulse',
+        'bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-white/[0.09] shadow-sm animate-pulse',
         variant === 'compact' ? 'p-4' : 'p-6',
         className
       )}>
@@ -119,7 +119,7 @@ const EnhancedStatCardComponent = ({
   }
 
   const cardClasses = cn(
-    'group relative overflow-hidden bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm',
+    'group relative overflow-hidden bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-white/[0.09] shadow-sm',
     'hover:shadow-md transition-all duration-200',
     (onClick || route) && !error && 'cursor-pointer hover:border-teal-500/50',
     variant === 'compact' ? 'p-4' : 'p-6',
