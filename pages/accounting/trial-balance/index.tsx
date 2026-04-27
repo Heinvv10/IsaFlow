@@ -4,38 +4,23 @@
  * Phase 5b: Cost centre filter + comparative period selector
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Scale, Loader2, AlertCircle, Download, ChevronDown, ChevronRight, CheckCircle2, AlertTriangle } from 'lucide-react';
-import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
+import { Scale, Loader2, AlertCircle, Download, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { TrialBalanceRow } from '@/components/reports/TrialBalanceRow';
+import type { TBRowData } from '@/components/reports/TrialBalanceRow';
 import { EvidenceDrillModal } from '@/components/accounting/evidence/EvidenceDrillModal';
 import { apiFetch } from '@/lib/apiFetch';
 
-interface TBRow {
-  accountCode: string; accountName: string; accountType: string;
-  normalBalance: string; debitBalance: number; creditBalance: number;
-  priorDebitBalance?: number; priorCreditBalance?: number;
-}
-
 interface CostCentre { id: string; code: string; name: string }
-
 interface FiscalPeriod { id: string; periodName: string; startDate: string; endDate: string; status: string }
-
-const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
-
-const TYPE_PILL: Record<string, string> = {
-  asset:     'bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300',
-  liability: 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300',
-  equity:    'bg-purple-100 text-purple-700 dark:bg-purple-500/15 dark:text-purple-300',
-  revenue:   'bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-300',
-  expense:   'bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300',
-};
-const NEUTRAL_PILL = 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300';
-
 interface EvidenceTarget { accountId: string; accountName: string }
 
+const fmt = (n: number) =>
+  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+
 export default function TrialBalancePage() {
-  const [rows, setRows] = useState<TBRow[]>([]);
+  const [rows, setRows] = useState<TBRowData[]>([]);
   const [periods, setPeriods] = useState<FiscalPeriod[]>([]);
   const [selectedPeriod, setSelectedPeriod] = useState('');
   const [totalDebit, setTotalDebit] = useState(0);
@@ -48,15 +33,13 @@ export default function TrialBalancePage() {
   const [comparePeriodId, setComparePeriodId] = useState('');
   const [evidenceTarget, setEvidenceTarget] = useState<EvidenceTarget | null>(null);
 
-  // Load cost centres
   useEffect(() => {
     apiFetch('/api/accounting/cost-centres?active_only=true', { credentials: 'include' })
       .then(r => r.json())
       .then(json => setCostCentres(json.data?.items || json.data || []))
-      .catch(() => { /* reference data load failure — non-critical, cost centre filter will be empty */ });
+      .catch(() => { /* reference data load failure — non-critical */ });
   }, []);
 
-  // Load fiscal periods — prefer the open period containing today, then most recent open
   useEffect(() => {
     const todayIso = new Date().toISOString().substring(0, 10);
     apiFetch('/api/accounting/fiscal-periods', { credentials: 'include' })
@@ -64,13 +47,11 @@ export default function TrialBalancePage() {
       .then(res => {
         const items: FiscalPeriod[] = res.data?.items || res.data || [];
         setPeriods(items);
-        // Priority 1: open period whose date range contains today
         const openContainingToday = items.find(
           p => p.status === 'open'
             && p.startDate.substring(0, 10) <= todayIso
             && p.endDate.substring(0, 10) >= todayIso,
         );
-        // Priority 2: any open period
         const anyOpen = items.find(p => p.status === 'open');
         const best = openContainingToday ?? anyOpen;
         if (best) setSelectedPeriod(best.id);
@@ -100,22 +81,22 @@ export default function TrialBalancePage() {
   useEffect(() => { loadTB(); }, [loadTB]);
 
   const handleExport = () => {
-    if (!selectedPeriod) return;
-    window.open(`/api/accounting/trial-balance-export?fiscal_period_id=${selectedPeriod}`, '_blank');
+    if (selectedPeriod) window.open(`/api/accounting/trial-balance-export?fiscal_period_id=${selectedPeriod}`, '_blank');
   };
 
   const balanced = Math.abs(totalDebit - totalCredit) < 0.02;
 
   const selectedPeriodObj = periods.find(p => p.id === selectedPeriod);
-  const todayStr: string = new Date().toISOString().substring(0, 10);
-  const drillDownStart: string = selectedPeriodObj?.startDate
+  const todayStr = new Date().toISOString().substring(0, 10);
+  const drillDownStart = selectedPeriodObj?.startDate
     ? selectedPeriodObj.startDate.substring(0, 10)
     : todayStr.substring(0, 4) + '-01-01';
-  const drillDownEnd: string = selectedPeriodObj?.endDate
+  const drillDownEnd = selectedPeriodObj?.endDate
     ? selectedPeriodObj.endDate.substring(0, 10)
     : todayStr;
 
   const selectClass = 'px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm';
+  const colSpan = comparePeriodId ? 7 : 5;
 
   return (
     <AppLayout>
@@ -130,20 +111,17 @@ export default function TrialBalancePage() {
               </div>
             </div>
             <div className="flex items-center gap-3">
-              {/* Primary period */}
               <select value={selectedPeriod} onChange={e => setSelectedPeriod(e.target.value)} className={selectClass}>
                 {periods.map(p => (
                   <option key={p.id} value={p.id}>{p.periodName} ({p.status})</option>
                 ))}
               </select>
-              {/* Comparative period */}
               <select value={comparePeriodId} onChange={e => setComparePeriodId(e.target.value)} className={selectClass}>
                 <option value="">No comparison</option>
                 {periods.filter(p => p.id !== selectedPeriod).map(p => (
                   <option key={p.id} value={p.id}>{p.periodName}</option>
                 ))}
               </select>
-              {/* Cost centre filter */}
               <select value={costCentreId} onChange={e => setCostCentreId(e.target.value)} className={selectClass}>
                 <option value="">All Cost Centres</option>
                 {costCentres.map(cc => (
@@ -159,7 +137,6 @@ export default function TrialBalancePage() {
         </div>
 
         <div className="p-6">
-          {/* Balance status cards */}
           {!loading && rows.length > 0 && (
             <div className="grid grid-cols-3 gap-4 mb-6">
               <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
@@ -212,52 +189,17 @@ export default function TrialBalancePage() {
                 </thead>
                 <tbody>
                   {rows.map(r => (
-                    <React.Fragment key={r.accountCode}>
-                      <tr
-                        onClick={() => setExpandedAccount(expandedAccount === r.accountCode ? null : r.accountCode)}
-                        className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50 cursor-pointer"
-                      >
-                        <td className="px-4 py-3 font-mono text-[var(--ff-text-tertiary)]">
-                          <span className="flex items-center gap-1">
-                            {expandedAccount === r.accountCode
-                              ? <ChevronDown className="h-3 w-3" />
-                              : <ChevronRight className="h-3 w-3" />}
-                            {r.accountCode}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-[var(--ff-text-primary)]">{r.accountName}</td>
-                        <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded text-xs font-medium uppercase tracking-wide ${TYPE_PILL[r.accountType.toLowerCase()] ?? NEUTRAL_PILL}`}>{r.accountType}</span></td>
-                        <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{r.debitBalance > 0 ? fmt(r.debitBalance) : '—'}</td>
-                        <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{r.creditBalance > 0 ? fmt(r.creditBalance) : '—'}</td>
-                        {comparePeriodId && (
-                          <>
-                            <td className="px-4 py-3 text-right text-[var(--ff-text-tertiary)] text-xs">
-                              {(r.priorDebitBalance ?? 0) > 0 ? fmt(r.priorDebitBalance ?? 0) : '—'}
-                            </td>
-                            <td className="px-4 py-3 text-right text-[var(--ff-text-tertiary)] text-xs">
-                              {(r.priorCreditBalance ?? 0) > 0 ? fmt(r.priorCreditBalance ?? 0) : '—'}
-                            </td>
-                          </>
-                        )}
-                        <td className="px-4 py-3 text-center" onClick={e => e.stopPropagation()}>
-                          <button
-                            onClick={() => setEvidenceTarget({ accountId: r.accountCode, accountName: r.accountName })}
-                            className="px-2 py-1 rounded text-xs bg-indigo-500/15 text-indigo-400 hover:bg-indigo-500/25 whitespace-nowrap"
-                          >
-                            Evidence
-                          </button>
-                        </td>
-                      </tr>
-                      {expandedAccount === r.accountCode && (
-                        <AccountDrillDown
-                          accountCode={r.accountCode}
-                          periodStart={drillDownStart}
-                          periodEnd={drillDownEnd}
-                          asTableRow
-                          colSpan={comparePeriodId ? 7 : 5}
-                        />
-                      )}
-                    </React.Fragment>
+                    <TrialBalanceRow
+                      key={r.accountCode}
+                      row={r}
+                      isExpanded={expandedAccount === r.accountCode}
+                      onToggle={code => setExpandedAccount(prev => prev === code ? null : code)}
+                      onEvidence={(id, name) => setEvidenceTarget({ accountId: id, accountName: name })}
+                      showComparative={!!comparePeriodId}
+                      drillDownStart={drillDownStart}
+                      drillDownEnd={drillDownEnd}
+                      colSpan={colSpan}
+                    />
                   ))}
                 </tbody>
                 <tfoot>
@@ -292,6 +234,7 @@ export default function TrialBalancePage() {
           onClose={() => setEvidenceTarget(null)}
         />
       )}
+
     </AppLayout>
   );
 }
