@@ -1,15 +1,18 @@
 /**
  * Company Settings — shell page
  * Loads shared company data; delegates rendering to per-tab components.
+ * Layout: sticky left sidebar (grouped categories) + scrollable content area.
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Building2, Save, Loader2, AlertCircle, CheckCircle2, Settings2, Receipt, FileDigit, Palette, Layers, BarChart2, MessageSquare, Mail, Globe, LayoutList, Banknote } from 'lucide-react';
+import { Building2, Save, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
 import { Company, DocumentNumber, CompanyDocument } from '@/components/accounting/settings/settingsTypes';
 import { mapApiCompany } from '@/components/accounting/settings/mapApiCompany';
+import { SettingsSidebar } from '@/components/accounting/settings/SettingsSidebar';
+import type { TabId } from '@/components/accounting/settings/settingsNav';
 import { DetailsTab } from '@/components/accounting/settings/DetailsTab';
 import { GeneralTab } from '@/components/accounting/settings/GeneralTab';
 import { VatTab } from '@/components/accounting/settings/VatTab';
@@ -23,24 +26,6 @@ import { UdfTab } from '@/components/accounting/settings/UdfTab';
 import { RegionalTab } from '@/components/accounting/settings/RegionalTab';
 import { CustomerZoneTab } from '@/components/accounting/settings/CustomerZoneTab';
 import { NetcashTab } from '@/components/accounting/settings/NetcashTab';
-
-type TabId = 'details' | 'general' | 'vat' | 'documents' | 'branding' | 'dimensions' | 'aging' | 'doc-messages' | 'email-templates' | 'udf' | 'regional' | 'customer-zone' | 'netcash';
-
-const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
-  { id: 'details', label: 'Company Details', icon: <Building2 className="h-4 w-4" /> },
-  { id: 'general', label: 'General Settings', icon: <Settings2 className="h-4 w-4" /> },
-  { id: 'vat', label: 'VAT Settings', icon: <Receipt className="h-4 w-4" /> },
-  { id: 'documents', label: 'Documents & Statements', icon: <FileDigit className="h-4 w-4" /> },
-  { id: 'aging', label: 'Aging', icon: <BarChart2 className="h-4 w-4" /> },
-  { id: 'doc-messages', label: 'Document Messages', icon: <MessageSquare className="h-4 w-4" /> },
-  { id: 'email-templates', label: 'Email Templates', icon: <Mail className="h-4 w-4" /> },
-  { id: 'branding', label: 'Branding', icon: <Palette className="h-4 w-4" /> },
-  { id: 'customer-zone', label: 'Customer Zone', icon: <Globe className="h-4 w-4" /> },
-  { id: 'dimensions', label: 'Dimensions', icon: <Layers className="h-4 w-4" /> },
-  { id: 'udf', label: 'User Fields', icon: <LayoutList className="h-4 w-4" /> },
-  { id: 'regional', label: 'Regional', icon: <Globe className="h-4 w-4" /> },
-  { id: 'netcash', label: 'Netcash', icon: <Banknote className="h-4 w-4" /> },
-];
 
 export default function CompanySettingsPage() {
   const { activeCompany, loading: companiesLoading } = useCompany();
@@ -154,85 +139,117 @@ export default function CompanySettingsPage() {
     }
   };
 
+  // ── Tab content renderer ──────────────────────────────────────────────────
+
+  const renderContent = () => {
+    if (!company) return null;
+    switch (activeTab) {
+      case 'details':
+        return (
+          <DetailsTab
+            company={company} onChange={update} onCompanyChange={setCompany}
+            documents={documents} onDocumentsChange={setDocuments} onError={setError}
+          />
+        );
+      case 'general':
+        return <GeneralTab company={company} onChange={update} />;
+      case 'vat':
+        return <VatTab company={company} onChange={update} />;
+      case 'documents':
+        return (
+          <DocumentsTab
+            docNumbers={docNumbers} messages={messages} docDisplayFields={docDisplayFields}
+            onDocNumChange={(dt, f, v) => setDocNumbers(prev => prev.map(d => d.documentType === dt ? { ...d, [f]: v } : d))}
+            onMessageChange={(k, v) => setMessages(prev => ({ ...prev, [k]: v }))}
+            onDisplayFieldChange={(k, v) => setDocDisplayFields(prev => ({ ...prev, [k]: v }))}
+          />
+        );
+      case 'aging':
+        return <AgingTab company={company} onChange={update} />;
+      case 'doc-messages':
+        return (
+          <DocMessagesTab
+            messages={messages}
+            onMessageChange={(k, v) => setMessages(prev => ({ ...prev, [k]: v }))}
+          />
+        );
+      case 'email-templates':
+        return <EmailTemplatesTab company={company} onChange={update} />;
+      case 'branding':
+        return <BrandingTab company={company} onChange={update} onCompanyChange={setCompany} onError={setError} />;
+      case 'customer-zone':
+        return <CustomerZoneTab company={company} onChange={update} />;
+      case 'dimensions':
+        return (
+          <DimensionsTab
+            enableCC={enableCC} enableBU={enableBU} dimLoaded={dimLoaded}
+            onCCChange={setEnableCC} onBUChange={setEnableBU}
+          />
+        );
+      case 'udf':
+        return <UdfTab />;
+      case 'regional':
+        return <RegionalTab company={company} onChange={update} />;
+      case 'netcash':
+        return <NetcashTab company={company} onChange={update} />;
+      default:
+        return null;
+    }
+  };
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <AppLayout>
-      <div className="p-4 lg:p-6 space-y-6 max-w-5xl">
+      <div className="p-4 lg:p-6 space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-teal-500/10"><Building2 className="h-6 w-6 text-teal-500" /></div>
+            <div className="p-2 rounded-lg bg-teal-500/10">
+              <Building2 className="h-6 w-6 text-teal-500" />
+            </div>
             <div>
               <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Company Settings</h1>
               <p className="text-sm text-[var(--ff-text-secondary)]">Manage your company details and preferences</p>
             </div>
           </div>
-          <button onClick={() => void handleSave()} disabled={saving || !company}
-            className="flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
+          <button
+            onClick={() => void handleSave()}
+            disabled={saving || !company}
+            className="flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+          >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save Changes
           </button>
         </div>
 
-        {error && <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 flex items-center gap-2 text-red-500 text-sm"><AlertCircle className="h-4 w-4" /> {error}</div>}
-        {saved && <div className="bg-teal-500/10 border border-teal-500/30 rounded-lg p-3 flex items-center gap-2 text-teal-500 text-sm"><CheckCircle2 className="h-4 w-4" /> Changes saved successfully</div>}
+        {error && (
+          <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 flex items-center gap-2 text-red-500 text-sm">
+            <AlertCircle className="h-4 w-4" /> {error}
+          </div>
+        )}
+        {saved && (
+          <div className="bg-teal-500/10 border border-teal-500/30 rounded-lg p-3 flex items-center gap-2 text-teal-500 text-sm">
+            <CheckCircle2 className="h-4 w-4" /> Changes saved successfully
+          </div>
+        )}
 
         {loading ? (
-          <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-teal-500" /></div>
+          <div className="flex justify-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
+          </div>
         ) : company ? (
-          <>
-            {/* Tab bar */}
-            <div className="flex gap-1 overflow-x-auto border-b border-[var(--ff-border-primary)] pb-0">
-              {TABS.map(tab => (
-                <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
-                    activeTab === tab.id
-                      ? 'border-teal-500 text-teal-500'
-                      : 'border-transparent text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'
-                  }`}>
-                  {tab.icon} {tab.label}
-                </button>
-              ))}
+          /*
+           * Layout:
+           *   mobile  → flex-col: the mobile nav strip (inside SettingsSidebar,
+           *             md:hidden) stacks above the content area
+           *   desktop → flex-row: sticky sidebar (240 px) left, content (flex-1) right
+           */
+          <div className="flex flex-col md:flex-row gap-6 items-start">
+            <SettingsSidebar activeTab={activeTab} onTabChange={setActiveTab} />
+            <div className="flex-1 min-w-0 space-y-6">
+              {renderContent()}
             </div>
-
-            {/* Tab content */}
-            <div className="space-y-6">
-              {activeTab === 'details' && (
-                <DetailsTab
-                  company={company} onChange={update} onCompanyChange={setCompany}
-                  documents={documents} onDocumentsChange={setDocuments} onError={setError}
-                />
-              )}
-              {activeTab === 'general' && <GeneralTab company={company} onChange={update} />}
-              {activeTab === 'vat' && <VatTab company={company} onChange={update} />}
-              {activeTab === 'documents' && (
-                <DocumentsTab
-                  docNumbers={docNumbers} messages={messages} docDisplayFields={docDisplayFields}
-                  onDocNumChange={(dt, f, v) => setDocNumbers(prev => prev.map(d => d.documentType === dt ? { ...d, [f]: v } : d))}
-                  onMessageChange={(k, v) => setMessages(prev => ({ ...prev, [k]: v }))}
-                  onDisplayFieldChange={(k, v) => setDocDisplayFields(prev => ({ ...prev, [k]: v }))}
-                />
-              )}
-              {activeTab === 'aging' && <AgingTab company={company} onChange={update} />}
-              {activeTab === 'doc-messages' && (
-                <DocMessagesTab
-                  messages={messages}
-                  onMessageChange={(k, v) => setMessages(prev => ({ ...prev, [k]: v }))}
-                />
-              )}
-              {activeTab === 'email-templates' && <EmailTemplatesTab company={company} onChange={update} />}
-              {activeTab === 'branding' && (
-                <BrandingTab company={company} onChange={update} onCompanyChange={setCompany} onError={setError} />
-              )}
-              {activeTab === 'customer-zone' && <CustomerZoneTab company={company} onChange={update} />}
-              {activeTab === 'dimensions' && (
-                <DimensionsTab enableCC={enableCC} enableBU={enableBU} dimLoaded={dimLoaded} onCCChange={setEnableCC} onBUChange={setEnableBU} />
-              )}
-              {activeTab === 'udf' && <UdfTab />}
-              {activeTab === 'regional' && <RegionalTab company={company} onChange={update} />}
-              {activeTab === 'netcash' && <NetcashTab company={company} onChange={update} />}
-            </div>
-          </>
+          </div>
         ) : (
           <div className="text-center py-12 text-[var(--ff-text-secondary)]">No company configured</div>
         )}
