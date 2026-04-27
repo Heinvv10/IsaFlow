@@ -34,6 +34,7 @@ export const reportsTab: Tab = {
         { label: 'Supplier Report', href: '/accounting/reports/supplier-reports' },
         { label: 'Bank Transactions', href: '/accounting/reports/bank-transactions' },
         { label: 'Account Transactions', href: '/accounting/reports/account-transactions' },
+        // Account Ledger has no meaningful default account/date — enter via TB/BS drill-down only.
         { label: 'Journal Entries', href: '/accounting/reports/journal-entries' },
         { label: 'VAT Return', href: '/accounting/reports/vat-return' },
         { label: 'Audit Trail', href: '/accounting/audit-log' },
