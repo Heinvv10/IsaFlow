@@ -10,9 +10,9 @@ const handler: NextApiHandler = async (req, res) => {
 
   const profile = await sql<{
     id: string; email: string; first_name: string | null; last_name: string | null;
-    role: string | null; permissions: unknown;
+    role: string | null; permissions: unknown; onboarding_completed: boolean;
   }>`
-    SELECT id, email, first_name, last_name, role, permissions
+    SELECT id, email, first_name, last_name, role, permissions, onboarding_completed
     FROM users
     WHERE id = ${user.id}
     LIMIT 1
