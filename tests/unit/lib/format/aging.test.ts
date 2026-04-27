@@ -1,13 +1,15 @@
 /**
- * Unit tests for src/lib/format/aging.ts — formatOverdueDaysCompact
+ * Unit tests for src/lib/format/aging.ts
  *
- * Covers all boundary cases specified in GAP-4 of the 2026-04-27 UI/UX audit:
- *   negative, zero, 1, 365 (upper cap boundary), 366 (first over-cap), 2268
- *   (demo data regression), NaN, undefined-cast-to-NaN, Infinity.
+ * Covers:
+ *   - formatOverdueDaysCompact — GAP-4 boundary cases from 2026-04-27 UI/UX audit
+ *   - computeAgingBucket — mirrors the SQL CASE WHEN ladder in
+ *     pages/api/accounting/customer-invoices-list.ts; these tests are the
+ *     authoritative spec for bucket boundaries.
  */
 
 import { describe, it, expect } from 'vitest';
-import { formatOverdueDaysCompact } from '@/lib/format/aging';
+import { formatOverdueDaysCompact, computeAgingBucket } from '@/lib/format/aging';
 
 describe('formatOverdueDaysCompact', () => {
   it('returns "—" for negative values', () => {
@@ -53,5 +55,53 @@ describe('formatOverdueDaysCompact', () => {
 
   it('floors fractional days correctly (91.9 → "91")', () => {
     expect(formatOverdueDaysCompact(91.9)).toBe('91');
+  });
+});
+
+describe('computeAgingBucket', () => {
+  it('returns null for paid invoices regardless of days', () => {
+    expect(computeAgingBucket(30, 'paid')).toBeNull();
+    expect(computeAgingBucket(0, 'paid')).toBeNull();
+    expect(computeAgingBucket(120, 'paid')).toBeNull();
+  });
+
+  it('returns Current when days is 0 (not yet overdue)', () => {
+    expect(computeAgingBucket(0, 'sent')).toBe('Current');
+  });
+
+  it('returns Current when days is negative (paid early or same day)', () => {
+    expect(computeAgingBucket(-5, 'sent')).toBe('Current');
+  });
+
+  it('returns Current when days is NaN (due_date absent, guard against runtime coercions)', () => {
+    expect(computeAgingBucket(NaN, 'sent')).toBe('Current');
+  });
+
+  it('returns 1-30 for 1 day overdue (bucket lower boundary)', () => {
+    expect(computeAgingBucket(1, 'sent')).toBe('1-30');
+  });
+
+  it('returns 1-30 for 30 days overdue (bucket upper boundary)', () => {
+    expect(computeAgingBucket(30, 'sent')).toBe('1-30');
+  });
+
+  it('returns 31-60 for 31 days overdue (bucket lower boundary)', () => {
+    expect(computeAgingBucket(31, 'sent')).toBe('31-60');
+  });
+
+  it('returns 31-60 for 60 days overdue (bucket upper boundary)', () => {
+    expect(computeAgingBucket(60, 'sent')).toBe('31-60');
+  });
+
+  it('returns 61-90 for 61 days overdue (bucket lower boundary)', () => {
+    expect(computeAgingBucket(61, 'sent')).toBe('61-90');
+  });
+
+  it('returns 61-90 for 90 days overdue (bucket upper boundary)', () => {
+    expect(computeAgingBucket(90, 'sent')).toBe('61-90');
+  });
+
+  it('returns 90+ for 91 days overdue (worst bucket lower boundary)', () => {
+    expect(computeAgingBucket(91, 'sent')).toBe('90+');
   });
 });
