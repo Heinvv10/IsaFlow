@@ -178,10 +178,14 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  // Redirect to onboarding if user hasn't completed it
+  // Redirect to onboarding if user hasn't completed it.
+  // Issue the CSRF cookie on the redirect response too — without this, an
+  // authenticated user whose first request lands on /accounting bounces to
+  // /onboarding without ever receiving a CSRF cookie, and any state-changing
+  // call afterward fails until they hit a passthrough page.
   if (token && !request.cookies.get('ff_onboarding_done')?.value) {
     if (pathname.startsWith('/accounting') || pathname.startsWith('/payroll')) {
-      return NextResponse.redirect(new URL('/onboarding', request.url));
+      return issueCsrfCookie(request, NextResponse.redirect(new URL('/onboarding', request.url)));
     }
   }
 
