@@ -25,14 +25,14 @@ export function NoBankAccountWarning() {
         <p className="font-semibold text-amber-800 dark:text-amber-300 text-sm">
           Cash position shown but no bank account configured
         </p>
-        <p className="text-xs text-amber-600 dark:text-amber-400/70 mt-0.5">
+        <p className="text-xs text-amber-800 dark:text-amber-400/70 mt-0.5">
           Reconciliation is unavailable until you add a bank account.
         </p>
       </div>
 
       <Link
         href="/accounting/bank-accounts"
-        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 dark:hover:bg-amber-500 text-white rounded-lg text-xs font-medium transition-colors shrink-0 no-underline"
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-700 hover:bg-amber-800 dark:bg-amber-600 dark:hover:bg-amber-500 text-white rounded-lg text-xs font-medium transition-colors shrink-0 no-underline"
       >
         Add Bank Account
         <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
