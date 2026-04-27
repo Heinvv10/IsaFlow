@@ -104,3 +104,27 @@ export const BUCKET_COLORS: Record<AgingBucketKey, string> = {
   days90:     'text-red-400',
   days90Plus: 'text-red-600',
 };
+
+/**
+ * Compact raw-day display for the "Days Overdue" table column.
+ *
+ * Unlike `formatOverdueDays` (which produces "2268d overdue"), this helper
+ * returns a bare integer string so it doesn't duplicate the column header.
+ * Values above 365 are capped at ">365" to avoid absurdly large numbers in
+ * the demo data or edge-case stale invoices.
+ *
+ *   formatOverdueDaysCompact(-1)    → "—"
+ *   formatOverdueDaysCompact(0)     → "—"
+ *   formatOverdueDaysCompact(1)     → "1"
+ *   formatOverdueDaysCompact(365)   → "365"
+ *   formatOverdueDaysCompact(366)   → ">365"
+ *   formatOverdueDaysCompact(2268)  → ">365"
+ *   formatOverdueDaysCompact(NaN)   → "—"
+ *   formatOverdueDaysCompact(Infinity) → "—"
+ */
+export function formatOverdueDaysCompact(days: number): string {
+  if (!Number.isFinite(days) || days <= 0) return '—';
+  const d = Math.floor(days);
+  if (d > DAYS_PER_YEAR) return '>365';
+  return String(d);
+}
