@@ -40,6 +40,7 @@ import type { ShortcutConfig } from '@/lib/keyboard-shortcuts';
 import { AccountingTour } from '@/components/onboarding/AccountingTour';
 import { SetupGuideButton } from '@/components/onboarding/SetupGuideButton';
 import { ImpersonationBanner } from '@/components/layout/ImpersonationBanner';
+import { DemoBanner } from '@/components/layout/DemoBanner';
 import { PayrollPeriodBar } from '@/components/payroll/PayrollPeriodBar';
 import { DM_Sans } from 'next/font/google';
 
@@ -307,6 +308,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   return (
     <div className={`${dmSans.variable} flex flex-col h-screen overflow-hidden`} style={{ background: 'var(--ff-canvas-base)' }}>
       <ImpersonationBanner />
+      <DemoBanner />
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
 
