@@ -33,7 +33,7 @@ type Row = DbRow;
 
 // ── Account code constants ───────────────────────────────────────────────────
 
-const ACCOUNT_CODES = ['5200', '2140', '2150', '2160', '1110'] as const;
+const ACCOUNT_CODES = ['5200', '2140', '2150', '2160', '1110', '2175'] as const;
 type AccountCode = typeof ACCOUNT_CODES[number];
 type AccountMap = Record<AccountCode, string>; // code → UUID
 
@@ -50,7 +50,7 @@ async function resolveAccountIds(companyId: string): Promise<AccountMap> {
     SELECT account_code, id
     FROM gl_accounts
     WHERE company_id = ${companyId}::uuid
-      AND account_code = ANY(ARRAY['5200','2140','2150','2160','1110'])
+      AND account_code = ANY(ARRAY['5200','2140','2150','2160','1110','2175'])
   `) as Row[];
 
   const map: Partial<AccountMap> = {};
@@ -125,6 +125,15 @@ export async function postPayrollRunJournal(
     companyId, runId, labourDebit, totalGross, accts['5200'],
   );
 
+  // Other employee deductions (medical aid, pension, RA, etc.) reduce net pay
+  // but are not captured in the statutory header totals. Derive the residual
+  // and credit it to a single payable account so the journal balances.
+  // Per-component GL mapping can split this further in future.
+  const employeeUif = Math.round((totalUif / 2) * 100) / 100;
+  const otherDeductions = Math.round(
+    (totalGross - totalPaye - employeeUif - totalNet) * 100,
+  ) / 100;
+
   const lines: JournalLineInput[] = [
     ...labourLines,
     { glAccountId: accts['2140'], debit: 0, credit: Math.round(totalPaye * 100) / 100, description: 'PAYE payable' },
@@ -132,6 +141,15 @@ export async function postPayrollRunJournal(
     { glAccountId: accts['2160'], debit: 0, credit: Math.round(totalSdl  * 100) / 100, description: 'SDL payable' },
     { glAccountId: accts['1110'], debit: 0, credit: Math.round(totalNet  * 100) / 100, description: 'Net pay — bank disbursement' },
   ];
+
+  if (otherDeductions > 0.005) {
+    lines.push({
+      glAccountId: accts['2175'],
+      debit: 0,
+      credit: otherDeductions,
+      description: 'Other employee deductions (medical aid, pension, RA, etc.)',
+    });
+  }
 
   // 6. Verify the entry balances before touching GL (avoids orphaned draft entries)
   const totalDebits  = lines.reduce((s, l) => s + l.debit,  0);

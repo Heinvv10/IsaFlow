@@ -154,26 +154,32 @@ export async function submitVATReturn(
     resolveUserUuid(userId),
   ]);
 
-  // 4. Build journal lines
+  // 4. Build journal lines — skip any zero-amount line. A nil VAT201 (no
+  // output, no input) produces no lines and we record the submission without
+  // posting a journal.
   //    Payable:  DR vatOutput / CR vatInput / CR accruedExp (net)
   //    Refund:   DR vatOutput / DR accruedExp (net abs) / CR vatInput
   const lines: JournalLineInput[] = [];
 
-  // DR 2120 VAT Output — closes the liability accumulated during the period
-  lines.push({
-    glAccountId: vatOutputAcc.id,
-    debit:       totalOutputTax,
-    credit:      0,
-    description: `VAT return submission ${periodStart} to ${periodEnd} — output tax`,
-  });
+  if (totalOutputTax > 0.005) {
+    // DR 2120 VAT Output — closes the liability accumulated during the period
+    lines.push({
+      glAccountId: vatOutputAcc.id,
+      debit:       totalOutputTax,
+      credit:      0,
+      description: `VAT return submission ${periodStart} to ${periodEnd} — output tax`,
+    });
+  }
 
-  // CR 1140 VAT Input — closes the asset accumulated during the period
-  lines.push({
-    glAccountId: vatInputAcc.id,
-    debit:       0,
-    credit:      totalInputTax,
-    description: `VAT return submission ${periodStart} to ${periodEnd} — input tax`,
-  });
+  if (totalInputTax > 0.005) {
+    // CR 1140 VAT Input — closes the asset accumulated during the period
+    lines.push({
+      glAccountId: vatInputAcc.id,
+      debit:       0,
+      credit:      totalInputTax,
+      description: `VAT return submission ${periodStart} to ${periodEnd} — input tax`,
+    });
+  }
 
   if (Math.abs(netVat) > 0.001) {
     if (netVat > 0) {
@@ -195,17 +201,23 @@ export async function submitVATReturn(
     }
   }
 
-  // 5. Create and post the journal entry
-  const je = await createJournalEntry(companyId, {
-    entryDate:   periodEnd,
-    description: `VAT201 submission ${periodStart} to ${periodEnd}`,
-    source:      'auto_vat_submission',
-    lines,
-  }, safeUserId);
+  // 5. Create and post the journal entry — skip entirely for a nil return
+  let journalEntryId: string | null = null;
+  if (lines.length > 0) {
+    const je = await createJournalEntry(companyId, {
+      entryDate:   periodEnd,
+      description: `VAT201 submission ${periodStart} to ${periodEnd}`,
+      source:      'auto_vat_submission',
+      lines,
+    }, safeUserId);
 
-  await postJournalEntry(companyId, je.id, safeUserId);
+    await postJournalEntry(companyId, je.id, safeUserId);
+    journalEntryId = je.id;
 
-  log.info('VAT submission journal posted', { journalEntryId: je.id }, 'accounting');
+    log.info('VAT submission journal posted', { journalEntryId }, 'accounting');
+  } else {
+    log.info('Nil VAT201 submission — no journal posted', { companyId, periodStart, periodEnd }, 'accounting');
+  }
 
   // 6. Insert vat_returns record
   const absNetVat = netVat; // signed: positive = payable, negative = refund
@@ -224,7 +236,7 @@ export async function submitVATReturn(
       ${absNetVat},
       ${sarsReference ?? null},
       ${safeUserId}::UUID,
-      ${je.id}::UUID
+      ${journalEntryId}::UUID
     )
     RETURNING *
   `) as Row[];
