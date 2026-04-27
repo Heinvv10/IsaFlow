@@ -48,7 +48,15 @@ tests/e2e/screenshots/
 xero-screenshots/
 public/$HOME/
 $HOME/
+# Ad-hoc dev QA scripts under scripts/qa-*.ts are gitignored, BUT the
+# IsaDemo2 bookkeeping-cycle harness is durable infrastructure with its own
+# code-reviewed contract. The exceptions below force-track those files.
 scripts/qa-*.ts
+!scripts/qa-walkthrough.ts
+!scripts/qa-http-walkthrough.ts
+!scripts/qa-seed/
+!scripts/qa-walk/
+!scripts/qa-http/
 scripts/cols.ts
 scripts/inspect-db.ts
 scripts/integrity-check.ts
