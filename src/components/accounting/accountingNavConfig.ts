@@ -32,6 +32,7 @@ import { settingsTab } from './navSections/settings';
 
 export const TABS: Tab[] = [
   { id: 'dashboard', label: 'Dashboard', href: '/accounting' },
+  { id: 'workbench', label: 'Month-End', href: '/accounting/month-end-workbench' },
   salesTab,
   purchasesTab,
   inventoryTab,
