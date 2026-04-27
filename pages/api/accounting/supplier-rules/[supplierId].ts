@@ -20,7 +20,14 @@ import {
   deleteRule,
 } from '@/modules/accounting/services/capture/supplierRulesService';
 
+// `passthrough()` (not strict) — the UI sends a few fields the service
+// intentionally ignores (`qtyTolerancePct`, `priceTolerancePct`, plus
+// `supplierId` redundantly because the URL already carries it). The validated
+// fields below are the contract; anything else flows through and the service
+// drops it via its own column allowlist. Strict-rejecting these would block
+// every UI PATCH.
 const PatchSchema = z.object({
+  supplierId: UUID.optional(),
   defaultGlAccountId: UUID.nullable().optional(),
   defaultVatCode: z.string().max(20).nullable().optional(),
   defaultCostCentreId: UUID.nullable().optional(),
@@ -29,7 +36,9 @@ const PatchSchema = z.object({
   autoPublishMaxAmount: z.number().nullable().optional(),
   autoPublishMinConfidence: z.number().min(0).max(1).optional(),
   requirePoMatch: z.boolean().optional(),
-}).strict();
+  qtyTolerancePct: z.number().min(0).max(100).optional(),
+  priceTolerancePct: z.number().min(0).max(100).optional(),
+}).passthrough();
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const { companyId } = req;
@@ -47,9 +56,16 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (req.method === 'PATCH') {
     const parsed = PatchSchema.safeParse(req.body);
     if (!parsed.success) {
-      return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
+      return apiResponse.validationError(
+        res,
+        parsed.error.flatten().fieldErrors as Record<string, string | string[]>,
+      );
     }
-    const rule = await upsertRule(companyId, supplierId, parsed.data, userId);
+    // Drop the redundant `supplierId` the UI sends in the body — the URL is
+    // the source of truth for which rule we're editing.
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { supplierId: _ignored, ...patch } = parsed.data;
+    const rule = await upsertRule(companyId, supplierId, patch, userId);
     log.info('Supplier rule patched via API', { companyId, supplierId }, 'supplier-rules-api');
     return apiResponse.success(res, rule);
   }

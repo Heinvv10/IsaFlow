@@ -13,20 +13,23 @@ import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 
+// Fields are nullable as well as optional. The UI clears a field by sending
+// `null` (e.g. `description: editForm.description.trim() || null`), and the
+// handler's COALESCE-based UPDATE preserves the existing value on null.
 const PutBankAccountSchema = z.object({
   id: UUID,
-  bankAccountNumber: z.string().max(50).optional(),
-  bankName: z.string().max(100).optional(),
-  bankBranchName: z.string().max(100).optional(),
-  bankBranchCode: z.string().max(20).optional(),
-  bankAccountType: z.string().max(20).optional(),
-  bankIsDefault: z.boolean().optional(),
-  bankDefaultPaymentMethod: z.string().max(20).optional(),
-  bankOpeningBalance: z.union([z.number(), z.string()]).optional(),
-  bankOpeningBalanceDate: z.string().max(10).optional(),
-  description: z.string().max(500).optional(),
-  accountName: z.string().max(100).optional(),
-  isActive: z.boolean().optional(),
+  bankAccountNumber: z.string().max(50).nullable().optional(),
+  bankName: z.string().max(100).nullable().optional(),
+  bankBranchName: z.string().max(100).nullable().optional(),
+  bankBranchCode: z.string().max(20).nullable().optional(),
+  bankAccountType: z.string().max(20).nullable().optional(),
+  bankIsDefault: z.boolean().nullable().optional(),
+  bankDefaultPaymentMethod: z.string().max(20).nullable().optional(),
+  bankOpeningBalance: z.union([z.number(), z.string()]).nullable().optional(),
+  bankOpeningBalanceDate: z.string().max(10).nullable().optional(),
+  description: z.string().max(500).nullable().optional(),
+  accountName: z.string().max(100).nullable().optional(),
+  isActive: z.boolean().nullable().optional(),
 }).strict();
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -40,10 +43,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
       const b = parsed.data;
       const { id } = b;
-      const s = (v: string | undefined) => (typeof v === 'string' && v.trim() ? v.trim() : null);
-      const n = (v: number | string | undefined) =>
+      const s = (v: string | null | undefined) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+      const n = (v: number | string | null | undefined) =>
         v !== undefined && v !== null && v !== '' ? Number(v) : null;
-      const bool = (v: boolean | undefined) => (typeof v === 'boolean' ? v : null);
+      const bool = (v: boolean | null | undefined) => (typeof v === 'boolean' ? v : null);
 
       await sql`
         UPDATE gl_accounts SET
