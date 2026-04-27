@@ -29,15 +29,17 @@ interface MenuPortalProps {
   focusedIndex: number;
   onSelect: (item: ActionMenuItem) => void;
   onFocusChange: (index: number) => void;
+  menuRef: React.RefObject<HTMLDivElement | null>;
 }
 
-function MenuPortal({ anchorRect, items, focusedIndex, onSelect, onFocusChange }: MenuPortalProps) {
+function MenuPortal({ anchorRect, items, focusedIndex, onSelect, onFocusChange, menuRef }: MenuPortalProps) {
   const top = anchorRect.bottom + window.scrollY + 4;
   // Align to the right edge of the trigger
   const right = window.innerWidth - anchorRect.right - window.scrollX;
 
   return createPortal(
     <div
+      ref={menuRef}
       role="menu"
       aria-orientation="vertical"
       style={{
@@ -84,18 +86,40 @@ export function ActionMenu({ items, triggerLabel = 'More actions', className }: 
   const [focusedIndex, setFocusedIndex] = React.useState(-1);
   const [anchorRect, setAnchorRect] = React.useState<DOMRect | null>(null);
   const triggerRef = React.useRef<HTMLButtonElement>(null);
+  const menuRef = React.useRef<HTMLDivElement | null>(null);
 
-  // Close on outside click
+  // Close on outside click — excludes both the trigger AND the portal menu itself
   React.useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (triggerRef.current && !triggerRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (
+        triggerRef.current && !triggerRef.current.contains(target) &&
+        menuRef.current && !menuRef.current.contains(target)
+      ) {
         setOpen(false);
         setFocusedIndex(-1);
+        triggerRef.current?.focus();
       }
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  // Reposition on resize / scroll while menu is open
+  React.useEffect(() => {
+    if (!open) return;
+    const update = () => {
+      if (triggerRef.current) {
+        setAnchorRect(triggerRef.current.getBoundingClientRect());
+      }
+    };
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, { capture: true, passive: true });
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update, { capture: true });
+    };
   }, [open]);
 
   // Keyboard navigation
@@ -124,6 +148,7 @@ export function ActionMenu({ items, triggerLabel = 'More actions', className }: 
           item.onClick();
           setOpen(false);
           setFocusedIndex(-1);
+          triggerRef.current?.focus();
         }
       }
     };
@@ -143,6 +168,7 @@ export function ActionMenu({ items, triggerLabel = 'More actions', className }: 
     if (!item.disabled) item.onClick();
     setOpen(false);
     setFocusedIndex(-1);
+    triggerRef.current?.focus();
   };
 
   return (
@@ -173,6 +199,7 @@ export function ActionMenu({ items, triggerLabel = 'More actions', className }: 
           focusedIndex={focusedIndex}
           onSelect={handleSelect}
           onFocusChange={setFocusedIndex}
+          menuRef={menuRef}
         />
       )}
     </div>
