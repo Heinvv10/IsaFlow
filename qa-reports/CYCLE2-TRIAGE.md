@@ -1,8 +1,8 @@
 # Cycle 2 — HTTP Walkthrough Findings
 
-**Tenant:** `IsaDemo2` (`00000000-0000-0000-0000-0000000d4e02`)
+**Tenant:** `IsaDemo2 (QA fixture)` (`00000000-0000-0000-0000-0000000d4e02`)
 **Target:** `http://localhost:3101` (local dev server)
-**Auth user:** `admin@isaflow.co.za` (GoTrue id `d8a83148-cca6-4951-b13a-66322e4d5dbc`)
+**Auth user:** redacted dev-fixture admin
 
 ## Executive
 
@@ -12,7 +12,7 @@ Cycle 2 was supposed to fire the seven journeys over real HTTP to confirm/refute
 
 | Step | Result |
 |---|---|
-| `POST /api/auth/login` (admin@isaflow.co.za / admin123) | 200 — sb-access-token, sb-refresh-token, active_company_id (= original demo) |
+| `POST /api/auth/login` | 200 — sb-access-token, sb-refresh-token, active_company_id (= original demo) |
 | `GET /accounting` to seed CSRF cookie via middleware | Initially 307 → /onboarding (redirect doesn't issue CSRF). Workaround: locally set `ff_onboarding_done=1` cookie, then GET → CSRF cookie issued. |
 | `POST /api/auth/switch-company { companyId: '...-d4e02' }` | **403 FORBIDDEN — "Not a member of that company"** |
 | Same call against original demo (`...-0001`) | **200 OK** |
@@ -22,7 +22,7 @@ Cycle 2 was supposed to fire the seven journeys over real HTTP to confirm/refute
 ```sql
 -- As postgres (BYPASSRLS):
 SELECT 1 FROM company_users
-WHERE user_id = 'd8a83148-cca6-4951-b13a-66322e4d5dbc'
+WHERE user_id = '<redacted-uuid>'
   AND company_id = '00000000-0000-0000-0000-0000000d4e02'::uuid;
 -- → 1 row (membership exists)
 
@@ -30,23 +30,42 @@ WHERE user_id = 'd8a83148-cca6-4951-b13a-66322e4d5dbc'
 -- → 0 rows (RLS denies)
 ```
 
-`switch-company.ts` runs the membership check via `sql` from `@/lib/neon`, which uses the `DATABASE_URL` connection (postgres superuser in dev — should bypass RLS and return the row). Yet it returns 0 rows for IsaDemo2 but 1 row for the original demo.
+`switch-company.ts` runs the membership check via `sql` from `@/lib/neon`. In dev the connection is the `postgres` superuser, which would bypass RLS — yet the query returns 0 rows for IsaDemo2 but 1 row for the original demo. Two competing hypotheses:
 
-**Likely cause** — re-reading `withUserAuth.ts`: it does NOT set `request.jwt.claims` or `app.current_company_id` before the handler runs. Then `switch-company.ts` queries `company_users` via the shared connection pool. **If a previous request on the same connection ran under a different `app_user` role with `request.jwt.claims` set, those settings persist on the connection** until the next `RESET`.
+### Hypothesis A (most likely) — `withUserAuth` does not set RLS context
 
-`withAuth.ts` (the company-scoped wrapper) DOES set up RLS context inside a transaction with `SET LOCAL ROLE` — but the LOCAL only persists until commit. So that path is clean.
+`pages/api/auth/switch-company.ts` is wrapped in `withUserAuth` (NOT `withAuth`). `withUserAuth` (`src/lib/auth/withUserAuth.ts`) only verifies the JWT and attaches `req.user`. It does NOT:
 
-The leak path: a stale connection-level `SET ROLE app_user` (without `LOCAL`) or a JWT claim set with the third arg `false` rather than `true` would persist. Worth grepping for.
+- Open a transaction,
+- Set `LOCAL ROLE app_user`,
+- Set `request.jwt.claims` so `auth.uid()` resolves.
 
-This same pattern would explain the audit's "Validation failed" payment behavior — if `customer-payments` POST runs into a connection that's been left in a restrictive RLS state, the row can't be inserted, but no field-level error is surfaced.
+That setup lives in `withAuth.ts` lines ~108-112 — but **only `withAuth` does it**, not `withUserAuth`.
+
+The downstream `sql\`...\`` call from `@/lib/neon` checks out a connection from the module-level pool. **If the connection role is `app_user` and `company_users` is FORCED RLS** (migration 348:117 or thereabouts), then policy `cu_self_or_admin` filters by `auth.uid() = user_id`. With no JWT claim ever set, `auth.uid()` returns NULL, the predicate evaluates to NULL (not true), and every row is filtered out — including IsaDemo2 *and* the original demo. So the asymmetry between the two companies is unexplained by RLS alone.
+
+### Hypothesis B — connection-state leak
+
+A previous request on the same pooled connection ran under `withAuth` with `SET LOCAL ROLE app_user` + JWT claim. `LOCAL` is supposed to scope to the transaction, but if any code path uses non-LOCAL `SET ROLE` or `set_config(..., false)`, those settings persist on the connection across checkouts. This would explain a *non-deterministic* asymmetry between two queries that look identical.
+
+### Why the original demo "works" and IsaDemo2 doesn't
+
+Most likely: the test session had previously made an authenticated request that left `request.jwt.claims` populated for the original-demo membership, the `sql` call piggybacked on it for the original-demo lookup, and a later checkout returned a fresh connection with no claims — which then failed the IsaDemo2 lookup. This is an artefact of pool state, not a stable bug.
+
+**Both hypotheses point to the same fix:** `switch-company` should not depend on RLS context for a basic membership check. Either:
+
+- (preferred) wrap `switch-company` in `withAuth` so it always opens a transaction with the JWT-claim setup, OR
+- run the membership check in a deliberate "no-RLS" path (e.g. a dedicated function that uses the migration-admin URL or sets the role/claim explicitly).
+
+Either way, this is **unverified** — needs reproducing before code changes.
 
 ## Other secondary findings from this cycle
 
-1. **Login rate limiter stays sticky in dev.** Clearing `rate_limit_counters` table doesn't clear the in-memory LRU on the dev server. Repeated logins during testing trip the 10-attempts-per-15-minute email limit and stay tripped until the LRU TTL (5s per `LRU_TTL_MS`) actually rolls — but in practice the cache appears to hold longer. Worth investigating: is `LRU.set` writing fresh rows from DB whose count is < max? If so it should recover. If not, there's a regression in the recovery path.
+1. **Login rate limiter stays sticky in dev.** Clearing `rate_limit_counters` table doesn't immediately recover login. Worth investigating: is `LRU.set` writing fresh rows from DB whose count is < max? If so it should recover. If not, there's a regression in the recovery path.
 
-2. **`/accounting` redirects to `/onboarding` for any user without `ff_onboarding_done`.** This is the exact UX gap the audit hints at — "after creating a practice client, there is no guided next step". The middleware enforces it but doesn't log the user through onboarding cleanly. Confirm whether this is intentional gating.
+2. **`/accounting` redirects to `/onboarding` for any user without `ff_onboarding_done`.** The middleware enforces it but doesn't log the user through onboarding cleanly. Confirm whether this is intentional gating.
 
-3. **CSRF middleware does NOT run on `/api/*` routes.** `middleware.ts` line ~140: any `pathname.startsWith('/api/')` returns `NextResponse.next()` BEFORE the `issueCsrfCookie` block. This means the CSRF cookie is only issued during page navigation — and only after the user has skipped the onboarding redirect. Any flow that goes API → API without an interleaved page view never gets a fresh CSRF cookie. The cookie has no expiry set, so this works in practice for long-lived browser sessions, but it's a subtle gotcha.
+3. **CSRF middleware does NOT run on `/api/*` routes.** `middleware.ts` returns `NextResponse.next()` BEFORE the `issueCsrfCookie` block for any `/api/*` path. So the CSRF cookie is only issued during page navigation — and only after the user has skipped the onboarding redirect. **The redirect itself also doesn't issue CSRF** — the redirect response is created with `NextResponse.redirect` and the `issueCsrfCookie` wrapper is only applied to `NextResponse.next()`. Fix: wrap the redirect response too.
 
 ## What this means for the original audit's claims
 
@@ -54,33 +73,29 @@ This same pattern would explain the audit's "Validation failed" payment behavior
 |---|---|
 | Work-item dropdown empty | Could not test over HTTP — blocked by switch-company auth issue. DB-level query (cycle 1) returns rows. |
 | Staff-rate-override dropdown empty | Same — blocked. DB-level query returns 4 users. |
-| Payment "Validation failed" with no field detail | **Plausibly explained** by the same RLS-context leak hypothesised above: payment INSERT runs on a connection where RLS denies write, but the handler returns a generic 400 instead of the postgres error message. |
-| Date persistence | Still untested at HTTP level — needs cycle-3 with browser. |
+| Payment "Validation failed" with no field detail | **Plausibly explained** by hypothesis A: payment `INSERT` runs on a connection where RLS denies write, but the handler returns a generic 400 instead of the postgres error message. Worth direct repro. |
+| Date persistence | Still untested at HTTP level — needs cycle 3 with browser. |
 
 ## Recommended next actions
 
-1. **Reproduce the switch-company 403 reliably**, then trace `withUserAuth → sql → pg.Pool` for any persistent `SET ROLE` or `set_config(..., false)` that survives the request.
+1. **Reproduce the switch-company 403 reliably**, then trace `withUserAuth → sql → pg.Pool`. Confirm or refute hypothesis A by checking whether the route correctly works when wrapped in `withAuth`. Audit for any non-LOCAL `SET ROLE` or `set_config(..., false)` paths.
 2. **Audit every `apiResponse.badRequest('Validation failed')` site** for missing field details. This is broadly applicable — the audit's complaint here is correct independent of the specific repro.
-3. **Investigate the LRU rate-limit stickiness** in the dev environment. If the recovery path is broken in dev, it's likely also fragile in prod.
-4. **Fix the redirect-doesn't-issue-CSRF gap** in middleware: the redirect builder should also call `issueCsrfCookie(request, redirectResponse)`. This would let `/accounting → /onboarding` issue the cookie too.
+3. **Investigate the LRU rate-limit stickiness** in the dev environment.
+4. **Fix the redirect-doesn't-issue-CSRF gap** in middleware: redirect responses should also call `issueCsrfCookie(request, redirectResponse)`.
 
 ## Reproducibility
 
 ```bash
 # Once dev server is running on :3101 with the IsaDemo2 tenant present,
-# and rate-limit counters are clear:
+# and rate-limit counters are clear, set credentials in .env.local or shell:
+#
+#   QA_ADMIN_EMAIL=<your dev admin email>
+#   QA_ADMIN_PASSWORD=<your dev admin password>
+#
+# (No defaults — the script fails loudly if these are unset.)
 
 QA_BASE_URL=http://localhost:3101 \
-QA_ADMIN_EMAIL=admin@isaflow.co.za \
-QA_ADMIN_PASSWORD=admin123 \
-COMPANY_ID_ISADEMO2=00000000-0000-0000-0000-0000000d4e02 \
-bunx tsx scripts/qa-http-walkthrough.ts
-
-# Comparison: switch-company against the original demo works cleanly:
-COMPANY_ID_ISADEMO2=00000000-0000-0000-0000-000000000001 \
+QA_ADMIN_EMAIL=<dev admin email> \
+QA_ADMIN_PASSWORD=<dev admin password> \
 bunx tsx scripts/qa-http-walkthrough.ts
 ```
-
-## Branch state note
-
-A parallel session on this repo committed unrelated work to `audit/p1-schema-validation-banking` mid-cycle, so the original `qa/isademo2-bookkeeping-cycle` branch I created at the start is stale. The provisioning + seed + walkthrough scripts are in `scripts/` (untracked for `qa-*.ts` due to existing gitignore rule). Reports are in `qa-reports/`. None of this work has been committed — that's a deliberate hold pending decisions about (a) which findings warrant code changes and (b) how to land them given the parallel-session contention.

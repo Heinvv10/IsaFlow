@@ -1,45 +1,28 @@
 /**
  * Provision the IsaDemo2 QA tenant.
  *
- * Creates company "IsaDemo2" with a deterministic UUID, attaches every user
- * already linked to the original demo company (00000000-...-0001) so the same
- * logins work, opens fiscal periods for the current + next month, and appends
+ * Creates the QA company with a deterministic UUID, attaches every user
+ * already linked to the original demo company so the same logins work,
+ * opens fiscal periods for the current ±2 months, and writes
  * COMPANY_ID_ISADEMO2 to .env.local for downstream scripts.
  *
  * Idempotent: re-running upserts (no duplicates).
  *
- * Run with:
- *   export $(grep -E '^(MIGRATION_ADMIN_DATABASE_URL|DATABASE_URL)=' .env.local | xargs) \
- *     && bunx tsx scripts/provision-isademo2.ts
+ * Run with: bunx tsx scripts/provision-isademo2.ts
  */
 
 import { createSql, closeSql } from './_pg';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import {
+  loadDotenvLocal,
+  appendEnvIfMissing,
+  getDatabaseUrl,
+  ISADEMO2_ID,
+  ISADEMO2_NAME,
+  ORIGINAL_DEMO_ID,
+} from './_qa';
 
-const envPath = path.resolve('/home/hein/Workspace/IsaFlow/.env.local');
-if (fs.existsSync(envPath)) {
-  for (const line of fs.readFileSync(envPath, 'utf-8').split('\n')) {
-    const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)\s*$/);
-    if (!m) continue;
-    const [, k, rawV] = m;
-    if (!process.env[k!]) process.env[k!] = rawV!.replace(/^["']|["']$/g, '');
-  }
-}
-
-// Prefer DATABASE_URL (postgres superuser) — on the dedicated IsaFlow stack the
-// migration_admin role isn't provisioned, and postgres bypasses RLS naturally.
-const DATABASE_URL = process.env.DATABASE_URL ?? process.env.MIGRATION_ADMIN_DATABASE_URL;
-if (!DATABASE_URL) {
-  console.error('ERROR: DATABASE_URL or MIGRATION_ADMIN_DATABASE_URL not set');
-  process.exit(1);
-}
-
-const sql = createSql(DATABASE_URL);
-
-const ISADEMO2_ID = '00000000-0000-0000-0000-0000000d4e02'; // "demo2"
-const ORIGINAL_DEMO_ID = '00000000-0000-0000-0000-000000000001';
-const TENANT_NAME = 'IsaDemo2';
+loadDotenvLocal();
+const sql = createSql(getDatabaseUrl());
 
 const monthNames = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -53,9 +36,9 @@ async function ensureCompany(): Promise<void> {
       status, financial_year_start, is_active, registration_number, vat_number
     ) VALUES (
       ${ISADEMO2_ID}::uuid,
-      ${TENANT_NAME},
-      ${TENANT_NAME},
-      ${TENANT_NAME},
+      ${ISADEMO2_NAME},
+      ${ISADEMO2_NAME},
+      ${ISADEMO2_NAME},
       'South Africa',
       'ZAR',
       'active',
@@ -65,11 +48,14 @@ async function ensureCompany(): Promise<void> {
       '4900000002'
     )
     ON CONFLICT (id) DO UPDATE
-      SET status = 'active',
+      SET name = EXCLUDED.name,
+          registered_name = EXCLUDED.registered_name,
+          trading_name = EXCLUDED.trading_name,
+          status = 'active',
           is_active = true,
           updated_at = NOW()
   `;
-  console.log(`[company] ${TENANT_NAME} ready (${ISADEMO2_ID})`);
+  console.log(`[company] ${ISADEMO2_NAME} ready (${ISADEMO2_ID})`);
 }
 
 async function attachUsersFromOriginalDemo(): Promise<number> {
@@ -98,12 +84,8 @@ async function attachUsersFromOriginalDemo(): Promise<number> {
 async function openFiscalPeriods(): Promise<void> {
   const today = new Date();
   const periods: Array<{
-    period_name: string;
-    period_number: number;
-    fiscal_year: number;
-    start_date: string;
-    end_date: string;
-    status: string;
+    period_name: string; period_number: number; fiscal_year: number;
+    start_date: string; end_date: string; status: string;
   }> = [];
 
   for (let offset = -2; offset <= 2; offset++) {
@@ -134,32 +116,19 @@ async function openFiscalPeriods(): Promise<void> {
         SET status = EXCLUDED.status
     `;
   }
-  console.log(`[fiscal_periods] ${periods.length} periods (status: -2,-1=closed, 0,+1,+2=open)`);
-}
-
-function appendEnvIfMissing(key: string, value: string): void {
-  const lines = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf-8').split('\n') : [];
-  const idx = lines.findIndex(l => l.startsWith(`${key}=`));
-  const newLine = `${key}=${value}`;
-  if (idx >= 0) {
-    if (lines[idx] === newLine) return;
-    lines[idx] = newLine;
-  } else {
-    lines.push(newLine);
-  }
-  fs.writeFileSync(envPath, lines.join('\n'));
-  console.log(`[env] ${key}=${value} written to .env.local`);
+  console.log(`[fiscal_periods] ${periods.length} periods (-2,-1=closed; 0,+1,+2=open)`);
 }
 
 async function main(): Promise<void> {
-  console.log(`Provisioning ${TENANT_NAME} (${ISADEMO2_ID})...`);
+  console.log(`Provisioning ${ISADEMO2_NAME} (${ISADEMO2_ID})...`);
   await ensureCompany();
   const userCount = await attachUsersFromOriginalDemo();
   await openFiscalPeriods();
   appendEnvIfMissing('COMPANY_ID_ISADEMO2', ISADEMO2_ID);
+  console.log('[env] COMPANY_ID_ISADEMO2 written to .env.local');
 
   console.log('');
-  console.log(`OK — ${TENANT_NAME} provisioned`);
+  console.log(`OK — ${ISADEMO2_NAME} provisioned`);
   console.log(`     company_id: ${ISADEMO2_ID}`);
   console.log(`     users:      ${userCount}`);
   console.log(`     next:       bunx tsx scripts/seed-qa-bookkeeping.ts`);
