@@ -24,7 +24,9 @@ export type CanonicalStatusKey =
   | 'in_progress'
   | 'approved'
   | 'posted'
+  | 'done'
   | 'submitted'
+  | 'filed'
   | 'locked'
   | 'cancelled'
   | 'unknown';
@@ -53,7 +55,9 @@ const CANONICAL: Record<CanonicalStatusKey, CanonicalStatus> = {
   needs_attention:  { key: 'needs_attention',  label: 'Needs attention',  tone: 'attention',       description: 'Blocking exception detected.' },
   approved:         { key: 'approved',         label: 'Approved',         tone: 'success',         description: 'Reviewer signed off.' },
   posted:           { key: 'posted',           label: 'Posted',           tone: 'success',         description: 'Booked into the GL.' },
-  submitted:        { key: 'submitted',        label: 'Submitted',        tone: 'success',         description: 'Filed with SARS / external authority.' },
+  done:             { key: 'done',             label: 'Done',             tone: 'success',         description: 'Terminal non-GL state — bank recon completed, AFS section generated, archive run finished, etc.' },
+  submitted:        { key: 'submitted',        label: 'Submitted',        tone: 'success',         description: 'Sent to SARS or another external authority.' },
+  filed:            { key: 'filed',            label: 'Filed',            tone: 'success-strong',  description: 'AFS lodged with the regulator (CIPC / SARS).' },
   locked:           { key: 'locked',           label: 'Locked',           tone: 'success-strong',  description: 'Period closed; no further edits.' },
   cancelled:        { key: 'cancelled',        label: 'Cancelled',        tone: 'danger',          description: 'Reversed or voided.' },
   unknown:          { key: 'unknown',          label: 'Unknown',          tone: 'neutral' },
@@ -88,18 +92,30 @@ const SYNONYMS: Record<string, CanonicalStatusKey> = {
   exception: 'needs_attention',
   // Approved (reviewer signed off, not yet posted)
   approved: 'approved',
-  signed_off: 'approved',
   reviewed: 'approved',
   finalised: 'approved',
   finalized: 'approved',
-  // Posted (in the GL — for transactional records)
+  // Posted (in the GL — for transactional records like JEs, payroll runs)
   posted: 'posted',
-  auto_generated: 'posted',
-  completed: 'posted',
-  // Submitted (sent to external party)
+  // Done (terminal non-GL state — recon completed, AFS section generated,
+  // archive/migration finished, training booked, etc.). Distinct from
+  // 'posted' because none of these touch the GL.
+  done: 'done',
+  completed: 'done',
+  finished: 'done',
+  auto_generated: 'done',
+  // Submitted (sent to SARS or another external authority — for VAT201,
+  // EMP201, etc. NOT for AFS, which has its own 'filed' state.)
   submitted: 'submitted',
-  filed: 'submitted',
   sent: 'submitted',
+  // Filed (AFS document lodged with CIPC / SARS — terminal regulator state).
+  // Kept distinct from 'submitted' because AFS users know the term "Filed"
+  // and re-labelling would be a UX regression.
+  filed: 'filed',
+  // Signed off (AFS partner-review terminal state). Kept as 'approved' for
+  // now since it's semantically a sign-off; AFS UI may want a dedicated
+  // "Signed off" override if precision matters per surface.
+  signed_off: 'approved',
   // Locked
   locked: 'locked',
   closed: 'locked',
