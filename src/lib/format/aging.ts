@@ -106,6 +106,39 @@ export const BUCKET_COLORS: Record<AgingBucketKey, string> = {
 };
 
 /**
+ * Compute the aging bucket string that matches the server-side CASE WHEN ladder
+ * in `pages/api/accounting/customer-invoices-list.ts`.
+ *
+ * This TypeScript function is the authoritative source of truth for the bucket
+ * boundaries. The SQL CASE WHEN mirrors it exactly — keep them in sync.
+ *
+ * Returns null for paid invoices (status === 'paid') so callers can skip
+ * rendering a badge entirely.
+ *
+ * Semantics (matching SQL):
+ *   paid status              → null
+ *   days <= 0 or non-finite  → 'Current'  (due_date null, not yet due, NaN)
+ *   days 1–30               → '1-30'
+ *   days 31–60              → '31-60'
+ *   days 61–90              → '61-90'
+ *   days 91+                → '90+'
+ */
+export type AgingBucketLabel = 'Current' | '1-30' | '31-60' | '61-90' | '90+';
+
+export function computeAgingBucket(
+  days: number,
+  status: string,
+): AgingBucketLabel | null {
+  if (status === 'paid') return null;
+  if (!Number.isFinite(days) || days <= 0) return 'Current';
+  const d = Math.floor(days);
+  if (d <= 30) return '1-30';
+  if (d <= 60) return '31-60';
+  if (d <= 90) return '61-90';
+  return '90+';
+}
+
+/**
  * Compact raw-day display for the "Days Overdue" table column.
  *
  * Unlike `formatOverdueDays` (which produces "2268d overdue"), this helper
