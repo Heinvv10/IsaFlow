@@ -64,22 +64,18 @@ describe('hasBankAccount', () => {
     expect(firstInterpolation).toBe(COMPANY_A);
   });
 
-  it('cross-tenant: different companyId → different query argument', async () => {
-    sqlMock
-      .mockResolvedValueOnce([{ has_bank_account: true }])   // COMPANY_A
-      .mockResolvedValueOnce([{ has_bank_account: false }]);  // COMPANY_B
+  it('cross-tenant: different companyId → different result (branching mock)', async () => {
+    sqlMock.mockImplementation((_template: TemplateStringsArray, ...args: unknown[]) => {
+      const companyId = args[0] as string;
+      if (companyId === COMPANY_A) return Promise.resolve([{ has_bank_account: true }]);
+      if (companyId === COMPANY_B) return Promise.resolve([{ has_bank_account: false }]);
+      return Promise.resolve([]);
+    });
 
-    const resultA = await hasBankAccount(COMPANY_A);
-    const resultB = await hasBankAccount(COMPANY_B);
+    const a = await hasBankAccount(COMPANY_A);
+    const b = await hasBankAccount(COMPANY_B);
 
-    expect(resultA).toBe(true);
-    expect(resultB).toBe(false);
-
-    // Verify each call used a different companyId
-    const firstArgA = sqlMock.mock.calls[0][1];
-    const firstArgB = sqlMock.mock.calls[1][1];
-    expect(firstArgA).toBe(COMPANY_A);
-    expect(firstArgB).toBe(COMPANY_B);
-    expect(firstArgA).not.toBe(firstArgB);
+    expect(a).toBe(true);
+    expect(b).toBe(false);
   });
 });
