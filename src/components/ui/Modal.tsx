@@ -87,7 +87,7 @@ const ModalHeader = forwardRef<HTMLDivElement, ModalSectionProps>(
       <div
         ref={ref}
         className={cn(
-          'flex items-start justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700',
+          'flex items-start justify-between px-6 py-4 border-b border-gray-200 dark:border-white/[0.08]',
           className
         )}
       >
@@ -125,7 +125,7 @@ const ModalFooter = forwardRef<HTMLDivElement, ModalSectionProps>(
     <div
       ref={ref}
       className={cn(
-        'flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 dark:border-gray-700',
+        'flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 dark:border-white/[0.08]',
         className
       )}
     >
