@@ -68,9 +68,10 @@ export function APFilters({ filters, onToggle, onClear }: APFiltersProps) {
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 tracking-wide uppercase">
+      <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 tracking-wide uppercase" id="ap-signal-filters-label">
         Signals
       </span>
+      <div role="group" aria-labelledby="ap-signal-filters-label" className="flex flex-wrap items-center gap-2">
       {CHIPS.map((chip) => {
         const Icon = chip.icon;
         const active = filters[chip.id];
@@ -100,6 +101,7 @@ export function APFilters({ filters, onToggle, onClear }: APFiltersProps) {
           Clear signals
         </button>
       )}
+      </div>
     </div>
   );
 }

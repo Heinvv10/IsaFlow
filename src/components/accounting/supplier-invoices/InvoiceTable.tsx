@@ -157,15 +157,17 @@ export function InvoiceTable({
 function SignalBadges({ inv }: { inv: SupplierInvoice }) {
   return (
     <div className="flex items-center gap-1.5 flex-nowrap">
-      <span
-        title={inv.hasDocument ? 'Document attached' : 'No document'}
-        aria-label={inv.hasDocument ? 'Document attached' : 'No document'}
-        className={inv.hasDocument
-          ? 'text-emerald-500 dark:text-emerald-400'
-          : 'text-slate-300 dark:text-slate-600'}
-      >
-        <Paperclip className="h-3.5 w-3.5" aria-hidden />
-      </span>
+      {inv.hasDocument !== undefined && (
+        <span
+          title={inv.hasDocument ? 'Document attached' : 'No document'}
+          aria-label={inv.hasDocument ? 'Document attached' : 'No document'}
+          className={inv.hasDocument
+            ? 'text-emerald-500 dark:text-emerald-400'
+            : 'text-slate-300 dark:text-slate-600'}
+        >
+          <Paperclip className="h-3.5 w-3.5" aria-hidden />
+        </span>
+      )}
       {inv.hasPo && (
         <span
           title="Linked to purchase order"
