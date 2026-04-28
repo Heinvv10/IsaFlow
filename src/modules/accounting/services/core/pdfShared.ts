@@ -226,8 +226,9 @@ export function renderPremiumHeader(opts: PremiumHeaderOptions): number {
   const RIGHT_RESERVE = 70; // space reserved for doc number + dates on the right
   const textColW = pageW - textLeftX - RIGHT_RESERVE;
 
+  // Address is intentionally omitted here — it lives in the FROM panel below
+  // (rendered multi-line) so the dark header stays compact.
   const infoLines: string[] = [];
-  if (company.address) infoLines.push(company.address);
   if (company.email) infoLines.push(company.email);
   if (company.phone) infoLines.push(company.phone);
   if (company.vatNumber) infoLines.push(`VAT: ${company.vatNumber}`);
@@ -359,9 +360,14 @@ export function renderPartySection(
     doc.setTextColor(...COLORS.TEXT_SECONDARY);
 
     if (info.address) {
-      const lines = String(info.address).split('\n').flatMap(l =>
-        doc.splitTextToSize(l.trim(), colW) as string[]
-      );
+      // Split on newlines first; for any segment with no newlines, also split
+      // on commas so a comma-separated single-string address (e.g.
+      // "26 Centenary Road, Lorraine, Gqeberha, Eastern Cape, 6070") renders
+      // one component per line — matching how multi-line addresses look.
+      const lines = String(info.address)
+        .split('\n')
+        .flatMap((l) => l.split(','))
+        .flatMap((l) => doc.splitTextToSize(l.trim(), colW) as string[]);
       for (const line of lines) {
         if (line.trim()) { doc.text(line, x, cy); cy += 4; }
       }
@@ -427,9 +433,10 @@ export function renderSingleParty(
   doc.setTextColor(...COLORS.TEXT_SECONDARY);
 
   if (info.address) {
-    const lines = String(info.address).split('\n').flatMap(l =>
-      doc.splitTextToSize(l.trim(), colW) as string[]
-    );
+    const lines = String(info.address)
+      .split('\n')
+      .flatMap((l) => l.split(','))
+      .flatMap((l) => doc.splitTextToSize(l.trim(), colW) as string[]);
     for (const line of lines) {
       if (line.trim()) { doc.text(line, margin, cy); cy += 4; }
     }
