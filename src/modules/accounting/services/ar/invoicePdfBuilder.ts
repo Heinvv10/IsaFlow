@@ -10,7 +10,7 @@ import {
   fmtZAR, fmtDate, COLORS,
   getCompanyDetailsFromCompany, renderPageFooters,
   getLastAutoTableY, hexToRgb,
-  renderPremiumHeader, renderPartySection, renderRefStrip,
+  renderPremiumHeader, renderSingleParty, renderRefStrip,
   renderTotalsBlock, renderPaymentDetails, renderNotesBlock,
   type TotalLine,
 } from '../core/pdfShared';
@@ -72,7 +72,11 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
     docSecondaryLabel: 'Due',
   });
 
-  // ── Party Section (FROM / BILL TO) ────────────────────────────────────────
+  // ── BILL TO + Status Badge ────────────────────────────────────────────────
+  // The header band already shows full FROM details (name, address, email,
+  // phone, VAT), so a duplicate FROM panel here is redundant. We render only
+  // BILL TO, which gives the client block room to breathe and lets the
+  // status badge sit cleanly to the right of it.
   const statusStr = String(inv.status || '').toUpperCase();
   const statusColors: Record<string, [number, number, number]> = {
     PAID:           COLORS.SUCCESS,
@@ -83,7 +87,7 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
   };
   const badgeColor = statusColors[statusStr] ?? COLORS.TEXT_SECONDARY;
 
-  // Status badge top-right of body
+  // Status badge — top-right of body, vertically aligned with BILL TO label
   doc.setFillColor(...badgeColor);
   doc.roundedRect(PAGE_W - MARGIN - 26, y - 2, 26, 7, 1, 1, 'F');
   doc.setFont('helvetica', 'bold');
@@ -91,25 +95,15 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
   doc.setTextColor(...COLORS.WHITE);
   doc.text(statusStr, PAGE_W - MARGIN - 13, y + 2.5, { align: 'center' });
 
-  y = renderPartySection(doc, y, PAGE_W, MARGIN, accent,
-    {
-      label: 'FROM',
-      name: COMPANY.name,
-      address: COMPANY.address,
-      email: COMPANY.email,
-      phone: COMPANY.phone,
-      vatNumber: COMPANY.vatNumber,
-    },
-    {
-      label: 'BILL TO',
-      name: String(inv.client_name || 'Unknown Client'),
-      address: inv.client_address ? String(inv.client_address) : undefined,
-      attention: inv.client_contact ? String(inv.client_contact) : undefined,
-      email: inv.client_email ? String(inv.client_email) : undefined,
-      phone: inv.client_phone ? String(inv.client_phone) : undefined,
-      vatNumber: inv.client_vat ? String(inv.client_vat) : undefined,
-    },
-  );
+  y = renderSingleParty(doc, y, MARGIN, CONTENT_W, accent, {
+    label: 'BILL TO',
+    name: String(inv.client_name || 'Unknown Client'),
+    address: inv.client_address ? String(inv.client_address) : undefined,
+    attention: inv.client_contact ? String(inv.client_contact) : undefined,
+    email: inv.client_email ? String(inv.client_email) : undefined,
+    phone: inv.client_phone ? String(inv.client_phone) : undefined,
+    vatNumber: inv.client_vat ? String(inv.client_vat) : undefined,
+  });
 
   // ── Reference Strip ───────────────────────────────────────────────────────
   const refFields = [
@@ -168,10 +162,10 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
     alternateRowStyles: { fillColor: COLORS.SURFACE },
     columnStyles: {
       0: { cellWidth: 'auto' },
-      1: { halign: 'right', cellWidth: 18 },
-      2: { halign: 'right', cellWidth: 28 },
-      3: { halign: 'right', cellWidth: 25 },
-      4: { halign: 'right', cellWidth: 30, fontStyle: 'bold' },
+      1: { halign: 'right', cellWidth: 16 },
+      2: { halign: 'right', cellWidth: 30 },
+      3: { halign: 'right', cellWidth: 30 },
+      4: { halign: 'right', cellWidth: 32, fontStyle: 'bold' },
     },
     tableWidth: CONTENT_W,
     margin: { left: MARGIN, right: MARGIN },
