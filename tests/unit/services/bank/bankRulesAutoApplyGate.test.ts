@@ -1,12 +1,15 @@
 /**
- * Unit tests for the auto-apply gate in POST /api/accounting/bank-rules.
+ * Unit tests for the auto-apply behaviour in POST /api/accounting/bank-rules.
  *
- * The handler's safety contract (Audit Finding 4):
- *   1. Default `autoCreateEntry` to `false` when omitted.
- *   2. Only call `applyRules` immediately on rule create when both
- *      `bankAccountId` is provided AND `autoCreateEntry === true`.
- *
- * If either guard is dropped in a future refactor, these tests fail.
+ * Contract:
+ *   1. `autoCreateEntry` still defaults to `false` when omitted (the user has
+ *      to opt in to journal-entry posting).
+ *   2. `applyRules` runs on every create when `bankAccountId` is provided —
+ *      regardless of `autoCreateEntry`. Suggest-only rules still attach
+ *      suggestions immediately; auto-post rules also create journal entries.
+ *      `applyRules` itself enforces the suggestion-vs-post split internally.
+ *   3. When `bankAccountId` is omitted, `applyRules` is not called (it needs
+ *      a bank scope to operate).
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -85,31 +88,32 @@ const VALID_RULE = {
   glAccountId: GL_ID,
 };
 
-describe('POST /api/accounting/bank-rules — auto-apply gate (Audit Finding 4)', () => {
+describe('POST /api/accounting/bank-rules — auto-apply behaviour', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     createRuleMock.mockResolvedValue({ id: 'rule-1', autoCreateEntry: false });
     applyRulesMock.mockResolvedValue({ applied: 0, skipped: 0 });
   });
 
-  it('does NOT call applyRules when autoCreateEntry is omitted (defaults to false)', async () => {
+  it('CALLS applyRules when autoCreateEntry is omitted (suggest-only rules still apply)', async () => {
     const req = makeReq({ body: { ...VALID_RULE, bankAccountId: BANK_ID } });
     await (handler as unknown as Handler)(req, makeRes());
 
     expect(createRuleMock).toHaveBeenCalledTimes(1);
     expect(createRuleMock.mock.calls[0]![1].autoCreateEntry).toBe(false);
-    expect(applyRulesMock).not.toHaveBeenCalled();
+    expect(applyRulesMock).toHaveBeenCalledTimes(1);
+    expect(applyRulesMock).toHaveBeenCalledWith(COMPANY_ID, BANK_ID, USER_ID);
   });
 
-  it('does NOT call applyRules when autoCreateEntry is explicitly false', async () => {
+  it('CALLS applyRules when autoCreateEntry is explicitly false', async () => {
     const req = makeReq({ body: { ...VALID_RULE, bankAccountId: BANK_ID, autoCreateEntry: false } });
     await (handler as unknown as Handler)(req, makeRes());
 
     expect(createRuleMock).toHaveBeenCalledTimes(1);
-    expect(applyRulesMock).not.toHaveBeenCalled();
+    expect(applyRulesMock).toHaveBeenCalledTimes(1);
   });
 
-  it('does NOT call applyRules when bankAccountId is omitted, even if autoCreateEntry is true', async () => {
+  it('does NOT call applyRules when bankAccountId is omitted', async () => {
     const req = makeReq({ body: { ...VALID_RULE, autoCreateEntry: true } });
     await (handler as unknown as Handler)(req, makeRes());
 
@@ -118,7 +122,7 @@ describe('POST /api/accounting/bank-rules — auto-apply gate (Audit Finding 4)'
     expect(applyRulesMock).not.toHaveBeenCalled();
   });
 
-  it('CALLS applyRules only when both bankAccountId and autoCreateEntry=true are explicit', async () => {
+  it('CALLS applyRules when both bankAccountId and autoCreateEntry=true are explicit', async () => {
     const req = makeReq({ body: { ...VALID_RULE, bankAccountId: BANK_ID, autoCreateEntry: true } });
     await (handler as unknown as Handler)(req, makeRes());
 
