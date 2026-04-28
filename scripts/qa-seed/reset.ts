@@ -43,7 +43,7 @@ export async function assertResetIsSafe(sql: TaggedSql, companyId: string): Prom
 export async function resetQaRecords(sql: TaggedSql, companyId: string): Promise<void> {
   await assertResetIsSafe(sql, companyId);
   console.log('[reset] Wiping QA records...');
-  await withTransactionPg(sql, async (tx) => {
+  await withTransactionPg(async (tx) => {
     await tx`DELETE FROM customer_payment_allocations WHERE payment_id IN (SELECT id FROM customer_payments WHERE company_id = ${companyId}::uuid)`;
     await tx`DELETE FROM customer_payments            WHERE company_id = ${companyId}::uuid`;
     await tx`DELETE FROM customer_invoice_items       WHERE invoice_id IN (SELECT id FROM customer_invoices WHERE company_id = ${companyId}::uuid)`;
