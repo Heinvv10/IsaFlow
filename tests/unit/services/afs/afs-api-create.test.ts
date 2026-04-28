@@ -33,6 +33,7 @@ vi.mock('@/lib/apiResponse', () => ({
     badRequest:       vi.fn(),
     methodNotAllowed: vi.fn(),
     validationError:  vi.fn(),
+    zodValidationError: vi.fn(),
   },
 }));
 

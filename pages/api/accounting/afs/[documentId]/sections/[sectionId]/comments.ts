@@ -33,12 +33,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'POST') {
     const userId = companyReq.user.id;
     const parsed = AddCommentSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return apiResponse.validationError(
-        res,
-        parsed.error.flatten().fieldErrors as Record<string, string | string[]>,
-      );
-    }
+    if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
     const { body, parentId } = parsed.data;
 
     log.info('Adding comment', { companyId, sectionId, userId, parentId }, 'afs-comments-api');

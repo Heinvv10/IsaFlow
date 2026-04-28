@@ -28,12 +28,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'PUT') {
     const parsed = UpdateContactSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return apiResponse.validationError(
-        res,
-        parsed.error.flatten().fieldErrors as Record<string, string | string[]>,
-      );
-    }
+    if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
     try {
       const contact = await updatePortalContact(companyId, contactId, parsed.data);
       return apiResponse.success(res, { contact });

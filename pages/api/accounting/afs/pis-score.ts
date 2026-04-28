@@ -68,12 +68,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // ── PUT: update PIS input fields ────────────────────────────────────────
   if (req.method === 'PUT') {
     const parsed = PutPisSchema.safeParse(req.body ?? {});
-    if (!parsed.success) {
-      return apiResponse.validationError(
-        res,
-        parsed.error.flatten().fieldErrors as Record<string, string | string[]>,
-      );
-    }
+    if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
     const {
       employeeCountBeginning,
       employeeCountEnd,

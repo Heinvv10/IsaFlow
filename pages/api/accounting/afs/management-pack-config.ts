@@ -46,12 +46,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'PUT') {
     const parsed = PutConfigSchema.safeParse(req.body ?? {});
-    if (!parsed.success) {
-      return apiResponse.validationError(
-        res,
-        parsed.error.flatten().fieldErrors as Record<string, string | string[]>,
-      );
-    }
+    if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
     log.info('Upserting management pack config', { companyId }, 'management-pack-config-api');
     const { id: _id, companyId: _cid, ...updates } = parsed.data;
     const config = await upsertManagementPackConfig(companyId, updates as Partial<ManagementPackConfig>);

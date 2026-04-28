@@ -33,12 +33,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'POST') {
     const parsed = CreateAfsSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return apiResponse.validationError(
-        res,
-        parsed.error.flatten().fieldErrors as Record<string, string | string[]>,
-      );
-    }
+    if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
     const { fiscalYear, period, documentType, reportingFramework } = parsed.data;
 
     log.info('Creating AFS document', { companyId, documentType, fiscalYear, period }, 'afs-index-api');

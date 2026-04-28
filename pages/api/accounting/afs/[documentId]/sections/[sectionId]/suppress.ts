@@ -35,12 +35,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const sectionId = sectParse.data;
 
   const parsed = BodySchema.safeParse(req.body);
-  if (!parsed.success) {
-    return apiResponse.validationError(
-      res,
-      parsed.error.flatten().fieldErrors as Record<string, string | string[]>,
-    );
-  }
+  if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
   const { suppress, reason } = parsed.data;
 
   // Step 1 — Check current status

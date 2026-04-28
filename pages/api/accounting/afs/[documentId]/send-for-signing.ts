@@ -34,12 +34,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const documentId = docParse.data;
 
   const parsed = BodySchema.safeParse(req.body);
-  if (!parsed.success) {
-    return apiResponse.validationError(
-      res,
-      parsed.error.flatten().fieldErrors as Record<string, string | string[]>,
-    );
-  }
+  if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
   const { signerContactIds } = parsed.data;
 
   // 1. Load and verify the document

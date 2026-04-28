@@ -41,24 +41,14 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   if (req.method === 'PUT') {
     const parsed = MapAccountSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return apiResponse.validationError(
-        res,
-        parsed.error.flatten().fieldErrors as Record<string, string | string[]>,
-      );
-    }
+    if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
     const mapping = await mapAccount(companyId, parsed.data.glAccountId, parsed.data.afsLineCode);
     return apiResponse.success(res, mapping, 'Account mapped');
   }
 
   if (req.method === 'DELETE') {
     const parsed = UnmapAccountSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return apiResponse.validationError(
-        res,
-        parsed.error.flatten().fieldErrors as Record<string, string | string[]>,
-      );
-    }
+    if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
     await unmapAccount(companyId, parsed.data.glAccountId);
     return apiResponse.success(res, null, 'Account unmapped');
   }
