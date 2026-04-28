@@ -236,7 +236,8 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
       });
       const json = await res.json();
       if (!res.ok || json.success === false) throw new Error(json.message || 'Failed to create rule');
-      const applied = Number(json.data?.applied ?? 0);
+      const rawApplied = (json as { data?: { applied?: unknown } }).data?.applied;
+      const applied = typeof rawApplied === 'number' && Number.isFinite(rawApplied) ? rawApplied : 0;
       notify.success(applied > 0 ? `Rule created — ${applied} transaction${applied !== 1 ? 's' : ''} allocated` : 'Rule created');
       onCreated();
     } catch (e) {
