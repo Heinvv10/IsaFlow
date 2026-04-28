@@ -16,14 +16,23 @@ import {
 export async function applyRules(
   companyId: string,
   bankAccountId: string,
-  userId: string
+  userId: string,
+  ruleIds?: string[]
 ): Promise<RuleApplyResult> {
   try {
-    const rules = (await sql`
-      SELECT * FROM bank_categorisation_rules
-      WHERE company_id = ${companyId}::UUID AND is_active = true
-      ORDER BY priority ASC
-    `) as Record<string, unknown>[];
+    const rules = ruleIds && ruleIds.length > 0
+      ? (await sql`
+          SELECT * FROM bank_categorisation_rules
+          WHERE company_id = ${companyId}::UUID
+            AND is_active = true
+            AND id = ANY(${ruleIds}::UUID[])
+          ORDER BY priority ASC
+        `) as Record<string, unknown>[]
+      : (await sql`
+          SELECT * FROM bank_categorisation_rules
+          WHERE company_id = ${companyId}::UUID AND is_active = true
+          ORDER BY priority ASC
+        `) as Record<string, unknown>[];
 
     if (rules.length === 0) return { applied: 0, skipped: 0, entries: [] };
 
@@ -45,6 +54,9 @@ export async function applyRules(
       // rule, then keep the highest-priority match per transaction. We deliberately
       // overwrite any existing suggestion: a freshly-created or higher-priority rule
       // should take precedence over a stale AI suggestion or earlier rule hit.
+      const suggestionRuleIds = rules
+        .filter((r: Record<string, unknown>) => !r.auto_create_entry)
+        .map((r: Record<string, unknown>) => String(r.id));
       const updated = (await sql`
         WITH matched AS (
           SELECT
@@ -60,6 +72,7 @@ export async function applyRules(
             r.company_id = ${companyId}::UUID
             AND r.is_active = true
             AND r.auto_create_entry = false
+            AND r.id = ANY(${suggestionRuleIds}::UUID[])
             AND (
               (r.match_field IN ('description', 'both')
                 AND bt.description ILIKE
