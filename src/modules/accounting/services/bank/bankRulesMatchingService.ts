@@ -54,7 +54,6 @@ export async function applyRules(
       // rule, then keep the highest-priority match per transaction. We deliberately
       // overwrite any existing suggestion: a freshly-created or higher-priority rule
       // should take precedence over a stale AI suggestion or earlier rule hit.
-      // When ruleIds is supplied, the JOIN is narrowed to those rules only.
       const suggestionRuleIds = rules
         .filter((r: Record<string, unknown>) => !r.auto_create_entry)
         .map((r: Record<string, unknown>) => String(r.id));
