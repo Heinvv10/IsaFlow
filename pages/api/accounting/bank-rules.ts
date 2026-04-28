@@ -65,12 +65,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       vatCode: input.vatCode,
     }, userId);
 
-    // Auto-apply: only run rules immediately when the rule was created with
-    // explicit auto-post semantics. Suggest-only rules attach a category for
-    // review without posting, so applying them on create would silently
-    // create entries the user did not opt in to.
+    // Auto-apply on create: always run the rules so existing matching
+    // transactions get allocated/suggested immediately. Suggest-only rules
+    // only attach suggestions; auto-post rules create journal entries — the
+    // user opted into that effect when they enabled the toggle.
     let applied = 0;
-    if (input.bankAccountId && input.autoCreateEntry) {
+    if (input.bankAccountId) {
       const result = await applyRules(companyId, input.bankAccountId, userId);
       applied = result.applied;
     }

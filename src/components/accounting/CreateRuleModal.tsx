@@ -161,7 +161,12 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
     }
     return null;
   });
-  const [selectedBankAccount, setSelectedBankAccount] = useState<SelectOption | null>(null);
+  const [selectedBankAccount, setSelectedBankAccount] = useState<SelectOption | null>(() => {
+    if (selection?.type === 'transfer' && selection.entityId) {
+      return bankAccounts.find(b => b.id === selection.entityId) ?? null;
+    }
+    return null;
+  });
 
   const [matchCount, setMatchCount] = useState<number | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -231,7 +236,8 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
       });
       const json = await res.json();
       if (!res.ok || json.success === false) throw new Error(json.message || 'Failed to create rule');
-      notify.success('Rule created');
+      const applied = Number(json.data?.applied ?? 0);
+      notify.success(applied > 0 ? `Rule created — ${applied} transaction${applied !== 1 ? 's' : ''} allocated` : 'Rule created');
       onCreated();
     } catch (e) {
       notify.error(e instanceof Error ? e.message : 'Failed to create rule');

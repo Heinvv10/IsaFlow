@@ -103,12 +103,12 @@ const DESCRIPTION_SUGGESTIONS: { keywords: string[]; suggestion: GLSuggestion }[
 ];
 
 /** Default code ranges per account type when no description match */
-const TYPE_CODE_RANGES: Record<string, { start: number; name: string }> = {
-  asset:     { start: 1300, name: 'Other Asset' },
-  liability: { start: 2200, name: 'Other Liability' },
-  equity:    { start: 3300, name: 'Other Equity' },
-  revenue:   { start: 4400, name: 'Other Revenue' },
-  expense:   { start: 5900, name: 'Other Expense' },
+const TYPE_CODE_RANGES: Record<string, { start: number; end: number; name: string }> = {
+  asset:     { start: 1000, end: 1999, name: 'Other Asset' },
+  liability: { start: 2000, end: 2999, name: 'Other Liability' },
+  equity:    { start: 3000, end: 3999, name: 'Other Equity' },
+  revenue:   { start: 4000, end: 4999, name: 'Other Revenue' },
+  expense:   { start: 5000, end: 5999, name: 'Other Expense' },
 };
 
 function suggestFromDescription(description?: string): GLSuggestion | null {
@@ -122,9 +122,59 @@ function suggestFromDescription(description?: string): GLSuggestion | null {
   return null;
 }
 
-function suggestFromType(accountType: string): GLSuggestion {
+/**
+ * Pick a code for a new account that slots alphabetically into the existing
+ * accounts of the same type. Falls back to the next free code at the end of
+ * the type's range when no name is given or no peers exist.
+ */
+function suggestCodeForName(
+  accountType: string,
+  accountName: string,
+  existing: SelectOption[] = []
+): string {
   const range = TYPE_CODE_RANGES[accountType] ?? TYPE_CODE_RANGES.expense!;
-  return { code: String(range!.start), name: range!.name, type: accountType };
+  const peers = existing
+    .filter(a => {
+      const n = Number(a.code);
+      return Number.isFinite(n) && n >= range.start && n <= range.end;
+    })
+    .map(a => ({ code: Number(a.code), name: (a.name || '').trim() }))
+    .sort((x, y) => x.code - y.code);
+
+  const trimmedName = accountName.trim();
+  if (!trimmedName || peers.length === 0) {
+    const last = peers.length ? peers[peers.length - 1]!.code : range.start - 10;
+    return String(Math.min(last + 10, range.end));
+  }
+
+  const lower = trimmedName.toLowerCase();
+  // Find first peer whose name sorts after the new name; slot the code midway
+  // between its predecessor and itself, snapping to a multiple of 10.
+  for (let i = 0; i < peers.length; i++) {
+    if (peers[i]!.name.toLowerCase() > lower) {
+      const before = i === 0 ? range.start : peers[i - 1]!.code;
+      const after = peers[i]!.code;
+      const mid = Math.round((before + after) / 2 / 10) * 10;
+      if (mid > before && mid < after) return String(mid);
+      // No room for a multiple of 10 — fall back to before+1 if free.
+      const next = before + 1;
+      return String(next < after ? next : before);
+    }
+  }
+  // Sorts after every peer — append at the end of the range.
+  const next = peers[peers.length - 1]!.code + 10;
+  return String(Math.min(next, range.end));
+}
+
+function suggestFromType(
+  accountType: string,
+  accountName?: string,
+  existing?: SelectOption[]
+): GLSuggestion {
+  const range = TYPE_CODE_RANGES[accountType] ?? TYPE_CODE_RANGES.expense!;
+  const name = (accountName ?? '').trim() || range.name;
+  const code = suggestCodeForName(accountType, accountName ?? '', existing);
+  return { code, name, type: accountType };
 }
 
 const INPUT = 'w-full px-3 py-2 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-sm text-[var(--ff-text-primary)] focus:outline-none focus:border-teal-500';
@@ -153,35 +203,26 @@ export function CreateEntityModal({ type, transactionDescription, existingAccoun
   const [custEmail, setCustEmail] = useState('');
   const [custPhone, setCustPhone] = useState('');
 
-  // Generate suggestion on mount (from description) or when type changes
+  // Live suggestion: refreshes whenever the type, name, or description changes.
+  // - Description match wins when the user hasn't typed a name yet.
+  // - Once the user starts typing a name, slot a code alphabetically into the
+  //   chosen type's existing accounts so the COA stays sorted.
   useEffect(() => {
-    if (type !== 'account' || suggestionDismissed) return;
+    if (type !== 'account' || suggestionDismissed || suggestionApplied) return;
 
+    const trimmedName = acctName.trim();
     const descSuggestion = suggestFromDescription(transactionDescription);
-    if (descSuggestion) {
-      setSuggestion(descSuggestion);
-      setSuggestionApplied(false);
-    }
-  // Run only on mount
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
-  // When account type changes and no description suggestion, suggest from type
+    if (descSuggestion && descSuggestion.type === acctType && !trimmedName) {
+      setSuggestion(descSuggestion);
+      return;
+    }
+    setSuggestion(suggestFromType(acctType, trimmedName, existingAccounts));
+  }, [type, acctType, acctName, transactionDescription, existingAccounts, suggestionDismissed, suggestionApplied]);
+
   const handleTypeChange = useCallback((newType: string) => {
     setAcctType(newType);
-    if (type !== 'account' || suggestionDismissed) return;
-
-    const descSuggestion = suggestFromDescription(transactionDescription);
-    if (descSuggestion && descSuggestion.type === newType) {
-      setSuggestion(descSuggestion);
-      setSuggestionApplied(false);
-    } else if (!descSuggestion || descSuggestion.type !== newType) {
-      // Suggest a default code for this type
-      const typeSuggestion = suggestFromType(newType);
-      setSuggestion(typeSuggestion);
-      setSuggestionApplied(false);
-    }
-  }, [type, transactionDescription, suggestionDismissed]);
+  }, []);
 
   /** Check if a suggestion matches an existing GL account */
   const findExistingAccount = useCallback((s: GLSuggestion | null) => {
