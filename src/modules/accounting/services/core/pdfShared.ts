@@ -209,43 +209,10 @@ export function renderPremiumHeader(opts: PremiumHeaderOptions): number {
   const { doc, pageW, margin, company, accent, docTitle, docNumber, docDate,
     docSecondaryDate, docSecondaryLabel } = opts;
 
-  // Header height grows to fit a stacked company-details block (address, email,
-  // phone, VAT each on its own line) — matches the BILL TO style below and
-  // avoids the cramped bullet-joined run-on. The block is the source of truth
-  // for header height; we measure it before drawing the dark band so the
-  // accent strip always lands at the bottom of the actual content.
+  const HEADER_H = 44;
   const STRIP_H = 3;
-  const LOGO_SIZE = 26;
-  const LOGO_TOP = 8;
 
-  // Compose company info lines (stacked, like BILL TO).
-  const infoLines: string[] = [];
-  if (company.address) infoLines.push(company.address);
-  if (company.email) infoLines.push(company.email);
-  if (company.phone) infoLines.push(company.phone);
-  if (company.vatNumber) infoLines.push(`VAT: ${company.vatNumber}`);
-
-  const NAME_Y = 18;
-  const INFO_LINE_H = 4.2;
-  const INFO_FONT = 7.5;
-  const NAME_FONT = 13;
-  const infoStartY = NAME_Y + 6;
-
-  // Pre-wrap address (and any other lines) to fit the available text column.
-  const textLeftX = company.logoData ? margin + LOGO_SIZE + 4 : margin;
-  const RIGHT_RESERVE = 70; // space reserved for doc number + dates on the right
-  const textColW = pageW - textLeftX - RIGHT_RESERVE;
-  const wrappedLines: string[] = [];
-  for (const line of infoLines) {
-    const parts = doc.splitTextToSize(line, textColW) as string[];
-    wrappedLines.push(...parts);
-  }
-
-  const infoBottomY = infoStartY + Math.max(0, wrappedLines.length) * INFO_LINE_H;
-  const logoBottomY = company.logoData ? LOGO_TOP + LOGO_SIZE : 0;
-  const HEADER_H = Math.max(44, Math.max(infoBottomY, logoBottomY) + 4);
-
-  // ── Dark background (now sized to content)
+  // ── Dark background
   doc.setFillColor(...COLORS.DARK);
   doc.rect(0, 0, pageW, HEADER_H, 'F');
 
@@ -254,26 +221,32 @@ export function renderPremiumHeader(opts: PremiumHeaderOptions): number {
   doc.rect(0, HEADER_H, pageW, STRIP_H, 'F');
 
   // ── Logo (if available)
+  let textLeftX = margin;
   if (company.logoData) {
     try {
-      doc.addImage(company.logoData, 'AUTO', margin, LOGO_TOP, LOGO_SIZE, LOGO_SIZE);
+      doc.addImage(company.logoData, 'AUTO', margin, 8, 26, 26);
+      textLeftX = margin + 30;
     } catch { /* skip broken logo */ }
   }
 
   // ── Company name
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(NAME_FONT);
+  doc.setFontSize(13);
   doc.setTextColor(...COLORS.WHITE);
-  doc.text(company.name, textLeftX, NAME_Y);
+  doc.text(company.name, textLeftX, 20);
 
-  // ── Company sub-details — each on its own line
+  // ── Company sub-details (compact bullet-joined run, address on its own line)
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(INFO_FONT);
+  doc.setFontSize(7.5);
   doc.setTextColor(...COLORS.HEADER_SUB);
-  let cy = infoStartY;
-  for (const line of wrappedLines) {
-    doc.text(line, textLeftX, cy);
-    cy += INFO_LINE_H;
+  const subParts: string[] = [];
+  if (company.email) subParts.push(company.email);
+  if (company.phone) subParts.push(company.phone);
+  if (company.vatNumber) subParts.push(`VAT: ${company.vatNumber}`);
+  if (subParts.length > 0) doc.text(subParts.join('  •  '), textLeftX, 27);
+  if (company.address) {
+    doc.setFontSize(7);
+    doc.text(company.address, textLeftX, 33);
   }
 
   // ── Right side: document type + number
