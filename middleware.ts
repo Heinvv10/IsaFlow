@@ -164,9 +164,12 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // app.isaflow.co.za: redirect root to /accounting
+  // app.isaflow.co.za: redirect root to /accounting.
+  // Issue CSRF on the redirect response too (same reason as the onboarding
+  // redirect below — without this, a fresh user landing on /
+  // bounces to /accounting without a CSRF cookie).
   if (pathname === '/' && APP_HOSTS.includes(host)) {
-    return NextResponse.redirect(new URL('/accounting', request.url));
+    return issueCsrfCookie(request, NextResponse.redirect(new URL('/accounting', request.url)));
   }
 
   // Check for auth cookie on protected routes
