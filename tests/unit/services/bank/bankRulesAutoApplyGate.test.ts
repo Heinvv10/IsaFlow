@@ -96,21 +96,24 @@ describe('POST /api/accounting/bank-rules — auto-apply behaviour', () => {
   });
 
   it('CALLS applyRules when autoCreateEntry is omitted (suggest-only rules still apply)', async () => {
+    createRuleMock.mockResolvedValue({ id: 'rule-1', autoCreateEntry: false });
     const req = makeReq({ body: { ...VALID_RULE, bankAccountId: BANK_ID } });
     await (handler as unknown as Handler)(req, makeRes());
 
     expect(createRuleMock).toHaveBeenCalledTimes(1);
     expect(createRuleMock.mock.calls[0]![1].autoCreateEntry).toBe(false);
     expect(applyRulesMock).toHaveBeenCalledTimes(1);
-    expect(applyRulesMock).toHaveBeenCalledWith(COMPANY_ID, BANK_ID, USER_ID);
+    expect(applyRulesMock).toHaveBeenCalledWith(COMPANY_ID, BANK_ID, USER_ID, ['rule-1']);
   });
 
   it('CALLS applyRules when autoCreateEntry is explicitly false', async () => {
+    createRuleMock.mockResolvedValue({ id: 'rule-2', autoCreateEntry: false });
     const req = makeReq({ body: { ...VALID_RULE, bankAccountId: BANK_ID, autoCreateEntry: false } });
     await (handler as unknown as Handler)(req, makeRes());
 
     expect(createRuleMock).toHaveBeenCalledTimes(1);
     expect(applyRulesMock).toHaveBeenCalledTimes(1);
+    expect(applyRulesMock).toHaveBeenCalledWith(COMPANY_ID, BANK_ID, USER_ID, ['rule-2']);
   });
 
   it('does NOT call applyRules when bankAccountId is omitted', async () => {
@@ -123,12 +126,13 @@ describe('POST /api/accounting/bank-rules — auto-apply behaviour', () => {
   });
 
   it('CALLS applyRules when both bankAccountId and autoCreateEntry=true are explicit', async () => {
+    createRuleMock.mockResolvedValue({ id: 'rule-3', autoCreateEntry: true });
     const req = makeReq({ body: { ...VALID_RULE, bankAccountId: BANK_ID, autoCreateEntry: true } });
     await (handler as unknown as Handler)(req, makeRes());
 
     expect(createRuleMock).toHaveBeenCalledTimes(1);
     expect(applyRulesMock).toHaveBeenCalledTimes(1);
-    expect(applyRulesMock).toHaveBeenCalledWith(COMPANY_ID, BANK_ID, USER_ID);
+    expect(applyRulesMock).toHaveBeenCalledWith(COMPANY_ID, BANK_ID, USER_ID, ['rule-3']);
   });
 });
 

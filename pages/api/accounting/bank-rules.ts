@@ -65,13 +65,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       vatCode: input.vatCode,
     }, userId);
 
-    // Auto-apply on create: always run the rules so existing matching
-    // transactions get allocated/suggested immediately. Suggest-only rules
-    // only attach suggestions; auto-post rules create journal entries — the
-    // user opted into that effect when they enabled the toggle.
+    // Auto-apply on create: run only the new rule so the returned `applied`
+    // count reflects this rule's matches and not the entire ruleset.
     let applied = 0;
     if (input.bankAccountId) {
-      const result = await applyRules(companyId, input.bankAccountId, userId);
+      const result = await applyRules(companyId, input.bankAccountId, userId, [rule.id]);
       applied = result.applied;
     }
 
