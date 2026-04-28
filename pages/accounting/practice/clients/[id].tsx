@@ -251,11 +251,15 @@ export default function PracticeClientDetailPage() {
                     >
                       Create a job
                     </Link>
+                    {/* Linking to an accounting customer happens from the
+                        Customers list — there's no per-client deep-link yet
+                        (separate work). Pointing the user there is still a
+                        better next step than the welcome banner being silent. */}
                     <Link
-                      href={`/accounting/customers?linkPracticeClient=${client.id}`}
+                      href="/accounting/customers"
                       className="text-xs px-3 py-1.5 rounded-md bg-[var(--ff-bg-tertiary)] hover:bg-teal-500/10 hover:text-teal-400 text-[var(--ff-text-secondary)] transition-colors"
                     >
-                      Link an accounting customer
+                      Open Customers (to link)
                     </Link>
                   </div>
                 </div>

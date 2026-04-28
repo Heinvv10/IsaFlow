@@ -94,7 +94,7 @@ export default function ProfitabilityPage() {
           {/* Inclusion legend — addresses 2026-04-27 audit's "reports don't
               explain what's included" finding. */}
           <div className="text-xs text-[var(--ff-text-tertiary)] px-1">
-            <span className="font-medium">Includes:</span> revenue from invoiced billable time + hours from all entries (draft, submitted, approved). <span className="font-medium">Time cost / Margin</span> are reserved for staff cost-rate integration; currently shown as &mdash;.
+            <span className="font-medium">Includes:</span> revenue from billed billable time entries (status = billed) + hours from all entries (draft, submitted, approved, billed). <span className="font-medium">Time cost / Margin</span> are reserved for staff cost-rate integration; currently shown as &mdash;.
           </div>
 
           {error && <ErrBanner msg={error} />}
