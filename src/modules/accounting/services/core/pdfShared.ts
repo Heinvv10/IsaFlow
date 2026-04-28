@@ -387,6 +387,62 @@ export function renderPartySection(
   return Math.max(leftBottom, rightBottom) + 6;
 }
 
+/**
+ * Render a single party block (e.g. just BILL TO) constrained to the
+ * left half of the page so totals/badge can sit on the right. Returns
+ * the new Y position after the block.
+ */
+export function renderSingleParty(
+  doc: JsPdfDoc,
+  y: number,
+  margin: number,
+  contentW: number,
+  accent: { r: number; g: number; b: number },
+  info: PartyInfo,
+): number {
+  const colW = contentW / 2 - 4;
+  let cy = y;
+
+  // Label
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(6.5);
+  doc.setTextColor(accent.r, accent.g, accent.b);
+  doc.text(info.label, margin, cy);
+  cy += 1.5;
+
+  // Thin underline
+  doc.setDrawColor(accent.r, accent.g, accent.b);
+  doc.setLineWidth(0.3);
+  doc.line(margin, cy, margin + 28, cy);
+  cy += 4.5;
+
+  // Name
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9.5);
+  doc.setTextColor(...COLORS.TEXT_PRIMARY);
+  doc.text(info.name, margin, cy);
+  cy += 5.5;
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(...COLORS.TEXT_SECONDARY);
+
+  if (info.address) {
+    const lines = String(info.address).split('\n').flatMap(l =>
+      doc.splitTextToSize(l.trim(), colW) as string[]
+    );
+    for (const line of lines) {
+      if (line.trim()) { doc.text(line, margin, cy); cy += 4; }
+    }
+  }
+  if (info.attention) { doc.text(`Attn: ${info.attention}`, margin, cy); cy += 4; }
+  if (info.email) { doc.text(info.email, margin, cy); cy += 4; }
+  if (info.phone) { doc.text(info.phone, margin, cy); cy += 4; }
+  if (info.vatNumber) { doc.text(`VAT: ${info.vatNumber}`, margin, cy); cy += 4; }
+
+  return cy + 6;
+}
+
 // ── Reference Strip ────────────────────────────────────────────────────────────
 
 export interface RefField {
