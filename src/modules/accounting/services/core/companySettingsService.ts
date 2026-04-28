@@ -75,6 +75,83 @@ export async function updateDocumentNumber(
   }
 }
 
+/**
+ * Format `${prefix}${zero-padded number}` exactly as the settings preview shows it.
+ */
+export function formatDocumentNumber(prefix: string, number: number, padding: number): string {
+  return `${prefix}${String(number).padStart(padding, '0')}`;
+}
+
+/**
+ * Atomically reserve the next number in a company's sequence and return it formatted.
+ * Increments next_number under a SQL UPDATE...RETURNING so concurrent calls cannot collide.
+ */
+export async function reserveNextDocumentNumber(
+  companyId: string,
+  documentType: string,
+): Promise<string> {
+  // Hot path: try the UPDATE first. If the row exists (the common case once
+  // ensureDocumentNumbers has run for this company even once), we incur a single
+  // round-trip. Only when the row is missing do we fall back to seeding.
+  // Concurrent first-time callers are safe: ensureDocumentNumbers uses
+  // `INSERT ... ON CONFLICT DO NOTHING`, so seeding is idempotent and the
+  // post-seed UPDATE atomically reserves a unique slot per caller.
+  let rows = (await sql`
+    UPDATE company_document_numbers
+       SET next_number = next_number + 1
+     WHERE company_id = ${companyId}::UUID AND document_type = ${documentType}
+     RETURNING (next_number - 1) AS used, prefix, padding
+  `) as Record<string, unknown>[];
+  if (rows.length === 0) {
+    await ensureDocumentNumbers(companyId);
+    rows = (await sql`
+      UPDATE company_document_numbers
+         SET next_number = next_number + 1
+       WHERE company_id = ${companyId}::UUID AND document_type = ${documentType}
+       RETURNING (next_number - 1) AS used, prefix, padding
+    `) as Record<string, unknown>[];
+  }
+  if (rows.length === 0) {
+    throw new Error(`No document number config for type ${documentType}`);
+  }
+  return formatDocumentNumber(
+    String(rows[0]!.prefix),
+    Number(rows[0]!.used),
+    Number(rows[0]!.padding),
+  );
+}
+
+/**
+ * Peek (read-only) the next number that would be reserved for a document type.
+ * Use this for UI pre-fill — does NOT consume the number.
+ */
+export async function peekNextDocumentNumber(
+  companyId: string,
+  documentType: string,
+): Promise<string> {
+  let rows = (await sql`
+    SELECT prefix, next_number, padding
+      FROM company_document_numbers
+     WHERE company_id = ${companyId}::UUID AND document_type = ${documentType}
+  `) as Record<string, unknown>[];
+  if (rows.length === 0) {
+    await ensureDocumentNumbers(companyId);
+    rows = (await sql`
+      SELECT prefix, next_number, padding
+        FROM company_document_numbers
+       WHERE company_id = ${companyId}::UUID AND document_type = ${documentType}
+    `) as Record<string, unknown>[];
+  }
+  if (rows.length === 0) {
+    throw new Error(`No document number config for type ${documentType}`);
+  }
+  return formatDocumentNumber(
+    String(rows[0]!.prefix),
+    Number(rows[0]!.next_number),
+    Number(rows[0]!.padding),
+  );
+}
+
 // ── Company Messages ──────────────────────────────────────────────────────────
 
 export interface CompanyMessage {
