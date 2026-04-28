@@ -18,6 +18,7 @@ import {
   createSupplierInvoice,
 } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { parseSupplierInvoiceFilters } from '@/modules/accounting/services/ap/supplierInvoiceFilterParams';
+import { reserveNextDocumentNumber } from '@/modules/accounting/services/core/companyService';
 
 async function getHandler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -41,19 +42,29 @@ async function getHandler(req: AuthenticatedNextApiRequest, res: NextApiResponse
 async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
   try {
-    const { invoiceNumber, supplierId, purchaseOrderId, grnId, invoiceDate,
+    const { invoiceNumber, useSequence, supplierId, purchaseOrderId, grnId, invoiceDate,
       dueDate, taxRate, paymentTerms, reference, projectId, costCenterId,
       notes, items, currencyCode, exchangeRate } = req.body;
 
-    if (!invoiceNumber || !supplierId || !invoiceDate || !items || !Array.isArray(items) || items.length === 0) {
-      return apiResponse.badRequest(res, 'invoiceNumber, supplierId, invoiceDate, and items are required');
+    if (!supplierId || !invoiceDate || !items || !Array.isArray(items) || items.length === 0) {
+      return apiResponse.badRequest(res, 'supplierId, invoiceDate, and items are required');
+    }
+
+    // Resolve the invoice number. If `useSequence` is true OR no invoiceNumber
+    // was supplied, atomically reserve the next number from
+    // company_document_numbers (SIV sequence in Settings → Document Numbers).
+    let resolvedInvoiceNumber: string;
+    if (useSequence === true || !invoiceNumber || !String(invoiceNumber).trim()) {
+      resolvedInvoiceNumber = await reserveNextDocumentNumber(companyId, 'supplier_invoice');
+    } else {
+      resolvedInvoiceNumber = String(invoiceNumber).trim();
     }
 
     // User identity comes from JWT (req.user), never from client request body
     const userId = req.user.id;
 
     const invoice = await createSupplierInvoice(companyId, {
-      invoiceNumber, supplierId: String(supplierId), purchaseOrderId, grnId,
+      invoiceNumber: resolvedInvoiceNumber, supplierId: String(supplierId), purchaseOrderId, grnId,
       invoiceDate, dueDate, taxRate: taxRate ? Number(taxRate) : undefined,
       paymentTerms, reference, projectId, costCenterId, notes, items,
       currencyCode: typeof currencyCode === 'string' ? currencyCode : undefined,
