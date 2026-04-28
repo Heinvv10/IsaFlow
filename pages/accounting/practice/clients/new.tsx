@@ -75,7 +75,17 @@ export default function NewPracticeClientPage() {
         const json = await res.json().catch(() => ({})) as { error?: string };
         throw new Error(json.error ?? `HTTP ${res.status}`);
       }
-      await router.push('/accounting/practice/clients');
+      // Land the user on the new client's detail page with ?welcome=1 so the
+      // detail page surfaces the next-step actions (add contact, link
+      // accounting customer, create job, set staff-rate override) — addresses
+      // the 2026-04-27 audit's "no guided next step after creation" finding.
+      const json = await res.json().catch(() => ({})) as { data?: { id?: string } };
+      const newId = json.data?.id;
+      if (newId) {
+        await router.push(`/accounting/practice/clients/${newId}?welcome=1`);
+      } else {
+        await router.push('/accounting/practice/clients');
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create client');
     } finally {

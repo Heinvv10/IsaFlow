@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { DollarSign, Plus, Trash2, Loader2, AlertCircle } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { localISODate } from '@/lib/dateUtils';
 
 interface RateOverride {
   id: string;
@@ -28,7 +29,7 @@ interface AddFormState {
   notes: string;
 }
 
-const today = new Date().toISOString().split('T')[0] ?? '';
+const today = localISODate();
 const EMPTY_FORM: AddFormState = { staffUserId: '', ratePerHour: '', effectiveFrom: today, effectiveTo: '', notes: '' };
 
 function staffLabel(s: StaffMember): string {

@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Users, Loader2, AlertCircle, ArrowLeft, User, Phone, Mail } from 'lucide-react';
+import { Users, Loader2, AlertCircle, ArrowLeft, User, Phone, Mail, Sparkles } from 'lucide-react';
 import Link from 'next/link';
 import { apiFetch } from '@/lib/apiFetch';
 import { ClientRateOverrides } from '@/components/practice/ClientRateOverrides';
@@ -215,7 +215,53 @@ export default function PracticeClientDetailPage() {
           </div>
         </div>
 
-        <div className="px-6 py-6 max-w-3xl">
+        <div className="px-6 py-6 max-w-3xl space-y-4">
+          {/* Welcome banner — surfaces next-step actions when user just created
+              this client (?welcome=1). Addresses the 2026-04-27 audit's "no
+              guided next step after creation" finding. */}
+          {router.query.welcome === '1' && (
+            <div className="rounded-lg border border-teal-500/30 bg-teal-500/5 p-4">
+              <div className="flex items-start gap-3">
+                <Sparkles className="h-5 w-5 text-teal-400 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-[var(--ff-text-primary)] mb-1">
+                    {client.legalName} created. What next?
+                  </p>
+                  <p className="text-xs text-[var(--ff-text-secondary)] mb-3">
+                    A practice client on its own can&apos;t be invoiced yet. Pick the next step that fits this client&apos;s onboarding.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('contacts')}
+                      className="text-xs px-3 py-1.5 rounded-md bg-[var(--ff-bg-tertiary)] hover:bg-teal-500/10 hover:text-teal-400 text-[var(--ff-text-secondary)] transition-colors"
+                    >
+                      Add a contact
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('rate-overrides')}
+                      className="text-xs px-3 py-1.5 rounded-md bg-[var(--ff-bg-tertiary)] hover:bg-teal-500/10 hover:text-teal-400 text-[var(--ff-text-secondary)] transition-colors"
+                    >
+                      Set staff rate overrides
+                    </button>
+                    <Link
+                      href={`/accounting/practice/jobs/new?clientId=${client.id}`}
+                      className="text-xs px-3 py-1.5 rounded-md bg-[var(--ff-bg-tertiary)] hover:bg-teal-500/10 hover:text-teal-400 text-[var(--ff-text-secondary)] transition-colors"
+                    >
+                      Create a job
+                    </Link>
+                    <Link
+                      href={`/accounting/customers?linkPracticeClient=${client.id}`}
+                      className="text-xs px-3 py-1.5 rounded-md bg-[var(--ff-bg-tertiary)] hover:bg-teal-500/10 hover:text-teal-400 text-[var(--ff-text-secondary)] transition-colors"
+                    >
+                      Link an accounting customer
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
           {activeTab === 'details' && (
             <div className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] p-6">
               <dl>

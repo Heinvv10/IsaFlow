@@ -7,6 +7,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, FileText, Plus, Trash2, Loader2, Info, SlidersHorizontal, Receipt } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { localISODate } from '@/lib/dateUtils';
 import { ScanAndFillButton } from '@/components/accounting/ScanAndFillButton';
 import { fuzzyMatchClient } from '@/modules/accounting/utils/fuzzyMatch';
 import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
@@ -29,7 +30,7 @@ export default function NewCustomerInvoicePage() {
   const [error, setError] = useState('');
   const [scanBanner, setScanBanner] = useState<string | null>(null);
   const [showDiscount, setShowDiscount] = useState(false);
-  const today = new Date().toISOString().split('T')[0];
+  const today = localISODate();
 
   const [form, setForm] = useState({ clientId: '', invoiceDate: today, dueDate: '', billingPeriodStart: today, billingPeriodEnd: today, taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1 });
   const [lines, setLines] = useState<LineItem[]>([{ key: '1', description: '', quantity: 1, unitPrice: 0, incomeType: 'other', discount: 0 }]);
@@ -84,7 +85,7 @@ export default function NewCustomerInvoicePage() {
       if (!res.ok) throw new Error(json.error?.message || 'Failed to create');
       const d = json.data || json;
       if (andNew) {
-        const today = new Date().toISOString().split('T')[0];
+        const today = localISODate();
         setForm({ clientId: '', invoiceDate: today, dueDate: '', billingPeriodStart: today, billingPeriodEnd: today, taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1 });
         setLines([{ key: '1', description: '', quantity: 1, unitPrice: 0, incomeType: 'other', discount: 0 }]);
         await router.push('/accounting/customer-invoices/new');

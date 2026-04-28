@@ -7,7 +7,11 @@ import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, AlertCircle, TrendingUp, Download } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { localISODate } from '@/lib/dateUtils';
+import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
 import type { ProfitabilityRow } from '@/modules/accounting/services/practice/practiceReportsService';
+
+const fmtZAR = (v: number) => formatCurrencyAmount(v, 'ZAR');
 import { PeriodPicker } from '@/components/practice/PeriodPicker';
 import type { PeriodRange } from '@/components/practice/PeriodPicker';
 import { downloadCsv, reportFilename } from '@/lib/csvExport';
@@ -15,9 +19,9 @@ import type { CsvColumn } from '@/lib/csvExport';
 
 function firstOfMonth() {
   const d = new Date();
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString().split('T')[0]!;
+  return localISODate(new Date(d.getFullYear(), d.getMonth(), 1));
 }
-function todayIso() { return new Date().toISOString().slice(0, 10); }
+function todayIso() { return localISODate(); }
 
 const TH = 'text-left py-2 px-3 text-[10px] tracking-widest font-semibold text-[var(--ff-text-secondary)] uppercase';
 const TD = 'py-2 px-3 text-sm text-[var(--ff-text-secondary)]';
@@ -87,6 +91,12 @@ export default function ProfitabilityPage() {
             <PeriodPicker mode="range" value={period} onChange={(v) => setPeriod(v as PeriodRange)} />
           </div>
 
+          {/* Inclusion legend — addresses 2026-04-27 audit's "reports don't
+              explain what's included" finding. */}
+          <div className="text-xs text-[var(--ff-text-tertiary)] px-1">
+            <span className="font-medium">Includes:</span> revenue from invoiced billable time + hours from all entries (draft, submitted, approved). <span className="font-medium">Time cost / Margin</span> are reserved for staff cost-rate integration; currently shown as &mdash;.
+          </div>
+
           {error && <ErrBanner msg={error} />}
 
           {loading
@@ -111,9 +121,9 @@ export default function ProfitabilityPage() {
                         <tr key={r.practiceClientId} className={i % 2 === 1 ? 'bg-slate-50/5' : ''}>
                           <td className={`${TD} font-medium text-[var(--ff-text-primary)]`}>{r.legalName}</td>
                           <td className={`${TD} text-right tabular-nums`}>{r.hours.toFixed(2)}</td>
-                          <td className={`${TD} text-right tabular-nums`}>R{r.revenue.toFixed(2)}</td>
-                          <td className={`${TD} text-right tabular-nums`}>{r.timeCost != null ? `R${r.timeCost.toFixed(2)}` : '—'}</td>
-                          <td className={`${TD} text-right tabular-nums`}>{r.margin != null ? `R${r.margin.toFixed(2)}` : '—'}</td>
+                          <td className={`${TD} text-right tabular-nums`}>{fmtZAR(r.revenue)}</td>
+                          <td className={`${TD} text-right tabular-nums`}>{r.timeCost != null ? fmtZAR(r.timeCost) : '—'}</td>
+                          <td className={`${TD} text-right tabular-nums`}>{r.margin != null ? fmtZAR(r.margin) : '—'}</td>
                           <td className={`${TD} text-right tabular-nums ${
                             r.marginPct == null ? 'text-slate-500'
                               : r.marginPct >= 30 ? 'text-emerald-400'

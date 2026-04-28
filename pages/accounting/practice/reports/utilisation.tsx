@@ -7,7 +7,11 @@ import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, AlertCircle, BarChart2, Download } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { localISODate } from '@/lib/dateUtils';
+import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
 import type { UtilisationRow } from '@/modules/accounting/services/practice/practiceReportsService';
+
+const fmtZAR = (v: number) => formatCurrencyAmount(v, 'ZAR');
 import type { CompanyUserSummary } from '@/modules/accounting/services/practice/practiceUsersService';
 import { PeriodPicker } from '@/components/practice/PeriodPicker';
 import type { PeriodRange } from '@/components/practice/PeriodPicker';
@@ -16,9 +20,9 @@ import type { CsvColumn } from '@/lib/csvExport';
 
 function firstOfMonth() {
   const d = new Date();
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString().split('T')[0]!;
+  return localISODate(new Date(d.getFullYear(), d.getMonth(), 1));
 }
-function todayIso() { return new Date().toISOString().slice(0, 10); }
+function todayIso() { return localISODate(); }
 
 const TH = 'text-left py-2 px-3 text-[10px] tracking-widest font-semibold text-[var(--ff-text-secondary)] uppercase';
 const TD = 'py-2 px-3 text-sm text-[var(--ff-text-secondary)]';
@@ -73,7 +77,7 @@ export default function UtilisationPage() {
 
   function handleDownload() {
     const columns: CsvColumn<UtilisationRow>[] = [
-      { header: 'User', accessor: (r) => userMap.get(r.userId) ?? r.userId },
+      { header: 'User', accessor: (r) => r.userDisplayName ?? userMap.get(r.userId) ?? r.userId },
       { header: 'Total hours', accessor: (r) => r.totalHours },
       { header: 'Billable hours', accessor: (r) => r.billableHours },
       { header: 'Non-billable hours', accessor: (r) => r.nonBillableHours },
@@ -115,6 +119,12 @@ export default function UtilisationPage() {
             </div>
           </div>
 
+          {/* Inclusion legend — addresses 2026-04-27 audit's "reports don't
+              explain what's included" finding. */}
+          <div className="text-xs text-[var(--ff-text-tertiary)] px-1">
+            <span className="font-medium">Includes:</span> all time entries (billable + non-billable, draft + submitted + approved) attached to a practice client in the selected period. <span className="font-medium">Utilisation %</span> = billable hours ÷ total hours.
+          </div>
+
           {error && <ErrBanner msg={error} />}
 
           {loading
@@ -137,11 +147,11 @@ export default function UtilisationPage() {
                       ? <tr><td colSpan={6} className="py-12 text-center text-[var(--ff-text-tertiary)] text-sm">No data for this period.</td></tr>
                       : rows.map((r, i) => (
                         <tr key={r.userId} className={i % 2 === 1 ? 'bg-slate-50/5' : ''}>
-                          <td className={TD}>{userMap.get(r.userId) ?? r.userId.slice(0, 8)}</td>
+                          <td className={TD}>{r.userDisplayName ?? userMap.get(r.userId) ?? `Removed user (${r.userId.slice(0, 8)})`}</td>
                           <td className={`${TD} text-right tabular-nums`}>{r.totalHours.toFixed(2)}</td>
                           <td className={`${TD} text-right tabular-nums`}>{r.billableHours.toFixed(2)}</td>
                           <td className={`${TD} text-right tabular-nums`}>{r.nonBillableHours.toFixed(2)}</td>
-                          <td className={`${TD} text-right tabular-nums`}>R{r.billableValue.toFixed(2)}</td>
+                          <td className={`${TD} text-right tabular-nums`}>{fmtZAR(r.billableValue)}</td>
                           <td className={`${TD} text-right tabular-nums font-semibold ${utilColour(r.utilisationPct)}`}>{r.utilisationPct.toFixed(1)}%</td>
                         </tr>
                       ))

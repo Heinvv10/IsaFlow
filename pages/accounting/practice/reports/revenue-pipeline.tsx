@@ -7,7 +7,11 @@ import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, AlertCircle, Layers, Download } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { localISODate } from '@/lib/dateUtils';
+import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
 import type { PipelineSummary } from '@/modules/accounting/services/practice/practiceReportsService';
+
+const fmtZAR = (v: number) => formatCurrencyAmount(v, 'ZAR');
 import { PeriodPicker } from '@/components/practice/PeriodPicker';
 import { downloadCsv, asOfFilename } from '@/lib/csvExport';
 import type { CsvColumn } from '@/lib/csvExport';
@@ -43,7 +47,7 @@ export default function RevenuePipelinePage() {
   const [summary, setSummary] = useState<PipelineSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [asOfDate, setAsOfDate] = useState(new Date().toISOString().slice(0, 10));
+  const [asOfDate, setAsOfDate] = useState(localISODate());
 
   useEffect(() => {
     setLoading(true);
@@ -97,15 +101,21 @@ export default function RevenuePipelinePage() {
             />
           </div>
 
+          {/* Inclusion legend — addresses 2026-04-27 audit's "reports don't
+              explain what's included" finding. */}
+          <div className="text-xs text-[var(--ff-text-tertiary)] px-1">
+            <span className="font-medium">Approved &amp; unbilled:</span> billable time approved but not yet on a customer invoice. <span className="font-medium">Invoiced last 30 days:</span> customer invoices in the trailing 30 days. <span className="font-medium">Forecast:</span> 80% of approved unbilled — a conservative collection estimate, not a contracted commitment.
+          </div>
+
           {error && <ErrBanner msg={error} />}
 
           {loading
             ? <div className="flex items-center gap-2 py-12 justify-center text-[var(--ff-text-tertiary)] text-sm"><Loader2 className="h-5 w-5 animate-spin" />Loading…</div>
             : summary && (
               <div className="flex flex-wrap gap-4">
-                <StatCard title="Approved & unbilled" value={`R${summary.totalApproved.toFixed(2)}`} colour="blue" />
-                <StatCard title="Invoiced last 30 days" value={`R${summary.totalInvoicedLast30d.toFixed(2)}`} colour="green" />
-                <StatCard title="Forecast (next 30 days)" value={`R${summary.forecast30d.toFixed(2)}`} colour="amber" footnote="80% of approved WIP" />
+                <StatCard title="Approved & unbilled" value={fmtZAR(summary.totalApproved)} colour="blue" />
+                <StatCard title="Invoiced last 30 days" value={fmtZAR(summary.totalInvoicedLast30d)} colour="green" />
+                <StatCard title="Forecast (next 30 days)" value={fmtZAR(summary.forecast30d)} colour="amber" footnote="80% of approved WIP" />
               </div>
             )
           }
