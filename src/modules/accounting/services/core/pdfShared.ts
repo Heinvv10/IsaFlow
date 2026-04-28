@@ -464,16 +464,21 @@ export function renderTotalsBlock(
 
   for (const line of lines) {
     if (line.isTotal) {
-      // Accent fill box for total
-      const BOX_H = 9;
+      // Add clear vertical breathing room above the accent box so its top
+      // edge doesn't clip the descenders of the previous (Subtotal/VAT) row.
+      cy += 3;
+      // Accent fill box for total — vertically centered around the text
+      // baseline with enough padding for cap-height + descender clearance.
+      const BOX_H = 10;
+      const BOX_TOP = cy - 7;
       doc.setFillColor(accent.r, accent.g, accent.b);
-      doc.roundedRect(LEFT_X - 2, cy - 6, BLOCK_W + 4, BOX_H, 1, 1, 'F');
+      doc.roundedRect(LEFT_X - 2, BOX_TOP, BLOCK_W + 4, BOX_H, 1, 1, 'F');
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(9);
       doc.setTextColor(...COLORS.WHITE);
       doc.text(line.label, LEFT_X + 2, cy);
-      doc.text(line.value, RIGHT_X, cy, { align: 'right' });
-      cy += 10;
+      doc.text(line.value, RIGHT_X - 2, cy, { align: 'right' });
+      cy = BOX_TOP + BOX_H + 2;
     } else if (line.isMuted) {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7.5);
