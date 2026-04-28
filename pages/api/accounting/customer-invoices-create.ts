@@ -78,26 +78,34 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // next_number from Settings → Document Numbers if they ever need to.
     // We accept this over wrapping in a transaction because a transactional
     // counter would serialize all invoice creates company-wide.
+    // The INSERT must run in a SAVEPOINT — without it, a unique-violation on
+    // invoice_number poisons the outer request tx (set up by withAuth for RLS),
+    // and the very next statement (the retry's reserveNextDocumentNumber UPDATE)
+    // returns "current transaction is aborted, commands ignored until end of
+    // transaction block". The savepoint isolates each INSERT attempt so the
+    // outer tx survives a clash and the retry can reserve a fresh number.
     let invoiceId = '';
     let invoiceNumber = await reserveNextDocumentNumber(companyId, 'customer_invoice');
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
-        const invRows = (await sql`
-          INSERT INTO customer_invoices (
-            company_id, invoice_number, project_id, customer_id, client_id,
-            billing_period_start, billing_period_end,
-            subtotal, tax_rate, tax_amount, total_amount, invoice_date, due_date,
-            notes, status, created_by,
-            currency_code, exchange_rate, functional_total
-          ) VALUES (
-            ${companyId}, ${invoiceNumber}, ${projectId}, ${clientId}::UUID, ${clientId}::UUID,
-            ${bpStart}, ${bpEnd},
-            ${subtotal}, ${rate}, ${taxAmount}, ${totalAmount}, ${invDate},
-            ${dueDate || null}, ${notes || null}, 'draft', ${userId},
-            ${invCurrencyCode}, ${invExchangeRate}, ${functionalTotal}
-          ) RETURNING id
-        `) as Row[];
-        invoiceId = String(invRows[0]!.id);
+        invoiceId = await withSavepoint(`inv_insert_${attempt}`, async () => {
+          const invRows = (await sql`
+            INSERT INTO customer_invoices (
+              company_id, invoice_number, project_id, customer_id, client_id,
+              billing_period_start, billing_period_end,
+              subtotal, tax_rate, tax_amount, total_amount, invoice_date, due_date,
+              notes, status, created_by,
+              currency_code, exchange_rate, functional_total
+            ) VALUES (
+              ${companyId}, ${invoiceNumber}, ${projectId}, ${clientId}::UUID, ${clientId}::UUID,
+              ${bpStart}, ${bpEnd},
+              ${subtotal}, ${rate}, ${taxAmount}, ${totalAmount}, ${invDate},
+              ${dueDate || null}, ${notes || null}, 'draft', ${userId},
+              ${invCurrencyCode}, ${invExchangeRate}, ${functionalTotal}
+            ) RETURNING id
+          `) as Row[];
+          return String(invRows[0]!.id);
+        });
         break;
       } catch (insertErr) {
         const msg = insertErr instanceof Error ? insertErr.message : String(insertErr);
