@@ -103,9 +103,10 @@ function pickFreeCode(taken: Set<number>, from: number, to: number, step = 1): n
 
 /**
  * Pick a code for a new account that slots alphabetically into the existing
- * accounts of the same type. Always returns a code not already in use; falls
- * back to the next free code at the end of the range when no name is given,
- * no peers exist, or the alphabetic neighbours leave no free slot.
+ * accounts of the same type. Returns a free code (multiple of 10 preferred,
+ * any free integer otherwise). When the entire range is exhausted, returns
+ * range.end as a last-resort sentinel — the caller is expected to surface
+ * the resulting save error to the user.
  */
 export function suggestCodeForName(
   accountType: string,
