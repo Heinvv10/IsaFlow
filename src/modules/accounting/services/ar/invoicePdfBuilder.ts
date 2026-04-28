@@ -134,16 +134,25 @@ export async function generateInvoicePdf(companyId: string, invoiceId: string): 
   y = renderRefStrip(doc, y, PAGE_W, MARGIN, refFields);
 
   // ── Line Items Table ───────────────────────────────────────────────────────
+  // Per-line VAT is derived from the line amount × invoice tax rate so the
+  // column reflects what actually gets added at totals — items don't carry a
+  // populated tax_amount of their own, so reading the column from the row
+  // would always render R 0.00 even when 15% VAT is applied below.
+  const invTaxRate = Number(inv.tax_rate || 15);
   autoTable(doc, {
     startY: y,
     head: [['Description', 'Qty', 'Unit Price', 'VAT', 'Amount']],
-    body: items.map((item: Row) => [
-      item.description || '—',
-      Number(item.quantity || 0).toFixed(2),
-      fmtZAR(Number(item.unit_price || 0)),
-      fmtZAR(Number(item.tax_amount || 0)),
-      fmtZAR(Number(item.line_total || item.amount || 0)),
-    ]),
+    body: items.map((item: Row) => {
+      const lineAmount = Number(item.line_total || item.amount || 0);
+      const lineVat = Math.round(lineAmount * (invTaxRate / 100) * 100) / 100;
+      return [
+        item.description || '—',
+        Number(item.quantity || 0).toFixed(2),
+        fmtZAR(Number(item.unit_price || 0)),
+        fmtZAR(lineVat),
+        fmtZAR(lineAmount),
+      ];
+    }),
     styles: {
       fontSize: 8,
       cellPadding: { top: 4, bottom: 4, left: 4, right: 4 },
