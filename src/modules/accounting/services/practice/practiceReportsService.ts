@@ -6,6 +6,12 @@ import type { DbRow } from '@/types/db';
 
 export interface UtilisationRow {
   userId: string;
+  /**
+   * Resolved staff name — "First Last" if present, else email, else null.
+   * Avoids the report falling back to a raw UUID prefix in the UI when a
+   * user has been deactivated since their time entries were recorded.
+   */
+  userDisplayName: string | null;
   totalHours: number;
   billableHours: number;
   nonBillableHours: number;
@@ -84,15 +90,19 @@ export async function getStaffUtilisation(
 
   const rows = (await sql`
     SELECT te.user_id,
+           u.first_name,
+           u.last_name,
+           u.email,
            SUM(te.hours)::NUMERIC AS total_hours,
            SUM(CASE WHEN te.billable THEN te.hours ELSE 0 END)::NUMERIC AS billable_hours,
            SUM(CASE WHEN te.billable THEN COALESCE(te.line_total, 0) ELSE 0 END)::NUMERIC AS billable_value
     FROM time_entries te
+    LEFT JOIN users u ON u.id = te.user_id::TEXT
     WHERE te.company_id = ${companyId}::UUID
       AND te.entry_date BETWEEN ${dateFrom}::DATE AND ${dateTo}::DATE
       AND te.practice_client_id IS NOT NULL
       AND (${userId}::UUID IS NULL OR te.user_id = ${userId}::UUID)
-    GROUP BY te.user_id
+    GROUP BY te.user_id, u.first_name, u.last_name, u.email
   `) as DbRow[];
 
   return rows.map((r) => {
@@ -102,8 +112,13 @@ export async function getStaffUtilisation(
     const billableValue = Number(r.billable_value);
     const utilisationPct =
       totalHours > 0 ? Math.round((billableHours / totalHours) * 10000) / 100 : 0;
+    const first = r.first_name ? String(r.first_name).trim() : '';
+    const last = r.last_name ? String(r.last_name).trim() : '';
+    const fullName = [first, last].filter(Boolean).join(' ').trim();
+    const userDisplayName = fullName || (r.email ? String(r.email) : null);
     return {
       userId: String(r.user_id),
+      userDisplayName,
       totalHours,
       billableHours,
       nonBillableHours,

@@ -5,6 +5,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
+import { localISODate } from '@/lib/dateUtils';
 
 export interface CustomerFormData {
   name: string;
@@ -58,7 +59,7 @@ export const INITIAL_CUSTOMER_FORM: CustomerFormData = {
   category_id: '',
   cash_sale: false,
   opening_balance: '',
-  opening_balance_date: new Date().toISOString().split('T')[0]!,
+  opening_balance_date: localISODate(),
   accepts_electronic_invoices: false,
   auto_allocate_receipts: false,
   statement_distribution: 'email',
