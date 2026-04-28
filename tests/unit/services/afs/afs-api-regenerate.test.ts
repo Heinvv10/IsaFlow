@@ -17,15 +17,23 @@ vi.mock('@/lib/logger', () => ({
 vi.mock('@/modules/accounting/services/afs/noteEngineService', () => ({
   generateSection: vi.fn(),
 }));
-vi.mock('@/lib/apiResponse', () => ({
-  apiResponse: {
-    success:          vi.fn(),
-    badRequest:       vi.fn(),
-    methodNotAllowed: vi.fn(),
-    validationError:  vi.fn(),
-    zodValidationError: vi.fn(),
-  },
-}));
+vi.mock('@/lib/apiResponse', () => {
+  const validationError = vi.fn();
+  // Mirror real helper: zodValidationError extracts fieldErrors and forwards
+  // to validationError so existing field-keyed assertions still match.
+  const zodValidationError = vi.fn((res, error) => {
+    validationError(res, error.flatten().fieldErrors);
+  });
+  return {
+    apiResponse: {
+      success:          vi.fn(),
+      badRequest:       vi.fn(),
+      methodNotAllowed: vi.fn(),
+      validationError,
+      zodValidationError,
+    },
+  };
+});
 
 import { generateSection } from '@/modules/accounting/services/afs/noteEngineService';
 import { apiResponse } from '@/lib/apiResponse';

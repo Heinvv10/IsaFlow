@@ -15,16 +15,22 @@ vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
-vi.mock('@/lib/apiResponse', () => ({
-  apiResponse: {
-    success:          vi.fn(),
-    badRequest:       vi.fn(),
-    notFound:         vi.fn(),
-    methodNotAllowed: vi.fn(),
-    validationError:  vi.fn(),
-    zodValidationError: vi.fn(),
-  },
-}));
+vi.mock('@/lib/apiResponse', () => {
+  const validationError = vi.fn();
+  const zodValidationError = vi.fn((res, error) => {
+    validationError(res, error.flatten().fieldErrors);
+  });
+  return {
+    apiResponse: {
+      success:          vi.fn(),
+      badRequest:       vi.fn(),
+      notFound:         vi.fn(),
+      methodNotAllowed: vi.fn(),
+      validationError,
+      zodValidationError,
+    },
+  };
+});
 
 import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
