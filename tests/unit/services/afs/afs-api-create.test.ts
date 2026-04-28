@@ -25,16 +25,23 @@ vi.mock('@/modules/accounting/services/afs/afsDocumentService', () => ({
     }
   },
 }));
-vi.mock('@/lib/apiResponse', () => ({
-  apiResponse: {
-    success:          vi.fn(),
-    created:          vi.fn(),
-    conflict:         vi.fn(),
-    badRequest:       vi.fn(),
-    methodNotAllowed: vi.fn(),
-    validationError:  vi.fn(),
-  },
-}));
+vi.mock('@/lib/apiResponse', () => {
+  const validationError = vi.fn();
+  const zodValidationError = vi.fn((res, error) => {
+    validationError(res, error.flatten().fieldErrors);
+  });
+  return {
+    apiResponse: {
+      success:          vi.fn(),
+      created:          vi.fn(),
+      conflict:         vi.fn(),
+      badRequest:       vi.fn(),
+      methodNotAllowed: vi.fn(),
+      validationError,
+      zodValidationError,
+    },
+  };
+});
 
 import { createAfsDocument, AfsDocumentDuplicateError } from '@/modules/accounting/services/afs/afsDocumentService';
 import { apiResponse } from '@/lib/apiResponse';

@@ -5,7 +5,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { UUID } from '@/lib/schemas/common';
+import { UUID, requireUuidParam } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import {
   listComments,
@@ -21,9 +21,8 @@ const AddCommentSchema = z.object({
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const companyReq = req as CompanyAuthedRequest;
   const { companyId } = companyReq;
-  const sectParse = UUID.safeParse(req.query.sectionId);
-  if (!sectParse.success) return apiResponse.badRequest(res, 'sectionId must be a valid UUID');
-  const sectionId = sectParse.data;
+  const sectionId = requireUuidParam(req, res, 'sectionId');
+  if (!sectionId) return;
 
   if (req.method === 'GET') {
     const items = await listComments(companyId, sectionId);
@@ -33,12 +32,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'POST') {
     const userId = companyReq.user.id;
     const parsed = AddCommentSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return apiResponse.validationError(
-        res,
-        parsed.error.flatten().fieldErrors as Record<string, string | string[]>,
-      );
-    }
+    if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
     const { body, parentId } = parsed.data;
 
     log.info('Adding comment', { companyId, sectionId, userId, parentId }, 'afs-comments-api');

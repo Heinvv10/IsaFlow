@@ -169,6 +169,21 @@ export class ApiResponseHelper {
   }
 
   /**
+   * Send validation error response from a Zod error.
+   * Centralises the `flatten().fieldErrors` extraction + the cast that
+   * bridges Zod 4's `Record<string, string[] | undefined>` shape to our
+   * helper's `Record<string, string | string[]>` contract.
+   */
+  static zodValidationError(
+    res: NextApiResponse,
+    error: { flatten(): { fieldErrors: Record<string, string[] | undefined> } },
+    message = 'Validation failed'
+  ): void {
+    const fieldErrors = error.flatten().fieldErrors as Record<string, string | string[]>;
+    this.validationError(res, fieldErrors, message);
+  }
+
+  /**
    * Send not found error response
    */
   static notFound(
@@ -326,6 +341,7 @@ export const apiResponse = {
   badRequest: ApiResponseHelper.badRequest.bind(ApiResponseHelper),
   badRequestFromError: ApiResponseHelper.badRequestFromError.bind(ApiResponseHelper),
   validationError: ApiResponseHelper.validationError.bind(ApiResponseHelper),
+  zodValidationError: ApiResponseHelper.zodValidationError.bind(ApiResponseHelper),
   notFound: ApiResponseHelper.notFound.bind(ApiResponseHelper),
   unauthorized: ApiResponseHelper.unauthorized.bind(ApiResponseHelper),
   forbidden: ApiResponseHelper.forbidden.bind(ApiResponseHelper),

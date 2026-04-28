@@ -7,6 +7,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { PortalRoleEnum } from '@/lib/schemas/afs';
 import { log } from '@/lib/logger';
 import {
   listPortalContacts,
@@ -16,7 +17,7 @@ import {
 const CreateContactSchema = z.object({
   name: z.string().trim().min(1).max(200),
   email: z.string().email().max(254),
-  role: z.enum(['director', 'cfo', 'shareholder_readonly', 'external_auditor']),
+  role: PortalRoleEnum,
 }).strict();
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -30,12 +31,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'POST') {
     const parsed = CreateContactSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return apiResponse.validationError(
-        res,
-        parsed.error.flatten().fieldErrors as Record<string, string | string[]>,
-      );
-    }
+    if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
     const { name, email, role } = parsed.data;
 
     try {
