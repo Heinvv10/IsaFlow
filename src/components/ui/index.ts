@@ -56,3 +56,5 @@ export { EmptyState } from './EmptyState';
 
 export { SplitButton } from './SplitButton';
 export type { SplitButtonProps, SplitButtonOption } from './SplitButton';
+
+export { TableDensityToggle } from './TableDensityToggle';

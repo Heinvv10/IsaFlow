@@ -8,6 +8,7 @@ import React from 'react';
 import Link from 'next/link';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
+import { useTableDensity } from '@/contexts/TableDensityContext';
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
@@ -46,6 +47,8 @@ export function TrialBalanceRow({
   row: r, isExpanded, onToggle, onEvidence,
   showComparative, drillDownStart, drillDownEnd, colSpan,
 }: Props) {
+  const { rowClass } = useTableDensity();
+
   const detailHref =
     `/accounting/reports/account-detail/${encodeURIComponent(r.accountCode)}` +
     `?from=${encodeURIComponent(drillDownStart)}&to=${encodeURIComponent(drillDownEnd)}&source=tb`;
@@ -56,7 +59,7 @@ export function TrialBalanceRow({
         onClick={() => onToggle(r.accountCode)}
         className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50 cursor-pointer"
       >
-        <td className="px-4 py-3 font-mono text-[var(--ff-text-tertiary)]">
+        <td className={`${rowClass} font-mono text-[var(--ff-text-tertiary)]`}>
           <span className="flex items-center gap-1">
             {isExpanded
               ? <ChevronDown className="h-3 w-3" />
@@ -64,7 +67,7 @@ export function TrialBalanceRow({
             {r.accountCode}
           </span>
         </td>
-        <td className="px-4 py-3 text-[var(--ff-text-primary)]">
+        <td className={`${rowClass} text-[var(--ff-text-primary)]`}>
           <Link
             href={detailHref}
             onClick={e => e.stopPropagation()}
@@ -73,28 +76,28 @@ export function TrialBalanceRow({
             {r.accountName}
           </Link>
         </td>
-        <td className="px-4 py-3">
+        <td className={rowClass}>
           <span className={`px-2 py-0.5 rounded text-xs font-medium uppercase tracking-wide ${TYPE_PILL[r.accountType.toLowerCase()] ?? NEUTRAL_PILL}`}>
             {r.accountType}
           </span>
         </td>
-        <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">
+        <td className={`${rowClass} text-right text-[var(--ff-text-primary)]`}>
           {r.debitBalance > 0 ? fmt(r.debitBalance) : '—'}
         </td>
-        <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">
+        <td className={`${rowClass} text-right text-[var(--ff-text-primary)]`}>
           {r.creditBalance > 0 ? fmt(r.creditBalance) : '—'}
         </td>
         {showComparative && (
           <>
-            <td className="px-4 py-3 text-right text-[var(--ff-text-tertiary)] text-xs">
+            <td className={`${rowClass} text-right text-[var(--ff-text-tertiary)] text-xs`}>
               {(r.priorDebitBalance ?? 0) > 0 ? fmt(r.priorDebitBalance ?? 0) : '—'}
             </td>
-            <td className="px-4 py-3 text-right text-[var(--ff-text-tertiary)] text-xs">
+            <td className={`${rowClass} text-right text-[var(--ff-text-tertiary)] text-xs`}>
               {(r.priorCreditBalance ?? 0) > 0 ? fmt(r.priorCreditBalance ?? 0) : '—'}
             </td>
           </>
         )}
-        <td className="px-4 py-3 text-center" onClick={e => e.stopPropagation()}>
+        <td className={`${rowClass} text-center`} onClick={e => e.stopPropagation()}>
           <button
             onClick={() => onEvidence(r.accountCode, r.accountName)}
             className="px-2 py-1 rounded text-xs bg-indigo-500/15 text-indigo-400 hover:bg-indigo-500/25 whitespace-nowrap"
