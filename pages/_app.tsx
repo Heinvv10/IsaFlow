@@ -4,6 +4,7 @@ import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { CompanyProvider } from '@/contexts/CompanyContext';
+import { TableDensityProvider } from '@/contexts/TableDensityContext';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { TrackerScript } from '@/components/analytics/TrackerScript';
 import '../styles/globals.css';
@@ -36,9 +37,11 @@ export default function App({ Component, pageProps }: AppProps) {
     <ThemeProvider>
       <AuthProvider>
         <CompanyProvider>
+        <TableDensityProvider>
         <ErrorBoundary>
         <Component {...pageProps} />
         </ErrorBoundary>
+        </TableDensityProvider>
         <TrackerScript />
         <Toaster
           position="top-right"
