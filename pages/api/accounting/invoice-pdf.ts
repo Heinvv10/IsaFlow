@@ -8,7 +8,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
-import { generateInvoicePdf } from '@/modules/accounting/services/ar/invoicePdfService';
+import { generateInvoicePdf, getInvoicePdfFilename } from '@/modules/accounting/services/ar/invoicePdfService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -23,10 +23,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   try {
-    const pdfBuffer = await generateInvoicePdf(companyId, invoiceId);
+    const [pdfBuffer, filename] = await Promise.all([
+      generateInvoicePdf(companyId, invoiceId),
+      getInvoicePdfFilename(companyId, invoiceId),
+    ]);
 
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="Invoice-${invoiceId}.pdf"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.setHeader('Content-Length', pdfBuffer.length);
     res.status(200).end(pdfBuffer);
   } catch (err) {

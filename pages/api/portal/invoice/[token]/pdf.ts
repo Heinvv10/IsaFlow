@@ -15,6 +15,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { downloadCapturedDocument } from '@/lib/supabaseStorage';
 import { generateInvoicePdf } from '@/modules/accounting/services/ar/invoicePdfBuilder';
+import { getInvoicePdfFilename } from '@/modules/accounting/services/ar/invoicePdfService';
 import { getSealedInvoicePdf } from '@/modules/accounting/services/ar/invoicePdfSnapshotService';
 import {
   hashSessionToken,
@@ -58,8 +59,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
       source = 'rendered';
     }
 
+    const filename = await getInvoicePdfFilename(companyId, invoiceId);
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="Invoice-${invoiceId}.pdf"`);
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
     res.setHeader('Content-Length', String(buffer.length));
     res.setHeader('X-Evidence-Source', source);
     if (sealed) res.setHeader('X-Evidence-Sha256', sealed.sha256);
