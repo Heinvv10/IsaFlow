@@ -124,7 +124,7 @@ describe('POST /afs/[documentId]/sections/[sectionId]/suppress', () => {
     await (suppressHandler as unknown as Handler)(req, res);
     expect(apiResponse.badRequest).toHaveBeenCalledWith(
       res,
-      'documentId and sectionId must be valid UUIDs',
+      'documentId must be a valid UUID',
     );
   });
 

@@ -7,7 +7,8 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { UUID } from '@/lib/schemas/common';
+import { requireUuidParam } from '@/lib/schemas/common';
+import { PortalRoleEnum } from '@/lib/schemas/afs';
 import { log } from '@/lib/logger';
 import {
   updatePortalContact,
@@ -16,15 +17,14 @@ import {
 
 const UpdateContactSchema = z.object({
   name: z.string().trim().min(1).max(200).optional(),
-  role: z.enum(['director', 'cfo', 'shareholder_readonly', 'external_auditor']).optional(),
+  role: PortalRoleEnum.optional(),
   active: z.boolean().optional(),
 }).strict();
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
-  const idParse = UUID.safeParse(req.query.contactId);
-  if (!idParse.success) return apiResponse.badRequest(res, 'contactId must be a valid UUID');
-  const contactId = idParse.data;
+  const contactId = requireUuidParam(req, res, 'contactId');
+  if (!contactId) return;
 
   if (req.method === 'PUT') {
     const parsed = UpdateContactSchema.safeParse(req.body);

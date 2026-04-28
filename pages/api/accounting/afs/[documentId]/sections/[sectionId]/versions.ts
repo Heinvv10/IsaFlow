@@ -5,7 +5,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { UUID } from '@/lib/schemas/common';
+import { requireUuidParam } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import {
   assertDocumentEditable,
@@ -24,13 +24,10 @@ const RestoreSchema = z.object({
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const companyReq = req as CompanyAuthedRequest;
   const { companyId } = companyReq;
-  const docParse = UUID.safeParse(req.query.documentId);
-  const sectParse = UUID.safeParse(req.query.sectionId);
-  if (!docParse.success || !sectParse.success) {
-    return apiResponse.badRequest(res, 'documentId and sectionId must be valid UUIDs');
-  }
-  const documentId = docParse.data;
-  const sectionId = sectParse.data;
+  const documentId = requireUuidParam(req, res, 'documentId');
+  if (!documentId) return;
+  const sectionId = requireUuidParam(req, res, 'sectionId');
+  if (!sectionId) return;
 
   if (req.method === 'GET') {
     try {

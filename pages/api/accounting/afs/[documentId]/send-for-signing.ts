@@ -10,7 +10,7 @@ import { afsHtmlPath } from '@/lib/storage/afsStorage';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { UUID } from '@/lib/schemas/common';
+import { UUID, requireUuidParam } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { sendForSigning } from '@/modules/accounting/services/afs/signumIntegrationService';
@@ -29,9 +29,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const { companyId } = req as CompanyAuthedRequest;
-  const docParse = UUID.safeParse(req.query.documentId);
-  if (!docParse.success) return apiResponse.badRequest(res, 'documentId must be a valid UUID');
-  const documentId = docParse.data;
+  const documentId = requireUuidParam(req, res, 'documentId');
+  if (!documentId) return;
 
   const parsed = BodySchema.safeParse(req.body);
   if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);

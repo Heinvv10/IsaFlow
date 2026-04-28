@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { EntityTypeEnum } from '@/lib/schemas/afs';
 import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
 import { computePisBreakdown } from '@/modules/accounting/services/afs/pisCalculatorService';
@@ -21,7 +22,7 @@ const PutPisSchema = z.object({
   allShareholdersAreDirectors: z.boolean().nullable().optional(),
   natureOfBusiness: z.string().max(2000).nullable().optional(),
   registeredAddress: z.string().max(2000).nullable().optional(),
-  entityType: z.enum(['pty', 'cc', 'trust']).nullable().optional(),
+  entityType: EntityTypeEnum.nullable().optional(),
 }).strict();
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
