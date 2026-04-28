@@ -11,7 +11,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { withFlowMeter } from '@/lib/billing/withFlowMeter';
 import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { reserveNextDocumentNumber } from '@/modules/accounting/services/core/companyService';
 type Row = Record<string, unknown>;
 
@@ -53,12 +53,18 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const bpStart = billingPeriodStart || null;
     const bpEnd = billingPeriodEnd || null;
 
-    // Find project from client (optional)
-    let projectId: string | null = null;
-    try {
-      const projRows = (await sql`SELECT id FROM projects WHERE client_id = ${clientId}::UUID AND company_id = ${companyId} LIMIT 1`) as Row[];
-      projectId = (projRows[0]?.['id'] as string | undefined) ?? null;
-    } catch { /* projects table may not exist */ }
+    // Find project from client (optional). Wrap in a SAVEPOINT — without it,
+    // a failed read here poisons the request-scoped tx (set up by withAuth for
+    // RLS) and every subsequent statement in this handler returns "current
+    // transaction is aborted, commands ignored until end of transaction block".
+    const projectId: string | null = await withSavepoint('lookup_project', async () => {
+      const projRows = (await sql`
+        SELECT id FROM projects
+         WHERE client_id = ${clientId}::UUID AND company_id = ${companyId}
+         LIMIT 1
+      `) as Row[];
+      return (projRows[0]?.['id'] as string | undefined) ?? null;
+    }).catch(() => null);
 
     // Reserve invoice number from the company's configured sequence.
     // The reservation is atomic — the only collision that can occur is with
