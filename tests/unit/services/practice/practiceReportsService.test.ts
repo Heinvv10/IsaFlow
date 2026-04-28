@@ -55,6 +55,63 @@ describe('getStaffUtilisation', () => {
     expect(row.utilisationPct).toBe(75);
   });
 
+  it('resolves userDisplayName from joined first_name + last_name', async () => {
+    sqlMock.mockResolvedValueOnce([
+      {
+        user_id: USER_1,
+        first_name: 'Alex',
+        last_name: 'Botha',
+        email: 'alex@example.com',
+        total_hours: '4',
+        billable_hours: '4',
+        billable_value: '3400',
+      },
+    ]);
+    const result = await getStaffUtilisation(COMPANY, {
+      dateFrom: '2026-04-01',
+      dateTo: '2026-04-30',
+    });
+    expect(result[0]!.userDisplayName).toBe('Alex Botha');
+  });
+
+  it('falls back to email when first/last names are blank', async () => {
+    sqlMock.mockResolvedValueOnce([
+      {
+        user_id: USER_1,
+        first_name: null,
+        last_name: null,
+        email: 'someone@example.com',
+        total_hours: '1',
+        billable_hours: '1',
+        billable_value: '850',
+      },
+    ]);
+    const result = await getStaffUtilisation(COMPANY, {
+      dateFrom: '2026-04-01',
+      dateTo: '2026-04-30',
+    });
+    expect(result[0]!.userDisplayName).toBe('someone@example.com');
+  });
+
+  it('returns null userDisplayName when the user no longer exists', async () => {
+    sqlMock.mockResolvedValueOnce([
+      {
+        user_id: USER_1,
+        first_name: null,
+        last_name: null,
+        email: null,
+        total_hours: '2',
+        billable_hours: '0',
+        billable_value: '0',
+      },
+    ]);
+    const result = await getStaffUtilisation(COMPANY, {
+      dateFrom: '2026-04-01',
+      dateTo: '2026-04-30',
+    });
+    expect(result[0]!.userDisplayName).toBeNull();
+  });
+
   it('returns 0 utilisationPct when totalHours is 0 (no divide-by-zero)', async () => {
     sqlMock.mockResolvedValueOnce([
       {

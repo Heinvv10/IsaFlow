@@ -60,6 +60,18 @@ export default function NewPracticeJobPage() {
     ]);
   }, []);
 
+  // Pre-select the client if the route includes ?clientId=… — used by the
+  // welcome banner on the practice client detail page to chain "create a job
+  // for this client" without making the user re-select.
+  useEffect(() => {
+    if (!router.isReady) return;
+    const q = router.query.clientId;
+    const id = Array.isArray(q) ? q[0] : q;
+    if (id && typeof id === 'string') {
+      setForm((p) => (p.practiceClientId ? p : { ...p, practiceClientId: id }));
+    }
+  }, [router.isReady, router.query.clientId]);
+
   function set(f: keyof FormState, v: string) {
     setForm((p) => ({ ...p, [f]: v }));
     if (fe[f]) setFe((p) => ({ ...p, [f]: undefined }));

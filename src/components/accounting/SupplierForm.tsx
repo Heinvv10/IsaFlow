@@ -4,6 +4,7 @@
  */
 
 import React from 'react';
+import { localISODate } from '@/lib/dateUtils';
 
 export interface SupplierFormData {
   name: string;
@@ -47,7 +48,7 @@ export const INITIAL_SUPPLIER_FORM: SupplierFormData = {
   bank_branch_code: '',
   bank_account_type: 'current',
   opening_balance: '',
-  opening_balance_date: new Date().toISOString().split('T')[0]!,
+  opening_balance_date: localISODate(),
   auto_allocate_payments: false,
 };
 

@@ -4,10 +4,15 @@
  */
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, AlertCircle, Clock, Download } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { localISODate } from '@/lib/dateUtils';
+import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
 import type { WipAgingRow } from '@/modules/accounting/services/practice/practiceReportsService';
+
+const fmtZAR = (v: number) => formatCurrencyAmount(v, 'ZAR');
 import { PeriodPicker } from '@/components/practice/PeriodPicker';
 import { downloadCsv, asOfFilename } from '@/lib/csvExport';
 import type { CsvColumn } from '@/lib/csvExport';
@@ -36,7 +41,7 @@ export default function WipAgingPage() {
   const [rows, setRows] = useState<WipAgingRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [asOfDate, setAsOfDate] = useState(new Date().toISOString().slice(0, 10));
+  const [asOfDate, setAsOfDate] = useState(localISODate());
 
   useEffect(() => {
     setLoading(true);
@@ -97,6 +102,12 @@ export default function WipAgingPage() {
             />
           </div>
 
+          {/* Inclusion legend — addresses 2026-04-27 audit's "reports don't
+              explain what's included" finding. */}
+          <div className="text-xs text-[var(--ff-text-tertiary)] px-1">
+            <span className="font-medium">Includes:</span> approved billable time entries that are not yet invoiced. Excludes draft, submitted, written-off, and non-billable entries.
+          </div>
+
           {error && <ErrBanner msg={error} />}
 
           {loading
@@ -119,12 +130,19 @@ export default function WipAgingPage() {
                       ? <tr><td colSpan={6} className="py-12 text-center text-[var(--ff-text-tertiary)] text-sm">No unbilled approved WIP found.</td></tr>
                       : rows.map((r, i) => (
                         <tr key={r.practiceClientId} className={i % 2 === 1 ? 'bg-slate-50/5' : ''}>
-                          <td className={`${TD} font-medium text-[var(--ff-text-primary)]`}>{r.legalName}</td>
-                          <td className={`${TD} text-right tabular-nums ${bucketColour(r.bucket0to7, '0-7')}`}>R{r.bucket0to7.toFixed(2)}</td>
-                          <td className={`${TD} text-right tabular-nums ${bucketColour(r.bucket8to14, '8-14')}`}>R{r.bucket8to14.toFixed(2)}</td>
-                          <td className={`${TD} text-right tabular-nums ${bucketColour(r.bucket15to30, '15-30')}`}>R{r.bucket15to30.toFixed(2)}</td>
-                          <td className={`${TD} text-right tabular-nums ${bucketColour(r.bucket31plus, '31+')}`}>R{r.bucket31plus.toFixed(2)}</td>
-                          <td className={`${TD} text-right tabular-nums font-semibold text-[var(--ff-text-primary)]`}>R{r.total.toFixed(2)}</td>
+                          <td className={`${TD} font-medium`}>
+                            <Link
+                              href={`/accounting/practice/clients/${r.practiceClientId}`}
+                              className="text-[var(--ff-text-primary)] hover:text-teal-400 transition-colors"
+                            >
+                              {r.legalName}
+                            </Link>
+                          </td>
+                          <td className={`${TD} text-right tabular-nums ${bucketColour(r.bucket0to7, '0-7')}`}>{fmtZAR(r.bucket0to7)}</td>
+                          <td className={`${TD} text-right tabular-nums ${bucketColour(r.bucket8to14, '8-14')}`}>{fmtZAR(r.bucket8to14)}</td>
+                          <td className={`${TD} text-right tabular-nums ${bucketColour(r.bucket15to30, '15-30')}`}>{fmtZAR(r.bucket15to30)}</td>
+                          <td className={`${TD} text-right tabular-nums ${bucketColour(r.bucket31plus, '31+')}`}>{fmtZAR(r.bucket31plus)}</td>
+                          <td className={`${TD} text-right tabular-nums font-semibold text-[var(--ff-text-primary)]`}>{fmtZAR(r.total)}</td>
                         </tr>
                       ))
                     }
@@ -133,11 +151,11 @@ export default function WipAgingPage() {
                     <tfoot>
                       <tr className="border-t-2 border-[var(--ff-border-primary)] bg-slate-50/10">
                         <td className={TF}>Totals</td>
-                        <td className={`${TF} text-right tabular-nums`}>R{totals.b0.toFixed(2)}</td>
-                        <td className={`${TF} text-right tabular-nums`}>R{totals.b8.toFixed(2)}</td>
-                        <td className={`${TF} text-right tabular-nums`}>R{totals.b15.toFixed(2)}</td>
-                        <td className={`${TF} text-right tabular-nums text-rose-400`}>R{totals.b31.toFixed(2)}</td>
-                        <td className={`${TF} text-right tabular-nums`}>R{totals.total.toFixed(2)}</td>
+                        <td className={`${TF} text-right tabular-nums`}>{fmtZAR(totals.b0)}</td>
+                        <td className={`${TF} text-right tabular-nums`}>{fmtZAR(totals.b8)}</td>
+                        <td className={`${TF} text-right tabular-nums`}>{fmtZAR(totals.b15)}</td>
+                        <td className={`${TF} text-right tabular-nums text-rose-400`}>{fmtZAR(totals.b31)}</td>
+                        <td className={`${TF} text-right tabular-nums`}>{fmtZAR(totals.total)}</td>
                       </tr>
                     </tfoot>
                   )}
