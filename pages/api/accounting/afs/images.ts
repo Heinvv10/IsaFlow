@@ -45,12 +45,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'POST') {
     const parsed = CreateImageSchema.safeParse(req.body ?? {});
-    if (!parsed.success) {
-      return apiResponse.validationError(
-        res,
-        parsed.error.flatten().fieldErrors as Record<string, string | string[]>,
-      );
-    }
+    if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
     log.info('Creating AFS image', { companyId, filename: parsed.data.filename, tag: parsed.data.tag }, 'afs-images-api');
     const image = await createImage(companyId, parsed.data);
     return apiResponse.created(res, { image }, 'Image uploaded');

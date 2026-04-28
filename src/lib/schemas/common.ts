@@ -5,10 +5,33 @@
  * yourself repeating the same shape across 3+ handlers, promote it here.
  */
 
+import type { NextApiRequest, NextApiResponse } from 'next';
 import { z } from 'zod';
+import { apiResponse } from '@/lib/apiResponse';
 
 /** A v4 UUID. */
 export const UUID = z.string().uuid('Must be a valid UUID');
+
+/**
+ * Extract a UUID from `req.query[name]` or return null after sending a 400.
+ * Removes the inline `UUID.safeParse(req.query.X)` boilerplate from handlers.
+ *
+ * Usage:
+ *   const documentId = requireUuidParam(req, res, 'documentId');
+ *   if (!documentId) return;
+ */
+export function requireUuidParam(
+  req: NextApiRequest,
+  res: NextApiResponse,
+  name: string,
+): string | null {
+  const parsed = UUID.safeParse(req.query[name]);
+  if (!parsed.success) {
+    apiResponse.badRequest(res, `${name} must be a valid UUID`);
+    return null;
+  }
+  return parsed.data;
+}
 
 /** A date string in `YYYY-MM-DD` format (SA accounting convention). */
 export const ISODate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD');

@@ -18,14 +18,21 @@ vi.mock('@/modules/accounting/services/afs/managementPackConfigService', () => (
   getManagementPackConfig: vi.fn(),
   upsertManagementPackConfig: vi.fn(),
 }));
-vi.mock('@/lib/apiResponse', () => ({
-  apiResponse: {
-    success:          vi.fn(),
-    badRequest:       vi.fn(),
-    methodNotAllowed: vi.fn(),
-    validationError:  vi.fn(),
-  },
-}));
+vi.mock('@/lib/apiResponse', () => {
+  const validationError = vi.fn();
+  const zodValidationError = vi.fn((res, error) => {
+    validationError(res, error.flatten().fieldErrors);
+  });
+  return {
+    apiResponse: {
+      success:          vi.fn(),
+      badRequest:       vi.fn(),
+      methodNotAllowed: vi.fn(),
+      validationError,
+      zodValidationError,
+    },
+  };
+});
 
 import { upsertManagementPackConfig } from '@/modules/accounting/services/afs/managementPackConfigService';
 import { apiResponse } from '@/lib/apiResponse';

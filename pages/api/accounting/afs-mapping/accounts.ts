@@ -9,6 +9,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
+import { AfsAccountMappingSchema } from '@/lib/schemas/afs';
 import { apiResponse } from '@/lib/apiResponse';
 import {
   getAccountMappings,
@@ -16,11 +17,6 @@ import {
   mapAccount,
   unmapAccount,
 } from '@/modules/accounting/services/afs/afsMappingService';
-
-const MapAccountSchema = z.object({
-  glAccountId: UUID,
-  afsLineCode: z.string().min(1).max(50),
-}).strict();
 
 const UnmapAccountSchema = z.object({
   glAccountId: UUID,
@@ -40,25 +36,15 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'PUT') {
-    const parsed = MapAccountSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return apiResponse.validationError(
-        res,
-        parsed.error.flatten().fieldErrors as Record<string, string | string[]>,
-      );
-    }
+    const parsed = AfsAccountMappingSchema.safeParse(req.body);
+    if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
     const mapping = await mapAccount(companyId, parsed.data.glAccountId, parsed.data.afsLineCode);
     return apiResponse.success(res, mapping, 'Account mapped');
   }
 
   if (req.method === 'DELETE') {
     const parsed = UnmapAccountSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return apiResponse.validationError(
-        res,
-        parsed.error.flatten().fieldErrors as Record<string, string | string[]>,
-      );
-    }
+    if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
     await unmapAccount(companyId, parsed.data.glAccountId);
     return apiResponse.success(res, null, 'Account unmapped');
   }

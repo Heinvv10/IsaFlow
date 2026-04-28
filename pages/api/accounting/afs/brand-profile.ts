@@ -42,12 +42,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     log.info('Upserting AFS brand profile', { companyId }, 'afs-brand-profile-api');
 
     const parsed = PutBrandProfileSchema.safeParse(req.body ?? {});
-    if (!parsed.success) {
-      return apiResponse.validationError(
-        res,
-        parsed.error.flatten().fieldErrors as Record<string, string | string[]>,
-      );
-    }
+    if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
     const profile = await upsertBrandProfile(companyId, {
       primaryColour: parsed.data.primaryColour ?? '#000000',
       secondaryColour: parsed.data.secondaryColour ?? '#000000',
