@@ -1,3 +1,4 @@
+import { closeSql } from '../_pg';
 import type { TaggedSql, FindingsCollector } from './types';
 
 /**
@@ -42,6 +43,10 @@ export async function assertSeedPresent(
   if (mismatches.length > 0) {
     console.error('\n[preflight] FAILED — seed state does not match expected counts.');
     console.error('             Run: QA_DESTRUCTIVE_OK=1 bunx tsx scripts/seed-qa-bookkeeping.ts --reset');
+    // Drain the pg pool before exiting so pending connections don't get
+    // force-closed by Node shutdown — same discipline as the success path's
+    // `closeSql()` call in the entry-point scripts.
+    await closeSql();
     process.exit(1);
   }
   return true;
