@@ -6,6 +6,7 @@
 import Link from 'next/link';
 import { ChevronDown, ChevronRight, Shield } from 'lucide-react';
 import type { AuditLogItem, AuditAction } from '@/modules/accounting/services/core/auditTrailService';
+import { useTableDensity } from '@/contexts/TableDensityContext';
 
 export const ACTION_LABELS: Record<AuditAction, string> = {
   create: 'Created',
@@ -69,6 +70,8 @@ interface Props {
 }
 
 export function AuditLogTable({ items, expandedRows, onToggleRow }: Props) {
+  const { rowClass, headerClass } = useTableDensity();
+
   if (items.length === 0) {
     return (
       <div className="text-center py-16">
@@ -83,9 +86,9 @@ export function AuditLogTable({ items, expandedRows, onToggleRow }: Props) {
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)]/50">
-            <th className="w-8 px-4 py-3" />
+            <th className={`w-8 ${headerClass}`} />
             {['Date / Time', 'User', 'Action', 'Entity Type', 'Reference', 'Changes', 'IP Address'].map(h => (
-              <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-[var(--ff-text-secondary)] uppercase tracking-wider">
+              <th key={h} className={`${headerClass} text-left text-xs font-semibold text-[var(--ff-text-secondary)] uppercase tracking-wider`}>
                 {h}
               </th>
             ))}
@@ -100,7 +103,7 @@ export function AuditLogTable({ items, expandedRows, onToggleRow }: Props) {
             return (
               <>
                 <tr key={item.id} className="hover:bg-[var(--ff-bg-primary)]/40 transition-colors">
-                  <td className="px-4 py-3">
+                  <td className={rowClass}>
                     {hasChanges && (
                       <button
                         onClick={() => onToggleRow(item.id)}
@@ -113,21 +116,21 @@ export function AuditLogTable({ items, expandedRows, onToggleRow }: Props) {
                       </button>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-[var(--ff-text-secondary)] whitespace-nowrap font-mono text-xs">
+                  <td className={`${rowClass} text-[var(--ff-text-secondary)] whitespace-nowrap font-mono text-xs`}>
                     {formatDateTime(item.createdAt)}
                   </td>
-                  <td className="px-4 py-3 text-[var(--ff-text-primary)]">
+                  <td className={`${rowClass} text-[var(--ff-text-primary)]`}>
                     {item.userEmail ?? item.userId}
                   </td>
-                  <td className="px-4 py-3">
+                  <td className={rowClass}>
                     <span className={`inline-flex items-center px-2 py-0.5 rounded border text-xs font-medium ${ACTION_COLORS[item.action] ?? 'bg-gray-500/10 text-gray-600 dark:text-gray-400 border-gray-500/20'}`}>
                       {ACTION_LABELS[item.action] ?? item.action}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-[var(--ff-text-secondary)]">
+                  <td className={`${rowClass} text-[var(--ff-text-secondary)]`}>
                     {item.entityType.replace(/_/g, ' ')}
                   </td>
-                  <td className="px-4 py-3">
+                  <td className={rowClass}>
                     {item.entityRef && route ? (
                       <Link href={route} className="text-teal-400 hover:text-teal-300 hover:underline font-mono text-xs">
                         {item.entityRef}
@@ -138,10 +141,10 @@ export function AuditLogTable({ items, expandedRows, onToggleRow }: Props) {
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-[var(--ff-text-secondary)] text-xs">
+                  <td className={`${rowClass} text-[var(--ff-text-secondary)] text-xs`}>
                     {hasChanges ? `${item.changes!.fields.length} field${item.changes!.fields.length !== 1 ? 's' : ''} changed` : '—'}
                   </td>
-                  <td className="px-4 py-3 text-[var(--ff-text-secondary)] font-mono text-xs">
+                  <td className={`${rowClass} text-[var(--ff-text-secondary)] font-mono text-xs`}>
                     {item.ipAddress ?? '—'}
                   </td>
                 </tr>

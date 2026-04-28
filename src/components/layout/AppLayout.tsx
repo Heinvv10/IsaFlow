@@ -32,6 +32,7 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { CompanySwitcher } from '@/components/layout/CompanySwitcher';
 import { CreateNewMenu } from '@/components/layout/CreateNewMenu';
 import { SettingsMenu } from '@/components/layout/SettingsMenu';
+import { TableDensityToggle } from '@/components/ui/TableDensityToggle';
 import { SidebarNav } from '@/components/layout/SidebarNav';
 import { CommandPalette } from '@/components/layout/CommandPalette';
 import { ShortcutHelpOverlay } from '@/components/layout/ShortcutHelpOverlay';
@@ -432,6 +433,9 @@ export function AppLayout({ children }: AppLayoutProps) {
           >
             {navMode === 'top' ? <PanelLeft className="w-4 h-4" /> : <PanelTop className="w-4 h-4" />}
           </button>
+
+          {/* Table density toggle */}
+          <TableDensityToggle />
 
           {/* Theme toggle */}
           <button
