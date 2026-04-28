@@ -7,16 +7,17 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, Receipt, Loader2, Info } from 'lucide-react';
+import { ArrowLeft, Info } from 'lucide-react';
 import { ScanAndFillButton } from '@/components/accounting/ScanAndFillButton';
 import { fuzzyMatchSupplier } from '@/modules/accounting/utils/fuzzyMatch';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
-import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
 import { PoGrnSelector } from '@/components/accounting/suppliers/PoGrnSelector';
 import type { PoLineItem } from '@/components/accounting/suppliers/PoGrnSelector';
 import { BillLineItemsTable } from '@/components/accounting/suppliers/BillLineItemsTable';
 import type { BillLineItem, GLAccount } from '@/components/accounting/suppliers/BillLineItemsTable';
+import { InvoiceNumberField } from '@/components/accounting/suppliers/InvoiceNumberField';
+import { SupplierInvoiceSummaryCard } from '@/components/accounting/suppliers/SupplierInvoiceSummaryCard';
 
 interface Supplier { id: number; name: string }
 
@@ -34,6 +35,7 @@ export default function NewSupplierInvoicePage() {
 
   const [form, setForm] = useState({
     invoiceNumber: '',
+    useSequence: true,
     supplierId: '',
     invoiceDate: new Date().toISOString().split('T')[0],
     dueDate: '',
@@ -45,6 +47,7 @@ export default function NewSupplierInvoicePage() {
     grnId: '',
     copyLinesFromPo: false,
   });
+  const [sequencePreview, setSequencePreview] = useState<string>('');
 
   const [lines, setLines] = useState<BillLineItem[]>([
     { key: crypto.randomUUID(), description: '', quantity: 1, unitPrice: 0, taxRate: 15, glAccountId: '' },
@@ -54,11 +57,26 @@ export default function NewSupplierInvoicePage() {
     void Promise.all([
       apiFetch('/api/accounting/suppliers-list').then(r => r.json()),
       apiFetch('/api/accounting/chart-of-accounts').then(r => r.json()),
-    ]).then(([suppRes, accRes]) => {
+      apiFetch('/api/accounting/company-settings?type=document-numbers').then(r => r.json()),
+    ]).then(([suppRes, accRes, settingsRes]) => {
       const suppData = suppRes.data ?? suppRes;
       setSuppliers(Array.isArray(suppData) ? suppData : (suppData.suppliers ?? []));
       const accData = accRes.data ?? accRes;
       setGLAccounts(Array.isArray(accData) ? accData.filter((a: GLAccount) => a.accountCode >= '5000') : []);
+      type DocNum = { documentType: string; prefix: string; nextNumber: number; padding: number };
+      const docNums = (settingsRes.data ?? settingsRes) as DocNum[];
+      const siv = Array.isArray(docNums) ? docNums.find(d => d.documentType === 'supplier_invoice') : undefined;
+      if (siv) {
+        const padded = String(siv.nextNumber).padStart(siv.padding, '0');
+        setSequencePreview(`${siv.prefix}${padded}`);
+      } else {
+        setError('Could not load SIV sequence from Document Number settings — type a custom number or check Settings → Document Numbers.');
+        setForm(f => ({ ...f, useSequence: false }));
+      }
+    }).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : 'Failed to load form data';
+      setError(`${msg}. Disable "Use SIV sequence" to enter a custom number, or retry.`);
+      setForm(f => ({ ...f, useSequence: false }));
     });
   }, []);
 
@@ -129,7 +147,9 @@ export default function NewSupplierInvoicePage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          invoiceNumber: form.invoiceNumber, supplierId: form.supplierId,
+          invoiceNumber: form.useSequence ? '' : form.invoiceNumber,
+          useSequence: form.useSequence,
+          supplierId: form.supplierId,
           purchaseOrderId: form.purchaseOrderId || undefined,
           grnId: form.grnId || undefined,
           invoiceDate: form.invoiceDate, dueDate: form.dueDate || undefined,
@@ -185,12 +205,13 @@ export default function NewSupplierInvoicePage() {
                   Invoice Details
                 </h3>
                 <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className={lbl}>Invoice Number *</label>
-                    <input type="text" required value={form.invoiceNumber}
-                      onChange={e => setForm(f => ({ ...f, invoiceNumber: e.target.value }))}
-                      className={inp} placeholder="INV-001" />
-                  </div>
+                  <InvoiceNumberField
+                    useSequence={form.useSequence}
+                    invoiceNumber={form.invoiceNumber}
+                    sequencePreview={sequencePreview}
+                    onUseSequenceChange={v => setForm(f => ({ ...f, useSequence: v }))}
+                    onInvoiceNumberChange={v => setForm(f => ({ ...f, invoiceNumber: v }))}
+                  />
                   <div>
                     <label className={lbl}>Supplier *</label>
                     <select required value={form.supplierId}
@@ -254,36 +275,13 @@ export default function NewSupplierInvoicePage() {
               </div>
             </div>
 
-            {/* Right column — sticky summary */}
-            <div className="w-72 shrink-0">
-              <div className="sticky top-6">
-                <div className={`${card} p-5`}>
-                  <div className="flex items-center gap-2 mb-5">
-                    <Receipt className="w-4 h-4 text-amber-500" />
-                    <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Summary</h3>
-                  </div>
-                  <div className="space-y-3">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-slate-500 dark:text-slate-400">Subtotal</span>
-                      <span className="font-mono text-slate-900 dark:text-slate-100">{formatCurrency(subtotal)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-slate-500 dark:text-slate-400">VAT ({form.taxRate}%)</span>
-                      <span className="font-mono text-slate-900 dark:text-slate-100">{formatCurrency(totalTax)}</span>
-                    </div>
-                    <div className="h-px bg-slate-100 dark:bg-slate-800" />
-                    <div className="flex justify-between">
-                      <span className="text-sm font-semibold text-slate-900 dark:text-white">Total</span>
-                      <span className="font-mono font-bold text-lg text-amber-500">{formatCurrency(total)}</span>
-                    </div>
-                  </div>
-                  <button type="submit" disabled={isSubmitting} className="w-full mt-6 py-3 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
-                    {isSubmitting ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : <><Receipt className="h-4 w-4" />Create Invoice</>}
-                  </button>
-                </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400 text-center px-2 mt-3">Invoice will be saved as a draft. Approve it from the invoice detail page.</p>
-              </div>
-            </div>
+            <SupplierInvoiceSummaryCard
+              subtotal={subtotal}
+              totalTax={totalTax}
+              total={total}
+              taxRate={form.taxRate}
+              isSubmitting={isSubmitting}
+            />
           </div>
         </form>
       </div>

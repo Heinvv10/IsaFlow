@@ -12,6 +12,7 @@ import { withFlowMeter } from '@/lib/billing/withFlowMeter';
 import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
+import { reserveNextDocumentNumber } from '@/modules/accounting/services/core/companyService';
 type Row = Record<string, unknown>;
 
 
@@ -59,18 +60,21 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       projectId = (projRows[0]?.['id'] as string | undefined) ?? null;
     } catch { /* projects table may not exist */ }
 
-    // Insert invoice with retry on unique-constraint violation.
-    // MAX()+1 races under concurrent load — retry up to 5 times with escalating offset.
+    // Reserve invoice number from the company's configured sequence.
+    // The reservation is atomic — the only collision that can occur is with
+    // a pre-existing invoice_number from before sequence-based generation
+    // (e.g. legacy rows or a Sage import). On that residual clash, re-reserve.
+    //
+    // Trade-off: the reservation happens BEFORE the INSERT and is not rolled
+    // back if the INSERT fails for any reason (FK violation, unique clash,
+    // anything). Each failed attempt permanently burns one sequence slot.
+    // Gaps are acceptable for accountancy purposes here — a user can resync
+    // next_number from Settings → Document Numbers if they ever need to.
+    // We accept this over wrapping in a transaction because a transactional
+    // counter would serialize all invoice creates company-wide.
     let invoiceId = '';
-    let invoiceNumber = '';
+    let invoiceNumber = await reserveNextDocumentNumber(companyId, 'customer_invoice');
     for (let attempt = 0; attempt < 5; attempt++) {
-      const maxRows = (await sql`
-        SELECT COALESCE(MAX(CAST(SUBSTRING(invoice_number FROM '[0-9]+$') AS INTEGER)), 0) AS max_num
-        FROM customer_invoices WHERE company_id = ${companyId} AND invoice_number ~ '^INV-[0-9]+$'
-      `) as Row[];
-      const base = Number(maxRows[0]?.['max_num'] ?? 0) + 1 + attempt;
-      invoiceNumber = `INV-${String(base).padStart(5, '0')}`;
-
       try {
         const invRows = (await sql`
           INSERT INTO customer_invoices (
@@ -91,7 +95,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         break;
       } catch (insertErr) {
         const msg = insertErr instanceof Error ? insertErr.message : String(insertErr);
-        if (msg.includes('unique') && attempt < 4) continue;
+        if (msg.includes('unique') && attempt < 4) {
+          invoiceNumber = await reserveNextDocumentNumber(companyId, 'customer_invoice');
+          continue;
+        }
         throw insertErr;
       }
     }
