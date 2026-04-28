@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, ArrowRight, FileText, Loader2, AlertCircle } from 'lucide-react';
+import { ArrowLeft, ArrowRight, FileText, Loader2, AlertCircle, Pencil } from 'lucide-react';
 import { AccountingDocumentPanel } from '@/modules/accounting/documents';
 import { apiFetch } from '@/lib/apiFetch';
 import { InvoiceActionBar } from '@/components/invoices/InvoiceActionBar';
@@ -195,6 +195,15 @@ export default function CustomerInvoiceDetailPage() {
                 <p className="text-sm text-[var(--ff-text-secondary)]">{invoice.client_name} — {invoice.project_name}</p>
               </div>
               <span className={`px-3 py-1 rounded-full text-sm font-medium ${CUSTOMER_INVOICE_STATUS_COLORS[invoice.status] || ''}`}>{invoice.status.replace(/_/g, ' ')}</span>
+              {invoice.status === 'draft' && (
+                <Link
+                  href={`/accounting/customer-invoices/edit/${String(invoiceId)}`}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border border-amber-500/40 text-amber-500 hover:bg-amber-500/10 transition-colors"
+                  title="Edit draft invoice"
+                >
+                  <Pencil className="h-3.5 w-3.5" /> Edit
+                </Link>
+              )}
             </div>
             <InvoiceActionBar groups={groups} overflowActions={overflowActions} />
           </div>
