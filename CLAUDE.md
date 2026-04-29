@@ -16,7 +16,7 @@ Next.js 14 + TypeScript accounting SaaS. Multi-tenant (every query scoped by `co
 - **No stubs**: When a deploy/CI gate fails on a missing module, build the real thing. Never commit `return null` / TODO placeholders to satisfy a typecheck.
 - **Multi-tenant**: ALWAYS add `company_id` to every DB query. Never return data across tenants.
 - **DB**: Postgres on **Supabase** (self-hosted on velo-server). Use `sql` tagged template from `@/lib/neon` (legacy import path — the runtime is pg-backed, not Neon Serverless). NEVER string concatenation.
-- **API handlers**: Wrap with `withCompany(withErrorHandler(handler as any))`.
+- **API handlers**: Wrap with `withAuth(withErrorHandler(handler as any))` (re-exported from `@/lib/auth`). The legacy `withCompany` is gone post-GoTrue cutover — `withAuth` provides user + company + tx + GUCs.
 - **Responses**: Use `apiResponse.success()`, `.badRequest()`, `.notFound()` from `@/lib/apiResponse`.
 - **Logging**: Use `log` from `@/lib/logger` — NEVER `console.log`.
 - **Error handling**: No empty `catch` blocks.
@@ -24,7 +24,7 @@ Next.js 14 + TypeScript accounting SaaS. Multi-tenant (every query scoped by `co
 - **File size**: Max 300 lines per file.
 - **Dates**: pg returns `Date` objects from timestamp columns — handle both `Date` and `string` shapes.
 - **Customer invoices**: Use `COALESCE(ci.client_id, ci.customer_id)` — both columns exist.
-- **Nav**: Update `accountingNavConfig.ts` for every new page.
+- **Nav**: Update `src/components/accounting/accountingNavConfig.ts` for every new page.
 - **Migrations**: `IF NOT EXISTS` on all `CREATE TABLE` / `CREATE INDEX`.
 - **Migrations**: Use the next unused 3-digit prefix. Never reuse an existing prefix. Use `244b_` style suffix if inserting between existing numbers.
 
@@ -35,12 +35,12 @@ Next.js 14 + TypeScript accounting SaaS. Multi-tenant (every query scoped by `co
 | DB client | `src/lib/neon.ts` |
 | API response helpers | `src/lib/apiResponse.ts` |
 | Logger | `src/lib/logger.ts` |
-| Auth middleware | `src/lib/withCompany.ts` |
+| Auth middleware | `src/lib/auth/index.ts` (re-exports `withAuth`, `withRole`, `withUserAuth`) |
 | Services | `src/modules/accounting/services/` |
 | API routes | `pages/api/accounting/` |
 | UI pages | `pages/accounting/` |
 | Migrations | `scripts/migrations/sql/` |
-| Nav config | `src/components/layout/accountingNavConfig.ts` |
+| Nav config | `src/components/accounting/accountingNavConfig.ts` |
 | Unit tests | `tests/unit/` |
 | E2E tests | `tests/e2e/` |
 
@@ -62,6 +62,10 @@ bash scripts/deploy.sh  # Deploy
 - Unit tests: Vitest in `tests/unit/services/`
 - E2E: Playwright in `tests/e2e/`
 - TDD enforced: tests FIRST, implementation second
+
+## Module docs (sibling `.claude.md` files)
+
+Module-level rules live in `.claude.md` files next to each module — 49 files total. Cover all of `src/modules/*` and every API route group under `pages/api/accounting/*`. Codex/Cursor/Copilot mirror these as sibling `AGENTS.md` via `/portability --mirror-nested`. When adding a new module with ≥4 files, add a sibling `.claude.md` (purpose / caller contract / main signatures / business rules / recent changes).
 
 ## Plugins Active
 
