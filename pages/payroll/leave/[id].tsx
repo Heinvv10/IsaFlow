@@ -39,6 +39,8 @@ function Field({ label, value }: { label: string; value: string | null }) {
   );
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export default function LeaveDetailPage() {
   const router = useRouter();
   const { id } = router.query as { id: string };
@@ -49,6 +51,11 @@ export default function LeaveDetailPage() {
 
   const load = useCallback(async () => {
     if (!id) return;
+    // Guard: if id is not a UUID (e.g. a nav typo like "types"), redirect to the list
+    if (!UUID_RE.test(id)) {
+      await router.replace('/payroll/leave');
+      return;
+    }
     setIsLoading(true);
     setError('');
     try {
@@ -61,7 +68,7 @@ export default function LeaveDetailPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [id]);
+  }, [id, router]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -135,8 +142,8 @@ export default function LeaveDetailPage() {
                 <Field label="Start Date" value={request.startDate} />
                 <Field label="End Date" value={request.endDate} />
                 <Field label="Days" value={String(request.days)} />
-                <Field label="Submitted" value={request.createdAt.slice(0, 10)} />
-                {request.approvedAt && <Field label="Actioned" value={request.approvedAt.slice(0, 10)} />}
+                <Field label="Submitted" value={request.createdAt?.slice(0, 10) ?? ''} />
+                {request.approvedAt && <Field label="Actioned" value={request.approvedAt?.slice(0, 10) ?? ''} />}
                 {request.reason && <div className="col-span-2"><Field label="Notes" value={request.reason} /></div>}
               </dl>
 

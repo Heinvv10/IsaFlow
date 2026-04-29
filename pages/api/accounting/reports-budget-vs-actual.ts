@@ -5,8 +5,9 @@ import { toISODate } from '@/lib/dateUtils';
  * GET /api/accounting/reports-budget-vs-actual?period=current|ytd|full_year
  * Sage equivalent: Reports > Budget vs Actual
  *
- * Reads budgets from gl_accounts.budget_amount column (if exists)
- * or from app_settings key 'accounting_budgets'.
+ * Primary source: accounting_budgets table (period_amounts JSONB per fiscal year).
+ * Fallback: app_settings key 'accounting_budgets', used only when no budget rows exist
+ * for the current fiscal year. Both sources are filtered by company_id.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -51,39 +52,52 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         : (now.toISOString().split('T')[0] ?? '');
     }
 
-    // Load budgets from accounting_budgets table
-    // Determine which month columns to sum based on period
+    // Load budgets from accounting_budgets table.
+    // The schema uses period_amounts JSONB keyed by 0-based month index ("0".."11")
+    // or ISO month names ("jan".."dec"). Sum only the months within the period window.
     let budgets: Record<string, number> = {};
-    try {
-      const fiscalYear = new Date(startDate).getFullYear();
-      const startMonth = new Date(startDate).getMonth(); // 0-based
-      const endMonth = new Date(endDate).getMonth();
-      const monthCols = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+    const fiscalYear = new Date(startDate).getFullYear();
+    const startMonth = new Date(startDate).getMonth(); // 0-based
+    const endMonth = new Date(endDate).getMonth();
+    const monthKeys = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
 
-      const budgetRows = await sql`
-        SELECT ab.gl_account_id, ga.account_code,
-          ab.jan, ab.feb, ab.mar, ab.apr, ab.may, ab.jun,
-          ab.jul, ab.aug, ab.sep, ab.oct, ab.nov, ab.dec
-        FROM accounting_budgets ab
-        JOIN gl_accounts ga ON ga.id = ab.gl_account_id
-        WHERE ab.company_id = ${companyId} AND ab.fiscal_year = ${fiscalYear}
-      `;
-      for (const row of budgetRows) {
-        let total = 0;
-        for (let m = startMonth; m <= endMonth; m++) {
-          total += Number(row[monthCols[m] ?? ''] ?? 0);
-        }
-        budgets[row.account_code] = total;
-        budgets[row.gl_account_id] = total;
+    const budgetRows = await sql`
+      SELECT ab.gl_account_id, ga.account_code, ab.period_amounts, ab.annual_amount
+      FROM accounting_budgets ab
+      JOIN gl_accounts ga ON ga.id = ab.gl_account_id
+      WHERE ab.company_id = ${companyId} AND ab.fiscal_year = ${fiscalYear}
+    `;
+    for (const row of budgetRows) {
+      let total = 0;
+      const pa: Record<string, unknown> = row.period_amounts ?? {};
+      for (let m = startMonth; m <= endMonth; m++) {
+        // Accept both 0-based numeric keys ("0".."11") and lowercase month name keys
+        const byIdx = Number(pa[String(m)] ?? 0);
+        const byName = Number(pa[monthKeys[m] ?? ''] ?? 0);
+        total += byIdx || byName;
       }
-    } catch {
-      // No budgets configured yet — fall back to app_settings
-      try {
-        const [row] = await sql`SELECT value FROM app_settings WHERE key = 'accounting_budgets'`;
-        if (row?.value) {
-          budgets = typeof row.value === 'string' ? JSON.parse(row.value) : row.value;
-        }
-      } catch { /* no budgets */ }
+      // Spread annual_amount only when period_amounts is genuinely missing/empty.
+      // Gate on key count (not total === 0) so legitimate zero-budget months are preserved.
+      if (Object.keys(pa).length === 0 && row.annual_amount) {
+        const monthsInPeriod = endMonth - startMonth + 1;
+        total = Number(row.annual_amount) * (monthsInPeriod / 12);
+      }
+      budgets[row.account_code] = total;
+      budgets[row.gl_account_id] = total;
+    }
+
+    // If no budget rows found, try app_settings fallback
+    if (Object.keys(budgets).length === 0) {
+      const [settingsRow] = await sql`
+        SELECT value FROM app_settings
+        WHERE company_id = ${companyId} AND key = 'accounting_budgets'
+        LIMIT 1
+      `;
+      if (settingsRow?.value) {
+        budgets = typeof settingsRow.value === 'string'
+          ? (JSON.parse(settingsRow.value) as Record<string, number>)
+          : (settingsRow.value as Record<string, number>);
+      }
     }
 
     // Get actual GL balances for expense and revenue accounts. We don't filter
