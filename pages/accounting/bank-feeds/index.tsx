@@ -66,11 +66,16 @@ export default function BankFeedsPage() {
   ): Promise<{ found: number; imported: number; duplicate: number }> => {
     return new Promise((resolve, reject) => {
       const requestId = `sync-${connectionId}-${Date.now()}`;
+      let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+      const cleanup = () => {
+        window.removeEventListener('message', onMsg);
+        if (timeoutHandle !== null) clearTimeout(timeoutHandle);
+      };
       const onMsg = (ev: MessageEvent) => {
         const d = ev.data as { source?: string; type?: string; requestId?: string; ok?: boolean; error?: string; value?: unknown } | null;
         if (d?.source !== 'isaflow-bank-extension') return;
         if (d.type !== 'isaflow-bank-ext-sync-reply' || d.requestId !== requestId) return;
-        window.removeEventListener('message', onMsg);
+        cleanup();
         if (!d.ok) return reject(new Error(d.error || 'Extension sync failed'));
         resolve(d.value as { found: number; imported: number; duplicate: number });
       };
@@ -81,10 +86,10 @@ export default function BankFeedsPage() {
         requestId,
         connectionId,
         opts: { fromDate: range.fromDate, toDate: range.toDate },
-      }, '*');
+      }, window.location.origin);
       // Safety timeout — extension should reply within 60s for typical 180-day fetches.
-      setTimeout(() => {
-        window.removeEventListener('message', onMsg);
+      timeoutHandle = setTimeout(() => {
+        cleanup();
         reject(new Error('Extension did not reply (timed out). Is it installed and the bank tab open?'));
       }, 60_000);
     });

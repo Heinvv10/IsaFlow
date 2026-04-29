@@ -81,3 +81,42 @@ describe('extensionJwt — env-var enforcement', () => {
     process.env.EXTENSION_SIGNING_KEY = prev;
   });
 });
+
+describe('extensionJwt — key rotation', () => {
+  const LEGACY_KEY = 'fedcba9876543210fedcba9876543210';
+  const NEW_KEY = 'aaaabbbbccccdddd0000111122223333';
+  const ORIGINAL_LEGACY = process.env.EXTENSION_SIGNING_KEY_LEGACY;
+
+  afterAll(() => {
+    process.env.EXTENSION_SIGNING_KEY = TEST_KEY;
+    if (ORIGINAL_LEGACY === undefined) delete process.env.EXTENSION_SIGNING_KEY_LEGACY;
+    else process.env.EXTENSION_SIGNING_KEY_LEGACY = ORIGINAL_LEGACY;
+  });
+
+  it('verifies legacy-key token when EXTENSION_SIGNING_KEY_LEGACY is set', async () => {
+    // Sign with legacy key (simulates a token minted before rotation).
+    process.env.EXTENSION_SIGNING_KEY = LEGACY_KEY;
+    const legacyToken = await signExtensionToken(payload);
+
+    // Rotate: active key is now new, legacy is retained for the window.
+    process.env.EXTENSION_SIGNING_KEY = NEW_KEY;
+    process.env.EXTENSION_SIGNING_KEY_LEGACY = LEGACY_KEY;
+
+    const verified = await verifyExtensionToken(legacyToken);
+    expect(verified).toEqual(payload);
+  });
+
+  it('rejects a token once its signing key is removed entirely', async () => {
+    process.env.EXTENSION_SIGNING_KEY = LEGACY_KEY;
+    const oldToken = await signExtensionToken(payload);
+
+    // Both keys are now different — old token is fully orphaned.
+    process.env.EXTENSION_SIGNING_KEY = NEW_KEY;
+    delete process.env.EXTENSION_SIGNING_KEY_LEGACY;
+
+    expect(await verifyExtensionToken(oldToken)).toBeNull();
+
+    // Restore for afterAll.
+    process.env.EXTENSION_SIGNING_KEY = TEST_KEY;
+  });
+});

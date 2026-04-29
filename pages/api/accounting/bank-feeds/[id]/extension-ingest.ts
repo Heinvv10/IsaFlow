@@ -55,7 +55,10 @@ const IngestSchema = z.object({
   toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   transactions: z.array(TransactionSchema).max(2000),
   applyBankRules: z.boolean().optional(),
-}).strict();
+}).strict().refine(d => d.fromDate <= d.toDate, {
+  message: 'fromDate must be ≤ toDate',
+  path: ['fromDate'],
+});
 
 const DEFAULT_DAILY_TX_CAP = 500;
 

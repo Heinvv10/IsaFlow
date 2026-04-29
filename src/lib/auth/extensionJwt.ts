@@ -88,8 +88,8 @@ export async function verifyExtensionToken(token: string): Promise<ExtensionToke
       const { payload } = await jwtVerify(token, secret, { algorithms: ['HS256'] });
       const result = extractPayload(payload);
       if (result) return result;
-    } catch {
-      // Try next key if available.
+    } catch (err) {
+      log.debug('JWT key attempt failed', { envKey, error: err instanceof Error ? err.message : String(err) }, 'extensionJwt');
     }
   }
 

@@ -7,4 +7,4 @@ const jwt = await signExtensionToken({
   bankId: 'absa',
   scope: 'bank-feed-ingest',
 });
-console.log(jwt);
+process.stdout.write(jwt + '\n');
