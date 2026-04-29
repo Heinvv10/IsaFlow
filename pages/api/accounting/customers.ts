@@ -134,8 +134,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (!name?.trim()) {
         return apiResponse.badRequest(res, 'Customer name is required');
       }
+      if (name.trim().length > 255) {
+        return apiResponse.badRequest(res, 'Customer name must not exceed 255 characters');
+      }
 
-      const s = (k: string) => { const v = b[k]; return typeof v === 'string' && v.trim() ? v.trim() : null; };
+      // `name` is rejected over 255 chars (it's identifying — silent truncation would corrupt
+      // the customer record). All other free-text fields are truncated to fit varchar(255).
+      const s = (k: string) => { const v = b[k]; return typeof v === 'string' && v.trim() ? v.trim().slice(0, 255) : null; };
       const n = (k: string) => { const v = b[k]; return v !== undefined && v !== null && v !== '' ? Number(v) : null; };
       const bool = (k: string, def = false) => { const v = b[k]; return typeof v === 'boolean' ? v : def; };
 
