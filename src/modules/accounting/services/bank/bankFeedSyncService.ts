@@ -71,16 +71,12 @@ export async function fetchStitchTransactions(
  * Sync transactions for a connection.
  * Handles token refresh, pagination, and deduplication.
  */
-export async function syncTransactions(connectionId: string, companyId?: string): Promise<SyncResult> {
-  const conn = companyId
-    ? (await sql`
-        SELECT bfc.* FROM bank_feed_connections bfc
-        JOIN bank_accounts ba ON ba.id = bfc.bank_account_id
-        WHERE bfc.id = ${connectionId}::UUID AND bfc.is_active = true AND ba.company_id = ${companyId}::UUID
-      `) as DbRow[]
-    : (await sql`
-        SELECT * FROM bank_feed_connections WHERE id = ${connectionId}::UUID AND is_active = true
-      `) as DbRow[];
+export async function syncTransactions(connectionId: string, companyId: string): Promise<SyncResult> {
+  const conn = (await sql`
+      SELECT bfc.* FROM bank_feed_connections bfc
+      JOIN bank_accounts ba ON ba.id = bfc.bank_account_id
+      WHERE bfc.id = ${connectionId}::UUID AND bfc.is_active = true AND ba.company_id = ${companyId}::UUID
+    `) as DbRow[];
   if (!conn[0]) throw new Error('Connection not found or inactive');
 
   const connection = conn[0];
@@ -216,7 +212,7 @@ export async function syncTransactions(connectionId: string, companyId?: string)
  */
 export async function getSyncHistory(
   connectionId: string,
-  companyId?: string,
+  companyId: string,
   limit = 20,
 ): Promise<Array<{
   id: string;
@@ -229,21 +225,14 @@ export async function getSyncHistory(
   status: string;
   error: string | null;
 }>> {
-  const rows = companyId
-    ? (await sql`
-        SELECT bfsl.* FROM bank_feed_sync_log bfsl
-        JOIN bank_feed_connections bfc ON bfc.id = bfsl.connection_id
-        JOIN bank_accounts ba ON ba.id = bfc.bank_account_id
-        WHERE bfsl.connection_id = ${connectionId}::UUID AND ba.company_id = ${companyId}::UUID
-        ORDER BY bfsl.started_at DESC
-        LIMIT ${limit}
-      `) as DbRow[]
-    : (await sql`
-        SELECT * FROM bank_feed_sync_log
-        WHERE connection_id = ${connectionId}::UUID
-        ORDER BY started_at DESC
-        LIMIT ${limit}
-      `) as DbRow[];
+  const rows = (await sql`
+      SELECT bfsl.* FROM bank_feed_sync_log bfsl
+      JOIN bank_feed_connections bfc ON bfc.id = bfsl.connection_id
+      JOIN bank_accounts ba ON ba.id = bfc.bank_account_id
+      WHERE bfsl.connection_id = ${connectionId}::UUID AND ba.company_id = ${companyId}::UUID
+      ORDER BY bfsl.started_at DESC
+      LIMIT ${limit}
+    `) as DbRow[];
 
   return rows.map((r: DbRow) => ({
     id: String(r.id),

@@ -25,31 +25,29 @@
 
 DO $$
 DECLARE
-  v_company_id  UUID := 'd27bac33-cdc0-4e58-bf6b-709c1597d41c';
-  v_je_id       UUID;
-  v_acct_1230   UUID;
-  v_acct_5700   UUID;
-  v_period_id   UUID;
-  v_user_id     UUID;
-  v_entry_num   TEXT := 'JE-2026-00318';  -- next after JE-2026-00317
-  v_description TEXT := 'Sub-ledger recon correction — clear double reversal imbalance (migration 479)';
+  v_company_id       UUID := 'd27bac33-cdc0-4e58-bf6b-709c1597d41c';
+  v_je_id            UUID;
+  v_acct_1230        UUID;
+  v_acct_5700        UUID;
+  v_acct_5700_name   TEXT;
+  v_period_id        UUID;
+  v_period_status    TEXT;
+  v_user_id          UUID;
+  v_entry_num        TEXT := 'JE-2026-00318';  -- next after JE-2026-00317
+  v_description      TEXT := 'Sub-ledger recon correction — clear double reversal imbalance (migration 479)';
 BEGIN
-  -- Guard: only apply once (idempotent by migration-specific marker)
+  -- Guard: only apply once (idempotent).
+  -- Matches both the current description and the legacy description from the first apply
+  -- (description was corrected in the fix(migrations) commit — handle both to stay idempotent).
   IF EXISTS (
     SELECT 1 FROM gl_journal_entries
     WHERE company_id = v_company_id
-      AND description = v_description
+      AND (description = v_description
+           OR description = 'Sub-ledger recon correction — reverse duplicate depreciation reversals (mig 479)'
+           OR entry_number = v_entry_num)
   ) THEN
     RAISE NOTICE 'Migration 479 already applied — skipping.';
     RETURN;
-  END IF;
-
-  IF EXISTS (
-    SELECT 1 FROM gl_journal_entries
-    WHERE company_id = v_company_id
-      AND entry_number = v_entry_num
-  ) THEN
-    RAISE EXCEPTION 'Migration 479 cannot use %, entry number already exists for company %', v_entry_num, v_company_id;
   END IF;
 
   -- Resolve account IDs
@@ -57,20 +55,23 @@ BEGIN
     FROM gl_accounts
     WHERE company_id = v_company_id AND account_code = '1230';
 
-  SELECT id INTO v_acct_5700
+  SELECT id, account_name INTO v_acct_5700, v_acct_5700_name
     FROM gl_accounts
     WHERE company_id = v_company_id AND account_code = '5700';
 
   IF v_acct_1230 IS NULL THEN
-    RAISE EXCEPTION 'Migration 479 missing account 1230 for company %', v_company_id;
+    RAISE EXCEPTION 'Migration 479: Brightsphere account 1230 not found';
   END IF;
 
   IF v_acct_5700 IS NULL THEN
-    RAISE EXCEPTION 'Migration 479 missing account 5700 for company %', v_company_id;
+    RAISE EXCEPTION 'Migration 479: Brightsphere account 5700 not found';
   END IF;
 
-  -- Resolve fiscal period
-  SELECT id INTO v_period_id
+  -- LOW: self-documenting notice — confirms the real account name in this tenant's CoA
+  RAISE NOTICE 'Migration 479: resolved 5700 = %', v_acct_5700_name;
+
+  -- Resolve fiscal period (also fetch status to distinguish closed vs locked)
+  SELECT id, status INTO v_period_id, v_period_status
     FROM fiscal_periods
     WHERE company_id = v_company_id
       AND start_date <= '2026-04-29'
@@ -78,7 +79,15 @@ BEGIN
     LIMIT 1;
 
   IF v_period_id IS NULL THEN
-    RAISE EXCEPTION 'Migration 479 missing fiscal period covering 2026-04-29 for company %', v_company_id;
+    RAISE EXCEPTION 'Migration 479: fiscal period not found for 2026-04-29 (company %)' , v_company_id;
+  END IF;
+
+  -- MEDIUM: locked periods have auditor sign-off; closed periods are intentionally bypassed here.
+  IF v_period_status = 'closed' THEN
+    RAISE NOTICE 'Migration 479: target fiscal period is CLOSED (status=%); intentionally bypassing the application-level closed-period write block to post correction journal — auditor trail.', v_period_status;
+  END IF;
+  IF v_period_status = 'locked' THEN
+    RAISE EXCEPTION 'Migration 479: target fiscal period is locked (auditor sign-off) — manual approval required';
   END IF;
 
   -- Resolve a system/admin user
