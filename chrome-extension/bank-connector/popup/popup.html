@@ -15,6 +15,11 @@
       button:disabled { opacity: 0.5; cursor: not-allowed; }
       .empty { color: #6b7280; font-size: 12px; text-align: center; padding: 24px 8px; }
       .empty a { color: #2563eb; text-decoration: none; }
+      .range { display: flex; gap: 4px; margin-top: 6px; align-items: center; flex-wrap: wrap; }
+      .range label { font-size: 11px; color: #6b7280; }
+      .range input[type="date"] { font-size: 11px; padding: 2px 4px; border: 1px solid #d1d5db; border-radius: 3px; }
+      .preset { padding: 2px 6px; font-size: 11px; border: 1px solid #d1d5db; background: white; color: #374151; border-radius: 3px; cursor: pointer; }
+      .preset.active { background: #2563eb; color: white; border-color: #2563eb; }
       #status { font-size: 11px; color: #6b7280; margin-top: 8px; min-height: 14px; }
       #status.ok { color: #16a34a; }
       #status.err { color: #dc2626; }

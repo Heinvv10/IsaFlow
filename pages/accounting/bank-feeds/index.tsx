@@ -39,7 +39,15 @@ export default function BankFeedsPage() {
       const res = await apiFetch('/api/accounting/bank-accounts');
       const json = await res.json();
       if (res.ok) {
-        setBankAccounts((json.data?.items ?? []).map((a: Record<string, unknown>) => ({
+        // The bank-accounts endpoint returns the rows directly under `data`
+        // as an array, not under `data.items`. Tolerate both shapes so this
+        // doesn't regress when the API is normalised.
+        const items = Array.isArray(json.data)
+          ? json.data
+          : Array.isArray(json.data?.items)
+            ? json.data.items
+            : [];
+        setBankAccounts(items.map((a: Record<string, unknown>) => ({
           id: String(a.id),
           accountName: String(a.accountName ?? a.account_name ?? ''),
         })));
