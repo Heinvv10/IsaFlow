@@ -63,7 +63,7 @@ interface CompanyContextType {
 const CompanyContext = createContext<CompanyContextType | undefined>(undefined);
 
 export function CompanyProvider({ children }: { children: ReactNode }) {
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, loading: authLoading } = useAuth();
   const userRole = user?.role ?? null;
   // Hydrate active company synchronously from localStorage so the first render
   // has at least {id, name} — avoids a flash of the 'ISAFlow' fallback title
@@ -139,10 +139,20 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const loadUserCompanies = useCallback(async () => {
+    if (authLoading) {
+      setLoading(true);
+      return;
+    }
+
     if (!isAuthenticated) {
+      setCompanies([]);
+      setActiveCompany(null);
+      setCompanyRole(null);
       setLoading(false);
       return;
     }
+
+    setLoading(true);
 
     // Always fetch the user's actual memberships so the switcher has options,
     // even for super_admins. The previous short-circuit that trusted localStorage
@@ -210,7 +220,7 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
 
     await loadCompanyDetails(targetId);
     setLoading(false);
-  }, [isAuthenticated, userRole, loadCompanyDetails]);
+  }, [authLoading, isAuthenticated, userRole, loadCompanyDetails]);
 
   useEffect(() => {
     loadUserCompanies();

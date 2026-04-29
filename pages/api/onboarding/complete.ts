@@ -7,6 +7,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { setOnboardingDoneCookie } from '@/lib/auth/cookies';
 import { sql } from '@/lib/neon';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -18,13 +19,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   await sql`UPDATE users SET onboarding_completed = true WHERE id = ${userId}`;
 
-  const isProd = process.env.NODE_ENV === 'production';
-  const secureSuffix = isProd ? '; Secure' : '';
-  const domainSuffix = isProd ? '; Domain=.isaflow.co.za' : '';
-  res.setHeader(
-    'Set-Cookie',
-    `ff_onboarding_done=1; Path=/; Max-Age=31536000; SameSite=Lax${secureSuffix}${domainSuffix}`
-  );
+  setOnboardingDoneCookie(res);
 
   return apiResponse.success(res, { completed: true });
 }

@@ -4,6 +4,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 export const ACCESS_COOKIE = 'sb-access-token';
 export const REFRESH_COOKIE = 'sb-refresh-token';
 export const ACTIVE_COMPANY_COOKIE = 'active_company_id';
+export const ONBOARDING_DONE_COOKIE = 'ff_onboarding_done';
 // Pentest H6: holds the AAL1 GoTrue token between /login and /2fa-challenge.
 // HttpOnly + short TTL (5 min) — never exposed to JS or returned in response bodies.
 export const PENDING_MFA_COOKIE = 'sb-pending-mfa';
@@ -40,6 +41,17 @@ function cookieFlags(maxAgeSeconds: number, domain?: string): string {
 // Used when "Keep me signed in" is unchecked at login (PRD-10 Layer 1).
 function sessionCookieFlags(domain?: string): string {
   const parts = [`Path=/`, `HttpOnly`, `SameSite=Lax`];
+  if (isSecure()) parts.push('Secure');
+  if (domain) parts.push(`Domain=${domain}`);
+  return parts.join('; ');
+}
+
+function readableCookieFlags(maxAgeSeconds: number, domain?: string): string {
+  const parts = [
+    `Path=/`,
+    `Max-Age=${maxAgeSeconds}`,
+    `SameSite=Lax`,
+  ];
   if (isSecure()) parts.push('Secure');
   if (domain) parts.push(`Domain=${domain}`);
   return parts.join('; ');
@@ -100,6 +112,13 @@ export function setActiveCompanyCookie(res: NextApiResponse, companyId: string):
   );
 }
 
+export function setOnboardingDoneCookie(res: NextApiResponse): void {
+  appendSetCookie(
+    res,
+    `${ONBOARDING_DONE_COOKIE}=1; ${readableCookieFlags(60 * 60 * 24 * 365, cookieDomain())}`,
+  );
+}
+
 export function setPendingMfaCookie(res: NextApiResponse, pendingToken: string): void {
   // 5-minute TTL — just long enough for the user to type a TOTP code.
   appendSetCookie(res, `${PENDING_MFA_COOKIE}=${pendingToken}; ${cookieFlags(300, cookieDomain())}`);
@@ -136,7 +155,7 @@ export function clearPendingRememberCookie(res: NextApiResponse): void {
  */
 export function clearAuthCookies(res: NextApiResponse): void {
   const domain = cookieDomain();
-  for (const name of [ACCESS_COOKIE, REFRESH_COOKIE, ACTIVE_COMPANY_COOKIE, PENDING_MFA_COOKIE, PENDING_REMEMBER_COOKIE, REMEMBER_ME_COOKIE]) {
+  for (const name of [ACCESS_COOKIE, REFRESH_COOKIE, ACTIVE_COMPANY_COOKIE, ONBOARDING_DONE_COOKIE, PENDING_MFA_COOKIE, PENDING_REMEMBER_COOKIE, REMEMBER_ME_COOKIE]) {
     appendSetCookie(res, `${name}=; ${cookieFlags(0)}`);
     if (domain) {
       appendSetCookie(res, `${name}=; ${cookieFlags(0, domain)}`);
