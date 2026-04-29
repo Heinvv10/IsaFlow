@@ -50,8 +50,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     } = req.query;
 
     // Cap at 100 — aligns with BL-11 / BL-24 limit policy
-    const safeLimit = Math.min(Math.max(1, Number(limitParam)), 100);
-    const page = Math.max(1, Number(pageParam));
+    // Sanitise: NaN / negative values from query-string coercion become safe defaults.
+    const limitNum = Number(limitParam);
+    const pageNum = Number(pageParam);
+    const safeLimit = Number.isFinite(limitNum) && limitNum > 0 ? Math.min(Math.floor(limitNum), 100) : 25;
+    const page = Number.isFinite(pageNum) && pageNum >= 1 ? Math.floor(pageNum) : 1;
     const offset = (page - 1) * safeLimit;
 
     // Normalize status: single value or array; null means "no filter"

@@ -20,8 +20,11 @@ export async function getAdjustments(companyId: string, filters?: {
   limit?: number;
   offset?: number;
 }): Promise<{ items: AccountingAdjustment[]; total: number }> {
-  const limit = filters?.limit || 50;
-  const offset = filters?.offset || 0;
+  // Sanitise: NaN / negative values from query-string coercion become safe defaults.
+  const rawLimit = filters?.limit;
+  const rawOffset = filters?.offset;
+  const limit = Number.isFinite(rawLimit) && rawLimit! > 0 ? Math.min(rawLimit!, 500) : 50;
+  const offset = Number.isFinite(rawOffset) && rawOffset! >= 0 ? rawOffset! : 0;
   let rows: Row[];
   let countRows: Row[];
 

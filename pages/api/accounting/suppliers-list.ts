@@ -38,8 +38,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         return apiResponse.success(res, rows[0]);
       }
 
-      const limit = Math.min(Number(limitParam), 200);
-      const page = Math.max(1, Number(pageParam));
+      const limitRaw = Number(limitParam);
+      const pageRaw = Number(pageParam);
+      const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 200) : 25;
+      const page = Number.isFinite(pageRaw) && pageRaw >= 1 ? Math.floor(pageRaw) : 1;
       const offset = (page - 1) * limit;
       const searchTerm = typeof q === 'string' && q.trim() ? `%${q.trim()}%` : null;
 
