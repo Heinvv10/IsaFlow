@@ -177,8 +177,8 @@ export async function getTopPages(
   const interval = RANGE_INTERVAL[range];
   // Title resolution: pick the earliest non-null page_title for the path
   // (deterministic and matches what the page was titled when first indexed
-  // in this window). MAX(page_title) — used elsewhere — is lexicographically
-  // arbitrary across events for the same path.
+  // in this window). MAX(page_title) — the prior pattern — was
+  // lexicographically arbitrary across events for the same path.
   const rows = await sql`
     SELECT e.url_path AS path,
            (array_agg(e.page_title ORDER BY e.created_at ASC)
