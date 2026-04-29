@@ -45,8 +45,8 @@ export async function getSupplierPayments(companyId: string, filters?: PaymentFi
     // Sanitise: NaN / negative values from query-string coercion become safe defaults.
     const rawLimit = filters?.limit;
     const rawOffset = filters?.offset;
-    const limit = Number.isFinite(rawLimit) && rawLimit! > 0 ? Math.min(rawLimit!, 200) : 50;
-    const offset = Number.isFinite(rawOffset) && rawOffset! >= 0 ? rawOffset! : 0;
+    const limit = typeof rawLimit === 'number' && Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 200) : 50;
+    const offset = typeof rawOffset === 'number' && Number.isFinite(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
     let rows: Row[];
     let countRows: Row[];
 
