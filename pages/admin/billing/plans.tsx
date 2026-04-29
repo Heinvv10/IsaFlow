@@ -179,10 +179,10 @@ export default function PlansPage() {
 
       {/* Plan Form Modal */}
       {showForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div role="dialog" aria-modal="true" aria-labelledby="plan-modal-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{editId ? 'Edit Plan' : 'Add Plan'}</h3>
+              <h3 id="plan-modal-title" className="text-sm font-semibold text-gray-900 dark:text-white">{editId ? 'Edit Plan' : 'Add Plan'}</h3>
               <button onClick={() => setShowForm(false)} className="text-gray-600 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"><X className="w-4 h-4" /></button>
             </div>
             <div className="p-5 space-y-4">

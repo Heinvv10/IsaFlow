@@ -462,10 +462,10 @@ export default function AdminCompaniesPage() {
 
       {/* Create Company Modal */}
       {showCreate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div role="dialog" aria-modal="true" aria-labelledby="company-modal-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl w-full max-w-md">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
-              <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Add Company</h2>
+              <h2 id="company-modal-title" className="text-sm font-semibold text-gray-900 dark:text-white">Add Company</h2>
               <button onClick={() => setShowCreate(false)} className="text-gray-600 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
                 <X className="w-4 h-4" />
               </button>

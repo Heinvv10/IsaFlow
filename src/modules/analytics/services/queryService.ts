@@ -423,13 +423,22 @@ export async function getEntryPages(
   const w = await requireWebsite(websiteId, companyId);
   if (!w) return null;
   const interval = RANGE_INTERVAL[range];
+  // LATERAL pulls a single page_title per session for its entry_path; aggregating
+  // with MAX collapses to one title per entry_path. A correlated subquery referencing
+  // s.id in the SELECT list isn't valid here because GROUP BY is on s.entry_path.
   const rows = await sql`
     SELECT s.entry_path AS path,
-           (SELECT e.page_title FROM analytics_events e
-            WHERE e.session_id = s.id AND e.url_path = s.entry_path
-            ORDER BY e.created_at ASC LIMIT 1)                    AS title,
+           MAX(e.page_title)                                      AS title,
            COUNT(*)::int                                          AS sessions
     FROM analytics_sessions s
+    LEFT JOIN LATERAL (
+      SELECT page_title
+      FROM analytics_events
+      WHERE session_id = s.id
+        AND url_path = s.entry_path
+      ORDER BY created_at ASC
+      LIMIT 1
+    ) e ON true
     WHERE s.website_id = ${websiteId}
       AND s.is_bot = false
       AND s.first_seen >= NOW() - (${interval})::interval
