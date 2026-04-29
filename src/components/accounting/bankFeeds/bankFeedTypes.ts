@@ -1,6 +1,6 @@
 /** Shared UI types for the Bank Feeds feature */
 
-export type Provider = 'manual_csv' | 'basiq' | 'tink' | 'plaid';
+export type Provider = 'manual_csv' | 'basiq' | 'tink' | 'plaid' | 'extension';
 export type ConnectionStatus = 'active' | 'paused' | 'error';
 export type SyncStatus = 'running' | 'success' | 'failed';
 
@@ -42,6 +42,7 @@ export const PROVIDER_LABELS: Record<Provider, string> = {
   basiq: 'Basiq (Open Banking AU/ZA)',
   tink: 'Tink (Open Banking EU)',
   plaid: 'Plaid (Open Banking US)',
+  extension: 'Direct via Browser Extension',
 };
 
 export const PROVIDER_DESCRIPTIONS: Record<Provider, string> = {
@@ -49,6 +50,7 @@ export const PROVIDER_DESCRIPTIONS: Record<Provider, string> = {
   basiq: 'Connect directly to SA/AU banks via the Basiq API (requires Basiq API key).',
   tink: 'Connect to European banks via Tink Open Banking (requires Tink credentials).',
   plaid: 'Connect to US and international banks via Plaid (requires Plaid credentials).',
+  extension: 'Use the IsaFlow Bank Connector Chrome extension to import from your authenticated bank session. No credentials leave your browser.',
 };
 
 export const STATUS_STYLES: Record<ConnectionStatus, { cls: string; label: string }> = {

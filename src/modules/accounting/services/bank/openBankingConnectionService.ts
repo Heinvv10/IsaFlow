@@ -44,17 +44,21 @@ export async function createBankFeedConnection(
   input: BankFeedConnectionInput,
   userId: string,
 ): Promise<BankFeedConnection> {
-  const validProviders = ['manual_csv', 'basiq', 'tink', 'plaid'] as const;
+  const validProviders = ['manual_csv', 'basiq', 'tink', 'plaid', 'extension'] as const;
   if (!validProviders.includes(input.provider as typeof validProviders[number])) {
     throw new Error(`Invalid provider "${input.provider}". Must be one of: ${validProviders.join(', ')}`);
   }
 
-  // IDOR guard: verify bank account belongs to this company
+  // IDOR guard — bankAccountId across this codebase means gl_accounts.id
+  // (account_subtype='bank'). bank_transactions FKs to gl_accounts; as of
+  // migration 483, bank_feed_connections does too.
   if (input.accountId) {
     const check = (await sql`
-      SELECT id FROM bank_accounts
-      WHERE id = ${input.accountId}::UUID AND company_id = ${companyId}::UUID
-      LIMIT 1
+      SELECT id FROM gl_accounts
+       WHERE id = ${input.accountId}::UUID
+         AND company_id = ${companyId}::UUID
+         AND account_subtype = 'bank'
+       LIMIT 1
     `) as DbRow[];
     if (check.length === 0) {
       throw new Error('Bank account not found or does not belong to this company');
