@@ -16,7 +16,7 @@ function issueCsrfCookie(request: NextRequest, response: NextResponse): NextResp
   if (!request.cookies.get(CSRF_COOKIE)) {
     response.cookies.set(CSRF_COOKIE, generateCsrfToken(), {
       httpOnly: false,  // JS must read to mirror into X-CSRF-Token header
-      secure: true,
+      secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       path: '/',
     });

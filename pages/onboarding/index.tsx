@@ -46,22 +46,28 @@ export default function OnboardingWizard() {
   const [error, setError]           = useState('');
   const [authChecked, setAuthChecked] = useState(false);
   const [authTimeout, setAuthTimeout] = useState(false);
-  const isMountedRef = useRef(true);
+  const redirectingRef = useRef(false);
 
   // Auth check — fires once on mount only.
   // router is intentionally excluded from deps: it is only used for navigation,
   // not for reading state. Including it caused repeated fires each time Next.js
   // updated the router reference during navigation, creating a redirect loop.
   useEffect(() => {
-    isMountedRef.current = true;
+    let cancelled = false;
+
+    const redirectToAccounting = () => {
+      if (redirectingRef.current) return;
+      redirectingRef.current = true;
+      window.location.replace('/accounting');
+    };
 
     // 10-second escape hatch: if auth check hangs, show the escape link.
     const timeoutId = window.setTimeout(() => {
-      if (isMountedRef.current && !authChecked) setAuthTimeout(true);
+      if (!cancelled && !authChecked) setAuthTimeout(true);
     }, 10_000);
 
     apiFetch('/api/auth/me').then(async (r) => {
-      if (!isMountedRef.current) return;
+      if (cancelled || redirectingRef.current) return;
       if (!r.ok) {
         window.clearTimeout(timeoutId);
         void router.replace('/login');
@@ -72,7 +78,7 @@ export default function OnboardingWizard() {
       // When adding a new company, skip both guards and go straight to the wizard.
       if (isAddNew) {
         window.clearTimeout(timeoutId);
-        if (isMountedRef.current) setAuthChecked(true);
+        if (!cancelled) setAuthChecked(true);
         return;
       }
 
@@ -87,16 +93,16 @@ export default function OnboardingWizard() {
         // creating an infinite loop when the cookie is absent (incognito,
         // cookie-clear, cross-domain) even though the DB flag is true.
         const completeRes = await apiFetch('/api/onboarding/complete', { method: 'POST' });
-        if (!isMountedRef.current) return;
+        if (cancelled || redirectingRef.current) return;
         if (!completeRes.ok) {
           log.warn('onboarding/complete POST failed on already-completed check', { status: completeRes.status }, 'onboarding');
-          if (isMountedRef.current) {
+          if (!cancelled) {
             setError('Could not restore your session. Please try again.');
             setAuthChecked(true);
           }
           return;
         }
-        window.location.href = '/accounting';
+        redirectToAccounting();
         return;
       }
 
@@ -104,7 +110,7 @@ export default function OnboardingWizard() {
       // use the membership bypass for explicitly-false flags.
       if (body.data?.user?.onboarding_completed === false) {
         window.clearTimeout(timeoutId);
-        if (isMountedRef.current) setAuthChecked(true);
+        if (!cancelled) setAuthChecked(true);
         return;
       }
 
@@ -113,7 +119,7 @@ export default function OnboardingWizard() {
       // have a company membership — auto-complete and redirect.
       try {
         const compRes = await apiFetch('/api/accounting/companies?action=user-companies');
-        if (!isMountedRef.current) return;
+        if (cancelled || redirectingRef.current) return;
         if (compRes.ok) {
           const compBody = (await compRes.json()) as { data?: { items?: unknown[] } };
           const companies = compBody.data?.items ?? [];
@@ -122,11 +128,11 @@ export default function OnboardingWizard() {
             // redirect. The cookie is required by middleware — without it the
             // next request to /accounting would bounce back to /onboarding.
             const completeRes = await apiFetch('/api/onboarding/complete', { method: 'POST' });
-            if (!isMountedRef.current) return;
+            if (cancelled || redirectingRef.current) return;
             if (!completeRes.ok) {
               log.warn('onboarding/complete POST failed', { status: completeRes.status }, 'onboarding');
               // Stay on wizard with error message rather than blind redirect.
-              if (isMountedRef.current) {
+              if (!cancelled) {
                 setError('Could not auto-complete onboarding. Please continue manually.');
                 setAuthChecked(true);
               }
@@ -136,7 +142,7 @@ export default function OnboardingWizard() {
             window.clearTimeout(timeoutId);
             // Full navigation so the browser sends the freshly-set cookie on the
             // next request — avoids the SPA-navigation cookie race.
-            window.location.href = '/accounting';
+            redirectToAccounting();
             return;
           }
         }
@@ -146,7 +152,7 @@ export default function OnboardingWizard() {
       }
 
       window.clearTimeout(timeoutId);
-      if (isMountedRef.current) setAuthChecked(true);
+      if (!cancelled) setAuthChecked(true);
     }).catch((err: unknown) => {
       log.warn('Auth check failed on onboarding page', { error: err }, 'onboarding');
       window.clearTimeout(timeoutId);
@@ -154,7 +160,7 @@ export default function OnboardingWizard() {
     });
 
     return () => {
-      isMountedRef.current = false;
+      cancelled = true;
       window.clearTimeout(timeoutId);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps

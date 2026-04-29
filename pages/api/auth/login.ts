@@ -2,7 +2,7 @@
 import type { NextApiHandler } from 'next';
 import { signIn } from '@/lib/auth/gotrue';
 import { listFactors, GotrueMfaError } from '@/lib/auth/gotrue-mfa';
-import { setAuthCookies, setActiveCompanyCookie, setPendingMfaCookie, setPendingRememberCookie } from '@/lib/auth/cookies';
+import { setAuthCookies, setActiveCompanyCookie, setOnboardingDoneCookie, setPendingMfaCookie, setPendingRememberCookie } from '@/lib/auth/cookies';
 import { checkLockout, recordFailure, clearLockout } from '@/lib/auth/accountLockout';
 import { checkRateLimit, getClientIp, withRateLimit } from '@/lib/rateLimit';
 import { sql } from '@/lib/neon';
@@ -101,6 +101,7 @@ const handler: NextApiHandler = async (req, res) => {
     persistent,
   });
   if (memberships.length > 0) setActiveCompanyCookie(res, memberships[0]!.company_id);
+  if (memberships.length > 0) setOnboardingDoneCookie(res);
 
   return res.status(200).json({
     success: true,
