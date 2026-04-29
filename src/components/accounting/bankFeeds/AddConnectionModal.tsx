@@ -94,7 +94,7 @@ export function AddConnectionModal({ bankAccounts, onClose, onCreated }: Props) 
           bankAccountExternalId: externalAccountId,
           host: window.location.origin,
         },
-      }, '*');
+      }, window.location.origin);
 
       notify.success('Extension paired. Open your bank tab to sync.');
       onCreated();
@@ -218,7 +218,7 @@ export function AddConnectionModal({ bankAccounts, onClose, onCreated }: Props) 
                 onChange={e => setExternalAccountId(e.target.value)}
                 placeholder={
                   provider === 'extension'
-                    ? 'e.g. 4069625895'
+                    ? 'Your bank account number'
                     : `Your ${PROVIDER_LABELS[provider]} account ID`
                 }
                 className="ff-input w-full"

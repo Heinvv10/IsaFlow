@@ -75,9 +75,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 // ── Pairing ──────────────────────────────────────────────────────────────────
 
+const ALLOWED_HOSTS = new Set([
+  'https://app.isaflow.co.za',
+  'https://admin.isaflow.co.za',
+  'http://localhost:3200',
+  'http://localhost:3000',
+]);
+
 async function handlePair(payload) {
   if (!payload || !payload.connectionId || !payload.jwt || !payload.ingestUrl || !payload.bankId) {
     throw new Error('Invalid pair payload');
+  }
+  const host = payload.host || 'https://app.isaflow.co.za';
+  if (!ALLOWED_HOSTS.has(host)) {
+    throw new Error(`Untrusted host rejected: ${host}`);
   }
   const record = {
     connectionId: payload.connectionId,
@@ -86,7 +97,7 @@ async function handlePair(payload) {
     bankAccountExternalId: payload.bankAccountExternalId || null,
     bankAccountLabel: payload.bankAccountLabel || null,
     ingestUrl: payload.ingestUrl,
-    host: payload.host || 'https://app.isaflow.co.za',
+    host,
     pairedAt: new Date().toISOString(),
     lastSyncAt: null,
   };
