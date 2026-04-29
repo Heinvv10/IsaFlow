@@ -5,13 +5,14 @@
 --   Journal entries JE-2025-00045 (Sep 2025 depreciation, R3 500) and
 --   JE-2026-00019 (January 2026 depreciation, R4 000) were each reversed TWICE.
 --   This left a net DR balance of R7 500 in account 1230 (Accumulated Depreciation)
---   instead of the correct CR balance. Both reversals also created duplicate DR
---   entries in 5700 (Depreciation Expense), overstating expenses by R7 500.
+--   instead of the expected nil balance for the test FAR data. The paired effect
+--   was an excess CR balance in 5700 (Depreciation Expense), understating expenses
+--   by R7 500.
 --
 -- Correction:
 --   Post a single correction JE:
---     DR  5700  Depreciation Expense      7 500.00  (reverse the duplicate expense debit)
---     CR  1230  Accumulated Depreciation  7 500.00  (restore credit-normal balance)
+--     DR  5700  Depreciation Expense      7 500.00  (clear the excess expense credit)
+--     CR  1230  Accumulated Depreciation  7 500.00  (clear the net debit in 1230)
 --
 -- After this migration:
 --   1230 balance = 0 (net effect of 49 debit reversals + 47 credit originals + this CR 7 500)
@@ -84,26 +85,26 @@ BEGIN
   ) RETURNING id INTO v_je_id;
 
   -- Line 1: DR 5700 Depreciation Expense 7 500.00
-  --         (cancels the duplicate DR in 5700 from the double-reversal)
+  --         (clears the excess CR in 5700 from the double-reversal)
   INSERT INTO gl_journal_lines (
     id, journal_entry_id, gl_account_id, company_id,
     debit, credit, description, created_at, updated_at
   ) VALUES (
     gen_random_uuid(), v_je_id, v_acct_5700, v_company_id,
     7500.00, 0.00,
-    'Correction: reverse duplicate expense from double-reversal of JE-2025-00045 and JE-2026-00019',
+    'Correction: clear excess expense credit from double-reversal of JE-2025-00045 and JE-2026-00019',
     now(), now()
   );
 
   -- Line 2: CR 1230 Accumulated Depreciation 7 500.00
-  --         (restores the credit-normal balance)
+  --         (clears the net DR in 1230 for the test FAR data)
   INSERT INTO gl_journal_lines (
     id, journal_entry_id, gl_account_id, company_id,
     debit, credit, description, created_at, updated_at
   ) VALUES (
     gen_random_uuid(), v_je_id, v_acct_1230, v_company_id,
     0.00, 7500.00,
-    'Correction: restore accumulated depreciation credit (mig 479)',
+    'Correction: clear accumulated depreciation net debit (mig 479)',
     now(), now()
   );
 
