@@ -55,7 +55,7 @@ export const payrollTab: Tab = {
         { label: 'Pay Scales',       href: '/payroll/pay-scales',     isSetting: true },
         { label: 'Pay Packages',     href: '/payroll/pay-packages',   isSetting: true },
         { label: 'Cost Centres',     href: '/payroll/cost-centres',   isSetting: true },
-        { label: 'Leave Types',      href: '/payroll/leave/types',    isSetting: true },
+        { label: 'Leave Types',      href: '/payroll/leave',          isSetting: true },
         { label: 'Leave Balances',   href: '/payroll/leave/balances', isSetting: true },
       ],
     },
