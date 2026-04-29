@@ -32,15 +32,24 @@ DECLARE
   v_period_id   UUID;
   v_user_id     UUID;
   v_entry_num   TEXT := 'JE-2026-00318';  -- next after JE-2026-00317
+  v_description TEXT := 'Sub-ledger recon correction — clear double reversal imbalance (migration 479)';
 BEGIN
-  -- Guard: only apply once (idempotent)
+  -- Guard: only apply once (idempotent by migration-specific marker)
+  IF EXISTS (
+    SELECT 1 FROM gl_journal_entries
+    WHERE company_id = v_company_id
+      AND description = v_description
+  ) THEN
+    RAISE NOTICE 'Migration 479 already applied — skipping.';
+    RETURN;
+  END IF;
+
   IF EXISTS (
     SELECT 1 FROM gl_journal_entries
     WHERE company_id = v_company_id
       AND entry_number = v_entry_num
   ) THEN
-    RAISE NOTICE 'Migration 479 already applied — skipping.';
-    RETURN;
+    RAISE EXCEPTION 'Migration 479 cannot use %, entry number already exists for company %', v_entry_num, v_company_id;
   END IF;
 
   -- Resolve account IDs
@@ -52,6 +61,14 @@ BEGIN
     FROM gl_accounts
     WHERE company_id = v_company_id AND account_code = '5700';
 
+  IF v_acct_1230 IS NULL THEN
+    RAISE EXCEPTION 'Migration 479 missing account 1230 for company %', v_company_id;
+  END IF;
+
+  IF v_acct_5700 IS NULL THEN
+    RAISE EXCEPTION 'Migration 479 missing account 5700 for company %', v_company_id;
+  END IF;
+
   -- Resolve fiscal period
   SELECT id INTO v_period_id
     FROM fiscal_periods
@@ -59,6 +76,10 @@ BEGIN
       AND start_date <= '2026-04-29'
       AND end_date   >= '2026-04-29'
     LIMIT 1;
+
+  IF v_period_id IS NULL THEN
+    RAISE EXCEPTION 'Migration 479 missing fiscal period covering 2026-04-29 for company %', v_company_id;
+  END IF;
 
   -- Resolve a system/admin user
   SELECT id INTO v_user_id
@@ -79,7 +100,7 @@ BEGIN
   ) VALUES (
     gen_random_uuid(), v_company_id, v_entry_num, '2026-04-29',
     v_period_id,
-    'Sub-ledger recon correction — reverse duplicate depreciation reversals (mig 479)',
+    v_description,
     'manual', 'posted',
     v_user_id, now(), now()
   ) RETURNING id INTO v_je_id;
