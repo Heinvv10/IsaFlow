@@ -30,15 +30,18 @@
 -- DIAGNOSIS QUERY — run on production DB to find the source:
 --
 --   -- 1. Check if any journal entries are unbalanced:
---   SELECT entry_number, entry_date, description,
---          SUM(debit) AS dr, SUM(credit) AS cr,
---          ABS(SUM(debit) - SUM(credit)) AS imbalance
+--   --    NOTE: both gl_journal_entries and gl_journal_lines have a `description`
+--   --    column, so qualify it as `je.description` (otherwise PG raises 42702
+--   --    "column reference is ambiguous").
+--   SELECT je.entry_number, je.entry_date, je.description,
+--          SUM(jl.debit) AS dr, SUM(jl.credit) AS cr,
+--          ABS(SUM(jl.debit) - SUM(jl.credit)) AS imbalance
 --   FROM gl_journal_entries je
 --   JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id
 --   WHERE je.company_id = '00000000-0000-0000-0000-000000000001'
 --     AND je.status = 'posted'
---   GROUP BY je.id, entry_number, entry_date, description
---   HAVING ABS(SUM(debit) - SUM(credit)) > 0.01
+--   GROUP BY je.id, je.entry_number, je.entry_date, je.description
+--   HAVING ABS(SUM(jl.debit) - SUM(jl.credit)) > 0.01
 --   ORDER BY imbalance DESC LIMIT 20;
 --
 --   -- 2. Check for accounts with non-standard account_type (excluded from BS):
