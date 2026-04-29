@@ -142,7 +142,13 @@
     return json;
   }
 
-  // ── Field mappers (ABSA → IsaFlow canonical shapes) ───────────────────────
+  // ── Field mappers (ABSA → IsaFlow canonical shapes) ──────────────────────
+  //
+  // IMPORTANT — KEEP IN SYNC WITH absaScraperMapper.ts
+  // These functions duplicate src/modules/accounting/services/bank/absaScraperMapper.ts
+  // because Chrome extensions cannot import TypeScript modules. The TS file is the
+  // source of truth and is covered by unit tests. If you change the mapping logic
+  // in either place, update the other immediately and run the unit tests.
 
   function absaAccountToSummary(a) {
     const accountType = (a.accountType || '').toLowerCase();
