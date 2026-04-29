@@ -175,9 +175,14 @@ export async function getTopPages(
   if (!w) return null;
 
   const interval = RANGE_INTERVAL[range];
+  // Title resolution: pick the earliest non-null page_title for the path
+  // (deterministic and matches what the page was titled when first indexed
+  // in this window). MAX(page_title) — the prior pattern — was
+  // lexicographically arbitrary across events for the same path.
   const rows = await sql`
     SELECT e.url_path AS path,
-           MAX(e.page_title)                 AS title,
+           (array_agg(e.page_title ORDER BY e.created_at ASC)
+              FILTER (WHERE e.page_title IS NOT NULL))[1] AS title,
            COUNT(*)::int                     AS views,
            COUNT(DISTINCT e.session_id)::int AS sessions
     FROM analytics_events e
@@ -423,12 +428,16 @@ export async function getEntryPages(
   const w = await requireWebsite(websiteId, companyId);
   if (!w) return null;
   const interval = RANGE_INTERVAL[range];
-  // LATERAL pulls a single page_title per session for its entry_path; aggregating
-  // with MAX collapses to one title per entry_path. A correlated subquery referencing
-  // s.id in the SELECT list isn't valid here because GROUP BY is on s.entry_path.
+  // LATERAL pulls a single page_title per session for its entry_path. The
+  // outer aggregation picks the title from the EARLIEST session that landed
+  // on this entry_path (ordered by session.first_seen) — deterministic and
+  // matches the page title users actually saw when the path was first seen
+  // in the window. (MAX(page_title) — the original draft of this fix — was
+  // lexicographically arbitrary across sessions for the same path.)
   const rows = await sql`
     SELECT s.entry_path AS path,
-           MAX(e.page_title)                                      AS title,
+           (array_agg(e.page_title ORDER BY s.first_seen ASC)
+              FILTER (WHERE e.page_title IS NOT NULL))[1] AS title,
            COUNT(*)::int                                          AS sessions
     FROM analytics_sessions s
     LEFT JOIN LATERAL (
