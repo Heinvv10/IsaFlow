@@ -7,7 +7,7 @@
 import type { NextApiResponse } from 'next';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
-import { apiResponse } from '@/lib/apiResponse';
+import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { listAdminWebhooks } from '@/modules/admin/services/adminWebhookService';
 
@@ -41,7 +41,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, result);
   } catch (err) {
     log.error('Admin: failed to list webhooks', { error: err }, 'admin-webhooks-api');
-    return apiResponse.badRequest(res, 'Failed to list webhooks');
+    return apiResponse.error(res, ErrorCode.INTERNAL_ERROR, 'Failed to list webhooks');
   }
 }
 

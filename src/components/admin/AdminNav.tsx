@@ -74,7 +74,9 @@ const NAV_DEFS: NavDef[] = [
   },
   {
     label: 'Payroll',
-    path: '/payroll',
+    // Parent path mirrors the only existing child page; there is no /admin/payroll
+    // index route, and Next prefetches the parent href on render which would 404.
+    path: '/payroll/sars-codes',
     icon: Receipt,
     children: [
       { label: 'SARS Codes', path: '/payroll/sars-codes', icon: Receipt },
