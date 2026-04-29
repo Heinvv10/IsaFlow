@@ -8,6 +8,7 @@
   const PAGE_TO_EXT = {
     'isaflow-bank-ext-ping': 'ping',
     'isaflow-bank-ext-pair': 'pair',
+    'isaflow-bank-ext-sync': 'sync',
   };
 
   function announce() {

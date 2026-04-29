@@ -3,6 +3,7 @@
  * status badges, sync/delete actions, and an expandable sync-log panel.
  */
 
+import { useState } from 'react';
 import {
   Wifi, RefreshCw, Loader2, Trash2,
   ChevronDown, ChevronRight, AlertCircle, Clock,
@@ -13,6 +14,17 @@ import {
   type BankFeedConnection, type SyncLog,
 } from './bankFeedTypes';
 
+const ABSA_MAX_DAYS = 180;
+
+function isoDaysAgo(days: number): string {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+function todayIso(): string { return new Date().toISOString().slice(0, 10); }
+
+interface SyncRange { fromDate: string; toDate: string }
+
 interface Props {
   connection: BankFeedConnection;
   logs: SyncLog[];
@@ -20,7 +32,7 @@ interface Props {
   logsLoading: boolean;
   isSyncing: boolean;
   isDeleting: boolean;
-  onSync: () => void;
+  onSync: (range?: SyncRange) => void;
   onDelete: () => void;
   onToggleLogs: () => void;
 }
@@ -86,6 +98,26 @@ export function BankFeedCard({
 }: Props) {
   const statusStyle = STATUS_STYLES[conn.status] ?? STATUS_STYLES['active']!;
   const syncStyle = conn.lastSyncStatus ? (SYNC_STATUS_STYLES[conn.lastSyncStatus] ?? null) : null;
+  const isExtension = conn.provider === 'extension';
+
+  // Default range: from = last sync date if any (so we only fetch new tx),
+  // else 30 days back. Capped at 180 days to match ABSA's server-side limit.
+  const minFrom = isoDaysAgo(ABSA_MAX_DAYS);
+  const defaultFrom = conn.lastSyncAt
+    ? new Date(conn.lastSyncAt).toISOString().slice(0, 10)
+    : isoDaysAgo(30);
+  const [fromDate, setFromDate] = useState<string>(defaultFrom < minFrom ? minFrom : defaultFrom);
+  const [toDate, setToDate] = useState<string>(todayIso());
+
+  const triggerSync = () => {
+    if (isExtension) onSync({ fromDate, toDate });
+    else onSync();
+  };
+
+  const setPreset = (days: number) => {
+    setFromDate(isoDaysAgo(days));
+    setToDate(todayIso());
+  };
 
   return (
     <div className="bg-[var(--ff-surface-primary)] border border-[var(--ff-border-primary)] rounded-xl overflow-hidden">
@@ -128,7 +160,7 @@ export function BankFeedCard({
               </span>
             )}
             <button
-              onClick={onSync}
+              onClick={triggerSync}
               disabled={isSyncing}
               title="Sync Now"
               className="flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-xs font-semibold transition-colors disabled:opacity-50"
@@ -156,6 +188,42 @@ export function BankFeedCard({
           </div>
         </div>
       </div>
+
+      {isExtension && (
+        <div className="px-5 pb-4 -mt-1 flex flex-wrap items-center gap-2 text-xs text-[var(--ff-text-secondary)]">
+          <span>Sync from</span>
+          <input
+            type="date"
+            value={fromDate}
+            min={minFrom}
+            max={todayIso()}
+            onChange={e => setFromDate(e.target.value)}
+            className="ff-input py-1 px-2 text-xs"
+          />
+          <span>to</span>
+          <input
+            type="date"
+            value={toDate}
+            min={minFrom}
+            max={todayIso()}
+            onChange={e => setToDate(e.target.value)}
+            className="ff-input py-1 px-2 text-xs"
+          />
+          {[7, 30, 90, 180].map(d => (
+            <button
+              key={d}
+              onClick={() => setPreset(d)}
+              type="button"
+              className="px-2 py-0.5 border border-[var(--ff-border-primary)] rounded text-xs hover:bg-[var(--ff-bg-hover)]"
+            >
+              {d}d
+            </button>
+          ))}
+          <span className="text-[10px] text-[var(--ff-text-tertiary)] ml-1">
+            ABSA caps server-side at 180 days
+          </span>
+        </div>
+      )}
 
       {logsOpen && (
         <div className="border-t border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
