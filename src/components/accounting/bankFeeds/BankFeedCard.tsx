@@ -100,13 +100,16 @@ export function BankFeedCard({
   const syncStyle = conn.lastSyncStatus ? (SYNC_STATUS_STYLES[conn.lastSyncStatus] ?? null) : null;
   const isExtension = conn.provider === 'extension';
 
-  // Default range: from = last sync date if any (so we only fetch new tx),
-  // else 30 days back. Capped at 180 days to match ABSA's server-side limit.
+  // Default range: 30 days back, OR since last sync if that's older.
+  // (Defaulting to "since last sync" alone gives a 0-day range when the user
+  // syncs twice in one day — produces an empty fetch and looks broken.)
+  // Capped at 180 days to match ABSA's server-side limit.
   const minFrom = isoDaysAgo(ABSA_MAX_DAYS);
-  const defaultFrom = conn.lastSyncAt
-    ? new Date(conn.lastSyncAt).toISOString().slice(0, 10)
-    : isoDaysAgo(30);
-  const [fromDate, setFromDate] = useState<string>(defaultFrom < minFrom ? minFrom : defaultFrom);
+  const lastSyncIso = conn.lastSyncAt ? new Date(conn.lastSyncAt).toISOString().slice(0, 10) : null;
+  const thirtyDaysAgo = isoDaysAgo(30);
+  let defaultFrom = lastSyncIso && lastSyncIso < thirtyDaysAgo ? lastSyncIso : thirtyDaysAgo;
+  if (defaultFrom < minFrom) defaultFrom = minFrom;
+  const [fromDate, setFromDate] = useState<string>(defaultFrom);
   const [toDate, setToDate] = useState<string>(todayIso());
 
   const triggerSync = () => {
