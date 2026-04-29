@@ -83,6 +83,9 @@ BEGIN
   END IF;
 
   -- MEDIUM: locked periods have auditor sign-off; closed periods are intentionally bypassed here.
+  IF v_period_status = 'closed' THEN
+    RAISE NOTICE 'Migration 479: target fiscal period is CLOSED (status=%); intentionally bypassing the application-level closed-period write block to post correction journal — auditor trail.', v_period_status;
+  END IF;
   IF v_period_status = 'locked' THEN
     RAISE EXCEPTION 'Migration 479: target fiscal period is locked (auditor sign-off) — manual approval required';
   END IF;
