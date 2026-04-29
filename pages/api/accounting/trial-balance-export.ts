@@ -25,7 +25,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const [[companyRows, periodRows], rows] = await Promise.all([
       Promise.all([
         sql`SELECT name FROM companies WHERE id = ${companyId}::UUID LIMIT 1` as Promise<CompanyRow[]>,
-        sql`SELECT name, start_date, end_date FROM fiscal_periods WHERE id = ${fiscalPeriodId}::UUID AND company_id = ${companyId}::UUID LIMIT 1` as Promise<PeriodRow[]>,
+        sql`SELECT period_name AS name, start_date, end_date FROM fiscal_periods WHERE id = ${fiscalPeriodId}::UUID AND company_id = ${companyId}::UUID LIMIT 1` as Promise<PeriodRow[]>,
       ]),
       getTrialBalance(companyId, fiscalPeriodId),
     ]);
@@ -62,7 +62,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return res.status(200).send(csv);
   } catch (err) {
     log.error('Failed to export trial balance', { error: err }, 'accounting-api');
-    return apiResponse.badRequest(res, 'Failed to export trial balance');
+    return apiResponse.internalError(res, err, 'Failed to export trial balance');
   }
 }
 
