@@ -79,13 +79,24 @@ export async function listConnections(companyId?: string): Promise<BankFeedConne
   return rows.map(mapConnection);
 }
 
-export async function getConnection(id: string): Promise<BankFeedConnection | null> {
-  const rows = (await sql`
-    SELECT bfc.*, ba.account_name AS bank_account_name
-    FROM bank_feed_connections bfc
-    LEFT JOIN bank_accounts ba ON ba.id = bfc.bank_account_id
-    WHERE bfc.id = ${id}::UUID
-  `) as DbRow[];
+// pentest F-03: companyId param added so callers can scope to their tenant.
+// When companyId is provided the JOIN to bank_accounts is used as an ownership
+// guard; when omitted (legacy internal use only) the query is unscoped.
+export async function getConnection(id: string, companyId?: string): Promise<BankFeedConnection | null> {
+  const rows = companyId
+    ? (await sql`
+        SELECT bfc.*, ba.account_name AS bank_account_name
+        FROM bank_feed_connections bfc
+        LEFT JOIN bank_accounts ba ON ba.id = bfc.bank_account_id
+        WHERE bfc.id = ${id}::UUID
+          AND ba.company_id = ${companyId}::UUID
+      `) as DbRow[]
+    : (await sql`
+        SELECT bfc.*, ba.account_name AS bank_account_name
+        FROM bank_feed_connections bfc
+        LEFT JOIN bank_accounts ba ON ba.id = bfc.bank_account_id
+        WHERE bfc.id = ${id}::UUID
+      `) as DbRow[];
   return rows[0] ? mapConnection(rows[0]) : null;
 }
 
