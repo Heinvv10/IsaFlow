@@ -9,7 +9,7 @@
 import { test, expect } from '@playwright/test';
 import {
   BASE, DEMO_COMPANY_ID,
-  initBrowser, closeBrowser, getSharedPage,
+  initBrowser, closeBrowser, closeDbPool, getSharedPage,
   apiPost, apiPatch, apiDelete,
   dbQuery, dbRun, screenshot, recordResult, saveResults,
 } from './mutating-actions-helpers';
@@ -22,9 +22,10 @@ test.beforeAll(async () => {
   await initBrowser();
 });
 
-test.afterAll(() => {
+test.afterAll(async () => {
   saveResults();
-  void closeBrowser();
+  await closeBrowser();
+  await closeDbPool();
 });
 
 // ─── 1. Company suspend → activate ──────────────────────────────────────────
@@ -33,6 +34,10 @@ test('company: suspend then re-activate', async () => {
   const [before] = await dbQuery<{ status: string }>(
     `SELECT status FROM companies WHERE id = $1`, [DEMO_COMPANY_ID],
   );
+  // Guard: if the company is already suspended (concurrent run or prior crash),
+  // fail loudly rather than silently passing a no-op suspend.
+  expect(before.status, 'company must be active before suspend test').toBe('active');
+
   const t0 = Date.now();
   const { status: s1, body: b1 } = await apiPost(
     `/api/admin/companies/${DEMO_COMPANY_ID}/suspend`,
@@ -59,7 +64,9 @@ test('company: suspend then re-activate', async () => {
   const [restored] = await dbQuery<{ status: string }>(
     `SELECT status FROM companies WHERE id = $1`, [DEMO_COMPANY_ID],
   );
-  expect(restored.status).toBe(before.status);
+  // Assert the literal expected value, not before.status, so re-activation is
+  // verified independently of whatever state we started from.
+  expect(restored.status).toBe('active');
   recordResult({
     action: 'company.suspend→activate', pass: true, statusCode: 200, latencyMs: latency,
     dbDiff: { before: before.status, after: 'suspended', restored: restored.status },
@@ -107,7 +114,10 @@ test('user: role change manager→admin→manager', async () => {
     [TEST_USER_ID, DEMO_COMPANY_ID],
   );
   const t0 = Date.now();
-  const { status: s1 } = await apiPatch(`/api/admin/users/${TEST_USER_ID}`, { role: 'admin' });
+  // company_id is not sent in the body: the admin endpoint resolves the target
+  // company from the x-company-id header set in the shared browser context
+  // (pages/api/admin/users/[id].ts → withAuth → req.companyId).
+  const { status: s1 } = await apiPatch(`/api/admin/users/${TEST_USER_ID}`, { role: 'admin', company_id: DEMO_COMPANY_ID });
   const latency = Date.now() - t0;
   expect(s1, 'role promote').toBe(200);
 
@@ -118,7 +128,7 @@ test('user: role change manager→admin→manager', async () => {
   expect(mid.role).toBe('admin');
 
   const { status: s2 } = await apiPatch(
-    `/api/admin/users/${TEST_USER_ID}`, { role: TEST_USER_INITIAL_ROLE },
+    `/api/admin/users/${TEST_USER_ID}`, { role: TEST_USER_INITIAL_ROLE, company_id: DEMO_COMPANY_ID },
   );
   expect(s2).toBe(200);
 
@@ -176,7 +186,7 @@ test('plan: create → edit → archive', async () => {
   await dbRun(`DELETE FROM plans WHERE id = $1`, [planId]);
   recordResult({
     action: 'plan.create→edit→archive', pass: true, statusCode: 200, latencyMs: latency,
-    dbDiff: { before: null, after: { name: 'Audit Test Plan' }, restored: null },
+    dbDiff: { before: null, after: { name: 'Audit Test Plan' }, restored: 'hard-deleted' },
     screenshotPath: '', notes: 'Plan created, edited, archived, hard-deleted',
   });
 });
@@ -265,14 +275,16 @@ test('invoice: create → mark-paid', async () => {
 // ─── 7. Webhook redeliver ─────────────────────────────────────────────────────
 
 test('webhook: redeliver (no endpoints in dev — expect graceful non-5xx)', async () => {
-  const [ep] = await dbQuery<{ id: string }>(`SELECT id FROM webhook_endpoints LIMIT 1`);
+  // Scope to the demo company to avoid crossing into a foreign tenant's endpoint.
+  const rows = await dbQuery<{ id: string }>(
+    `SELECT id FROM webhook_endpoints WHERE company_id = $1 LIMIT 1`,
+    [DEMO_COMPANY_ID],
+  );
+  const ep = rows[0];
 
   if (!ep) {
-    recordResult({
-      action: 'webhook.redeliver', pass: true, statusCode: 0, latencyMs: 0,
-      dbDiff: { before: null, after: null, restored: null }, screenshotPath: '',
-      notes: 'SKIP: no webhook endpoints in dev DB — redeliver not testable',
-    });
+    // No webhook endpoints registered for the demo company — skip cleanly.
+    test.skip(true, 'SKIP: no webhook_endpoints for demo company — redeliver not testable without foreign-tenant data');
     return;
   }
 

@@ -8,7 +8,7 @@
  */
 
 import { chromium, type Browser, type BrowserContext, type Page } from '@playwright/test';
-import { Client } from 'pg';
+import { Pool } from 'pg';
 import path from 'path';
 import fs from 'fs';
 
@@ -17,12 +17,14 @@ import fs from 'fs';
 export const BASE = 'http://localhost:3200';
 export const DEMO_COMPANY_ID = '00000000-0000-0000-0000-000000000001';
 export const ADMIN_EMAIL = process.env.E2E_ADMIN_EMAIL ?? 'admin@isaflow.co.za';
-export const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? 'admin123';
-export const DB_URL =
-  'postgresql://postgres:447a69a1675988ce00129f813c9ded99@100.96.203.105:7772/isaflow_dev?sslmode=disable';
 
-// UUID of the hein@isaflow.co.za user (owner in the demo company — has UUID format)
-export const AUDIT_USER_ID = 'aeb3949e-6c93-4c17-bbdf-b6d2d99fa9a2'; // hein@isaflow.co.za
+const _adminPassword = process.env.E2E_ADMIN_PASSWORD;
+if (!_adminPassword) throw new Error('E2E_ADMIN_PASSWORD not set — required for mutating-action audit');
+export const ADMIN_PASSWORD: string = _adminPassword;
+
+const _dbUrl = process.env.MIGRATION_ADMIN_DATABASE_URL ?? process.env.DATABASE_URL;
+if (!_dbUrl) throw new Error('MIGRATION_ADMIN_DATABASE_URL not set — required for mutating-action audit');
+export const DB_URL: string = _dbUrl;
 
 export const SCREENSHOT_DIR = path.join(process.cwd(), 'tmp/mutating-actions-audit/screenshots');
 fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
@@ -40,6 +42,7 @@ export async function initBrowser(): Promise<{ context: BrowserContext; page: Pa
     return { context: sharedContext, page: sharedPage };
   }
 
+  // FIXME(phase-2): bypasses Playwright tracing — see PR #105 review. Refactor to fixture-based launch is a separate concern.
   sharedBrowser = await chromium.launch({ headless: true });
   sharedContext = await sharedBrowser.newContext({ viewport: { width: 1280, height: 900 } });
   sharedPage = await sharedContext.newPage();
@@ -94,6 +97,22 @@ export function getCsrfToken(): string {
   return csrfToken;
 }
 
+/** Strip empty-string values from a header map (omit rather than override with ''). */
+function mergeHeaders(
+  base: Record<string, string>,
+  extra: Record<string, string>,
+): Record<string, string> {
+  const merged = { ...base };
+  for (const [k, v] of Object.entries(extra)) {
+    if (v === '') {
+      delete merged[k];
+    } else {
+      merged[k] = v;
+    }
+  }
+  return merged;
+}
+
 /** Make an authenticated API request using the shared browser context's cookies. */
 export async function apiPost(
   path: string,
@@ -103,12 +122,10 @@ export async function apiPost(
   const page = getSharedPage();
   const res = await page.request.post(`${BASE}${path}`, {
     data: body as Record<string, unknown>,
-    headers: {
-      'content-type': 'application/json',
-      'x-csrf-token': csrfToken,
-      'x-admin-request': 'true',
-      ...extraHeaders,
-    },
+    headers: mergeHeaders(
+      { 'content-type': 'application/json', 'x-csrf-token': csrfToken, 'x-admin-request': 'true' },
+      extraHeaders,
+    ),
   });
   const json = await res.json().catch(() => null);
   return { status: res.status(), body: json };
@@ -122,12 +139,10 @@ export async function apiPatch(
   const page = getSharedPage();
   const res = await page.request.patch(`${BASE}${path}`, {
     data: body as Record<string, unknown>,
-    headers: {
-      'content-type': 'application/json',
-      'x-csrf-token': csrfToken,
-      'x-admin-request': 'true',
-      ...extraHeaders,
-    },
+    headers: mergeHeaders(
+      { 'content-type': 'application/json', 'x-csrf-token': csrfToken, 'x-admin-request': 'true' },
+      extraHeaders,
+    ),
   });
   const json = await res.json().catch(() => null);
   return { status: res.status(), body: json };
@@ -139,12 +154,10 @@ export async function apiDelete(
 ): Promise<{ status: number; body: unknown }> {
   const page = getSharedPage();
   const res = await page.request.delete(`${BASE}${path}`, {
-    headers: {
-      'content-type': 'application/json',
-      'x-csrf-token': csrfToken,
-      'x-admin-request': 'true',
-      ...extraHeaders,
-    },
+    headers: mergeHeaders(
+      { 'content-type': 'application/json', 'x-csrf-token': csrfToken, 'x-admin-request': 'true' },
+      extraHeaders,
+    ),
   });
   const json = await res.json().catch(() => null);
   return { status: res.status(), body: json };
@@ -152,22 +165,22 @@ export async function apiDelete(
 
 // ─── DB helpers ─────────────────────────────────────────────────────────────
 
-export async function dbQuery<T extends Record<string, unknown>>(
-  sql: string,
-  params: unknown[] = [],
-): Promise<T[]> {
-  const client = new Client({ connectionString: DB_URL });
-  await client.connect();
-  try {
-    const { rows } = await client.query<T>(sql, params);
-    return rows;
-  } finally {
-    await client.end();
-  }
+const dbPool = new Pool({ connectionString: DB_URL, max: 5 });
+
+export async function closeDbPool(): Promise<void> {
+  await dbPool.end();
 }
 
-export async function dbRun(sql: string, params: unknown[] = []): Promise<void> {
-  await dbQuery(sql, params);
+export async function dbQuery<T extends Record<string, unknown>>(
+  querySql: string,
+  params: unknown[] = [],
+): Promise<T[]> {
+  const { rows } = await dbPool.query<T>(querySql, params);
+  return rows;
+}
+
+export async function dbRun(querySql: string, params: unknown[] = []): Promise<void> {
+  await dbQuery(querySql, params);
 }
 
 // ─── Screenshot helper ───────────────────────────────────────────────────────
