@@ -1,0 +1,20 @@
+{
+  "header": {
+    "statuscode": "0",
+    "service": "ArchivedStatementFacade",
+    "operation": "GetArchivedStatementList",
+    "channel": "I",
+    "timestamp": "2026-04-29 13:42:35.597",
+    "accessAccount": "0000000001",
+    "userNumber": "1",
+    "language": "en",
+    "organization": "ABSA",
+    "brand": "ABSA",
+    "resultMessages": []
+  },
+  "archivedStatementList": [
+    { "documentName": "0000000001  0223", "extendedDocumentKey": 0, "documentExtension": "300", "documentWorkingDate": "2026-04-21", "documentSize": 75, "documentNumberPages": 10, "documentType": 1, "folderName": "FIXTURE_FOLDER", "foldersEnvSuffix": "CHQ", "documentKey": "FIXTURE_KEY_1" },
+    { "documentName": "0000000001  0222", "extendedDocumentKey": 0, "documentExtension": "300", "documentWorkingDate": "2026-03-21", "documentSize": 64, "documentNumberPages": 8,  "documentType": 1, "folderName": "FIXTURE_FOLDER", "foldersEnvSuffix": "CHQ", "documentKey": "FIXTURE_KEY_2" },
+    { "documentName": "0000000001  0221", "extendedDocumentKey": 0, "documentExtension": "300", "documentWorkingDate": "2026-02-21", "documentSize": 90, "documentNumberPages": 12, "documentType": 1, "folderName": "FIXTURE_FOLDER", "foldersEnvSuffix": "CHQ", "documentKey": "FIXTURE_KEY_3" }
+  ]
+}

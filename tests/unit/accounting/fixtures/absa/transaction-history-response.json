@@ -1,0 +1,98 @@
+{
+  "header": {
+    "statuscode": "0",
+    "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+    "wfpt": "FIXTURE_WFPT",
+    "jsessionid": "FIXTURE_JSESSIONID",
+    "esessionid": "FIXTURE_ESESSIONID",
+    "xfpt": "FIXTURE_XFPT",
+    "service": "TransactionHistoryFacade",
+    "operation": "GetTransactionHistory",
+    "channel": "I",
+    "timestamp": "2026-04-29 13:37:26.078",
+    "sourceip": "0.0.0.0",
+    "accessAccount": "0000000001",
+    "userNumber": "1",
+    "nonce": "FIXTURE_NONCE",
+    "language": "en",
+    "organization": "ABSA",
+    "brand": "ABSA",
+    "applicationId": null,
+    "applicationKeyId": null,
+    "requestToken": null,
+    "resultMessages": [],
+    "paginationContext": {
+      "moreToCome": false,
+      "batchSize": 9999,
+      "batchSizeLimit": 9999,
+      "recordIdentity": "0",
+      "totalNoOfRecords": 3
+    },
+    "reasonCode": null
+  },
+  "transactionHistory": {
+    "availableBalance": "1455.73",
+    "currentBalance": "5446.28",
+    "firstLineTxAmount": "20000.00",
+    "firstLineTxBalanceAmount": "23701.76",
+    "fromAccount": 1,
+    "sortFields": [
+      { "name": "transactionDate", "sortDirection": "DESC", "stringContainsNumericData": false, "nameIsForEnum": false },
+      { "name": "lineNumber", "sortDirection": "DESC", "stringContainsNumericData": false, "nameIsForEnum": false }
+    ],
+    "fromAccountName": "Test Cheque",
+    "fromAccountType": "Current",
+    "fromDate": "2026-04-22",
+    "toDate": "2026-04-29",
+    "historyRequestDate": null,
+    "unclearedEffectsAmount": "0.00",
+    "unclearedEffectsEnabled": false,
+    "unclearedEffectsExist": false,
+    "powerOfAttorney": false,
+    "stampedTransactionHistory": false,
+    "accountHistoryLines": [
+      {
+        "availableBalance": null,
+        "balanceAmount": "5446.28",
+        "descriptionLine1": "DIGITAL PAYMENT DT            (     10,00 )",
+        "descriptionLine2": "ABSA BANK Sample Vendor",
+        "descriptionLine3": "",
+        "lineNumber": 22,
+        "transactionAmount": "-51745.00",
+        "transactionDate": "2026-04-28",
+        "transactionDescription": "DIGITAL PAYMENT DT            (     10,00 ) ABSA BANK Sample Vendor",
+        "transactionFee": "10.00",
+        "transactionNumber": null,
+        "transactionCategory": 0
+      },
+      {
+        "availableBalance": null,
+        "balanceAmount": "57191.28",
+        "descriptionLine1": "DIGITAL PAYMENT CR",
+        "descriptionLine2": "ABSA BANK Inbound Transfer",
+        "descriptionLine3": "",
+        "lineNumber": 21,
+        "transactionAmount": "52000.00",
+        "transactionDate": "2026-04-28",
+        "transactionDescription": "DIGITAL PAYMENT CR ABSA BANK Inbound Transfer",
+        "transactionFee": "0.00",
+        "transactionNumber": null,
+        "transactionCategory": 0
+      },
+      {
+        "availableBalance": null,
+        "balanceAmount": "5191.28",
+        "descriptionLine1": "ARCHIVE STMT ENQ              (     14,00 )",
+        "descriptionLine2": "",
+        "descriptionLine3": "",
+        "lineNumber": 20,
+        "transactionAmount": "-14.00",
+        "transactionDate": "2026-04-27",
+        "transactionDescription": "ARCHIVE STMT ENQ              (     14,00 )",
+        "transactionFee": "14.00",
+        "transactionNumber": null,
+        "transactionCategory": 0
+      }
+    ]
+  }
+}

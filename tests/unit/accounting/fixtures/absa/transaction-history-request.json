@@ -1,0 +1,24 @@
+{
+  "fromAccountNr": "0000000001",
+  "fromDate": "2026-04-22 00:00",
+  "toDate": "2026-04-29 00:00",
+  "sortColumn": "transactionDate",
+  "sortDirection": "DESC",
+  "unclearedTransactions": false,
+  "filterValues": null,
+  "header": {
+    "statuscode": "0",
+    "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+    "wfpt": "FIXTURE_WFPT",
+    "jsessionid": "FIXTURE_JSESSIONID",
+    "esessionid": "FIXTURE_ESESSIONID",
+    "xfpt": "FIXTURE_XFPT",
+    "service": "TransactionHistoryFacade",
+    "operation": "GetTransactionHistory",
+    "channel": "I",
+    "timestamp": "2026-04-29 13:37:25.000",
+    "language": "en",
+    "organization": "ABSA",
+    "brand": "ABSA"
+  }
+}
