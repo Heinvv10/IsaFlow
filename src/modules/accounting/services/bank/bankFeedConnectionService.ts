@@ -61,21 +61,14 @@ export interface SyncResult {
 
 // Connection CRUD
 
-export async function listConnections(companyId?: string): Promise<BankFeedConnection[]> {
-  const rows = companyId
-    ? (await sql`
-        SELECT bfc.*, ba.account_name AS bank_account_name
-        FROM bank_feed_connections bfc
-        LEFT JOIN bank_accounts ba ON ba.id = bfc.bank_account_id
-        WHERE ba.company_id = ${companyId}::UUID
-        ORDER BY bfc.created_at DESC
-      `) as DbRow[]
-    : (await sql`
-        SELECT bfc.*, ba.account_name AS bank_account_name
-        FROM bank_feed_connections bfc
-        LEFT JOIN bank_accounts ba ON ba.id = bfc.bank_account_id
-        ORDER BY bfc.created_at DESC
-      `) as DbRow[];
+export async function listConnections(companyId: string): Promise<BankFeedConnection[]> {
+  const rows = (await sql`
+      SELECT bfc.*, ba.account_name AS bank_account_name
+      FROM bank_feed_connections bfc
+      INNER JOIN bank_accounts ba ON ba.id = bfc.bank_account_id
+      WHERE ba.company_id = ${companyId}::UUID
+      ORDER BY bfc.created_at DESC
+    `) as DbRow[];
   return rows.map(mapConnection);
 }
 
@@ -84,9 +77,10 @@ export async function getConnection(id: string, companyId: string): Promise<Bank
   const rows = (await sql`
     SELECT bfc.*, ba.account_name AS bank_account_name
     FROM bank_feed_connections bfc
-    LEFT JOIN bank_accounts ba ON ba.id = bfc.bank_account_id
+    INNER JOIN bank_accounts ba ON ba.id = bfc.bank_account_id
     WHERE bfc.id = ${id}::UUID
       AND ba.company_id = ${companyId}::UUID
+    LIMIT 1
   `) as DbRow[];
   return rows[0] ? mapConnection(rows[0]) : null;
 }

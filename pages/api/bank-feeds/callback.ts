@@ -5,8 +5,10 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+// withErrorHandler is NOT exported by @/lib/auth — importing from the canonical source directly.
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { isValidUUID } from '@/lib/validation';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import {
   exchangeCode, fetchStitchAccounts, createConnection,
@@ -83,6 +85,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Store tokens temporarily in the session
   const bankAccountId = req.query.bankAccountId as string;
   if (bankAccountId) {
+    if (!isValidUUID(bankAccountId)) {
+      return apiResponse.badRequest(res, 'Invalid bank account id');
+    }
     // Direct link — create connection immediately
     const account = accounts[0]!;
     await createConnection({
