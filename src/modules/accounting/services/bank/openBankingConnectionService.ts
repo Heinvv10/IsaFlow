@@ -31,7 +31,8 @@ export async function listBankFeedConnections(companyId: string): Promise<BankFe
       bfc.created_at,
       bfc.updated_at
     FROM bank_feed_connections bfc
-    LEFT JOIN bank_accounts ba ON ba.id = bfc.bank_account_id
+    LEFT JOIN gl_accounts ba ON ba.id = bfc.bank_account_id
+      AND ba.company_id = bfc.company_id
     WHERE bfc.company_id = ${companyId}::UUID
       AND bfc.is_active = true
     ORDER BY bfc.created_at DESC
