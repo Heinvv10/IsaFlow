@@ -94,7 +94,7 @@ export function AddConnectionModal({ bankAccounts, onClose, onCreated }: Props) 
           bankAccountExternalId: externalAccountId,
           host: window.location.origin,
         },
-      }, '*');
+      }, window.location.origin);
 
       notify.success('Extension paired. Open your bank tab to sync.');
       onCreated();
