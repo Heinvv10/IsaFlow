@@ -1,9 +1,13 @@
 /**
  * AddConnectionModal — modal form for creating a new open banking connection.
  * Provider picker (radio) + optional bank account selector + external account ID.
+ *
+ * The 'extension' provider has its own pair-with-extension flow that mints
+ * a pairing JWT and posts it to the IsaFlow Bank Connector Chrome extension
+ * via window.postMessage.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { XCircle, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { notify } from '@/utils/toast';
@@ -12,7 +16,11 @@ import {
   type Provider, type BankAccount,
 } from './bankFeedTypes';
 
-const PROVIDERS: Provider[] = ['manual_csv', 'basiq', 'tink', 'plaid'];
+const PROVIDERS: Provider[] = ['extension', 'manual_csv', 'basiq', 'tink', 'plaid'];
+const EXTENSION_BANKS: Array<{ id: string; label: string }> = [
+  { id: 'absa', label: 'ABSA Business Banking' },
+];
+const CHROME_WEB_STORE_URL = 'https://chrome.google.com/webstore/detail/isaflow-bank-connector';
 
 interface Props {
   bankAccounts: BankAccount[];
@@ -20,13 +28,84 @@ interface Props {
   onCreated: () => void;
 }
 
+interface PairResponse {
+  connectionId: string;
+  bankId: string;
+  jwt: string;
+  ingestUrl: string;
+}
+
 export function AddConnectionModal({ bankAccounts, onClose, onCreated }: Props) {
-  const [provider, setProvider] = useState<Provider>('manual_csv');
+  const [provider, setProvider] = useState<Provider>('extension');
   const [accountId, setAccountId] = useState('');
   const [externalAccountId, setExternalAccountId] = useState('');
+  const [bankId, setBankId] = useState<string>('absa');
+  const [extensionDetected, setExtensionDetected] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const handleSubmit = async () => {
+  // Detect the bank-connector extension by listening for its `announce` postMessage.
+  useEffect(() => {
+    if (provider !== 'extension') return;
+    const onMsg = (ev: MessageEvent) => {
+      const d = ev.data as { source?: string; type?: string } | null;
+      if (d?.source === 'isaflow-bank-extension' && d?.type === 'announce') {
+        setExtensionDetected(true);
+      }
+    };
+    window.addEventListener('message', onMsg);
+    // Probe — the extension answers `announce` on focus too.
+    window.postMessage({ source: 'isaflow-bank-page', type: 'isaflow-bank-ext-ping' }, '*');
+    return () => window.removeEventListener('message', onMsg);
+  }, [provider]);
+
+  const handleExtensionPair = async () => {
+    if (!accountId) {
+      notify.error('Pick the IsaFlow bank account this connection feeds into.');
+      return;
+    }
+    if (!externalAccountId) {
+      notify.error('Enter the bank-side account number to pair.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await apiFetch('/api/accounting/bank-feeds/extension-pair', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bankId,
+          bankAccountId: accountId,
+          externalAccountId,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error?.message || 'Failed to pair extension');
+      const data = (json?.data ?? json) as PairResponse;
+
+      window.postMessage({
+        source: 'isaflow-bank-page',
+        type: 'isaflow-bank-ext-pair',
+        requestId: 'pair-' + data.connectionId,
+        payload: {
+          connectionId: data.connectionId,
+          jwt: data.jwt,
+          ingestUrl: data.ingestUrl,
+          bankId: data.bankId,
+          bankAccountExternalId: externalAccountId,
+          host: window.location.origin,
+        },
+      }, '*');
+
+      notify.success('Extension paired. Open your bank tab to sync.');
+      onCreated();
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : 'Pairing failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleClassicSubmit = async () => {
     setSaving(true);
     try {
       const body: Record<string, unknown> = { provider };
@@ -47,6 +126,11 @@ export function AddConnectionModal({ bankAccounts, onClose, onCreated }: Props) 
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSubmit = () => {
+    if (provider === 'extension') return handleExtensionPair();
+    return handleClassicSubmit();
   };
 
   return (
@@ -91,10 +175,21 @@ export function AddConnectionModal({ bankAccounts, onClose, onCreated }: Props) 
             </div>
           </div>
 
+          {provider === 'extension' && (
+            <div>
+              <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1.5">Bank</label>
+              <select value={bankId} onChange={e => setBankId(e.target.value)} className="ff-input w-full">
+                {EXTENSION_BANKS.map(b => (
+                  <option key={b.id} value={b.id}>{b.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {bankAccounts.length > 0 && (
             <div>
               <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1.5">
-                Linked Bank Account
+                Linked Bank Account {provider === 'extension' && <span className="text-red-400">*</span>}
               </label>
               <select
                 value={accountId}
@@ -112,16 +207,41 @@ export function AddConnectionModal({ bankAccounts, onClose, onCreated }: Props) 
           {provider !== 'manual_csv' && (
             <div>
               <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1.5">
-                External Account ID
-                <span className="ml-1 text-xs text-[var(--ff-text-tertiary)]">(optional)</span>
+                {provider === 'extension' ? 'Bank Account Number' : 'External Account ID'}
+                {provider === 'extension'
+                  ? <span className="ml-1 text-red-400">*</span>
+                  : <span className="ml-1 text-xs text-[var(--ff-text-tertiary)]">(optional)</span>}
               </label>
               <input
                 type="text"
                 value={externalAccountId}
                 onChange={e => setExternalAccountId(e.target.value)}
-                placeholder={`Your ${PROVIDER_LABELS[provider]} account ID`}
+                placeholder={
+                  provider === 'extension'
+                    ? 'e.g. 4069625895'
+                    : `Your ${PROVIDER_LABELS[provider]} account ID`
+                }
                 className="ff-input w-full"
               />
+            </div>
+          )}
+
+          {provider === 'extension' && !extensionDetected && (
+            <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3">
+              <p className="text-sm text-blue-400">
+                Install the{' '}
+                <a href={CHROME_WEB_STORE_URL} target="_blank" rel="noreferrer" className="underline">
+                  IsaFlow Bank Connector
+                </a>
+                {' '}Chrome extension first. After install, return here and click <strong>Pair</strong>.
+              </p>
+            </div>
+          )}
+          {provider === 'extension' && extensionDetected && (
+            <div className="bg-teal-500/10 border border-teal-500/30 rounded-lg p-3">
+              <p className="text-sm text-teal-400">
+                Extension detected. Clicking <strong>Pair</strong> stores a 90-day token in the extension and creates a connection here. After pairing, log into your bank in another tab and use the extension popup to sync.
+              </p>
             </div>
           )}
 
@@ -144,11 +264,11 @@ export function AddConnectionModal({ bankAccounts, onClose, onCreated }: Props) 
           </button>
           <button
             onClick={() => void handleSubmit()}
-            disabled={saving}
+            disabled={saving || (provider === 'extension' && !extensionDetected)}
             className="flex items-center gap-2 px-5 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50"
           >
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-            Add Connection
+            {provider === 'extension' ? 'Pair Extension' : 'Add Connection'}
           </button>
         </div>
       </div>

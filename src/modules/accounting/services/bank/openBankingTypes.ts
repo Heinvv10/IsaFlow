@@ -1,7 +1,7 @@
 import type { DbRow } from '@/types/db';
 /** Open Banking — shared types */
 
-export type Provider = 'manual_csv' | 'basiq' | 'tink' | 'plaid';
+export type Provider = 'manual_csv' | 'basiq' | 'tink' | 'plaid' | 'extension';
 export type ConnectionStatus = 'active' | 'paused' | 'error';
 export type SyncStatus = 'running' | 'success' | 'failed';
 

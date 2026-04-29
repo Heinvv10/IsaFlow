@@ -34,6 +34,10 @@ export { withCsrf } from './withCsrf';
 // Module-permission gate
 export { withModulePermission } from './withModulePermission';
 
+// Bank-feed extension token gate
+export { withExtensionToken, type ExtensionAuthedRequest } from './withExtensionToken';
+export { signExtensionToken, verifyExtensionToken, type ExtensionTokenPayload } from './extensionJwt';
+
 // ── App Router ────────────────────────────────────────────────────────────────
 export { getUserFromRequest, requireAuth } from './app-router';
 

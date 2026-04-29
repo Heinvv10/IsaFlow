@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "ISAFlow Bank Connector",
+  "version": "0.1.0",
+  "description": "Imports bank transactions from your authenticated SA bank session into ISAFlow. Credentials never leave your browser.",
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": [
+    "https://app.isaflow.co.za/*",
+    "https://admin.isaflow.co.za/*",
+    "http://localhost:*/*",
+    "https://ib.absa.co.za/*"
+  ],
+  "background": { "service_worker": "service_worker.js" },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://app.isaflow.co.za/*",
+        "https://admin.isaflow.co.za/*",
+        "http://localhost:*/*"
+      ],
+      "js": ["content/isaflow-bridge.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://ib.absa.co.za/axob/*"],
+      "js": ["content/absa.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "ISAFlow Bank Connector"
+  },
+  "icons": { "128": "icon128.png" }
+}

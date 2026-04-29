@@ -1,0 +1,79 @@
+{
+  "header": {
+    "statuscode": "0",
+    "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+    "wfpt": "FIXTURE_WFPT",
+    "jsessionid": "FIXTURE_JSESSIONID",
+    "esessionid": "FIXTURE_ESESSIONID",
+    "xfpt": "FIXTURE_XFPT",
+    "service": "BalanceEnquiryFacade",
+    "operation": "GetAllBalances",
+    "channel": "I",
+    "timestamp": "2026-04-29 13:36:49.531",
+    "sourceip": "0.0.0.0",
+    "accessAccount": "0000000001",
+    "userNumber": "1",
+    "nonce": "FIXTURE_NONCE",
+    "language": "en",
+    "organization": "ABSA",
+    "brand": "ABSA",
+    "applicationId": null,
+    "applicationKeyId": null,
+    "requestToken": null,
+    "resultMessages": [],
+    "paginationContext": {
+      "moreToCome": false,
+      "batchSize": 200,
+      "batchSizeLimit": 9999,
+      "recordIdentity": "0",
+      "totalNoOfRecords": 2
+    },
+    "reasonCode": null
+  },
+  "accountList": [
+    {
+      "number": "0000000001",
+      "name": "Test Cheque",
+      "uncleared": "0.00",
+      "available": "1455.73",
+      "balance": "5446.28",
+      "secondaryCardIndicator": false,
+      "secondaryCardMandate": false,
+      "accountType": "Current",
+      "accountActionsAllowedList": ["DR", "CR", "BAL", "STMT", "ARCH_STMT", "ELEC_STMT"],
+      "advanceAmount": null,
+      "productCode": "11021",
+      "controlAccountIndicator": "",
+      "accountOperatorPermissions": {
+        "balancesAllowed": true,
+        "accountInformationAllowed": true,
+        "transactionInformationAllowed": true,
+        "archivedStatementsAllowed": true,
+        "interAccountTransferAllowed": true,
+        "beneficiaryPaymentsAllowed": true
+      }
+    },
+    {
+      "number": "0000000002",
+      "name": "Test Savings",
+      "uncleared": "0.00",
+      "available": "3015.65",
+      "balance": "7595.65",
+      "secondaryCardIndicator": false,
+      "secondaryCardMandate": false,
+      "accountType": "Savings",
+      "accountActionsAllowedList": ["DR", "CR", "BAL", "STMT"],
+      "advanceAmount": null,
+      "productCode": "11021",
+      "controlAccountIndicator": "",
+      "accountOperatorPermissions": {
+        "balancesAllowed": true,
+        "accountInformationAllowed": true,
+        "transactionInformationAllowed": true,
+        "archivedStatementsAllowed": true,
+        "interAccountTransferAllowed": true,
+        "beneficiaryPaymentsAllowed": true
+      }
+    }
+  ]
+}
