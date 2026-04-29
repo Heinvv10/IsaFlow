@@ -7,7 +7,7 @@
 import { test, expect } from '@playwright/test';
 import {
   BASE, DEMO_COMPANY_ID,
-  initBrowser, closeBrowser,
+  initBrowser, closeBrowser, closeDbPool,
   apiPost,
   dbQuery, dbRun, recordResult, saveResults,
 } from './mutating-actions-helpers';
@@ -19,9 +19,10 @@ test.beforeAll(async () => {
   await initBrowser();
 });
 
-test.afterAll(() => {
+test.afterAll(async () => {
   saveResults();
-  void closeBrowser();
+  await closeBrowser();
+  await closeDbPool();
 });
 
 // ─── Journal entry: create → post → reverse ──────────────────────────────────
@@ -80,7 +81,7 @@ test('journal entry: create → post → reverse', async () => {
   );
   expect(afterPost.status).toBe('posted');
 
-  // Reverse — creates a counter-entry
+  // Reverse — creates a counter-entry; response body contains the reversal JE id.
   const { status: revStatus, body: revBody } = await apiPost(
     `/api/accounting/journal-entries-action`,
     { id: je.id, action: 'reverse' },
@@ -88,15 +89,24 @@ test('journal entry: create → post → reverse', async () => {
   );
   expect(revStatus, `JE reverse: ${JSON.stringify(revBody)}`).toBe(200);
 
-  // Find all test JEs (original + reversal) and clean up
-  const allJes = await dbQuery<{ id: string; status: string }>(
-    `SELECT id, status FROM gl_journal_entries
-     WHERE (id = $1 OR (description LIKE 'Reversal of%' AND company_id = $2
-                        AND created_at > NOW() - INTERVAL '2 minutes'))`,
+  // Extract reversal id from the API response (reverseJournalEntry returns the new entry).
+  // Falls back to the reversal_of_id FK on gl_journal_entries as a second source of truth.
+  const reversalIdFromResponse = (revBody as { data?: { id?: string } }).data?.id ?? '';
+  const [reversalRow] = await dbQuery<{ id: string }>(
+    `SELECT id FROM gl_journal_entries WHERE reversal_of_id = $1 AND company_id = $2`,
     [je.id, DEMO_COMPANY_ID],
   );
+  const reversalId = reversalIdFromResponse || reversalRow?.id ?? '';
+  expect(reversalId, 'reversal JE id must be resolvable').toBeTruthy();
+
+  // Collect the two JEs (original + reversal) by exact ids — no time-window heuristics.
+  const allJes = await dbQuery<{ id: string; status: string }>(
+    `SELECT id, status FROM gl_journal_entries WHERE id = ANY($1::uuid[]) AND company_id = $2`,
+    [[je.id, reversalId], DEMO_COMPANY_ID],
+  );
   expect(allJes.length).toBeGreaterThanOrEqual(2);
-  expect(allJes.every((r) => r.status === 'posted')).toBe(true);
+  // Original is now 'reversed'; reversal is 'posted'. Both are terminal states.
+  expect(allJes.every((r) => r.status === 'posted' || r.status === 'reversed')).toBe(true);
 
   for (const { id } of allJes) {
     await dbRun(`DELETE FROM gl_journal_lines WHERE journal_entry_id = $1`, [id]);

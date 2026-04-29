@@ -24,7 +24,7 @@ export default defineConfig({
   projects: [
     {
       name: 'mutating-actions',
-      testMatch: /mutating-actions.*\.spec\.ts/,
+      testMatch: '**/mutating-actions*.spec.ts',
       use: {
         browserName: 'chromium',
         // No shared storageState — spec bootstraps its own session
