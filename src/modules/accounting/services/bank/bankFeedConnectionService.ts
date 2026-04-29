@@ -79,28 +79,20 @@ export async function listConnections(companyId?: string): Promise<BankFeedConne
   return rows.map(mapConnection);
 }
 
-// pentest F-03: companyId param added so callers can scope to their tenant.
-// When companyId is provided the JOIN to bank_accounts is used as an ownership
-// guard; when omitted (legacy internal use only) the query is unscoped.
-export async function getConnection(id: string, companyId?: string): Promise<BankFeedConnection | null> {
-  const rows = companyId
-    ? (await sql`
-        SELECT bfc.*, ba.account_name AS bank_account_name
-        FROM bank_feed_connections bfc
-        LEFT JOIN bank_accounts ba ON ba.id = bfc.bank_account_id
-        WHERE bfc.id = ${id}::UUID
-          AND ba.company_id = ${companyId}::UUID
-      `) as DbRow[]
-    : (await sql`
-        SELECT bfc.*, ba.account_name AS bank_account_name
-        FROM bank_feed_connections bfc
-        LEFT JOIN bank_accounts ba ON ba.id = bfc.bank_account_id
-        WHERE bfc.id = ${id}::UUID
-      `) as DbRow[];
+// pentest F-03: companyId is required so connection lookups are always tenant-scoped.
+export async function getConnection(id: string, companyId: string): Promise<BankFeedConnection | null> {
+  const rows = (await sql`
+    SELECT bfc.*, ba.account_name AS bank_account_name
+    FROM bank_feed_connections bfc
+    LEFT JOIN bank_accounts ba ON ba.id = bfc.bank_account_id
+    WHERE bfc.id = ${id}::UUID
+      AND ba.company_id = ${companyId}::UUID
+  `) as DbRow[];
   return rows[0] ? mapConnection(rows[0]) : null;
 }
 
 export async function createConnection(input: {
+  companyId: string;
   bankAccountId: string;
   externalAccountId: string;
   bankName?: string;
@@ -115,18 +107,25 @@ export async function createConnection(input: {
   const expiresAt = new Date(Date.now() + input.expiresIn * 1000).toISOString();
   const rows = (await sql`
     INSERT INTO bank_feed_connections (
-      bank_account_id, provider, external_account_id, bank_name,
+      company_id, bank_account_id, provider, external_account_id, bank_name,
       account_number_masked, branch_code, account_type,
       access_token, refresh_token, token_expires_at, sync_status, created_by
-    ) VALUES (
-      ${input.bankAccountId}::UUID, 'stitch', ${input.externalAccountId},
+    )
+    SELECT
+      ${input.companyId}::UUID, ba.id, 'stitch', ${input.externalAccountId},
       ${input.bankName || null}, ${input.accountNumberMasked || null},
       ${input.branchCode || null}, ${input.accountType || null},
       ${encryptToken(input.accessToken)}, ${encryptToken(input.refreshToken)}, ${expiresAt}::TIMESTAMPTZ,
       'pending', ${input.createdBy}::UUID
-    ) RETURNING *
+    FROM bank_accounts ba
+    WHERE ba.id = ${input.bankAccountId}::UUID
+      AND ba.company_id = ${input.companyId}::UUID
+    RETURNING *
   `) as DbRow[];
-  log.info('Bank feed connection created', { id: rows[0]!.id, bankName: input.bankName }, 'bank-feeds');
+  if (rows.length === 0) {
+    throw new Error('Bank account not found or does not belong to this company');
+  }
+  log.info('Bank feed connection created', { id: rows[0]!.id, bankName: input.bankName, companyId: input.companyId }, 'bank-feeds');
   return mapConnection(rows[0]!);
 }
 
