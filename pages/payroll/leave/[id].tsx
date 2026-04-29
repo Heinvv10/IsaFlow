@@ -68,7 +68,7 @@ export default function LeaveDetailPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [id]);
+  }, [id, router]);
 
   useEffect(() => { load(); }, [load]);
 

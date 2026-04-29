@@ -5,8 +5,9 @@ import { toISODate } from '@/lib/dateUtils';
  * GET /api/accounting/reports-budget-vs-actual?period=current|ytd|full_year
  * Sage equivalent: Reports > Budget vs Actual
  *
- * Reads budgets from gl_accounts.budget_amount column (if exists)
- * or from app_settings key 'accounting_budgets'.
+ * Primary source: accounting_budgets table (period_amounts JSONB per fiscal year).
+ * Fallback: app_settings key 'accounting_budgets', used only when no budget rows exist
+ * for the current fiscal year. Both sources are filtered by company_id.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -70,13 +71,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       let total = 0;
       const pa: Record<string, unknown> = row.period_amounts ?? {};
       for (let m = startMonth; m <= endMonth; m++) {
-        // Accept both 0-based numeric keys and lowercase month name keys
-        const byIdx = Number(pa[String(m)] ?? pa[m] ?? 0);
+        // Accept both 0-based numeric keys ("0".."11") and lowercase month name keys
+        const byIdx = Number(pa[String(m)] ?? 0);
         const byName = Number(pa[monthKeys[m] ?? ''] ?? 0);
         total += byIdx || byName;
       }
-      // If period_amounts is empty/missing, spread annual_amount evenly across months
-      if (total === 0 && row.annual_amount) {
+      // Spread annual_amount only when period_amounts is genuinely missing/empty.
+      // Gate on key count (not total === 0) so legitimate zero-budget months are preserved.
+      if (Object.keys(pa).length === 0 && row.annual_amount) {
         const monthsInPeriod = endMonth - startMonth + 1;
         total = Number(row.annual_amount) * (monthsInPeriod / 12);
       }
