@@ -7,7 +7,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import {
   exchangeCode, fetchStitchAccounts, createConnection,
 } from '@/modules/accounting/services/bank/bankFeedService';
@@ -60,7 +60,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'OAuth state mismatch — possible CSRF attack');
   }
 
-  const userId = (req as AuthenticatedNextApiRequest).user.id;
+  const { user, companyId } = req as CompanyAuthedRequest;
 
   // Exchange code for tokens
   const tokens = await exchangeCode(String(code), storedState.codeVerifier);
@@ -86,6 +86,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Direct link — create connection immediately
     const account = accounts[0]!;
     await createConnection({
+      companyId,
       bankAccountId,
       externalAccountId: account.id,
       bankName: account.bankId,
@@ -95,7 +96,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
       expiresIn: tokens.expiresIn,
-      createdBy: userId,
+      createdBy: user.id,
     });
     return res.redirect('/accounting/bank-accounts?feed_connected=true');
   }
