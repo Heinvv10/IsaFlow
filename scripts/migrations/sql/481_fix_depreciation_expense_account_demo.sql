@@ -22,9 +22,10 @@
 
 DO $$
 DECLARE
-  v_company_id   UUID := '00000000-0000-0000-0000-000000000001';
-  v_user_id      UUID;
-  v_acct_5820_id UUID;
+  v_company_id    UUID := '00000000-0000-0000-0000-000000000001';
+  v_user_id       UUID;
+  v_acct_5820_id  UUID;
+  v_parent_5000   UUID;
 BEGIN
   -- Get admin user
   SELECT id INTO v_user_id FROM users
@@ -32,6 +33,15 @@ BEGIN
     LIMIT 1;
   IF v_user_id IS NULL THEN
     v_user_id := '31f472f1-eb80-49a4-bb5e-58ece44a4fa3';
+  END IF;
+
+  -- Resolve parent account 5000 (Expenses root) for CoA hierarchy
+  SELECT id INTO v_parent_5000
+    FROM gl_accounts
+    WHERE company_id = v_company_id AND account_code = '5000';
+
+  IF v_parent_5000 IS NULL THEN
+    RAISE EXCEPTION 'Migration 481: parent account 5000 not found for demo company — cannot insert orphan account 5820';
   END IF;
 
   -- Step 1: Clear wrong subtype from 5800 (Insurance Expense)
@@ -58,26 +68,32 @@ BEGIN
     INSERT INTO gl_accounts (
       id, company_id,
       account_code, account_name, account_type, account_subtype,
-      normal_balance, level, is_active, is_system_account,
+      normal_balance, level, display_order, is_active, is_system_account,
+      parent_account_id,
       created_at, updated_at
     ) VALUES (
       gen_random_uuid(), v_company_id,
       '5820', 'Depreciation Expense', 'expense', 'depreciation_expense',
-      'debit', 1, true, true,
+      'debit', 3, 582, true, true,
+      v_parent_5000,
       now(), now()
     ) RETURNING id INTO v_acct_5820_id;
 
     RAISE NOTICE 'Created: 5820 Depreciation Expense (id=%).', v_acct_5820_id;
   ELSE
-    -- Ensure existing 5820 has the correct subtype if it exists
+    -- Ensure existing 5820 has the correct subtype, level, and parent if it exists
     UPDATE gl_accounts
        SET account_subtype   = 'depreciation_expense',
            is_system_account = true,
+           level             = 3,
+           parent_account_id = v_parent_5000,
            updated_at        = now()
      WHERE company_id = v_company_id
        AND account_code = '5820'
        AND (account_subtype IS DISTINCT FROM 'depreciation_expense'
-            OR is_system_account IS DISTINCT FROM true);
+            OR is_system_account IS DISTINCT FROM true
+            OR level IS DISTINCT FROM 3
+            OR parent_account_id IS DISTINCT FROM v_parent_5000);
 
     RAISE NOTICE 'Skip: 5820 already exists.';
   END IF;
