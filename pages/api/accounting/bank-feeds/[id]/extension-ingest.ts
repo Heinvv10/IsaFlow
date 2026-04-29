@@ -55,7 +55,10 @@ const IngestSchema = z.object({
   toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   transactions: z.array(TransactionSchema).max(2000),
   applyBankRules: z.boolean().optional(),
-}).strict();
+}).strict().refine(d => d.fromDate <= d.toDate, {
+  message: 'fromDate must be ≤ toDate',
+  path: ['fromDate'],
+});
 
 const DEFAULT_DAILY_TX_CAP = 500;
 
@@ -119,14 +122,20 @@ async function handler(req: ExtensionAuthedRequest, res: NextApiResponse) {
     }));
 
     // 2. Dedup against the DB for the [fromDate, toDate] window.
+    //
+    // Hash strategy: use (date, amount, description) only — no balance, no
+    // bank_reference. Rationale:
+    //   - bank_transactions has no balance column, so we can't compare it.
+    //   - ABSA doesn't expose a stable per-transaction external ID on its
+    //     internal RPC. descriptionLine2 is a narrative field, not a UUID.
+    //   - Using (date, amount, description) is the same collision model the
+    //     CSV/OFX file-import pipeline has used in production since day one.
+    //
+    // If ABSA ever adds a stable transactionId field, add it to
+    // absaLineToParsed as `bankReference` and use it for primary dedup here.
     let dedupedTxs = rawTxs;
     let duplicateCount = 0;
     if (rawTxs.length > 0) {
-      // Match the bulk-commit pipeline: bank_transactions has no balance
-      // column on disk, so dedup by (date, amount, description) only.
-      // Two same-day same-amount same-description rows will collapse;
-      // that's the same behaviour the file-import path has accepted in
-      // production for over a year.
       const existing = (await sql`
         SELECT transaction_date::text AS transaction_date,
                amount,

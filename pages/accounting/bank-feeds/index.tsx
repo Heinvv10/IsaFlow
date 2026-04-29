@@ -39,7 +39,15 @@ export default function BankFeedsPage() {
       const res = await apiFetch('/api/accounting/bank-accounts');
       const json = await res.json();
       if (res.ok) {
-        setBankAccounts((json.data?.items ?? []).map((a: Record<string, unknown>) => ({
+        // The bank-accounts endpoint returns the rows directly under `data`
+        // as an array, not under `data.items`. Tolerate both shapes so this
+        // doesn't regress when the API is normalised.
+        const items = Array.isArray(json.data)
+          ? json.data
+          : Array.isArray(json.data?.items)
+            ? json.data.items
+            : [];
+        setBankAccounts(items.map((a: Record<string, unknown>) => ({
           id: String(a.id),
           accountName: String(a.accountName ?? a.account_name ?? ''),
         })));
@@ -52,17 +60,58 @@ export default function BankFeedsPage() {
     void Promise.all([fetchConnections(), fetchBankAccounts()]).finally(() => setLoading(false));
   }, [fetchConnections, fetchBankAccounts]);
 
-  const handleSync = async (connectionId: string) => {
+  const syncViaExtension = (
+    connectionId: string,
+    range: { fromDate: string; toDate: string },
+  ): Promise<{ found: number; imported: number; duplicate: number }> => {
+    return new Promise((resolve, reject) => {
+      const requestId = `sync-${connectionId}-${Date.now()}`;
+      let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+      const cleanup = () => {
+        window.removeEventListener('message', onMsg);
+        if (timeoutHandle !== null) clearTimeout(timeoutHandle);
+      };
+      const onMsg = (ev: MessageEvent) => {
+        const d = ev.data as { source?: string; type?: string; requestId?: string; ok?: boolean; error?: string; value?: unknown } | null;
+        if (d?.source !== 'isaflow-bank-extension') return;
+        if (d.type !== 'isaflow-bank-ext-sync-reply' || d.requestId !== requestId) return;
+        cleanup();
+        if (!d.ok) return reject(new Error(d.error || 'Extension sync failed'));
+        resolve(d.value as { found: number; imported: number; duplicate: number });
+      };
+      window.addEventListener('message', onMsg);
+      window.postMessage({
+        source: 'isaflow-bank-page',
+        type: 'isaflow-bank-ext-sync',
+        requestId,
+        connectionId,
+        opts: { fromDate: range.fromDate, toDate: range.toDate },
+      }, window.location.origin);
+      // Safety timeout — extension should reply within 60s for typical 180-day fetches.
+      timeoutHandle = setTimeout(() => {
+        cleanup();
+        reject(new Error('Extension did not reply (timed out). Is it installed and the bank tab open?'));
+      }, 60_000);
+    });
+  };
+
+  const handleSync = async (
+    connectionId: string,
+    range?: { fromDate: string; toDate: string },
+  ) => {
     setSyncing(connectionId);
     try {
-      const res = await apiFetch(`/api/accounting/bank-feeds/${connectionId}/sync`, { method: 'POST' });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error?.message || 'Sync failed');
-      const r = json.data as { imported?: number; duplicate?: number; instructions?: string };
-      if (r.instructions) {
-        notify.info(r.instructions);
+      const conn = connections.find(c => c.id === connectionId);
+      if (conn?.provider === 'extension' && range) {
+        const r = await syncViaExtension(connectionId, range);
+        notify.success(`Sync done: ${r.imported} imported, ${r.duplicate} duplicates`);
       } else {
-        notify.success(`Sync done: ${r.imported ?? 0} imported, ${r.duplicate ?? 0} duplicates`);
+        const res = await apiFetch(`/api/accounting/bank-feeds/${connectionId}/sync`, { method: 'POST' });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json?.error?.message || 'Sync failed');
+        const r = json.data as { imported?: number; duplicate?: number; instructions?: string };
+        if (r.instructions) notify.info(r.instructions);
+        else notify.success(`Sync done: ${r.imported ?? 0} imported, ${r.duplicate ?? 0} duplicates`);
       }
       await fetchConnections();
       if (expandedLogs === connectionId) await loadSyncLogs(connectionId);
@@ -162,7 +211,7 @@ export default function BankFeedsPage() {
                 logsLoading={logsLoading === conn.id}
                 isSyncing={syncing === conn.id}
                 isDeleting={deleting === conn.id}
-                onSync={() => void handleSync(conn.id)}
+                onSync={(range) => void handleSync(conn.id, range)}
                 onDelete={() => void handleDelete(conn.id)}
                 onToggleLogs={() => void toggleLogs(conn.id)}
               />

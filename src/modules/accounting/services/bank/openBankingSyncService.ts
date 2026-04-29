@@ -166,6 +166,18 @@ export async function syncBankFeed(
     };
   }
 
+  // extension: must be synced from the browser extension itself; this
+  // server-only endpoint cannot reach the user's authenticated bank tab.
+  // Refuse here so the legacy stub generator below never runs for an
+  // extension-provider connection (it produced misleading fake transactions).
+  if (provider === 'extension') {
+    await markSyncComplete(logId, connectionId, 0, 0, 0);
+    return {
+      connectionId, provider, logId, found: 0, imported: 0, duplicate: 0,
+      instructions: 'Browser-extension feeds sync directly from your bank tab. Click Sync on the Bank Feeds page (or open the extension popup) — that triggers the real scrape via /extension-ingest.',
+    };
+  }
+
   const bankAccountId = conn.bank_account_id != null ? String(conn.bank_account_id) : null;
   if (!bankAccountId) {
     const errMsg = 'Connection has no linked bank account — cannot import transactions';
