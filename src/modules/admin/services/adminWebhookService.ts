@@ -107,6 +107,9 @@ export async function listAdminWebhooks(params: ListWebhooksParams): Promise<Lis
   const companyFilter = params.companyId ?? null;
   const showActive = params.status === 'active' ? true : params.status === 'disabled' ? false : null;
 
+  // ::TEXT / ::BOOLEAN casts on every interpolation so PG can resolve the parameter
+  // type when the value is NULL — without them the planner raises 42P18
+  // (indeterminate_datatype) before execution.
   const rows = (await sql`
     SELECT
       we.*,
@@ -124,12 +127,12 @@ export async function listAdminWebhooks(params: ListWebhooksParams): Promise<Lis
     FROM webhook_endpoints we
     JOIN companies c ON c.id = we.company_id
     WHERE (
-      ${searchFilter} IS NULL
-      OR LOWER(we.url) LIKE ${searchFilter}
-      OR LOWER(c.name) LIKE ${searchFilter}
+      ${searchFilter}::TEXT IS NULL
+      OR LOWER(we.url) LIKE ${searchFilter}::TEXT
+      OR LOWER(c.name) LIKE ${searchFilter}::TEXT
     )
     AND (${companyFilter}::UUID IS NULL OR we.company_id = ${companyFilter}::UUID)
-    AND (${showActive} IS NULL OR we.is_active = ${showActive})
+    AND (${showActive}::BOOLEAN IS NULL OR we.is_active = ${showActive}::BOOLEAN)
     ORDER BY we.created_at DESC
     LIMIT ${limit} OFFSET ${offset}
   `) as Row[];
@@ -139,12 +142,12 @@ export async function listAdminWebhooks(params: ListWebhooksParams): Promise<Lis
     FROM webhook_endpoints we
     JOIN companies c ON c.id = we.company_id
     WHERE (
-      ${searchFilter} IS NULL
-      OR LOWER(we.url) LIKE ${searchFilter}
-      OR LOWER(c.name) LIKE ${searchFilter}
+      ${searchFilter}::TEXT IS NULL
+      OR LOWER(we.url) LIKE ${searchFilter}::TEXT
+      OR LOWER(c.name) LIKE ${searchFilter}::TEXT
     )
     AND (${companyFilter}::UUID IS NULL OR we.company_id = ${companyFilter}::UUID)
-    AND (${showActive} IS NULL OR we.is_active = ${showActive})
+    AND (${showActive}::BOOLEAN IS NULL OR we.is_active = ${showActive}::BOOLEAN)
   `) as Row[];
 
   const total = Number(countRows[0]?.total ?? 0);

@@ -19,10 +19,10 @@ export function AvatarDemo() {
   return (
     <div className="space-y-4">
       <Row label="With image">
-        <Avatar src="https://i.pravatar.cc/150?img=1" name="Alice Smith" size="sm" />
-        <Avatar src="https://i.pravatar.cc/150?img=2" name="Bob Jones" size="md" />
-        <Avatar src="https://i.pravatar.cc/150?img=3" name="Carol White" size="lg" />
-        <Avatar src="https://i.pravatar.cc/150?img=4" name="David Brown" size="xl" />
+        <Avatar src="https://www.gravatar.com/avatar/1?d=identicon&s=150" name="Alice Smith" size="sm" />
+        <Avatar src="https://www.gravatar.com/avatar/2?d=identicon&s=150" name="Bob Jones" size="md" />
+        <Avatar src="https://www.gravatar.com/avatar/3?d=identicon&s=150" name="Carol White" size="lg" />
+        <Avatar src="https://www.gravatar.com/avatar/4?d=identicon&s=150" name="David Brown" size="xl" />
       </Row>
 
       <Row label="Initials fallback (no image) — color hashed from name">
@@ -43,7 +43,7 @@ export function AvatarDemo() {
         <Avatar name="Online User" status="online" />
         <Avatar name="Offline User" status="offline" />
         <Avatar name="Busy User" status="busy" />
-        <Avatar src="https://i.pravatar.cc/150?img=5" name="With Image" status="online" size="lg" />
+        <Avatar src="https://www.gravatar.com/avatar/5?d=identicon&s=150" name="With Image" status="online" size="lg" />
       </Row>
     </div>
   );

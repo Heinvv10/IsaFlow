@@ -64,10 +64,10 @@ export function AnnouncementModal({ initial, onClose, onSave, saving }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div role="dialog" aria-modal="true" aria-labelledby="announcement-modal-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-lg mx-4 p-6 space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+          <h2 id="announcement-modal-title" className="text-lg font-semibold text-gray-900 dark:text-white">
             {initial.title ? 'Edit Announcement' : 'New Announcement'}
           </h2>
           <button onClick={onClose} className="text-gray-600 dark:text-gray-400 hover:text-gray-600">
