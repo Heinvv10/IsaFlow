@@ -1,0 +1,89 @@
+-- Migration 480: Sub-ledger GL reconciliation — ISAFlow Demo (Pty) Ltd
+-- 2026-04-29 | sub-ledger-audit-2026-04-29 branch
+--
+-- DIAGNOSTIC + DOCUMENTATION migration (no data changes in DEV).
+--
+-- == DEV Environment Findings ==
+-- The ISAFlow Demo dev data was seeded with payroll/depreciation journal entries
+-- but WITHOUT corresponding sub-ledger GL postings. All 5 control account
+-- reconciliations fail in DEV because the demo data was intentionally generated
+-- with the sub-ledger (customer invoices, supplier invoices, assets, loans) and
+-- the GL as independent data sets. No correction journals are required in DEV —
+-- the data is as designed.
+--
+-- Variances in DEV (documented, NOT corrected here):
+--   AR  (1120): sub-ledger R10 663 655.43 vs GL R0 — DEMO DESIGN (no AR JEs)
+--   AP  (2110): sub-ledger R3 053 660.84 vs GL R3 666 405.15 — DEMO DESIGN
+--               GL 2110 contains salary accruals, not supplier invoice postings
+--   Loans 2210: loan_gl_postings.journal_entry_id is NULL (postings not linked to JEs)
+--   Equip 1210: FAR R245 000 vs GL R0 — DEMO DESIGN (no acquisition JEs)
+--   Veh  1220: FAR R450 000 vs GL R0 — DEMO DESIGN (no acquisition JEs)
+--   AccD 1230: FAR R194 270.85 vs GL R229 724.99 — extra depreciation in GL
+--              (GL has 37 months of depreciation, FAR covers partial period)
+--   Bank 1110: no bank_accounts rows; GL 1110 = -R2 941 493.92 (payroll disbursements)
+--
+-- == PRODUCTION Environment: R694.64 BS Imbalance ==
+-- Phase 8 (2026-04-29) reported BSI = R694.64 for ISAFlow Demo on app.isaflow.co.za.
+-- The DEV trial balance is perfectly balanced (DR=CR=R8 650 496.72).
+-- The production imbalance CANNOT be diagnosed from the DEV database.
+--
+-- DIAGNOSIS QUERY — run on production DB to find the source:
+--
+--   -- 1. Check if any journal entries are unbalanced:
+--   SELECT entry_number, entry_date, description,
+--          SUM(debit) AS dr, SUM(credit) AS cr,
+--          ABS(SUM(debit) - SUM(credit)) AS imbalance
+--   FROM gl_journal_entries je
+--   JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id
+--   WHERE je.company_id = '00000000-0000-0000-0000-000000000001'
+--     AND je.status = 'posted'
+--   GROUP BY je.id, entry_number, entry_date, description
+--   HAVING ABS(SUM(debit) - SUM(credit)) > 0.01
+--   ORDER BY imbalance DESC LIMIT 20;
+--
+--   -- 2. Check for accounts with non-standard account_type (excluded from BS):
+--   SELECT account_code, account_name, account_type, account_subtype
+--   FROM gl_accounts
+--   WHERE company_id = '00000000-0000-0000-0000-000000000001'
+--     AND account_type NOT IN ('asset','liability','equity','revenue','expense');
+--
+--   -- 3. Check for GL entries on parent accounts excluded by the level filter:
+--   SELECT ga.account_code, ga.level, ga.account_type,
+--          SUM(jl.debit) - SUM(jl.credit) AS net_dr
+--   FROM gl_accounts ga
+--   JOIN gl_journal_lines jl ON jl.gl_account_id = ga.id
+--     AND jl.company_id = ga.company_id
+--   JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+--     AND je.company_id = ga.company_id AND je.status = 'posted'
+--   WHERE ga.company_id = '00000000-0000-0000-0000-000000000001'
+--     AND ga.level < 3
+--     AND EXISTS (
+--       SELECT 1 FROM gl_accounts ch
+--       WHERE ch.parent_account_id = ga.id
+--         AND ch.company_id = ga.company_id
+--     )
+--   GROUP BY ga.account_code, ga.level, ga.account_type
+--   HAVING ABS(SUM(jl.debit) - SUM(jl.credit)) > 0.01;
+--
+-- If query 1 returns rows: write a correction journal to balance each entry.
+-- If query 2 returns rows: reclassify the account.
+-- If query 3 returns rows: the balance sheet excludes entries on parent accounts;
+--   either reclassify entries to leaf accounts, or remove the level filter for
+--   accounts with no leaf descendants that have balances.
+--
+-- PRODUCTION APPLICATION: Requires Hein's explicit approval.
+-- Apply diagnostic queries first; once root cause is identified, write a separate
+-- migration 481 with the targeted correction.
+--
+-- == System account misconfiguration found ==
+-- In DEV, account 5800 (Insurance Expense) has account_subtype = 'depreciation_expense'
+-- AND is_system_account = true. This is incorrect — depreciation entries post to 5800
+-- instead of a dedicated Depreciation Expense account. This causes:
+--   a) Insurance Expense balance to include depreciation charges (R229 724.99)
+--   b) The `getSystemAccount('depreciation_expense')` resolver returns the wrong account
+-- Correction for this misclassification (in both DEV and PROD) is in migration 481.
+
+DO $$
+BEGIN
+  RAISE NOTICE 'Migration 480: ISAFlow Demo sub-ledger reconciliation documentation recorded. No data changes in DEV. See production diagnostic queries in migration header comments.';
+END $$;
