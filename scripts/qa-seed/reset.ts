@@ -58,6 +58,8 @@ export async function resetQaRecords(sql: TaggedSql, companyId: string): Promise
     await tx`DELETE FROM practice_job_categories      WHERE company_id = ${companyId}::uuid`;
     await tx`DELETE FROM practice_staff_rates         WHERE company_id = ${companyId}::uuid`;
     await tx`DELETE FROM bank_transactions            WHERE company_id = ${companyId}::uuid`;
+    await tx`DELETE FROM bank_feed_sync_logs          WHERE company_id = ${companyId}::uuid`;
+    await tx`DELETE FROM bank_feed_connections        WHERE company_id = ${companyId}::uuid`;
     await tx`DELETE FROM bank_accounts                WHERE company_id = ${companyId}::uuid`;
     await tx`DELETE FROM customers                    WHERE company_id = ${companyId}::uuid`;
     await tx`DELETE FROM suppliers                    WHERE company_id = ${companyId}::uuid`;
