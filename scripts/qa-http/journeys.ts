@@ -65,19 +65,24 @@ export async function journeyPracticeUsers(client: HttpClient, fc: HttpFindings)
 export async function journeyPaymentValidation(client: HttpClient, fc: HttpFindings): Promise<void> {
   console.log('\n[J3] customer payment creation — what does "Validation failed" actually say?');
 
-  const invRes = await client.request('GET', '/api/accounting/customer-invoices?status=approved');
+  const invoiceListUrl = '/api/accounting/customer-invoices-list?status=approved&limit=100';
+  const invRes = await client.request('GET', invoiceListUrl);
   const invBody = invRes.body as {
     success: boolean;
     data?: { invoices?: Array<{ id: string; invoice_number: string; balance: number; client_id?: string; customer_id?: string }> }
           | Array<{ id: string; invoice_number: string; balance: number; client_id?: string; customer_id?: string }>;
   };
   const invList = Array.isArray(invBody?.data) ? invBody.data : (invBody?.data?.invoices ?? []);
-  const target = invList.find((i) => Number(i.balance) > 0);
+  const balanceOf = (invoice: { balance?: number; total_amount?: number; amount_paid?: number }) => {
+    if (invoice.balance != null) return Number(invoice.balance);
+    return Number(invoice.total_amount ?? 0) - Number(invoice.amount_paid ?? 0);
+  };
+  const target = invList.find((i) => balanceOf(i) > 0);
 
   if (!target) {
     fc.record({
       journey: 'payment', step: 'find_approved_unpaid_invoice',
-      request: { method: 'GET', url: '/api/accounting/customer-invoices?status=approved' },
+      request: { method: 'GET', url: invoiceListUrl },
       response: { status: invRes.status, body: { count: invList.length, raw_shape: typeof invBody?.data } },
       expected: '>=1 approved invoice with balance>0',
       actual: 'NONE — cannot exercise payment flow',
@@ -88,21 +93,22 @@ export async function journeyPaymentValidation(client: HttpClient, fc: HttpFindi
 
   fc.record({
     journey: 'payment', step: 'find_approved_unpaid_invoice',
-    request: { method: 'GET', url: '/api/accounting/customer-invoices?status=approved' },
-    response: { status: invRes.status, body: { picked: target.invoice_number, balance: target.balance } },
+    request: { method: 'GET', url: invoiceListUrl },
+    response: { status: invRes.status, body: { picked: target.invoice_number, balance: balanceOf(target) } },
     expected: 'invoice present',
-    actual: `picked ${target.invoice_number} balance R${target.balance}`,
+    actual: `picked ${target.invoice_number} balance R${balanceOf(target)}`,
     verdict: 'PASS',
   });
 
   const clientId = target.client_id ?? target.customer_id;
   const todayIso = new Date().toISOString().slice(0, 10);
+  const balance = balanceOf(target);
 
   const probe1Body = {
-    client_id: clientId,
-    payment_date: todayIso,
-    total_amount: target.balance,
-    allocations: [{ invoice_id: target.id, amount_allocated: target.balance }],
+    clientId,
+    paymentDate: todayIso,
+    totalAmount: balance,
+    allocations: [{ invoiceId: target.id, amount: balance }],
   };
   const probe1 = await client.request('POST', '/api/accounting/customer-payments', probe1Body);
   // Verdict: PASS if 201 (no validation gap), FAIL if 4xx/5xx (audit's UX gap reproduces).
@@ -123,7 +129,7 @@ export async function journeyPaymentValidation(client: HttpClient, fc: HttpFindi
     const banks = await client.request('GET', '/api/accounting/bank-accounts');
     const bankList = (banks.body as { data?: Array<{ id: string }> })?.data ?? [];
     if (bankList.length > 0) {
-      const probe2Body = { ...probe1Body, bank_account_id: bankList[0]!.id, payment_method: 'eft' };
+      const probe2Body = { ...probe1Body, bankAccountId: bankList[0]!.id, paymentMethod: 'eft' };
       const probe2 = await client.request('POST', '/api/accounting/customer-payments', probe2Body);
       fc.record({
         journey: 'payment', step: 'POST_with_bank_account_id_and_method',
