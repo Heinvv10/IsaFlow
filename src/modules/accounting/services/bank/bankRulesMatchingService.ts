@@ -142,6 +142,11 @@ export async function applyRules(
         'accounting',
       );
     }
+    // Count of auto-post attempts that failed because the transaction date
+    // falls in a closed/locked fiscal period. We swallow the error per-tx so
+    // one bad date doesn't abort the whole apply, then surface the total
+    // count in the result so the UI can warn the user.
+    let autoPostSkippedClosedPeriod = 0;
     for (const rule of (bankGlAccountId ? autoCreateRules : [])) {
       const pattern = toSqlPattern(String(rule.match_type), String(rule.match_pattern));
       const field = String(rule.match_field);
@@ -225,15 +230,28 @@ export async function applyRules(
           entryDesc, companyId,
         });
 
-        const je = await createJournalEntry(companyId, {
-          entryDate: tx.transaction_date instanceof Date
-            ? tx.transaction_date.toISOString().split('T')[0]!
-            : String(tx.transaction_date).split('T')[0]!,
-          description: entryDesc,
-          source,
-          lines,
-        }, userId);
-        await postJournalEntry(companyId, je.id, userId);
+        let je: Awaited<ReturnType<typeof createJournalEntry>>;
+        try {
+          je = await createJournalEntry(companyId, {
+            entryDate: tx.transaction_date instanceof Date
+              ? tx.transaction_date.toISOString().split('T')[0]!
+              : String(tx.transaction_date).split('T')[0]!,
+            description: entryDesc,
+            source,
+            lines,
+          }, userId);
+          await postJournalEntry(companyId, je.id, userId);
+        } catch (err) {
+          // Closed/locked fiscal period is the expected failure for historical
+          // transactions; count it and move on instead of aborting the whole
+          // apply. Anything else re-throws.
+          const msg = err instanceof Error ? err.message : String(err);
+          if (/closed fiscal period|locked fiscal period|no fiscal period/i.test(msg)) {
+            autoPostSkippedClosedPeriod++;
+            continue;
+          }
+          throw err;
+        }
 
         const bankLineRows = (await sql`
           SELECT jl.id FROM gl_journal_lines jl
@@ -277,10 +295,22 @@ export async function applyRules(
 
     log.info(
       'Applied bank rules',
-      { bankAccountId, applied: totalApplied, skipped, autoPostRulesSkippedNoBankGl },
+      {
+        bankAccountId,
+        applied: totalApplied,
+        skipped,
+        autoPostRulesSkippedNoBankGl,
+        autoPostSkippedClosedPeriod,
+      },
       'accounting',
     );
-    return { applied: totalApplied, skipped, entries, autoPostRulesSkippedNoBankGl };
+    return {
+      applied: totalApplied,
+      skipped,
+      entries,
+      autoPostRulesSkippedNoBankGl,
+      autoPostSkippedClosedPeriod,
+    };
   } catch (err) {
     log.error('Failed to apply bank rules', { error: err }, 'accounting');
     throw err;

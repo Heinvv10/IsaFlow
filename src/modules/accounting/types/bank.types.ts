@@ -192,4 +192,10 @@ export interface RuleApplyResult {
    * single most common cause of "rules aren't working" support reports.
    */
   autoPostRulesSkippedNoBankGl?: number;
+  /**
+   * Number of auto-post attempts that failed because the transaction date
+   * falls in a closed/locked fiscal period. We swallow per-tx and count so
+   * one historical date doesn't abort the whole apply.
+   */
+  autoPostSkippedClosedPeriod?: number;
 }
