@@ -41,7 +41,8 @@ export async function postJournalEntry(companyId: string, id: string, userId: st
 
     if (entry.fiscalPeriodId) {
       const period = (await sql`
-        SELECT status FROM fiscal_periods WHERE id = ${entry.fiscalPeriodId}
+        SELECT status FROM fiscal_periods
+        WHERE id = ${entry.fiscalPeriodId} AND company_id = ${companyId}::UUID
       `) as Row[];
       if (period.length > 0 && String(period[0]!.status) !== 'open') {
         throw new ClosedFiscalPeriodError(String(period[0]!.status));

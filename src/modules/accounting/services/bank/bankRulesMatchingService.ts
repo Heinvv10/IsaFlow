@@ -260,7 +260,7 @@ export async function applyRules(
           // The pre-flight above should have caught closed periods, but the
           // fiscal-period state can flip between the pre-flight and the post
           // (rare race; admin closing a period mid-apply). On that path we
-          // soft-delete the draft we just inserted instead of leaving it
+          // hard-delete the draft we just inserted instead of leaving it
           // dangling, then count and continue. Anything else re-throws.
           if (err instanceof ClosedFiscalPeriodError) {
             await sql`
