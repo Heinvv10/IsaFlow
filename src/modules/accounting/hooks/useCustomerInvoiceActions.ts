@@ -20,7 +20,7 @@ interface Options {
   linkCopied: boolean;
   onOpenEmailModal: () => void;
   onCopyPortalLink: () => void;
-  onEnablePayment: () => void;
+  onPayNow: () => void;
   onCopyPaymentLink: () => void;
   onAction: (action: string) => void;
   onShowCancelConfirm: () => void;
@@ -39,7 +39,7 @@ export function useCustomerInvoiceActions(opts: Options | null): {
   const {
     invoiceId, invoice, actionLoading, paymentLoading,
     portalLinkLoading, portalLinkCopied, linkCopied,
-    onOpenEmailModal, onCopyPortalLink, onEnablePayment,
+    onOpenEmailModal, onCopyPortalLink, onPayNow,
     onCopyPaymentLink, onAction, onShowCancelConfirm,
   } = opts;
 
@@ -51,7 +51,7 @@ export function useCustomerInvoiceActions(opts: Options | null): {
   const recordPaymentClientId = invoice.client_id ?? invoice.customer_id ?? '';
   const canShowPortalLink = !['draft', 'cancelled'].includes(invoice.status);
   const showPaymentButton = invoice.online_payment_enabled && !!invoice.payment_url;
-  const showEnablePayment = !invoice.online_payment_enabled && !['paid', 'cancelled', 'draft'].includes(invoice.status);
+  const showPayNow = !['paid', 'cancelled', 'draft'].includes(invoice.status) && balance > 0;
 
   const sendGroup: InvoiceActionGroup = {
     label: 'Send',
@@ -85,13 +85,13 @@ export function useCustomerInvoiceActions(opts: Options | null): {
   const collectGroup: InvoiceActionGroup = {
     label: 'Collect',
     actions: [
-      ...(showEnablePayment
+      ...(showPayNow
         ? [{
-            label: paymentLoading ? 'Enabling...' : 'Enable Online Payment',
+            label: paymentLoading ? 'Opening Paystack…' : 'Pay Now',
             icon: createElement(CreditCard, { className: 'h-4 w-4' }),
-            onClick: onEnablePayment,
+            onClick: onPayNow,
             disabled: paymentLoading,
-            variant: 'secondary' as const,
+            variant: 'primary' as const,
           }]
         : []),
       ...(showPaymentButton

@@ -106,19 +106,23 @@ export default function CustomerInvoiceDetailPage() {
     } finally { setEmailSending(false); }
   };
 
-  const handleEnablePayment = async () => {
+  const handlePayNow = async () => {
     setPaymentLoading(true);
     setError('');
     try {
-      const res = await apiFetch('/api/accounting/payment-gateway', {
+      const res = await apiFetch(`/api/accounting/customer-invoices/${invoiceId}/pay-now`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invoiceId, action: 'enable' }),
+        body: JSON.stringify({}),
       });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.error?.message || e.message || 'Failed'); }
+      const json = await res.json();
+      if (!res.ok || !json.data?.checkoutUrl) {
+        throw new Error(json.error?.message || json.message || 'Failed to start payment');
+      }
+      window.open(json.data.checkoutUrl as string, '_blank', 'noopener,noreferrer');
       await loadInvoice();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to enable online payment');
+      setError(e instanceof Error ? e.message : 'Failed to start payment');
     } finally { setPaymentLoading(false); }
   };
 
@@ -158,7 +162,7 @@ export default function CustomerInvoiceDetailPage() {
       portalLinkLoading, portalLinkCopied, linkCopied,
       onOpenEmailModal: () => { setEmailTo(invoice.client_email || invoice.email_sent_to || ''); setEmailSuccess(''); setShowEmailModal(true); },
       onCopyPortalLink: () => { void handleCopyPortalLink(); },
-      onEnablePayment: () => { void handleEnablePayment(); },
+      onPayNow: () => { void handlePayNow(); },
       onCopyPaymentLink: () => { void handleCopyPaymentLink(); },
       onAction: (action) => { void handleAction(action); },
       onShowCancelConfirm: () => setShowCancelConfirm(true),
