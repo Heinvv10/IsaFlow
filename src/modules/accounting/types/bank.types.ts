@@ -185,4 +185,11 @@ export interface RuleApplyResult {
   applied: number;
   skipped: number;
   entries: Array<{ bankTxId: string; ruleName: string; journalEntryId?: string; suggestion?: boolean }>;
+  /**
+   * Number of active auto-post rules that were skipped because the bank
+   * account has no linked GL account. When > 0 the UI must surface this
+   * loudly — the user expects auto-post to fire and silent skipping is the
+   * single most common cause of "rules aren't working" support reports.
+   */
+  autoPostRulesSkippedNoBankGl?: number;
 }

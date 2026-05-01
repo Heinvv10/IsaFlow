@@ -80,6 +80,21 @@ export default function BankRulesPage() {
               Rules applied: {rules.applyResult.applied} categorised, {rules.applyResult.skipped} skipped
             </div>
           )}
+          {rules.applyResult?.autoPostRulesSkippedNoBankGl ? (
+            <div className="p-3 rounded-lg bg-amber-500/10 text-amber-300 text-sm">
+              <p className="font-medium">
+                {rules.applyResult.autoPostRulesSkippedNoBankGl} auto-post rule
+                {rules.applyResult.autoPostRulesSkippedNoBankGl > 1 ? 's were' : ' was'} skipped.
+              </p>
+              <p className="text-xs mt-1">
+                The selected bank account is not a valid bank-subtype GL account, so we
+                can&apos;t post journal entries against it. Open the bank account from
+                <em className="not-italic font-medium"> Banking → Bank Accounts</em>,
+                confirm its <em className="not-italic font-medium">account_subtype</em> is
+                <em className="not-italic font-medium"> bank</em>, then re-run rules.
+              </p>
+            </div>
+          ) : null}
 
           {rules.showForm && (
             <BankRuleForm

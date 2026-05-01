@@ -36,12 +36,20 @@ export async function applyRules(
 
     if (rules.length === 0) return { applied: 0, skipped: 0, entries: [] };
 
-    // Look up the bank account's linked GL account for journal entries
+    // bank_transactions.bank_account_id is an FK to gl_accounts(id) — the
+    // "bank account" the user picked is a GL account with account_subtype='bank'.
+    // The earlier code looked up bank_accounts.gl_account_id, which is a
+    // separate OAuth-bank-feed registry and is empty for almost every tenant,
+    // so auto-post rules silently skipped because bankGlAccountId came back
+    // null. Use the bank account id directly (it IS the GL account id) and
+    // verify the row exists + is bank-subtype.
     const bankAccRows = (await sql`
-      SELECT gl_account_id FROM bank_accounts
-      WHERE id = ${bankAccountId}::UUID AND company_id = ${companyId}::UUID
+      SELECT id FROM gl_accounts
+      WHERE id = ${bankAccountId}::UUID
+        AND company_id = ${companyId}::UUID
+        AND account_subtype = 'bank'
     `) as Record<string, unknown>[];
-    const bankGlAccountId = bankAccRows[0]?.gl_account_id ? String(bankAccRows[0].gl_account_id) : null;
+    const bankGlAccountId = bankAccRows[0]?.id ? String(bankAccRows[0].id) : null;
 
     let totalApplied = 0;
     const entries: RuleApplyResult['entries'] = [];
@@ -124,8 +132,15 @@ export async function applyRules(
     }
 
     // Auto-create JE mode — sequential (each transaction needs its own JE)
-    if (autoCreateRules.length > 0 && !bankGlAccountId) {
-      log.warn('Bank account has no linked GL account — skipping auto-create rules', { bankAccountId }, 'accounting');
+    const autoPostRulesSkippedNoBankGl = (autoCreateRules.length > 0 && !bankGlAccountId)
+      ? autoCreateRules.length
+      : 0;
+    if (autoPostRulesSkippedNoBankGl > 0) {
+      log.warn(
+        'Bank account is not a valid bank-subtype GL account — skipping auto-post rules',
+        { bankAccountId, skippedRules: autoPostRulesSkippedNoBankGl },
+        'accounting',
+      );
     }
     for (const rule of (bankGlAccountId ? autoCreateRules : [])) {
       const pattern = toSqlPattern(String(rule.match_type), String(rule.match_pattern));
@@ -260,8 +275,12 @@ export async function applyRules(
     `) as Record<string, unknown>[];
     const skipped = Number(remaining[0]?.cnt ?? 0);
 
-    log.info('Applied bank rules', { bankAccountId, applied: totalApplied, skipped }, 'accounting');
-    return { applied: totalApplied, skipped, entries };
+    log.info(
+      'Applied bank rules',
+      { bankAccountId, applied: totalApplied, skipped, autoPostRulesSkippedNoBankGl },
+      'accounting',
+    );
+    return { applied: totalApplied, skipped, entries, autoPostRulesSkippedNoBankGl };
   } catch (err) {
     log.error('Failed to apply bank rules', { error: err }, 'accounting');
     throw err;
