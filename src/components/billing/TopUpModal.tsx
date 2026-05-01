@@ -52,11 +52,11 @@ export function TopUpModal({ open, onClose, onSuccess }: Props) {
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error?.message ?? 'Purchase failed');
 
-      // When Stitch is configured the API returns a checkout URL — redirect
-      // the browser to complete payment; the webhook will credit the wallet
-      // and the return page will confirm.
-      const data = json?.data as { mode?: 'stitch_payment_link' | 'admin_recorded'; checkoutUrl?: string } | undefined;
-      if (data?.mode === 'stitch_payment_link' && data.checkoutUrl) {
+      // When Paystack is configured the API returns a checkout URL — redirect
+      // the browser to complete payment; the webhook credits the wallet and
+      // the return page confirms.
+      const data = json?.data as { mode?: 'paystack_transaction' | 'admin_recorded'; checkoutUrl?: string } | undefined;
+      if (data?.mode === 'paystack_transaction' && data.checkoutUrl) {
         window.location.href = data.checkoutUrl;
         return;
       }

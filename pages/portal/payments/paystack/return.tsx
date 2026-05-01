@@ -1,8 +1,8 @@
 /**
- * Stitch Money — customer invoice payment return landing.
- * Public route; payer has no ISAFlow session. Query params from Stitch:
- *   id, status (complete|closed|failed), externalReference
- * Status is verified server-side — we never trust the URL alone.
+ * Paystack — customer invoice payment return landing.
+ * Public route; payer has no ISAFlow session. Paystack appends ?reference=
+ * (and we also pass &ref= ourselves for symmetry). Final status is verified
+ * server-side via /api/portal/payments/paystack/verify.
  */
 
 import { useEffect, useState } from 'react';
@@ -19,13 +19,12 @@ interface VerifyResponse {
   amountCents: number;
   invoiceNumber?: string;
   companyName?: string;
-  paymentMethod?: string;
 }
 
 const fmtZAR = (cents: number) =>
   new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(cents / 100);
 
-export default function StitchReturnPage() {
+export default function PaystackReturnPage() {
   const router = useRouter();
   const [state, setState] = useState<VerifyState>('verifying');
   const [data, setData] = useState<VerifyResponse | null>(null);
@@ -33,22 +32,24 @@ export default function StitchReturnPage() {
 
   useEffect(() => {
     if (!router.isReady) return;
-    const { id, externalReference } = router.query;
-    const ref = typeof externalReference === 'string' ? externalReference
-              : typeof id === 'string' ? id : '';
-    if (!ref) {
+    const { ref, reference } = router.query;
+    const r = typeof ref === 'string' ? ref
+            : typeof reference === 'string' ? reference : '';
+    if (!r) {
       setState('error');
       setErrorMsg('Missing payment reference.');
       return;
     }
 
+    let cancelled = false;
     (async () => {
       try {
         const res = await apiFetch(
-          `/api/portal/payments/stitch/verify?ref=${encodeURIComponent(ref)}`,
+          `/api/portal/payments/paystack/verify?ref=${encodeURIComponent(r)}`,
         );
         if (!res.ok) throw new Error(`Verification failed (${res.status})`);
         const json = (await res.json()) as { data: VerifyResponse };
+        if (cancelled) return;
         const verified = json.data;
         setData(verified);
         if (verified.status === 'completed') setState('completed');
@@ -59,10 +60,12 @@ export default function StitchReturnPage() {
           setTimeout(() => router.replace(router.asPath), 3000);
         }
       } catch (err) {
+        if (cancelled) return;
         setState('error');
         setErrorMsg(err instanceof Error ? err.message : 'Verification failed.');
       }
     })();
+    return () => { cancelled = true; };
   }, [router.isReady, router.query, router]);
 
   return (

@@ -1,5 +1,5 @@
 /**
- * Subscription billing service — drives the recurring debit lifecycle:
+ * Subscription billing service — recurring SaaS debits via Paystack.
  *
  *   generateDueCharges()  — for every active subscription whose
  *                           current_period_end is ≤ today and has no
@@ -7,22 +7,20 @@
  *                           queued charge row.
  *
  *   runQueuedCharges()    — for every queued / failed (retry-eligible)
- *                           charge, call Stitch debitFromMandate() and
- *                           record a matching stitch_payment_requests row.
+ *                           charge, call Paystack chargeAuthorization()
+ *                           against the company's active mandate and record
+ *                           a paystack_payment_requests row so the webhook
+ *                           can settle it.
  *
- * NOTE (2026-04-23): Disabled while on Stitch Express vetting tier.
- * `debitFromMandate` throws immediately until Stitch enables the
- * `client_recurringpaymentconsentrequest` scope. Tables stay in place
- * so we can re-enable without migrations when access lands.
- *
- * All writes are company-scoped. Mandate must be 'active' for the company
- * to be billed; otherwise charges move to 'failed' with reason='no_mandate'.
+ * All writes are company-scoped. The mandate must be 'active' AND have a
+ * paystack_authorization_code captured for the company to be billed;
+ * otherwise the charge moves to 'failed' with reason='no_mandate'.
  */
 
 import { randomBytes } from 'crypto';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { debitFromMandate } from './stitchClient';
+import { chargeAuthorization } from './paystackClient';
 
 const MAX_ATTEMPTS = 3;
 const RETRY_BACKOFF_HOURS = 24;
@@ -93,30 +91,34 @@ export async function generateDueCharges(now = new Date()): Promise<GenerateResu
 
     const mandate = await sql<{ id: string }>`
       SELECT id FROM subscription_mandates
-      WHERE company_id = ${sub.company_id} AND status = 'active'
+      WHERE company_id = ${sub.company_id}
+        AND gateway = 'paystack'
+        AND status = 'active'
       LIMIT 1
     `;
     if (!mandate[0]) {
       skipped++;
       log.warn(
-        'Skipping charge generation — no active mandate',
+        'Skipping charge generation — no active Paystack mandate',
         { companyId: sub.company_id, subscriptionId: sub.subscription_id },
         'BillingCron',
       );
       continue;
     }
 
-    const externalReference = `sub_${sub.company_id}_${nextStart.toISOString().slice(0, 7)}_${randomBytes(4).toString('hex')}`;
+    const reference = `sub_${sub.company_id.replace(/-/g, '').slice(0, 12)}_${nextStart.toISOString().slice(0, 7)}_${randomBytes(4).toString('hex')}`;
 
     await sql`
       INSERT INTO subscription_charges (
         company_id, mandate_id, period_start, period_end,
-        amount_cents, currency, external_reference, status
+        amount_cents, currency, gateway,
+        external_reference, paystack_reference, status
       ) VALUES (
         ${sub.company_id}, ${mandate[0].id},
         ${nextStart.toISOString().slice(0, 10)},
         ${nextEnd.toISOString().slice(0, 10)},
-        ${amountCents}, 'ZAR', ${externalReference}, 'queued'
+        ${amountCents}, 'ZAR', 'paystack',
+        ${reference}, ${reference}, 'queued'
       )
     `;
 
@@ -148,22 +150,27 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
     company_id: string;
     mandate_id: string;
     amount_cents: string;
+    paystack_reference: string | null;
     external_reference: string;
     attempt_count: number;
     status: 'queued' | 'failed';
-    stitch_bank_account_id: string | null;
+    paystack_authorization_code: string | null;
+    paystack_customer_code: string | null;
     mandate_status: string;
-    company_name: string;
+    user_email: string | null;
     period_start: Date | string;
   }>`
-    SELECT c.id, c.company_id, c.mandate_id, c.amount_cents, c.external_reference,
-           c.attempt_count, c.status, c.period_start,
-           m.stitch_bank_account_id, m.status AS mandate_status,
-           co.name AS company_name
+    SELECT c.id, c.company_id, c.mandate_id, c.amount_cents,
+           c.paystack_reference, c.external_reference, c.attempt_count, c.status,
+           c.period_start,
+           m.paystack_authorization_code, m.paystack_customer_code,
+           m.status AS mandate_status,
+           u.email AS user_email
     FROM subscription_charges c
     JOIN subscription_mandates m ON m.id = c.mandate_id
-    JOIN companies co ON co.id = c.company_id
-    WHERE (c.status = 'queued'
+    LEFT JOIN users u ON u.id = m.authorised_by
+    WHERE c.gateway = 'paystack'
+      AND (c.status = 'queued'
            OR (c.status = 'failed' AND c.last_attempt_at < ${cutoff.toISOString()}))
       AND c.attempt_count < ${MAX_ATTEMPTS}
     LIMIT 100
@@ -174,11 +181,15 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
   let skipped = 0;
 
   for (const c of charges) {
-    if (c.mandate_status !== 'active' || !c.stitch_bank_account_id) {
+    if (
+      c.mandate_status !== 'active' ||
+      !c.paystack_authorization_code ||
+      !c.user_email
+    ) {
       await sql`
         UPDATE subscription_charges
         SET status = 'failed',
-            failure_reason = 'mandate_not_active',
+            failure_reason = 'mandate_not_active_or_missing_authorization',
             attempt_count = attempt_count + 1,
             last_attempt_at = now()
         WHERE id = ${c.id}
@@ -187,21 +198,53 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
       continue;
     }
 
-    const payerReference = `ISAFLOW-${String(c.period_start).slice(0, 7)}`.slice(0, 20);
-    const beneficiaryReference = `ISAFLOW-${c.company_name.replace(/\s+/g, '').slice(0, 10).toUpperCase()}`.slice(0, 20);
+    const reference = c.paystack_reference ?? c.external_reference;
 
     try {
-      // Throws until Stitch Express recurring is enabled on the tenant.
-      await debitFromMandate({
-        bankAccountId: c.stitch_bank_account_id,
+      const result = await chargeAuthorization({
+        authorizationCode: c.paystack_authorization_code,
+        email: c.user_email,
         amountCents: Number(c.amount_cents),
-        payerReference,
-        beneficiaryReference,
-        externalReference: c.external_reference,
+        reference,
+        metadata: {
+          purpose: 'subscription_charge',
+          company_id: c.company_id,
+          subscription_charge_id: c.id,
+          period_start: String(c.period_start).slice(0, 10),
+        },
       });
 
-      // Unreachable while debitFromMandate throws. Left in place so the
-      // shape is obvious when the stub is swapped for a real implementation.
+      // Record a paystack_payment_requests row so the webhook can finalise.
+      await sql`
+        INSERT INTO paystack_payment_requests (
+          company_id, purpose, subscription_charge_id,
+          paystack_reference, paystack_authorization_code,
+          paystack_customer_code,
+          amount_cents, currency,
+          status
+        ) VALUES (
+          ${c.company_id}, 'subscription_charge', ${c.id},
+          ${result.reference}, ${c.paystack_authorization_code},
+          ${c.paystack_customer_code},
+          ${Number(c.amount_cents)}, 'ZAR',
+          ${result.status === 'success' ? 'completed' : 'pending'}
+        )
+        ON CONFLICT (paystack_reference) DO NOTHING
+      `;
+
+      // Optimistically reflect immediate success — the webhook is still
+      // authoritative and will overwrite if the bank reverses.
+      const localStatus = result.status === 'success' ? 'settled' : 'submitted';
+      await sql`
+        UPDATE subscription_charges
+        SET status = ${localStatus},
+            attempt_count = attempt_count + 1,
+            last_attempt_at = now(),
+            settled_at = CASE WHEN ${localStatus} = 'settled' THEN now() ELSE settled_at END,
+            updated_at = now()
+        WHERE id = ${c.id}
+      `;
+
       submitted++;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

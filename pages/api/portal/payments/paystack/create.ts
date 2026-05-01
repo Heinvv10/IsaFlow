@@ -1,8 +1,8 @@
 /**
- * POST /api/portal/payments/stitch/create
- * Public (portal) — creates a Stitch payment request for a customer invoice
- * via a signed portal token. Returns the Stitch checkout URL (with our
- * redirect_uri appended) that the browser should redirect to.
+ * POST /api/portal/payments/paystack/create
+ * Public (portal) — initialise a Paystack transaction for a customer invoice
+ * via a signed portal token. Returns the hosted-checkout URL the browser
+ * redirects to, plus the reference we'll use to verify on return.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -11,7 +11,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { createPaymentLink } from '@/modules/billing/services/stitchClient';
+import { initializeTransaction } from '@/modules/billing/services/paystackClient';
 
 interface InvoiceRow {
   id: string;
@@ -20,6 +20,7 @@ interface InvoiceRow {
   total: string;
   amount_paid: string | null;
   client_name: string;
+  client_email: string | null;
   status: string;
 }
 
@@ -55,7 +56,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const invRows = await sql<InvoiceRow>`
     SELECT ci.id, ci.company_id, ci.invoice_number,
            ci.total_amount AS total, ci.amount_paid,
-           COALESCE(c.name, 'Customer') AS client_name, ci.status
+           COALESCE(c.name, 'Customer') AS client_name,
+           c.email AS client_email,
+           ci.status
     FROM customer_invoices ci
     LEFT JOIN clients c ON c.id = COALESCE(ci.client_id, ci.customer_id)
     WHERE ci.id = ${link.invoice_id}
@@ -71,38 +74,51 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'Invoice already paid');
   }
 
-  const externalReference = `inv_${invoice.id}_${randomBytes(6).toString('hex')}`;
+  // Paystack requires a payer email. We fall back to a synthetic per-token
+  // address so payment still works even if the customer has no email on file.
+  const payerEmail =
+    invoice.client_email && invoice.client_email.includes('@')
+      ? invoice.client_email
+      : `portal+${token}@noreply.isaflow.co.za`;
 
-  const redirectUrl = `${process.env.NEXT_PUBLIC_APP_URL}/portal/payments/stitch/return`;
+  const reference = `inv_${invoice.id.replace(/-/g, '').slice(0, 12)}_${randomBytes(6).toString('hex')}`;
+  const callbackUrl = `${process.env.NEXT_PUBLIC_APP_URL}/portal/payments/paystack/return?ref=${encodeURIComponent(reference)}`;
 
   try {
-    const stitch = await createPaymentLink({
+    const init = await initializeTransaction({
+      email: payerEmail,
       amountCents: outstandingCents,
-      payerName: invoice.client_name,
-      merchantReference: invoice.invoice_number.slice(0, 30),
-      externalReference,
-      redirectUrl,
-      description: `Invoice ${invoice.invoice_number}`,
+      reference,
+      callbackUrl,
+      metadata: {
+        invoice_id: invoice.id,
+        invoice_number: invoice.invoice_number,
+        company_id: invoice.company_id,
+        portal_token: token,
+      },
     });
 
     await sql`
-      INSERT INTO stitch_payment_requests (
+      INSERT INTO paystack_payment_requests (
         company_id, purpose, customer_invoice_id,
-        stitch_payment_id, external_reference, checkout_url,
-        amount_cents, currency, status, payer_name
+        paystack_reference, paystack_access_code, authorization_url,
+        amount_cents, currency, status, payer_name, payer_email
       ) VALUES (
         ${invoice.company_id}, 'customer_invoice', ${invoice.id},
-        ${stitch.id}, ${externalReference}, ${stitch.url},
-        ${outstandingCents}, 'ZAR', 'pending', ${invoice.client_name}
+        ${init.reference}, ${init.accessCode}, ${init.authorizationUrl},
+        ${outstandingCents}, 'ZAR', 'pending', ${invoice.client_name}, ${payerEmail}
       )
     `;
 
-    return apiResponse.success(res, { checkoutUrl: stitch.url, externalReference });
+    return apiResponse.success(res, {
+      checkoutUrl: init.authorizationUrl,
+      reference: init.reference,
+    });
   } catch (err) {
     log.error(
-      'Failed to create Stitch payment request',
+      'Failed to initialise Paystack transaction',
       { invoiceId: invoice.id, err: err instanceof Error ? err.message : String(err) },
-      'StitchPortal',
+      'PaystackPortal',
     );
     return apiResponse.internalError(res, 'Failed to initialise payment');
   }

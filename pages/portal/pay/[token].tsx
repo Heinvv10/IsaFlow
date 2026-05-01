@@ -1,9 +1,9 @@
 /**
- * Portal Pay Page — public-facing payment page for invoice payments via PayFast
+ * Portal Pay Page — public-facing payment page for invoice payments via Paystack.
  * No auth required. Uses payment link token for access.
  */
 
-import { useCallback, useState, useEffect, useRef } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 
@@ -18,24 +18,17 @@ interface PaymentLinkData {
   companyName?: string;
   invoiceNumber?: string;
   dueDate?: string;
-  payfastFormData?: {
-    paymentUrl: string;
-    fields: Record<string, string>;
-    transactionId: string;
-  };
 }
 
 export default function PortalPayPage() {
   const router = useRouter();
   const { token } = router.query;
-  const formRef = useRef<HTMLFormElement>(null);
 
   const [data, setData] = useState<PaymentLinkData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  // Check for return/cancel query params
   const isSuccess = router.query.payment_status === 'success' || router.query.status === 'success';
   const isCancelled = router.query.payment_status === 'cancelled' || router.query.status === 'cancelled';
 
@@ -63,18 +56,12 @@ export default function PortalPayPage() {
     void fetchPaymentLink();
   }, [token, isSuccess, isCancelled, fetchPaymentLink]);
 
-  const handlePayNow = () => {
-    if (!data?.payfastFormData || !formRef.current) return;
-    setSubmitting(true);
-    formRef.current.submit();
-  };
-
-  const handleStitchPay = async () => {
+  const handlePaystackPay = async () => {
     if (!token) return;
     setSubmitting(true);
     setError('');
     try {
-      const res = await fetch('/api/portal/payments/stitch/create', {
+      const res = await fetch('/api/portal/payments/paystack/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token }),
@@ -193,59 +180,23 @@ export default function PortalPayPage() {
           </div>
         </div>
 
-        {data.payfastFormData && (
-          <>
-            <form
-              ref={formRef}
-              action={data.payfastFormData.paymentUrl}
-              method="POST"
-              className="hidden"
-            >
-              {Object.entries(data.payfastFormData.fields).map(([key, value]) => (
-                <input key={key} type="hidden" name={key} value={value} />
-              ))}
-            </form>
-
-            <button
-              onClick={handlePayNow}
-              disabled={submitting}
-              className="w-full py-4 bg-[#00457C] text-slate-900 dark:text-white rounded-xl font-semibold text-lg hover:bg-[#003460] transition-colors disabled:opacity-50 flex items-center justify-center gap-3"
-            >
-              {submitting ? (
-                <>
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Redirecting to PayFast...
-                </>
-              ) : (
-                <>
-                  <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6h16v12zM4 0h16v2H4zm0 22h16v2H4z" />
-                  </svg>
-                  Pay Now with PayFast
-                </>
-              )}
-            </button>
-
-            <div className="my-4 flex items-center gap-3 text-xs text-gray-500">
-              <span className="flex-1 h-px bg-gray-200" />
-              <span>or pay directly from your bank</span>
-              <span className="flex-1 h-px bg-gray-200" />
-            </div>
-          </>
-        )}
-
         <button
-          onClick={handleStitchPay}
+          onClick={handlePaystackPay}
           disabled={submitting}
-          className="w-full py-4 bg-indigo-600 text-white rounded-xl font-semibold text-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-3"
+          className="w-full py-4 bg-emerald-600 text-white rounded-xl font-semibold text-lg hover:bg-emerald-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-3"
         >
           {submitting ? (
             <>
               <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              Redirecting to Stitch…
+              Redirecting to Paystack…
             </>
           ) : (
-            'Pay with Instant EFT (Stitch)'
+            <>
+              <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h.01M11 15h2M4 6h16a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V7a1 1 0 011-1z" />
+              </svg>
+              Pay with Paystack
+            </>
           )}
         </button>
 
@@ -253,7 +204,7 @@ export default function PortalPayPage() {
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
           </svg>
-          <span>Secured by Stitch &amp; PayFast. Card and bank details are never stored on our servers.</span>
+          <span>Card &amp; bank payments are processed securely by Paystack. We never store your details.</span>
         </div>
       </div>
     </PageShell>

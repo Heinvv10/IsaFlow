@@ -2,13 +2,13 @@
  * POST /api/billing/flows/purchase — buy a Flow bundle.
  *
  * Two modes:
- *   - Stitch configured (STITCH_CLIENT_ID + STITCH_CLIENT_SECRET set):
- *       Records a pending flow_purchases row, creates a Stitch Express
- *       payment-link, persists a stitch_payment_requests row for webhook
- *       reconciliation, returns { checkoutUrl, purchaseId }.  Caller
+ *   - Paystack configured (PAYSTACK_SECRET_KEY set):
+ *       Records a pending flow_purchases row, initialises a Paystack
+ *       transaction, persists a paystack_payment_requests row for webhook
+ *       reconciliation, returns { checkoutUrl, purchaseId }. Caller
  *       redirects the browser to checkoutUrl; the webhook credits the
- *       wallet on payment.paid.
- *   - Stitch not configured (dev / pilot):
+ *       wallet on charge.success.
+ *   - Paystack not configured (dev / pilot):
  *       Falls back to the admin-recorded flow — credits the wallet
  *       immediately and returns { balanceAfter, purchaseId }.
  */
@@ -28,14 +28,14 @@ import {
   failBundlePurchase,
 } from '@/modules/billing/services/flowWalletService';
 import { getCompanyPlan } from '@/lib/billing/getCompanyPlan';
-import { createPaymentLink } from '@/modules/billing/services/stitchClient';
+import { initializeTransaction } from '@/modules/billing/services/paystackClient';
 
 const PurchaseBody = z.object({
   bundleId: z.uuidv4(),
 }).strict();
 
-function stitchConfigured(): boolean {
-  return Boolean(process.env.STITCH_CLIENT_ID && process.env.STITCH_CLIENT_SECRET);
+function paystackConfigured(): boolean {
+  return Boolean(process.env.PAYSTACK_SECRET_KEY);
 }
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
@@ -54,7 +54,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
 
   // Fallback path for dev / pilot: no gateway → credit immediately.
-  if (!stitchConfigured()) {
+  if (!paystackConfigured()) {
     const pending = await startBundlePurchase(req.companyId, parsed.data.bundleId, {
       paymentMethod: 'admin_recorded',
       autoTriggered: false,
@@ -67,9 +67,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     );
   }
 
-  // Stitch-gated path: create pending row + Stitch link, return the URL.
   const pending = await startBundlePurchase(req.companyId, parsed.data.bundleId, {
-    paymentMethod: 'stitch_payment_link',
+    paymentMethod: 'paystack_transaction',
     autoTriggered: false,
   });
 
@@ -77,30 +76,39 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     SELECT name FROM companies WHERE id = ${req.companyId} LIMIT 1
   `) as Array<{ name: string }>;
   const payerName = companyRow?.name ?? 'Tenant';
+  const payerEmail = req.user?.email;
+  if (!payerEmail) {
+    await failBundlePurchase(pending.purchaseId, 'no_payer_email');
+    return apiResponse.badRequest(res, 'Authenticated user has no email');
+  }
 
-  const externalReference = `flow_${pending.purchaseId}_${randomBytes(4).toString('hex')}`;
-  const redirectUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/accounting/settings/billing/flows/return?ref=${pending.purchaseId}`;
+  const reference = `flow_${pending.purchaseId.replace(/-/g, '').slice(0, 12)}_${randomBytes(4).toString('hex')}`;
+  const callbackUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/accounting/settings/billing/flows/return?ref=${pending.purchaseId}`;
 
   try {
-    const stitch = await createPaymentLink({
+    const init = await initializeTransaction({
+      email: payerEmail,
       amountCents: pending.bundle.priceCents,
-      payerName,
-      merchantReference: pending.bundle.name.slice(0, 30),
-      externalReference,
-      redirectUrl,
-      description: `ISAFlow Flows — ${pending.bundle.name} (${pending.bundle.flows} Flows)`,
-      payerEmailAddress: req.user?.email ?? undefined,
+      reference,
+      callbackUrl,
+      metadata: {
+        purpose: 'flow_bundle',
+        company_id: req.companyId,
+        flow_purchase_id: pending.purchaseId,
+        bundle_name: pending.bundle.name,
+        flows: pending.bundle.flows,
+      },
     });
 
     await sql`
-      INSERT INTO stitch_payment_requests (
+      INSERT INTO paystack_payment_requests (
         company_id, purpose, flow_purchase_id,
-        stitch_payment_id, external_reference, checkout_url,
-        amount_cents, currency, status, payer_name
+        paystack_reference, paystack_access_code, authorization_url,
+        amount_cents, currency, status, payer_name, payer_email
       ) VALUES (
         ${req.companyId}, 'flow_bundle', ${pending.purchaseId},
-        ${stitch.id}, ${externalReference}, ${stitch.url},
-        ${pending.bundle.priceCents}, 'ZAR', 'pending', ${payerName}
+        ${init.reference}, ${init.accessCode}, ${init.authorizationUrl},
+        ${pending.bundle.priceCents}, 'ZAR', 'pending', ${payerName}, ${payerEmail}
       )
     `;
 
@@ -108,17 +116,16 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       res,
       {
         purchaseId: pending.purchaseId,
-        checkoutUrl: stitch.url,
-        externalReference,
-        mode: 'stitch_payment_link' as const,
+        checkoutUrl: init.authorizationUrl,
+        reference: init.reference,
+        mode: 'paystack_transaction' as const,
       },
-      'Redirecting to Stitch',
+      'Redirecting to Paystack',
     );
   } catch (err) {
-    // Stitch down or misconfigured → mark the pending row failed so we don't leave orphans.
-    await failBundlePurchase(pending.purchaseId, 'stitch_create_failed');
+    await failBundlePurchase(pending.purchaseId, 'paystack_init_failed');
     log.error(
-      'Stitch payment-link creation failed',
+      'Paystack transaction init failed',
       { purchaseId: pending.purchaseId, err: err instanceof Error ? err.message : String(err) },
       'FlowsPurchase',
     );

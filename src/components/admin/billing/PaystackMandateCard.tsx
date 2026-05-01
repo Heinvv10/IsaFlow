@@ -1,7 +1,8 @@
 /**
- * Admin billing — Stitch LinkPay mandate card.
- * Renders on /admin/billing. Shows current mandate, recent charges, and
- * actions to authorise or revoke.
+ * Admin billing — Paystack mandate card.
+ * Renders on the tenant's billing page. Shows current mandate, recent
+ * charges, and actions to authorise (R1 verification charge that captures a
+ * reusable authorization_code) or revoke.
  */
 
 import { useEffect, useState, useCallback } from 'react';
@@ -13,7 +14,10 @@ interface Mandate {
   id: string;
   status: 'active' | 'pending' | 'failed' | 'revoked' | 'expired';
   bank_name: string | null;
-  masked_account_number: string | null;
+  card_last4: string | null;
+  card_brand: string | null;
+  card_exp_month: string | null;
+  card_exp_year: string | null;
   max_amount_cents: string;
   authorised_at: string | null;
 }
@@ -43,7 +47,7 @@ const STATUS_STYLES: Record<Charge['status'], string> = {
   cancelled: 'bg-amber-100 text-amber-700',
 };
 
-export function StitchMandateCard() {
+export function PaystackMandateCard() {
   const [data, setData] = useState<StatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -53,7 +57,7 @@ export function StitchMandateCard() {
     setLoading(true);
     setError('');
     try {
-      const res = await apiFetch('/api/billing/stitch/mandate/status');
+      const res = await apiFetch('/api/billing/paystack/mandate/status');
       if (!res.ok) throw new Error(`Failed to load (${res.status})`);
       const json = (await res.json()) as { data: StatusResponse };
       setData(json.data);
@@ -65,16 +69,19 @@ export function StitchMandateCard() {
   }, []);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   const authorise = useCallback(async () => {
-    const input = window.prompt('Authorisation ceiling per debit (in Rands, e.g. 1500)');
+    const input = window.prompt(
+      'Authorisation ceiling per debit (in Rands, e.g. 1500). ' +
+      'Paystack will charge a refundable R1 verification fee to capture the card.',
+    );
     const rands = Number(input);
     if (!rands || rands <= 0) return;
     setBusy(true);
     try {
-      const res = await apiFetch('/api/billing/stitch/mandate/create', {
+      const res = await apiFetch('/api/billing/paystack/mandate/create', {
         method: 'POST',
         body: JSON.stringify({ maxAmountCents: Math.round(rands * 100) }),
       });
@@ -93,7 +100,7 @@ export function StitchMandateCard() {
     if (!window.confirm('Revoke the active debit order? Future debits will stop.')) return;
     setBusy(true);
     try {
-      const res = await apiFetch('/api/billing/stitch/mandate/revoke', {
+      const res = await apiFetch('/api/billing/paystack/mandate/revoke', {
         method: 'POST',
         body: JSON.stringify({ reason: 'User revoked from admin UI' }),
       });
@@ -110,8 +117,8 @@ export function StitchMandateCard() {
     <div className="bg-white rounded-xl border border-slate-200 p-6">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <CreditCard className="w-5 h-5 text-indigo-600" />
-          <h2 className="text-lg font-semibold text-slate-900">Recurring debit (Stitch LinkPay)</h2>
+          <CreditCard className="w-5 h-5 text-emerald-600" />
+          <h2 className="text-lg font-semibold text-slate-900">Recurring debit (Paystack)</h2>
         </div>
         <button
           type="button"
@@ -145,7 +152,7 @@ export function StitchMandateCard() {
             type="button"
             onClick={authorise}
             disabled={busy}
-            className="rounded-lg bg-indigo-600 text-white px-4 py-2 text-sm font-medium hover:bg-indigo-700 disabled:opacity-60"
+            className="rounded-lg bg-emerald-600 text-white px-4 py-2 text-sm font-medium hover:bg-emerald-700 disabled:opacity-60"
           >
             {busy ? 'Starting…' : 'Authorise debit order'}
           </button>
@@ -166,10 +173,19 @@ export function StitchMandateCard() {
           </div>
 
           <dl className="grid grid-cols-2 gap-y-2 text-sm">
-            {data.mandate.bank_name && <Row label="Bank" value={data.mandate.bank_name} />}
-            {data.mandate.masked_account_number && (
-              <Row label="Account" value={data.mandate.masked_account_number} />
+            {data.mandate.card_brand && data.mandate.card_last4 && (
+              <Row
+                label="Card"
+                value={`${data.mandate.card_brand} •••• ${data.mandate.card_last4}`}
+              />
             )}
+            {data.mandate.card_exp_month && data.mandate.card_exp_year && (
+              <Row
+                label="Expires"
+                value={`${data.mandate.card_exp_month}/${data.mandate.card_exp_year.slice(-2)}`}
+              />
+            )}
+            {data.mandate.bank_name && <Row label="Bank" value={data.mandate.bank_name} />}
             <Row
               label="Authorised up to"
               value={formatCurrency(Number(data.mandate.max_amount_cents) / 100)}

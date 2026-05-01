@@ -81,24 +81,31 @@ export async function checkSmtp(): Promise<CheckResult> {
   }
 }
 
-export async function checkStitch(): Promise<CheckResult> {
+export async function checkPaystack(): Promise<CheckResult> {
   const start = Date.now();
-  const url = process.env.STITCH_HEALTH_URL ?? process.env.STITCH_API_URL;
-  if (!url) return { name: 'stitch', status: 'skipped', durationMs: Date.now() - start };
+  // Skip when not configured (dev / pilot). We hit api.paystack.co's root —
+  // unauthenticated GETs return 200 with a banner page, so any non-OK is a
+  // real outage signal.
+  if (!process.env.PAYSTACK_SECRET_KEY) {
+    return { name: 'paystack', status: 'skipped', durationMs: Date.now() - start };
+  }
   try {
-    const res = await withTimeout(fetch(url, { method: 'HEAD' }), HEALTH_CHECK_TIMEOUT_MS);
+    const res = await withTimeout(
+      fetch('https://api.paystack.co/', { method: 'GET' }),
+      HEALTH_CHECK_TIMEOUT_MS,
+    );
     if (!res.ok) {
       return {
-        name: 'stitch',
+        name: 'paystack',
         status: 'down',
         durationMs: Date.now() - start,
         error: `HTTP ${res.status}`,
       };
     }
-    return { name: 'stitch', status: 'ok', durationMs: Date.now() - start };
+    return { name: 'paystack', status: 'ok', durationMs: Date.now() - start };
   } catch (err) {
     return {
-      name: 'stitch',
+      name: 'paystack',
       status: 'down',
       durationMs: Date.now() - start,
       error: err instanceof Error ? err.message : String(err),
