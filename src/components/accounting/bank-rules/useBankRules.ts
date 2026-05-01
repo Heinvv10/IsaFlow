@@ -1,11 +1,11 @@
 /**
  * State + handlers for the Bank Rules page. Wraps load/edit/submit/doAction
- * + bulk-delete + form state so the page itself stays under the 300-line
- * file budget. Keeps the side-effects (apiFetch calls) testable in isolation.
+ * + bulk-delete + form state. Side-effects via apiFetch stay testable here.
  */
-
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { notify } from '@/utils/toast';
 import { apiFetch } from '@/lib/apiFetch';
+import { emitApplyToast } from './applyToast';
 import type { BankRuleFormState } from './BankRuleForm';
 import type { BankRuleRowData, VatCode } from './BankRuleRow';
 
@@ -204,6 +204,7 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
         });
         const json = await res.json();
         if (!res.ok) throw new Error(json.message || 'Failed to update rule');
+        notify.success(`Rule "${payload.ruleName}" updated`);
       } else {
         const res = await apiFetch('/api/accounting/bank-rules', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -215,14 +216,24 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
         });
         const json = await res.json();
         if (!res.ok) throw new Error(json.message || 'Failed to create rule');
-        const applied = Number(json.data?.applied ?? 0);
-        if (applied > 0) setApplyResult({ applied, skipped: 0 });
+        const parts = {
+          applied: Number(json.data?.applied ?? 0),
+          autoPostSkippedClosedPeriod: Number(json.data?.autoPostSkippedClosedPeriod ?? 0),
+          autoPostRulesSkippedNoBankGl: Number(json.data?.autoPostRulesSkippedNoBankGl ?? 0),
+        };
+        if (parts.applied > 0) setApplyResult({ ...parts, skipped: 0 });
+        const headline = `Rule "${payload.ruleName}" created`;
+        if (parts.applied + parts.autoPostSkippedClosedPeriod + parts.autoPostRulesSkippedNoBankGl > 0) {
+          emitApplyToast(headline, parts);
+        } else notify.success(headline);
       }
 
       resetForm();
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed');
+      const msg = err instanceof Error ? err.message : 'Failed';
+      setError(msg);
+      notify.error(msg);
     } finally {
       setBusy('');
     }
@@ -231,6 +242,8 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
   const doAction = async (action: string, id?: string, extra?: Record<string, unknown>) => {
     setBusy(id || action);
     setError('');
+    // Clear stale apply banner before non-apply actions.
+    if (action !== 'apply') setApplyResult(null);
     try {
       const res = await apiFetch('/api/accounting/bank-rules-action', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -238,10 +251,25 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || `${action} failed`);
-      if (action === 'apply' && json.data) setApplyResult(json.data);
+      if (action === 'apply') {
+        const data = json.data;
+        // Guard against partial server responses.
+        if (data && typeof data.applied === 'number' && typeof data.skipped === 'number') {
+          setApplyResult(data);
+          emitApplyToast('Rules applied', data);
+        } else {
+          notify.warning('Rules applied', 'Unexpected server response — refresh to verify');
+        }
+      } else if (action === 'toggle') {
+        notify.success(extra?.isActive === true ? 'Rule activated' : 'Rule deactivated');
+      } else if (action === 'delete') {
+        notify.success('Rule deleted');
+      }
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : `${action} failed`);
+      const msg = err instanceof Error ? err.message : `${action} failed`;
+      setError(msg);
+      notify.error(msg);
     } finally {
       setBusy('');
     }
@@ -249,6 +277,7 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
 
   const performBulkDelete = async () => {
     if (selected.size === 0) return;
+    const count = selected.size;
     setBulkDeleting(true);
     setError('');
     try {
@@ -258,9 +287,12 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Bulk delete failed');
+      notify.success(`${count} rule${count !== 1 ? 's' : ''} deleted`);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Bulk delete failed');
+      const msg = err instanceof Error ? err.message : 'Bulk delete failed';
+      setError(msg);
+      notify.error(msg);
     } finally {
       setBulkDeleting(false);
     }
