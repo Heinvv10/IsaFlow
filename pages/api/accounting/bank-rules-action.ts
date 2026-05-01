@@ -66,13 +66,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       case 'update': {
         const updateInput = Object.fromEntries(
           Object.entries(body).filter(([k, v]) =>
-            k !== 'action' && k !== 'id' && k !== 'isActive' && v !== null && v !== undefined,
+            k !== 'action' && k !== 'id' && v !== null && v !== undefined,
           ),
         );
         const updated = await updateRule(companyId, body.id, updateInput);
-        if (typeof body.isActive === 'boolean') {
-          await toggleRule(companyId, body.id, body.isActive);
-        }
         return apiResponse.success(res, updated);
       }
 
