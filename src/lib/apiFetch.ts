@@ -7,6 +7,8 @@
  * Use this instead of raw fetch() for all accounting API calls.
  */
 
+import { clearTenantClientState } from './auth/clearTenantClientState';
+
 const COMPANY_STORAGE_KEY = 'isaflow_active_company';
 const CSRF_COOKIE = 'isaflow_csrf';
 const REFRESH_URL = '/api/auth/refresh';
@@ -92,6 +94,12 @@ export async function apiFetch(url: string, options?: RequestInit): Promise<Resp
   const refreshed = await refreshSession();
   if (!refreshed) {
     if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+      // Wipe tenant-scoped client state before bouncing so the next login on
+      // this browser does not inherit the previous user's active company.
+      // The /login page also defends here, but clearing on the redirect side
+      // covers the brief window where the redirect target may render auth
+      // shells before /login mounts.
+      clearTenantClientState();
       window.location.href = LOGIN_REDIRECT;
     }
     return res;

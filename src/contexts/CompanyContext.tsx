@@ -5,6 +5,7 @@ import {
   useState,
   useCallback,
   useMemo,
+  useRef,
   ReactNode,
 } from 'react';
 import { useAuth } from './AuthContext';
@@ -65,6 +66,7 @@ const CompanyContext = createContext<CompanyContextType | undefined>(undefined);
 export function CompanyProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated, user, loading: authLoading } = useAuth();
   const userRole = user?.role ?? null;
+  const userId = user?.id ?? null;
   // Hydrate active company synchronously from localStorage so the first render
   // has at least {id, name} — avoids a flash of the 'ISAFlow' fallback title
   // until the async /api/accounting/companies fetch resolves. The async fetch
@@ -225,6 +227,31 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     loadUserCompanies();
   }, [loadUserCompanies]);
+
+  // Cross-tenant safety: when the authenticated user identity changes inside
+  // the same provider instance (a soft-nav login after logout, or any future
+  // flow that doesn't hard-reload), drop the previous user's tenant state
+  // immediately instead of leaving it visible until the async user-companies
+  // refetch returns. The ref starts as `undefined` (sentinel) so the first
+  // run after mount is a no-op even if a future change makes AuthContext
+  // start with a non-null user — keeps the reset gated to genuine identity
+  // transitions, not initial hydration. Login (null → user) and logout
+  // (user → null) are skipped because loadUserCompanies and
+  // AuthContext.logout already clean those paths.
+  const lastUserIdRef = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    const prev = lastUserIdRef.current;
+    lastUserIdRef.current = userId;
+    if (prev === undefined) return;
+    if (prev === null || userId === null) return;
+    if (userId === prev) return;
+    setActiveCompany(null);
+    setCompanies([]);
+    setCompanyRole(null);
+    if (typeof window !== 'undefined') {
+      try { localStorage.removeItem(STORAGE_KEY); } catch { /* best effort */ }
+    }
+  }, [userId]);
 
   const switchCompany = useCallback(async (companyId: string) => {
     setLoading(true);
