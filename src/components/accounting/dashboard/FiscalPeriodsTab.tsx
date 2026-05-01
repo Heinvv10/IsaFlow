@@ -59,7 +59,16 @@ export function FiscalPeriodsTab() {
       await loadPeriods();
     } catch (err) {
       log.error('Bulk fiscal period action failed', { error: err, action }, 'accounting-ui');
-      setBulkResult({ ok: 0, total: ids.length, failures: ids.map(id => ({ id, error: err instanceof Error ? err.message : 'Failed' })) });
+      // Network/server error: the server may have processed some periods
+      // before the connection broke. Reload to surface whatever did land,
+      // and tell the user the count is best-effort.
+      const msg = err instanceof Error ? err.message : 'Failed';
+      setBulkResult({
+        ok: 0,
+        total: ids.length,
+        failures: ids.map(id => ({ id, error: `${msg} — partial success possible, list reloaded` })),
+      });
+      await loadPeriods();
     } finally { setBulkBusy(null); }
   };
 
@@ -84,7 +93,10 @@ export function FiscalPeriodsTab() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         credentials: 'include', body: JSON.stringify({ id: periodId, action }),
       });
-      if (!res.ok) { const err = await res.json() as { message?: string }; throw new Error(err.message || 'Action failed'); }
+      if (!res.ok) {
+        const body = await res.json() as { error?: { message?: string }; message?: string };
+        throw new Error(body.error?.message || body.message || 'Action failed');
+      }
       await loadPeriods();
     } catch (err) {
       log.error('Fiscal period action failed', { error: err, periodId, action }, 'accounting-ui');
@@ -194,7 +206,9 @@ export function FiscalPeriodsTab() {
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {periods.map(period => {
-                const isFuture = new Date(period.startDate) > new Date();
+                // String compare on YYYY-MM-DD avoids the UTC-midnight TZ skew
+                // that would mis-flag a today-starting period as "Future" before 02:00 SAST.
+                const isFuture = String(period.startDate).slice(0, 10) > new Date().toISOString().slice(0, 10);
                 return (
                 <tr
                   key={period.id}
@@ -243,7 +257,7 @@ export function FiscalPeriodsTab() {
                         <button onClick={() => handlePeriodAction(period.id, 'reopen')} disabled={actionLoading === period.id}
                           className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors disabled:opacity-40">Reopen</button>
                       </>)}
-                      {period.status === 'locked' && <span className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500">Locked</span>}
+                      {period.status === 'locked' && <span className="text-xs text-slate-500 dark:text-slate-400">Locked</span>}
                     </div>
                   </td>
                 </tr>

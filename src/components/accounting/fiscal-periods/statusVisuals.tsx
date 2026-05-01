@@ -2,9 +2,10 @@
  * Status icon + badge styles for fiscal-period rows. Extracted from
  * FiscalPeriodsTab so the parent stays under the 300-line cap.
  */
+import type { ReactNode } from 'react';
 import { CheckCircle2, Clock, Lock } from 'lucide-react';
 
-export function statusIcon(status: string): React.ReactNode {
+export function statusIcon(status: string): ReactNode {
   switch (status) {
     case 'open':    return <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />;
     case 'closing': return <Clock className="h-3.5 w-3.5 text-amber-500" />;

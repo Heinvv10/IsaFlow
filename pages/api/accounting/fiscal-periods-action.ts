@@ -47,6 +47,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Use authenticated user ID — never trust userId from request body
     const userId = (req as AuthenticatedNextApiRequest).user.id;
 
+    // closePeriod takes userId for the audit trail; lockPeriod and reopenPeriod
+    // currently don't (per the service signature). If you ever add audit-log
+    // arguments to lock/reopen, plumb them through here.
     const bulkOp = (
       action === 'bulk_close' ? (id: string) => closePeriod(companyId, id, userId)
       : action === 'bulk_lock' ? (id: string) => lockPeriod(companyId, id)
