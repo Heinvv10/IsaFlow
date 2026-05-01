@@ -55,21 +55,25 @@ export async function createRule(
 export async function updateRule(
   companyId: string,
   id: string,
-  input: Partial<RuleCreateInput>
+  input: Partial<RuleCreateInput> & { isActive?: boolean }
 ): Promise<BankCategorisationRule> {
+  // Use ?? not || so legitimately-zero priorities and false booleans are not
+  // dropped by COALESCE. Fields with min(1) (ruleName, matchPattern) and enums
+  // can't be empty strings, so ?? matches the schema invariants.
   const rows = (await sql`
     UPDATE bank_categorisation_rules SET
-      rule_name = COALESCE(${input.ruleName || null}, rule_name),
-      match_field = COALESCE(${input.matchField || null}, match_field),
-      match_type = COALESCE(${input.matchType || null}, match_type),
-      match_pattern = COALESCE(${input.matchPattern || null}, match_pattern),
-      gl_account_id = COALESCE(${input.glAccountId || null}::UUID, gl_account_id),
-      supplier_id = COALESCE(${input.supplierId || null}::UUID, supplier_id),
-      client_id = COALESCE(${input.clientId || null}::UUID, client_id),
-      description_template = COALESCE(${input.descriptionTemplate || null}, description_template),
-      priority = COALESCE(${input.priority || null}, priority),
+      rule_name = COALESCE(${input.ruleName ?? null}, rule_name),
+      match_field = COALESCE(${input.matchField ?? null}, match_field),
+      match_type = COALESCE(${input.matchType ?? null}, match_type),
+      match_pattern = COALESCE(${input.matchPattern ?? null}, match_pattern),
+      gl_account_id = COALESCE(${input.glAccountId ?? null}::UUID, gl_account_id),
+      supplier_id = COALESCE(${input.supplierId ?? null}::UUID, supplier_id),
+      client_id = COALESCE(${input.clientId ?? null}::UUID, client_id),
+      description_template = COALESCE(${input.descriptionTemplate ?? null}, description_template),
+      priority = COALESCE(${input.priority ?? null}, priority),
       auto_create_entry = COALESCE(${input.autoCreateEntry ?? null}, auto_create_entry),
-      vat_code = COALESCE(${input.vatCode || null}, vat_code)
+      vat_code = COALESCE(${input.vatCode ?? null}, vat_code),
+      is_active = COALESCE(${input.isActive ?? null}, is_active)
     WHERE company_id = ${companyId}::UUID AND id = ${id}::UUID RETURNING *
   `) as Record<string, unknown>[];
   if (!rows[0]) throw new Error(`Rule ${id} not found`);
