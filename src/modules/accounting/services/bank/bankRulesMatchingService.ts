@@ -6,11 +6,16 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
+import {
+  createJournalEntry,
+  postJournalEntry,
+  ClosedFiscalPeriodError,
+} from '../gl/journalEntryService';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import type { RuleApplyResult } from '../../types/bank.types';
 import {
-  toSqlPattern, findMatchingTxs, buildAutoCreateLines, type RuleAllocType,
+  toSqlPattern, findMatchingTxs, buildAutoCreateLines, isDateInOpenPeriod,
+  type RuleAllocType,
 } from './bankRulesMatchingHelpers';
 
 export async function applyRules(
@@ -142,6 +147,11 @@ export async function applyRules(
         'accounting',
       );
     }
+    // Count of auto-post attempts that failed because the transaction date
+    // falls in a closed/locked fiscal period. We swallow the error per-tx so
+    // one bad date doesn't abort the whole apply, then surface the total
+    // count in the result so the UI can warn the user.
+    let autoPostSkippedClosedPeriod = 0;
     for (const rule of (bankGlAccountId ? autoCreateRules : [])) {
       const pattern = toSqlPattern(String(rule.match_type), String(rule.match_pattern));
       const field = String(rule.match_field);
@@ -185,6 +195,19 @@ export async function applyRules(
       }
 
       for (const tx of matchingTxs) {
+        const entryDate = tx.transaction_date instanceof Date
+          ? tx.transaction_date.toISOString().split('T')[0]!
+          : String(tx.transaction_date).split('T')[0]!;
+
+        // Pre-flight: skip historical transactions whose date is in a
+        // closed/locked period (or has no period at all). Without this,
+        // createJournalEntry would insert a draft JE row, postJournalEntry
+        // would reject it, and the draft would dangle in the GL forever.
+        if (!(await isDateInOpenPeriod(companyId, entryDate))) {
+          autoPostSkippedClosedPeriod++;
+          continue;
+        }
+
         const totalAmount = Math.abs(Number(tx.amount));
         const isDeposit = Number(tx.amount) > 0;
         const entryDesc = rule.description_template
@@ -226,14 +249,31 @@ export async function applyRules(
         });
 
         const je = await createJournalEntry(companyId, {
-          entryDate: tx.transaction_date instanceof Date
-            ? tx.transaction_date.toISOString().split('T')[0]!
-            : String(tx.transaction_date).split('T')[0]!,
+          entryDate,
           description: entryDesc,
           source,
           lines,
         }, userId);
-        await postJournalEntry(companyId, je.id, userId);
+        try {
+          await postJournalEntry(companyId, je.id, userId);
+        } catch (err) {
+          // The pre-flight above should have caught closed periods, but the
+          // fiscal-period state can flip between the pre-flight and the post
+          // (rare race; admin closing a period mid-apply). On that path we
+          // hard-delete the draft we just inserted instead of leaving it
+          // dangling, then count and continue. Anything else re-throws.
+          if (err instanceof ClosedFiscalPeriodError) {
+            await sql`
+              DELETE FROM gl_journal_entries
+              WHERE id = ${je.id}::UUID
+                AND company_id = ${companyId}::UUID
+                AND status = 'draft'
+            `;
+            autoPostSkippedClosedPeriod++;
+            continue;
+          }
+          throw err;
+        }
 
         const bankLineRows = (await sql`
           SELECT jl.id FROM gl_journal_lines jl
@@ -277,10 +317,22 @@ export async function applyRules(
 
     log.info(
       'Applied bank rules',
-      { bankAccountId, applied: totalApplied, skipped, autoPostRulesSkippedNoBankGl },
+      {
+        bankAccountId,
+        applied: totalApplied,
+        skipped,
+        autoPostRulesSkippedNoBankGl,
+        autoPostSkippedClosedPeriod,
+      },
       'accounting',
     );
-    return { applied: totalApplied, skipped, entries, autoPostRulesSkippedNoBankGl };
+    return {
+      applied: totalApplied,
+      skipped,
+      entries,
+      autoPostRulesSkippedNoBankGl,
+      autoPostSkippedClosedPeriod,
+    };
   } catch (err) {
     log.error('Failed to apply bank rules', { error: err }, 'accounting');
     throw err;

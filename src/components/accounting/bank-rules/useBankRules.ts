@@ -41,7 +41,7 @@ export interface UseBankRulesResult {
   loading: boolean;
   busy: string;
   error: string;
-  applyResult: { applied: number; skipped: number; autoPostRulesSkippedNoBankGl?: number } | null;
+  applyResult: { applied: number; skipped: number; autoPostRulesSkippedNoBankGl?: number; autoPostSkippedClosedPeriod?: number } | null;
   selected: Set<string>;
   setSelected: React.Dispatch<React.SetStateAction<Set<string>>>;
   bulkDeleting: boolean;
@@ -82,7 +82,7 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [applyResult, setApplyResult] = useState<
-    { applied: number; skipped: number; autoPostRulesSkippedNoBankGl?: number } | null
+    { applied: number; skipped: number; autoPostRulesSkippedNoBankGl?: number; autoPostSkippedClosedPeriod?: number } | null
   >(null);
   const [editingRule, setEditingRule] = useState<BankRule | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());

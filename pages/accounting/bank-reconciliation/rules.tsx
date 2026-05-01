@@ -80,6 +80,20 @@ export default function BankRulesPage() {
               Rules applied: {rules.applyResult.applied} categorised, {rules.applyResult.skipped} skipped
             </div>
           )}
+          {rules.applyResult?.autoPostSkippedClosedPeriod ? (
+            <div className="p-3 rounded-lg bg-amber-500/10 text-amber-300 text-sm">
+              <p className="font-medium">
+                {rules.applyResult.autoPostSkippedClosedPeriod} auto-post attempt
+                {rules.applyResult.autoPostSkippedClosedPeriod > 1 ? 's were' : ' was'} skipped
+                — transaction date falls in a closed fiscal period.
+              </p>
+              <p className="text-xs mt-1">
+                We can&apos;t post journal entries into a closed or locked period.
+                Either re-open the period from <em className="not-italic font-medium">Accounting → Fiscal Periods</em>,
+                or leave these historical transactions alone — current-period transactions still got their JEs.
+              </p>
+            </div>
+          ) : null}
           {rules.applyResult?.autoPostRulesSkippedNoBankGl ? (
             <div className="p-3 rounded-lg bg-amber-500/10 text-amber-300 text-sm">
               <p className="font-medium">
