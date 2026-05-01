@@ -7,6 +7,8 @@
  * Use this instead of raw fetch() for all accounting API calls.
  */
 
+import { clearTenantClientState } from './auth/clearTenantClientState';
+
 const COMPANY_STORAGE_KEY = 'isaflow_active_company';
 const CSRF_COOKIE = 'isaflow_csrf';
 const REFRESH_URL = '/api/auth/refresh';
@@ -97,13 +99,7 @@ export async function apiFetch(url: string, options?: RequestInit): Promise<Resp
       // The /login page also defends here, but clearing on the redirect side
       // covers the brief window where the redirect target may render auth
       // shells before /login mounts.
-      try {
-        localStorage.removeItem(COMPANY_STORAGE_KEY);
-        localStorage.removeItem('isaflow_impersonation');
-        sessionStorage.clear();
-      } catch {
-        // localStorage can throw in private mode / quota — best-effort only.
-      }
+      clearTenantClientState();
       window.location.href = LOGIN_REDIRECT;
     }
     return res;

@@ -14,21 +14,13 @@
  * localStorage so a click in any tab counts as activity for all of them.
  */
 
+import { clearTenantClientState } from './clearTenantClientState';
+
 const CHANNEL_NAME = 'isaflow_auth';
 const ACTIVITY_KEY = 'isaflow_last_activity_at';
 const REFRESH_URL = '/api/auth/refresh';
 const HEARTBEAT_INTERVAL_MS = 50 * 60 * 1000;
 const ACTIVITY_THROTTLE_MS = 5_000;
-
-function clearTenantClientState(): void {
-  try {
-    localStorage.removeItem('isaflow_active_company');
-    localStorage.removeItem('isaflow_impersonation');
-    sessionStorage.clear();
-  } catch {
-    // localStorage can throw in private mode / quota — best-effort only.
-  }
-}
 
 type StopFn = () => void;
 

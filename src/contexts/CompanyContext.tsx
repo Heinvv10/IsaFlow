@@ -229,23 +229,28 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
   }, [loadUserCompanies]);
 
   // Cross-tenant safety: when the authenticated user identity changes inside
-  // the same provider instance (e.g. a soft-nav login after logout), drop the
-  // previous user's tenant state immediately instead of leaving it visible
-  // until the async user-companies refetch returns. We also wipe the
-  // localStorage mirror so apiFetch's X-Company-Id header doesn't echo the
-  // old tenant on the very first request the new user makes.
-  const lastUserIdRef = useRef<string | null>(userId);
+  // the same provider instance (a soft-nav login after logout, or any future
+  // flow that doesn't hard-reload), drop the previous user's tenant state
+  // immediately instead of leaving it visible until the async user-companies
+  // refetch returns. The ref starts as `undefined` (sentinel) so the first
+  // run after mount is a no-op even if a future change makes AuthContext
+  // start with a non-null user — keeps the reset gated to genuine identity
+  // transitions, not initial hydration. Login (null → user) and logout
+  // (user → null) are skipped because loadUserCompanies and
+  // AuthContext.logout already clean those paths.
+  const lastUserIdRef = useRef<string | null | undefined>(undefined);
   useEffect(() => {
-    if (lastUserIdRef.current === userId) return;
-    if (lastUserIdRef.current !== null && userId !== lastUserIdRef.current) {
-      setActiveCompany(null);
-      setCompanies([]);
-      setCompanyRole(null);
-      if (typeof window !== 'undefined') {
-        try { localStorage.removeItem(STORAGE_KEY); } catch { /* best effort */ }
-      }
-    }
+    const prev = lastUserIdRef.current;
     lastUserIdRef.current = userId;
+    if (prev === undefined) return;
+    if (prev === null || userId === null) return;
+    if (userId === prev) return;
+    setActiveCompany(null);
+    setCompanies([]);
+    setCompanyRole(null);
+    if (typeof window !== 'undefined') {
+      try { localStorage.removeItem(STORAGE_KEY); } catch { /* best effort */ }
+    }
   }, [userId]);
 
   const switchCompany = useCallback(async (companyId: string) => {

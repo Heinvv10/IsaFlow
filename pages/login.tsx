@@ -13,6 +13,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { Eye, EyeOff, Building2, ShieldCheck, Lock } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { clearTenantClientState } from '@/lib/auth/clearTenantClientState';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 
 type LoginStep = 'credentials' | 'totp';
@@ -192,7 +193,7 @@ function isSafeRedirect(url: string): boolean {
 
 export default function LoginPage() {
   const router = useRouter();
-  const { error, clearError } = useAuth();
+  const { error, clearError, isAuthenticated, loading: authLoading } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -212,23 +213,19 @@ export default function LoginPage() {
   const [lockoutExpiresAt, setLockoutExpiresAt] = useState<number | null>(null);
   const [lockoutSecondsRemaining, setLockoutSecondsRemaining] = useState(0);
 
-  // Cross-tenant safety: any time the login page mounts (regardless of how the
-  // user got here — explicit logout, session-expired bounce, idle timeout, or
-  // typed URL), wipe per-tenant client state so the next sign-in cannot inherit
-  // the previous user's active company. Without this, paths that redirect to
-  // /login with `window.location.href` (apiFetch 401 refresh-fail, idle bounce)
-  // leave isaflow_active_company in localStorage — and the next user briefly
-  // sees the prior tenant's name in the header.
+  // Cross-tenant safety: when an UNauthenticated visitor lands on /login
+  // (regardless of how they got here — explicit logout, session-expired
+  // bounce, idle timeout, or typed URL), wipe per-tenant client state so the
+  // next sign-in cannot inherit the previous user's active company. Without
+  // this, paths that redirect to /login with `window.location.href`
+  // (apiFetch 401 refresh-fail, idle bounce) leave isaflow_active_company in
+  // localStorage and the next user briefly sees the prior tenant's name in
+  // the header. Gated on !isAuthenticated so a logged-in user who hits this
+  // page via the back button doesn't get their own active tenant wiped.
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    try {
-      localStorage.removeItem('isaflow_active_company');
-      localStorage.removeItem('isaflow_impersonation');
-      sessionStorage.clear();
-    } catch {
-      // localStorage can throw in private mode / quota — best-effort only.
-    }
-  }, []);
+    if (authLoading || isAuthenticated) return;
+    clearTenantClientState();
+  }, [authLoading, isAuthenticated]);
 
   useEffect(() => {
     if (lockoutExpiresAt === null) {
