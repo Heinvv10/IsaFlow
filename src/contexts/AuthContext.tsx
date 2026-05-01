@@ -79,9 +79,10 @@ function mapApiUser(raw: Record<string, unknown>): AuthUser {
   };
 }
 
-// Role hierarchy for permission checks
+// Role hierarchy for permission checks. Mirrors src/lib/auth/types.ts.
 const ROLE_HIERARCHY: Record<AuthRole, number> = {
-  super_admin: 6,
+  super_admin: 7,
+  owner: 6,
   system: 5,
   admin: 4,
   manager: 3,
