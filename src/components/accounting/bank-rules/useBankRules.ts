@@ -3,7 +3,7 @@
  * + bulk-delete + form state. Side-effects via apiFetch stay testable here.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import toast from 'react-hot-toast';
+import { notify } from '@/utils/toast';
 import { apiFetch } from '@/lib/apiFetch';
 import { emitApplyToast } from './applyToast';
 import type { BankRuleFormState } from './BankRuleForm';
@@ -204,7 +204,7 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
         });
         const json = await res.json();
         if (!res.ok) throw new Error(json.message || 'Failed to update rule');
-        toast.success(`Rule "${payload.ruleName}" updated`);
+        notify.success(`Rule "${payload.ruleName}" updated`);
       } else {
         const res = await apiFetch('/api/accounting/bank-rules', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -216,15 +216,16 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
         });
         const json = await res.json();
         if (!res.ok) throw new Error(json.message || 'Failed to create rule');
-        const applied = Number(json.data?.applied ?? 0);
-        const skippedClosed = Number(json.data?.autoPostSkippedClosedPeriod ?? 0);
-        const noBankGl = Number(json.data?.autoPostRulesSkippedNoBankGl ?? 0);
-        if (applied > 0) setApplyResult({ applied, skipped: 0, autoPostSkippedClosedPeriod: skippedClosed, autoPostRulesSkippedNoBankGl: noBankGl });
-        if (applied > 0 || skippedClosed > 0 || noBankGl > 0) {
-          emitApplyToast(`Rule "${payload.ruleName}" created`, { applied, autoPostSkippedClosedPeriod: skippedClosed, autoPostRulesSkippedNoBankGl: noBankGl });
-        } else {
-          toast.success(`Rule "${payload.ruleName}" created`);
-        }
+        const parts = {
+          applied: Number(json.data?.applied ?? 0),
+          autoPostSkippedClosedPeriod: Number(json.data?.autoPostSkippedClosedPeriod ?? 0),
+          autoPostRulesSkippedNoBankGl: Number(json.data?.autoPostRulesSkippedNoBankGl ?? 0),
+        };
+        if (parts.applied > 0) setApplyResult({ ...parts, skipped: 0 });
+        const headline = `Rule "${payload.ruleName}" created`;
+        if (parts.applied + parts.autoPostSkippedClosedPeriod + parts.autoPostRulesSkippedNoBankGl > 0) {
+          emitApplyToast(headline, parts);
+        } else notify.success(headline);
       }
 
       resetForm();
@@ -232,7 +233,7 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed';
       setError(msg);
-      toast.error(msg);
+      notify.error(msg);
     } finally {
       setBusy('');
     }
@@ -241,6 +242,8 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
   const doAction = async (action: string, id?: string, extra?: Record<string, unknown>) => {
     setBusy(id || action);
     setError('');
+    // Clear stale apply banner before non-apply actions.
+    if (action !== 'apply') setApplyResult(null);
     try {
       const res = await apiFetch('/api/accounting/bank-rules-action', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -248,19 +251,25 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || `${action} failed`);
-      if (action === 'apply' && json.data) {
-        setApplyResult(json.data);
-        emitApplyToast('Rules applied', json.data);
+      if (action === 'apply') {
+        const data = json.data;
+        // Guard against partial server responses.
+        if (data && typeof data.applied === 'number' && typeof data.skipped === 'number') {
+          setApplyResult(data);
+          emitApplyToast('Rules applied', data);
+        } else {
+          notify.warning('Rules applied', 'Unexpected server response — refresh to verify');
+        }
       } else if (action === 'toggle') {
-        toast.success(extra?.isActive ? 'Rule activated' : 'Rule deactivated');
+        notify.success(extra?.isActive === true ? 'Rule activated' : 'Rule deactivated');
       } else if (action === 'delete') {
-        toast.success('Rule deleted');
+        notify.success('Rule deleted');
       }
       await load();
     } catch (err) {
       const msg = err instanceof Error ? err.message : `${action} failed`;
       setError(msg);
-      toast.error(msg);
+      notify.error(msg);
     } finally {
       setBusy('');
     }
@@ -278,12 +287,12 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Bulk delete failed');
-      toast.success(`${count} rule${count !== 1 ? 's' : ''} deleted`);
+      notify.success(`${count} rule${count !== 1 ? 's' : ''} deleted`);
       await load();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Bulk delete failed';
       setError(msg);
-      toast.error(msg);
+      notify.error(msg);
     } finally {
       setBulkDeleting(false);
     }
