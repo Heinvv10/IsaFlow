@@ -20,7 +20,7 @@ export interface AuthUser {
   mustChangePassword?: boolean;
 }
 
-export type AuthRole = 'super_admin' | 'admin' | 'manager' | 'storeman' | 'technician' | 'viewer' | 'system';
+export type AuthRole = 'super_admin' | 'owner' | 'admin' | 'manager' | 'storeman' | 'technician' | 'viewer' | 'system';
 
 export interface JWTPayload {
   sub: string; // user id
@@ -59,9 +59,14 @@ export interface AuthenticatedRequest {
   sessionId: string;
 }
 
-// Role hierarchy for permission checks
+// Role hierarchy for permission checks.
+// 'owner' is the highest tenant-level role and outranks 'admin'. It was
+// missing from this map, which caused every owner to fail withRole('admin')
+// checks (e.g. fiscal-period reopen) — the role string didn't resolve to a
+// number and fell through to `?? 0`.
 export const ROLE_HIERARCHY: Record<AuthRole, number> = {
-  super_admin: 6,
+  super_admin: 7,
+  owner: 6,
   system: 5,
   admin: 4,
   manager: 3,
