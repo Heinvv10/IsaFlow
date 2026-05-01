@@ -18,6 +18,8 @@ import {
   type RuleAllocType,
 } from './bankRulesMatchingHelpers';
 
+const SA_VAT_RATE_PCT = 15; // Standard SA VAT rate; update if SARS changes the statutory rate
+
 export async function applyRules(
   companyId: string,
   bankAccountId: string,
@@ -220,7 +222,7 @@ export async function applyRules(
 
         const vatCode = String(rule.vat_code || 'none');
         const hasVat = vatCode === 'standard';
-        const netAmount = hasVat ? Math.round((totalAmount * 100 / 115) * 100) / 100 : totalAmount;
+        const netAmount = hasVat ? Math.round((totalAmount * 100 / (100 + SA_VAT_RATE_PCT)) * 100) / 100 : totalAmount;
         const vatAmount = hasVat ? Math.round((totalAmount - netAmount) * 100) / 100 : 0;
         // Supplier payment is a money-out from this bank → vat_input on the AP side.
         // Customer receipt is a money-in to this bank → vat_output on the AR side.

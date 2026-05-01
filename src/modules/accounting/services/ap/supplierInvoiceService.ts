@@ -75,6 +75,11 @@ export async function createSupplierInvoice(
       const lineTotal = Math.round(item.quantity * item.unitPrice * 100) / 100;
       const itemTaxRate = item.taxRate ?? invoiceTaxRate;
       const itemTax = Math.round(lineTotal * itemTaxRate / 100 * 100) / 100;
+      // Warn when a 0% line has no explicit vatClassification — exempt and zero-rated
+      // both have 0% rate but differ in input VAT recoverability under the VAT Act.
+      if (itemTaxRate === 0 && !item.vatClassification) {
+        log.warn('Supplier invoice line has 0% VAT with no vatClassification — defaulting to zero_rated; set vatClassification=exempt explicitly for exempt supplies', { description: item.description }, 'accounting');
+      }
       subtotal += lineTotal;
       totalTax += itemTax;
       return { ...item, lineTotal, taxAmount: itemTax, taxRate: itemTaxRate };

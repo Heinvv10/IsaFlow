@@ -9,7 +9,6 @@ import { log } from '@/lib/logger';
 
 type Row = DbRow;
 
-const SA_VAT_RATE = 0.15;
 
 export interface VAT201Data {
   periodStart: string;
@@ -119,7 +118,8 @@ export async function generateVAT201(companyId: string,
     supplierVatByClass = (await sql`
       SELECT
         COALESCE(sii.vat_classification, 'standard') AS classification,
-        COALESCE(SUM(sii.tax_amount), 0) AS vat_total
+        COALESCE(SUM(sii.tax_amount), 0) AS vat_total,
+        COALESCE(SUM(sii.line_total), 0) AS base_total
       FROM supplier_invoice_items sii
       JOIN supplier_invoices si ON si.id = sii.supplier_invoice_id
       WHERE si.company_id = ${companyId}
@@ -135,6 +135,7 @@ export async function generateVAT201(companyId: string,
   let field1_standardRated = 0;
   let field2_zeroRated = 0;
   let field3_exempt = 0;
+  let field5_outputVAT_acc = 0;
 
   const outputInvoices: VAT201Invoice[] = customerInvoices.map((inv: Row) => {
     const subtotal = Number(inv.subtotal) || 0;
@@ -147,6 +148,7 @@ export async function generateVAT201(companyId: string,
       field2_zeroRated += subtotal;
     } else {
       field1_standardRated += subtotal;
+      field5_outputVAT_acc += vatAmt;
     }
 
     return {
@@ -160,19 +162,23 @@ export async function generateVAT201(companyId: string,
     };
   });
 
-  const field5_outputVAT = roundCents(field1_standardRated * SA_VAT_RATE);
+  const field5_outputVAT = roundCents(field5_outputVAT_acc);
 
   let field6_capitalGoods = 0;
   let field7_otherGoods = 0;
   let field8_services = 0;
   let field9_imports = 0;
+  let field4_importBase = 0; // actual customs/invoice value of imported goods
 
   for (const row of supplierVatByClass) {
     const cls = String(row.classification);
     const amount = Number(row.vat_total) || 0;
     if (cls === 'capital_goods') field6_capitalGoods += amount;
     else if (cls === 'services') field8_services += amount;
-    else if (cls === 'imported' || cls === 'reverse_charge') field9_imports += amount;
+    else if (cls === 'imported' || cls === 'reverse_charge') {
+      field9_imports += amount;
+      field4_importBase += Number(row.base_total) || 0;
+    }
     else field7_otherGoods += amount;
   }
 
@@ -212,7 +218,7 @@ export async function generateVAT201(companyId: string,
     field1_standardRatedSupplies: roundCents(field1_standardRated),
     field2_zeroRatedSupplies: roundCents(field2_zeroRated),
     field3_exemptSupplies: roundCents(field3_exempt),
-    field4_totalImports: roundCents(field9_imports > 0 ? field9_imports / SA_VAT_RATE : 0),
+    field4_totalImports: roundCents(field4_importBase),
     field5_outputVAT,
     field6_capitalGoods: roundCents(field6_capitalGoods),
     field7_otherGoods: roundCents(field7_otherGoods),

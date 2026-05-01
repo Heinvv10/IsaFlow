@@ -82,18 +82,16 @@ export async function processSupplierPayment(
     // atomicity — withTransaction would deadlock against rows already locked
     // by this same request (e.g. the JE we just inserted/posted above).
     for (const alloc of payment.allocations) {
+      const newPaid = alloc.amountAllocated;
       await sql`
         UPDATE supplier_invoices
-        SET amount_paid = amount_paid + ${alloc.amountAllocated}
-        WHERE id = ${alloc.invoiceId} AND company_id = ${companyId}::UUID
-      `;
-      await sql`
-        UPDATE supplier_invoices SET status = CASE
-          WHEN (total_amount - amount_paid) <= 0.01 THEN 'paid'
-          WHEN amount_paid > 0 THEN 'partially_paid'
-          ELSE status
-        END
-        WHERE id = ${alloc.invoiceId} AND company_id = ${companyId}::UUID
+        SET amount_paid = amount_paid + ${newPaid},
+            status = CASE
+              WHEN (total_amount - (amount_paid + ${newPaid})) <= 0.01 THEN 'paid'
+              WHEN (amount_paid + ${newPaid}) > 0 THEN 'partially_paid'
+              ELSE status
+            END
+        WHERE id = ${alloc.invoiceId}::UUID AND company_id = ${companyId}::UUID
       `;
     }
 
