@@ -26,6 +26,13 @@ function requireEnv(name: string): string {
   return v;
 }
 
+/** Free-form label tagged on every Paystack log line. Lets us tell which
+ *  integration handled an event when one Paystack login serves multiple
+ *  apps (ISAFlow + ApexGEO etc). */
+function integrationName(): string {
+  return process.env.PAYSTACK_INTEGRATION_NAME?.trim() || 'unset';
+}
+
 interface PaystackResponse<T> {
   status: boolean;
   message: string;
@@ -62,7 +69,7 @@ async function paystackFetch<T>(
       (parsed as { message?: string })?.message ?? `HTTP ${res.status}`;
     log.error(
       'Paystack request failed',
-      { path, status: res.status, body: text.slice(0, 500) },
+      { integration: integrationName(), path, status: res.status, body: text.slice(0, 500) },
       'PaystackClient',
     );
     throw new Error(`Paystack ${path}: ${msg}`);

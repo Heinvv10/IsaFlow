@@ -46,6 +46,13 @@ function verifySignature(secret: string, rawBody: string, header: string): boole
   return timingSafeEqual(a, b);
 }
 
+/** Free-form label of which Paystack integration is configured. Tagged on
+ *  webhook log lines so concurrent dev/staging integrations are easy to
+ *  disambiguate in Sentry/Bugsink. */
+function integrationName(): string {
+  return process.env.PAYSTACK_INTEGRATION_NAME?.trim() || 'unset';
+}
+
 interface PaystackWebhookEvent {
   event: string;
   data: {
@@ -97,7 +104,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return res.status(500).json({ error: 'Server misconfigured' });
   }
   if (!verifySignature(secret, rawBody, signature)) {
-    log.warn('Paystack webhook signature verification failed', {}, 'PaystackWebhook');
+    log.warn('Paystack webhook signature verification failed', { integration: integrationName() }, 'PaystackWebhook');
     return res.status(401).json({ error: 'Invalid signature' });
   }
 
@@ -138,7 +145,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return res.status(200).json({ ok: true });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    log.error('Paystack webhook processing failed', { eventLogId, msg }, 'PaystackWebhook');
+    log.error('Paystack webhook processing failed', { integration: integrationName(), eventLogId, msg }, 'PaystackWebhook');
     await sql`
       UPDATE paystack_webhook_events
       SET processing_error = ${msg}
