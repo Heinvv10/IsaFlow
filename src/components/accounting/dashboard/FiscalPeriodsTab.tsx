@@ -3,91 +3,16 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Loader2, CheckCircle2, Clock, Lock, Plus, Calendar, X, ClipboardCheck } from 'lucide-react';
+import { Loader2, Plus, Calendar, ClipboardCheck } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { FiscalPeriod } from '@/modules/accounting/types/gl.types';
 import { CloseReadinessChecklist } from '@/components/accounting/fiscal-periods/CloseReadinessChecklist';
+import { CreateYearModal } from '@/components/accounting/fiscal-periods/CreateYearModal';
+import { BulkConfirmModal, type BulkAction } from '@/components/accounting/fiscal-periods/BulkConfirmModal';
+import { statusIcon, statusBadge } from '@/components/accounting/fiscal-periods/statusVisuals';
 
 const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm';
-
-function statusIcon(status: string): React.ReactNode {
-  switch (status) {
-    case 'open':    return <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />;
-    case 'closing': return <Clock className="h-3.5 w-3.5 text-amber-500" />;
-    case 'closed':  return <Lock className="h-3.5 w-3.5 text-blue-500" />;
-    case 'locked':  return <Lock className="h-3.5 w-3.5 text-red-500" />;
-    default:        return null;
-  }
-}
-
-function statusBadge(status: string): string {
-  switch (status) {
-    case 'open':    return 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400';
-    case 'closing': return 'bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400';
-    case 'closed':  return 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400';
-    case 'locked':  return 'bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400';
-    default:        return 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400';
-  }
-}
-
-function CreateYearModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
-  const currentYear = new Date().getFullYear();
-  const [year, setYear] = useState(currentYear);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-
-  const handleCreate = async () => {
-    setSaving(true); setError('');
-    try {
-      const res = await apiFetch('/api/accounting/fiscal-periods', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ year }),
-      });
-      const json = await res.json() as { error?: { message?: string } };
-      if (!res.ok) throw new Error(json.error?.message || 'Failed to create fiscal year');
-      onCreated(); onClose();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed');
-    } finally { setSaving(false); }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-slate-950/80 backdrop-blur-sm" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
-        <div className="px-6 py-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-amber-500/10 flex items-center justify-center"><Calendar className="w-4 h-4 text-amber-500" /></div>
-            <div>
-              <h2 className="text-base font-semibold text-slate-900 dark:text-white">Create Fiscal Year</h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Creates 12 monthly periods</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition-colors"><X className="w-4 h-4" /></button>
-        </div>
-        <div className="p-6 space-y-4">
-          {error && <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 rounded-lg text-sm">{error}</div>}
-          <div>
-            <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Financial Year</label>
-            <select value={year} onChange={e => setYear(Number(e.target.value))} className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors">
-              {[currentYear - 2, currentYear - 1, currentYear, currentYear + 1].map(y => (
-                <option key={y} value={y}>{y} (Jan – Dec {y})</option>
-              ))}
-            </select>
-          </div>
-          <p className="text-xs text-slate-500 dark:text-slate-400">This will create 12 monthly periods for the selected calendar year, all set to <strong>open</strong> status.</p>
-        </div>
-        <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-2 bg-slate-50/50 dark:bg-slate-800/20">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">Cancel</button>
-          <button onClick={handleCreate} disabled={saving} className="px-5 py-2 text-sm font-semibold bg-teal-600 hover:bg-teal-700 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2">
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Calendar className="w-4 h-4" />}
-            {saving ? 'Creating…' : 'Create Year'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 export function FiscalPeriodsTab() {
   const [periods, setPeriods] = useState<FiscalPeriod[]>([]);
@@ -95,6 +20,10 @@ export function FiscalPeriodsTab() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [selectedPeriodId, setSelectedPeriodId] = useState<string | null>(null);
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState<BulkAction | null>(null);
+  const [bulkConfirm, setBulkConfirm] = useState<BulkAction | null>(null);
+  const [bulkResult, setBulkResult] = useState<{ ok: number; total: number; failures: Array<{ id: string; error: string }> } | null>(null);
 
   useEffect(() => { void loadPeriods(); }, []);
 
@@ -107,6 +36,45 @@ export function FiscalPeriodsTab() {
     } catch (err) {
       log.error('Failed to load fiscal periods', { error: err }, 'accounting-ui');
     } finally { setIsLoading(false); }
+  };
+
+  const handleBulkAction = async (action: BulkAction) => {
+    const ids = [...checked];
+    if (ids.length === 0) return;
+    setBulkBusy(action); setBulkResult(null);
+    try {
+      const res = await apiFetch('/api/accounting/fiscal-periods-action', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', body: JSON.stringify({ action, ids }),
+      });
+      const json = await res.json() as { data?: { results: Array<{ id: string; ok: boolean; error?: string }>; okCount: number; total: number }; error?: { message?: string } };
+      if (!res.ok) throw new Error(json.error?.message || 'Bulk action failed');
+      const data = json.data!;
+      setBulkResult({
+        ok: data.okCount,
+        total: data.total,
+        failures: data.results.filter(r => !r.ok).map(r => ({ id: r.id, error: r.error || 'Unknown error' })),
+      });
+      setChecked(new Set());
+      await loadPeriods();
+    } catch (err) {
+      log.error('Bulk fiscal period action failed', { error: err, action }, 'accounting-ui');
+      setBulkResult({ ok: 0, total: ids.length, failures: ids.map(id => ({ id, error: err instanceof Error ? err.message : 'Failed' })) });
+    } finally { setBulkBusy(null); }
+  };
+
+  const toggleAll = (visiblePeriods: FiscalPeriod[]) => {
+    const allIds = visiblePeriods.map(p => p.id);
+    const allChecked = allIds.every(id => checked.has(id));
+    setChecked(allChecked ? new Set() : new Set(allIds));
+  };
+
+  const toggleOne = (id: string) => {
+    setChecked(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
   };
 
   const handlePeriodAction = async (periodId: string, action: 'close' | 'lock' | 'reopen') => {
@@ -129,12 +97,69 @@ export function FiscalPeriodsTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-slate-500 dark:text-slate-400">{periods.length} period{periods.length !== 1 ? 's' : ''} across {[...new Set(periods.map(p => p.fiscalYear))].length} year{[...new Set(periods.map(p => p.fiscalYear))].length !== 1 ? 's' : ''}</p>
-        <button onClick={() => setShowCreate(true)} className="flex items-center gap-2 px-3 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-xs font-semibold transition-colors shadow-sm shadow-amber-500/20">
-          <Plus className="h-3.5 w-3.5" /> Create Fiscal Year
-        </button>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          {periods.length} period{periods.length !== 1 ? 's' : ''} across {[...new Set(periods.map(p => p.fiscalYear))].length} year{[...new Set(periods.map(p => p.fiscalYear))].length !== 1 ? 's' : ''}
+          {checked.size > 0 && <span className="ml-2 text-teal-500 font-medium">· {checked.size} selected</span>}
+        </p>
+        <div className="flex items-center gap-2">
+          {checked.size > 0 && (
+            <>
+              <button
+                onClick={() => setBulkConfirm('bulk_reopen')}
+                disabled={bulkBusy !== null}
+                className="px-3 py-2 text-xs font-semibold rounded-lg bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors disabled:opacity-40"
+              >
+                Reopen ({checked.size})
+              </button>
+              <button
+                onClick={() => setBulkConfirm('bulk_close')}
+                disabled={bulkBusy !== null}
+                className="px-3 py-2 text-xs font-semibold rounded-lg bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors disabled:opacity-40"
+              >
+                Close ({checked.size})
+              </button>
+              <button
+                onClick={() => setBulkConfirm('bulk_lock')}
+                disabled={bulkBusy !== null}
+                className="px-3 py-2 text-xs font-semibold rounded-lg bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors disabled:opacity-40"
+              >
+                Lock ({checked.size})
+              </button>
+              <button
+                onClick={() => setChecked(new Set())}
+                className="px-2 py-2 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+              >
+                Clear
+              </button>
+              <span className="mx-1 h-5 w-px bg-slate-200 dark:bg-slate-700" />
+            </>
+          )}
+          <button onClick={() => setShowCreate(true)} className="flex items-center gap-2 px-3 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-xs font-semibold transition-colors shadow-sm shadow-amber-500/20">
+            <Plus className="h-3.5 w-3.5" /> Create Fiscal Year
+          </button>
+        </div>
       </div>
+
+      {bulkResult && (
+        <div className={`p-3 rounded-lg text-sm ${bulkResult.failures.length === 0 ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400' : 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400'}`}>
+          <div className="flex items-center justify-between">
+            <span>
+              {bulkResult.ok} of {bulkResult.total} period{bulkResult.total !== 1 ? 's' : ''} updated
+              {bulkResult.failures.length > 0 && ` · ${bulkResult.failures.length} failed`}
+            </span>
+            <button onClick={() => setBulkResult(null)} className="text-xs underline opacity-70 hover:opacity-100">Dismiss</button>
+          </div>
+          {bulkResult.failures.length > 0 && (
+            <ul className="mt-2 text-xs space-y-1 list-disc list-inside opacity-90">
+              {bulkResult.failures.slice(0, 5).map(f => (
+                <li key={f.id}>{periods.find(p => p.id === f.id)?.periodName ?? f.id}: {f.error}</li>
+              ))}
+              {bulkResult.failures.length > 5 && <li>… and {bulkResult.failures.length - 5} more</li>}
+            </ul>
+          )}
+        </div>
+      )}
 
       <div className={`${card} overflow-hidden`}>
         {isLoading ? (
@@ -152,24 +177,48 @@ export function FiscalPeriodsTab() {
           <table className="w-full text-sm">
             <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800">
               <tr>
+                <th className="pl-5 pr-2 py-3 w-10">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all periods"
+                    checked={periods.length > 0 && periods.every(p => checked.has(p.id))}
+                    ref={el => { if (el) el.indeterminate = checked.size > 0 && checked.size < periods.length; }}
+                    onChange={() => toggleAll(periods)}
+                    className="h-4 w-4 rounded border-slate-300 dark:border-slate-600 text-teal-600 focus:ring-teal-500 cursor-pointer"
+                  />
+                </th>
                 {['Period', 'Year', 'Start Date', 'End Date', 'Status', 'Actions'].map((h, i) => (
                   <th key={h} className={`px-5 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider ${i === 5 ? 'text-right' : 'text-left'}`}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {periods.map(period => (
+              {periods.map(period => {
+                const isFuture = new Date(period.startDate) > new Date();
+                return (
                 <tr
                   key={period.id}
-                  className={`transition-colors cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/30 ${selectedPeriodId === period.id ? 'bg-teal-50/50 dark:bg-teal-900/10' : ''}`}
+                  className={`transition-colors cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/30 ${selectedPeriodId === period.id ? 'bg-teal-50/50 dark:bg-teal-900/10' : ''} ${checked.has(period.id) ? 'bg-teal-50/30 dark:bg-teal-900/5' : ''}`}
                   onClick={() => setSelectedPeriodId(prev => prev === period.id ? null : period.id)}
                 >
+                  <td className="pl-5 pr-2 py-3.5" onClick={e => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${period.periodName}`}
+                      checked={checked.has(period.id)}
+                      onChange={() => toggleOne(period.id)}
+                      className="h-4 w-4 rounded border-slate-300 dark:border-slate-600 text-teal-600 focus:ring-teal-500 cursor-pointer"
+                    />
+                  </td>
                   <td className="px-5 py-3.5 font-medium text-slate-900 dark:text-slate-100">
                     <div className="flex items-center gap-2">
                       {selectedPeriodId === period.id && (
                         <ClipboardCheck className="h-3.5 w-3.5 text-teal-500 flex-shrink-0" />
                       )}
                       {period.periodName}
+                      {isFuture && (
+                        <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">Future</span>
+                      )}
                     </div>
                   </td>
                   <td className="px-5 py-3.5 font-mono text-amber-500 font-semibold">{period.fiscalYear}</td>
@@ -198,7 +247,8 @@ export function FiscalPeriodsTab() {
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         )}
@@ -218,6 +268,21 @@ export function FiscalPeriodsTab() {
       )}
 
       {showCreate && <CreateYearModal onClose={() => setShowCreate(false)} onCreated={loadPeriods} />}
+
+      {bulkConfirm && (
+        <BulkConfirmModal
+          action={bulkConfirm}
+          count={checked.size}
+          busy={bulkBusy === bulkConfirm}
+          onCancel={() => setBulkConfirm(null)}
+          onConfirm={async () => {
+            const action = bulkConfirm;
+            setBulkConfirm(null);
+            await handleBulkAction(action);
+          }}
+        />
+      )}
     </div>
   );
 }
+
