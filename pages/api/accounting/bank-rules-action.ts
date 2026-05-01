@@ -20,14 +20,18 @@ const BankRulesActionSchema = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('update'),
     id: UUID,
-    name: z.string().optional(),
-    description: z.string().optional(),
-    isActive: z.boolean().optional(),
+    ruleName: z.string().min(1).max(200).optional(),
+    matchField: z.enum(['description', 'reference', 'both']).optional(),
+    matchType: z.enum(['contains', 'starts_with', 'ends_with', 'exact']).optional(),
+    matchPattern: z.string().min(1).max(500).optional(),
+    glAccountId: UUID.optional().nullable(),
+    supplierId: UUID.optional().nullable(),
+    clientId: UUID.optional().nullable(),
+    descriptionTemplate: z.string().max(500).optional().nullable(),
     priority: z.number().int().optional(),
-    conditions: z.array(z.record(z.string(), z.unknown())).optional(),
-    categoryId: z.string().optional(),
-    glAccountId: z.string().optional(),
-    autoApply: z.boolean().optional(),
+    autoCreateEntry: z.boolean().optional(),
+    vatCode: z.enum(['none', 'standard', 'zero_rated', 'exempt']).optional(),
+    isActive: z.boolean().optional(),
   }),
   z.object({ action: z.literal('apply'), bankAccountId: UUID }),
 ]);
@@ -60,7 +64,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         return apiResponse.success(res, { toggled: true });
 
       case 'update': {
-        const updated = await updateRule(companyId, body.id, body);
+        const updateInput = Object.fromEntries(
+          Object.entries(body).filter(([k, v]) =>
+            k !== 'action' && k !== 'id' && k !== 'isActive' && v !== null && v !== undefined,
+          ),
+        );
+        const updated = await updateRule(companyId, body.id, updateInput);
+        if (typeof body.isActive === 'boolean') {
+          await toggleRule(companyId, body.id, body.isActive);
+        }
         return apiResponse.success(res, updated);
       }
 

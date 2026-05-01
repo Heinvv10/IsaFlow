@@ -206,10 +206,15 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
         const res = await apiFetch('/api/accounting/bank-rules', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify(payload),
+          body: JSON.stringify({
+            ...payload,
+            ...(selectedBankId ? { bankAccountId: selectedBankId } : {}),
+          }),
         });
         const json = await res.json();
         if (!res.ok) throw new Error(json.message || 'Failed to create rule');
+        const applied = Number(json.data?.applied ?? 0);
+        if (applied > 0) setApplyResult({ applied, skipped: 0 });
       }
 
       resetForm();
