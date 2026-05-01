@@ -51,16 +51,19 @@ export async function confirmCustomerPayment(
     // Update invoice balances and mark payment confirmed — runs on the ALS-bound
     // connection so the outer withAuth transaction provides atomicity.
     for (const alloc of payment.allocations) {
+      const newPaid = alloc.amountAllocated;
       await sql`
-        UPDATE customer_invoices SET amount_paid = amount_paid + ${alloc.amountAllocated}
-        WHERE id = ${alloc.invoiceId}::UUID AND company_id = ${companyId}::UUID
-      `;
-      await sql`
-        UPDATE customer_invoices SET status = CASE
-          WHEN (total_amount - amount_paid) <= 0.01 THEN 'paid'
-          WHEN amount_paid > 0 THEN 'partially_paid'
-          ELSE status
-        END, paid_at = CASE WHEN (total_amount - amount_paid) <= 0.01 THEN NOW() ELSE paid_at END
+        UPDATE customer_invoices
+        SET amount_paid = amount_paid + ${newPaid},
+            status = CASE
+              WHEN (total_amount - (amount_paid + ${newPaid})) <= 0.01 THEN 'paid'
+              WHEN (amount_paid + ${newPaid}) > 0 THEN 'partially_paid'
+              ELSE status
+            END,
+            paid_at = CASE
+              WHEN (total_amount - (amount_paid + ${newPaid})) <= 0.01 THEN NOW()
+              ELSE paid_at
+            END
         WHERE id = ${alloc.invoiceId}::UUID AND company_id = ${companyId}::UUID
       `;
     }

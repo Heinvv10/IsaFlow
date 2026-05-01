@@ -62,17 +62,14 @@ export async function getTrialBalance(
       ORDER BY ga.account_code
     `) as Row[];
 
-    return rows.map(r => {
-      const net = Number(r.total_debit) - Number(r.total_credit);
-      return {
-        accountCode: String(r.account_code),
-        accountName: String(r.account_name),
-        accountType: String(r.account_type),
-        normalBalance: String(r.normal_balance) as 'debit' | 'credit',
-        debitBalance: net > 0 ? net : 0,
-        creditBalance: net < 0 ? Math.abs(net) : 0,
-      };
-    });
+    return rows.map(r => ({
+      accountCode: String(r.account_code),
+      accountName: String(r.account_name),
+      accountType: String(r.account_type),
+      normalBalance: String(r.normal_balance) as 'debit' | 'credit',
+      debitBalance: Number(r.total_debit),
+      creditBalance: Number(r.total_credit),
+    }));
   } catch (err) {
     log.error('Failed to get trial balance', { fiscalPeriodId, error: err }, 'accounting');
     throw err;

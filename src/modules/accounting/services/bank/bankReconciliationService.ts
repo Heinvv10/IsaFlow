@@ -157,7 +157,7 @@ export async function createAdjustmentEntry(
       source: 'auto_bank_recon', sourceDocumentId: reconciliationId, lines,
     }, userId);
     await postJournalEntry(companyId, je.id, userId);
-    await updateReconciledBalance(reconciliationId);
+    await updateReconciledBalance(companyId, reconciliationId);
     log.info('Created adjustment entry', { reconciliationId, journalEntryId: je.id }, 'accounting');
     return je.id;
   } catch (err) {
@@ -226,15 +226,20 @@ export async function autoMatchTransactions(
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-export async function updateReconciledBalance(reconciliationId: string): Promise<void> {
-  // Single atomic UPDATE — avoids race condition from read-then-write pattern
+export async function updateReconciledBalance(companyId: string, reconciliationId: string): Promise<void> {
+  // Single atomic UPDATE — avoids race condition from read-then-write pattern.
+  // Both the outer UPDATE and inner SELECT are scoped by company_id to prevent
+  // cross-tenant contamination if two tenants share a reconciliation_id UUID.
   await sql`
     UPDATE bank_reconciliations
     SET reconciled_balance = gl_balance + COALESCE((
       SELECT SUM(amount) FROM bank_transactions
-      WHERE reconciliation_id = ${reconciliationId}::UUID AND status IN ('matched', 'reconciled')
+      WHERE reconciliation_id = ${reconciliationId}::UUID
+        AND company_id = ${companyId}::UUID
+        AND status IN ('matched', 'reconciled')
     ), 0)
     WHERE id = ${reconciliationId}::UUID
+      AND company_id = ${companyId}::UUID
   `;
 }
 

@@ -53,7 +53,7 @@ export async function applyDRCVat(companyId: string,
 ): Promise<DRCResult> {
   // Get invoice details
   const invoices = (await sql`
-    SELECT si.id, si.invoice_number, si.total_amount, si.is_drc
+    SELECT si.id, si.invoice_number, si.subtotal, si.total_amount, si.is_drc
     FROM supplier_invoices si
     WHERE si.id = ${supplierInvoiceId}::UUID AND si.company_id = ${companyId}
   `) as Row[];
@@ -63,7 +63,8 @@ export async function applyDRCVat(companyId: string,
 
   if (inv.is_drc) throw new Error('DRC VAT already applied to this invoice');
 
-  const totalExclVat = Number(inv.total_amount);
+  // DRC VAT is calculated on the pre-VAT base (subtotal), not the gross total
+  const totalExclVat = Number(inv.subtotal);
   const vatRate = await getVatRate(companyId);
   const vatAmount = Math.round(totalExclVat * vatRate * 100) / 100;
 
@@ -108,7 +109,7 @@ export async function getDRCEligibleInvoices(companyId: string): Promise<Array<{
   totalAmount: number; vatAmount: number; invoiceDate: string;
 }>> {
   const rows = (await sql`
-    SELECT si.id, si.invoice_number, si.total_amount, si.invoice_date,
+    SELECT si.id, si.invoice_number, si.subtotal, si.total_amount, si.invoice_date,
            s.company_name as supplier_name
     FROM supplier_invoices si
     LEFT JOIN suppliers s ON s.id = si.supplier_id
@@ -124,7 +125,7 @@ export async function getDRCEligibleInvoices(companyId: string): Promise<Array<{
     invoiceNumber: String(r.invoice_number),
     supplierName: String(r.supplier_name || 'Unknown'),
     totalAmount: Number(r.total_amount),
-    vatAmount: Math.round(Number(r.total_amount) * vatRate * 100) / 100,
+    vatAmount: Math.round(Number(r.subtotal) * vatRate * 100) / 100,
     invoiceDate: String(r.invoice_date).split('T')[0] ?? '',
   }));
 }

@@ -166,6 +166,7 @@ export async function getVATReturn(companyId: string,
           AND status NOT IN ('draft','cancelled')
           AND invoice_date >= ${periodStart}
           AND invoice_date <= ${periodEnd}
+          AND tax_rate > 0
       ` as unknown as Row[],
       sql`
         SELECT COALESCE(SUM(subtotal), 0) AS base
@@ -174,6 +175,7 @@ export async function getVATReturn(companyId: string,
           AND status NOT IN ('draft','cancelled')
           AND invoice_date >= ${periodStart}
           AND invoice_date <= ${periodEnd}
+          AND tax_rate > 0
       ` as unknown as Row[],
     ]);
     const standardRatedSupplies  = Number(salesRows[0]?.base ?? 0);
