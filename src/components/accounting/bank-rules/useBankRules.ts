@@ -1,11 +1,11 @@
 /**
  * State + handlers for the Bank Rules page. Wraps load/edit/submit/doAction
- * + bulk-delete + form state so the page itself stays under the 300-line
- * file budget. Keeps the side-effects (apiFetch calls) testable in isolation.
+ * + bulk-delete + form state. Side-effects via apiFetch stay testable here.
  */
-
 import { useCallback, useEffect, useRef, useState } from 'react';
+import toast from 'react-hot-toast';
 import { apiFetch } from '@/lib/apiFetch';
+import { emitApplyToast } from './applyToast';
 import type { BankRuleFormState } from './BankRuleForm';
 import type { BankRuleRowData, VatCode } from './BankRuleRow';
 
@@ -204,6 +204,7 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
         });
         const json = await res.json();
         if (!res.ok) throw new Error(json.message || 'Failed to update rule');
+        toast.success(`Rule "${payload.ruleName}" updated`);
       } else {
         const res = await apiFetch('/api/accounting/bank-rules', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -216,13 +217,22 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
         const json = await res.json();
         if (!res.ok) throw new Error(json.message || 'Failed to create rule');
         const applied = Number(json.data?.applied ?? 0);
-        if (applied > 0) setApplyResult({ applied, skipped: 0 });
+        const skippedClosed = Number(json.data?.autoPostSkippedClosedPeriod ?? 0);
+        const noBankGl = Number(json.data?.autoPostRulesSkippedNoBankGl ?? 0);
+        if (applied > 0) setApplyResult({ applied, skipped: 0, autoPostSkippedClosedPeriod: skippedClosed, autoPostRulesSkippedNoBankGl: noBankGl });
+        if (applied > 0 || skippedClosed > 0 || noBankGl > 0) {
+          emitApplyToast(`Rule "${payload.ruleName}" created`, { applied, autoPostSkippedClosedPeriod: skippedClosed, autoPostRulesSkippedNoBankGl: noBankGl });
+        } else {
+          toast.success(`Rule "${payload.ruleName}" created`);
+        }
       }
 
       resetForm();
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed');
+      const msg = err instanceof Error ? err.message : 'Failed';
+      setError(msg);
+      toast.error(msg);
     } finally {
       setBusy('');
     }
@@ -238,10 +248,19 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || `${action} failed`);
-      if (action === 'apply' && json.data) setApplyResult(json.data);
+      if (action === 'apply' && json.data) {
+        setApplyResult(json.data);
+        emitApplyToast('Rules applied', json.data);
+      } else if (action === 'toggle') {
+        toast.success(extra?.isActive ? 'Rule activated' : 'Rule deactivated');
+      } else if (action === 'delete') {
+        toast.success('Rule deleted');
+      }
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : `${action} failed`);
+      const msg = err instanceof Error ? err.message : `${action} failed`;
+      setError(msg);
+      toast.error(msg);
     } finally {
       setBusy('');
     }
@@ -249,6 +268,7 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
 
   const performBulkDelete = async () => {
     if (selected.size === 0) return;
+    const count = selected.size;
     setBulkDeleting(true);
     setError('');
     try {
@@ -258,9 +278,12 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.message || 'Bulk delete failed');
+      toast.success(`${count} rule${count !== 1 ? 's' : ''} deleted`);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Bulk delete failed');
+      const msg = err instanceof Error ? err.message : 'Bulk delete failed';
+      setError(msg);
+      toast.error(msg);
     } finally {
       setBulkDeleting(false);
     }
