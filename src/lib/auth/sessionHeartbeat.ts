@@ -14,6 +14,8 @@
  * localStorage so a click in any tab counts as activity for all of them.
  */
 
+import { clearTenantClientState } from './clearTenantClientState';
+
 const CHANNEL_NAME = 'isaflow_auth';
 const ACTIVITY_KEY = 'isaflow_last_activity_at';
 const REFRESH_URL = '/api/auth/refresh';
@@ -152,8 +154,11 @@ export function startSessionHeartbeat(opts: HeartbeatOptions): StopFn {
     const idleFor = Date.now() - readLastActivity();
     if (idleFor >= idleMs) {
       // Idle bounce — clear cookies first so cookies aren't left valid on a
-      // shared computer after the redirect.
+      // shared computer after the redirect, then wipe tenant-scoped client
+      // state so the next sign-in on this browser cannot inherit the
+      // previous user's active company.
       await serverLogout();
+      clearTenantClientState();
       window.location.href = logoutHref;
       return;
     }
@@ -162,6 +167,7 @@ export function startSessionHeartbeat(opts: HeartbeatOptions): StopFn {
       const r = await fetch(REFRESH_URL, { method: 'POST', credentials: 'include' });
       if (!r.ok && r.status === 401) {
         // Refresh failed — session is genuinely dead, bounce.
+        clearTenantClientState();
         window.location.href = '/login?reason=session-expired';
       }
     } catch {

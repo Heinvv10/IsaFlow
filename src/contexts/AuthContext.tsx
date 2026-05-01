@@ -8,6 +8,7 @@ import {
   useCallback,
 } from 'react';
 import type { AuthRole } from '@/lib/auth/types';
+import { clearTenantClientState } from '@/lib/auth/clearTenantClientState';
 
 /**
  * Authenticated user shape returned from /api/auth/me
@@ -143,12 +144,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     setError(null);
 
-    // Clear stale company state from any previous session so the new user
-    // doesn't inherit another user's company context
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('isaflow_active_company');
-      localStorage.removeItem('isaflow_impersonation');
-    }
+    // Clear stale tenant state from any previous session so the new user
+    // doesn't inherit another user's company context.
+    clearTenantClientState();
 
     try {
       const res = await fetch('/api/auth/login', {
@@ -192,11 +190,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
     } finally {
       setUser(null);
+      clearTenantClientState();
       if (typeof window !== 'undefined') {
-        // Clear all auth/company state so the next login starts fresh
-        localStorage.removeItem('isaflow_active_company');
-        localStorage.removeItem('isaflow_impersonation');
-        sessionStorage.clear();
         window.location.href = '/login';
       }
     }
