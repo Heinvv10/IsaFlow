@@ -176,7 +176,7 @@ export function AfsReviewTab({ documentId, doc, onDocUpdate }: Props) {
     return () => { cancelled = true; };
   }, [documentId]);
 
-  const canSignOff = user?.role === 'super_admin' || user?.role === 'admin' || user?.role === 'manager';
+  const canSignOff = user?.role === 'super_admin' || user?.role === 'owner' || user?.role === 'admin' || user?.role === 'manager';
 
   async function handleWorkflow(action: string) {
     setSubmitting(true); setWorkflowError('');
