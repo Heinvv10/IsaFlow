@@ -24,7 +24,7 @@
 ### Deploy
 1. Trigger deploy via `bash scripts/deploy.sh` (or project's standard deploy script).
 2. Watch `/api/health` — expect 200 within ~30s.
-3. Check `/api/health/deep` — all deps healthy (db, smtp, stitch).
+3. Check `/api/health/deep` — all deps healthy (db, smtp, paystack).
 
 ### Verify
 1. Functional check (log in for JWT_SECRET, send email for SMTP, etc.).
@@ -63,13 +63,23 @@
 - Deploy. Trigger a test email (e.g., password reset from a dev account). Then revoke old creds.
 
 ### STITCH_CLIENT_SECRET + related (third-party)
-- Open banking integration. Contact Stitch support before rotation — their onboarding flow is sensitive to mismatched client creds.
+- Bank-feed OAuth integration only (Stitch's payments product was replaced by Paystack).
+- Contact Stitch support before rotation — their onboarding flow is sensitive to mismatched client creds.
 - Dual-cred window: aim for ~1h overlap to cover in-flight OAuth callbacks.
 
-### PAYFAST_MERCHANT_KEY / PAYFAST_PASSPHRASE (third-party)
-- Payment gateway. Any live payment in flight at rotation moment may fail signature verification.
-- **Rotate during a scheduled quiet window.** PayFast console issues new values.
-- Post-rotation: initiate a test transaction in sandbox; confirm webhook signatures verify.
+### PAYSTACK_SECRET_KEY (third-party, payments + webhook signing)
+- Single key serves three roles: REST auth (Bearer), webhook HMAC-SHA512
+  signing key, and authorisation-charge signing. Rotation invalidates all
+  three simultaneously.
+- **Rotate during a scheduled quiet window.** Any in-flight checkout that
+  posts a webhook signed by the OLD key will fail verification once the
+  server holds the new key.
+- Procedure: generate new sk_live_ in Paystack dashboard → Settings → API
+  Keys & Webhooks. Update PAYSTACK_SECRET_KEY in deploy env. Deploy.
+  Trigger a test payment in sandbox. Confirm webhook arrives + verifies.
+  Revoke old key in dashboard.
+- Post-rotation: re-check the Webhook URL in the Paystack dashboard — it is
+  not affected by key rotation but worth confirming.
 
 ### RESEND_API_KEY / ANTHROPIC_API_KEY / GEMINI_API_KEY / VLLM_API_KEY (third-party)
 - Vendor dashboards. Low user-facing impact (background jobs, AI features).
