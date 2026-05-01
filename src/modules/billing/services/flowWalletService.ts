@@ -252,7 +252,7 @@ export async function startBundlePurchase(
         company_id, bundle_id, flows, price_cents, payment_method, status, auto_triggered
       ) VALUES (
         ${companyId}, ${bundle.id}, ${bundle.flows}, ${bundle.price_cents},
-        ${opts.paymentMethod ?? 'stitch_payment_link'}, 'pending', ${opts.autoTriggered ?? false}
+        ${opts.paymentMethod ?? 'paystack_transaction'}, 'pending', ${opts.autoTriggered ?? false}
       )
       RETURNING id
     `) as Array<{ id: string }>;

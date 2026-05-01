@@ -1,7 +1,10 @@
 /**
  * Client Portal — Payment Link API
- * GET  — get payment link details by token
+ * GET  — get payment link details by token (enriched with invoice context)
  * POST — create a new payment link for an invoice
+ *
+ * Note: gateway selection is decoupled from this endpoint. The portal page
+ * calls /api/portal/payments/paystack/create to start a transaction.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -9,11 +12,9 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { createPaymentLink, getPaymentLink } from '@/modules/accounting/services/ar/portalService';
-import { generatePayFastForm } from '@/modules/accounting/services/core/paymentGatewayService';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 type Row = Record<string, unknown>;
-
 
 async function getHandler(req: NextApiRequest, res: NextApiResponse) {
     const token = req.query.token as string;
@@ -21,7 +22,6 @@ async function getHandler(req: NextApiRequest, res: NextApiResponse) {
     const link = await getPaymentLink(token);
     if (!link) return apiResponse.notFound(res, 'Payment link');
 
-    // Enrich with invoice details and PayFast form data
     const enriched: Record<string, unknown> = { ...link };
     try {
       const invoiceRows = (await sql`
@@ -36,24 +36,7 @@ async function getHandler(req: NextApiRequest, res: NextApiResponse) {
         enriched.invoiceNumber = invoiceRows[0].invoice_number;
         enriched.dueDate = invoiceRows[0].due_date;
         enriched.companyName = invoiceRows[0].company_name;
-
-        // Generate PayFast form data if online payment is enabled
-        if (invoiceRows[0].online_payment_enabled) {
-          const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3101';
-          const companyId = invoiceRows[0].company_id as string;
-          try {
-            const formData = await generatePayFastForm(
-              companyId,
-              link.invoiceId,
-              `${appUrl}/portal/pay/${token}?payment_status=success`,
-              `${appUrl}/portal/pay/${token}?payment_status=cancelled`,
-              `${appUrl}/api/accounting/payment-gateway-itn`,
-            );
-            enriched.payfastFormData = formData;
-          } catch (e) {
-            log.error('Failed to generate PayFast form for portal', e instanceof Error ? { message: e.message } : { error: e }, 'PaymentLink');
-          }
-        }
+        enriched.onlinePaymentEnabled = Boolean(invoiceRows[0].online_payment_enabled);
       }
     } catch (e) {
       log.error('Failed to enrich payment link', e instanceof Error ? { message: e.message } : { error: e }, 'PaymentLink');
@@ -67,13 +50,11 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
     if (!invoiceId || !clientId || !amount) {
       return apiResponse.badRequest(res, 'invoiceId, clientId, and amount are required');
     }
-    // Pentest L14: reject negative / Infinity / NaN amounts.
     const amountNum = Number(amount);
     if (!Number.isFinite(amountNum) || amountNum <= 0) {
       return apiResponse.badRequest(res, 'amount must be a positive number');
     }
 
-    // Resolve the authenticated user's company
     const userId = (req as AuthenticatedNextApiRequest).user.id;
     const companyRows = (await sql`
       SELECT company_id FROM company_users
@@ -86,7 +67,6 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
     }
     const companyId = companyRows[0]!.company_id as string;
 
-    // Verify invoice belongs to this company
     const invoice = (await sql`
       SELECT id FROM customer_invoices
       WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID

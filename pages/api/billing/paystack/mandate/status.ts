@@ -1,5 +1,5 @@
 /**
- * GET /api/admin/billing/stitch/mandate/status
+ * GET /api/billing/paystack/mandate/status
  * Returns the current active/pending mandate for the tenant + last 5 charges.
  * Used by the billing page's "Recurring debit" card.
  */
@@ -14,7 +14,10 @@ interface MandateRow {
   id: string;
   status: string;
   bank_name: string | null;
-  masked_account_number: string | null;
+  card_last4: string | null;
+  card_brand: string | null;
+  card_exp_month: string | null;
+  card_exp_year: string | null;
   max_amount_cents: string;
   authorised_at: Date | string | null;
 }
@@ -37,9 +40,12 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
 
   const mandates = await sql<MandateRow>`
-    SELECT id, status, bank_name, masked_account_number, max_amount_cents, authorised_at
+    SELECT id, status, bank_name,
+           card_last4, card_brand, card_exp_month, card_exp_year,
+           max_amount_cents, authorised_at
     FROM subscription_mandates
     WHERE company_id = ${req.companyId}
+      AND gateway = 'paystack'
       AND status IN ('active','pending')
     ORDER BY (status = 'active') DESC, created_at DESC
     LIMIT 1
@@ -50,6 +56,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
            attempt_count, last_attempt_at, settled_at, failure_reason
     FROM subscription_charges
     WHERE company_id = ${req.companyId}
+      AND gateway = 'paystack'
     ORDER BY period_start DESC
     LIMIT 5
   `;

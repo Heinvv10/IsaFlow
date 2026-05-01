@@ -8,7 +8,6 @@
 //   migrationValidationService.ts — conflicts: ValidationResult
 //   multiCurrencyService.ts — conflicts: ExchangeRate, ValidationResult, convertAmount
 //   nlQueryValidationService.ts — conflicts: SQLValidation, validateGeneratedSQL
-//   paymentGatewayService.ts — conflicts: enableOnlinePayment, handleITN
 //   payrollPdfService.ts — conflicts: PdfCompany, fmtDate, fmtPeriod
 //   pdfShared.ts — conflicts: fmtDate
 //   sageMigrationService.ts — conflicts: MigrationStatus, autoMapAccounts, generateComparison...
@@ -49,8 +48,6 @@ export * from './migrationTemplateService';
 export * from './nlQueryService';
 export * from './ocrExtractionService';
 export * from './ocrService';
-export * from './paymentGatewayCore';
-export * from './paymentGatewayItnService';
 export * from './paymentGatewayPortalService';
 export * from './payrollPdfBuilders1';
 export * from './payrollPdfBuilders2';

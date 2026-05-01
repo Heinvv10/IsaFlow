@@ -1,7 +1,7 @@
 /**
- * Stitch payment-link return page.
+ * Paystack payment-link return page.
  *
- * Tenants land here after completing (or cancelling) a Stitch hosted checkout
+ * Tenants land here after completing (or cancelling) a Paystack hosted checkout
  * for a Flow bundle top-up.  We poll the purchase-status endpoint until the
  * webhook has confirmed the credit, then redirect to the Flows settings page.
  * On explicit failure we surface the reason and a retry CTA.
@@ -97,7 +97,7 @@ export default function FlowsReturnPage() {
             <Loader2 className="w-10 h-10 animate-spin mx-auto text-teal-500 mb-4" />
             <h1 className="text-lg font-semibold mb-1">Confirming your payment…</h1>
             <p className="text-sm text-gray-500">
-              Stitch is finalising the payment. We&apos;ll credit your wallet
+              Paystack is finalising the payment. We&apos;ll credit your wallet
               as soon as we hear back — usually within a few seconds.
             </p>
           </div>
@@ -140,7 +140,7 @@ export default function FlowsReturnPage() {
             <AlertTriangle className="w-12 h-12 mx-auto text-amber-500 mb-4" />
             <h1 className="text-lg font-semibold mb-1">Still confirming…</h1>
             <p className="text-sm text-gray-500 mb-6">
-              We haven&apos;t heard back from Stitch yet. Your wallet will
+              We haven&apos;t heard back from Paystack yet. Your wallet will
               update automatically once we do — refresh the Flows page in a
               minute or two.
             </p>

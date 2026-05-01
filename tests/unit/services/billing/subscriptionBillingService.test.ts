@@ -1,28 +1,28 @@
 /**
  * Unit tests for subscriptionBillingService — the generate-due-charges
- * and run-queued-charges state machine that drives recurring LinkPay debits.
+ * and run-queued-charges state machine for recurring SaaS billing.
  *
- * Mocks: @/lib/neon.sql + stitchClient.debitFromMandate. Each test script
- * a stack of sql responses in the order the service issues them.
+ * Mocks: @/lib/neon.sql + paystackClient.chargeAuthorization. Each test
+ * scripts a stack of sql responses in the order the service issues them.
  */
 
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-vi.mock('@/modules/billing/services/stitchClient', () => ({
-  debitFromMandate: vi.fn(),
+vi.mock('@/modules/billing/services/paystackClient', () => ({
+  chargeAuthorization: vi.fn(),
 }));
 
 import { sql } from '@/lib/neon';
-import { debitFromMandate } from '@/modules/billing/services/stitchClient';
+import { chargeAuthorization } from '@/modules/billing/services/paystackClient';
 import {
   generateDueCharges,
   runQueuedCharges,
 } from '@/modules/billing/services/subscriptionBillingService';
 
 const mockSql = sql as unknown as MockedFunction<typeof sql>;
-const mockDebit = debitFromMandate as unknown as MockedFunction<typeof debitFromMandate>;
+const mockCharge = chargeAuthorization as unknown as MockedFunction<typeof chargeAuthorization>;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -46,7 +46,7 @@ describe('generateDueCharges', () => {
     mockSql
       .mockResolvedValueOnce([due] as never)       // SELECT due subs
       .mockResolvedValueOnce([] as never)          // existing charge check — none
-      .mockResolvedValueOnce([{ id: 'mandate-1' }] as never) // active mandate
+      .mockResolvedValueOnce([{ id: 'mandate-1' }] as never) // active paystack mandate
       .mockResolvedValueOnce([] as never)          // INSERT charge
       .mockResolvedValueOnce([] as never);         // UPDATE subscription period
 
@@ -77,7 +77,7 @@ describe('generateDueCharges', () => {
     expect(params).toContain(8000); // 10000 * 0.8
   });
 
-  it('skips when no active mandate exists', async () => {
+  it('skips when no active Paystack mandate exists', async () => {
     const now = new Date('2026-05-01T00:00:00Z');
     mockSql
       .mockResolvedValueOnce([{
@@ -115,35 +115,43 @@ describe('runQueuedCharges', () => {
     company_id: 'co-1',
     mandate_id: 'mandate-1',
     amount_cents: '59900',
-    external_reference: 'sub_co-1_2026-05_abcd',
+    paystack_reference: 'sub_co1_2026-05_abcd',
+    external_reference: 'sub_co1_2026-05_abcd',
     attempt_count: 0,
     status: 'queued' as const,
-    stitch_bank_account_id: 'bank-1',
+    paystack_authorization_code: 'AUTH_xyz',
+    paystack_customer_code: 'CUS_1',
     mandate_status: 'active',
-    company_name: 'Acme Pty Ltd',
+    user_email: 'admin@acme.co.za',
     period_start: '2026-05-01',
   };
 
-  it('fails queued charges until Stitch Express recurring is enabled', async () => {
-    // debitFromMandate currently throws a "not enabled" error on every call
-    // while we wait on Stitch Express to upgrade the tenant scope.
+  it('charges the authorization and records a settled subscription_charges row on success', async () => {
     mockSql
-      .mockResolvedValueOnce([baseCharge] as never)
-      .mockResolvedValueOnce([] as never); // UPDATE charge → failed
+      .mockResolvedValueOnce([baseCharge] as never)  // SELECT charges
+      .mockResolvedValueOnce([] as never)            // INSERT paystack_payment_requests
+      .mockResolvedValueOnce([] as never);           // UPDATE charge → settled
 
-    mockDebit.mockRejectedValueOnce(new Error('Stitch Express recurring not enabled on this tenant.'));
+    mockCharge.mockResolvedValueOnce({
+      status: 'success',
+      reference: baseCharge.paystack_reference,
+      paystackId: 12345,
+      amountCents: 59900,
+      gatewayResponse: 'Approved',
+    });
 
     const result = await runQueuedCharges();
 
-    expect(result).toEqual({ submitted: 0, failed: 1, skipped: 0 });
-    expect(mockDebit).toHaveBeenCalledWith(expect.objectContaining({
-      bankAccountId: 'bank-1',
+    expect(result).toEqual({ submitted: 1, failed: 0, skipped: 0 });
+    expect(mockCharge).toHaveBeenCalledWith(expect.objectContaining({
+      authorizationCode: 'AUTH_xyz',
+      email: 'admin@acme.co.za',
       amountCents: 59900,
-      externalReference: 'sub_co-1_2026-05_abcd',
+      reference: 'sub_co1_2026-05_abcd',
     }));
   });
 
-  it('marks charge failed with mandate_not_active when mandate is not active', async () => {
+  it('skips when mandate is not active', async () => {
     mockSql
       .mockResolvedValueOnce([{ ...baseCharge, mandate_status: 'revoked' }] as never)
       .mockResolvedValueOnce([] as never); // UPDATE charge → failed
@@ -151,15 +159,25 @@ describe('runQueuedCharges', () => {
     const result = await runQueuedCharges();
 
     expect(result).toEqual({ submitted: 0, failed: 0, skipped: 1 });
-    expect(mockDebit).not.toHaveBeenCalled();
+    expect(mockCharge).not.toHaveBeenCalled();
   });
 
-  it('marks charge failed when Stitch throws', async () => {
+  it('skips when paystack_authorization_code is missing', async () => {
+    mockSql
+      .mockResolvedValueOnce([{ ...baseCharge, paystack_authorization_code: null }] as never)
+      .mockResolvedValueOnce([] as never);
+
+    const result = await runQueuedCharges();
+    expect(result).toEqual({ submitted: 0, failed: 0, skipped: 1 });
+    expect(mockCharge).not.toHaveBeenCalled();
+  });
+
+  it('marks charge failed when Paystack throws', async () => {
     mockSql
       .mockResolvedValueOnce([baseCharge] as never)
       .mockResolvedValueOnce([] as never); // UPDATE charge → failed
 
-    mockDebit.mockRejectedValueOnce(new Error('insufficient funds'));
+    mockCharge.mockRejectedValueOnce(new Error('insufficient funds'));
 
     const result = await runQueuedCharges();
 
