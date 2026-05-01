@@ -106,16 +106,41 @@ export async function approveWriteOff(companyId: string, id: string, userId: str
   const wo = woRows[0];
   const amount = Number(wo.amount);
 
-  // GL: DR Bad Debts Expense, CR Accounts Receivable
-  const expenseAccount = await getSystemAccount('admin_expense', companyId);
-  const arAccount = await getSystemAccount('receivable', companyId);
+  // Fetch invoice VAT details for SA VAT Act §22(3) bad debt VAT recovery
+  const invVatRows = (await sql`
+    SELECT total_amount, tax_amount FROM customer_invoices
+    WHERE id = ${wo.invoice_id}::UUID AND company_id = ${companyId}
+  `) as Row[];
+  const invTotal = Number(invVatRows[0]?.total_amount || 0);
+  const invTaxAmount = Number(invVatRows[0]?.tax_amount || 0);
+  const vatRecoverable = invTotal > 0 && invTaxAmount > 0
+    ? Math.round((amount / invTotal) * invTaxAmount * 100) / 100
+    : 0;
 
+  // GL: DR Bad Debts Expense, CR Accounts Receivable
+  const [expenseAccount, arAccount] = await Promise.all([
+    getSystemAccount('admin_expense', companyId),
+    getSystemAccount('receivable', companyId),
+  ]);
+
+  // Net bad debt expense is the pre-VAT portion only; VAT is recovered separately
+  const netWriteOff = Math.round((amount - vatRecoverable) * 100) / 100;
   const lines: JournalLineInput[] = [
-    { glAccountId: expenseAccount.id, debit: amount, credit: 0,
+    { glAccountId: expenseAccount.id, debit: netWriteOff, credit: 0,
       description: `Bad debt write-off: ${wo.invoice_number}` },
     { glAccountId: arAccount.id, debit: 0, credit: amount,
       description: `Write-off AR: ${wo.invoice_number}` },
   ];
+
+  // VAT Act §22(3): recover output VAT on written-off debt
+  if (vatRecoverable > 0) {
+    const outputVatAccount = await getSystemAccount('vat_output', companyId);
+    lines.push({
+      glAccountId: outputVatAccount.id, debit: vatRecoverable, credit: 0,
+      description: `VAT recovery on bad debt: ${wo.invoice_number}`,
+      vatType: 'bad_debt',
+    });
+  }
 
   const je = await createJournalEntry(companyId, {
     entryDate: fmtDate(wo.write_off_date),

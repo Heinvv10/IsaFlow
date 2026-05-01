@@ -112,15 +112,28 @@ export async function getBalanceSheet(companyId: string,
         : Promise.resolve(null),
     ]);
 
+    const totalAssets = current.assets.reduce((s, a) => s + a.balance, 0);
+    const totalLiabilities = current.liabilities.reduce((s, l) => s + l.balance, 0);
+    const totalEquity = current.equity.reduce((s, e) => s + e.balance, 0);
+
+    const imbalance = Math.abs(totalAssets - (totalLiabilities + totalEquity));
+    if (imbalance > 0.01) {
+      log.warn(
+        'Balance sheet equation violated: Assets ≠ Liabilities + Equity',
+        { asAtDate, totalAssets, totalLiabilities, totalEquity, imbalance },
+        'accounting',
+      );
+    }
+
     const report: BalanceSheetReport = {
       asAtDate,
       costCentreId,
       assets: current.assets,
       liabilities: current.liabilities,
       equity: current.equity,
-      totalAssets: current.assets.reduce((s, a) => s + a.balance, 0),
-      totalLiabilities: current.liabilities.reduce((s, l) => s + l.balance, 0),
-      totalEquity: current.equity.reduce((s, e) => s + e.balance, 0),
+      totalAssets,
+      totalLiabilities,
+      totalEquity,
     };
 
     if (compareDate && prior) {

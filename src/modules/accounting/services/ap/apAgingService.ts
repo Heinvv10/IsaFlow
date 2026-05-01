@@ -15,6 +15,9 @@ type Row = DbRow;
 export async function getAPAging(companyId: string, asAtDate?: string): Promise<AgingBucket[]> {
   try {
     const asAt = asAtDate ? new Date(asAtDate) : new Date();
+    if (asAtDate && isNaN(asAt.getTime())) {
+      throw new Error(`Invalid asAtDate: "${asAtDate}"`);
+    }
 
     const rows = (await sql`
       SELECT si.id, si.supplier_id AS entity_id, s.name AS entity_name,
@@ -51,8 +54,11 @@ export async function getAPAgingDetail(companyId: string,
 ): Promise<{ supplier: { id: string; name: string }; invoices: AgingInvoice[]; buckets: AgingBucket | null }> {
   try {
     const asAt = asAtDate ? new Date(asAtDate) : new Date();
+    if (asAtDate && isNaN(asAt.getTime())) {
+      throw new Error(`Invalid asAtDate: "${asAtDate}"`);
+    }
 
-    const supplierRows = (await sql`SELECT id, name FROM suppliers WHERE id = ${Number(supplierId)} AND company_id = ${companyId}::UUID`) as Row[];
+    const supplierRows = (await sql`SELECT id, name FROM suppliers WHERE id = ${supplierId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
     if (supplierRows.length === 0) throw new Error(`Supplier ${supplierId} not found`);
 
     const rows = (await sql`
@@ -61,7 +67,7 @@ export async function getAPAgingDetail(companyId: string,
       FROM supplier_invoices si
       JOIN suppliers s ON s.id = si.supplier_id
       WHERE si.company_id = ${companyId}::UUID
-        AND si.supplier_id = ${Number(supplierId)}
+        AND si.supplier_id = ${supplierId}::UUID
         AND si.status = ANY(${Array.from(AP_OPEN_STATUSES)}::text[])
         AND si.balance > 0
         AND si.due_date IS NOT NULL

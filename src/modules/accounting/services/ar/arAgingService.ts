@@ -16,6 +16,9 @@ type Row = DbRow;
 export async function getARAging(companyId: string, asAtDate?: string): Promise<AgingBucket[]> {
   try {
     const asAt = asAtDate ? new Date(asAtDate) : new Date();
+    if (asAtDate && isNaN(asAt.getTime())) {
+      throw new Error(`Invalid asAtDate: "${asAtDate}"`);
+    }
 
     const rows = (await sql`
       SELECT ci.id, COALESCE(ci.client_id, ci.customer_id) AS entity_id, c.name AS entity_name,

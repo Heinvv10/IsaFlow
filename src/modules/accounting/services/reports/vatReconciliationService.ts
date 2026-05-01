@@ -217,11 +217,11 @@ export async function getVatReconciliation(
       });
     }
 
-    if (effectiveVatRate > 0 && (effectiveVatRate < 13 || effectiveVatRate > 17)) {
+    if (effectiveVatRate > 0 && (effectiveVatRate < 14 || effectiveVatRate > 16)) {
       issues.push({
         month,
-        severity: 'warning',
-        message: `Effective VAT rate of ${effectiveVatRate}% outside expected 13-17% range`,
+        severity: effectiveVatRate < 13 || effectiveVatRate > 17 ? 'error' : 'warning',
+        message: `Effective VAT rate of ${effectiveVatRate}% outside expected range for 15% standard rate — possible misclassification of exempt/zero-rated supplies`,
       });
     }
 

@@ -16,6 +16,8 @@ import { recordPaymentMatch } from '../capture/fourWayMatchService';
 
 type Row = DbRow;
 
+const SA_VAT_RATE_PCT = 15; // Standard SA VAT rate; update if SARS changes the statutory rate
+
 // ── VAT account fallback resolver ──────────────────────────────────────────
 //
 // Migration 327 normalises account_subtype to 'vat_input' / 'vat_output'.
@@ -92,9 +94,10 @@ export async function allocateTransaction(
   const isSpent = Number(tx.amount) < 0;
 
   const hasVat = vatCode === 'standard';
-  const vatRate = hasVat ? 15 : 0;
-  const netAmount = hasVat ? Math.round((totalAmount * 100 / 115) * 100) / 100 : totalAmount;
-  const vatAmount = hasVat ? Math.round((totalAmount - netAmount) * 100) / 100 : 0;
+  const vatRate = hasVat ? SA_VAT_RATE_PCT : 0;
+  const netAmount = hasVat ? Math.round((totalAmount * 100 / (100 + SA_VAT_RATE_PCT)) * 100) / 100 : totalAmount;
+  // No second rounding — vatAmount is derived so that netAmount + vatAmount === totalAmount exactly.
+  const vatAmount = hasVat ? totalAmount - netAmount : 0;
   const vatAccountKey = isSpent ? 'vat_input' as const : 'vat_output' as const;
   const mapVatType = vatCode === 'standard' ? 'standard' as const
     : vatCode === 'zero_rated' ? 'zero_rated' as const
@@ -408,8 +411,8 @@ export async function splitAllocateTransaction(
   for (const line of lines) {
     const lineAmount = Number(line.amount);
     const hasVat = line.vatCode === 'standard';
-    const netAmount = hasVat ? Math.round((lineAmount * 100 / 115) * 100) / 100 : lineAmount;
-    const vatAmount = hasVat ? Math.round((lineAmount - netAmount) * 100) / 100 : 0;
+    const netAmount = hasVat ? Math.round((lineAmount * 100 / (100 + SA_VAT_RATE_PCT)) * 100) / 100 : lineAmount;
+    const vatAmount = hasVat ? lineAmount - netAmount : 0;
     const vatAccountKey = isSpent ? 'vat_input' as const : 'vat_output' as const;
     const lineDesc = line.description || entryDesc;
     const mapVatType = line.vatCode === 'standard' ? 'standard' as const
