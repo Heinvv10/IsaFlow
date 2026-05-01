@@ -6,11 +6,16 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
+import {
+  createJournalEntry,
+  postJournalEntry,
+  ClosedFiscalPeriodError,
+} from '../gl/journalEntryService';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import type { RuleApplyResult } from '../../types/bank.types';
 import {
-  toSqlPattern, findMatchingTxs, buildAutoCreateLines, type RuleAllocType,
+  toSqlPattern, findMatchingTxs, buildAutoCreateLines, isDateInOpenPeriod,
+  type RuleAllocType,
 } from './bankRulesMatchingHelpers';
 
 export async function applyRules(
@@ -190,6 +195,19 @@ export async function applyRules(
       }
 
       for (const tx of matchingTxs) {
+        const entryDate = tx.transaction_date instanceof Date
+          ? tx.transaction_date.toISOString().split('T')[0]!
+          : String(tx.transaction_date).split('T')[0]!;
+
+        // Pre-flight: skip historical transactions whose date is in a
+        // closed/locked period (or has no period at all). Without this,
+        // createJournalEntry would insert a draft JE row, postJournalEntry
+        // would reject it, and the draft would dangle in the GL forever.
+        if (!(await isDateInOpenPeriod(companyId, entryDate))) {
+          autoPostSkippedClosedPeriod++;
+          continue;
+        }
+
         const totalAmount = Math.abs(Number(tx.amount));
         const isDeposit = Number(tx.amount) > 0;
         const entryDesc = rule.description_template
@@ -230,23 +248,27 @@ export async function applyRules(
           entryDesc, companyId,
         });
 
-        let je: Awaited<ReturnType<typeof createJournalEntry>>;
+        const je = await createJournalEntry(companyId, {
+          entryDate,
+          description: entryDesc,
+          source,
+          lines,
+        }, userId);
         try {
-          je = await createJournalEntry(companyId, {
-            entryDate: tx.transaction_date instanceof Date
-              ? tx.transaction_date.toISOString().split('T')[0]!
-              : String(tx.transaction_date).split('T')[0]!,
-            description: entryDesc,
-            source,
-            lines,
-          }, userId);
           await postJournalEntry(companyId, je.id, userId);
         } catch (err) {
-          // Closed/locked fiscal period is the expected failure for historical
-          // transactions; count it and move on instead of aborting the whole
-          // apply. Anything else re-throws.
-          const msg = err instanceof Error ? err.message : String(err);
-          if (/closed fiscal period|locked fiscal period|no fiscal period/i.test(msg)) {
+          // The pre-flight above should have caught closed periods, but the
+          // fiscal-period state can flip between the pre-flight and the post
+          // (rare race; admin closing a period mid-apply). On that path we
+          // soft-delete the draft we just inserted instead of leaving it
+          // dangling, then count and continue. Anything else re-throws.
+          if (err instanceof ClosedFiscalPeriodError) {
+            await sql`
+              DELETE FROM gl_journal_entries
+              WHERE id = ${je.id}::UUID
+                AND company_id = ${companyId}::UUID
+                AND status = 'draft'
+            `;
             autoPostSkippedClosedPeriod++;
             continue;
           }

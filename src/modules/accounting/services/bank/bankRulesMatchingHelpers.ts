@@ -9,6 +9,24 @@ import type { JournalLineInput } from '../../types/gl.types';
 
 export type RuleAllocType = 'account' | 'supplier' | 'customer';
 
+/**
+ * Returns true iff the given date has an open fiscal period for this company.
+ * Used by applyRules to pre-filter auto-post candidates so we never insert a
+ * draft JE that we know will fail to post — that would leave orphan drafts in
+ * the GL.
+ */
+export async function isDateInOpenPeriod(companyId: string, entryDate: string): Promise<boolean> {
+  const rows = (await sql`
+    SELECT status FROM fiscal_periods
+    WHERE company_id = ${companyId}::UUID
+      AND start_date <= ${entryDate}::DATE
+      AND end_date   >= ${entryDate}::DATE
+    LIMIT 1
+  `) as Record<string, unknown>[];
+  if (rows.length === 0) return false;
+  return String(rows[0]!.status) === 'open';
+}
+
 /** Convert rule match type to SQL ILIKE pattern. */
 export function toSqlPattern(matchType: string, matchPattern: string): string {
   switch (matchType) {

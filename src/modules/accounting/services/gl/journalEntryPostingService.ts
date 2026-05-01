@@ -18,6 +18,21 @@ import { defaultHumanMeta } from './journalEntryMeta';
 
 type Row = DbRow;
 
+/**
+ * Thrown when a journal entry cannot be posted because its target fiscal
+ * period is not open. Lets callers (e.g. bank-rules auto-post) match on
+ * `instanceof` instead of regexing the message, so future wording tweaks
+ * don't silently change the swallow/re-throw boundary.
+ */
+export class ClosedFiscalPeriodError extends Error {
+  readonly periodStatus: string;
+  constructor(periodStatus: string) {
+    super(`Cannot post to ${periodStatus} fiscal period`);
+    this.name = 'ClosedFiscalPeriodError';
+    this.periodStatus = periodStatus;
+  }
+}
+
 export async function postJournalEntry(companyId: string, id: string, userId: string): Promise<JournalEntry> {
   try {
     const entry = await getJournalEntryById(companyId, id);
@@ -29,7 +44,7 @@ export async function postJournalEntry(companyId: string, id: string, userId: st
         SELECT status FROM fiscal_periods WHERE id = ${entry.fiscalPeriodId}
       `) as Row[];
       if (period.length > 0 && String(period[0]!.status) !== 'open') {
-        throw new Error(`Cannot post to ${String(period[0]!.status)} fiscal period`);
+        throw new ClosedFiscalPeriodError(String(period[0]!.status));
       }
     }
 
