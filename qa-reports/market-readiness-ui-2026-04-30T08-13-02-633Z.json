@@ -1,0 +1,1108 @@
+{
+  "generatedAt": "2026-04-30T08:19:39.055Z",
+  "target": "http://localhost:3200",
+  "companyId": "00000000-0000-0000-0000-0000000d4e02",
+  "summary": {
+    "pages": 30,
+    "pageProblems": 0,
+    "workflows": 6,
+    "workflowProblems": 0
+  },
+  "pages": [
+    {
+      "route": "/accounting",
+      "finalUrl": "http://localhost:3200/accounting",
+      "status": 200,
+      "title": "",
+      "screenshot": "qa-reports/market-ui-2026-04-30T08-13-02-633Z/accounting.png",
+      "bodySample": "IsaDemo2 (QA fixture) Create new (N) Search Ctrl+K 13 Settings Admin User Dashboard Portfolio Month-End Sales Purchases Inventory Banking Accounting Reports Tax Payroll Practice FINANCIAL OVERVIEW · APRIL 2026 IsaDemo2 (QA fixture) General Ledger, Journal Entries & Financial Reports REVENUE MTD R 0,00 OUTSTANDING INVOICES R 16.8K CASH POSITION R 25.9K DAYS TO CLOSE — Overview Chart of Accounts Journal Entries Fiscal Periods Reports TODAY IN THE BOOKS UNRECONCILED BANK TRANSACTIONS 5 View DRAFT I",
+      "counts": {
+        "buttons": 27,
+        "disabledButtons": 0,
+        "links": 19,
+        "emptyLinks": 0,
+        "inputs": 0,
+        "dialogs": 0,
+        "buttonLabels": [
+          "IsaDemo2 (QA fixture)",
+          "Create new",
+          "Search\nCtrl+K",
+          "13",
+          "Settings",
+          "(unlabelled)",
+          "Comfortable — standard row height",
+          "Compact — reduced row height",
+          "(unlabelled)",
+          "(unlabelled)",
+          "Sales",
+          "Purchases"
+        ]
+      },
+      "problems": [],
+      "failedRequests": [],
+      "consoleErrors": []
+    },
+    {
+      "route": "/accounting/customers",
+      "finalUrl": "http://localhost:3200/accounting/customers",
+      "status": 200,
+      "title": "",
+      "screenshot": "qa-reports/market-ui-2026-04-30T08-13-02-633Z/accounting-customers.png",
+      "bodySample": "IsaDemo2 (QA fixture) Create new (N) Search Ctrl+K 13 Settings Admin User Dashboard Portfolio Month-End Sales Purchases Inventory Banking Accounting Reports Tax Payroll Practice Customers Manage your customer accounts New Customer TOTAL CUSTOMERS 5 ACTIVE 5 INACTIVE 0 5 customers NAME EMAIL PHONE CONTACT PERSON PAYMENT TERMS STATUS Acme Property Holdings (Pty) Ltd qa-cust-001@example.com - - 30 days Active Brooklyn Coffee Roasters qa-cust-005@example.com - - 30 days Active Highveld Bricks (Pty) ",
+      "counts": {
+        "buttons": 19,
+        "disabledButtons": 0,
+        "links": 9,
+        "emptyLinks": 0,
+        "inputs": 1,
+        "dialogs": 0,
+        "buttonLabels": [
+          "IsaDemo2 (QA fixture)",
+          "Create new",
+          "Search\nCtrl+K",
+          "13",
+          "Settings",
+          "(unlabelled)",
+          "Comfortable — standard row height",
+          "Compact — reduced row height",
+          "(unlabelled)",
+          "(unlabelled)",
+          "Sales",
+          "Purchases"
+        ]
+      },
+      "problems": [],
+      "failedRequests": [],
+      "consoleErrors": []
+    },
+    {
+      "route": "/accounting/customers/new",
+      "finalUrl": "http://localhost:3200/accounting/customers/new",
+      "status": 200,
+      "title": "",
+      "screenshot": "qa-reports/market-ui-2026-04-30T08-13-02-633Z/accounting-customers-new.png",
+      "bodySample": "IsaDemo2 (QA fixture) Create new (N) Search Ctrl+K 13 Settings Admin User Dashboard Portfolio Month-End Sales Purchases Inventory Banking Accounting Reports Tax Payroll Practice New Customer Add a new customer account BASIC INFORMATION Customer Name* Category (None) Registration Number VAT Number Credit Limit Active Cash Sale Customer Accepts Electronic Invoices OPENING BALANCE Opening Balance Opening Balance as At Auto Allocate Receipts to Oldest Invoice CONTACT DETAILS Contact Name Email Telep",
+      "counts": {
+        "buttons": 27,
+        "disabledButtons": 0,
+        "links": 5,
+        "emptyLinks": 0,
+        "inputs": 23,
+        "dialogs": 0,
+        "buttonLabels": [
+          "IsaDemo2 (QA fixture)",
+          "Create new",
+          "Search\nCtrl+K",
+          "13",
+          "Settings",
+          "(unlabelled)",
+          "Comfortable — standard row height",
+          "Compact — reduced row height",
+          "(unlabelled)",
+          "(unlabelled)",
+          "Sales",
+          "Purchases"
+        ]
+      },
+      "problems": [],
+      "failedRequests": [],
+      "consoleErrors": []
+    },
+    {
+      "route": "/accounting/customer-invoices",
+      "finalUrl": "http://localhost:3200/accounting/customer-invoices",
+      "status": 200,
+      "title": "",
+      "screenshot": "qa-reports/market-ui-2026-04-30T08-13-02-633Z/accounting-customer-invoices.png",
+      "bodySample": "IsaDemo2 (QA fixture) Create new (N) Search Ctrl+K 13 Settings Admin User Dashboard Portfolio Month-End Sales Purchases Inventory Banking Accounting Reports Tax Payroll Practice Tax Invoices Customer invoices across all projects Export CSV New Invoice TOTAL INVOICES 8 VISIBLE VALUE R 23 345 8 on this page OUTSTANDING R 21 095 OVERDUE 0 All on time All Statuses Draft Approved Sent Partially Paid Paid Overdue 8 invoices FILTER Due soon Overdue 90+ Viewed but unpaid INVOICE # CLIENT REFERENCE DATE ",
+      "counts": {
+        "buttons": 23,
+        "disabledButtons": 0,
+        "links": 12,
+        "emptyLinks": 0,
+        "inputs": 2,
+        "dialogs": 0,
+        "buttonLabels": [
+          "IsaDemo2 (QA fixture)",
+          "Create new",
+          "Search\nCtrl+K",
+          "13",
+          "Settings",
+          "(unlabelled)",
+          "Comfortable — standard row height",
+          "Compact — reduced row height",
+          "(unlabelled)",
+          "(unlabelled)",
+          "Sales",
+          "Purchases"
+        ]
+      },
+      "problems": [],
+      "failedRequests": [],
+      "consoleErrors": []
+    },
+    {
+      "route": "/accounting/customer-invoices/new",
+      "finalUrl": "http://localhost:3200/accounting/customer-invoices/new",
+      "status": 200,
+      "title": "",
+      "screenshot": "qa-reports/market-ui-2026-04-30T08-13-02-633Z/accounting-customer-invoices-new.png",
+      "bodySample": "IsaDemo2 (QA fixture) Create new (N) Search Ctrl+K 13 Settings Admin User Dashboard Portfolio Month-End Sales Purchases Inventory Banking Accounting Reports Tax Payroll Practice Back to Invoices NEW DOCUMENT Customer Invoice Scan Invoice 1 Client & Settings CLIENT * Select client… Acme Property Holdings (Pty) Ltd Brooklyn Coffee Roasters Highveld Bricks (Pty) Ltd Northcliff Trading CC Sandton Logistics (Pty) Ltd VAT RATE % CURRENCY ZAR — South African Rand 2 Dates & Period INVOICE DATE DUE DATE ",
+      "counts": {
+        "buttons": 25,
+        "disabledButtons": 0,
+        "links": 4,
+        "emptyLinks": 0,
+        "inputs": 12,
+        "dialogs": 0,
+        "buttonLabels": [
+          "IsaDemo2 (QA fixture)",
+          "Create new",
+          "Search\nCtrl+K",
+          "13",
+          "Settings",
+          "(unlabelled)",
+          "Comfortable — standard row height",
+          "Compact — reduced row height",
+          "(unlabelled)",
+          "(unlabelled)",
+          "Sales",
+          "Purchases"
+        ]
+      },
+      "problems": [],
+      "failedRequests": [],
+      "consoleErrors": []
+    },
+    {
+      "route": "/accounting/customer-payments",
+      "finalUrl": "http://localhost:3200/accounting/customer-payments",
+      "status": 200,
+      "title": "",
+      "screenshot": "qa-reports/market-ui-2026-04-30T08-13-02-633Z/accounting-customer-payments.png",
+      "bodySample": "IsaDemo2 (QA fixture) Create new (N) Search Ctrl+K 13 Settings Admin User Dashboard Portfolio Month-End Sales Purchases Inventory Banking Accounting Reports Tax Payroll Practice Customer Receipts 0 payments Export Record Payment All Draft Confirmed Reconciled Cancelled No payments found Record your first customer payment Record Payment",
+      "counts": {
+        "buttons": 27,
+        "disabledButtons": 0,
+        "links": 3,
+        "emptyLinks": 0,
+        "inputs": 1,
+        "dialogs": 0,
+        "buttonLabels": [
+          "IsaDemo2 (QA fixture)",
+          "Create new",
+          "Search\nCtrl+K",
+          "13",
+          "Settings",
+          "(unlabelled)",
+          "Comfortable — standard row height",
+          "Compact — reduced row height",
+          "(unlabelled)",
+          "(unlabelled)",
+          "Sales",
+          "Purchases"
+        ]
+      },
+      "problems": [],
+      "failedRequests": [],
+      "consoleErrors": []
+    },
+    {
+      "route": "/accounting/customer-payments/new",
+      "finalUrl": "http://localhost:3200/accounting/customer-payments/new",
+      "status": 200,
+      "title": "",
+      "screenshot": "qa-reports/market-ui-2026-04-30T08-13-02-633Z/accounting-customer-payments-new.png",
+      "bodySample": "IsaDemo2 (QA fixture) Create new (N) Search Ctrl+K 13 Settings Admin User Dashboard Portfolio Month-End Sales Purchases Inventory Banking Accounting Reports Tax Payroll Practice Back to Payments NEW DOCUMENT Record Customer Payment Scan Document 1 Payment Details CLIENT * Select client… Acme Property Holdings (Pty) Ltd Brooklyn Coffee Roasters Highveld Bricks (Pty) Ltd Northcliff Trading CC Sandton Logistics (Pty) Ltd PAYMENT DATE * PAYMENT METHOD EFT Cheque Cash Card BANK REFERENCE DESCRIPTION ",
+      "counts": {
+        "buttons": 22,
+        "disabledButtons": 1,
+        "links": 5,
+        "emptyLinks": 0,
+        "inputs": 7,
+        "dialogs": 0,
+        "buttonLabels": [
+          "IsaDemo2 (QA fixture)",
+          "Create new",
+          "Search\nCtrl+K",
+          "13",
+          "Settings",
+          "(unlabelled)",
+          "Comfortable — standard row height",
+          "Compact — reduced row height",
+          "(unlabelled)",
+          "(unlabelled)",
+          "Sales",
+          "Purchases"
+        ]
+      },
+      "problems": [],
+      "failedRequests": [],
+      "consoleErrors": []
+    },
+    {
+      "route": "/accounting/suppliers",
+      "finalUrl": "http://localhost:3200/accounting/suppliers",
+      "status": 200,
+      "title": "",
+      "screenshot": "qa-reports/market-ui-2026-04-30T08-13-02-633Z/accounting-suppliers.png",
+      "bodySample": "IsaDemo2 (QA fixture) Create new (N) Search Ctrl+K 13 Settings Admin User Dashboard Portfolio Month-End Sales Purchases Inventory Banking Accounting Reports Tax Payroll Practice Suppliers Manage your supplier accounts New Supplier TOTAL SUPPLIERS 4 ACTIVE 4 INACTIVE 0 4 suppliers NAME EMAIL PHONE CONTACT PERSON CATEGORY STATUS QA Cleaning Co qa-sup-003@example.com - - - Active QA Couriers Direct qa-sup-004@example.com - - - Active QA Office Supplies SA qa-sup-001@example.com - - - Active QA Telk",
+      "counts": {
+        "buttons": 19,
+        "disabledButtons": 0,
+        "links": 8,
+        "emptyLinks": 0,
+        "inputs": 1,
+        "dialogs": 0,
+        "buttonLabels": [
+          "IsaDemo2 (QA fixture)",
+          "Create new",
+          "Search\nCtrl+K",
+          "13",
+          "Settings",
+          "(unlabelled)",
+          "Comfortable — standard row height",
+          "Compact — reduced row height",
+          "(unlabelled)",
+          "(unlabelled)",
+          "Sales",
+          "Purchases"
+        ]
+      },
+      "problems": [],
+      "failedRequests": [],
+      "consoleErrors": []
+    },
+    {
+      "route": "/accounting/suppliers/new",
+      "finalUrl": "http://localhost:3200/accounting/suppliers/new",
+      "status": 200,
+      "title": "",
+      "screenshot": "qa-reports/market-ui-2026-04-30T08-13-02-633Z/accounting-suppliers-new.png",
+      "bodySample": "IsaDemo2 (QA fixture) Create new (N) Search Ctrl+K 13 Settings Admin User Dashboard Portfolio Month-End Sales Purchases Inventory Banking Accounting Reports Tax Payroll Practice New Supplier Add a new supplier account BASIC INFORMATION Supplier Name* Company / Trading Name If different from supplier name Email Address WhatsApp number (for chase) Used to send invoice chase messages via WhatsApp Phone Number Contact Person Category Select category... Materials Services Equipment Subcontractor Util",
+      "counts": {
+        "buttons": 23,
+        "disabledButtons": 0,
+        "links": 5,
+        "emptyLinks": 0,
+        "inputs": 18,
+        "dialogs": 0,
+        "buttonLabels": [
+          "IsaDemo2 (QA fixture)",
+          "Create new",
+          "Search\nCtrl+K",
+          "13",
+          "Settings",
+          "(unlabelled)",
+          "Comfortable — standard row height",
+          "Compact — reduced row height",
+          "(unlabelled)",
+          "(unlabelled)",
+          "Sales",
+          "Purchases"
+        ]
+      },
+      "problems": [],
+      "failedRequests": [],
+      "consoleErrors": []
+    },
+    {
+      "route": "/accounting/supplier-invoices",
+      "finalUrl": "http://localhost:3200/accounting/supplier-invoices",
+      "status": 200,
+      "title": "",
+      "screenshot": "qa-reports/market-ui-2026-04-30T08-13-02-633Z/accounting-supplier-invoices.png",
+      "bodySample": "IsaDemo2 (QA fixture) Create new (N) Search Ctrl+K 13 Settings Admin User Dashboard Portfolio Month-End Sales Purchases Inventory Banking Accounting Reports Tax Payroll Practice SUPPLIERS Supplier Invoices 4 invoices Export CSV New Invoice All 4 Draft Pending Approved 4 Partial Paid Disputed Cancelled All dates This month Last month Last 30 days This FY Last FY Custom Total – | Outstanding – SIGNALS Missing document Possible duplicate Due this week Pay run ready Invoice # Supplier Reference Date",
+      "counts": {
+        "buttons": 43,
+        "disabledButtons": 4,
+        "links": 12,
+        "emptyLinks": 0,
+        "inputs": 13,
+        "dialogs": 0,
+        "buttonLabels": [
+          "IsaDemo2 (QA fixture)",
+          "Create new",
+          "Search\nCtrl+K",
+          "13",
+          "Settings",
+          "(unlabelled)",
+          "Comfortable — standard row height",
+          "Compact — reduced row height",
+          "(unlabelled)",
+          "(unlabelled)",
+          "Sales",
+          "Purchases"
+        ]
+      },
+      "problems": [],
+      "failedRequests": [],
+      "consoleErrors": []
+    },
+    {
+      "route": "/accounting/supplier-invoices/new",
+      "finalUrl": "http://localhost:3200/accounting/supplier-invoices/new",
+      "status": 200,
+      "title": "",
+      "screenshot": "qa-reports/market-ui-2026-04-30T08-13-02-633Z/accounting-supplier-invoices-new.png",
+      "bodySample": "IsaDemo2 (QA fixture) Create new (N) Search Ctrl+K 13 Settings Admin User Dashboard Portfolio Month-End Sales Purchases Inventory Banking Accounting Reports Tax Payroll Practice Back to Supplier Invoices NEW DOCUMENT Supplier Invoice Scan Invoice 1 Invoice Details INVOICE NUMBER (NEXT FROM SEQUENCE — FINAL NUMBER RESERVED ON SAVE) Use SIV sequence from Document Numbers settings SUPPLIER * Select supplier… QA Cleaning Co QA Couriers Direct QA Office Supplies SA QA Telkom Connect INVOICE DATE * DU",
+      "counts": {
+        "buttons": 23,
+        "disabledButtons": 0,
+        "links": 4,
+        "emptyLinks": 0,
+        "inputs": 13,
+        "dialogs": 0,
+        "buttonLabels": [
+          "IsaDemo2 (QA fixture)",
+          "Create new",
+          "Search\nCtrl+K",
+          "13",
+          "Settings",
+          "(unlabelled)",
+          "Comfortable — standard row height",
+          "Compact — reduced row height",
+          "(unlabelled)",
+          "(unlabelled)",
+          "Sales",
+          "Purchases"
+        ]
+      },
+      "problems": [],
+      "failedRequests": [],
+      "consoleErrors": []
+    },
+    {
+      "route": "/accounting/bank-accounts",
+      "finalUrl": "http://localhost:3200/accounting/bank-accounts",
+      "status": 200,
+      "title": "",
+      "screenshot": "qa-reports/market-ui-2026-04-30T08-13-02-633Z/accounting-bank-accounts.png",
+      "bodySample": "IsaDemo2 (QA fixture) Create new (N) Search Ctrl+K 13 Settings Admin User Dashboard Portfolio Month-End Sales Purchases Inventory Banking Accounting Reports Tax Payroll Practice Bank Accounts Manage bank accounts and view balances Add Bank Account 1110 Active Business Bank Account Net Balance R 25 852,50 R 25 852,50 R 0,00 5 transactions 2026-04-11 → 2026-04-26 View Transactions",
+      "counts": {
+        "buttons": 21,
+        "disabledButtons": 0,
+        "links": 4,
+        "emptyLinks": 0,
+        "inputs": 0,
+        "dialogs": 0,
+        "buttonLabels": [
+          "IsaDemo2 (QA fixture)",
+          "Create new",
+          "Search\nCtrl+K",
+          "13",
+          "Settings",
+          "(unlabelled)",
+          "Comfortable — standard row height",
+          "Compact — reduced row height",
+          "(unlabelled)",
+          "(unlabelled)",
+          "Sales",
+          "Purchases"
+        ]
+      },
+      "problems": [],
+      "failedRequests": [],
+      "consoleErrors": []
+    },
+    {
+      "route": "/accounting/bank-transactions",
+      "finalUrl": "http://localhost:3200/accounting/bank-transactions",
+      "status": 200,
+      "title": "",
+      "screenshot": "qa-reports/market-ui-2026-04-30T08-13-02-633Z/accounting-bank-transactions.png",
+      "bodySample": "IsaDemo2 (QA fixture) Create new (N) Search Ctrl+K 13 Settings Admin User Dashboard Portfolio Month-End Sales Purchases Inventory Banking Accounting Reports Tax Payroll Practice Bank Transactions Business Bank Account 1110 R 25 852,50 ✓ R 0,00 Δ R 25 852,50 No statement imports found. 0 Allocated 5 Unallocated 5 To be Reviewed New Transactions Reviewed Transactions Excluded Actions Mark as Reviewed Delete Batch Edit Import Bank Statements Export Smart Categorize New Transaction Recon Report to M",
+      "counts": {
+        "buttons": 73,
+        "disabledButtons": 9,
+        "links": 5,
+        "emptyLinks": 0,
+        "inputs": 26,
+        "dialogs": 0,
+        "buttonLabels": [
+          "IsaDemo2 (QA fixture)",
+          "Create new",
+          "Search\nCtrl+K",
+          "13",
+          "Settings",
+          "(unlabelled)",
+          "Comfortable — standard row height",
+          "Compact — reduced row height",
+          "(unlabelled)",
+          "(unlabelled)",
+          "Sales",
+          "Purchases"
+        ]
+      },
+      "problems": [],
+      "failedRequests": [],
+      "consoleErrors": []
+    },
+    {
+      "route": "/accounting/bank-reconciliation",
+      "finalUrl": "http://localhost:3200/accounting/bank-reconciliation",
+      "status": 200,
+      "title": "",
+      "screenshot": "qa-reports/market-ui-2026-04-30T08-13-02-633Z/accounting-bank-reconciliation.png",
+      "bodySample": "IsaDemo2 (QA fixture) Create new (N) Search Ctrl+K 13 Settings Admin User Dashboard Portfolio Month-End Sales Purchases Inventory Banking Accounting Reports Tax Payroll Practice Bank Reconciliation Match bank statements to GL entries Import Statement New Reconciliation No reconciliations started yet Import a bank statement to start matching transactions to your GL entries. Import Bank Statement",
+      "counts": {
+        "buttons": 19,
+        "disabledButtons": 0,
+        "links": 6,
+        "emptyLinks": 0,
+        "inputs": 0,
+        "dialogs": 0,
+        "buttonLabels": [
+          "IsaDemo2 (QA fixture)",
+          "Create new",
+          "Search\nCtrl+K",
+          "13",
+          "Settings",
+          "(unlabelled)",
+          "Comfortable — standard row height",
+          "Compact — reduced row height",
+          "(unlabelled)",
+          "(unlabelled)",
+          "Sales",
+          "Purchases"
+        ]
+      },
+      "problems": [],
+      "failedRequests": [],
+      "consoleErrors": []
+    },
+    {
+      "route": "/accounting/bank-reconciliation/rules",
+      "finalUrl": "http://localhost:3200/accounting/bank-reconciliation/rules",
+      "status": 200,
+      "title": "",
+      "screenshot": "qa-reports/market-ui-2026-04-30T08-13-02-633Z/accounting-bank-reconciliation-rules.png",
+      "bodySample": "IsaDemo2 (QA fixture) Create new (N) Search Ctrl+K 13 Settings Admin User Dashboard Portfolio Month-End Sales Purchases Inventory Banking Accounting Reports Tax Payroll Practice Back to Reconciliation Categorisation Rules Auto-categorise bank transactions by pattern matching. Suggest rules attach a category for review; auto-post rules also post a journal entry. Run rules now New Rule Rule Match Pattern GL Account Supplier / Customer VAT Effect Priority Status Actions No rules configured. Create ",
+      "counts": {
+        "buttons": 21,
+        "disabledButtons": 0,
+        "links": 4,
+        "emptyLinks": 0,
+        "inputs": 2,
+        "dialogs": 0,
+        "buttonLabels": [
+          "IsaDemo2 (QA fixture)",
+          "Create new",
+          "Search\nCtrl+K",
+          "13",
+          "Settings",
+          "(unlabelled)",
+          "Comfortable — standard row height",
+          "Compact — reduced row height",
+          "(unlabelled)",
+          "(unlabelled)",
+          "Sales",
+          "Purchases"
+        ]
+      },
+      "problems": [],
+      "failedRequests": [],
+      "consoleErrors": []
+    },
+    {
+      "route": "/accounting/chart-of-accounts",
+      "finalUrl": "http://localhost:3200/accounting/chart-of-accounts",
+      "status": 200,
+      "title": "",
+      "screenshot": "qa-reports/market-ui-2026-04-30T08-13-02-633Z/accounting-chart-of-accounts.png",
+      "bodySample": "IsaDemo2 (QA fixture) Create new (N) Search Ctrl+K 13 Settings Admin User Dashboard Portfolio Month-End Sales Purchases Inventory Banking Accounting Reports Tax Payroll Practice ← Accounting Chart of Accounts 18 accounts in your general ledger JUMP TO PREFIX ACCOUNT TYPE All Accounts 18 1 Assets 5 2 Liabilities 4 3 Equity 3 4 Revenue 2 5 Expenses 4 All Types Assets Liabilities Equity Revenue Expenses Flat Tree Show inactive 18 accounts Add Account CODE ACCOUNT NAME TYPE NORMAL BALANCE VAT DEFAUL",
+      "counts": {
+        "buttons": 31,
+        "disabledButtons": 0,
+        "links": 4,
+        "emptyLinks": 0,
+        "inputs": 4,
+        "dialogs": 0,
+        "buttonLabels": [
+          "IsaDemo2 (QA fixture)",
+          "Create new",
+          "Search\nCtrl+K",
+          "13",
+          "Settings",
+          "(unlabelled)",
+          "Comfortable — standard row height",
+          "Compact — reduced row height",
+          "(unlabelled)",
+          "(unlabelled)",
+          "Sales",
+          "Purchases"
+        ]
+      },
+      "problems": [],
+      "failedRequests": [],
+      "consoleErrors": []
+    },
+    {
+      "route": "/accounting/journal-entries",
+      "finalUrl": "http://localhost:3200/accounting?tab=journal-entries",
+      "status": 200,
+      "title": "",
+      "screenshot": "qa-reports/market-ui-2026-04-30T08-13-02-633Z/accounting-journal-entries.png",
+      "bodySample": "IsaDemo2 (QA fixture) Create new (N) Search Ctrl+K 13 Settings Admin User Dashboard Portfolio Month-End Sales Purchases Inventory Banking Accounting Reports Tax Payroll Practice GENERAL LEDGER Journal Entries Process and review manual journals Overview Chart of Accounts Journal Entries Fiscal Periods Reports All Statuses Draft Posted Reversed Split Net New Entry No journal entries found Create your first entry Dashboard Your financial overview at a glance — KPIs, cash position, and recent activi",
+      "counts": {
+        "buttons": 29,
+        "disabledButtons": 0,
+        "links": 5,
+        "emptyLinks": 0,
+        "inputs": 1,
+        "dialogs": 0,
+        "buttonLabels": [
+          "IsaDemo2 (QA fixture)",
+          "Create new",
+          "Search\nCtrl+K",
+          "13",
+          "Settings",
+          "(unlabelled)",
+          "Comfortable — standard row height",
+          "Compact — reduced row height",
+          "(unlabelled)",
+          "(unlabelled)",
+          "Sales",
+          "Purchases"
+        ]
+      },
+      "problems": [],
+      "failedRequests": [],
+      "consoleErrors": []
+    },
+    {
+      "route": "/accounting/journal-entries/new",
+      "finalUrl": "http://localhost:3200/accounting/journal-entries/new",
+      "status": 200,
+      "title": "",
+      "screenshot": "qa-reports/market-ui-2026-04-30T08-13-02-633Z/accounting-journal-entries-new.png",
+      "bodySample": "IsaDemo2 (QA fixture) Create new (N) Search Ctrl+K 13 Settings Admin User Dashboard Portfolio Month-End Sales Purchases Inventory Banking Accounting Reports Tax Payroll Practice Back to Journal Entries NEW DOCUMENT Journal Entry 1 Entry Details ENTRY DATE * DESCRIPTION 2 Journal Lines Add Line # Account Description Debit Credit 1 Select account… 1000 - Assets 1100 - Current Assets 1110 - Business Bank Account 1120 - Accounts Receivable 1140 - VAT Input 2000 - Liabilities 2100 - Current Liabiliti",
+      "counts": {
+        "buttons": 23,
+        "disabledButtons": 3,
+        "links": 4,
+        "emptyLinks": 0,
+        "inputs": 10,
+        "dialogs": 0,
+        "buttonLabels": [
+          "IsaDemo2 (QA fixture)",
+          "Create new",
+          "Search\nCtrl+K",
+          "13",
+          "Settings",
+          "(unlabelled)",
+          "Comfortable — standard row height",
+          "Compact — reduced row height",
+          "(unlabelled)",
+          "(unlabelled)",
+          "Sales",
+          "Purchases"
+        ]
+      },
+      "problems": [],
+      "failedRequests": [],
+      "consoleErrors": []
+    },
+    {
+      "route": "/accounting/reports/trial-balance",
+      "finalUrl": "http://localhost:3200/accounting/trial-balance",
+      "status": 200,
+      "title": "",
+      "screenshot": "qa-reports/market-ui-2026-04-30T08-13-02-633Z/accounting-reports-trial-balance.png",
+      "bodySample": "IsaDemo2 (QA fixture) Create new (N) Search Ctrl+K 13 Settings Admin User Dashboard Portfolio Month-End Sales Purchases Inventory Banking Accounting Reports Tax Payroll Practice Trial Balance Account balances for selected fiscal period — Click any account to drill down January 2027 (open) February 2027 (open) March 2027 (open) April 2027 (open) May 2027 (open) June 2027 (open) July 2027 (open) August 2027 (open) September 2027 (open) October 2027 (open) November 2027 (open) December 2027 (open) ",
+      "counts": {
+        "buttons": 20,
+        "disabledButtons": 1,
+        "links": 3,
+        "emptyLinks": 0,
+        "inputs": 3,
+        "dialogs": 0,
+        "buttonLabels": [
+          "IsaDemo2 (QA fixture)",
+          "Create new",
+          "Search\nCtrl+K",
+          "13",
+          "Settings",
+          "(unlabelled)",
+          "Comfortable — standard row height",
+          "Compact — reduced row height",
+          "(unlabelled)",
+          "(unlabelled)",
+          "Sales",
+          "Purchases"
+        ]
+      },
+      "problems": [],
+      "failedRequests": [],
+      "consoleErrors": []
+    },
+    {
+      "route": "/accounting/reports/vat-return",
+      "finalUrl": "http://localhost:3200/accounting/reports/vat-return",
+      "status": 200,
+      "title": "",
+      "screenshot": "qa-reports/market-ui-2026-04-30T08-13-02-633Z/accounting-reports-vat-return.png",
+      "bodySample": "IsaDemo2 (QA fixture) Create new (N) Search Ctrl+K 13 Settings Admin User Dashboard Portfolio Month-End Sales Purchases Inventory Banking Accounting Reports Tax Payroll Practice VAT201 Return SARS Value-Added Tax Declaration Export CSV Period Start Period End Total Output Tax (Box 13) R 0,00 Total Input Tax (Box 19) R 0,00 Net VAT — Box 20 (Refundable) R 0,00 Section A — Output Tax Click rows to expand transactions 1 Standard rated supplies R 0,00 1A Capital goods/services supplied R 0,00 2 Zero",
+      "counts": {
+        "buttons": 32,
+        "disabledButtons": 0,
+        "links": 3,
+        "emptyLinks": 0,
+        "inputs": 2,
+        "dialogs": 0,
+        "buttonLabels": [
+          "IsaDemo2 (QA fixture)",
+          "Create new",
+          "Search\nCtrl+K",
+          "13",
+          "Settings",
+          "(unlabelled)",
+          "Comfortable — standard row height",
+          "Compact — reduced row height",
+          "(unlabelled)",
+          "(unlabelled)",
+          "Sales",
+          "Purchases"
+        ]
+      },
+      "problems": [],
+      "failedRequests": [],
+      "consoleErrors": []
+    },
+    {
+      "route": "/accounting/reports/income-statement",
+      "finalUrl": "http://localhost:3200/accounting/reports/income-statement",
+      "status": 200,
+      "title": "",
+      "screenshot": "qa-reports/market-ui-2026-04-30T08-13-02-633Z/accounting-reports-income-statement.png",
+      "bodySample": "IsaDemo2 (QA fixture) Create new (N) Search Ctrl+K 13 Settings Admin User Dashboard Portfolio Month-End Sales Purchases Inventory Banking Accounting Reports Tax Payroll Practice Back to Reports Income Statement Export Excel Export CSV From To Cost Centre All Cost Centres Compare prior period Profit & Loss — 31 Mar 2026 to 29 Apr 2026 Revenue Click account to expand No entries Total Revenue R 0,00 Gross Profit R 0,00 Operating Expenses Click account to expand No entries Total Operating Expenses R",
+      "counts": {
+        "buttons": 21,
+        "disabledButtons": 0,
+        "links": 4,
+        "emptyLinks": 0,
+        "inputs": 4,
+        "dialogs": 0,
+        "buttonLabels": [
+          "IsaDemo2 (QA fixture)",
+          "Create new",
+          "Search\nCtrl+K",
+          "13",
+          "Settings",
+          "(unlabelled)",
+          "Comfortable — standard row height",
+          "Compact — reduced row height",
+          "(unlabelled)",
+          "(unlabelled)",
+          "Sales",
+          "Purchases"
+        ]
+      },
+      "problems": [],
+      "failedRequests": [],
+      "consoleErrors": []
+    },
+    {
+      "route": "/accounting/reports/balance-sheet",
+      "finalUrl": "http://localhost:3200/accounting/reports/balance-sheet",
+      "status": 200,
+      "title": "",
+      "screenshot": "qa-reports/market-ui-2026-04-30T08-13-02-633Z/accounting-reports-balance-sheet.png",
+      "bodySample": "IsaDemo2 (QA fixture) Create new (N) Search Ctrl+K 13 Settings Admin User Dashboard Portfolio Month-End Sales Purchases Inventory Banking Accounting Reports Tax Payroll Practice Back to Reports Balance Sheet Export Excel Export CSV As at Cost Centre All Cost Centres Compare prior year Balance sheet is balanced (A = L + E) Assets Click to drill down No asset balances Total Assets R 0,00 Liabilities Click to drill down No liability balances Total Liabilities R 0,00 Equity Click to drill down No eq",
+      "counts": {
+        "buttons": 21,
+        "disabledButtons": 0,
+        "links": 4,
+        "emptyLinks": 0,
+        "inputs": 3,
+        "dialogs": 0,
+        "buttonLabels": [
+          "IsaDemo2 (QA fixture)",
+          "Create new",
+          "Search\nCtrl+K",
+          "13",
+          "Settings",
+          "(unlabelled)",
+          "Comfortable — standard row height",
+          "Compact — reduced row height",
+          "(unlabelled)",
+          "(unlabelled)",
+          "Sales",
+          "Purchases"
+        ]
+      },
+      "problems": [],
+      "failedRequests": [],
+      "consoleErrors": []
+    },
+    {
+      "route": "/accounting/company-settings",
+      "finalUrl": "http://localhost:3200/accounting/company-settings",
+      "status": 200,
+      "title": "",
+      "screenshot": "qa-reports/market-ui-2026-04-30T08-13-02-633Z/accounting-company-settings.png",
+      "bodySample": "IsaDemo2 (QA fixture) Create new (N) Search Ctrl+K 13 Settings Admin User Dashboard Portfolio Month-End Sales Purchases Inventory Banking Accounting Reports Tax Payroll Practice Company Settings Manage your company details and preferences Save Changes COMPANY PROFILE Company Details General Settings Regional ACCOUNTING & TAX VAT Settings Aging DOCUMENTS & BRANDING Documents & Statements Document Messages Email Templates Branding CUSTOMERS & COMMUNICATION Customer Zone INTEGRATIONS Netcash ADVANC",
+      "counts": {
+        "buttons": 36,
+        "disabledButtons": 0,
+        "links": 3,
+        "emptyLinks": 0,
+        "inputs": 46,
+        "dialogs": 0,
+        "buttonLabels": [
+          "IsaDemo2 (QA fixture)",
+          "Create new",
+          "Search\nCtrl+K",
+          "13",
+          "Settings",
+          "(unlabelled)",
+          "Comfortable — standard row height",
+          "Compact — reduced row height",
+          "(unlabelled)",
+          "(unlabelled)",
+          "Sales",
+          "Purchases"
+        ]
+      },
+      "problems": [],
+      "failedRequests": [],
+      "consoleErrors": []
+    },
+    {
+      "route": "/accounting/accounting-settings",
+      "finalUrl": "http://localhost:3200/accounting/accounting-settings",
+      "status": 200,
+      "title": "",
+      "screenshot": "qa-reports/market-ui-2026-04-30T08-13-02-633Z/accounting-accounting-settings.png",
+      "bodySample": "IsaDemo2 (QA fixture) Create new (N) Search Ctrl+K 13 Settings Admin User Dashboard Portfolio Month-End Sales Purchases Inventory Banking Accounting Reports Tax Payroll Practice Accounting Settings Configure accounting module preferences Reporting Currency Default currency for financial reports and statements — Select — ZAR — South African Rand USD — US Dollar EUR — Euro GBP — British Pound Save",
+      "counts": {
+        "buttons": 20,
+        "disabledButtons": 0,
+        "links": 3,
+        "emptyLinks": 0,
+        "inputs": 1,
+        "dialogs": 0,
+        "buttonLabels": [
+          "IsaDemo2 (QA fixture)",
+          "Create new",
+          "Search\nCtrl+K",
+          "13",
+          "Settings",
+          "(unlabelled)",
+          "Comfortable — standard row height",
+          "Compact — reduced row height",
+          "(unlabelled)",
+          "(unlabelled)",
+          "Sales",
+          "Purchases"
+        ]
+      },
+      "problems": [],
+      "failedRequests": [],
+      "consoleErrors": []
+    },
+    {
+      "route": "/accounting/practice/clients",
+      "finalUrl": "http://localhost:3200/accounting/practice/clients",
+      "status": 200,
+      "title": "",
+      "screenshot": "qa-reports/market-ui-2026-04-30T08-13-02-633Z/accounting-practice-clients.png",
+      "bodySample": "IsaDemo2 (QA fixture) Create new (N) Search Ctrl+K 13 Settings Admin User Dashboard Portfolio Month-End Sales Purchases Inventory Banking Accounting Reports Tax Payroll Practice Clients Practice client management Import CSV Export CSV Add Client All Statuses Prospect Onboarding Active Inactive Archived 3 clients LEGAL NAME REG NO TAX NO BILLING STATUS QA Practice Client A QA Practice Client A — — Hourly Active QA Practice Client B QA Practice Client B — — Hourly Active QA Practice Client C (no c",
+      "counts": {
+        "buttons": 21,
+        "disabledButtons": 0,
+        "links": 4,
+        "emptyLinks": 0,
+        "inputs": 2,
+        "dialogs": 0,
+        "buttonLabels": [
+          "IsaDemo2 (QA fixture)",
+          "Create new",
+          "Search\nCtrl+K",
+          "13",
+          "Settings",
+          "(unlabelled)",
+          "Comfortable — standard row height",
+          "Compact — reduced row height",
+          "(unlabelled)",
+          "(unlabelled)",
+          "Sales",
+          "Purchases"
+        ]
+      },
+      "problems": [],
+      "failedRequests": [],
+      "consoleErrors": []
+    },
+    {
+      "route": "/accounting/practice/time-entry",
+      "finalUrl": "http://localhost:3200/accounting/practice/time-entry",
+      "status": 200,
+      "title": "",
+      "screenshot": "qa-reports/market-ui-2026-04-30T08-13-02-633Z/accounting-practice-time-entry.png",
+      "bodySample": "IsaDemo2 (QA fixture) Create new (N) Search Ctrl+K 13 Settings Admin User Dashboard Portfolio Month-End Sales Purchases Inventory Banking Accounting Reports Tax Payroll Practice Time Entry Log and submit daily time Thu, 30 Apr 2026 Today Total 0.00h Billable 0.00h Non-billable 0.00h Value R0.00 Add Entry Date * Hours * Client * Select client… QA Practice Client A QA Practice Client B QA Practice Client C (no customer link) Category * Select category… Bookkeeping Monthly Accounting Tax Returns Ad",
+      "counts": {
+        "buttons": 25,
+        "disabledButtons": 1,
+        "links": 3,
+        "emptyLinks": 0,
+        "inputs": 9,
+        "dialogs": 0,
+        "buttonLabels": [
+          "IsaDemo2 (QA fixture)",
+          "Create new",
+          "Search\nCtrl+K",
+          "13",
+          "Settings",
+          "(unlabelled)",
+          "Comfortable — standard row height",
+          "Compact — reduced row height",
+          "(unlabelled)",
+          "(unlabelled)",
+          "Sales",
+          "Purchases"
+        ]
+      },
+      "problems": [],
+      "failedRequests": [],
+      "consoleErrors": []
+    },
+    {
+      "route": "/accounting/practice/approvals",
+      "finalUrl": "http://localhost:3200/accounting/practice/approvals",
+      "status": 200,
+      "title": "",
+      "screenshot": "qa-reports/market-ui-2026-04-30T08-13-02-633Z/accounting-practice-approvals.png",
+      "bodySample": "IsaDemo2 (QA fixture) Create new (N) Search Ctrl+K 13 Settings Admin User Dashboard Portfolio Month-End Sales Purchases Inventory Banking Accounting Reports Tax Payroll Practice Time Entry Approvals Review and approve submitted time entries Approve selected Write off selected Submitter All submitters Client All clients QA Practice Client A QA Practice Client B QA Practice Client C (no customer link) This month Last month This quarter YTD Last year Custom From To Clear 0 entries found No submitte",
+      "counts": {
+        "buttons": 28,
+        "disabledButtons": 2,
+        "links": 3,
+        "emptyLinks": 0,
+        "inputs": 4,
+        "dialogs": 0,
+        "buttonLabels": [
+          "IsaDemo2 (QA fixture)",
+          "Create new",
+          "Search\nCtrl+K",
+          "13",
+          "Settings",
+          "(unlabelled)",
+          "Comfortable — standard row height",
+          "Compact — reduced row height",
+          "(unlabelled)",
+          "(unlabelled)",
+          "Sales",
+          "Purchases"
+        ]
+      },
+      "problems": [],
+      "failedRequests": [],
+      "consoleErrors": []
+    },
+    {
+      "route": "/accounting/practice/wip",
+      "finalUrl": "http://localhost:3200/accounting/practice/wip",
+      "status": 200,
+      "title": "",
+      "screenshot": "qa-reports/market-ui-2026-04-30T08-13-02-633Z/accounting-practice-wip.png",
+      "bodySample": "IsaDemo2 (QA fixture) Create new (N) Search Ctrl+K 13 Settings Admin User Dashboard Portfolio Month-End Sales Purchases Inventory Banking Accounting Reports Tax Payroll Practice Work in Progress 0 clients · 0.00h unbilled · R 0,00 total No unbilled approved time entries found.",
+      "counts": {
+        "buttons": 19,
+        "disabledButtons": 0,
+        "links": 3,
+        "emptyLinks": 0,
+        "inputs": 0,
+        "dialogs": 0,
+        "buttonLabels": [
+          "IsaDemo2 (QA fixture)",
+          "Create new",
+          "Search\nCtrl+K",
+          "13",
+          "Settings",
+          "(unlabelled)",
+          "Comfortable — standard row height",
+          "Compact — reduced row height",
+          "(unlabelled)",
+          "(unlabelled)",
+          "Sales",
+          "Purchases"
+        ]
+      },
+      "problems": [],
+      "failedRequests": [],
+      "consoleErrors": []
+    },
+    {
+      "route": "/payroll/employees",
+      "finalUrl": "http://localhost:3200/payroll/employees",
+      "status": 200,
+      "title": "",
+      "screenshot": "qa-reports/market-ui-2026-04-30T08-13-02-633Z/payroll-employees.png",
+      "bodySample": "IsaDemo2 (QA fixture) Create new (N) Search Ctrl+K 13 Settings Admin User Dashboard Portfolio Month-End Sales Purchases Inventory Banking Accounting Reports Tax Payroll Practice IsaDemo2 (QA fixture) · Apr 2026 · Period 2 of 12 No run yet Payroll Employees SA-compliant payroll roster New Employee 0 employees No employees yet New Employee",
+      "counts": {
+        "buttons": 19,
+        "disabledButtons": 0,
+        "links": 5,
+        "emptyLinks": 0,
+        "inputs": 1,
+        "dialogs": 0,
+        "buttonLabels": [
+          "IsaDemo2 (QA fixture)",
+          "Create new",
+          "Search\nCtrl+K",
+          "13",
+          "Settings",
+          "(unlabelled)",
+          "Comfortable — standard row height",
+          "Compact — reduced row height",
+          "(unlabelled)",
+          "(unlabelled)",
+          "Sales",
+          "Purchases"
+        ]
+      },
+      "problems": [],
+      "failedRequests": [],
+      "consoleErrors": []
+    },
+    {
+      "route": "/payroll/runs",
+      "finalUrl": "http://localhost:3200/payroll/runs",
+      "status": 200,
+      "title": "",
+      "screenshot": "qa-reports/market-ui-2026-04-30T08-13-02-633Z/payroll-runs.png",
+      "bodySample": "IsaDemo2 (QA fixture) Create new (N) Search Ctrl+K 13 Settings Admin User Dashboard Portfolio Month-End Sales Purchases Inventory Banking Accounting Reports Tax Payroll Practice IsaDemo2 (QA fixture) · Apr 2026 · Period 2 of 12 No run yet Payroll Runs Monthly payroll cycles New Payroll Run No payroll runs yet New Payroll Run",
+      "counts": {
+        "buttons": 19,
+        "disabledButtons": 0,
+        "links": 5,
+        "emptyLinks": 0,
+        "inputs": 0,
+        "dialogs": 0,
+        "buttonLabels": [
+          "IsaDemo2 (QA fixture)",
+          "Create new",
+          "Search\nCtrl+K",
+          "13",
+          "Settings",
+          "(unlabelled)",
+          "Comfortable — standard row height",
+          "Compact — reduced row height",
+          "(unlabelled)",
+          "(unlabelled)",
+          "Sales",
+          "Purchases"
+        ]
+      },
+      "problems": [],
+      "failedRequests": [],
+      "consoleErrors": []
+    }
+  ],
+  "workflows": [
+    {
+      "name": "customer invoice creation form",
+      "path": "/accounting/customer-invoices/new",
+      "problems": [],
+      "evidence": {
+        "terms": {
+          "Customer": true,
+          "Invoice": true,
+          "Total": true
+        },
+        "formControls": 12,
+        "actionButtons": 3,
+        "actionLabels": [
+          "Create new",
+          "Create Invoice",
+          "Save & New"
+        ]
+      }
+    },
+    {
+      "name": "customer payment form",
+      "path": "/accounting/customer-payments/new",
+      "problems": [],
+      "evidence": {
+        "terms": {
+          "Payment": true,
+          "Customer": true
+        },
+        "formControls": 7,
+        "actionButtons": 1,
+        "actionLabels": [
+          "Create Payment"
+        ]
+      }
+    },
+    {
+      "name": "supplier invoice capture form",
+      "path": "/accounting/supplier-invoices/new",
+      "problems": [],
+      "evidence": {
+        "terms": {
+          "Supplier": true,
+          "Invoice": true,
+          "Total": true
+        },
+        "formControls": 13,
+        "actionButtons": 2,
+        "actionLabels": [
+          "Create new",
+          "Create Invoice"
+        ]
+      }
+    },
+    {
+      "name": "bank rules",
+      "path": "/accounting/bank-reconciliation/rules",
+      "problems": [],
+      "evidence": {
+        "terms": {
+          "Rule": true,
+          "Bank": true
+        },
+        "formControls": 2,
+        "actionButtons": 1,
+        "actionLabels": [
+          "New Rule"
+        ]
+      }
+    },
+    {
+      "name": "company settings",
+      "path": "/accounting/company-settings",
+      "problems": [],
+      "evidence": {
+        "terms": {
+          "Company": true,
+          "Settings": true
+        },
+        "formControls": 46,
+        "actionButtons": 1,
+        "actionLabels": [
+          "Save Changes"
+        ]
+      }
+    },
+    {
+      "name": "practice time entry",
+      "path": "/accounting/practice/time-entry",
+      "problems": [],
+      "evidence": {
+        "terms": {
+          "Time": true,
+          "Client": true
+        },
+        "formControls": 9,
+        "actionButtons": 3,
+        "actionLabels": [
+          "Save Entry",
+          "Submit Day",
+          "Fill Range"
+        ]
+      }
+    }
+  ]
+}
