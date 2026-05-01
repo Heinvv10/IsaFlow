@@ -20,6 +20,16 @@ const REFRESH_URL = '/api/auth/refresh';
 const HEARTBEAT_INTERVAL_MS = 50 * 60 * 1000;
 const ACTIVITY_THROTTLE_MS = 5_000;
 
+function clearTenantClientState(): void {
+  try {
+    localStorage.removeItem('isaflow_active_company');
+    localStorage.removeItem('isaflow_impersonation');
+    sessionStorage.clear();
+  } catch {
+    // localStorage can throw in private mode / quota — best-effort only.
+  }
+}
+
 type StopFn = () => void;
 
 interface HeartbeatOptions {
@@ -152,8 +162,11 @@ export function startSessionHeartbeat(opts: HeartbeatOptions): StopFn {
     const idleFor = Date.now() - readLastActivity();
     if (idleFor >= idleMs) {
       // Idle bounce — clear cookies first so cookies aren't left valid on a
-      // shared computer after the redirect.
+      // shared computer after the redirect, then wipe tenant-scoped client
+      // state so the next sign-in on this browser cannot inherit the
+      // previous user's active company.
       await serverLogout();
+      clearTenantClientState();
       window.location.href = logoutHref;
       return;
     }
@@ -162,6 +175,7 @@ export function startSessionHeartbeat(opts: HeartbeatOptions): StopFn {
       const r = await fetch(REFRESH_URL, { method: 'POST', credentials: 'include' });
       if (!r.ok && r.status === 401) {
         // Refresh failed — session is genuinely dead, bounce.
+        clearTenantClientState();
         window.location.href = '/login?reason=session-expired';
       }
     } catch {

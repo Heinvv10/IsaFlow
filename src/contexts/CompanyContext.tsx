@@ -5,6 +5,7 @@ import {
   useState,
   useCallback,
   useMemo,
+  useRef,
   ReactNode,
 } from 'react';
 import { useAuth } from './AuthContext';
@@ -65,6 +66,7 @@ const CompanyContext = createContext<CompanyContextType | undefined>(undefined);
 export function CompanyProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated, user, loading: authLoading } = useAuth();
   const userRole = user?.role ?? null;
+  const userId = user?.id ?? null;
   // Hydrate active company synchronously from localStorage so the first render
   // has at least {id, name} — avoids a flash of the 'ISAFlow' fallback title
   // until the async /api/accounting/companies fetch resolves. The async fetch
@@ -225,6 +227,26 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     loadUserCompanies();
   }, [loadUserCompanies]);
+
+  // Cross-tenant safety: when the authenticated user identity changes inside
+  // the same provider instance (e.g. a soft-nav login after logout), drop the
+  // previous user's tenant state immediately instead of leaving it visible
+  // until the async user-companies refetch returns. We also wipe the
+  // localStorage mirror so apiFetch's X-Company-Id header doesn't echo the
+  // old tenant on the very first request the new user makes.
+  const lastUserIdRef = useRef<string | null>(userId);
+  useEffect(() => {
+    if (lastUserIdRef.current === userId) return;
+    if (lastUserIdRef.current !== null && userId !== lastUserIdRef.current) {
+      setActiveCompany(null);
+      setCompanies([]);
+      setCompanyRole(null);
+      if (typeof window !== 'undefined') {
+        try { localStorage.removeItem(STORAGE_KEY); } catch { /* best effort */ }
+      }
+    }
+    lastUserIdRef.current = userId;
+  }, [userId]);
 
   const switchCompany = useCallback(async (companyId: string) => {
     setLoading(true);
