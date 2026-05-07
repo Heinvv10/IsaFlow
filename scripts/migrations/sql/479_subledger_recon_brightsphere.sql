@@ -37,14 +37,10 @@ DECLARE
   v_description      TEXT := 'Sub-ledger recon correction — clear double reversal imbalance (migration 479)';
 BEGIN
   -- Guard: only apply once (idempotent).
-  -- Matches both the current description and the legacy description from the first apply
-  -- (description was corrected in the fix(migrations) commit — handle both to stay idempotent).
   IF EXISTS (
     SELECT 1 FROM gl_journal_entries
     WHERE company_id = v_company_id
-      AND (description = v_description
-           OR description = 'Sub-ledger recon correction — reverse duplicate depreciation reversals (mig 479)'
-           OR entry_number = v_entry_num)
+      AND entry_number = v_entry_num
   ) THEN
     RAISE NOTICE 'Migration 479 already applied — skipping.';
     RETURN;
@@ -85,6 +81,10 @@ BEGIN
   -- MEDIUM: locked periods have auditor sign-off; closed periods are intentionally bypassed here.
   IF v_period_status = 'locked' THEN
     RAISE EXCEPTION 'Migration 479: target fiscal period is locked (auditor sign-off) — manual approval required';
+  END IF;
+
+  IF v_period_status = 'closed' THEN
+    RAISE WARNING 'Migration 479: target fiscal period is closed — posting correction to closed period';
   END IF;
 
   -- Resolve a system/admin user

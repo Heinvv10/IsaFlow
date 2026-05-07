@@ -27,7 +27,8 @@ export default defineConfig({
       testMatch: '**/mutating-actions*.spec.ts',
       use: {
         browserName: 'chromium',
-        // No shared storageState — spec bootstraps its own session
+        // storageState is reset here to ensure no shared auth fixtures bleed in.
+        // Authentication is performed programmatically by initBrowser() in mutating-actions-helpers.ts.
         storageState: { cookies: [], origins: [] },
       },
     },

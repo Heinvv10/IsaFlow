@@ -95,7 +95,11 @@ BEGIN
             OR level IS DISTINCT FROM 3
             OR parent_account_id IS DISTINCT FROM v_parent_5000);
 
-    RAISE NOTICE 'Skip: 5820 already exists.';
+    IF FOUND THEN
+      RAISE NOTICE 'Migration 481: patched stale 5820 record.';
+    ELSE
+      RAISE NOTICE 'Migration 481: 5820 already up-to-date — no changes.';
+    END IF;
   END IF;
 
   RAISE NOTICE 'Migration 481 complete: depreciation_expense system account now points to 5820 for ISAFlow Demo.';
