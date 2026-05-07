@@ -1,7 +1,15 @@
+import { FlatCompat } from '@eslint/eslintrc';
 import tsPlugin from '@typescript-eslint/eslint-plugin';
 import tsParser from '@typescript-eslint/parser';
-import pluginReact from 'eslint-plugin-react';
 import pluginReactHooks from 'eslint-plugin-react-hooks';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+// FlatCompat bridges eslint-plugin-react@7.x which still uses the legacy
+// context.getFilename() API removed in ESLint 10. When the plugin ships
+// proper ESLint 10 support this can be replaced with the native flat config.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const compat = new FlatCompat({ baseDirectory: __dirname });
 
 export default [
   {
@@ -14,8 +22,8 @@ export default [
   // typescript-eslint recommended rules for .ts/.tsx files.
   ...tsPlugin.configs['flat/recommended'],
 
-  // React (JSX-runtime mode — no need to import React in scope).
-  pluginReact.configs.flat['jsx-runtime'],
+  // React recommended + jsx-runtime via legacy compat bridge.
+  ...compat.extends('plugin:react/recommended', 'plugin:react/jsx-runtime'),
 
   // React Hooks — manually registered for flat config compat.
   {
@@ -35,7 +43,9 @@ export default [
       },
     },
     settings: {
-      react: { version: 'detect' },
+      // Hardcoded to avoid version.js calling context.getFilename() as a
+      // fallback — that API was removed in ESLint 10. Update when React is bumped.
+      react: { version: '19' },
     },
     rules: {
       'react/prop-types': 'off',
