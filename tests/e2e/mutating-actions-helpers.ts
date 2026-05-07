@@ -7,7 +7,7 @@
  * Company under test: ISAFlow Demo (Pty) Ltd — 00000000-0000-0000-0000-000000000001.
  */
 
-import { chromium, type Browser, type BrowserContext, type Page } from '@playwright/test';
+import { chromium, type Browser, type BrowserContext, type Cookie, type Page } from '@playwright/test';
 import { Pool } from 'pg';
 import path from 'path';
 import fs from 'fs';
@@ -72,7 +72,7 @@ export async function initBrowser(): Promise<{ context: BrowserContext; page: Pa
   // If CSRF still missing, read from the cookie jar
   if (!csrfToken) {
     const cookies = await sharedContext.cookies();
-    const csrfCookie = cookies.find((c) => c.name === 'isaflow_csrf');
+    const csrfCookie = cookies.find((c: Cookie) => c.name === 'isaflow_csrf');
     csrfToken = csrfCookie?.value ?? '';
   }
 
@@ -116,7 +116,7 @@ function mergeHeaders(
 async function refreshCsrfToken(): Promise<void> {
   if (!sharedContext) return;
   const cookies = await sharedContext.cookies();
-  const c = cookies.find((x) => x.name === 'isaflow_csrf');
+  const c = cookies.find((x: Cookie) => x.name === 'isaflow_csrf');
   if (c) csrfToken = c.value;
 }
 

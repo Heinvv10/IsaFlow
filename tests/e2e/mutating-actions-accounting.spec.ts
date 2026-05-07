@@ -6,7 +6,7 @@
  */
 import { test, expect } from '@playwright/test';
 import {
-  BASE, DEMO_COMPANY_ID,
+  DEMO_COMPANY_ID,
   initBrowser, closeBrowser, closeDbPool,
   apiPost,
   dbQuery, dbRun, recordResult, saveResults,
@@ -104,7 +104,7 @@ test('journal entry: create → post → reverse', async () => {
       `SELECT id FROM gl_journal_entries WHERE reversal_of_id = $1 AND company_id = $2`,
       [je.id, DEMO_COMPANY_ID],
     );
-    const reversalId = reversalIdFromResponse || reversalRow?.id ?? '';
+    const reversalId = reversalIdFromResponse || (reversalRow?.id ?? '');
     expect(reversalId, 'reversal JE id must be resolvable').toBeTruthy();
 
     jeIds.push(je.id, reversalId);
