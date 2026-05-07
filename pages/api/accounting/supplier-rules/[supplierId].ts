@@ -62,7 +62,6 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     }
     // Drop the redundant `supplierId` the UI sends in the body — the URL is
     // the source of truth for which rule we're editing.
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { supplierId: _ignored, ...patch } = parsed.data;
     const rule = await upsertRule(companyId, supplierId, patch, userId);
     log.info('Supplier rule patched via API', { companyId, supplierId }, 'supplier-rules-api');

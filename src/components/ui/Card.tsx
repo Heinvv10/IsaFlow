@@ -94,7 +94,7 @@ function CardHeader({ title, description, action, className }: CardHeaderProps) 
   );
 }
 
-interface CardBodyProps extends React.HTMLAttributes<HTMLDivElement> {}
+type CardBodyProps = React.HTMLAttributes<HTMLDivElement>;
 
 function CardBody({ className, children, ...props }: CardBodyProps) {
   return (
@@ -104,7 +104,7 @@ function CardBody({ className, children, ...props }: CardBodyProps) {
   );
 }
 
-interface CardFooterProps extends React.HTMLAttributes<HTMLDivElement> {}
+type CardFooterProps = React.HTMLAttributes<HTMLDivElement>;
 
 function CardFooter({ className, children, ...props }: CardFooterProps) {
   return (

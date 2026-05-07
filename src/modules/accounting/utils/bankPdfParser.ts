@@ -97,7 +97,7 @@ export async function parseBankPdf(
   let PDFParse: PdfParseV2Ctor;
 
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const mod = require('pdf-parse') as PdfParseV2Module;
     PDFParse = mod.PDFParse;
     if (typeof PDFParse !== 'function') {

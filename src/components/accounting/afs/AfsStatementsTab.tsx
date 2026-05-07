@@ -1,7 +1,7 @@
 // src/components/accounting/afs/AfsStatementsTab.tsx
 // Inline Balance Sheet + Income Statement scoped to the AFS document period.
 
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { BalanceSheetReport, BalanceSheetLineItem, IncomeStatementReport, IncomeStatementLineItem } from '@/modules/accounting/types/gl.report.types';

@@ -128,7 +128,7 @@ export default function AdminWebAnalytics() {
         const ws: Website[] = json?.data?.websites ?? [];
         setWebsites(ws);
         if (ws.length > 0) setWebsiteId(prev => prev || ws[0]!.id);
-      } catch (e) {
+      } catch (_e) {
         setError('Failed to load websites');
       }
     })();
