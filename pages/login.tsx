@@ -288,6 +288,14 @@ export default function LoginPage() {
   // Credential submit — direct fetch so we can intercept requires_2fa before AuthContext
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const submittedEmail = String(formData.get('email') ?? '').trim().toLowerCase();
+    const submittedPassword = String(formData.get('password') ?? '');
+
+    if (!submittedEmail || !submittedPassword) return;
+
+    setEmail(submittedEmail);
+    setPassword(submittedPassword);
     clearError();
     setTotpError(null);
     setSubmitting(true);
@@ -297,7 +305,7 @@ export default function LoginPage() {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim().toLowerCase(), password, rememberMe, deviceFingerprint: fingerprint }),
+        body: JSON.stringify({ email: submittedEmail, password: submittedPassword, rememberMe, deviceFingerprint: fingerprint }),
         credentials: 'include',
       });
 
@@ -528,6 +536,7 @@ export default function LoginPage() {
                   <Mail className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                   <input
                     id="email"
+                    name="email"
                     type="email"
                     autoComplete="email"
                     required
@@ -558,6 +567,7 @@ export default function LoginPage() {
                   <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                   <input
                     id="password"
+                    name="password"
                     type={showPassword ? 'text' : 'password'}
                     autoComplete="current-password"
                     required
@@ -609,7 +619,7 @@ export default function LoginPage() {
                   the lock on the locked (email, ip) pair. */}
               <button
                 type="submit"
-                disabled={isBusy || !email || !password}
+                disabled={isBusy}
                 className="flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-teal-700 to-teal-600 px-4 py-3.5 text-sm font-semibold text-white shadow-lg shadow-teal-950/25 transition hover:from-teal-600 hover:to-teal-500 disabled:cursor-not-allowed disabled:from-teal-900/70 disabled:to-teal-800/70"
               >
                 {isBusy ? (
