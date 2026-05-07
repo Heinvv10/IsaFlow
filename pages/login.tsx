@@ -409,7 +409,7 @@ export default function LoginPage() {
       <div className="absolute inset-0 z-[1] bg-[linear-gradient(180deg,rgba(2,8,23,0.22)_0%,rgba(2,8,23,0)_45%,rgba(2,8,23,0.44)_100%)]" />
 
       <nav className="relative z-10 border-b border-white/10 bg-slate-950/75 backdrop-blur-xl">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:h-20 lg:px-8">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6 lg:h-20 lg:px-8">
           <Link href="/" className="flex items-center">
             <Image
               src="/logo.png"
@@ -450,10 +450,10 @@ export default function LoginPage() {
         </div>
       </nav>
 
-      <main className="relative z-10 mx-auto grid min-h-[calc(100vh-4rem)] max-w-7xl items-center gap-8 px-4 py-8 sm:px-6 lg:min-h-[calc(100vh-5rem)] lg:grid-cols-[minmax(0,1.08fr)_minmax(380px,440px)] lg:gap-10 lg:px-8 lg:py-12">
+      <main className="relative z-10 mx-auto grid min-h-[calc(100vh-4rem)] max-w-6xl items-center gap-8 px-4 py-8 sm:px-6 lg:min-h-[calc(100vh-5rem)] lg:grid-cols-[minmax(0,1.08fr)_minmax(380px,440px)] lg:gap-10 lg:px-8 lg:py-10">
         <LoginBrandPanel />
 
-        <div className="mx-auto w-full max-w-md">
+        <div className="mx-auto w-full max-w-md lg:-mt-10">
 
         <div className="mb-5 text-center text-white lg:text-left">
           <h2 className="text-2xl font-bold tracking-normal">
@@ -621,7 +621,7 @@ export default function LoginPage() {
               href={inviteToken ? `/register?invite=${inviteToken}` : '/register'}
               className="font-semibold text-teal-100 transition-colors hover:text-white"
             >
-              {inviteToken ? 'Create one' : 'Join the waitlist'}
+              {inviteToken ? 'Create one' : 'Start your free trial'}
             </Link>
           </p>
         )}
