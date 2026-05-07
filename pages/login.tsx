@@ -11,7 +11,7 @@ import { useState, useEffect, useRef, FormEvent } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Eye, EyeOff, Building2, ShieldCheck, Lock } from 'lucide-react';
+import { Eye, EyeOff, Building2, ShieldCheck, Lock, Mail } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { LoginBrandPanel } from '@/components/auth/LoginBrandPanel';
@@ -496,7 +496,8 @@ export default function LoginPage() {
 
         {/* Credentials card */}
         {!showTotpStep && (
-            <div className="rounded-xl border border-white/70 bg-white/95 p-6 shadow-2xl shadow-slate-950/30 backdrop-blur-xl sm:p-8">
+          <div className="relative overflow-hidden rounded-2xl border border-white/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.92),rgba(248,250,252,0.86))] p-6 shadow-[0_24px_70px_rgba(2,8,23,0.34)] backdrop-blur-2xl sm:p-8">
+            <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-teal-300/80 via-teal-500 to-cyan-300/70" />
             <form onSubmit={(e) => void handleSubmit(e)} noValidate>
 
               {/* Email */}
@@ -504,21 +505,24 @@ export default function LoginPage() {
                 <label htmlFor="email" className="mb-1.5 block text-xs font-semibold text-slate-700">
                   Email address
                 </label>
-                <input
-                  id="email"
-                  type="email"
-                  autoComplete="email"
-                  required
-                  value={email}
-                  onChange={e => { clearError(); setTotpError(null); setEmail(e.target.value); }}
-                  disabled={isBusy}
-                    className="w-full rounded-lg border border-slate-300 !bg-white px-3 py-3 text-sm !text-slate-950 placeholder-slate-400 transition focus:border-transparent focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-50"
-                  placeholder="you@example.com"
-                />
+                <div className="relative">
+                  <Mail className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <input
+                    id="email"
+                    type="email"
+                    autoComplete="email"
+                    required
+                    value={email}
+                    onChange={e => { clearError(); setTotpError(null); setEmail(e.target.value); }}
+                    disabled={isBusy}
+                    className="w-full rounded-lg border border-slate-300 !bg-white/95 px-10 py-3.5 text-sm !text-slate-950 shadow-sm shadow-slate-950/5 placeholder-slate-400 transition focus:border-transparent focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-50"
+                    placeholder="you@example.com"
+                  />
+                </div>
               </div>
 
               {/* Password */}
-              <div className="mb-6">
+              <div className="mb-5">
                 <div className="flex items-center justify-between mb-1.5">
                   <label htmlFor="password" className="block text-xs font-semibold text-slate-700">
                     Password
@@ -532,6 +536,7 @@ export default function LoginPage() {
                   </Link>
                 </div>
                 <div className="relative">
+                  <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                   <input
                     id="password"
                     type={showPassword ? 'text' : 'password'}
@@ -540,7 +545,7 @@ export default function LoginPage() {
                     value={password}
                     onChange={e => { clearError(); setTotpError(null); setPassword(e.target.value); }}
                     disabled={isBusy}
-                    className="w-full rounded-lg border border-slate-300 !bg-white px-3 py-3 pr-10 text-sm !text-slate-950 placeholder-slate-400 transition focus:border-transparent focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-50"
+                    className="w-full rounded-lg border border-slate-300 !bg-white/95 py-3.5 pl-10 pr-11 text-sm !text-slate-950 shadow-sm shadow-slate-950/5 placeholder-slate-400 transition focus:border-transparent focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-50"
                     placeholder="Enter your password"
                   />
                   <button
@@ -556,7 +561,7 @@ export default function LoginPage() {
               </div>
 
               {/* PRD-10 Layer 1: Keep me signed in — defaults checked. */}
-              <div className="mb-4 flex items-center">
+              <div className="mb-5 flex items-center">
                 <input
                   id="rememberMe"
                   type="checkbox"
@@ -586,7 +591,7 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={isBusy || !email || !password}
-                className="flex w-full items-center justify-center gap-2 rounded-lg bg-teal-700 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-teal-950/20 transition-colors hover:bg-teal-600 disabled:cursor-not-allowed disabled:bg-teal-900/70"
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-teal-700 to-teal-600 px-4 py-3.5 text-sm font-semibold text-white shadow-lg shadow-teal-950/25 transition hover:from-teal-600 hover:to-teal-500 disabled:cursor-not-allowed disabled:from-teal-900/70 disabled:to-teal-800/70"
               >
                 {isBusy ? (
                   <>
@@ -597,6 +602,11 @@ export default function LoginPage() {
                   'Sign In'
                 )}
               </button>
+
+              <div className="mt-5 flex items-center justify-center gap-2 border-t border-slate-200/80 pt-4 text-xs font-medium text-slate-500">
+                <ShieldCheck className="h-4 w-4 text-teal-600" />
+                <span>Secure sign-in with two-factor authentication support</span>
+              </div>
             </form>
           </div>
         )}
