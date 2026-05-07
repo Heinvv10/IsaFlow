@@ -36,7 +36,7 @@ export async function extractFromPdf(buffer: Buffer): Promise<ExtractedDocument>
 
   try {
     // pdf-parse v2: class-based API. Old `require('pdf-parse')(buf)` is gone.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { PDFParse } = require('pdf-parse') as {
       PDFParse: new (opts: { data: Buffer }) => { getText(): Promise<{ text: string }> };
     };

@@ -63,7 +63,7 @@ function parseForm(req: NextApiRequest): Promise<{ fields: formidable.Fields; fi
 
 async function extractContractFromPdf(buffer: Buffer): Promise<string> {
   // pdf-parse v2: class-based API.
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { PDFParse } = require('pdf-parse') as {
     PDFParse: new (opts: { data: Buffer }) => { getText(): Promise<{ text: string }> };
   };

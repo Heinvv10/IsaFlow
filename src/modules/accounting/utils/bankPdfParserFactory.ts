@@ -103,7 +103,7 @@ export function parseBankStatementText(
       // Delegate to the existing ABSA parser in bankPdfParser.ts.
       // We import inline to avoid a circular dependency:
       //   bankPdfParser → parseBankStatementText → bankPdfParser
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { parseAbsaPdfText } = require('./bankPdfParser') as {
         parseAbsaPdfText: (text: string) => BankCsvParseResult;
       };
