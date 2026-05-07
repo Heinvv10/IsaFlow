@@ -12,9 +12,6 @@ import {
   dbQuery, dbRun, recordResult, saveResults,
 } from './mutating-actions-helpers';
 
-// UUID of hein@isaflow.co.za — owner in demo company; used as created_by
-const CREATED_BY_UUID = 'aeb3949e-6c93-4c17-bbdf-b6d2d99fa9a2';
-
 test.beforeAll(async () => {
   await initBrowser();
 });
@@ -42,89 +39,110 @@ test('journal entry: create → post → reverse', async () => {
     return;
   }
 
-  // Seed a draft JE directly — no admin "create JE" endpoint exists
-  const [je] = await dbQuery<{ id: string }>(
-    `INSERT INTO gl_journal_entries
-       (company_id, description, entry_date, status, created_by)
-     VALUES ($1, 'Audit Phase 2 test JE', NOW()::date, 'draft', $2::uuid)
-     RETURNING id`,
-    [DEMO_COMPANY_ID, CREATED_BY_UUID],
+  // Resolve demo company owner dynamically
+  const [ownerRow] = await dbQuery<{ id: string }>(
+    `SELECT u.id FROM company_users cu JOIN users u ON u.id = cu.user_id
+      WHERE cu.company_id = $1 AND cu.role = 'owner' LIMIT 1`,
+    [DEMO_COMPANY_ID],
   );
-  expect(je?.id, 'JE created in DB').toBeTruthy();
+  if (!ownerRow) { test.skip(true, 'SKIP: no owner in demo company'); return; }
+  const createdByUuid = ownerRow.id;
 
-  await dbRun(
-    `INSERT INTO gl_journal_lines
-       (journal_entry_id, gl_account_id, debit, credit, description, company_id)
-     VALUES
-       ($1, $2, 100, 0, 'Debit — Phase 2 audit', $4),
-       ($1, $3, 0, 100, 'Credit — Phase 2 audit', $4)`,
-    [je.id, accounts[0].id, accounts[1].id, DEMO_COMPANY_ID],
-  );
+  const jeIds: string[] = [];
+  try {
+    // Seed a draft JE directly — no admin "create JE" endpoint exists
+    const [je] = await dbQuery<{ id: string }>(
+      `INSERT INTO gl_journal_entries
+         (company_id, description, entry_date, status, created_by)
+       VALUES ($1, 'Audit Phase 2 test JE', NOW()::date, 'draft', $2::uuid)
+       RETURNING id`,
+      [DEMO_COMPANY_ID, createdByUuid],
+    );
+    expect(je?.id, 'JE created in DB').toBeTruthy();
 
-  const [before] = await dbQuery<{ status: string }>(
-    `SELECT status FROM gl_journal_entries WHERE id = $1`, [je.id],
-  );
-  expect(before.status).toBe('draft');
+    await dbRun(
+      `INSERT INTO gl_journal_lines
+         (journal_entry_id, gl_account_id, debit, credit, description, company_id)
+       VALUES
+         ($1, $2, 100, 0, 'Debit — Phase 2 audit', $4),
+         ($1, $3, 0, 100, 'Credit — Phase 2 audit', $4)`,
+      [je.id, accounts[0].id, accounts[1].id, DEMO_COMPANY_ID],
+    );
 
-  // Post via accounting API (requires X-Company-Id header, not X-Admin-Request)
-  const t0 = Date.now();
-  const { status: postStatus, body: postBody } = await apiPost(
-    `/api/accounting/journal-entries-action`,
-    { id: je.id, action: 'post' },
-    { 'x-company-id': DEMO_COMPANY_ID, 'x-admin-request': '' },
-  );
-  const latency = Date.now() - t0;
-  expect(postStatus, `JE post: ${JSON.stringify(postBody)}`).toBe(200);
+    const [before] = await dbQuery<{ status: string }>(
+      `SELECT status FROM gl_journal_entries WHERE id = $1`, [je.id],
+    );
+    expect(before.status).toBe('draft');
 
-  const [afterPost] = await dbQuery<{ status: string }>(
-    `SELECT status FROM gl_journal_entries WHERE id = $1`, [je.id],
-  );
-  expect(afterPost.status).toBe('posted');
+    // Post via accounting API (requires X-Company-Id header, not X-Admin-Request)
+    const t0 = Date.now();
+    const { status: postStatus, body: postBody } = await apiPost(
+      `/api/accounting/journal-entries-action`,
+      { id: je.id, action: 'post' },
+      { 'x-company-id': DEMO_COMPANY_ID, 'x-admin-request': '' },
+    );
+    const latency = Date.now() - t0;
+    expect(postStatus, `JE post: ${JSON.stringify(postBody)}`).toBe(200);
 
-  // Reverse — creates a counter-entry; response body contains the reversal JE id.
-  const { status: revStatus, body: revBody } = await apiPost(
-    `/api/accounting/journal-entries-action`,
-    { id: je.id, action: 'reverse' },
-    { 'x-company-id': DEMO_COMPANY_ID, 'x-admin-request': '' },
-  );
-  expect(revStatus, `JE reverse: ${JSON.stringify(revBody)}`).toBe(200);
+    const [afterPost] = await dbQuery<{ status: string }>(
+      `SELECT status FROM gl_journal_entries WHERE id = $1`, [je.id],
+    );
+    expect(afterPost.status).toBe('posted');
 
-  // Extract reversal id from the API response (reverseJournalEntry returns the new entry).
-  // Falls back to the reversal_of_id FK on gl_journal_entries as a second source of truth.
-  const reversalIdFromResponse = (revBody as { data?: { id?: string } }).data?.id ?? '';
-  const [reversalRow] = await dbQuery<{ id: string }>(
-    `SELECT id FROM gl_journal_entries WHERE reversal_of_id = $1 AND company_id = $2`,
-    [je.id, DEMO_COMPANY_ID],
-  );
-  const reversalId = reversalIdFromResponse || reversalRow?.id ?? '';
-  expect(reversalId, 'reversal JE id must be resolvable').toBeTruthy();
+    // Reverse — creates a counter-entry; response body contains the reversal JE id.
+    const { status: revStatus, body: revBody } = await apiPost(
+      `/api/accounting/journal-entries-action`,
+      { id: je.id, action: 'reverse' },
+      { 'x-company-id': DEMO_COMPANY_ID, 'x-admin-request': '' },
+    );
+    expect(revStatus, `JE reverse: ${JSON.stringify(revBody)}`).toBe(200);
 
-  // Collect the two JEs (original + reversal) by exact ids — no time-window heuristics.
-  const allJes = await dbQuery<{ id: string; status: string }>(
-    `SELECT id, status FROM gl_journal_entries WHERE id = ANY($1::uuid[]) AND company_id = $2`,
-    [[je.id, reversalId], DEMO_COMPANY_ID],
-  );
-  expect(allJes.length).toBeGreaterThanOrEqual(2);
-  // Original is now 'reversed'; reversal is 'posted'. Both are terminal states.
-  expect(allJes.every((r) => r.status === 'posted' || r.status === 'reversed')).toBe(true);
+    // Extract reversal id from the API response (reverseJournalEntry returns the new entry).
+    // Falls back to the reversal_of_id FK on gl_journal_entries as a second source of truth.
+    const reversalIdFromResponse = (revBody as { data?: { id?: string } }).data?.id ?? '';
+    const [reversalRow] = await dbQuery<{ id: string }>(
+      `SELECT id FROM gl_journal_entries WHERE reversal_of_id = $1 AND company_id = $2`,
+      [je.id, DEMO_COMPANY_ID],
+    );
+    const reversalId = reversalIdFromResponse || reversalRow?.id ?? '';
+    expect(reversalId, 'reversal JE id must be resolvable').toBeTruthy();
 
-  for (const { id } of allJes) {
-    await dbRun(`DELETE FROM gl_journal_lines WHERE journal_entry_id = $1`, [id]);
-    await dbRun(`DELETE FROM gl_journal_entries WHERE id = $1`, [id]);
+    jeIds.push(je.id, reversalId);
+
+    // Collect the two JEs (original + reversal) by exact ids — no time-window heuristics.
+    const allJes = await dbQuery<{ id: string; status: string }>(
+      `SELECT id, status FROM gl_journal_entries WHERE id = ANY($1::uuid[]) AND company_id = $2`,
+      [[je.id, reversalId], DEMO_COMPANY_ID],
+    );
+    expect(allJes.length).toBeGreaterThanOrEqual(2);
+    // Original is now 'reversed'; reversal is 'posted'. Both are terminal states.
+    expect(allJes.every((r) => r.status === 'posted' || r.status === 'reversed')).toBe(true);
+
+    for (const { id } of allJes) {
+      await dbRun(`DELETE FROM gl_journal_lines WHERE journal_entry_id = $1`, [id]);
+      await dbRun(`DELETE FROM gl_journal_entries WHERE id = $1`, [id]);
+    }
+
+    const [finalCheck] = await dbQuery<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM gl_journal_entries WHERE id = ANY($1::uuid[])`,
+      [allJes.map((r) => r.id)],
+    );
+    expect(finalCheck.count).toBe('0');
+
+    recordResult({
+      action: 'journal.post→reverse', pass: true, statusCode: 200, latencyMs: latency,
+      dbDiff: { before: 'draft', after: 'posted', restored: 'reversed+cleaned' },
+      screenshotPath: '',
+      notes: `JE seeded in DB, posted via API, reversed via API. ${allJes.length} JEs cleaned up.`,
+    });
+  } finally {
+    for (const id of jeIds) {
+      if (id) {
+        await dbRun(`DELETE FROM gl_journal_lines WHERE journal_entry_id = $1`, [id]).catch(() => undefined);
+        await dbRun(`DELETE FROM gl_journal_entries WHERE id = $1`, [id]).catch(() => undefined);
+      }
+    }
   }
-
-  const [finalCheck] = await dbQuery<{ count: string }>(
-    `SELECT COUNT(*)::text AS count FROM gl_journal_entries WHERE id = ANY($1::uuid[])`,
-    [allJes.map((r) => r.id)],
-  );
-  expect(finalCheck.count).toBe('0');
-
-  recordResult({
-    action: 'journal.post→reverse', pass: true, statusCode: 200, latencyMs: latency,
-    dbDiff: { before: 'draft', after: 'posted', restored: 'reversed+cleaned' },
-    screenshotPath: '',
-    notes: `JE seeded in DB, posted via API, reversed via API. ${allJes.length} JEs cleaned up.`,
-  });
 });
 
 // ─── Dunning send — SKIPPED ───────────────────────────────────────────────────

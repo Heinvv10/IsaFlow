@@ -16,13 +16,15 @@ import fs from 'fs';
 
 export const BASE = 'http://localhost:3200';
 export const DEMO_COMPANY_ID = '00000000-0000-0000-0000-000000000001';
-export const ADMIN_EMAIL = process.env.E2E_ADMIN_EMAIL ?? 'admin@isaflow.co.za';
+const _adminEmail = process.env.E2E_ADMIN_EMAIL;
+if (!_adminEmail) throw new Error('E2E_ADMIN_EMAIL not set — required for mutating-action audit');
+export const ADMIN_EMAIL: string = _adminEmail;
 
 const _adminPassword = process.env.E2E_ADMIN_PASSWORD;
 if (!_adminPassword) throw new Error('E2E_ADMIN_PASSWORD not set — required for mutating-action audit');
 export const ADMIN_PASSWORD: string = _adminPassword;
 
-const _dbUrl = process.env.MIGRATION_ADMIN_DATABASE_URL ?? process.env.DATABASE_URL;
+const _dbUrl = process.env.MIGRATION_ADMIN_DATABASE_URL;
 if (!_dbUrl) throw new Error('MIGRATION_ADMIN_DATABASE_URL not set — required for mutating-action audit');
 export const DB_URL: string = _dbUrl;
 
@@ -78,10 +80,8 @@ export async function initBrowser(): Promise<{ context: BrowserContext; page: Pa
 }
 
 export async function closeBrowser(): Promise<void> {
-  // Only close if this is the last spec referencing the shared context
-  // (both spec files call this; the second call is a no-op)
-  await sharedContext?.close().catch(() => undefined);
-  await sharedBrowser?.close().catch(() => undefined);
+  try { await sharedContext?.close(); } catch (e) { console.error('closeBrowser: context close failed:', e); }
+  try { await sharedBrowser?.close(); } catch (e) { console.error('closeBrowser: browser close failed:', e); }
   sharedContext = null;
   sharedBrowser = null;
   sharedPage = null;
@@ -113,12 +113,20 @@ function mergeHeaders(
   return merged;
 }
 
+async function refreshCsrfToken(): Promise<void> {
+  if (!sharedContext) return;
+  const cookies = await sharedContext.cookies();
+  const c = cookies.find((x) => x.name === 'isaflow_csrf');
+  if (c) csrfToken = c.value;
+}
+
 /** Make an authenticated API request using the shared browser context's cookies. */
 export async function apiPost(
   path: string,
   body: unknown,
   extraHeaders: Record<string, string> = {},
 ): Promise<{ status: number; body: unknown }> {
+  await refreshCsrfToken();
   const page = getSharedPage();
   const res = await page.request.post(`${BASE}${path}`, {
     data: body as Record<string, unknown>,
@@ -136,6 +144,7 @@ export async function apiPatch(
   body: unknown,
   extraHeaders: Record<string, string> = {},
 ): Promise<{ status: number; body: unknown }> {
+  await refreshCsrfToken();
   const page = getSharedPage();
   const res = await page.request.patch(`${BASE}${path}`, {
     data: body as Record<string, unknown>,
@@ -152,6 +161,7 @@ export async function apiDelete(
   path: string,
   extraHeaders: Record<string, string> = {},
 ): Promise<{ status: number; body: unknown }> {
+  await refreshCsrfToken();
   const page = getSharedPage();
   const res = await page.request.delete(`${BASE}${path}`, {
     headers: mergeHeaders(
