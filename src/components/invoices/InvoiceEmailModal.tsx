@@ -3,7 +3,6 @@
  * Overlay click closes; inner div stopPropagation.
  */
 
-import * as React from 'react';
 import { Loader2, Send, CheckCircle2, AlertCircle, X } from 'lucide-react';
 
 interface Props {

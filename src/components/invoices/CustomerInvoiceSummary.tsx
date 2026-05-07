@@ -2,7 +2,6 @@
  * CustomerInvoiceSummary — Summary cards and line items table for the customer invoice detail page.
  */
 
-import * as React from 'react';
 import type { CustomerInvoiceItem } from '@/modules/accounting/types/customerInvoice.types';
 
 const fmt = (n: number) =>

@@ -2,7 +2,6 @@
  * SupplierInvoiceSummary — Details grid and line items table for the supplier invoice detail page.
  */
 
-import * as React from 'react';
 import { formatCurrency } from '@/utils/formatters';
 import type { SupplierInvoiceItem } from '@/modules/accounting/types/ap.types';
 

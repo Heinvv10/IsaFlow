@@ -80,7 +80,7 @@ export default function ReceiptMatchQueuePage() {
       const json = (await res.json()) as { data?: ShortlistResponse };
       const candidates = json?.data?.candidates ?? [];
       setShortlists((prev) => ({ ...prev, [bankTxId]: candidates }));
-    } catch (err) {
+    } catch (_err) {
       setShortlists((prev) => ({ ...prev, [bankTxId]: [] }));
     }
   }, []);

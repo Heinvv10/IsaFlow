@@ -133,7 +133,7 @@ export async function extractPdfWithVlm(
 
 async function renderPdfFirstPage(pdfBuffer: Buffer): Promise<string | null> {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const pdf2pic = require('pdf2pic') as {
       fromBuffer: (buf: Buffer, opts: Record<string, unknown>) => (
         pageNumber: number,

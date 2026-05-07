@@ -3,7 +3,7 @@
  * Multi-entity balance sheet with elimination entries and consolidated totals.
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { BarChart3, Loader2, AlertCircle, Download, Building2, CheckCircle2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';

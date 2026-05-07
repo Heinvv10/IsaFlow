@@ -1,7 +1,7 @@
 // src/components/accounting/afs/AfsNotesTab.tsx
 // Inline IFRS disclosure notes for an AFS document's fiscal year.
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { DisclosureNote, NoteTable } from '@/modules/accounting/services/reports/disclosureNoteService';

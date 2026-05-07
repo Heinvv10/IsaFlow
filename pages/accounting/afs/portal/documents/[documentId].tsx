@@ -2,7 +2,7 @@
 // Document viewer for portal contacts. Shows sections with annotation UI for directors/CFOs.
 // SECURITY: section.content is HTML from ISaFlow's own renderer (not user input).
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import type { GetServerSidePropsContext, InferGetServerSidePropsType } from 'next';

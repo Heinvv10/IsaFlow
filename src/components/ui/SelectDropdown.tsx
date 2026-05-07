@@ -3,7 +3,7 @@
  * Not exported from the public component library — used only by Select.tsx.
  */
 
-import React, { type KeyboardEvent, type RefObject } from 'react';
+import { type KeyboardEvent, type RefObject } from 'react';
 import { Check, Search } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import type { SelectOption } from './Select';
