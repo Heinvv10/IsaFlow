@@ -14,7 +14,7 @@ import {
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import type { RuleApplyResult } from '../../types/bank.types';
 import {
-  toSqlPattern, findMatchingTxs, buildAutoCreateLines, isDateInOpenPeriod,
+  toSqlPattern, findMatchingTxs, buildAutoCreateLines, getPeriodStatusForDate,
   type RuleAllocType,
 } from './bankRulesMatchingHelpers';
 
@@ -149,11 +149,14 @@ export async function applyRules(
         'accounting',
       );
     }
-    // Count of auto-post attempts that failed because the transaction date
-    // falls in a closed/locked fiscal period. We swallow the error per-tx so
-    // one bad date doesn't abort the whole apply, then surface the total
-    // count in the result so the UI can warn the user.
+    // Counts of auto-post attempts skipped because the transaction date
+    // can't be posted. Tracked separately because the remedies differ:
+    //   - closedPeriod  → re-open the period (or accept that history is sealed)
+    //   - noPeriod      → create the fiscal year so a covering period exists
+    // Conflating them ("everything is closed") sent users in circles when
+    // their periods were all open but the year hadn't been created.
     let autoPostSkippedClosedPeriod = 0;
+    let autoPostSkippedNoPeriod = 0;
     for (const rule of (bankGlAccountId ? autoCreateRules : [])) {
       const pattern = toSqlPattern(String(rule.match_type), String(rule.match_pattern));
       const field = String(rule.match_field);
@@ -201,12 +204,13 @@ export async function applyRules(
           ? tx.transaction_date.toISOString().split('T')[0]!
           : String(tx.transaction_date).split('T')[0]!;
 
-        // Pre-flight: skip historical transactions whose date is in a
-        // closed/locked period (or has no period at all). Without this,
+        // Pre-flight: skip transactions whose date can't post. Without this,
         // createJournalEntry would insert a draft JE row, postJournalEntry
         // would reject it, and the draft would dangle in the GL forever.
-        if (!(await isDateInOpenPeriod(companyId, entryDate))) {
-          autoPostSkippedClosedPeriod++;
+        const periodStatus = await getPeriodStatusForDate(companyId, entryDate);
+        if (periodStatus !== 'open') {
+          if (periodStatus === 'no_period') autoPostSkippedNoPeriod++;
+          else autoPostSkippedClosedPeriod++;
           continue;
         }
 
@@ -325,6 +329,7 @@ export async function applyRules(
         skipped,
         autoPostRulesSkippedNoBankGl,
         autoPostSkippedClosedPeriod,
+        autoPostSkippedNoPeriod,
       },
       'accounting',
     );
@@ -334,6 +339,7 @@ export async function applyRules(
       entries,
       autoPostRulesSkippedNoBankGl,
       autoPostSkippedClosedPeriod,
+      autoPostSkippedNoPeriod,
     };
   } catch (err) {
     log.error('Failed to apply bank rules', { error: err }, 'accounting');
