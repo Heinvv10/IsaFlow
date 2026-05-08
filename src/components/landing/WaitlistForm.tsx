@@ -1,22 +1,17 @@
-/**
- * WaitlistForm — pre-launch lead capture shown on the public /register route
- * (and any "Sign up" CTA) until we're ready to take paying customers.
- *
- * Posts to /api/waitlist and swaps to a thank-you state on success.
- */
-
 import { useState, FormEvent } from 'react';
-import Image from 'next/image';
 import Link from 'next/link';
-import { CheckCircle2 } from 'lucide-react';
+import {
+  Building2,
+  CircleDollarSign,
+  Mail,
+  Phone,
+  UserRound,
+} from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { WaitlistPageShell } from './WaitlistPageShell';
+import { WaitlistSuccessCard } from './WaitlistSuccessCard';
 
-interface ApiEnvelope {
-  success: boolean;
-  message?: string;
-  error?: { message?: string };
-}
-
+type ApiEnvelope = { success: boolean; message?: string; error?: { message?: string } };
 type SignupType = 'direct' | 'accountant';
 
 export function WaitlistForm() {
@@ -31,10 +26,14 @@ export function WaitlistForm() {
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
 
-  const canSubmit = email.trim().length > 0 && !submitting;
-
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const submittedEmail = String(formData.get('email') ?? '').trim().toLowerCase();
+    const submittedAnnualTurnover = String(formData.get('annualTurnover') ?? '').trim();
+
+    if (!submittedEmail) return;
+
     setError('');
     setSubmitting(true);
 
@@ -43,14 +42,16 @@ export function WaitlistForm() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: name.trim(),
-          email: email.trim().toLowerCase(),
-          companyName: companyName.trim(),
-          practiceName: practiceName.trim(),
-          phone: phone.trim(),
+          name: String(formData.get('name') ?? '').trim(),
+          email: submittedEmail,
+          companyName: String(formData.get('companyName') ?? '').trim(),
+          practiceName: String(formData.get('practiceName') ?? '').trim(),
+          phone: String(formData.get('phone') ?? '').trim(),
           signupType,
-          // whole ZAR — the API converts to cents
-          annualTurnover: annualTurnover.trim() ? Number(annualTurnover.replace(/[,\s]/g, '')) : undefined,
+          // whole ZAR - the API converts to cents
+          annualTurnover: submittedAnnualTurnover
+            ? Number(submittedAnnualTurnover.replace(/[,\s]/g, ''))
+            : undefined,
         }),
       });
 
@@ -71,56 +72,27 @@ export function WaitlistForm() {
 
   if (done) {
     return (
-      <div className="min-h-screen bg-slate-50 dark:bg-gray-950 flex items-center justify-center px-4">
-        <div className="w-full max-w-sm">
-          <div className="flex flex-col items-center mb-8">
-            <Image src="/logo.png" alt="ISAFlow" width={160} height={64} className="h-16 w-auto dark:brightness-0 dark:invert mb-4" priority />
-          </div>
-
-          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl p-8 shadow-xl text-center">
-            <div className="mx-auto w-12 h-12 rounded-full bg-teal-500/10 flex items-center justify-center mb-4">
-              <CheckCircle2 className="w-6 h-6 text-teal-500" />
-            </div>
-            <h1 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">
-              You&apos;re on the list
-            </h1>
-            <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-              Thanks for your interest in ISAFlow. We&apos;re putting the finishing
-              touches on the platform and will be in touch closer to launch to
-              get you set up.
-            </p>
-            <Link
-              href="/"
-              className="mt-6 inline-block text-sm text-teal-600 hover:text-teal-500 dark:text-teal-400 dark:hover:text-teal-300 transition-colors"
-            >
-              Back to home
-            </Link>
-          </div>
-        </div>
-      </div>
+      <WaitlistPageShell>
+        <WaitlistSuccessCard />
+      </WaitlistPageShell>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-gray-950 flex items-center justify-center px-4 py-12">
-      <div className="w-full max-w-sm">
-
-        <div className="flex flex-col items-center mb-8">
-          <Image src="/logo.png" alt="ISAFlow" width={160} height={64} className="h-16 w-auto dark:brightness-0 dark:invert mb-4" priority />
-          <h1 className="text-lg font-semibold text-slate-900 dark:text-white mt-2">
-            Join the waitlist
-          </h1>
-          <p className="text-sm text-slate-600 dark:text-slate-300 mt-1 text-center">
-            We&apos;re not quite taking new customers yet. Leave your details
-            and we&apos;ll be in touch closer to launch.
+    <WaitlistPageShell>
+      <div className="mx-auto w-full max-w-md lg:-mt-10">
+        <div className="mb-5 text-center text-white lg:text-left">
+          <h2 className="text-2xl font-bold tracking-normal">Join the waitlist</h2>
+          <p className="mt-1 text-sm text-white/70">
+            Tell us who you are so we can invite the right teams first.
           </p>
         </div>
 
-        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl p-6 shadow-xl">
+        <div className="relative overflow-hidden rounded-2xl border border-white/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.94),rgba(248,250,252,0.88))] p-6 shadow-[0_24px_70px_rgba(2,8,23,0.34)] backdrop-blur-2xl sm:p-8">
+          <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-teal-300/80 via-teal-500 to-cyan-300/70" />
           <form onSubmit={(e) => void handleSubmit(e)} noValidate>
-
             <div className="mb-4">
-              <span className="block text-xs font-medium text-slate-500 dark:text-gray-400 mb-1.5">
+              <span className="mb-1.5 block text-xs font-semibold text-slate-700">
                 I&apos;m signing up for
               </span>
               <div className="grid grid-cols-2 gap-2">
@@ -128,137 +100,162 @@ export function WaitlistForm() {
                   type="button"
                   onClick={() => setSignupType('direct')}
                   disabled={submitting}
-                  className={`px-3 py-2.5 rounded-lg border text-sm transition ${signupType === 'direct'
-                    ? 'border-teal-500 bg-teal-500/10 text-teal-700 dark:text-teal-300'
-                    : 'border-slate-300 dark:border-gray-600 bg-slate-50 dark:bg-gray-800 text-slate-600 dark:text-gray-300 hover:border-teal-400'}`}
+                  className={`rounded-lg border px-3 py-2.5 text-sm font-semibold transition ${
+                    signupType === 'direct'
+                      ? 'border-teal-500 bg-teal-500/10 text-teal-800'
+                      : 'border-slate-300 bg-white/80 text-slate-600 hover:border-teal-400'
+                  }`}
                 >
-                  My own business
+                  My business
                 </button>
                 <button
                   type="button"
                   onClick={() => setSignupType('accountant')}
                   disabled={submitting}
-                  className={`px-3 py-2.5 rounded-lg border text-sm transition ${signupType === 'accountant'
-                    ? 'border-teal-500 bg-teal-500/10 text-teal-700 dark:text-teal-300'
-                    : 'border-slate-300 dark:border-gray-600 bg-slate-50 dark:bg-gray-800 text-slate-600 dark:text-gray-300 hover:border-teal-400'}`}
+                  className={`rounded-lg border px-3 py-2.5 text-sm font-semibold transition ${
+                    signupType === 'accountant'
+                      ? 'border-teal-500 bg-teal-500/10 text-teal-800'
+                      : 'border-slate-300 bg-white/80 text-slate-600 hover:border-teal-400'
+                  }`}
                 >
-                  I&apos;m an accountant
+                  Accountant
                 </button>
               </div>
-              <p className="text-xs text-slate-500 dark:text-gray-500 mt-1.5">
+              <p className="mt-1.5 text-xs leading-5 text-slate-500">
                 {signupType === 'accountant'
-                  ? 'You manage payroll/accounting for multiple client companies — get the bureau dashboard.'
+                  ? 'You manage accounting, payroll or advisory work for multiple client companies.'
                   : 'You run your own books for a single business.'}
               </p>
             </div>
 
             <div className="mb-4">
-              <label htmlFor="name" className="block text-xs font-medium text-slate-500 dark:text-gray-400 mb-1.5">
+              <label htmlFor="name" className="mb-1.5 block text-xs font-semibold text-slate-700">
                 Your name
               </label>
-              <input
-                id="name"
-                type="text"
-                autoComplete="name"
-                value={name}
-                onChange={(e) => { setError(''); setName(e.target.value); }}
-                disabled={submitting}
-                className="w-full bg-slate-50 dark:bg-gray-800 border border-slate-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition"
-                placeholder="John Doe"
-              />
+              <div className="relative">
+                <UserRound className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  id="name"
+                  name="name"
+                  type="text"
+                  autoComplete="name"
+                  value={name}
+                  onChange={(e) => { setError(''); setName(e.target.value); }}
+                  disabled={submitting}
+                  className="w-full rounded-lg border border-slate-300 !bg-white/95 px-10 py-3 text-sm !text-slate-950 shadow-sm shadow-slate-950/5 placeholder-slate-400 transition focus:border-transparent focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-50"
+                  placeholder="John Doe"
+                />
+              </div>
             </div>
 
             <div className="mb-4">
-              <label htmlFor="email" className="block text-xs font-medium text-slate-500 dark:text-gray-400 mb-1.5">
+              <label htmlFor="email" className="mb-1.5 block text-xs font-semibold text-slate-700">
                 Email address <span className="text-red-500">*</span>
               </label>
-              <input
-                id="email"
-                type="email"
-                autoComplete="email"
-                required
-                value={email}
-                onChange={(e) => { setError(''); setEmail(e.target.value); }}
-                disabled={submitting}
-                className="w-full bg-slate-50 dark:bg-gray-800 border border-slate-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition"
-                placeholder="you@example.com"
-              />
+              <div className="relative">
+                <Mail className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  required
+                  value={email}
+                  onChange={(e) => { setError(''); setEmail(e.target.value); }}
+                  disabled={submitting}
+                  className="w-full rounded-lg border border-slate-300 !bg-white/95 px-10 py-3 text-sm !text-slate-950 shadow-sm shadow-slate-950/5 placeholder-slate-400 transition focus:border-transparent focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-50"
+                  placeholder="you@example.com"
+                />
+              </div>
             </div>
 
             {signupType === 'accountant' ? (
               <div className="mb-4">
-                <label htmlFor="practiceName" className="block text-xs font-medium text-slate-500 dark:text-gray-400 mb-1.5">
+                <label htmlFor="practiceName" className="mb-1.5 block text-xs font-semibold text-slate-700">
                   Practice name
                 </label>
-                <input
-                  id="practiceName"
-                  type="text"
-                  autoComplete="organization"
-                  value={practiceName}
-                  onChange={(e) => { setError(''); setPracticeName(e.target.value); }}
-                  disabled={submitting}
-                  className="w-full bg-slate-50 dark:bg-gray-800 border border-slate-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition"
-                  placeholder="Smith & Associates"
-                />
+                <div className="relative">
+                  <Building2 className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <input
+                    id="practiceName"
+                    name="practiceName"
+                    type="text"
+                    autoComplete="organization"
+                    value={practiceName}
+                    onChange={(e) => { setError(''); setPracticeName(e.target.value); }}
+                    disabled={submitting}
+                    className="w-full rounded-lg border border-slate-300 !bg-white/95 px-10 py-3 text-sm !text-slate-950 shadow-sm shadow-slate-950/5 placeholder-slate-400 transition focus:border-transparent focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-50"
+                    placeholder="Smith & Associates"
+                  />
+                </div>
               </div>
             ) : (
               <div className="mb-4">
-                <label htmlFor="companyName" className="block text-xs font-medium text-slate-500 dark:text-gray-400 mb-1.5">
+                <label htmlFor="companyName" className="mb-1.5 block text-xs font-semibold text-slate-700">
                   Company name
                 </label>
-                <input
-                  id="companyName"
-                  type="text"
-                  autoComplete="organization"
-                  value={companyName}
-                  onChange={(e) => { setError(''); setCompanyName(e.target.value); }}
-                  disabled={submitting}
-                  className="w-full bg-slate-50 dark:bg-gray-800 border border-slate-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition"
-                  placeholder="Acme (Pty) Ltd"
-                />
+                <div className="relative">
+                  <Building2 className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <input
+                    id="companyName"
+                    name="companyName"
+                    type="text"
+                    autoComplete="organization"
+                    value={companyName}
+                    onChange={(e) => { setError(''); setCompanyName(e.target.value); }}
+                    disabled={submitting}
+                    className="w-full rounded-lg border border-slate-300 !bg-white/95 px-10 py-3 text-sm !text-slate-950 shadow-sm shadow-slate-950/5 placeholder-slate-400 transition focus:border-transparent focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-50"
+                    placeholder="Acme (Pty) Ltd"
+                  />
+                </div>
               </div>
             )}
 
             <div className="mb-4">
-              <label htmlFor="phone" className="block text-xs font-medium text-slate-500 dark:text-gray-400 mb-1.5">
+              <label htmlFor="phone" className="mb-1.5 block text-xs font-semibold text-slate-700">
                 Phone number
               </label>
-              <input
-                id="phone"
-                type="tel"
-                autoComplete="tel"
-                value={phone}
-                onChange={(e) => { setError(''); setPhone(e.target.value); }}
-                disabled={submitting}
-                className="w-full bg-slate-50 dark:bg-gray-800 border border-slate-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition"
-                placeholder="+27 82 000 0000"
-              />
+              <div className="relative">
+                <Phone className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  id="phone"
+                  name="phone"
+                  type="tel"
+                  autoComplete="tel"
+                  value={phone}
+                  onChange={(e) => { setError(''); setPhone(e.target.value); }}
+                  disabled={submitting}
+                  className="w-full rounded-lg border border-slate-300 !bg-white/95 px-10 py-3 text-sm !text-slate-950 shadow-sm shadow-slate-950/5 placeholder-slate-400 transition focus:border-transparent focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-50"
+                  placeholder="+27 82 000 0000"
+                />
+              </div>
             </div>
 
             {signupType === 'direct' && (
               <div className="mb-6">
-                <label htmlFor="annualTurnover" className="block text-xs font-medium text-slate-500 dark:text-gray-400 mb-1.5">
-                  Annual turnover (ZAR) <span className="text-slate-400 dark:text-gray-500">— optional</span>
+                <label htmlFor="annualTurnover" className="mb-1.5 block text-xs font-semibold text-slate-700">
+                  Annual turnover (ZAR) <span className="font-medium text-slate-400">- optional</span>
                 </label>
                 <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400 dark:text-gray-500">R</span>
+                  <CircleDollarSign className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                   <input
                     id="annualTurnover"
+                    name="annualTurnover"
                     type="text"
                     inputMode="numeric"
                     value={annualTurnover}
                     onChange={(e) => { setError(''); setAnnualTurnover(e.target.value.replace(/[^0-9,\s]/g, '')); }}
                     disabled={submitting}
-                    className="w-full bg-slate-50 dark:bg-gray-800 border border-slate-300 dark:border-gray-600 rounded-lg pl-7 pr-3 py-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent disabled:opacity-50 transition"
+                    className="w-full rounded-lg border border-slate-300 !bg-white/95 px-10 py-3 text-sm !text-slate-950 shadow-sm shadow-slate-950/5 placeholder-slate-400 transition focus:border-transparent focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-50"
                     placeholder="500 000"
                   />
                 </div>
                 {annualTurnover && Number(annualTurnover.replace(/[,\s]/g, '')) > 0 && Number(annualTurnover.replace(/[,\s]/g, '')) < 1_000_000 ? (
-                  <p className="text-xs text-teal-600 dark:text-teal-400 mt-1.5">
-                    Under R1M — you&apos;ll qualify for our Pay-As-You-Go plan (pay only for what you use).
+                  <p className="mt-1.5 text-xs leading-5 text-teal-700">
+                    Under R1M - you&apos;ll qualify for our Pay-As-You-Go plan.
                   </p>
                 ) : (
-                  <p className="text-xs text-slate-500 dark:text-gray-500 mt-1.5">
+                  <p className="mt-1.5 text-xs leading-5 text-slate-500">
                     Helps us suggest the best plan when we open doors.
                   </p>
                 )}
@@ -266,15 +263,15 @@ export function WaitlistForm() {
             )}
 
             {error && (
-              <div className="mb-4 px-3 py-2.5 bg-red-500/10 border border-red-500/30 rounded-lg">
-                <p className="text-sm text-red-400">{error}</p>
+              <div className="mb-4 rounded-lg border border-red-500/30 bg-red-50 px-3 py-2.5">
+                <p className="text-sm text-red-600">{error}</p>
               </div>
             )}
 
             <button
               type="submit"
-              disabled={!canSubmit}
-              className="w-full flex items-center justify-center gap-2 bg-teal-600 hover:bg-teal-500 disabled:bg-teal-800 disabled:cursor-not-allowed text-white font-medium text-sm px-4 py-2.5 rounded-lg transition-colors"
+              disabled={submitting}
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-teal-700 to-teal-600 px-4 py-3.5 text-sm font-semibold text-white shadow-lg shadow-teal-950/25 transition hover:from-teal-600 hover:to-teal-500 disabled:cursor-not-allowed disabled:from-teal-900/70 disabled:to-teal-800/70"
             >
               {submitting ? (
                 <>
@@ -282,20 +279,19 @@ export function WaitlistForm() {
                   <span>Submitting...</span>
                 </>
               ) : (
-                'Notify me when you launch'
+                'Join early access'
               )}
             </button>
           </form>
         </div>
 
-        <p className="text-center text-sm text-slate-500 dark:text-gray-500 mt-6">
+        <p className="mt-6 text-center text-sm text-white/75">
           Already have an account?{' '}
-          <Link href="/login" className="text-teal-500 hover:text-teal-400 transition-colors">
+          <Link href="/login" className="font-semibold text-teal-100 transition-colors hover:text-white">
             Sign in
           </Link>
         </p>
-
       </div>
-    </div>
+    </WaitlistPageShell>
   );
 }
