@@ -198,4 +198,11 @@ export interface RuleApplyResult {
    * one historical date doesn't abort the whole apply.
    */
   autoPostSkippedClosedPeriod?: number;
+  /**
+   * Number of auto-post attempts skipped because no fiscal_periods row covers
+   * the transaction date — the fiscal year hasn't been created. Reported
+   * separately from `autoPostSkippedClosedPeriod` so the UI can prompt the
+   * user to create the missing year (different remedy than re-opening).
+   */
+  autoPostSkippedNoPeriod?: number;
 }

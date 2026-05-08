@@ -10,12 +10,27 @@ import type { JournalLineInput } from '../../types/gl.types';
 export type RuleAllocType = 'account' | 'supplier' | 'customer';
 
 /**
- * Returns true iff the given date has an open fiscal period for this company.
- * Used by applyRules to pre-filter auto-post candidates so we never insert a
- * draft JE that we know will fail to post — that would leave orphan drafts in
- * the GL.
+ * Discriminated period state for a given entry date.
+ * - `open`       — a covering fiscal_periods row exists and status='open'
+ * - `closed`     — a covering row exists but status is 'closed' or 'locked'
+ * - `no_period`  — no row covers this date at all (fiscal year not created)
+ *
+ * The `no_period` case must be reported separately from `closed`: the remedy
+ * differs (create the fiscal year vs. re-open the period), and conflating
+ * them in the UI sent users in circles when their periods were all open but
+ * the year hadn't been created.
  */
-export async function isDateInOpenPeriod(companyId: string, entryDate: string): Promise<boolean> {
+export type PeriodStatus = 'open' | 'closed' | 'no_period';
+
+/**
+ * Resolve the fiscal-period state for a transaction date. Used by applyRules
+ * to pre-filter auto-post candidates so we never insert a draft JE that will
+ * fail to post — that would leave orphan drafts in the GL.
+ */
+export async function getPeriodStatusForDate(
+  companyId: string,
+  entryDate: string,
+): Promise<PeriodStatus> {
   const rows = (await sql`
     SELECT status FROM fiscal_periods
     WHERE company_id = ${companyId}::UUID
@@ -23,8 +38,8 @@ export async function isDateInOpenPeriod(companyId: string, entryDate: string): 
       AND end_date   >= ${entryDate}::DATE
     LIMIT 1
   `) as Record<string, unknown>[];
-  if (rows.length === 0) return false;
-  return String(rows[0]!.status) === 'open';
+  if (rows.length === 0) return 'no_period';
+  return String(rows[0]!.status) === 'open' ? 'open' : 'closed';
 }
 
 /** Convert rule match type to SQL ILIKE pattern. */

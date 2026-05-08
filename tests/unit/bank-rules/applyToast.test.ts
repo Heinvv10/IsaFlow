@@ -44,10 +44,35 @@ describe('buildApplyToast', () => {
     expect(r.kind).toBe('warn');
   });
 
-  it('all three signals at once', () => {
-    const r = buildApplyToast({ applied: 729, autoPostSkippedClosedPeriod: 151, autoPostRulesSkippedNoBankGl: 0 });
+  it('applied + no-period skips → success tone with distinct suffix', () => {
+    const r = buildApplyToast({ applied: 45, autoPostSkippedNoPeriod: 684 });
     expect(r.kind).toBe('success');
-    expect(r.message).toBe('729 categorised · 151 skipped (closed period)');
+    expect(r.message).toBe('45 categorised · 684 skipped (no fiscal period)');
+  });
+
+  it('zero applied with no-period skips → warn tone (silent drop, fiscal year missing)', () => {
+    const r = buildApplyToast({ applied: 0, autoPostSkippedNoPeriod: 684 });
+    expect(r.kind).toBe('warn');
+  });
+
+  it('closed and no-period skips coexist → both suffixes shown in stable order', () => {
+    const r = buildApplyToast({
+      applied: 12,
+      autoPostSkippedClosedPeriod: 3,
+      autoPostSkippedNoPeriod: 9,
+    });
+    expect(r.message).toBe('12 categorised · 3 skipped (closed period) · 9 skipped (no fiscal period)');
+  });
+
+  it('all four signals at once', () => {
+    const r = buildApplyToast({
+      applied: 729,
+      autoPostSkippedClosedPeriod: 151,
+      autoPostSkippedNoPeriod: 50,
+      autoPostRulesSkippedNoBankGl: 0,
+    });
+    expect(r.kind).toBe('success');
+    expect(r.message).toBe('729 categorised · 151 skipped (closed period) · 50 skipped (no fiscal period)');
   });
 
   it('undefined inputs default to zero, no skip suffixes shown', () => {
