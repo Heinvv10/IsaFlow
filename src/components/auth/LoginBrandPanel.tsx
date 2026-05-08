@@ -1,5 +1,7 @@
+import { useState, useEffect } from 'react';
 import { BarChart3, BriefcaseBusiness, ShieldCheck, UsersRound } from 'lucide-react';
 import { getDailyLoginQuote } from '@/lib/auth/loginQuotes';
+import type { LoginQuote } from '@/lib/auth/loginQuotes';
 
 const capabilities = [
   { label: 'Financial Management', icon: BriefcaseBusiness },
@@ -9,7 +11,8 @@ const capabilities = [
 ];
 
 export function LoginBrandPanel() {
-  const quote = getDailyLoginQuote();
+  const [quote, setQuote] = useState<LoginQuote | null>(null);
+  useEffect(() => { setQuote(getDailyLoginQuote()); }, []);
 
   return (
     <section className="max-w-2xl text-white">
@@ -36,19 +39,21 @@ export function LoginBrandPanel() {
         ))}
       </div>
 
-      <figure className="mt-8 hidden max-w-lg border-l-2 border-teal-300/90 py-1 pl-5 sm:block">
-        <figcaption className="mb-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-teal-100/90">
-          Daily perspective
-        </figcaption>
-        <blockquote className="text-sm font-medium leading-6 text-white/90">
-          &ldquo;{quote.text}&rdquo;
-        </blockquote>
-        <p className="mt-3 text-xs leading-5 text-white/70">
-          {quote.author}
-          <span className="mx-2 text-white/35">&middot;</span>
-          {quote.role}
-        </p>
-      </figure>
+      {quote && (
+        <figure className="mt-8 hidden max-w-lg border-l-2 border-teal-300/90 py-1 pl-5 sm:block">
+          <figcaption className="mb-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-teal-100/90">
+            Daily perspective
+          </figcaption>
+          <blockquote className="text-sm font-medium leading-6 text-white/90">
+            &ldquo;{quote.text}&rdquo;
+          </blockquote>
+          <p className="mt-3 text-xs leading-5 text-white/70">
+            {quote.author}
+            <span className="mx-2 text-white/35">&middot;</span>
+            {quote.role}
+          </p>
+        </figure>
+      )}
     </section>
   );
 }
