@@ -66,6 +66,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^2.1.4",
     "@neondatabase/serverless": "^1.0.1",
     "@playwright/test": "^1.58.2",
     "@types/bcryptjs": "^2.4.6",
