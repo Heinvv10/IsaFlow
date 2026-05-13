@@ -13,12 +13,14 @@
     "test:unit": "node scripts/check-runtime.mjs && bun run check:routes && vitest run",
     "test:unit:watch": "node scripts/check-runtime.mjs && vitest",
     "test:e2e": "playwright test --config playwright-test.config.ts",
+    "test:integration": "node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts",
     "test:coverage": "node scripts/check-runtime.mjs && vitest run --coverage",
     "test": "node scripts/check-runtime.mjs && vitest run && playwright test --config playwright-test.config.ts",
     "ci": "bash scripts/ci/run-ci.sh",
     "ci:install-hooks": "bash scripts/ci/install-hooks.sh",
     "db:migrate": "bun scripts/apply-migrations.ts",
-    "db:audit-drift": "bun scripts/audit-schema-drift.ts"
+    "db:audit-drift": "bun scripts/audit-schema-drift.ts",
+    "prepare": "bash scripts/ci/install-hooks.sh || true"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.92.0",
