@@ -28,10 +28,10 @@ vi.mock('@/modules/accounting/services/capture/supplierRulesService', () => ({
 }));
 
 import { decide, type GateOptions } from '@/modules/accounting/services/capture/autoPublishGateService';
-import { findDuplicate } from '@/modules/accounting/services/capture/duplicateDetectionService';
+import { findDuplicate } from '@/modules/accounting/services/capture/captureDeduplicationService';
 import { getRule } from '@/modules/accounting/services/capture/supplierRulesService';
 import type { SupplierRule } from '@/modules/accounting/services/capture/supplierRulesService';
-import type { DuplicateHit } from '@/modules/accounting/services/capture/duplicateDetectionService';
+import type { DuplicateHit } from '@/modules/accounting/services/capture/captureDeduplicationService';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 

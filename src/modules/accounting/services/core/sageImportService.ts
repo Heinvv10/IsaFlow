@@ -13,7 +13,7 @@ import { log } from '@/lib/logger';
 import type { MigrationRun } from './sageMigrationService';
 import { startRun, completeRun, failRun } from './sageMigrationService';
 import type { DbRow } from '@/types/db';
-import { computeFingerprint } from '../capture/duplicateDetectionService';
+import { computeFingerprint } from '../capture/captureDeduplicationService';
 
 
 // ── Ledger Transaction Import ───────────────────────────────────────────────
