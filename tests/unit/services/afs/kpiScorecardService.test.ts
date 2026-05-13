@@ -4,7 +4,7 @@ import {
   calculateKpis,
   DEFAULT_RAG_THRESHOLDS,
   type FinancialSnapshot,
-} from '@/modules/accounting/services/afs/kpiScorecardService';
+} from '@/modules/accounting/services/afs/afsKpiService';
 
 const BASE_SNAPSHOT: FinancialSnapshot = {
   revenue: 1_000_000,
