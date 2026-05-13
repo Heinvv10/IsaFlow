@@ -18,7 +18,7 @@ vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-vi.mock('@/modules/accounting/services/capture/duplicateDetectionService', () => ({
+vi.mock('@/modules/accounting/services/capture/captureDeduplicationService', () => ({
   findDuplicate: vi.fn(),
   computeFingerprint: (...args: unknown[]) => args.map(a => a ?? 'null').join('|'),
 }));
