@@ -28,12 +28,14 @@ const FORBIDDEN_PATTERNS: Array<{ label: string; regex: RegExp }> = [
   { label: 'COPY TO/FROM', regex: /\bCOPY\b[\s\S]*?\b(TO|FROM)\b/i },
   { label: 'SET statement', regex: /\bSET\s+\w/i },
   { label: 'DO $$ block', regex: /\bDO\s*\$\$/i },
-  // Block both UNION and UNION ALL — either form can be used to exfiltrate
-  // data from other tenants by appending a second SELECT with a different
-  // company_id.  The scope check in nl-query.ts only requires that the own
-  // company_id appears *somewhere* in the SQL, so a UNION ALL with a victim
-  // company_id appended would still pass that check.
+  // Block all set operators (UNION, UNION ALL, INTERSECT, EXCEPT). Each can be
+  // used to exfiltrate data from another tenant by appending a second SELECT
+  // with a different company_id. The scope check in nl-query.ts only requires
+  // that the own company_id appears *somewhere* in the SQL, so a set-operator
+  // half with a victim company_id appended would still pass that check.
   { label: 'UNION / UNION ALL', regex: /\bUNION\b/i },
+  { label: 'INTERSECT', regex: /\bINTERSECT\b/i },
+  { label: 'EXCEPT', regex: /\bEXCEPT\b/i },
 ];
 
 // Tables that NL queries are permitted to access

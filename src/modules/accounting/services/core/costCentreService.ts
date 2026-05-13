@@ -51,11 +51,6 @@ export async function getCostCentres(companyId: string, activeOnly = false, ccTy
   return rows.map(mapGlRow);
 }
 
-export async function getCostCentre(id: string): Promise<CostCentre | null> {
-  const rows = (await sql`SELECT * FROM cost_centres WHERE id = ${id}::UUID`) as Record<string, unknown>[];
-  return rows[0] ? mapGlRow(rows[0]) : null;
-}
-
 export async function createGlCostCentre(companyId: string, input: CostCentreInput, _userId: string): Promise<CostCentre> {
   const rows = (await sql`
     INSERT INTO cost_centres (company_id, code, name, description, department, cc_type)
@@ -191,12 +186,20 @@ export async function listCostCentres(
   companyId: string,
   opts: ListCostCentresOptions = {},
 ): Promise<PayrollCostCentre[]> {
-  const rows = (await sql`
-    SELECT * FROM cost_centres
-     WHERE company_id = ${companyId}::uuid
-       AND (${opts.activeOnly === true ? true : false}::boolean = false OR is_active = true)
-     ORDER BY code
-  `) as Record<string, unknown>[];
+  const rows = (
+    opts.activeOnly
+      ? await sql`
+          SELECT * FROM cost_centres
+           WHERE company_id = ${companyId}::uuid
+             AND is_active = true
+           ORDER BY code
+        `
+      : await sql`
+          SELECT * FROM cost_centres
+           WHERE company_id = ${companyId}::uuid
+           ORDER BY code
+        `
+  ) as Record<string, unknown>[];
   return rows.map(mapPayrollRow);
 }
 

@@ -184,8 +184,17 @@ export async function commitSageMigration(payload: CommitPayload): Promise<Commi
     bankTransactions: { created: 0, skipped: 0, failed: [] },
   };
 
+  // Per-record commits rollback to the savepoint on failure; the inner catch in
+  // each loop body has already pushed a structured entry into `summary.*.failed`
+  // and rethrown to trigger the rollback. Log once at this boundary so the
+  // failure isn't completely silent in production.
   const sp = (name: string, fn: () => Promise<void>) =>
-    withSavepoint(name, fn).catch(() => { /* per-record handler captures the error */ });
+    withSavepoint(name, fn).catch((err: unknown) => {
+      log.warn('sage commit: savepoint rolled back', {
+        savepoint: name,
+        error: err instanceof Error ? err.message : String(err),
+      }, 'sage-migration');
+    });
 
   // Chart of Accounts
   let ai = 0;
