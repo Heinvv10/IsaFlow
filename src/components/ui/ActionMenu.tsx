@@ -29,7 +29,7 @@ interface MenuPortalProps {
   focusedIndex: number;
   onSelect: (item: ActionMenuItem) => void;
   onFocusChange: (index: number) => void;
-  menuRef: React.RefObject<HTMLDivElement | null>;
+  menuRef: React.RefObject<HTMLDivElement>;
 }
 
 function MenuPortal({ anchorRect, items, focusedIndex, onSelect, onFocusChange, menuRef }: MenuPortalProps) {
@@ -86,7 +86,7 @@ export function ActionMenu({ items, triggerLabel = 'More actions', className }: 
   const [focusedIndex, setFocusedIndex] = React.useState(-1);
   const [anchorRect, setAnchorRect] = React.useState<DOMRect | null>(null);
   const triggerRef = React.useRef<HTMLButtonElement>(null);
-  const menuRef = React.useRef<HTMLDivElement | null>(null);
+  const menuRef = React.useRef<HTMLDivElement>(null);
 
   // Close on outside click — excludes both the trigger AND the portal menu itself
   React.useEffect(() => {
