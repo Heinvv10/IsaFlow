@@ -46,7 +46,7 @@ export * from './reportingEngineService';
 export * from './sarsComplianceService';
 export * from './scenarioPlanningService';
 export * from './statutoryDocService';
-export * from './taxDirectiveService';
+export * from './taxDirectiveReportsService';
 export * from './threeWayForecastService';
 export * from './timeTrackingReportService';
 export * from './transactionReportingService';
