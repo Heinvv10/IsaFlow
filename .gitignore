@@ -71,3 +71,7 @@ scripts/run-sql.mjs
 .playwright-mcp/
 .worktrees/
 scripts/.venv/
+
+# Ad-hoc screenshots — use audit-screenshots/ for keepers
+/*.png
+qa-reports/
