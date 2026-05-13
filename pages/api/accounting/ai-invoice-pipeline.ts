@@ -23,7 +23,7 @@ import type { ExtractedDocument } from '@/modules/accounting/types/documentCaptu
 import {
   computeFingerprint,
   findDuplicate,
-} from '@/modules/accounting/services/capture/duplicateDetectionService';
+} from '@/modules/accounting/services/capture/captureDeduplicationService';
 import { recordCoding } from '@/modules/accounting/services/capture/supplierRulesService';
 import { performThreeWayMatch } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { attachEvidenceToProvisional } from '@/modules/accounting/services/capture/evidenceAttachmentService';

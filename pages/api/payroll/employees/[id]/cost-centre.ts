@@ -17,7 +17,7 @@ import {
 import {
   assignEmployeeCostCentre,
   CostCentreNotFoundError,
-} from '@/modules/accounting/services/payroll/costCentreService';
+} from '@/modules/accounting/services/core/costCentreService';
 
 const Body = z.object({ costCentreId: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, { message: "Invalid UUID" }).nullable() }).strict();
 
