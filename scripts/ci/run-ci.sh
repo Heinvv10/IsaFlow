@@ -22,8 +22,15 @@ run_step() {
 
 run_step "type-check"        bun run type-check
 run_step "lint"              bun run lint
+run_step "security-guards"   bash scripts/ci/check-internal-apis.sh
 run_step "unit-tests"        bun run test:unit
 run_step "migration-naming"  bun scripts/audit-migration-naming.ts
+
+if [ -n "${DATABASE_URL:-}" ]; then
+  run_step "integration-tests" bun run test:integration
+else
+  echo "[skip] integration-tests: DATABASE_URL not set"
+fi
 
 echo ""
 if [ "${#FAILED[@]}" -eq 0 ]; then
