@@ -20,9 +20,11 @@
  * Staff-only via withAdmin.
  */
 
-import type { NextApiRequest, NextApiResponse } from 'next';
+import type { NextApiResponse } from 'next';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
+import type { PlatformAdminRequest } from '@/lib/auth';
+import { log } from '@/lib/logger';
 import { commitSageMigration } from '@/modules/admin/services/sageMigrationCommitService';
 import type {
   MappedAccount,
@@ -31,7 +33,7 @@ import type {
   MappedARInvoice,
   MappedAPInvoice,
   BankTx,
-} from '@/modules/admin/services/sageMigrationCommitService';
+} from '@/modules/admin/services/sageMigrationTypes';
 
 interface CommitBody {
   companyId?: string;
@@ -45,7 +47,7 @@ interface CommitBody {
   };
 }
 
-async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
   }
@@ -56,8 +58,21 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!companyId) return apiResponse.validationError(res, { companyId: 'companyId is required' });
   if (!pulled)    return apiResponse.validationError(res, { pulled: 'pulled data is required' });
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const userId = (req as any).user?.id ?? 'sage-migration';
+  const userId = req.user.id;
+
+  log.info('Sage migration commit initiated', {
+    adminUserId: userId,
+    adminEmail: req.user.email,
+    targetCompanyId: companyId,
+    counts: {
+      accounts:         pulled.accounts?.records?.length         ?? 0,
+      customers:        pulled.customers?.records?.length        ?? 0,
+      suppliers:        pulled.suppliers?.records?.length        ?? 0,
+      arInvoices:       pulled.arInvoices?.records?.length       ?? 0,
+      apInvoices:       pulled.apInvoices?.records?.length       ?? 0,
+      bankTransactions: pulled.bankTransactions?.records?.length ?? 0,
+    },
+  }, 'sage-migration');
 
   const summary = await commitSageMigration({ companyId, userId, pulled });
   return apiResponse.success(res, summary);

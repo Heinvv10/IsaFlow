@@ -1,12 +1,13 @@
 // src/modules/accounting/services/afs/afsAutoMapper.ts
 // Name-pattern heuristics and auto-mapping logic for AFS accounts.
-// Depends on afsMappingService (for DB reads/writes) and afsTaxonomySeeds
-// (for the SUBTYPE_TO_AFS_CODE lookup table).
+// Depends on afsMappingQueries (for DB reads/writes) and afsTaxonomySeeds
+// (for the SUBTYPE_TO_AFS_CODE lookup table). Types come from afsMappingTypes
+// so this module never imports back from afsMappingService.
 
 import { log } from '@/lib/logger';
-import { getUnmappedAccounts, getStatementLines, mapAccount } from './afsMappingService';
+import { getUnmappedAccounts, getStatementLines, mapAccount } from './afsMappingQueries';
 import { SUBTYPE_TO_AFS_CODE } from './afsTaxonomySeeds';
-import type { AutoMapResult } from './afsMappingService';
+import type { AutoMapResult } from './afsMappingTypes';
 
 // ── Name-pattern heuristics ──────────────────────────────────────────────────
 

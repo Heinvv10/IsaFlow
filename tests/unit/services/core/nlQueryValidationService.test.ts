@@ -47,6 +47,24 @@ describe('validateGeneratedSQL — UNION / UNION ALL exfiltration', () => {
     expect(result.valid).toBe(false);
     expect(result.error).toMatch(/UNION/i);
   });
+
+  it('rejects INTERSECT (functionally equivalent exfiltration vector)', () => {
+    const sql =
+      `SELECT id FROM customers WHERE company_id = '${OWN_COMPANY}' ` +
+      `INTERSECT SELECT id FROM customers WHERE company_id = '${VICTIM_COMPANY}'`;
+    const result = validateGeneratedSQL(sql);
+    expect(result.valid).toBe(false);
+    expect(result.error).toMatch(/INTERSECT/i);
+  });
+
+  it('rejects EXCEPT (functionally equivalent exfiltration vector)', () => {
+    const sql =
+      `SELECT id FROM customers WHERE company_id = '${OWN_COMPANY}' ` +
+      `EXCEPT SELECT id FROM customers WHERE company_id = '${VICTIM_COMPANY}'`;
+    const result = validateGeneratedSQL(sql);
+    expect(result.valid).toBe(false);
+    expect(result.error).toMatch(/EXCEPT/i);
+  });
 });
 
 describe('validateGeneratedSQL — subquery table-allowlist bypass', () => {
@@ -57,9 +75,10 @@ describe('validateGeneratedSQL — subquery table-allowlist bypass', () => {
       `SELECT id FROM customers WHERE company_id = '${OWN_COMPANY}' ` +
       `AND EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'public')`;
     const result = validateGeneratedSQL(sql);
-    // pg_ reference is caught by FORBIDDEN_PATTERNS — the test asserts
-    // the query is rejected for any reason (UNION fix adds table-walk safety).
+    // pg_ reference is caught by FORBIDDEN_PATTERNS — pin the failure reason
+    // so a regression that flips the rejection path is detected.
     expect(result.valid).toBe(false);
+    expect(result.error).toMatch(/pg_/i);
   });
 
   it('rejects a non-allowlisted table inside a subquery at depth > 0', () => {
