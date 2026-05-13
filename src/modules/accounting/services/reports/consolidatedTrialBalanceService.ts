@@ -79,7 +79,7 @@ export interface MappingEntry {
 
 export async function getCoaMappings(groupId: string, companyId: string): Promise<Map<string, MappingEntry>> {
   const rows = (await sql`
-    SELECT gcm.company_account_id, gcm.group_account_id,
+    SELECT gcm.company_account_id, gcm.group_account_id, gcm.company_id,
            ga.account_code AS group_account_code, ga.account_name AS group_account_name,
            ga.account_type AS group_account_type, ga.normal_balance AS group_normal_balance
     FROM group_coa_mappings gcm
@@ -95,6 +95,39 @@ export async function getCoaMappings(groupId: string, companyId: string): Promis
     });
   }
   return map;
+}
+
+/**
+ * Bulk-load CoA mappings for multiple companies in a single query.
+ * Returns a Map keyed by companyId → per-company mapping Map.
+ * Use this before iterating members to avoid N+1 DB round-trips.
+ */
+export async function getCoaMappingsForCompanies(
+  groupId: string,
+  companyIds: string[],
+): Promise<Map<string, Map<string, MappingEntry>>> {
+  if (companyIds.length === 0) return new Map();
+  const rows = (await sql`
+    SELECT gcm.company_account_id, gcm.group_account_id, gcm.company_id,
+           ga.account_code AS group_account_code, ga.account_name AS group_account_name,
+           ga.account_type AS group_account_type, ga.normal_balance AS group_normal_balance
+    FROM group_coa_mappings gcm
+    JOIN group_accounts ga ON ga.id = gcm.group_account_id
+    WHERE gcm.group_id = ${groupId}::UUID
+      AND gcm.company_id = ANY(${companyIds}::uuid[])
+  `) as Row[];
+
+  const result = new Map<string, Map<string, MappingEntry>>();
+  for (const r of rows) {
+    const cid = String(r.company_id);
+    if (!result.has(cid)) result.set(cid, new Map());
+    result.get(cid)!.set(String(r.company_account_id), {
+      groupAccountId: String(r.group_account_id), groupAccountCode: String(r.group_account_code),
+      groupAccountName: String(r.group_account_name), groupAccountType: String(r.group_account_type),
+      groupNormalBalance: String(r.group_normal_balance), companyAccountId: String(r.company_account_id),
+    });
+  }
+  return result;
 }
 
 export interface EliminationLineWithAccount {
@@ -139,8 +172,11 @@ export async function getConsolidatedTrialBalance(
     const members = await getGroupMembers(groupId);
     const accountMap = new Map<string, ConsolidatedTrialBalanceRow>();
 
+    // Preload all CoA mappings in a single query to avoid N+1 round-trips
+    const allMappings = await getCoaMappingsForCompanies(groupId, members.map((m) => m.companyId));
+
     for (const member of members) {
-      const mappings = await getCoaMappings(groupId, member.companyId);
+      const mappings = allMappings.get(member.companyId) ?? new Map<string, MappingEntry>();
       const rows = (await sql`
         SELECT ga.id AS account_id,
                COALESCE(SUM(jl.debit), 0) AS total_debit,

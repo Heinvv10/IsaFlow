@@ -9,8 +9,9 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import {
   getGroupMembers,
-  getCoaMappings,
+  getCoaMappingsForCompanies,
   getPostedEliminations,
+  type MappingEntry,
   type ConsolidatedLineItem,
   type ConsolidatedISTotals,
   type ConsolidatedBSLineItem,
@@ -67,8 +68,11 @@ export async function getConsolidatedIncomeStatement(
     const members = await getGroupMembers(groupId);
     const lineMap = new Map<string, ConsolidatedLineItem & { category: string }>();
 
+    // Preload all CoA mappings in a single query to avoid N+1 round-trips
+    const allMappings = await getCoaMappingsForCompanies(groupId, members.map((m) => m.companyId));
+
     for (const member of members) {
-      const mappings = await getCoaMappings(groupId, member.companyId);
+      const mappings: Map<string, MappingEntry> = allMappings.get(member.companyId) ?? new Map();
       const rows = (await sql`
         SELECT ga.id AS account_id, ga.account_type, ga.account_subtype,
                COALESCE(SUM(jl.debit), 0) AS total_debit,
@@ -159,8 +163,11 @@ export async function getConsolidatedBalanceSheet(
     const members = await getGroupMembers(groupId);
     const lineMap = new Map<string, ConsolidatedBSLineItem & { category: string; normalBalance: string }>();
 
+    // Preload all CoA mappings in a single query to avoid N+1 round-trips
+    const allMappings = await getCoaMappingsForCompanies(groupId, members.map((m) => m.companyId));
+
     for (const member of members) {
-      const mappings = await getCoaMappings(groupId, member.companyId);
+      const mappings: Map<string, MappingEntry> = allMappings.get(member.companyId) ?? new Map();
       const rows = (await sql`
         SELECT ga.id AS account_id, ga.account_type, ga.normal_balance,
                COALESCE(SUM(jl.debit), 0) AS total_debit,
