@@ -46,7 +46,7 @@ export async function getChartOfAccounts(companyId: string, includeInactive = fa
             p.account_code AS parent_code,
             p.account_name AS parent_name,
             EXISTS (
-              SELECT 1 FROM gl_journal_lines jl WHERE jl.gl_account_id = a.id
+              SELECT 1 FROM gl_journal_lines jl WHERE jl.gl_account_id = a.id AND jl.company_id = a.company_id
             ) AS has_transactions
           FROM gl_accounts a
           LEFT JOIN gl_accounts p ON p.id = a.parent_account_id
@@ -59,7 +59,7 @@ export async function getChartOfAccounts(companyId: string, includeInactive = fa
             p.account_code AS parent_code,
             p.account_name AS parent_name,
             EXISTS (
-              SELECT 1 FROM gl_journal_lines jl WHERE jl.gl_account_id = a.id
+              SELECT 1 FROM gl_journal_lines jl WHERE jl.gl_account_id = a.id AND jl.company_id = a.company_id
             ) AS has_transactions
           FROM gl_accounts a
           LEFT JOIN gl_accounts p ON p.id = a.parent_account_id
