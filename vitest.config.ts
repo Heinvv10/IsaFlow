@@ -15,6 +15,7 @@ export default defineConfig(({ mode }) => {
         DATABASE_URL: env['DATABASE_URL'] ?? 'postgresql://dummy:dummy@dummy/test',
       },
       include: ['tests/unit/**/*.test.ts'],
+      testTimeout: 10000,
       coverage: {
         provider: 'v8',
         reporter: ['text', 'lcov'],
