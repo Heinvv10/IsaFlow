@@ -103,7 +103,7 @@ test.describe('Goods Received — List Page', () => {
     const rows = page.locator('tbody tr');
     const count = await rows.count();
     if (count === 0) {
-      test.skip();
+      test.skip(true, 'pending: no eligible test data — no GRN rows present to verify column headers');
       return;
     }
 
@@ -119,7 +119,7 @@ test.describe('Goods Received — List Page', () => {
     const rows = page.locator('tbody tr');
     const count = await rows.count();
     if (count > 0) {
-      test.skip();
+      test.skip(true, 'pending: no eligible test data — GRN rows are present so empty-state cannot be verified');
       return;
     }
 
@@ -143,7 +143,7 @@ test.describe('Goods Received — List Page', () => {
 
     const rows = page.locator('tbody tr');
     if (await rows.count() === 0) {
-      test.skip();
+      test.skip(true, 'pending: no eligible test data — no GRN rows present to test search filtering');
       return;
     }
 
@@ -232,7 +232,7 @@ test.describe('Goods Received — New GRN Form', () => {
     }).first();
 
     if (await saveBtn.count() === 0) {
-      test.skip();
+      test.skip(true, 'pending: no eligible test data — save/submit button not found in the form');
       return;
     }
 
