@@ -214,7 +214,7 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
   );
 };
 
-export const getServerSideProps: GetServerSideProps<PageProps> = async ({ query }) => {
+export const getServerSideProps: GetServerSideProps<PageProps> = async ({ query, req }) => {
   const documentId = Array.isArray(query.documentId) ? query.documentId[0] : query.documentId;
   if (!documentId) return { notFound: true };
 
@@ -225,30 +225,19 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async ({ query 
   let periodStart: string | null = null;
   let periodEnd: string | null = null;
 
-  // Otherwise derive from the AFS document itself — for an AFS document the
-  // fiscal_year field is the authoritative source of the reporting period,
-  // and for a management_pack the `period` column (YYYY-MM) gives the month.
+  // Otherwise derive the period from the API route — keeps DB access
+  // out of the page layer and ensures company_id scoping.
   if (!queryStart || !queryEnd) {
     try {
-      const { sql } = await import('@/lib/neon');
-      const rows = (await sql`
-        SELECT fiscal_year, period, document_type
-        FROM afs_documents WHERE id = ${documentId}::UUID LIMIT 1
-      `) as Array<{ fiscal_year: number | null; period: string | null; document_type: string }>;
-      const doc = rows[0];
-      if (doc) {
-        if (doc.document_type === 'afs' && doc.fiscal_year) {
-          periodStart = `${doc.fiscal_year}-01-01`;
-          periodEnd = `${doc.fiscal_year}-12-31`;
-        } else if (doc.document_type === 'management_pack' && doc.period) {
-          // Period is "YYYY-MM"; derive first/last day of that month.
-          const [y, m] = doc.period.split('-').map(Number);
-          if (y && m) {
-            const lastDay = new Date(y, m, 0).getDate();
-            periodStart = `${doc.period}-01`;
-            periodEnd = `${doc.period}-${String(lastDay).padStart(2, '0')}`;
-          }
-        }
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? `http://${req.headers.host}`;
+      const apiRes = await fetch(
+        `${baseUrl}/api/accounting/afs/${documentId}/period`,
+        { headers: { cookie: req.headers.cookie ?? '' } },
+      );
+      if (apiRes.ok) {
+        const json = (await apiRes.json()) as { data?: { periodStart?: string; periodEnd?: string } };
+        periodStart = json.data?.periodStart ?? null;
+        periodEnd   = json.data?.periodEnd   ?? null;
       }
     } catch {
       // Fall through to the safe default below

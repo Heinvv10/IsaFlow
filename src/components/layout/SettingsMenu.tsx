@@ -18,7 +18,7 @@ import type { DropdownItem } from '@/components/accounting/navSections/types';
 interface PanelProps {
   anchorRect: DOMRect;
   onSelect: (href: string) => void;
-  panelRef: React.RefObject<HTMLDivElement | null>;
+  panelRef: React.RefObject<HTMLDivElement>;
 }
 
 function Panel({ anchorRect, onSelect, panelRef }: PanelProps) {
