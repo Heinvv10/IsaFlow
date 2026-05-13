@@ -10,7 +10,7 @@ import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService'
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { updateSession, type ImportResult, type MigrationError } from '../core/migrationService';
 import { matchContact } from '../core/migrationImportService';
-import { computeFingerprint } from '../capture/duplicateDetectionService';
+import { computeFingerprint } from '../capture/captureDeduplicationService';
 type Row = DbRow;
 
 

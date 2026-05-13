@@ -13,7 +13,7 @@
  */
 
 import { log } from '@/lib/logger';
-import { findDuplicate, type DuplicateHit } from './duplicateDetectionService';
+import { findDuplicate, type DuplicateHit } from './captureDeduplicationService';
 import { getRule, type SupplierRule } from './supplierRulesService';
 
 // ── Types ────────────────────────────────────────────────────────────────────
