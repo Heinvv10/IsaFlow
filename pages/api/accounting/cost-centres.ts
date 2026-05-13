@@ -10,7 +10,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
-import { getCostCentres, createCostCentre, type CcType } from '@/modules/accounting/services/core/costCentreService';
+import { getCostCentres, createGlCostCentre, type CcType } from '@/modules/accounting/services/core/costCentreService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -27,7 +27,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const { code, name, description, department, ccType } = req.body;
     if (!code || !name) return apiResponse.badRequest(res, 'code and name are required');
     try {
-      const cc = await createCostCentre(companyId, { code, name, description, department, ccType }, userId);
+      const cc = await createGlCostCentre(companyId, { code, name, description, department, ccType }, userId);
       return apiResponse.success(res, cc);
     } catch (err) {
       log.error('Failed to create cost centre', { error: err }, 'accounting-api');

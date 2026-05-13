@@ -18,7 +18,7 @@ import {
   updateCostCentre,
   deactivateCostCentre,
   CostCentreNotFoundError,
-} from '@/modules/accounting/services/payroll/costCentreService';
+} from '@/modules/accounting/services/core/costCentreService';
 
 const PatchBody = z
   .object({

@@ -11,6 +11,10 @@ vi.mock('@/lib/neon', () => ({
   },
 }));
 
+vi.mock('@/modules/accounting/services/payroll/payrollEmployeeHistoryService', () => ({
+  recordEmployeeChange: vi.fn().mockResolvedValue(undefined),
+}));
+
 import {
   createCostCentre,
   listCostCentres,
@@ -19,7 +23,7 @@ import {
   assignEmployeeCostCentre,
   costCentreSummaryForRun,
   CostCentreNotFoundError,
-} from '@/modules/accounting/services/payroll/costCentreService';
+} from '@/modules/accounting/services/core/costCentreService';
 
 const COMPANY_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const OTHER_COMPANY = '11111111-1111-1111-1111-111111111111';
