@@ -18,6 +18,12 @@ export default defineConfig(({ mode }) => {
       coverage: {
         provider: 'v8',
         reporter: ['text', 'lcov'],
+        thresholds: {
+          lines: 60,
+          functions: 60,
+          branches: 50,
+          statements: 60,
+        },
       },
     },
     resolve: {
