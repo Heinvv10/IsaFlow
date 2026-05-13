@@ -4,7 +4,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createAfsDocument } from './afsDocumentService';
 import { createAfsSection, updateAfsSection } from './afsSectionService';
-import { getKpiScorecard } from './kpiScorecardService';
+import { getKpiScorecard } from './afsKpiService';
 import { generateExecutiveSummary, generateSectionCommentary } from './packAiSummaryService';
 import { deliverPack } from './packDeliveryService';
 import type { ManagementPackConfig, NoteContent, KpiResult } from './afsTypes';

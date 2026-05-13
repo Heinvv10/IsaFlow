@@ -5,7 +5,7 @@ import { log } from '@/lib/logger';
 import { sendEmail } from '@/modules/accounting/services/core/emailService';
 import { emailLayout } from '@/lib/email-templates';
 import type { PackRecipient, KpiResult } from './afsTypes';
-import { getKpiScorecard } from './kpiScorecardService';
+import { getKpiScorecard } from './afsKpiService';
 
 type Row = DbRow;
 
