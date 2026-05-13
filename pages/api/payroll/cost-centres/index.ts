@@ -16,7 +16,7 @@ import {
 import {
   createCostCentre,
   listCostCentres,
-} from '@/modules/accounting/services/payroll/costCentreService';
+} from '@/modules/accounting/services/core/costCentreService';
 
 const CreateBody = z
   .object({
