@@ -23,7 +23,7 @@ import {
 //                  costCentreId, projectId, postedBy: `human:${userId}` })
 // and stamp duplicate_fingerprint on the INSERT using computeFingerprint().
 // import { recordCoding } from '@/modules/accounting/services/capture/supplierRulesService';
-// import { computeFingerprint } from '@/modules/accounting/services/capture/duplicateDetectionService';
+// import { computeFingerprint } from '@/modules/accounting/services/capture/captureDeduplicationService';
 
 const SupplierInvoiceActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('approve'), invoiceId: UUID }),

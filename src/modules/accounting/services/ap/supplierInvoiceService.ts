@@ -18,7 +18,7 @@ import type {
   SupplierInvoiceCreateInput,
 } from '../../types/ap.types';
 import type { VatType } from '../../types/gl.types';
-import { computeFingerprint } from '../capture/duplicateDetectionService';
+import { computeFingerprint } from '../capture/captureDeduplicationService';
 import { resolvePendingAlertForInvoice } from '../capture/alertResolutionService';
 import { mapInvoiceRow } from './supplierInvoiceQueryService';
 

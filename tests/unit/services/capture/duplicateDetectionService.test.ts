@@ -26,7 +26,7 @@ import {
   computeFingerprint,
   findDuplicate,
   type DuplicateHit,
-} from '@/modules/accounting/services/capture/duplicateDetectionService';
+} from '@/modules/accounting/services/capture/captureDeduplicationService';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 

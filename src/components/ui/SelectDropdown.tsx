@@ -19,8 +19,8 @@ interface SelectDropdownProps {
   inputId: string;
   isMulti: boolean;
   pos: { top: number; left: number; width: number };
-  searchRef: RefObject<HTMLInputElement | null>;
-  listRef: RefObject<HTMLUListElement | null>;
+  searchRef: RefObject<HTMLInputElement>;
+  listRef: RefObject<HTMLUListElement>;
   onSearchChange: (value: string) => void;
   onSelect: (option: SelectOption) => void;
   onActiveChange: (index: number) => void;

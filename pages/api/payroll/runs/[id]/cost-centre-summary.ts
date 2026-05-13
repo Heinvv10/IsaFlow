@@ -12,7 +12,7 @@ import {
   type AuthenticatedNextApiRequest,
   type CompanyAuthedRequest,
 } from '@/lib/auth';
-import { costCentreSummaryForRun } from '@/modules/accounting/services/payroll/costCentreService';
+import { costCentreSummaryForRun } from '@/modules/accounting/services/core/costCentreService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'GET') {

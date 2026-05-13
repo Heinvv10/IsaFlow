@@ -4,7 +4,7 @@
  * Auto-generation helpers live in disclosureNoteGenerators.ts.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import {
@@ -55,7 +55,7 @@ export async function generateDisclosureNotes(
 
   const notes: DisclosureNote[] = [];
   for (const [name, gen] of generators) {
-    const note = await runInSavepoint(`dn_${name}`, gen).catch((err) => {
+    const note = await withSavepoint(`dn_${name}`, gen).catch((err) => {
       log.warn(
         'Disclosure note generation skipped',
         { fiscalYear, note: name, error: err instanceof Error ? err.message : String(err) },
@@ -68,26 +68,6 @@ export async function generateDisclosureNotes(
   return notes;
 }
 
-/**
- * Run `fn` inside a Postgres SAVEPOINT bound to the ambient (ALS) tx client.
- * On failure, rolls back to the savepoint so the outer tx stays usable; on
- * success, releases the savepoint. Rethrows the original error.
- */
-async function runInSavepoint<T>(name: string, fn: () => Promise<T>): Promise<T> {
-  await sql.unsafe(`SAVEPOINT ${name}`);
-  try {
-    const result = await fn();
-    await sql.unsafe(`RELEASE SAVEPOINT ${name}`);
-    return result;
-  } catch (err) {
-    try {
-      await sql.unsafe(`ROLLBACK TO SAVEPOINT ${name}`);
-    } catch (rbErr) {
-      log.warn('ROLLBACK TO SAVEPOINT failed', { name, error: rbErr instanceof Error ? rbErr.message : String(rbErr) }, 'disclosureNoteService');
-    }
-    throw err;
-  }
-}
 
 // ── Manual Notes CRUD ─────────────────────────────────────────────────────────
 

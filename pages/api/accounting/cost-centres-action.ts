@@ -10,7 +10,7 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import {
-  updateCostCentre, toggleCostCentre, deleteCostCentre,
+  updateGlCostCentre, toggleCostCentre, deleteCostCentre,
 } from '@/modules/accounting/services/core/costCentreService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -23,7 +23,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     switch (action) {
       case 'update': {
-        const updated = await updateCostCentre(companyId, id, data);
+        const updated = await updateGlCostCentre(companyId, id, data);
         return apiResponse.success(res, updated);
       }
       case 'toggle':

@@ -11,6 +11,10 @@ vi.mock('@/lib/neon', () => ({
   },
 }));
 
+vi.mock('@/modules/accounting/services/payroll/payrollEmployeeHistoryService', () => ({
+  recordEmployeeChange: vi.fn().mockResolvedValue(undefined),
+}));
+
 import {
   createCostCentre,
   listCostCentres,
@@ -19,7 +23,9 @@ import {
   assignEmployeeCostCentre,
   costCentreSummaryForRun,
   CostCentreNotFoundError,
-} from '@/modules/accounting/services/payroll/costCentreService';
+  createGlCostCentre,
+  updateGlCostCentre,
+} from '@/modules/accounting/services/core/costCentreService';
 
 const COMPANY_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const OTHER_COMPANY = '11111111-1111-1111-1111-111111111111';
@@ -220,5 +226,69 @@ describe('costCentreSummaryForRun', () => {
       return Promise.resolve([]);
     };
     await expect(costCentreSummaryForRun(OTHER_COMPANY, RUN_ID)).rejects.toThrow(/not found/i);
+  });
+});
+
+// ── GL cost centre (accounting-side) variants ────────────────────────────────
+
+const GL_ROW = {
+  id: CC_ID,
+  company_id: COMPANY_ID,
+  code: 'CC1',
+  name: 'Operations',
+  description: null,
+  department: null,
+  cc_type: 'cc1',
+  is_active: true,
+  created_at: '2026-05-13T00:00:00Z',
+  updated_at: '2026-05-13T00:00:00Z',
+};
+
+describe('createGlCostCentre', () => {
+  it('inserts with company_id and returns mapped GL row', async () => {
+    mockImpl = () => Promise.resolve([GL_ROW]);
+    const result = await createGlCostCentre(COMPANY_ID, { code: 'CC1', name: 'Operations' }, USER_ID);
+
+    const insert = sqlCalls.find(c => c.sql.includes('INSERT INTO cost_centres'));
+    expect(insert).toBeDefined();
+    expect(insert!.values).toEqual(
+      expect.arrayContaining([COMPANY_ID, 'CC1', 'Operations']),
+    );
+    expect(result.id).toBe(CC_ID);
+    expect(result.code).toBe('CC1');
+    expect(result.ccType).toBe('cc1');
+  });
+
+  it('defaults ccType to cc1 when not provided', async () => {
+    mockImpl = () => Promise.resolve([GL_ROW]);
+    await createGlCostCentre(COMPANY_ID, { code: 'X', name: 'Y' }, USER_ID);
+    const insert = sqlCalls.find(c => c.sql.includes('INSERT INTO cost_centres'));
+    expect(insert!.values).toContain('cc1');
+  });
+
+  it('honours an explicit cc2 ccType', async () => {
+    mockImpl = () => Promise.resolve([{ ...GL_ROW, cc_type: 'cc2' }]);
+    await createGlCostCentre(COMPANY_ID, { code: 'X', name: 'Y', ccType: 'cc2' }, USER_ID);
+    const insert = sqlCalls.find(c => c.sql.includes('INSERT INTO cost_centres'));
+    expect(insert!.values).toContain('cc2');
+  });
+});
+
+describe('updateGlCostCentre', () => {
+  it('scopes UPDATE by company_id and returns updated row', async () => {
+    mockImpl = () => Promise.resolve([{ ...GL_ROW, name: 'Renamed' }]);
+    const result = await updateGlCostCentre(COMPANY_ID, CC_ID, { name: 'Renamed' });
+
+    const update = sqlCalls.find(c => c.sql.includes('UPDATE cost_centres'));
+    expect(update).toBeDefined();
+    // company_id and id both bound, plus the four COALESCE inputs
+    expect(update!.values).toEqual(expect.arrayContaining([COMPANY_ID, CC_ID]));
+    expect(result.name).toBe('Renamed');
+  });
+
+  it('throws when no row matches (company mismatch or missing id)', async () => {
+    mockImpl = () => Promise.resolve([]);
+    await expect(updateGlCostCentre(OTHER_COMPANY, CC_ID, { name: 'x' }))
+      .rejects.toThrow(/not found/i);
   });
 });
