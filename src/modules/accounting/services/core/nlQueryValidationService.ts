@@ -28,7 +28,12 @@ const FORBIDDEN_PATTERNS: Array<{ label: string; regex: RegExp }> = [
   { label: 'COPY TO/FROM', regex: /\bCOPY\b[\s\S]*?\b(TO|FROM)\b/i },
   { label: 'SET statement', regex: /\bSET\s+\w/i },
   { label: 'DO $$ block', regex: /\bDO\s*\$\$/i },
-  { label: 'UNION (without ALL)', regex: /\bUNION\b(?!\s+ALL\b)/i },
+  // Block both UNION and UNION ALL — either form can be used to exfiltrate
+  // data from other tenants by appending a second SELECT with a different
+  // company_id.  The scope check in nl-query.ts only requires that the own
+  // company_id appears *somewhere* in the SQL, so a UNION ALL with a victim
+  // company_id appended would still pass that check.
+  { label: 'UNION / UNION ALL', regex: /\bUNION\b/i },
 ];
 
 // Tables that NL queries are permitted to access
@@ -98,20 +103,23 @@ export function validateGeneratedSQL(sql: string): SQLValidation {
     cteAliases.add(cteMatch[1]!.toLowerCase());
   }
 
-  // Table allowlist check — only at top-level (paren depth 0)
-  const kwPattern = /\b(FROM|JOIN)\s+(\w+)/gi;
-  let kwMatch: RegExpExecArray | null;
-  while ((kwMatch = kwPattern.exec(sql)) !== null) {
-    let depth = 0;
-    for (let i = 0; i < kwMatch.index; i++) {
-      if (sql[i] === '(') depth++;
-      else if (sql[i] === ')') depth--;
-    }
-    if (depth > 0) continue;
+  // Table allowlist check — walk ALL FROM/JOIN tokens regardless of paren
+  // depth.  Previously the check skipped depth > 0, which allowed subqueries
+  // such as `WHERE EXISTS (SELECT 1 FROM forbidden_table …)` to slip through.
+  //
+  // Strip SQL comments first so that table names inside comments are not
+  // accidentally flagged, and so that a comment cannot be used to embed a
+  // forbidden token that confuses the regex.
+  const sqlNoComments = sql
+    .replace(/--[^\n]*/g, '')           // single-line comments
+    .replace(/\/\*[\s\S]*?\*\//g, ''); // block comments
 
-    const tableName = kwMatch[2]!.toLowerCase();
+  const kwPattern = /\b(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_]*)/gi;
+  let kwMatch: RegExpExecArray | null;
+  while ((kwMatch = kwPattern.exec(sqlNoComments)) !== null) {
+    const tableName = kwMatch[1]!.toLowerCase();
     if (!ALLOWED_TABLES.has(tableName) && !cteAliases.has(tableName)) {
-      return { valid: false, error: `Table '${kwMatch[2]}' not allowed`, sanitizedSQL: '' };
+      return { valid: false, error: `Table '${kwMatch[1]}' not allowed`, sanitizedSQL: '' };
     }
   }
 
