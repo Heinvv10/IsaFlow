@@ -79,7 +79,7 @@
     "@types/papaparse": "^5.3.16",
     "@types/pdf-parse": "^1.1.5",
     "@types/pdfkit": "^0.17.6",
-    "@types/react": "^18.3.12",
+    "@types/react": "^19.2.14",
     "@types/react-dom": "^18.3.1",
     "@types/uuid": "^11.0.0",
     "@typescript-eslint/eslint-plugin": "^8.59.1",
