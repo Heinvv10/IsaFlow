@@ -37,7 +37,7 @@ fi
 if [ "${CI_SKIP_BUILD:-0}" = "1" ]; then
   echo "[skip] build: CI_SKIP_BUILD=1"
 else
-  run_step "build"           bun run build
+  run_step "build"           env NODE_ENV=production bun run build
 fi
 
 echo ""

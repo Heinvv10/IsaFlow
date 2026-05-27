@@ -11,6 +11,9 @@
 import { Client } from 'pg';
 import { log } from '@/lib/logger';
 
+// One probe per worker process — safe under vitest's default `forks` pool
+// (process-per-file). Revisit if the pool ever becomes `threads`/`vmThreads`,
+// where module instances are shared across concurrently-running files.
 let cached: boolean | undefined;
 
 export async function isDbReachable(): Promise<boolean> {
@@ -37,7 +40,11 @@ export async function isDbReachable(): Promise<boolean> {
     );
     cached = false;
   } finally {
-    await client.end().catch(() => undefined);
+    await client
+      .end()
+      .catch((e) =>
+        log.warn('pg client.end failed', { err: e instanceof Error ? e.message : String(e) }, 'dbReachable'),
+      );
   }
   return cached;
 }

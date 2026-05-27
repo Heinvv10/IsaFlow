@@ -68,6 +68,8 @@ const hasRealDb = await isDbReachable();
 describe('checkRateLimit — Neon-backed persistence (BL-21)', () => {
   const KEY = 'test:rl:bl21';
 
+  // Lifecycle hooks run even when the it.skipIf cases are skipped, so they need
+  // their own !hasRealDb guard — otherwise they'd hit the DB with no DB present.
   beforeAll(async () => {
     if (!hasRealDb) return;
     await sql`DELETE FROM rate_limit_counters WHERE key = ${KEY}`;
