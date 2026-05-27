@@ -18,6 +18,7 @@ import {
   type SourceCodeEntry,
 } from '@/modules/accounting/services/reports/irp5Service';
 import { getSarsCode } from '@/modules/accounting/services/payroll/sarsCodesService';
+import { isDbReachable } from '../helpers/dbReachable';
 
 const TAX_YEAR = 2026;
 
@@ -25,7 +26,9 @@ const TAX_YEAR = 2026;
 // SARS SOURCE CODES (now DB-backed via sarsCodesService)
 // ═══════════════════════════════════════════════════════════════════════════
 
-const hasRealDb = process.env.DATABASE_URL && !process.env.DATABASE_URL.includes('dummy');
+// Skip (don't fail) when no reachable DB — keeps the suite deterministic when
+// the dev stack is down or DATABASE_URL points at a stopped DB.
+const hasRealDb = await isDbReachable();
 describe.skipIf(!hasRealDb)('SARS Source Codes (DB-backed lookup)', () => {
   it('has code 3601 for gross salary', async () => {
     const c = await getSarsCode('3601', TAX_YEAR);
