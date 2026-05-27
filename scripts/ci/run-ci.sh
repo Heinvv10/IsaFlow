@@ -32,6 +32,14 @@ else
   echo "[skip] integration-tests: DATABASE_URL not set"
 fi
 
+# Production build gate — catches build-breaking changes pre-merge (the deploy
+# script builds too, but that's too late). Set CI_SKIP_BUILD=1 to skip locally.
+if [ "${CI_SKIP_BUILD:-0}" = "1" ]; then
+  echo "[skip] build: CI_SKIP_BUILD=1"
+else
+  run_step "build"           bun run build
+fi
+
 echo ""
 if [ "${#FAILED[@]}" -eq 0 ]; then
   echo "[ci] all checks passed"

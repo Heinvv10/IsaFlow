@@ -8,6 +8,7 @@ import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import type { NextApiRequest } from 'next';
 import { getClientIp, checkRateLimit, clearRateLimitCache } from '@/lib/rateLimit';
 import { sql } from '@/lib/neon';
+import { isDbReachable } from '../helpers/dbReachable';
 
 function makeReq(xff: string | string[] | undefined, remoteAddress = '10.0.0.1'): NextApiRequest {
   return {
@@ -60,8 +61,10 @@ describe('getClientIp', () => {
   });
 });
 
-// These tests require a real Neon DB — skip when only the dummy fallback URL is set.
-const hasRealDb = !!(process.env.DATABASE_URL && !process.env.DATABASE_URL.includes('dummy'));
+// Skip (don't fail) when the DB probe returns false (no reachable Postgres), so
+// the suite stays deterministic when the dev stack is down or the URL points at
+// a stopped DB.
+const hasRealDb = await isDbReachable();
 describe('checkRateLimit — Neon-backed persistence (BL-21)', () => {
   const KEY = 'test:rl:bl21';
 
