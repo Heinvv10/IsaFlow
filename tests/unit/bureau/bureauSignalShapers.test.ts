@@ -77,7 +77,7 @@ describe('shapeBillsToApprove', () => {
 });
 
 describe('shapeVatDue', () => {
-  const today = new Date('2026-06-08T00:00:00Z'); // odd period expected: 2026-04-01..2026-05-31, due 2026-06-25
+  const today = new Date('2026-06-20T00:00:00Z'); // odd → Apr–May 2026 period, due 2026-06-25 (5 days out → due_soon)
 
   it('emits an item when no return covers the expected period', () => {
     const items = shapeVatDue([{ id: 'c1', vat_period_alignment: 'odd' }], [], meta, today);

@@ -240,13 +240,10 @@ export function shapeVatDue(
     );
     if (covered) continue;
     const due = new Date(`${period.dueDate}T00:00:00Z`);
-    const days = (due.getTime() - today.getTime()) / (24 * 3600 * 1000);
-    // VAT filings benefit from a 21-day early-warning window (vs the 7-day default).
-    const severity: Severity = days < 0 ? 'overdue' : days <= 21 ? 'due_soon' : 'info';
     items.push({
       bureauId: m.bureau_id, bureauName: m.bureau_name, companyId: c.id, companyName: m.company_name,
       task: 'VAT return due', detail: vatDetail(period.periodStart, period.periodEnd),
-      dueAt: period.dueDate, href: '/accounting/reports/vat-return', severity,
+      dueAt: period.dueDate, href: '/accounting/reports/vat-return', severity: severityForDate(due, today),
     });
   }
   return items;
