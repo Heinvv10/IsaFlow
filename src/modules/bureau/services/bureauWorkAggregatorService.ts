@@ -178,6 +178,38 @@ async function unreconciledSignal(companyIds: string[], meta: Map<string, Compan
   return shapeUnreconciled(rows, meta);
 }
 
+// ── Bills to approve signal ──────────────────────────────────────────────────
+
+export interface BillsRow { company_id: string; cnt: number | string; earliest_due: string | null; }
+
+export function shapeBillsToApprove(rows: BillsRow[], meta: Map<string, CompanyMeta>, today: Date): WorkItem[] {
+  const items: WorkItem[] = [];
+  for (const r of rows) {
+    const m = meta.get(r.company_id);
+    const cnt = Number(r.cnt);
+    if (!m || cnt === 0) continue;
+    const due = r.earliest_due ? new Date(`${r.earliest_due}T00:00:00Z`) : null;
+    items.push({
+      bureauId: m.bureau_id, bureauName: m.bureau_name, companyId: r.company_id, companyName: m.company_name,
+      task: 'Bills to approve', detail: `${cnt} awaiting approval`,
+      dueAt: r.earliest_due, href: '/accounting/reports/ap-aging',
+      severity: due ? severityForDate(due, today) : 'info',
+    });
+  }
+  return items;
+}
+
+async function billsToApproveSignal(companyIds: string[], meta: Map<string, CompanyMeta>, today: Date): Promise<WorkItem[]> {
+  const rows = (await sql`
+    SELECT company_id, COUNT(*)::int AS cnt, MIN(due_date)::text AS earliest_due
+      FROM supplier_invoices
+     WHERE company_id = ANY(${companyIds})
+       AND status = 'pending_approval'
+     GROUP BY company_id
+  `) as unknown as BillsRow[];
+  return shapeBillsToApprove(rows, meta, today);
+}
+
 // ── Orchestrator ────────────────────────────────────────────────────────────
 
 /** Runs one signal, degrading to [] on failure so one bad query can't 500 the cockpit. */
@@ -199,6 +231,7 @@ export async function aggregateBureauWork(
   const groups = await Promise.all([
     safeSignal('payroll', () => payrollSignals(companyIds, meta, today)),
     safeSignal('unreconciled', () => unreconciledSignal(companyIds, meta)),
+    safeSignal('bills', () => billsToApproveSignal(companyIds, meta, today)),
   ]);
   const items = groups.flat();
   items.sort((a, b) => {
