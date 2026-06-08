@@ -153,6 +153,7 @@ export default function BureauDashboardPage() {
 
         <div className="p-6 space-y-6">
           {/* Stats */}
+          {/* 5 cols only at lg+; monthEnd is conditional, so the 2/2/1 wrap at md is acceptable */}
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
             <StatCard label="Overdue"  value={data.stats.overdue}  color="text-red-400"     onClick={() => setSeverityFilter(severityFilter === 'overdue' ? '' : 'overdue')} active={severityFilter === 'overdue'} />
             <StatCard label="Due soon" value={data.stats.dueSoon}  color="text-amber-400"   onClick={() => setSeverityFilter(severityFilter === 'due_soon' ? '' : 'due_soon')} active={severityFilter === 'due_soon'} />
@@ -163,7 +164,7 @@ export default function BureauDashboardPage() {
                 label="Month-end"
                 value={`${data.stats.monthEnd.closed}/${data.stats.monthEnd.total}`}
                 color="text-purple-400"
-                icon={<Building2 className="h-3 w-3 text-purple-400 inline mr-1 mb-0.5" />}
+                icon={<Building2 className="h-4 w-4 text-purple-400" />}
               />
             )}
           </div>
@@ -270,7 +271,10 @@ function StatCard({ label, value, color, onClick, active, icon }: {
         : 'border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] ' + (onClick ? 'hover:bg-[var(--ff-bg-tertiary)] cursor-pointer' : 'cursor-default')}`}
     >
       <div className="text-xs text-[var(--ff-text-tertiary)]">{label}</div>
-      <div className={`text-2xl font-mono mt-1 ${color}`}>{icon}{value}</div>
+      <div className={`inline-flex items-center gap-1 text-2xl font-mono mt-1 ${color}`}>
+        {icon && <span aria-hidden="true">{icon}</span>}
+        <span>{value}</span>
+      </div>
     </button>
   );
 }
