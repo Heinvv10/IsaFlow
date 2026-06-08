@@ -138,7 +138,7 @@ export function shapeUnreconciled(rows: UnreconciledRow[], meta: Map<string, Com
 
 async function unreconciledSignal(companyIds: string[], meta: Map<string, CompanyMeta>): Promise<WorkItem[]> {
   const rows = (await sql`
-    SELECT company_id, COUNT(*)::int AS cnt
+    SELECT company_id, COUNT(*)::int AS cnt, SUM(ABS(amount))::float AS amount_total
       FROM bank_transactions
      WHERE company_id = ANY(${companyIds})
        AND status NOT IN ('reconciled','matched','excluded')
@@ -171,7 +171,7 @@ export function shapeBillsToApprove(rows: BillsRow[], meta: Map<string, CompanyM
 
 async function billsToApproveSignal(companyIds: string[], meta: Map<string, CompanyMeta>, today: Date): Promise<WorkItem[]> {
   const rows = (await sql`
-    SELECT company_id, COUNT(*)::int AS cnt, MIN(due_date)::text AS earliest_due
+    SELECT company_id, COUNT(*)::int AS cnt, MIN(due_date)::text AS earliest_due, SUM(total_amount)::float AS amount_total
       FROM supplier_invoices
      WHERE company_id = ANY(${companyIds})
        AND status = 'pending_approval'
