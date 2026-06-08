@@ -53,13 +53,24 @@ describe('shapeBillsToApprove', () => {
     expect(later[0]!.severity).toBe('info');
   });
 
-  it('treats a null due date as info and drops unknown companies', () => {
-    const items = shapeBillsToApprove(
-      [{ company_id: 'c1', cnt: 1, earliest_due: null }, { company_id: 'x', cnt: 5, earliest_due: null }],
-      meta, today,
-    );
+  it('treats a null due date as info', () => {
+    const items = shapeBillsToApprove([{ company_id: 'c1', cnt: 1, earliest_due: null }], meta, today);
     expect(items).toHaveLength(1);
     expect(items[0]!.severity).toBe('info');
     expect(items[0]!.dueAt).toBeNull();
+  });
+
+  it('drops rows whose company_id is not in the bureau meta map (tenant guard)', () => {
+    const items = shapeBillsToApprove([{ company_id: 'x', cnt: 5, earliest_due: null }], meta, today);
+    expect(items).toHaveLength(0);
+  });
+
+  it('skips companies with zero bills to approve', () => {
+    expect(shapeBillsToApprove([{ company_id: 'c1', cnt: 0, earliest_due: null }], meta, today)).toHaveLength(0);
+  });
+
+  it('coerces a string cnt from the pg driver correctly', () => {
+    const items = shapeBillsToApprove([{ company_id: 'c1', cnt: '4', earliest_due: null }], meta, today);
+    expect(items[0]!.detail).toBe('4 awaiting approval');
   });
 });
