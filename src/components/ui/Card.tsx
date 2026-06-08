@@ -1,6 +1,6 @@
 /**
  * Card — surface container with optional header/footer slots.
- * WORKING: Compound component pattern, hover variant, dark mode.
+ * WORKING: Compound component pattern, hover variant, token-driven theming.
  *
  * Usage:
  *   <Card>
