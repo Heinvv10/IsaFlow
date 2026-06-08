@@ -5,6 +5,7 @@ import { AuthProvider } from '@/contexts/AuthContext';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { CompanyProvider } from '@/contexts/CompanyContext';
 import { TableDensityProvider } from '@/contexts/TableDensityContext';
+import { ThemeModeProvider } from '@/contexts/ThemeModeContext';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { TrackerScript } from '@/components/analytics/TrackerScript';
 import '../styles/globals.css';
@@ -37,11 +38,13 @@ export default function App({ Component, pageProps }: AppProps) {
     <ThemeProvider>
       <AuthProvider>
         <CompanyProvider>
+        <ThemeModeProvider>
         <TableDensityProvider>
         <ErrorBoundary>
         <Component {...pageProps} />
         </ErrorBoundary>
         </TableDensityProvider>
+        </ThemeModeProvider>
         <TrackerScript />
         <Toaster
           position="top-right"
