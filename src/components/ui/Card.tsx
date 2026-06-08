@@ -44,16 +44,15 @@ function Card({
   return (
     <div
       className={cn(
-        'border border-gray-200 bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06)]',
-        'dark:border-white/[0.08] dark:bg-gray-900 dark:ring-1 dark:ring-inset dark:ring-white/[0.04]',
-        hoverable && 'cursor-pointer transition-shadow hover:shadow-[0_4px_12px_rgba(0,0,0,0.12)] hover:border-teal-500/30 dark:hover:border-teal-500/20',
+        'border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] shadow-[0_1px_3px_rgba(0,0,0,0.06)]',
+        hoverable && 'cursor-pointer transition-shadow hover:shadow-[0_4px_12px_rgba(0,0,0,0.12)] hover:border-teal-500/30',
         className
       )}
       style={{ borderRadius: 'var(--ff-card-radius)', ...style }}
       {...props}
     >
       {header && (
-        <div className="border-b border-gray-100 px-5 py-4 dark:border-white/[0.06]">
+        <div className="border-b border-[var(--ff-border-primary)] px-5 py-4">
           {header}
         </div>
       )}
@@ -61,7 +60,7 @@ function Card({
       <div className={cn(!noPadding && 'p-5')}>{children}</div>
 
       {footer && (
-        <div className="border-t border-gray-100 px-5 py-4 dark:border-white/[0.06]">
+        <div className="border-t border-[var(--ff-border-primary)] px-5 py-4">
           {footer}
         </div>
       )}
@@ -84,11 +83,11 @@ function CardHeader({ title, description, action, className }: CardHeaderProps) 
   return (
     <div className={cn('flex items-start justify-between gap-4', className)}>
       <div>
-        <div className="text-base font-semibold text-gray-900 dark:text-gray-100">
+        <div className="text-base font-semibold text-[var(--ff-text-primary)]">
           {title}
         </div>
         {description && (
-          <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">{description}</p>
+          <p className="mt-0.5 text-sm text-[var(--ff-text-secondary)]">{description}</p>
         )}
       </div>
       {action && <div className="flex-shrink-0">{action}</div>}
@@ -112,7 +111,7 @@ function CardFooter({ className, children, ...props }: CardFooterProps) {
   return (
     <div
       className={cn(
-        'border-t border-gray-100 px-5 py-4 dark:border-white/[0.06]',
+        'border-t border-[var(--ff-border-primary)] px-5 py-4',
         className
       )}
       {...props}
