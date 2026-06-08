@@ -8,6 +8,7 @@
  */
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { expectedVatPeriodAsOf, type VatAlignment } from './vatPeriodHelper';
 
 export type Severity = 'overdue' | 'due_soon' | 'info';
 
@@ -210,6 +211,63 @@ async function billsToApproveSignal(companyIds: string[], meta: Map<string, Comp
   return shapeBillsToApprove(rows, meta, today);
 }
 
+// ── VAT-due signal ───────────────────────────────────────────────────────────
+
+export interface CompanyVatRow { id: string; vat_period_alignment: string | null; }
+export interface VatReturnRow { company_id: string; period_start: string; period_end: string; }
+
+function vatDetail(periodStart: string, periodEnd: string): string {
+  const s = new Date(`${periodStart}T00:00:00Z`);
+  const e = new Date(`${periodEnd}T00:00:00Z`);
+  const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${M[s.getUTCMonth()]!}–${M[e.getUTCMonth()]!} ${e.getUTCFullYear()}`;
+}
+
+export function shapeVatDue(
+  companies: CompanyVatRow[],
+  returns: VatReturnRow[],
+  meta: Map<string, CompanyMeta>,
+  today: Date,
+): WorkItem[] {
+  const items: WorkItem[] = [];
+  for (const c of companies) {
+    const m = meta.get(c.id);
+    if (!m) continue;
+    const alignment: VatAlignment = c.vat_period_alignment === 'even' ? 'even' : 'odd';
+    const period = expectedVatPeriodAsOf(alignment, today);
+    const covered = returns.some(
+      (r) => r.company_id === c.id && r.period_start <= period.periodStart && r.period_end >= period.periodEnd,
+    );
+    if (covered) continue;
+    const due = new Date(`${period.dueDate}T00:00:00Z`);
+    const days = (due.getTime() - today.getTime()) / (24 * 3600 * 1000);
+    // VAT filings benefit from a 21-day early-warning window (vs the 7-day default).
+    const severity: Severity = days < 0 ? 'overdue' : days <= 21 ? 'due_soon' : 'info';
+    items.push({
+      bureauId: m.bureau_id, bureauName: m.bureau_name, companyId: c.id, companyName: m.company_name,
+      task: 'VAT return due', detail: vatDetail(period.periodStart, period.periodEnd),
+      dueAt: period.dueDate, href: '/accounting/reports/vat-return', severity,
+    });
+  }
+  return items;
+}
+
+async function vatDueSignal(companyIds: string[], meta: Map<string, CompanyMeta>, today: Date): Promise<WorkItem[]> {
+  const sixMonthsAgo = new Date(today.getTime() - 183 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+  const companies = (await sql`
+    SELECT id, vat_period_alignment
+      FROM companies
+     WHERE id = ANY(${companyIds})
+  `) as unknown as CompanyVatRow[];
+  const returns = (await sql`
+    SELECT company_id, period_start::text, period_end::text
+      FROM vat_returns
+     WHERE company_id = ANY(${companyIds})
+       AND period_end >= ${sixMonthsAgo}::date
+  `) as unknown as VatReturnRow[];
+  return shapeVatDue(companies, returns, meta, today);
+}
+
 // ── Orchestrator ────────────────────────────────────────────────────────────
 
 /** Runs one signal, degrading to [] on failure so one bad query can't 500 the cockpit. */
@@ -232,6 +290,7 @@ export async function aggregateBureauWork(
     safeSignal('payroll', () => payrollSignals(companyIds, meta, today)),
     safeSignal('unreconciled', () => unreconciledSignal(companyIds, meta)),
     safeSignal('bills', () => billsToApproveSignal(companyIds, meta, today)),
+    safeSignal('vat', () => vatDueSignal(companyIds, meta, today)),
   ]);
   const items = groups.flat();
   items.sort((a, b) => {

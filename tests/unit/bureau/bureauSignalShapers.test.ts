@@ -4,6 +4,7 @@ import {
   shapeBillsToApprove,
   type CompanyMeta,
 } from '@/modules/bureau/services/bureauWorkAggregatorService';
+import { shapeVatDue } from '@/modules/bureau/services/bureauWorkAggregatorService';
 
 const meta = new Map<string, CompanyMeta>([
   ['c1', { bureau_id: 'b1', bureau_name: 'Acme Books', company_id: 'c1', company_name: 'Client One' }],
@@ -72,5 +73,27 @@ describe('shapeBillsToApprove', () => {
   it('coerces a string cnt from the pg driver correctly', () => {
     const items = shapeBillsToApprove([{ company_id: 'c1', cnt: '4', earliest_due: null }], meta, today);
     expect(items[0]!.detail).toBe('4 awaiting approval');
+  });
+});
+
+describe('shapeVatDue', () => {
+  const today = new Date('2026-06-08T00:00:00Z'); // odd period expected: 2026-04-01..2026-05-31, due 2026-06-25
+
+  it('emits an item when no return covers the expected period', () => {
+    const items = shapeVatDue([{ id: 'c1', vat_period_alignment: 'odd' }], [], meta, today);
+    expect(items[0]).toMatchObject({
+      task: 'VAT return due', detail: 'Apr–May 2026', dueAt: '2026-06-25',
+      href: '/accounting/reports/vat-return', severity: 'due_soon',
+    });
+  });
+
+  it('suppresses the item when a covering return already exists', () => {
+    const returns = [{ company_id: 'c1', period_start: '2026-04-01', period_end: '2026-05-31' }];
+    expect(shapeVatDue([{ id: 'c1', vat_period_alignment: 'odd' }], returns, meta, today)).toHaveLength(0);
+  });
+
+  it('drops companies not in the bureau meta map (tenant guard)', () => {
+    const items = shapeVatDue([{ id: 'rogue', vat_period_alignment: 'odd' }], [], meta, today);
+    expect(items).toHaveLength(0);
   });
 });
