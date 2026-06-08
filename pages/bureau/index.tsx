@@ -16,9 +16,10 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { useCompany } from '@/contexts/CompanyContext';
 import { apiFetch } from '@/lib/apiFetch';
 import {
-  Briefcase, AlertCircle, Loader2, ArrowRight, Clock, AlertTriangle, Info,
+  Briefcase, AlertCircle, Loader2, Clock, AlertTriangle, Info,
   Building2, Filter,
 } from 'lucide-react';
+import { Feed, ActionRow } from '@/components/ui';
 
 type Severity = 'overdue' | 'due_soon' | 'info';
 
@@ -32,6 +33,7 @@ interface WorkItem {
   dueAt: string | null;
   href: string;
   severity: Severity;
+  amount?: number | null;
 }
 
 interface BureauRef {
@@ -192,62 +194,43 @@ export default function BureauDashboardPage() {
           )}
 
           {/* Work queue */}
-          <div className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] overflow-hidden">
-            <div className="px-4 py-3 border-b border-[var(--ff-border-primary)]">
-              <h2 className="text-sm font-medium text-[var(--ff-text-primary)]">Work owed today</h2>
-            </div>
-            {visibleItems.length === 0 ? (
-              <div className="px-4 py-12 text-center text-sm text-[var(--ff-text-tertiary)]">
-                {data.stats.total === 0
-                  ? 'No outstanding work — every client is up to date.'
-                  : 'No items match these filters.'}
-              </div>
-            ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] text-left">
-                    <th className="py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Status</th>
-                    <th className="py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Client</th>
-                    <th className="py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Task</th>
-                    <th className="py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Detail</th>
-                    <th className="py-3 px-4 text-[var(--ff-text-secondary)] font-medium">Due</th>
-                    <th className="py-3 px-4"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visibleItems.map((it, idx) => {
-                    const badge = SEVERITY_BADGE[it.severity];
-                    const Icon = badge.icon;
-                    return (
-                      <tr
-                        key={`${it.companyId}-${it.task}-${idx}`}
-                        className="border-b border-[var(--ff-border-primary)] last:border-0 hover:bg-[var(--ff-bg-tertiary)] cursor-pointer"
-                        onClick={() => void handleOpen(it)}
-                      >
-                        <td className="py-3 px-4">
-                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${badge.bg} ${badge.fg}`}>
-                            <Icon className="h-3 w-3" /> {badge.label}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4">
-                          <div className="text-[var(--ff-text-primary)]">{it.companyName}</div>
-                          {data.bureaus.length > 1 && <div className="text-xs text-[var(--ff-text-tertiary)]">{it.bureauName}</div>}
-                        </td>
-                        <td className="py-3 px-4 text-[var(--ff-text-primary)]">{it.task}</td>
-                        <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{it.detail}</td>
-                        <td className="py-3 px-4 text-[var(--ff-text-secondary)] whitespace-nowrap">
-                          {it.dueAt ? new Date(it.dueAt).toLocaleDateString() : '—'}
-                        </td>
-                        <td className="py-3 px-4 text-right">
-                          <ArrowRight className="h-4 w-4 text-[var(--ff-text-tertiary)] inline" />
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-          </div>
+          <Feed
+            title="Work owed today"
+            empty={
+              data.stats.total === 0
+                ? 'No outstanding work — every client is up to date.'
+                : 'No items match these filters.'
+            }
+          >
+            {visibleItems.map((it, idx) => {
+              const badge = SEVERITY_BADGE[it.severity];
+              const Icon = badge.icon;
+              return (
+                <ActionRow
+                  key={`${it.companyId}-${it.task}-${idx}`}
+                  onClick={() => void handleOpen(it)}
+                  leading={
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${badge.bg} ${badge.fg}`}>
+                      <Icon className="h-3 w-3" /> {badge.label}
+                    </span>
+                  }
+                  title={
+                    <>
+                      <span className="font-medium">{it.task}</span>
+                      <span className="text-[var(--ff-text-tertiary)]"> · {it.companyName}</span>
+                    </>
+                  }
+                  subtitle={
+                    data.bureaus.length > 1
+                      ? `${it.detail} · ${it.bureauName}`
+                      : it.detail
+                  }
+                  amount={it.amount ?? null}
+                  meta={it.dueAt ? new Date(it.dueAt).toLocaleDateString() : '—'}
+                />
+              );
+            })}
+          </Feed>
         </div>
       </div>
     </AppLayout>
@@ -266,12 +249,13 @@ function StatCard({ label, value, color, onClick, active, icon }: {
     <button
       onClick={onClick}
       disabled={!onClick}
-      className={`text-left p-4 rounded-lg border transition-colors ${active
+      style={{ borderRadius: 'var(--ff-card-radius)' }}
+      className={`text-left p-4 border transition-colors ${active
         ? 'border-purple-500 bg-purple-500/5'
         : 'border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] ' + (onClick ? 'hover:bg-[var(--ff-bg-tertiary)] cursor-pointer' : 'cursor-default')}`}
     >
       <div className="text-xs text-[var(--ff-text-tertiary)]">{label}</div>
-      <div className={`inline-flex items-center gap-1 text-2xl font-mono mt-1 ${color}`}>
+      <div className={`inline-flex items-center gap-1 text-2xl mt-1 ${color}`} style={{ fontFamily: 'var(--ff-num-font)' }}>
         {icon && <span aria-hidden="true">{icon}</span>}
         <span>{value}</span>
       </div>
