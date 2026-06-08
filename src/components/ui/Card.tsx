@@ -38,16 +38,18 @@ function Card({
   hoverable = false,
   noPadding = false,
   children,
+  style,
   ...props
 }: CardProps) {
   return (
     <div
       className={cn(
-        'rounded-xl border border-gray-200 bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06)]',
+        'border border-gray-200 bg-white shadow-[0_1px_3px_rgba(0,0,0,0.06)]',
         'dark:border-white/[0.08] dark:bg-gray-900 dark:ring-1 dark:ring-inset dark:ring-white/[0.04]',
         hoverable && 'cursor-pointer transition-shadow hover:shadow-[0_4px_12px_rgba(0,0,0,0.12)] hover:border-teal-500/30 dark:hover:border-teal-500/20',
         className
       )}
+      style={{ borderRadius: 'var(--ff-card-radius)', ...style }}
       {...props}
     >
       {header && (

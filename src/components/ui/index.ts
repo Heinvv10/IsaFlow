@@ -24,6 +24,9 @@ export type { KpiStripProps, KpiItem } from './KpiStrip';
 export { Card, CardHeader, CardBody, CardFooter } from './Card';
 export type { CardProps } from './Card';
 
+export { Money } from './Money';
+export type { MoneyProps } from './Money';
+
 export { Tooltip } from './Tooltip';
 export type { TooltipProps, TooltipPosition } from './Tooltip';
 
