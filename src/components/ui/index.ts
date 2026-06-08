@@ -24,6 +24,12 @@ export type { KpiStripProps, KpiItem } from './KpiStrip';
 export { Card, CardHeader, CardBody, CardFooter } from './Card';
 export type { CardProps } from './Card';
 
+export { Feed } from './Feed';
+export type { FeedProps } from './Feed';
+
+export { ActionRow } from './ActionRow';
+export type { ActionRowProps } from './ActionRow';
+
 export { Money } from './Money';
 export type { MoneyProps } from './Money';
 
