@@ -1,6 +1,7 @@
 /**
  * Feed — a titled list surface for a stream of rows (typically ActionRow).
  * Theme-aware via Card; renders an empty state when it has no children.
+ * Renders `title` as an <h2> — use below a page-level <h1>.
  *
  * Usage:
  *   <Feed title="Work owed today" empty="All caught up.">
@@ -28,11 +29,13 @@ export function Feed({ title, action, empty, children, className }: FeedProps) {
         <h2 className="text-sm font-medium text-[var(--ff-text-primary)]">{title}</h2>
         {action && <div className="flex-shrink-0">{action}</div>}
       </div>
-      {isEmpty ? (
-        <div className="px-4 py-12 text-center text-sm text-[var(--ff-text-tertiary)]">{empty}</div>
-      ) : (
-        <div className="divide-y divide-[var(--ff-border-primary)]">{children}</div>
-      )}
+      {isEmpty
+        ? empty != null && (
+            <div className="px-4 py-12 text-center text-sm text-[var(--ff-text-tertiary)]">{empty}</div>
+          )
+        : (
+            <div className="divide-y divide-[var(--ff-border-primary)]">{children}</div>
+          )}
     </Card>
   );
 }

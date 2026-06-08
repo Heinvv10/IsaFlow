@@ -23,12 +23,13 @@ export interface ActionRowProps {
 
 export function ActionRow({ leading, title, subtitle, amount, meta, onClick, className }: ActionRowProps) {
   return (
+    // ring-inset keeps the focus ring inside the Card border instead of bleeding past it
     <button
       type="button"
       onClick={onClick}
       className={cn(
         'flex w-full items-center gap-3 px-4 py-3 text-left transition-colors',
-        'hover:bg-[var(--ff-bg-tertiary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500/40',
+        'hover:bg-[var(--ff-bg-tertiary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500',
         className,
       )}
     >
