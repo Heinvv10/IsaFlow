@@ -75,6 +75,21 @@ describe('shapeBillsToApprove', () => {
     const items = shapeBillsToApprove([{ company_id: 'c1', cnt: '4', earliest_due: null }], meta, today);
     expect(items[0]!.detail).toBe('4 awaiting approval');
   });
+
+  it('sets amount from amount_total (total value awaiting approval)', () => {
+    const items = shapeBillsToApprove([{ company_id: 'c1', cnt: 3, earliest_due: null, amount_total: 12500.5 }], meta, today);
+    expect(items[0]!.amount).toBe(12500.5);
+  });
+
+  it('coerces a string amount_total from the pg driver', () => {
+    const items = shapeBillsToApprove([{ company_id: 'c1', cnt: 2, earliest_due: null, amount_total: '900.00' }], meta, today);
+    expect(items[0]!.amount).toBe(900);
+  });
+
+  it('sets amount to null when amount_total is absent', () => {
+    const items = shapeBillsToApprove([{ company_id: 'c1', cnt: 1, earliest_due: null }], meta, today);
+    expect(items[0]!.amount).toBeNull();
+  });
 });
 
 describe('shapeVatDue', () => {

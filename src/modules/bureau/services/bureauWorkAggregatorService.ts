@@ -157,11 +157,12 @@ export function shapeBillsToApprove(rows: BillsRow[], meta: Map<string, CompanyM
     const cnt = Number(r.cnt);
     if (!m || cnt === 0) continue;
     const due = r.earliest_due ? new Date(`${r.earliest_due}T00:00:00Z`) : null;
+    const amount = r.amount_total == null ? null : Number(r.amount_total);
     items.push({
       bureauId: m.bureau_id, bureauName: m.bureau_name, companyId: r.company_id, companyName: m.company_name,
       task: 'Bills to approve', detail: `${cnt} awaiting approval`,
       dueAt: r.earliest_due, href: '/accounting/reports/ap-aging',
-      severity: due ? severityForDate(due, today) : 'info',
+      severity: due ? severityForDate(due, today) : 'info', amount,
     });
   }
   return items;
