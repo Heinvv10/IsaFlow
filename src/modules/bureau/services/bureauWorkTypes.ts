@@ -16,6 +16,8 @@ export interface WorkItem {
   dueAt: string | null;
   href: string;
   severity: Severity;
+  /** ZAR value when the signal carries one (bills, unreconciled); null/omitted otherwise. */
+  amount?: number | null;
 }
 
 export interface CompanyMeta {

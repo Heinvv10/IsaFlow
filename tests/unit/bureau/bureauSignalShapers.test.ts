@@ -35,6 +35,26 @@ describe('shapeUnreconciled', () => {
     const items = shapeUnreconciled([{ company_id: 'c1', cnt: '7' }], meta);
     expect(items[0]!.detail).toBe('7 unreconciled');
   });
+
+  it('sets amount from amount_total (total unreconciled value)', () => {
+    const items = shapeUnreconciled([{ company_id: 'c1', cnt: 14, amount_total: 48230.75 }], meta);
+    expect(items[0]!.amount).toBe(48230.75);
+  });
+
+  it('coerces a string amount_total from the pg driver', () => {
+    const items = shapeUnreconciled([{ company_id: 'c1', cnt: 7, amount_total: '1200.00' }], meta);
+    expect(items[0]!.amount).toBe(1200);
+  });
+
+  it('sets amount to null when amount_total is absent', () => {
+    const items = shapeUnreconciled([{ company_id: 'c1', cnt: 3 }], meta);
+    expect(items[0]!.amount).toBeNull();
+  });
+
+  it('sets amount to null when amount_total is non-numeric (NaN guard)', () => {
+    const items = shapeUnreconciled([{ company_id: 'c1', cnt: 5, amount_total: 'not-a-number' }], meta);
+    expect(items[0]!.amount).toBeNull();
+  });
 });
 
 describe('shapeBillsToApprove', () => {
@@ -74,6 +94,26 @@ describe('shapeBillsToApprove', () => {
   it('coerces a string cnt from the pg driver correctly', () => {
     const items = shapeBillsToApprove([{ company_id: 'c1', cnt: '4', earliest_due: null }], meta, today);
     expect(items[0]!.detail).toBe('4 awaiting approval');
+  });
+
+  it('sets amount from amount_total (total value awaiting approval)', () => {
+    const items = shapeBillsToApprove([{ company_id: 'c1', cnt: 3, earliest_due: null, amount_total: 12500.5 }], meta, today);
+    expect(items[0]!.amount).toBe(12500.5);
+  });
+
+  it('coerces a string amount_total from the pg driver', () => {
+    const items = shapeBillsToApprove([{ company_id: 'c1', cnt: 2, earliest_due: null, amount_total: '900.00' }], meta, today);
+    expect(items[0]!.amount).toBe(900);
+  });
+
+  it('sets amount to null when amount_total is absent', () => {
+    const items = shapeBillsToApprove([{ company_id: 'c1', cnt: 1, earliest_due: null }], meta, today);
+    expect(items[0]!.amount).toBeNull();
+  });
+
+  it('sets amount to null when amount_total is non-numeric (NaN guard)', () => {
+    const items = shapeBillsToApprove([{ company_id: 'c1', cnt: 2, earliest_due: null, amount_total: 'oops' }], meta, today);
+    expect(items[0]!.amount).toBeNull();
   });
 });
 

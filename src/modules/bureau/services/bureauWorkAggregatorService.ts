@@ -118,7 +118,7 @@ async function payrollSignals(
 // ── Unreconciled bank transactions signal ────────────────────────────────────
 
 /** Postgres COUNT(*) may arrive as a numeric string over some drivers; the shaper calls Number(). */
-export interface UnreconciledRow { company_id: string; cnt: number | string; }
+export interface UnreconciledRow { company_id: string; cnt: number | string; amount_total?: number | string | null; }
 
 export function shapeUnreconciled(rows: UnreconciledRow[], meta: Map<string, CompanyMeta>): WorkItem[] {
   const items: WorkItem[] = [];
@@ -126,10 +126,12 @@ export function shapeUnreconciled(rows: UnreconciledRow[], meta: Map<string, Com
     const m = meta.get(r.company_id);
     const cnt = Number(r.cnt);
     if (!m || cnt === 0) continue;
+    const amountNum = r.amount_total == null ? null : Number(r.amount_total);
+    const amount = amountNum == null || Number.isNaN(amountNum) ? null : amountNum;
     items.push({
       bureauId: m.bureau_id, bureauName: m.bureau_name, companyId: r.company_id, companyName: m.company_name,
       task: 'Bank reconciliation', detail: `${cnt} unreconciled`, dueAt: null,
-      href: '/accounting/reports/bank-transactions', severity: 'info',
+      href: '/accounting/reports/bank-transactions', severity: 'info', amount,
     });
   }
   return items;
@@ -137,7 +139,7 @@ export function shapeUnreconciled(rows: UnreconciledRow[], meta: Map<string, Com
 
 async function unreconciledSignal(companyIds: string[], meta: Map<string, CompanyMeta>): Promise<WorkItem[]> {
   const rows = (await sql`
-    SELECT company_id, COUNT(*)::int AS cnt
+    SELECT company_id, COUNT(*)::int AS cnt, SUM(ABS(amount)) AS amount_total
       FROM bank_transactions
      WHERE company_id = ANY(${companyIds})
        AND status NOT IN ('reconciled','matched','excluded')
@@ -148,7 +150,7 @@ async function unreconciledSignal(companyIds: string[], meta: Map<string, Compan
 
 // ── Bills to approve signal ──────────────────────────────────────────────────
 
-export interface BillsRow { company_id: string; cnt: number | string; earliest_due: string | null; }
+export interface BillsRow { company_id: string; cnt: number | string; earliest_due: string | null; amount_total?: number | string | null; }
 
 export function shapeBillsToApprove(rows: BillsRow[], meta: Map<string, CompanyMeta>, today: Date): WorkItem[] {
   const items: WorkItem[] = [];
@@ -157,11 +159,13 @@ export function shapeBillsToApprove(rows: BillsRow[], meta: Map<string, CompanyM
     const cnt = Number(r.cnt);
     if (!m || cnt === 0) continue;
     const due = r.earliest_due ? new Date(`${r.earliest_due}T00:00:00Z`) : null;
+    const amountNum = r.amount_total == null ? null : Number(r.amount_total);
+    const amount = amountNum == null || Number.isNaN(amountNum) ? null : amountNum;
     items.push({
       bureauId: m.bureau_id, bureauName: m.bureau_name, companyId: r.company_id, companyName: m.company_name,
       task: 'Bills to approve', detail: `${cnt} awaiting approval`,
       dueAt: r.earliest_due, href: '/accounting/reports/ap-aging',
-      severity: due ? severityForDate(due, today) : 'info',
+      severity: due ? severityForDate(due, today) : 'info', amount,
     });
   }
   return items;
@@ -169,7 +173,7 @@ export function shapeBillsToApprove(rows: BillsRow[], meta: Map<string, CompanyM
 
 async function billsToApproveSignal(companyIds: string[], meta: Map<string, CompanyMeta>, today: Date): Promise<WorkItem[]> {
   const rows = (await sql`
-    SELECT company_id, COUNT(*)::int AS cnt, MIN(due_date)::text AS earliest_due
+    SELECT company_id, COUNT(*)::int AS cnt, MIN(due_date)::text AS earliest_due, SUM(total_amount) AS amount_total
       FROM supplier_invoices
      WHERE company_id = ANY(${companyIds})
        AND status = 'pending_approval'
