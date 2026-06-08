@@ -35,6 +35,21 @@ describe('shapeUnreconciled', () => {
     const items = shapeUnreconciled([{ company_id: 'c1', cnt: '7' }], meta);
     expect(items[0]!.detail).toBe('7 unreconciled');
   });
+
+  it('sets amount from amount_total (total unreconciled value)', () => {
+    const items = shapeUnreconciled([{ company_id: 'c1', cnt: 14, amount_total: 48230.75 }], meta);
+    expect(items[0]!.amount).toBe(48230.75);
+  });
+
+  it('coerces a string amount_total from the pg driver', () => {
+    const items = shapeUnreconciled([{ company_id: 'c1', cnt: 7, amount_total: '1200.00' }], meta);
+    expect(items[0]!.amount).toBe(1200);
+  });
+
+  it('sets amount to null when amount_total is absent', () => {
+    const items = shapeUnreconciled([{ company_id: 'c1', cnt: 3 }], meta);
+    expect(items[0]!.amount).toBeNull();
+  });
 });
 
 describe('shapeBillsToApprove', () => {

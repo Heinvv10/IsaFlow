@@ -126,10 +126,11 @@ export function shapeUnreconciled(rows: UnreconciledRow[], meta: Map<string, Com
     const m = meta.get(r.company_id);
     const cnt = Number(r.cnt);
     if (!m || cnt === 0) continue;
+    const amount = r.amount_total == null ? null : Number(r.amount_total);
     items.push({
       bureauId: m.bureau_id, bureauName: m.bureau_name, companyId: r.company_id, companyName: m.company_name,
       task: 'Bank reconciliation', detail: `${cnt} unreconciled`, dueAt: null,
-      href: '/accounting/reports/bank-transactions', severity: 'info',
+      href: '/accounting/reports/bank-transactions', severity: 'info', amount,
     });
   }
   return items;
