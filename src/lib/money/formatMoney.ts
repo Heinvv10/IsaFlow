@@ -17,7 +17,7 @@ export function formatMoney(amount: number, options: FormatMoneyOptions = {}): s
   const decimals = options.decimals ?? 2;
   const negative = amount < 0;
   const fixed = Math.abs(amount).toFixed(decimals); // e.g. "318400.00" (or "1200000" when decimals: 0)
-  const [intPart, fracPart] = fixed.split('.');
+  const [intPart = '', fracPart] = fixed.split('.');
   const grouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   // Gate on fracPart, not decimals: toFixed() on NaN/Infinity yields no '.', so this keeps "R NaN" clean (no ".undefined").
   const body = fracPart !== undefined ? `${grouped}.${fracPart}` : grouped;
