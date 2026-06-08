@@ -54,8 +54,6 @@ export async function vatDueSignal(companyIds: string[], meta: Map<string, Compa
           FROM vat_returns
          WHERE company_id = ANY(${companyIds})
            AND period_end >= ${sixMonthsAgo}::date`,
-  ]) as [unknown, unknown];
-  const companyRows = companies as unknown as CompanyVatRow[];
-  const returnRows = returns as unknown as VatReturnRow[];
-  return shapeVatDue(companyRows, returnRows, meta, today);
+  ]) as [CompanyVatRow[], VatReturnRow[]];
+  return shapeVatDue(companies, returns, meta, today);
 }

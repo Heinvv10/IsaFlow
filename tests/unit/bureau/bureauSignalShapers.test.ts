@@ -101,4 +101,9 @@ describe('shapeVatDue', () => {
     const items = shapeVatDue([{ id: 'c1', vat_period_alignment: 'odd' }], [], meta, new Date('2026-07-10T00:00:00Z'));
     expect(items[0]).toMatchObject({ task: 'VAT return due', severity: 'overdue' });
   });
+
+  it('derives the even-alignment period correctly', () => {
+    const items = shapeVatDue([{ id: 'c1', vat_period_alignment: 'even' }], [], meta, new Date('2026-06-08T00:00:00Z'));
+    expect(items[0]).toMatchObject({ task: 'VAT return due', detail: 'Mar–Apr 2026', dueAt: '2026-05-25', severity: 'overdue' });
+  });
 });
