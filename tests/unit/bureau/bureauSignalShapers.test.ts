@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   shapeUnreconciled,
   shapeBillsToApprove,
+  reduceMonthEnd,
   type CompanyMeta,
 } from '@/modules/bureau/services/bureauWorkAggregatorService';
 import { shapeVatDue } from '@/modules/bureau/services/bureauVatSignal';
@@ -105,5 +106,20 @@ describe('shapeVatDue', () => {
   it('derives the even-alignment period correctly', () => {
     const items = shapeVatDue([{ id: 'c1', vat_period_alignment: 'even' }], [], meta, new Date('2026-06-08T00:00:00Z'));
     expect(items[0]).toMatchObject({ task: 'VAT return due', detail: 'Mar–Apr 2026', dueAt: '2026-05-25', severity: 'overdue' });
+  });
+});
+
+describe('reduceMonthEnd', () => {
+  it('counts companies whose latest period is closed/locked', () => {
+    const rows = [
+      { company_id: 'c1', status: 'closed' },
+      { company_id: 'c2', status: 'open' },
+      { company_id: 'c3', status: 'locked' },
+    ];
+    expect(reduceMonthEnd(rows, 4)).toEqual({ closed: 2, total: 4 });
+  });
+
+  it('reports zero closed when none are', () => {
+    expect(reduceMonthEnd([{ company_id: 'c1', status: 'open' }], 3)).toEqual({ closed: 0, total: 3 });
   });
 });

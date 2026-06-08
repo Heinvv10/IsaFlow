@@ -178,6 +178,26 @@ async function billsToApproveSignal(companyIds: string[], meta: Map<string, Comp
   return shapeBillsToApprove(rows, meta, today);
 }
 
+// ── Month-end close progress ─────────────────────────────────────────────────
+
+export interface LatestPeriodRow { company_id: string; status: string; }
+
+export function reduceMonthEnd(rows: LatestPeriodRow[], total: number): MonthEndStat {
+  const closed = rows.filter((r) => r.status === 'closed' || r.status === 'locked').length;
+  return { closed, total };
+}
+
+async function monthEndProgress(companyIds: string[], total: number): Promise<MonthEndStat> {
+  // Latest period per company by end_date, then its close status.
+  const rows = (await sql`
+    SELECT DISTINCT ON (company_id) company_id, status
+      FROM fiscal_periods
+     WHERE company_id = ANY(${companyIds})
+     ORDER BY company_id, end_date DESC
+  `) as unknown as LatestPeriodRow[];
+  return reduceMonthEnd(rows, total);
+}
+
 // ── Orchestrator ────────────────────────────────────────────────────────────
 
 /** Runs one signal, degrading to [] on failure so one bad query can't 500 the cockpit. */
@@ -196,11 +216,17 @@ export async function aggregateBureauWork(
   meta: Map<string, CompanyMeta>,
   today: Date,
 ): Promise<AggregateResult> {
-  const groups = await Promise.all([
-    safeSignal('payroll', () => payrollSignals(companyIds, meta, today)),
-    safeSignal('unreconciled', () => unreconciledSignal(companyIds, meta)),
-    safeSignal('bills', () => billsToApproveSignal(companyIds, meta, today)),
-    safeSignal('vat', () => vatDueSignal(companyIds, meta, today)),
+  const [groups, monthEnd] = await Promise.all([
+    Promise.all([
+      safeSignal('payroll', () => payrollSignals(companyIds, meta, today)),
+      safeSignal('unreconciled', () => unreconciledSignal(companyIds, meta)),
+      safeSignal('bills', () => billsToApproveSignal(companyIds, meta, today)),
+      safeSignal('vat', () => vatDueSignal(companyIds, meta, today)),
+    ]),
+    monthEndProgress(companyIds, meta.size).catch((err) => {
+      log.warn('bureau month-end stat failed', { error: err }, 'Bureau');
+      return { closed: 0, total: meta.size };
+    }),
   ]);
   const items = groups.flat();
   items.sort((a, b) => {
@@ -211,5 +237,5 @@ export async function aggregateBureauWork(
     if (!b.dueAt) return -1;
     return a.dueAt.localeCompare(b.dueAt);
   });
-  return { items, monthEnd: { closed: 0, total: meta.size } };
+  return { items, monthEnd };
 }
