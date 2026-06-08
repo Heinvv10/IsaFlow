@@ -116,7 +116,8 @@ async function payrollSignals(
   for (const r of irp5Issues as Array<{ company_id: string; missing_tax: string | number; missing_id: string | number }>) {
     const m = meta.get(r.company_id);
     if (!m) continue;
-    const missingTax = Number(r.missing_tax); const missingId = Number(r.missing_id);
+    const missingTax = Number(r.missing_tax);
+    const missingId = Number(r.missing_id);
     if (missingTax === 0 && missingId === 0) continue;
     const parts: string[] = [];
     if (missingTax > 0) parts.push(`${missingTax} missing tax #`);
@@ -154,7 +155,7 @@ async function safeSignal(name: string, fn: () => Promise<WorkItem[]>): Promise<
     return await fn();
   } catch (err) {
     // Degrade gracefully — the cockpit still renders the other signals.
-    log.warn('bureau signal failed', { signal: name, message: err instanceof Error ? err.message : String(err) }, 'Bureau');
+    log.warn('bureau signal failed', { signal: name, error: err }, 'Bureau');
     return [];
   }
 }

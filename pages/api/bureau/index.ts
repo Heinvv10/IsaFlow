@@ -16,7 +16,6 @@ import { listBureausForUser } from '@/modules/bureau/services/bureauService';
 import {
   aggregateBureauWork,
   type CompanyMeta,
-  type WorkItem,
 } from '@/modules/bureau/services/bureauWorkAggregatorService';
 
 function zeroStats() {
@@ -54,9 +53,9 @@ async function handler(req: UserAuthedRequest, res: NextApiResponse) {
   const { items, monthEnd } = await aggregateBureauWork(companyIds, meta, new Date());
 
   const stats = {
-    overdue: items.filter((i: WorkItem) => i.severity === 'overdue').length,
-    dueSoon: items.filter((i: WorkItem) => i.severity === 'due_soon').length,
-    info: items.filter((i: WorkItem) => i.severity === 'info').length,
+    overdue: items.filter((i) => i.severity === 'overdue').length,
+    dueSoon: items.filter((i) => i.severity === 'due_soon').length,
+    info: items.filter((i) => i.severity === 'info').length,
     total: items.length,
     monthEnd,
   };
