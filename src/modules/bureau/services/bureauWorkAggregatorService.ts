@@ -118,7 +118,7 @@ async function payrollSignals(
 // ── Unreconciled bank transactions signal ────────────────────────────────────
 
 /** Postgres COUNT(*) may arrive as a numeric string over some drivers; the shaper calls Number(). */
-export interface UnreconciledRow { company_id: string; cnt: number | string; }
+export interface UnreconciledRow { company_id: string; cnt: number | string; amount_total?: number | string | null; }
 
 export function shapeUnreconciled(rows: UnreconciledRow[], meta: Map<string, CompanyMeta>): WorkItem[] {
   const items: WorkItem[] = [];
@@ -148,7 +148,7 @@ async function unreconciledSignal(companyIds: string[], meta: Map<string, Compan
 
 // ── Bills to approve signal ──────────────────────────────────────────────────
 
-export interface BillsRow { company_id: string; cnt: number | string; earliest_due: string | null; }
+export interface BillsRow { company_id: string; cnt: number | string; earliest_due: string | null; amount_total?: number | string | null; }
 
 export function shapeBillsToApprove(rows: BillsRow[], meta: Map<string, CompanyMeta>, today: Date): WorkItem[] {
   const items: WorkItem[] = [];
