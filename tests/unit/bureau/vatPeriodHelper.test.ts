@@ -21,4 +21,9 @@ describe('expectedVatPeriodAsOf', () => {
     const p = expectedVatPeriodAsOf('odd', new Date('2026-01-10T00:00:00Z'));
     expect(p).toEqual({ periodStart: '2025-10-01', periodEnd: '2025-11-30', dueDate: '2025-12-25' });
   });
+
+  it('includes a period whose end day matches asOf exactly', () => {
+    const p = expectedVatPeriodAsOf('odd', new Date('2026-05-31T00:00:00Z'));
+    expect(p).toEqual({ periodStart: '2026-04-01', periodEnd: '2026-05-31', dueDate: '2026-06-25' });
+  });
 });

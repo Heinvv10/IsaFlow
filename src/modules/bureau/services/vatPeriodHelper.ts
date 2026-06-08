@@ -26,6 +26,10 @@ function iso(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * @param asOf - The reference instant. Only UTC year/month fields are read.
+ *   `new Date()` is safe; avoid Dates built from local-midnight strings without a 'Z'.
+ */
 export function expectedVatPeriodAsOf(alignment: VatAlignment, asOf: Date): VatPeriod {
   const wantOddEnd = alignment === 'odd';
   let y = asOf.getUTCFullYear();
