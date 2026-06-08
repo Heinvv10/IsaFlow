@@ -122,4 +122,13 @@ describe('reduceMonthEnd', () => {
   it('reports zero closed when none are', () => {
     expect(reduceMonthEnd([{ company_id: 'c1', status: 'open' }], 3)).toEqual({ closed: 0, total: 3 });
   });
+
+  it('counts an empty result set as zero closed against the bureau total', () => {
+    expect(reduceMonthEnd([], 5)).toEqual({ closed: 0, total: 5 });
+  });
+
+  it('reports all closed when every latest period is closed or locked', () => {
+    expect(reduceMonthEnd([{ company_id: 'c1', status: 'closed' }, { company_id: 'c2', status: 'locked' }], 2))
+      .toEqual({ closed: 2, total: 2 });
+  });
 });

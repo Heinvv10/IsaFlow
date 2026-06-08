@@ -180,7 +180,7 @@ async function billsToApproveSignal(companyIds: string[], meta: Map<string, Comp
 
 // ── Month-end close progress ─────────────────────────────────────────────────
 
-export interface LatestPeriodRow { company_id: string; status: string; }
+export interface LatestPeriodRow { company_id: string; status: 'open' | 'closing' | 'closed' | 'locked'; }
 
 export function reduceMonthEnd(rows: LatestPeriodRow[], total: number): MonthEndStat {
   const closed = rows.filter((r) => r.status === 'closed' || r.status === 'locked').length;
@@ -193,7 +193,7 @@ async function monthEndProgress(companyIds: string[], total: number): Promise<Mo
     SELECT DISTINCT ON (company_id) company_id, status
       FROM fiscal_periods
      WHERE company_id = ANY(${companyIds})
-     ORDER BY company_id, end_date DESC
+     ORDER BY company_id, end_date DESC, created_at DESC
   `) as unknown as LatestPeriodRow[];
   return reduceMonthEnd(rows, total);
 }
@@ -223,6 +223,7 @@ export async function aggregateBureauWork(
       safeSignal('bills', () => billsToApproveSignal(companyIds, meta, today)),
       safeSignal('vat', () => vatDueSignal(companyIds, meta, today)),
     ]),
+    // monthEndProgress returns a stat not WorkItem[], so safeSignal doesn't apply.
     monthEndProgress(companyIds, meta.size).catch((err) => {
       log.warn('bureau month-end stat failed', { error: err }, 'Bureau');
       return { closed: 0, total: meta.size };
