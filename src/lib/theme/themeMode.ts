@@ -17,8 +17,6 @@ interface ResolveInput {
   override?: ThemeMode;
   /** Per-company role from CompanyContext. */
   companyRole?: string | null;
-  /** Hostname, for a future direct-client subdomain. */
-  host?: string | null;
 }
 
 /** Roles that indicate a business owner rather than firm staff. */

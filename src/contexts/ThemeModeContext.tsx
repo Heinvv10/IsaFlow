@@ -26,25 +26,17 @@ interface ThemeModeContextType {
 
 const ThemeModeContext = createContext<ThemeModeContextType | undefined>(undefined);
 
-export function ThemeModeProvider({
-  children,
-  companyRole,
-}: {
-  children: ReactNode;
-  /** Optional role hint; the override in localStorage still wins. */
-  companyRole?: string | null;
-}) {
+export function ThemeModeProvider({ children }: { children: ReactNode }) {
   const [mode, setModeState] = useState<ThemeMode>('practitioner');
 
-  // Hydrate: explicit stored override wins, else derive from role.
+  // Hydrate from the persisted user override (client-only).
+  // Phase 1 has no role-based default; a future phase will resolve from
+  // CompanyContext role via resolveThemeMode's companyRole input.
   useEffect(() => {
     const saved = localStorage.getItem(THEME_MODE_STORAGE_KEY);
-    const resolved = resolveThemeMode({
-      override: isThemeMode(saved) ? saved : undefined,
-      companyRole,
-    });
+    const resolved = resolveThemeMode({ override: isThemeMode(saved) ? saved : undefined });
     setModeState(resolved);
-  }, [companyRole]);
+  }, []);
 
   // Reflect onto <html> so CSS [data-theme='client'] applies.
   useEffect(() => {

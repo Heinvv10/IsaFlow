@@ -8,7 +8,7 @@ describe('resolveThemeMode', () => {
 
   it('honours an explicit override above everything else', () => {
     expect(resolveThemeMode({ override: 'client', companyRole: 'admin' })).toBe('client');
-    expect(resolveThemeMode({ override: 'practitioner', host: 'client.isaflow.co.za' })).toBe('practitioner');
+    expect(resolveThemeMode({ override: 'practitioner', companyRole: 'owner' })).toBe('practitioner');
   });
 
   it('ignores an invalid override and falls through to other signals', () => {
