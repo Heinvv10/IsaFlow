@@ -9,7 +9,7 @@
  * — they see no bureau UI at all.
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -44,7 +44,7 @@ interface BureauRef {
 interface DashboardData {
   bureaus: BureauRef[];
   workItems: WorkItem[];
-  stats: { overdue: number; dueSoon: number; info: number; total: number };
+  stats: { overdue: number; dueSoon: number; info: number; total: number; monthEnd?: { closed: number; total: number } };
   companyCount?: number;
 }
 
@@ -153,11 +153,20 @@ export default function BureauDashboardPage() {
 
         <div className="p-6 space-y-6">
           {/* Stats */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {/* 5 cols only at lg+; monthEnd is conditional, so the 2/2/1 wrap at md is acceptable */}
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
             <StatCard label="Overdue"  value={data.stats.overdue}  color="text-red-400"     onClick={() => setSeverityFilter(severityFilter === 'overdue' ? '' : 'overdue')} active={severityFilter === 'overdue'} />
             <StatCard label="Due soon" value={data.stats.dueSoon}  color="text-amber-400"   onClick={() => setSeverityFilter(severityFilter === 'due_soon' ? '' : 'due_soon')} active={severityFilter === 'due_soon'} />
             <StatCard label="Open"     value={data.stats.info}     color="text-sky-400"     onClick={() => setSeverityFilter(severityFilter === 'info' ? '' : 'info')} active={severityFilter === 'info'} />
             <StatCard label="Total"    value={data.stats.total}    color="text-[var(--ff-text-primary)]" />
+            {data.stats.monthEnd && (
+              <StatCard
+                label="Month-end"
+                value={`${data.stats.monthEnd.closed}/${data.stats.monthEnd.total}`}
+                color="text-purple-400"
+                icon={<Building2 className="h-4 w-4 text-purple-400" />}
+              />
+            )}
           </div>
 
           {/* Bureau filter (only when user has 2+ bureaus) */}
@@ -245,12 +254,13 @@ export default function BureauDashboardPage() {
   );
 }
 
-function StatCard({ label, value, color, onClick, active }: {
+function StatCard({ label, value, color, onClick, active, icon }: {
   label: string;
-  value: number;
+  value: number | string;
   color: string;
   onClick?: () => void;
   active?: boolean;
+  icon?: React.ReactNode;
 }) {
   return (
     <button
@@ -261,7 +271,10 @@ function StatCard({ label, value, color, onClick, active }: {
         : 'border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] ' + (onClick ? 'hover:bg-[var(--ff-bg-tertiary)] cursor-pointer' : 'cursor-default')}`}
     >
       <div className="text-xs text-[var(--ff-text-tertiary)]">{label}</div>
-      <div className={`text-2xl font-mono mt-1 ${color}`}>{value}</div>
+      <div className={`inline-flex items-center gap-1 text-2xl font-mono mt-1 ${color}`}>
+        {icon && <span aria-hidden="true">{icon}</span>}
+        <span>{value}</span>
+      </div>
     </button>
   );
 }
