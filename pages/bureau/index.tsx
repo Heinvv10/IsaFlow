@@ -50,6 +50,7 @@ interface DashboardData {
   companyCount?: number;
 }
 
+// Urgency colors (not record-status tones) — intentionally literal, not the StatusBadge/statusVocabulary set.
 const SEVERITY_BADGE: Record<Severity, { bg: string; fg: string; icon: typeof AlertTriangle; label: string }> = {
   overdue:  { bg: 'bg-red-500/10',     fg: 'text-red-400',     icon: AlertTriangle, label: 'Overdue' },
   due_soon: { bg: 'bg-amber-500/10',   fg: 'text-amber-400',   icon: Clock,         label: 'Due soon' },
@@ -202,12 +203,12 @@ export default function BureauDashboardPage() {
                 : 'No items match these filters.'
             }
           >
-            {visibleItems.map((it, idx) => {
+            {visibleItems.map((it) => {
               const badge = SEVERITY_BADGE[it.severity];
               const Icon = badge.icon;
               return (
                 <ActionRow
-                  key={`${it.companyId}-${it.task}-${idx}`}
+                  key={`${it.companyId}-${it.task}`}
                   onClick={() => void handleOpen(it)}
                   leading={
                     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${badge.bg} ${badge.fg}`}>
