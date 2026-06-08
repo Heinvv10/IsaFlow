@@ -147,6 +147,36 @@ async function payrollSignals(
   return items;
 }
 
+// ── Unreconciled bank transactions signal ────────────────────────────────────
+
+export interface UnreconciledRow { company_id: string; cnt: number | string; }
+
+export function shapeUnreconciled(rows: UnreconciledRow[], meta: Map<string, CompanyMeta>): WorkItem[] {
+  const items: WorkItem[] = [];
+  for (const r of rows) {
+    const m = meta.get(r.company_id);
+    const cnt = Number(r.cnt);
+    if (!m || cnt === 0) continue;
+    items.push({
+      bureauId: m.bureau_id, bureauName: m.bureau_name, companyId: r.company_id, companyName: m.company_name,
+      task: 'Bank reconciliation', detail: `${cnt} unreconciled`, dueAt: null,
+      href: '/accounting/reports/bank-transactions', severity: 'info',
+    });
+  }
+  return items;
+}
+
+async function unreconciledSignal(companyIds: string[], meta: Map<string, CompanyMeta>): Promise<WorkItem[]> {
+  const rows = (await sql`
+    SELECT company_id, COUNT(*)::int AS cnt
+      FROM bank_transactions
+     WHERE company_id = ANY(${companyIds})
+       AND status NOT IN ('reconciled','excluded')
+     GROUP BY company_id
+  `) as unknown as UnreconciledRow[];
+  return shapeUnreconciled(rows, meta);
+}
+
 // ── Orchestrator ────────────────────────────────────────────────────────────
 
 /** Runs one signal, degrading to [] on failure so one bad query can't 500 the cockpit. */
@@ -167,6 +197,7 @@ export async function aggregateBureauWork(
 ): Promise<AggregateResult> {
   const groups = await Promise.all([
     safeSignal('payroll', () => payrollSignals(companyIds, meta, today)),
+    safeSignal('unreconciled', () => unreconciledSignal(companyIds, meta)),
   ]);
   const items = groups.flat();
   items.sort((a, b) => {
