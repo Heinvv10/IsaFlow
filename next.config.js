@@ -19,6 +19,12 @@ const nextConfig = {
 
   experimental: {
     optimizePackageImports: ['lucide-react', 'recharts'],
+    // Pin the file-tracing root to THIS project dir so the standalone build emits
+    // a flat layout (server.js at .next/standalone/) that scripts/deploy.sh expects.
+    // Without this, Next auto-detects the parent workspace dir (which contains a
+    // package.json) as the root and nests output under .next/standalone/IsaFlow/,
+    // breaking the deploy rsync. (In Next 14 this option lives under experimental.)
+    outputFileTracingRoot: __dirname,
     // Sharp is loaded at runtime by Next.js for image optimization but is
     // not detected by the standalone build's static trace. Force-include
     // its native binaries so /home/velo/isaflow/node_modules/sharp exists
