@@ -27,4 +27,9 @@ describe('shapeUnreconciled', () => {
   it('skips companies with zero unreconciled', () => {
     expect(shapeUnreconciled([{ company_id: 'c1', cnt: 0 }], meta)).toHaveLength(0);
   });
+
+  it('coerces a string cnt from the pg driver correctly', () => {
+    const items = shapeUnreconciled([{ company_id: 'c1', cnt: '7' }], meta);
+    expect(items[0]!.detail).toBe('7 unreconciled');
+  });
 });

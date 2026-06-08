@@ -149,6 +149,7 @@ async function payrollSignals(
 
 // ── Unreconciled bank transactions signal ────────────────────────────────────
 
+/** Postgres COUNT(*) may arrive as a numeric string over some drivers; the shaper calls Number(). */
 export interface UnreconciledRow { company_id: string; cnt: number | string; }
 
 export function shapeUnreconciled(rows: UnreconciledRow[], meta: Map<string, CompanyMeta>): WorkItem[] {
@@ -171,7 +172,7 @@ async function unreconciledSignal(companyIds: string[], meta: Map<string, Compan
     SELECT company_id, COUNT(*)::int AS cnt
       FROM bank_transactions
      WHERE company_id = ANY(${companyIds})
-       AND status NOT IN ('reconciled','excluded')
+       AND status NOT IN ('reconciled','matched','excluded')
      GROUP BY company_id
   `) as unknown as UnreconciledRow[];
   return shapeUnreconciled(rows, meta);
