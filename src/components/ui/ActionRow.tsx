@@ -1,7 +1,9 @@
 /**
- * ActionRow — one clickable row inside a Feed: leading badge, title/subtitle
- * stack, optional ZAR amount (via Money), trailing meta + chevron.
- * Rendered as a <button> so it is keyboard-focusable and activatable.
+ * ActionRow — one row inside a Feed: leading badge, title/subtitle stack,
+ * optional ZAR amount (via Money), trailing meta + chevron.
+ * With an onClick it renders an interactive, keyboard-focusable <button>
+ * (hover + focus ring + chevron); without one it renders a plain, non-interactive
+ * row (no chevron) so informational rows don't give a false click affordance.
  */
 import * as React from 'react';
 import { ArrowRight } from 'lucide-react';
@@ -22,17 +24,9 @@ export interface ActionRowProps {
 }
 
 export function ActionRow({ leading, title, subtitle, amount, meta, onClick, className }: ActionRowProps) {
-  return (
-    // ring-inset keeps the focus ring inside the Card border instead of bleeding past it
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'flex w-full items-center gap-3 px-4 py-3 text-left transition-colors',
-        'hover:bg-[var(--ff-bg-tertiary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500',
-        className,
-      )}
-    >
+  const interactive = onClick != null;
+  const body = (
+    <>
       {leading && <div className="flex-shrink-0">{leading}</div>}
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm text-[var(--ff-text-primary)]">{title}</div>
@@ -44,7 +38,30 @@ export function ActionRow({ leading, title, subtitle, amount, meta, onClick, cla
       {meta && (
         <div className="flex-shrink-0 whitespace-nowrap text-sm text-[var(--ff-text-secondary)]">{meta}</div>
       )}
-      <ArrowRight className="h-4 w-4 flex-shrink-0 text-[var(--ff-text-tertiary)]" aria-hidden="true" />
+      {interactive && (
+        <ArrowRight className="h-4 w-4 flex-shrink-0 text-[var(--ff-text-tertiary)]" aria-hidden="true" />
+      )}
+    </>
+  );
+
+  const base = 'flex w-full items-center gap-3 px-4 py-3 text-left';
+
+  if (!interactive) {
+    return <div className={cn(base, className)}>{body}</div>;
+  }
+
+  return (
+    // ring-inset keeps the focus ring inside the Card border instead of bleeding past it
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        base,
+        'transition-colors hover:bg-[var(--ff-bg-tertiary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500',
+        className,
+      )}
+    >
+      {body}
     </button>
   );
 }

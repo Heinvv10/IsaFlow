@@ -126,7 +126,8 @@ export function shapeUnreconciled(rows: UnreconciledRow[], meta: Map<string, Com
     const m = meta.get(r.company_id);
     const cnt = Number(r.cnt);
     if (!m || cnt === 0) continue;
-    const amount = r.amount_total == null ? null : Number(r.amount_total);
+    const amountNum = r.amount_total == null ? null : Number(r.amount_total);
+    const amount = amountNum == null || Number.isNaN(amountNum) ? null : amountNum;
     items.push({
       bureauId: m.bureau_id, bureauName: m.bureau_name, companyId: r.company_id, companyName: m.company_name,
       task: 'Bank reconciliation', detail: `${cnt} unreconciled`, dueAt: null,
@@ -158,7 +159,8 @@ export function shapeBillsToApprove(rows: BillsRow[], meta: Map<string, CompanyM
     const cnt = Number(r.cnt);
     if (!m || cnt === 0) continue;
     const due = r.earliest_due ? new Date(`${r.earliest_due}T00:00:00Z`) : null;
-    const amount = r.amount_total == null ? null : Number(r.amount_total);
+    const amountNum = r.amount_total == null ? null : Number(r.amount_total);
+    const amount = amountNum == null || Number.isNaN(amountNum) ? null : amountNum;
     items.push({
       bureauId: m.bureau_id, bureauName: m.bureau_name, companyId: r.company_id, companyName: m.company_name,
       task: 'Bills to approve', detail: `${cnt} awaiting approval`,

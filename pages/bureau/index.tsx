@@ -208,7 +208,7 @@ export default function BureauDashboardPage() {
               const Icon = badge.icon;
               return (
                 <ActionRow
-                  key={`${it.companyId}-${it.task}`}
+                  key={`${it.companyId}-${it.task}-${it.href}`}
                   onClick={() => void handleOpen(it)}
                   leading={
                     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${badge.bg} ${badge.fg}`}>

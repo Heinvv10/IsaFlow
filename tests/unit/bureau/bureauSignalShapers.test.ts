@@ -50,6 +50,11 @@ describe('shapeUnreconciled', () => {
     const items = shapeUnreconciled([{ company_id: 'c1', cnt: 3 }], meta);
     expect(items[0]!.amount).toBeNull();
   });
+
+  it('sets amount to null when amount_total is non-numeric (NaN guard)', () => {
+    const items = shapeUnreconciled([{ company_id: 'c1', cnt: 5, amount_total: 'not-a-number' }], meta);
+    expect(items[0]!.amount).toBeNull();
+  });
 });
 
 describe('shapeBillsToApprove', () => {
@@ -103,6 +108,11 @@ describe('shapeBillsToApprove', () => {
 
   it('sets amount to null when amount_total is absent', () => {
     const items = shapeBillsToApprove([{ company_id: 'c1', cnt: 1, earliest_due: null }], meta, today);
+    expect(items[0]!.amount).toBeNull();
+  });
+
+  it('sets amount to null when amount_total is non-numeric (NaN guard)', () => {
+    const items = shapeBillsToApprove([{ company_id: 'c1', cnt: 2, earliest_due: null, amount_total: 'oops' }], meta, today);
     expect(items[0]!.amount).toBeNull();
   });
 });
