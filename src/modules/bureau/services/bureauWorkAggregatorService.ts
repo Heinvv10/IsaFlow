@@ -8,56 +8,23 @@
  */
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { expectedVatPeriodAsOf, type VatAlignment } from './vatPeriodHelper';
+import { vatDueSignal } from './bureauVatSignal';
+import {
+  formatPeriod,
+  endOfNextMonth,
+  severityForDate,
+  type Severity,
+  type WorkItem,
+  type CompanyMeta,
+  type MonthEndStat,
+} from './bureauWorkTypes';
 
-export type Severity = 'overdue' | 'due_soon' | 'info';
-
-export interface WorkItem {
-  bureauId: string;
-  bureauName: string;
-  companyId: string;
-  companyName: string;
-  task: string;
-  detail: string;
-  dueAt: string | null;
-  href: string;
-  severity: Severity;
-}
-
-export interface CompanyMeta {
-  bureau_id: string;
-  bureau_name: string;
-  company_id: string;
-  company_name: string;
-}
-
-export interface MonthEndStat {
-  closed: number;
-  total: number;
-}
+// Re-export shared primitives so existing importers keep working.
+export type { WorkItem, CompanyMeta, Severity, MonthEndStat } from './bureauWorkTypes';
 
 export interface AggregateResult {
   items: WorkItem[];
   monthEnd: MonthEndStat;
-}
-
-const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-
-export function formatPeriod(month: number, year: number): string {
-  return `${MONTHS[month - 1]} ${year}`;
-}
-
-export function endOfNextMonth(periodMonth: number, periodYear: number): Date {
-  const nextMonth = periodMonth === 12 ? 1 : periodMonth + 1;
-  const nextYear = periodMonth === 12 ? periodYear + 1 : periodYear;
-  return new Date(nextYear, nextMonth, 0, 23, 59, 59);
-}
-
-export function severityForDate(due: Date, today: Date): Severity {
-  const days = (due.getTime() - today.getTime()) / (24 * 3600 * 1000);
-  if (days < 0) return 'overdue';
-  if (days <= 7) return 'due_soon';
-  return 'info';
 }
 
 // ── Payroll signals (moved verbatim from the handler) ───────────────────────
@@ -209,60 +176,6 @@ async function billsToApproveSignal(companyIds: string[], meta: Map<string, Comp
      GROUP BY company_id
   `) as unknown as BillsRow[];
   return shapeBillsToApprove(rows, meta, today);
-}
-
-// ── VAT-due signal ───────────────────────────────────────────────────────────
-
-export interface CompanyVatRow { id: string; vat_period_alignment: string | null; }
-export interface VatReturnRow { company_id: string; period_start: string; period_end: string; }
-
-function vatDetail(periodStart: string, periodEnd: string): string {
-  const s = new Date(`${periodStart}T00:00:00Z`);
-  const e = new Date(`${periodEnd}T00:00:00Z`);
-  const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  return `${M[s.getUTCMonth()]!}–${M[e.getUTCMonth()]!} ${e.getUTCFullYear()}`;
-}
-
-export function shapeVatDue(
-  companies: CompanyVatRow[],
-  returns: VatReturnRow[],
-  meta: Map<string, CompanyMeta>,
-  today: Date,
-): WorkItem[] {
-  const items: WorkItem[] = [];
-  for (const c of companies) {
-    const m = meta.get(c.id);
-    if (!m) continue;
-    const alignment: VatAlignment = c.vat_period_alignment === 'even' ? 'even' : 'odd';
-    const period = expectedVatPeriodAsOf(alignment, today);
-    const covered = returns.some(
-      (r) => r.company_id === c.id && r.period_start <= period.periodStart && r.period_end >= period.periodEnd,
-    );
-    if (covered) continue;
-    const due = new Date(`${period.dueDate}T00:00:00Z`);
-    items.push({
-      bureauId: m.bureau_id, bureauName: m.bureau_name, companyId: c.id, companyName: m.company_name,
-      task: 'VAT return due', detail: vatDetail(period.periodStart, period.periodEnd),
-      dueAt: period.dueDate, href: '/accounting/reports/vat-return', severity: severityForDate(due, today),
-    });
-  }
-  return items;
-}
-
-async function vatDueSignal(companyIds: string[], meta: Map<string, CompanyMeta>, today: Date): Promise<WorkItem[]> {
-  const sixMonthsAgo = new Date(today.getTime() - 183 * 24 * 3600 * 1000).toISOString().slice(0, 10);
-  const companies = (await sql`
-    SELECT id, vat_period_alignment
-      FROM companies
-     WHERE id = ANY(${companyIds})
-  `) as unknown as CompanyVatRow[];
-  const returns = (await sql`
-    SELECT company_id, period_start::text, period_end::text
-      FROM vat_returns
-     WHERE company_id = ANY(${companyIds})
-       AND period_end >= ${sixMonthsAgo}::date
-  `) as unknown as VatReturnRow[];
-  return shapeVatDue(companies, returns, meta, today);
 }
 
 // ── Orchestrator ────────────────────────────────────────────────────────────

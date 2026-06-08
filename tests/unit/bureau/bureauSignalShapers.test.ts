@@ -4,7 +4,7 @@ import {
   shapeBillsToApprove,
   type CompanyMeta,
 } from '@/modules/bureau/services/bureauWorkAggregatorService';
-import { shapeVatDue } from '@/modules/bureau/services/bureauWorkAggregatorService';
+import { shapeVatDue } from '@/modules/bureau/services/bureauVatSignal';
 
 const meta = new Map<string, CompanyMeta>([
   ['c1', { bureau_id: 'b1', bureau_name: 'Acme Books', company_id: 'c1', company_name: 'Client One' }],
@@ -95,5 +95,10 @@ describe('shapeVatDue', () => {
   it('drops companies not in the bureau meta map (tenant guard)', () => {
     const items = shapeVatDue([{ id: 'rogue', vat_period_alignment: 'odd' }], [], meta, today);
     expect(items).toHaveLength(0);
+  });
+
+  it('flags overdue when the due date is in the past', () => {
+    const items = shapeVatDue([{ id: 'c1', vat_period_alignment: 'odd' }], [], meta, new Date('2026-07-10T00:00:00Z'));
+    expect(items[0]).toMatchObject({ task: 'VAT return due', severity: 'overdue' });
   });
 });
