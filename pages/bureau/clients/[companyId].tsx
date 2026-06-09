@@ -12,44 +12,15 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { useCompany } from '@/contexts/CompanyContext';
 import { apiFetch } from '@/lib/apiFetch';
 import { ArrowLeft, AlertCircle, Loader2 } from 'lucide-react';
-import { Card, Feed, ActionRow, Money } from '@/components/ui';
-import { SEVERITY_BADGE } from '@/components/bureau/severityBadge';
-import type { Severity } from '@/modules/bureau/services/bureauWorkTypes';
-
-interface WorkItem {
-  bureauId: string;
-  bureauName: string;
-  companyId: string;
-  companyName: string;
-  task: string;
-  detail: string;
-  dueAt: string | null;
-  href: string;
-  severity: Severity;
-  amount?: number | null;
-}
-
-interface ClientMetrics {
-  cash: number;
-  ar: number;
-  ap: number;
-  revenueMtd: number;
-  profitMtd: number;
-}
+import { ClientHomeView } from '@/components/bureau/ClientHomeView';
+import type { WorkItem } from '@/modules/bureau/services/bureauWorkTypes';
+import type { ClientMetrics } from '@/modules/bureau/services/bureauClientMetricsService';
 
 interface ClientHomeData {
   company: { id: string; name: string; bureauName: string };
   metrics: ClientMetrics;
   workItems: WorkItem[];
 }
-
-const METRIC_CARDS: Array<{ key: keyof ClientMetrics; label: string }> = [
-  { key: 'cash', label: 'Cash' },
-  { key: 'ar', label: 'Accounts Receivable' },
-  { key: 'ap', label: 'Accounts Payable' },
-  { key: 'revenueMtd', label: 'Revenue MTD' },
-  { key: 'profitMtd', label: 'Profit MTD' },
-];
 
 export default function BureauClientHomePage() {
   const router = useRouter();
@@ -123,40 +94,11 @@ export default function BureauClientHomePage() {
           </div>
         </div>
 
-        <div className="p-6 space-y-6">
-          {/* Metric strip */}
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-            {METRIC_CARDS.map((m) => (
-              <Card key={m.key}>
-                <div className="text-xs text-[var(--ff-text-tertiary)]">{m.label}</div>
-                <Money amount={data.metrics[m.key]} className="block text-2xl mt-1 text-[var(--ff-text-primary)]" />
-              </Card>
-            ))}
-          </div>
-
-          {/* Needs-you feed */}
-          <Feed title="Needs you" empty="All caught up — nothing needs you.">
-            {data.workItems.map((it) => {
-              const badge = SEVERITY_BADGE[it.severity];
-              const Icon = badge.icon;
-              return (
-                <ActionRow
-                  key={`${it.task}-${it.href}`}
-                  onClick={() => void handleOpen(it)}
-                  leading={
-                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${badge.bg} ${badge.fg}`}>
-                      <Icon className="h-3 w-3" /> {badge.label}
-                    </span>
-                  }
-                  title={<span className="font-medium">{it.task}</span>}
-                  subtitle={it.detail}
-                  amount={it.amount ?? null}
-                  meta={it.dueAt ? new Date(it.dueAt).toLocaleDateString() : '—'}
-                />
-              );
-            })}
-          </Feed>
-        </div>
+        <ClientHomeView
+          metrics={data.metrics}
+          workItems={data.workItems}
+          onOpenItem={(it) => void handleOpen(it)}
+        />
       </div>
     </AppLayout>
   );
