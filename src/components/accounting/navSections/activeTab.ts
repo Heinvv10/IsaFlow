@@ -5,7 +5,7 @@
  *       accounting · reports · tax · payroll · (settings — cog only)
  */
 
-export function getActiveTabId(
+export function getActiveModuleId(
   pathname: string,
   query: Record<string, string | string[] | undefined>,
 ): string {
@@ -148,6 +148,22 @@ export function getActiveTabId(
   if (pathname.startsWith('/payroll')) return 'payroll';
 
   return 'dashboard';
+}
+
+const DEMOTED_MODULE_IDS = new Set([
+  'sales', 'purchases', 'inventory', 'accounting', 'reports', 'tax', 'payroll', 'practice',
+]);
+
+/** Top-bar resolver: demoted modules collapse onto the Library tab. */
+export function getActiveTabId(
+  pathname: string,
+  query: Record<string, string | string[] | undefined>,
+): string {
+  if (pathname.startsWith('/accounting/library')) return 'library';
+  if (pathname.startsWith('/accounting/portfolio-workbench')) return 'portfolio';
+  if (pathname.startsWith('/accounting/month-end-workbench')) return 'workbench';
+  const id = getActiveModuleId(pathname, query);
+  return DEMOTED_MODULE_IDS.has(id) ? 'library' : id;
 }
 
 export function isLinkActive(href: string, asPath: string): boolean {
