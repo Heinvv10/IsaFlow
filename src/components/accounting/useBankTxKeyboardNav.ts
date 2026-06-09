@@ -38,21 +38,33 @@ export function useBankTxKeyboardNav({
 }: UseBankTxKeyboardNavArgs) {
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
   const rowRefs = useRef<Array<HTMLTableRowElement | null>>([]);
+  const prevLenRef = useRef(transactions.length);
+  const focusedIndexRef = useRef<number | null>(null);
 
-  // Keep the index in range as the queue shrinks (e.g. after accept/exclude reload).
-  useEffect(() => {
-    rowRefs.current = rowRefs.current.slice(0, transactions.length);
-    setFocusedIndex(prev => {
-      if (prev === null) return prev;
-      if (transactions.length === 0) return null;
-      return Math.min(prev, transactions.length - 1);
-    });
-  }, [transactions.length]);
+  useEffect(() => { focusedIndexRef.current = focusedIndex; }, [focusedIndex]);
 
   const focusRow = useCallback((index: number) => {
     rowRefs.current[index]?.focus();
     rowRefs.current[index]?.scrollIntoView({ block: 'nearest' });
   }, []);
+
+  // Keep the focused index in range as the queue changes, and — when it SHRANK
+  // while navigating (e.g. after an accept reloaded the list) — restore DOM focus
+  // to the row now at the clamped index. Without this the unmounted <tr> drops
+  // focus to <body>, outside the keydown container, stalling the stream.
+  useEffect(() => {
+    const prevLen = prevLenRef.current;
+    prevLenRef.current = transactions.length;
+    rowRefs.current = rowRefs.current.slice(0, transactions.length);
+
+    const cur = focusedIndexRef.current;
+    if (cur === null) return;
+    if (transactions.length === 0) { setFocusedIndex(null); return; }
+
+    const next = Math.min(cur, transactions.length - 1);
+    if (next !== cur) setFocusedIndex(next);
+    if (transactions.length < prevLen) focusRow(next);
+  }, [transactions.length, focusRow]);
 
   const registerRow = useCallback((index: number, el: HTMLTableRowElement | null) => {
     rowRefs.current[index] = el;

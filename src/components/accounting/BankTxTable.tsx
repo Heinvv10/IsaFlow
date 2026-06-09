@@ -8,6 +8,7 @@
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { Check, X, Undo2, Search, Scissors, SearchCheck, RotateCcw, Paperclip, BookmarkPlus, Plus, Clock } from 'lucide-react';
+import { useBankTxKeyboardNav } from '@/components/accounting/useBankTxKeyboardNav';
 
 export type AllocType = 'account' | 'supplier' | 'customer' | 'transfer';
 export type VatCode = 'none' | 'standard' | 'zero_rated' | 'exempt';
@@ -174,12 +175,16 @@ export function BankTxTable(props: Props) {
   const {
     transactions, glAccounts, suppliers, customers, transferTargets,
     cc1Options, cc2Options, buOptions, showCC, showBU,
-    selectedIds, rowSelections, allSelected,
+    selectedIds, rowSelections, allSelected, tab,
     onToggleSelect, onSelectAll, onRowTypeChange, onRowEntityChange, onRowVatChange,
     onRowDimensionChange,
     onAccept, onExclude, onUnmatch, onSplit, onUpdateNotes,
     onFindMatch, onReverse, onAttachments, onCreateRule, onCreateEntity,
   } = props;
+  const { containerProps, getRowProps } = useBankTxKeyboardNav({
+    transactions, rowSelections, onAccept, onExclude, onSplit,
+  });
+  const kbdEnabled = tab === 'new';
   const [openSel, setOpenSel] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [dropUp, setDropUp] = useState(false);
@@ -251,391 +256,412 @@ export function BankTxTable(props: Props) {
 
   return (
     <div className="overflow-x-auto" ref={ref}>
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-[var(--ff-border-light)] text-[var(--ff-text-tertiary)] text-xs">
-            <th className="py-2 px-2 w-8">
-              <input type="checkbox" checked={allSelected} onChange={onSelectAll} className="accent-teal-500" />
-            </th>
-            <th className={`${TH} w-24`}>Date</th>
-            <th className={TH}>Description</th>
-            <th className={`${TH} w-36`}>Notes</th>
-            <th className={`${TH} w-24`}>Type</th>
-            <th className={`${TH} w-52`}>Selection</th>
-            <th className={`${TH} w-24`}>VAT</th>
-            {showCC && <th className={`${TH} w-24`}>CC1</th>}
-            {showCC && <th className={`${TH} w-24`}>CC2</th>}
-            {showBU && <th className={`${TH} w-24`}>BU</th>}
-            <th className="py-2 px-2 font-medium text-right w-24">Spent</th>
-            <th className="py-2 px-2 font-medium text-right w-24">Received</th>
-            <th className="py-2 px-2 font-medium text-center w-16">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {transactions.map(tx => {
-            const isNew = tx.status === 'imported';
-            const isAllocated = tx.status === 'allocated';
-            const sel = rowSelections[tx.id];
-            const rowType: AllocType = sel?.type || 'account';
-            const isOpen = openSel === tx.id;
-            const spent = tx.amount < 0 ? Math.abs(tx.amount) : null;
-            const received = tx.amount > 0 ? tx.amount : null;
-            const rawOptions = filterOptions(getOptionsForType(rowType), isOpen ? search : '');
-            const options = (isOpen && !search) ? sortByDescriptionMatch(rawOptions, tx.description || '') : rawOptions;
-
-            const isExcluded = tx.status === 'excluded';
-
-            return (
-              <tr key={tx.id} className={`border-b border-[var(--ff-border-light)]/50 hover:bg-[var(--ff-bg-secondary)]/50 ${
-                isOpen ? 'bg-blue-500/5' : isAllocated ? 'bg-teal-500/5' : ''
-              } ${isExcluded ? 'opacity-60' : ''}`}>
-                <td className="py-2 px-2">
-                  <input type="checkbox" checked={selectedIds.has(tx.id)}
-                    onChange={() => onToggleSelect(tx.id)} className="accent-teal-500" />
-                </td>
-                <td className="py-2 px-2 font-mono text-xs text-[var(--ff-text-secondary)]">
-                  {tx.transactionDate}
-                </td>
-                <td className="py-2 px-2 text-[var(--ff-text-primary)]">
-                  <span className="line-clamp-1 text-xs">{tx.description || '—'}</span>
-                  {tx.status === 'provisional' && (
-                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-900/40 text-amber-300 ml-1"
-                      title="Posted by AI — needs evidence">
-                      <Clock className="h-2.5 w-2.5" /> Provisional
-                    </span>
-                  )}
-                  {tx.needsEvidence && tx.provisionalJeId && (
-                    <Link href={`/accounting/bank/provisional#${tx.id}`}
-                      className="ml-1 text-[10px] text-teal-400 hover:underline">
-                      Attach slip
-                    </Link>
-                  )}
-                </td>
-                {/* Notes — inline editable */}
-                <td className="py-2 px-2">
-                  {onUpdateNotes ? (
-                    <NotesCell
-                      txId={tx.id}
-                      initialValue={tx.notes || ''}
-                      onSave={onUpdateNotes}
-                    />
-                  ) : (
-                    <span className="text-xs text-[var(--ff-text-tertiary)]">{tx.notes || ''}</span>
-                  )}
-                </td>
-                {/* Type dropdown — Account / Supplier / Customer / Transfer */}
-                <td className="py-2 px-2">
-                  {isNew ? (
-                    <select
-                      value={rowType}
-                      onChange={e => onRowTypeChange(tx.id, e.target.value as AllocType)}
-                      className="text-xs px-1 py-0.5 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] w-full"
-                    >
-                      <option value="account">Account</option>
-                      <option value="supplier">Supplier</option>
-                      <option value="customer">Customer</option>
-                      <option value="transfer">Transfer</option>
-                    </select>
-                  ) : (
-                    <span className={`text-xs font-medium ${
-                      (tx.allocationType || sel?.type) === 'supplier' ? 'text-blue-400'
-                      : (tx.allocationType || sel?.type) === 'customer' ? 'text-purple-400'
-                      : (tx.allocationType || sel?.type) === 'transfer' ? 'text-orange-400'
-                      : 'text-[var(--ff-text-secondary)]'
-                    }`}>
-                      {(tx.allocationType || sel?.type) === 'supplier' ? 'Supplier'
-                       : (tx.allocationType || sel?.type) === 'customer' ? 'Customer'
-                       : (tx.allocationType || sel?.type) === 'transfer' ? 'Transfer'
-                       : 'Account'}
-                    </span>
-                  )}
-                </td>
-                {/* Selection — GL account / Supplier / Customer selector */}
-                <td className="py-2 px-2 relative">
-                  {isNew ? (
-                    <>
-                      {/* Confidence dot for suggested allocations — green=HIGH, yellow=MEDIUM, grey=LOW */}
-                      {(tx.suggestedGlAccountId || tx.suggestedSupplierId || tx.suggestedClientId) && sel?.entityId && (
-                        <span
-                          className={`absolute left-0.5 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full ${
-                            (tx.suggestedConfidence ?? 0) >= 0.85
-                              ? 'bg-emerald-400'
-                              : (tx.suggestedConfidence ?? 0) >= 0.60
-                                ? 'bg-amber-400'
-                                : 'bg-gray-400'
-                          }`}
-                          title={`Confidence: ${tx.suggestedConfidence != null ? `${Math.round(tx.suggestedConfidence * 100)}%` : 'Rule match'}${tx.suggestedCategory ? ` — ${tx.suggestedCategory}` : ''}`}
-                        />
-                      )}
-                      <button
-                        data-bank-toggle
-                        onClick={(e) => {
-                          if (isOpen) { setOpenSel(null); return; }
-                          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                          setDropUp(rect.bottom + 260 > window.innerHeight);
-                          setOpenSel(tx.id); setSearch('');
-                        }}
-                        className={`text-xs px-2 py-0.5 rounded truncate max-w-[200px] block ${
-                          sel?.entityId
-                            ? tx.suggestedGlAccountId && sel.entityId === tx.suggestedGlAccountId
-                              ? 'text-amber-300 bg-amber-500/10 border border-amber-500/30'
-                              : 'text-[var(--ff-text-primary)] bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)]'
-                            : rowType === 'account'
-                              ? 'text-amber-400 bg-amber-500/10 font-medium'
-                              : rowType === 'supplier'
-                                ? 'text-blue-400 bg-blue-500/10 font-medium'
-                                : rowType === 'transfer'
-                                  ? 'text-orange-400 bg-orange-500/10 font-medium'
-                                  : 'text-purple-400 bg-purple-500/10 font-medium'
-                        }`}
+      <div
+        {...(kbdEnabled ? containerProps : {})}
+        tabIndex={kbdEnabled ? 0 : undefined}
+        role="group"
+        aria-label="Bank transactions — use arrow keys to navigate, Enter to accept, E edit, X exclude, S split"
+        className="outline-none"
+      >
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-[var(--ff-border-light)] text-[var(--ff-text-tertiary)] text-xs">
+              <th className="py-2 px-2 w-8">
+                <input type="checkbox" checked={allSelected} onChange={onSelectAll} className="accent-teal-500" />
+              </th>
+              <th className={`${TH} w-24`}>Date</th>
+              <th className={TH}>Description</th>
+              <th className={`${TH} w-36`}>Notes</th>
+              <th className={`${TH} w-24`}>Type</th>
+              <th className={`${TH} w-52`}>Selection</th>
+              <th className={`${TH} w-24`}>VAT</th>
+              {showCC && <th className={`${TH} w-24`}>CC1</th>}
+              {showCC && <th className={`${TH} w-24`}>CC2</th>}
+              {showBU && <th className={`${TH} w-24`}>BU</th>}
+              <th className="py-2 px-2 font-medium text-right w-24">Spent</th>
+              <th className="py-2 px-2 font-medium text-right w-24">Received</th>
+              <th className="py-2 px-2 font-medium text-center w-16">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {transactions.map((tx, index) => {
+              const isNew = tx.status === 'imported';
+              const isAllocated = tx.status === 'allocated';
+              const sel = rowSelections[tx.id];
+              const rowType: AllocType = sel?.type || 'account';
+              const isOpen = openSel === tx.id;
+              const spent = tx.amount < 0 ? Math.abs(tx.amount) : null;
+              const received = tx.amount > 0 ? tx.amount : null;
+              const rawOptions = filterOptions(getOptionsForType(rowType), isOpen ? search : '');
+              const options = (isOpen && !search) ? sortByDescriptionMatch(rawOptions, tx.description || '') : rawOptions;
+  
+              const isExcluded = tx.status === 'excluded';
+  
+              return (
+                <tr
+                  key={tx.id}
+                  {...(kbdEnabled ? getRowProps(index) : {})}
+                  className={`border-b border-[var(--ff-border-light)]/50 hover:bg-[var(--ff-bg-secondary)]/50 outline-none data-[focused]:bg-[var(--ff-bg-tertiary)] data-[focused]:ring-1 data-[focused]:ring-inset data-[focused]:ring-[var(--ff-border-secondary)] ${
+                    isOpen ? 'bg-blue-500/5' : isAllocated ? 'bg-teal-500/5' : ''
+                  } ${isExcluded ? 'opacity-60' : ''}`}
+                >
+                  <td className="py-2 px-2">
+                    <input type="checkbox" checked={selectedIds.has(tx.id)}
+                      onChange={() => onToggleSelect(tx.id)} className="accent-teal-500" />
+                  </td>
+                  <td className="py-2 px-2 font-mono text-xs text-[var(--ff-text-secondary)]">
+                    {tx.transactionDate}
+                  </td>
+                  <td className="py-2 px-2 text-[var(--ff-text-primary)]">
+                    <span className="line-clamp-1 text-xs">{tx.description || '—'}</span>
+                    {tx.status === 'provisional' && (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-900/40 text-amber-300 ml-1"
+                        title="Posted by AI — needs evidence">
+                        <Clock className="h-2.5 w-2.5" /> Provisional
+                      </span>
+                    )}
+                    {tx.needsEvidence && tx.provisionalJeId && (
+                      <Link href={`/accounting/bank/provisional#${tx.id}`}
+                        className="ml-1 text-[10px] text-teal-400 hover:underline">
+                        Attach slip
+                      </Link>
+                    )}
+                  </td>
+                  {/* Notes — inline editable */}
+                  <td className="py-2 px-2">
+                    {onUpdateNotes ? (
+                      <NotesCell
+                        txId={tx.id}
+                        initialValue={tx.notes || ''}
+                        onSave={onUpdateNotes}
+                      />
+                    ) : (
+                      <span className="text-xs text-[var(--ff-text-tertiary)]">{tx.notes || ''}</span>
+                    )}
+                  </td>
+                  {/* Type dropdown — Account / Supplier / Customer / Transfer */}
+                  <td className="py-2 px-2">
+                    {isNew ? (
+                      <select
+                        value={rowType}
+                        onChange={e => onRowTypeChange(tx.id, e.target.value as AllocType)}
+                        className="text-xs px-1 py-0.5 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] w-full"
                       >
-                        {sel?.entityId ? sel.label : (
-                          rowType === 'supplier' ? 'Select Supplier'
-                          : rowType === 'customer' ? 'Select Customer'
-                          : rowType === 'transfer' ? 'Select Bank Account'
-                          : 'Unallocated'
+                        <option value="account">Account</option>
+                        <option value="supplier">Supplier</option>
+                        <option value="customer">Customer</option>
+                        <option value="transfer">Transfer</option>
+                      </select>
+                    ) : (
+                      <span className={`text-xs font-medium ${
+                        (tx.allocationType || sel?.type) === 'supplier' ? 'text-blue-400'
+                        : (tx.allocationType || sel?.type) === 'customer' ? 'text-purple-400'
+                        : (tx.allocationType || sel?.type) === 'transfer' ? 'text-orange-400'
+                        : 'text-[var(--ff-text-secondary)]'
+                      }`}>
+                        {(tx.allocationType || sel?.type) === 'supplier' ? 'Supplier'
+                         : (tx.allocationType || sel?.type) === 'customer' ? 'Customer'
+                         : (tx.allocationType || sel?.type) === 'transfer' ? 'Transfer'
+                         : 'Account'}
+                      </span>
+                    )}
+                  </td>
+                  {/* Selection — GL account / Supplier / Customer selector */}
+                  <td className="py-2 px-2 relative">
+                    {isNew ? (
+                      <>
+                        {/* Confidence dot for suggested allocations — green=HIGH, yellow=MEDIUM, grey=LOW */}
+                        {(tx.suggestedGlAccountId || tx.suggestedSupplierId || tx.suggestedClientId) && sel?.entityId && (
+                          <span
+                            className={`absolute left-0.5 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full ${
+                              (tx.suggestedConfidence ?? 0) >= 0.85
+                                ? 'bg-emerald-400'
+                                : (tx.suggestedConfidence ?? 0) >= 0.60
+                                  ? 'bg-amber-400'
+                                  : 'bg-gray-400'
+                            }`}
+                            title={`Confidence: ${tx.suggestedConfidence != null ? `${Math.round(tx.suggestedConfidence * 100)}%` : 'Rule match'}${tx.suggestedCategory ? ` — ${tx.suggestedCategory}` : ''}`}
+                          />
                         )}
-                      </button>
-                      {isOpen && (
-                        <div data-bank-dropdown className={`absolute z-50 left-0 w-80 bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-lg shadow-xl ${dropUp ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
-                          <div className="p-2">
-                            <div className="relative">
-                              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-[var(--ff-text-tertiary)]" />
-                              <input type="text"
-                                placeholder={`Search ${rowType === 'supplier' ? 'suppliers' : rowType === 'customer' ? 'customers' : rowType === 'transfer' ? 'bank accounts' : 'accounts'}...`}
-                                value={search} onChange={e => setSearch(e.target.value)}
-                                className="w-full pl-7 pr-2 py-1.5 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-xs text-[var(--ff-text-primary)] focus:outline-none focus:border-blue-500"
-                                autoFocus />
+                        <button
+                          data-bank-toggle
+                          onClick={(e) => {
+                            if (isOpen) { setOpenSel(null); return; }
+                            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                            setDropUp(rect.bottom + 260 > window.innerHeight);
+                            setOpenSel(tx.id); setSearch('');
+                          }}
+                          className={`text-xs px-2 py-0.5 rounded truncate max-w-[200px] block ${
+                            sel?.entityId
+                              ? tx.suggestedGlAccountId && sel.entityId === tx.suggestedGlAccountId
+                                ? 'text-amber-300 bg-amber-500/10 border border-amber-500/30'
+                                : 'text-[var(--ff-text-primary)] bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)]'
+                              : rowType === 'account'
+                                ? 'text-amber-400 bg-amber-500/10 font-medium'
+                                : rowType === 'supplier'
+                                  ? 'text-blue-400 bg-blue-500/10 font-medium'
+                                  : rowType === 'transfer'
+                                    ? 'text-orange-400 bg-orange-500/10 font-medium'
+                                    : 'text-purple-400 bg-purple-500/10 font-medium'
+                          }`}
+                        >
+                          {sel?.entityId ? sel.label : (
+                            rowType === 'supplier' ? 'Select Supplier'
+                            : rowType === 'customer' ? 'Select Customer'
+                            : rowType === 'transfer' ? 'Select Bank Account'
+                            : 'Unallocated'
+                          )}
+                        </button>
+                        {isOpen && (
+                          <div data-bank-dropdown className={`absolute z-50 left-0 w-80 bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-lg shadow-xl ${dropUp ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
+                            <div className="p-2">
+                              <div className="relative">
+                                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-[var(--ff-text-tertiary)]" />
+                                <input type="text"
+                                  placeholder={`Search ${rowType === 'supplier' ? 'suppliers' : rowType === 'customer' ? 'customers' : rowType === 'transfer' ? 'bank accounts' : 'accounts'}...`}
+                                  value={search} onChange={e => setSearch(e.target.value)}
+                                  className="w-full pl-7 pr-2 py-1.5 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-xs text-[var(--ff-text-primary)] focus:outline-none focus:border-blue-500"
+                                  autoFocus />
+                              </div>
                             </div>
-                          </div>
-                          <div className="max-h-48 overflow-y-auto">
-                            {/* Suggested option pinned at top */}
-                            {(() => {
-                              const suggested = getSuggestedOption(tx, rowType);
-                              if (!suggested || search) return null;
-                              return (
-                                <>
-                                  <div className="px-3 py-1 text-[10px] font-semibold text-teal-400 uppercase tracking-wider bg-teal-500/5">
-                                    <SearchCheck className="inline h-3 w-3 mr-1 -mt-0.5" />
-                                    Suggested{tx.suggestedCategory ? ` — ${tx.suggestedCategory}` : ''}
-                                  </div>
-                                  <button
-                                    onClick={() => {
-                                      onRowEntityChange(tx.id, suggested.id, suggested.code ? `${suggested.code} ${suggested.name}` : suggested.name);
-                                      setOpenSel(null);
-                                    }}
-                                    className="w-full text-left px-3 py-1.5 hover:bg-teal-500/10 text-xs flex items-center gap-2 bg-teal-500/5 border-b border-teal-500/20"
-                                  >
-                                    {suggested.code && <span className="font-mono text-teal-400 w-10 shrink-0">{suggested.code}</span>}
-                                    <span className="text-teal-300 truncate font-medium">{suggested.name}</span>
-                                  </button>
-                                </>
-                              );
-                            })()}
-                            {options.map(o => (
-                              <button key={o.id}
-                                onClick={() => {
-                                  onRowEntityChange(tx.id, o.id, o.code ? `${o.code} ${o.name}` : o.name);
-                                  setOpenSel(null);
-                                }}
-                                className="w-full text-left px-3 py-1.5 hover:bg-[var(--ff-bg-primary)] text-xs flex items-center gap-2"
-                              >
-                                {o.code && <span className="font-mono text-[var(--ff-text-tertiary)] w-10 shrink-0">{o.code}</span>}
-                                <span className="text-[var(--ff-text-primary)] truncate">{o.name}</span>
-                              </button>
-                            ))}
-                            {options.length === 0 && !getSuggestedOption(tx, rowType) && (
-                              <div className="px-3 py-2 text-xs text-[var(--ff-text-tertiary)]">No results found</div>
+                            <div className="max-h-48 overflow-y-auto">
+                              {/* Suggested option pinned at top */}
+                              {(() => {
+                                const suggested = getSuggestedOption(tx, rowType);
+                                if (!suggested || search) return null;
+                                return (
+                                  <>
+                                    <div className="px-3 py-1 text-[10px] font-semibold text-teal-400 uppercase tracking-wider bg-teal-500/5">
+                                      <SearchCheck className="inline h-3 w-3 mr-1 -mt-0.5" />
+                                      Suggested{tx.suggestedCategory ? ` — ${tx.suggestedCategory}` : ''}
+                                    </div>
+                                    <button
+                                      onClick={() => {
+                                        onRowEntityChange(tx.id, suggested.id, suggested.code ? `${suggested.code} ${suggested.name}` : suggested.name);
+                                        setOpenSel(null);
+                                      }}
+                                      className="w-full text-left px-3 py-1.5 hover:bg-teal-500/10 text-xs flex items-center gap-2 bg-teal-500/5 border-b border-teal-500/20"
+                                    >
+                                      {suggested.code && <span className="font-mono text-teal-400 w-10 shrink-0">{suggested.code}</span>}
+                                      <span className="text-teal-300 truncate font-medium">{suggested.name}</span>
+                                    </button>
+                                  </>
+                                );
+                              })()}
+                              {options.map(o => (
+                                <button key={o.id}
+                                  onClick={() => {
+                                    onRowEntityChange(tx.id, o.id, o.code ? `${o.code} ${o.name}` : o.name);
+                                    setOpenSel(null);
+                                  }}
+                                  className="w-full text-left px-3 py-1.5 hover:bg-[var(--ff-bg-primary)] text-xs flex items-center gap-2"
+                                >
+                                  {o.code && <span className="font-mono text-[var(--ff-text-tertiary)] w-10 shrink-0">{o.code}</span>}
+                                  <span className="text-[var(--ff-text-primary)] truncate">{o.name}</span>
+                                </button>
+                              ))}
+                              {options.length === 0 && !getSuggestedOption(tx, rowType) && (
+                                <div className="px-3 py-2 text-xs text-[var(--ff-text-tertiary)]">No results found</div>
+                              )}
+                            </div>
+                            {onCreateEntity && rowType !== 'transfer' && (
+                              <div className="border-t border-[var(--ff-border-light)] p-1.5">
+                                <button
+                                  onClick={() => { onCreateEntity(tx.id, rowType); setOpenSel(null); }}
+                                  className="w-full text-left px-3 py-1.5 text-xs text-teal-400 hover:bg-teal-500/10 rounded flex items-center gap-1.5"
+                                >
+                                  <Plus className="h-3 w-3" />
+                                  New {rowType === 'account' ? 'Account' : rowType === 'supplier' ? 'Supplier' : 'Customer'}
+                                </button>
+                              </div>
                             )}
                           </div>
-                          {onCreateEntity && rowType !== 'transfer' && (
-                            <div className="border-t border-[var(--ff-border-light)] p-1.5">
-                              <button
-                                onClick={() => { onCreateEntity(tx.id, rowType); setOpenSel(null); }}
-                                className="w-full text-left px-3 py-1.5 text-xs text-teal-400 hover:bg-teal-500/10 rounded flex items-center gap-1.5"
-                              >
-                                <Plus className="h-3 w-3" />
-                                New {rowType === 'account' ? 'Account' : rowType === 'supplier' ? 'Supplier' : 'Customer'}
+                        )}
+                      </>
+                    ) : (
+                      <span className={`text-xs truncate max-w-[200px] block ${
+                        (tx.allocationType) === 'supplier' ? 'text-blue-400'
+                        : (tx.allocationType) === 'customer' ? 'text-purple-400'
+                        : (tx.allocationType) === 'transfer' ? 'text-orange-400'
+                        : 'text-teal-400'
+                      }`} title={tx.allocatedEntityName || sel?.label || 'Allocated'}>
+                        {tx.allocatedEntityName || sel?.label || 'Allocated'}
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-2 px-2">
+                    {sel?.type === 'supplier' || sel?.type === 'customer' || sel?.type === 'transfer' ? (
+                      <span className="text-xs text-[var(--ff-text-tertiary)] italic">N/A</span>
+                    ) : isNew ? (
+                      <select
+                        value={sel?.vatCode || 'none'}
+                        onChange={e => onRowVatChange(tx.id, e.target.value as VatCode)}
+                        className={`text-xs px-1 py-0.5 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] w-full ${
+                          (sel?.vatCode || 'none') === 'standard'
+                            ? 'text-cyan-400' : 'text-[var(--ff-text-primary)]'
+                        }`}
+                      >
+                        {VAT_OPTIONS.map(v => (
+                          <option key={v.value} value={v.value}>{v.label}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="text-xs text-[var(--ff-text-tertiary)]">
+                        {VAT_OPTIONS.find(v => v.value === (sel?.vatCode || 'none'))?.label || 'No VAT'}
+                      </span>
+                    )}
+                  </td>
+                  {/* CC1 */}
+                  {showCC && (
+                  <td className="py-2 px-2">
+                    {isNew ? (
+                      <select value={sel?.cc1Id || ''} onChange={e => onRowDimensionChange(tx.id, e.target.value, sel?.cc2Id || '', sel?.buId || '')}
+                        className="text-xs px-1 py-0.5 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] w-full text-[var(--ff-text-primary)]">
+                        <option value="">—</option>
+                        {cc1Options.map(o => <option key={o.id} value={o.id}>{o.code ? `${o.code} ${o.name}` : o.name}</option>)}
+                      </select>
+                    ) : (
+                      <span className="text-xs text-[var(--ff-text-tertiary)] truncate block" title={tx.cc1Name}>{tx.cc1Name || '—'}</span>
+                    )}
+                  </td>
+                  )}
+                  {/* CC2 */}
+                  {showCC && (
+                  <td className="py-2 px-2">
+                    {isNew ? (
+                      <select value={sel?.cc2Id || ''} onChange={e => onRowDimensionChange(tx.id, sel?.cc1Id || '', e.target.value, sel?.buId || '')}
+                        className="text-xs px-1 py-0.5 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] w-full text-[var(--ff-text-primary)]">
+                        <option value="">—</option>
+                        {cc2Options.map(o => <option key={o.id} value={o.id}>{o.code ? `${o.code} ${o.name}` : o.name}</option>)}
+                      </select>
+                    ) : (
+                      <span className="text-xs text-[var(--ff-text-tertiary)] truncate block" title={tx.cc2Name}>{tx.cc2Name || '—'}</span>
+                    )}
+                  </td>
+                  )}
+                  {/* BU */}
+                  {showBU && (
+                  <td className="py-2 px-2">
+                    {isNew ? (
+                      <select value={sel?.buId || ''} onChange={e => onRowDimensionChange(tx.id, sel?.cc1Id || '', sel?.cc2Id || '', e.target.value)}
+                        className="text-xs px-1 py-0.5 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] w-full text-[var(--ff-text-primary)]">
+                        <option value="">—</option>
+                        {buOptions.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+                      </select>
+                    ) : (
+                      <span className="text-xs text-[var(--ff-text-tertiary)] truncate block" title={tx.buName}>{tx.buName || '—'}</span>
+                    )}
+                  </td>
+                  )}
+                  <td className="py-2 px-2 text-right font-mono text-xs text-red-400">
+                    {spent !== null ? fmtCurrency(spent) : ''}
+                  </td>
+                  <td className="py-2 px-2 text-right font-mono text-xs text-teal-400">
+                    {received !== null ? fmtCurrency(received) : ''}
+                  </td>
+                  <td className="py-2 px-2 text-center">
+                    {isExcluded ? (
+                      /* Excluded tab: show reason badge spanning the actions column */
+                      <div className="flex items-center gap-1 justify-center">
+                        {tx.excludeReason ? (
+                          <span
+                            title={tx.excludeReason}
+                            className="text-xs px-2 py-0.5 rounded-full bg-red-500/10 text-red-400 max-w-[120px] truncate inline-block"
+                          >
+                            {tx.excludeReason}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-[var(--ff-text-tertiary)] italic">Excluded</span>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-0.5 justify-center">
+                        {isNew ? (
+                          <>
+                            <button onClick={() => onAccept(tx.id)} disabled={!sel?.entityId} title="Accept"
+                              className="p-1 rounded hover:bg-teal-500/10 text-teal-400 disabled:opacity-30">
+                              <Check className="h-3.5 w-3.5" />
+                            </button>
+                            {onFindMatch && (
+                              <button onClick={() => onFindMatch(tx.id)} title="Find & Match"
+                                className="p-1 rounded hover:bg-blue-500/10 text-blue-400">
+                                <SearchCheck className="h-3.5 w-3.5" />
                               </button>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <span className={`text-xs truncate max-w-[200px] block ${
-                      (tx.allocationType) === 'supplier' ? 'text-blue-400'
-                      : (tx.allocationType) === 'customer' ? 'text-purple-400'
-                      : (tx.allocationType) === 'transfer' ? 'text-orange-400'
-                      : 'text-teal-400'
-                    }`} title={tx.allocatedEntityName || sel?.label || 'Allocated'}>
-                      {tx.allocatedEntityName || sel?.label || 'Allocated'}
-                    </span>
-                  )}
-                </td>
-                <td className="py-2 px-2">
-                  {sel?.type === 'supplier' || sel?.type === 'customer' || sel?.type === 'transfer' ? (
-                    <span className="text-xs text-[var(--ff-text-tertiary)] italic">N/A</span>
-                  ) : isNew ? (
-                    <select
-                      value={sel?.vatCode || 'none'}
-                      onChange={e => onRowVatChange(tx.id, e.target.value as VatCode)}
-                      className={`text-xs px-1 py-0.5 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] w-full ${
-                        (sel?.vatCode || 'none') === 'standard'
-                          ? 'text-cyan-400' : 'text-[var(--ff-text-primary)]'
-                      }`}
-                    >
-                      {VAT_OPTIONS.map(v => (
-                        <option key={v.value} value={v.value}>{v.label}</option>
-                      ))}
-                    </select>
-                  ) : (
-                    <span className="text-xs text-[var(--ff-text-tertiary)]">
-                      {VAT_OPTIONS.find(v => v.value === (sel?.vatCode || 'none'))?.label || 'No VAT'}
-                    </span>
-                  )}
-                </td>
-                {/* CC1 */}
-                {showCC && (
-                <td className="py-2 px-2">
-                  {isNew ? (
-                    <select value={sel?.cc1Id || ''} onChange={e => onRowDimensionChange(tx.id, e.target.value, sel?.cc2Id || '', sel?.buId || '')}
-                      className="text-xs px-1 py-0.5 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] w-full text-[var(--ff-text-primary)]">
-                      <option value="">—</option>
-                      {cc1Options.map(o => <option key={o.id} value={o.id}>{o.code ? `${o.code} ${o.name}` : o.name}</option>)}
-                    </select>
-                  ) : (
-                    <span className="text-xs text-[var(--ff-text-tertiary)] truncate block" title={tx.cc1Name}>{tx.cc1Name || '—'}</span>
-                  )}
-                </td>
-                )}
-                {/* CC2 */}
-                {showCC && (
-                <td className="py-2 px-2">
-                  {isNew ? (
-                    <select value={sel?.cc2Id || ''} onChange={e => onRowDimensionChange(tx.id, sel?.cc1Id || '', e.target.value, sel?.buId || '')}
-                      className="text-xs px-1 py-0.5 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] w-full text-[var(--ff-text-primary)]">
-                      <option value="">—</option>
-                      {cc2Options.map(o => <option key={o.id} value={o.id}>{o.code ? `${o.code} ${o.name}` : o.name}</option>)}
-                    </select>
-                  ) : (
-                    <span className="text-xs text-[var(--ff-text-tertiary)] truncate block" title={tx.cc2Name}>{tx.cc2Name || '—'}</span>
-                  )}
-                </td>
-                )}
-                {/* BU */}
-                {showBU && (
-                <td className="py-2 px-2">
-                  {isNew ? (
-                    <select value={sel?.buId || ''} onChange={e => onRowDimensionChange(tx.id, sel?.cc1Id || '', sel?.cc2Id || '', e.target.value)}
-                      className="text-xs px-1 py-0.5 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] w-full text-[var(--ff-text-primary)]">
-                      <option value="">—</option>
-                      {buOptions.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
-                    </select>
-                  ) : (
-                    <span className="text-xs text-[var(--ff-text-tertiary)] truncate block" title={tx.buName}>{tx.buName || '—'}</span>
-                  )}
-                </td>
-                )}
-                <td className="py-2 px-2 text-right font-mono text-xs text-red-400">
-                  {spent !== null ? fmtCurrency(spent) : ''}
-                </td>
-                <td className="py-2 px-2 text-right font-mono text-xs text-teal-400">
-                  {received !== null ? fmtCurrency(received) : ''}
-                </td>
-                <td className="py-2 px-2 text-center">
-                  {isExcluded ? (
-                    /* Excluded tab: show reason badge spanning the actions column */
-                    <div className="flex items-center gap-1 justify-center">
-                      {tx.excludeReason ? (
-                        <span
-                          title={tx.excludeReason}
-                          className="text-xs px-2 py-0.5 rounded-full bg-red-500/10 text-red-400 max-w-[120px] truncate inline-block"
-                        >
-                          {tx.excludeReason}
-                        </span>
-                      ) : (
-                        <span className="text-xs text-[var(--ff-text-tertiary)] italic">Excluded</span>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-0.5 justify-center">
-                      {isNew ? (
-                        <>
-                          <button onClick={() => onAccept(tx.id)} disabled={!sel?.entityId} title="Accept"
-                            className="p-1 rounded hover:bg-teal-500/10 text-teal-400 disabled:opacity-30">
-                            <Check className="h-3.5 w-3.5" />
-                          </button>
-                          {onFindMatch && (
-                            <button onClick={() => onFindMatch(tx.id)} title="Find & Match"
-                              className="p-1 rounded hover:bg-blue-500/10 text-blue-400">
-                              <SearchCheck className="h-3.5 w-3.5" />
+                            )}
+                            <button onClick={() => onSplit(tx.id)} title="Split transaction"
+                              className="p-1 rounded hover:bg-purple-500/10 text-purple-400">
+                              <Scissors className="h-3.5 w-3.5" />
                             </button>
-                          )}
-                          <button onClick={() => onSplit(tx.id)} title="Split transaction"
-                            className="p-1 rounded hover:bg-purple-500/10 text-purple-400">
-                            <Scissors className="h-3.5 w-3.5" />
-                          </button>
-                          {onCreateRule && (
-                            <button onClick={() => onCreateRule(tx)} title="Create rule from this transaction"
-                              className="p-1 rounded hover:bg-yellow-500/10 text-yellow-400">
-                              <BookmarkPlus className="h-3.5 w-3.5" />
+                            {onCreateRule && (
+                              <button onClick={() => onCreateRule(tx)} title="Create rule from this transaction"
+                                className="p-1 rounded hover:bg-yellow-500/10 text-yellow-400">
+                                <BookmarkPlus className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                            {onAttachments && (
+                              <button onClick={() => onAttachments(tx.id)} title="Attachments"
+                                className="p-1 rounded hover:bg-gray-500/10 text-[var(--ff-text-tertiary)]">
+                                <Paperclip className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                            <button onClick={() => onExclude(tx.id)} title="Exclude"
+                              className="p-1 rounded hover:bg-red-500/10 text-red-400">
+                              <X className="h-3.5 w-3.5" />
                             </button>
-                          )}
-                          {onAttachments && (
-                            <button onClick={() => onAttachments(tx.id)} title="Attachments"
-                              className="p-1 rounded hover:bg-gray-500/10 text-[var(--ff-text-tertiary)]">
-                              <Paperclip className="h-3.5 w-3.5" />
-                            </button>
-                          )}
-                          <button onClick={() => onExclude(tx.id)} title="Exclude"
-                            className="p-1 rounded hover:bg-red-500/10 text-red-400">
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        </>
-                      ) : isAllocated ? (
-                        <>
-                          {onReverse && (
-                            <button onClick={() => onReverse(tx.id)} title="Undo allocation"
+                          </>
+                        ) : isAllocated ? (
+                          <>
+                            {onReverse && (
+                              <button onClick={() => onReverse(tx.id)} title="Undo allocation"
+                                className="p-1 rounded hover:bg-amber-500/10 text-amber-400">
+                                <Undo2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                            {onAttachments && (
+                              <button onClick={() => onAttachments(tx.id)} title="Attachments"
+                                className="p-1 rounded hover:bg-gray-500/10 text-[var(--ff-text-tertiary)]">
+                                <Paperclip className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <button onClick={() => onUnmatch(tx.id)} title="Undo allocation"
                               className="p-1 rounded hover:bg-amber-500/10 text-amber-400">
                               <Undo2 className="h-3.5 w-3.5" />
                             </button>
-                          )}
-                          {onAttachments && (
-                            <button onClick={() => onAttachments(tx.id)} title="Attachments"
-                              className="p-1 rounded hover:bg-gray-500/10 text-[var(--ff-text-tertiary)]">
-                              <Paperclip className="h-3.5 w-3.5" />
-                            </button>
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          <button onClick={() => onUnmatch(tx.id)} title="Undo allocation"
-                            className="p-1 rounded hover:bg-amber-500/10 text-amber-400">
-                            <Undo2 className="h-3.5 w-3.5" />
-                          </button>
-                          {onReverse && tx.status === 'reconciled' && (
-                            <button onClick={() => onReverse(tx.id)} title="Reverse reconciled"
-                              className="p-1 rounded hover:bg-red-500/10 text-red-400">
-                              <RotateCcw className="h-3.5 w-3.5" />
-                            </button>
-                          )}
-                          {onAttachments && (
-                            <button onClick={() => onAttachments(tx.id)} title="Attachments"
-                              className="p-1 rounded hover:bg-gray-500/10 text-[var(--ff-text-tertiary)]">
-                              <Paperclip className="h-3.5 w-3.5" />
-                            </button>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  )}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+                            {onReverse && tx.status === 'reconciled' && (
+                              <button onClick={() => onReverse(tx.id)} title="Reverse reconciled"
+                                className="p-1 rounded hover:bg-red-500/10 text-red-400">
+                                <RotateCcw className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                            {onAttachments && (
+                              <button onClick={() => onAttachments(tx.id)} title="Attachments"
+                                className="p-1 rounded hover:bg-gray-500/10 text-[var(--ff-text-tertiary)]">
+                                <Paperclip className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {tab === 'new' && transactions.length > 0 && (
+          <div className="px-3 py-2 text-xs text-[var(--ff-text-tertiary)] border-t border-[var(--ff-border-light)]/50 flex gap-4">
+            <span><kbd className="font-mono">↑↓</kbd> move</span>
+            <span><kbd className="font-mono">Enter</kbd> accept</span>
+            <span><kbd className="font-mono">E</kbd> edit</span>
+            <span><kbd className="font-mono">X</kbd> exclude</span>
+            <span><kbd className="font-mono">S</kbd> split</span>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
