@@ -11,6 +11,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import type { CompanyMeta } from './bureauWorkTypes';
 
 export type BureauRole = 'owner' | 'accountant' | 'viewer';
 export type AccountType = 'direct' | 'bureau_owner' | 'bureau_member';
@@ -203,4 +204,28 @@ export async function userIsBureauMember(userId: string, bureauId: string): Prom
     SELECT 1 FROM bureau_users WHERE bureau_id = ${bureauId} AND user_id = ${userId} LIMIT 1
   `) as unknown as Array<{ '?column?': number }>;
   return rows.length > 0;
+}
+
+/**
+ * Tenant gate for the client home. Re-derives the caller's bureau companies
+ * server-side and returns the CompanyMeta for `companyId` ONLY if it is in
+ * that set — otherwise null. Never trust a companyId from the URL; pass it
+ * through here first. (Same authorization boundary as /api/bureau.)
+ */
+export async function getBureauClientForUser(
+  userId: string,
+  companyId: string,
+): Promise<CompanyMeta | null> {
+  const bureaus = await listBureausForUser(userId);
+  if (bureaus.length === 0) return null;
+  const bureauIds = bureaus.map((b) => b.id);
+  const rows = (await sql`
+    SELECT bc.bureau_id, b.name AS bureau_name, bc.company_id, c.name AS company_name
+      FROM bureau_companies bc
+      JOIN bureaus b ON b.id = bc.bureau_id
+      JOIN companies c ON c.id = bc.company_id
+     WHERE bc.bureau_id = ANY(${bureauIds}) AND bc.company_id = ${companyId}
+     LIMIT 1
+  `) as unknown as CompanyMeta[];
+  return rows[0] ?? null;
 }
