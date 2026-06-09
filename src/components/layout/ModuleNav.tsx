@@ -325,7 +325,9 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor }: ModuleNavProps)
             key={t.id}
             className="relative"
             data-tour={`nav-${t.id}`}
-            onMouseEnter={linkFlyout ? () => { clearHover(); setOpenTab(t.id); } : undefined}
+            onMouseEnter={linkFlyout
+              ? () => { clearHover(); setOpenTab(t.id); }
+              : () => clearHover()}
             onMouseLeave={linkFlyout ? delayedClose : undefined}
           >
             {t.href && !t.items?.length ? (
@@ -342,7 +344,7 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor }: ModuleNavProps)
             ) : linkFlyout ? (
               <Link
                 href={t.href as string}
-                className={`px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors inline-flex items-center gap-1 ${
+                className={`px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors flex items-center gap-1 ${
                   activeTab === t.id
                     ? `${accent.activeBorder} ${accent.activeText}`
                     : 'border-transparent text-gray-400 hover:text-white'
