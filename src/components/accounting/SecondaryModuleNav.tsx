@@ -5,22 +5,7 @@
  */
 import { useRouter } from 'next/router';
 import { ModuleNav } from '@/components/layout/ModuleNav';
-import { moduleSectionsToTabs, getActiveSectionId } from './navSections/secondaryNav';
-import type { Tab } from './navSections/types';
-
-import { salesTab } from './navSections/sales';
-import { purchasesTab } from './navSections/purchases';
-import { inventoryTab } from './navSections/inventory';
-import { accountingTab } from './navSections/accounting';
-import { reportsTab } from './navSections/reports';
-import { taxTab } from './navSections/tax';
-import { payrollTab } from './navSections/payroll';
-import { practiceTab } from './navSections/practice';
-
-const MODULE_BY_ID: Record<string, Tab> = {
-  sales: salesTab, purchases: purchasesTab, inventory: inventoryTab, accounting: accountingTab,
-  reports: reportsTab, tax: taxTab, payroll: payrollTab, practice: practiceTab,
-};
+import { moduleSectionsToTabs, getActiveSectionId, MODULE_BY_ID } from './navSections/secondaryNav';
 
 export function SecondaryModuleNav({ moduleId }: { moduleId: string }) {
   const router = useRouter();

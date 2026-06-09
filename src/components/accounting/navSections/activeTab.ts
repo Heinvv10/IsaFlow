@@ -157,7 +157,7 @@ export function getActiveModuleId(
   return 'dashboard';
 }
 
-const DEMOTED_MODULE_IDS = new Set([
+export const DEMOTED_MODULE_IDS = new Set([
   'sales', 'purchases', 'inventory', 'accounting', 'reports', 'tax', 'payroll', 'practice',
 ]);
 

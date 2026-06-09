@@ -8,6 +8,21 @@
 import { isFlyout, type Tab, type NavItem } from './types';
 import { isLinkActive } from './activeTab';
 
+import { salesTab } from './sales';
+import { purchasesTab } from './purchases';
+import { inventoryTab } from './inventory';
+import { accountingTab } from './accounting';
+import { reportsTab } from './reports';
+import { taxTab } from './tax';
+import { payrollTab } from './payroll';
+import { practiceTab } from './practice';
+
+/** Map from module id → Tab — single source of truth for the secondary nav bar. */
+export const MODULE_BY_ID: Record<string, Tab> = {
+  sales: salesTab, purchases: purchasesTab, inventory: inventoryTab, accounting: accountingTab,
+  reports: reportsTab, tax: taxTab, payroll: payrollTab, practice: practiceTab,
+};
+
 /** Each top-level section of a module → a dropdown tab for ModuleNav. */
 export function moduleSectionsToTabs(moduleTab: Tab): Tab[] {
   return (moduleTab.items ?? []).map((item): Tab => {
