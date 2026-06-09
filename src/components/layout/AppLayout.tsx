@@ -34,6 +34,8 @@ import { CreateNewMenu } from '@/components/layout/CreateNewMenu';
 import { SettingsMenu } from '@/components/layout/SettingsMenu';
 import { TableDensityToggle } from '@/components/ui/TableDensityToggle';
 import { SidebarNav } from '@/components/layout/SidebarNav';
+import { SecondaryModuleNav } from '@/components/accounting/SecondaryModuleNav';
+import { getActiveModuleId } from '@/components/accounting/accountingNavConfig';
 import { CommandPalette } from '@/components/layout/CommandPalette';
 import { ShortcutHelpOverlay } from '@/components/layout/ShortcutHelpOverlay';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
@@ -49,9 +51,6 @@ const dmSans = DM_Sans({ subsets: ['latin'], variable: '--font-dm-sans', display
 const AccountingNav = dynamic(
   () => import('@/components/accounting/AccountingNav').then(mod => ({ default: mod.AccountingNav })),
 );
-
-import { SecondaryModuleNav } from '@/components/accounting/SecondaryModuleNav';
-import { getActiveModuleId } from '@/components/accounting/accountingNavConfig';
 
 const SIDEBAR_COLLAPSED_KEY = 'accounting-sidebar-collapsed';
 const NAV_MODE_KEY = 'accounting-nav-mode';
