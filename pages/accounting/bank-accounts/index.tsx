@@ -1,44 +1,25 @@
 /**
  * Bank Accounts Management
  * Sage equivalent: Banking > Bank Accounts
- * View and manage bank accounts linked to GL
+ * View and manage bank accounts linked to GL. Sub-accounts (paycards,
+ * floats) can be filed under a group umbrella via the Add/Edit modals.
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Landmark, Loader2, AlertCircle, Plus, ArrowUpRight, ArrowDownRight, X, Pencil, ExternalLink } from 'lucide-react';
+import { Landmark, Loader2, AlertCircle, Plus } from 'lucide-react';
 import { BankEmptyState } from '@/components/accounting/banking/BankEmptyState';
+import {
+  AddBankAccountModal, EditBankAccountModal, buildParentCandidates,
+  type AddForm, type EditForm,
+} from '@/components/accounting/bank/BankAccountModals';
+import { BankAccountCard, type BankAccountCardData } from '@/components/accounting/bank/BankAccountCard';
 import { notify } from '@/utils/toast';
-import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
 
-/** Mask account number for display: show last 4 digits only */
-function maskAccountNumber(num: string): string {
-  if (num.length <= 4) return num;
-  return '****' + num.slice(-4);
-}
+type BankAccount = BankAccountCardData;
 
-interface BankAccount {
-  id: string;
-  accountCode: string;
-  accountName: string;
-  description?: string;
-  bankAccountNumber?: string | null;
-  isActive: boolean;
-  txnCount: number;
-  totalDebits: number;
-  totalCredits: number;
-  balance: number;
-  firstDate?: string;
-  lastDate?: string;
-}
-
-interface EditForm {
-  accountName: string;
-  description: string;
-  bankAccountNumber: string;
-}
+const EMPTY_ADD: AddForm = { accountCode: '', accountName: '', description: '', bankAccountNumber: '', parentAccountId: '' };
 
 export default function BankAccountsPage() {
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
@@ -46,10 +27,10 @@ export default function BankAccountsPage() {
   const [error, setError] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ accountCode: '', accountName: '', description: '', bankAccountNumber: '', parentAccountId: '' });
+  const [form, setForm] = useState<AddForm>(EMPTY_ADD);
 
   const [editingAccount, setEditingAccount] = useState<BankAccount | null>(null);
-  const [editForm, setEditForm] = useState<EditForm>({ accountName: '', description: '', bankAccountNumber: '' });
+  const [editForm, setEditForm] = useState<EditForm>({ accountName: '', description: '', bankAccountNumber: '', parentAccountId: '' });
 
   const loadAccounts = useCallback(async () => {
     setIsLoading(true);
@@ -69,7 +50,7 @@ export default function BankAccountsPage() {
   useEffect(() => { loadAccounts(); }, [loadAccounts]);
 
   const openAddModal = useCallback(async () => {
-    setForm({ accountCode: '', accountName: '', description: '', bankAccountNumber: '', parentAccountId: '' });
+    setForm(EMPTY_ADD);
     setShowAddModal(true);
     try {
       const qs = new URLSearchParams({ accountType: 'asset', accountSubtype: 'bank' });
@@ -120,7 +101,7 @@ export default function BankAccountsPage() {
       }
       notify.success('Bank account created');
       setShowAddModal(false);
-      setForm({ accountCode: '', accountName: '', description: '', bankAccountNumber: '', parentAccountId: '' });
+      setForm(EMPTY_ADD);
       loadAccounts();
     } catch {
       notify.error('Failed to create bank account');
@@ -135,6 +116,7 @@ export default function BankAccountsPage() {
       accountName: acct.accountName,
       description: acct.description || '',
       bankAccountNumber: acct.bankAccountNumber || '',
+      parentAccountId: acct.groupId || '',
     });
   };
 
@@ -162,16 +144,22 @@ export default function BankAccountsPage() {
         notify.error(json?.error?.message || 'Failed to update account');
         return;
       }
-      // Update bank account number
-      await apiFetch('/api/accounting/bank-accounts', {
+      // Update bank account number + group assignment
+      const bankRes = await apiFetch('/api/accounting/bank-accounts', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
           id: editingAccount.id,
           bankAccountNumber: editForm.bankAccountNumber.trim() || null,
+          parentAccountId: editForm.parentAccountId || null,
         }),
       });
+      if (!bankRes.ok) {
+        const json = await bankRes.json();
+        notify.error(json?.error?.message || 'Failed to update bank account');
+        return;
+      }
       notify.success('Bank account updated');
       setEditingAccount(null);
       loadAccounts();
@@ -224,262 +212,29 @@ export default function BankAccountsPage() {
             <BankEmptyState context="bank-accounts" onAddBankAccount={openAddModal} />
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {accounts.map((acct) => (
-                <div key={acct.id} className="p-5 rounded-xl bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] hover:border-cyan-500/30 transition-colors relative group">
-                  <button
-                    onClick={() => handleEdit(acct)}
-                    className="absolute top-3 right-12 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)] hover:text-cyan-400 transition-all"
-                    title="Edit account"
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs font-mono text-[var(--ff-text-tertiary)]">{acct.accountCode}</span>
-                    <span className={`px-2 py-0.5 rounded-full text-xs ${acct.isActive ? 'bg-teal-500/10 text-teal-400' : 'bg-red-500/10 text-red-400'}`}>
-                      {acct.isActive ? 'Active' : 'Inactive'}
-                    </span>
-                  </div>
-                  <h3 className="text-lg font-semibold text-[var(--ff-text-primary)]">{acct.accountName}</h3>
-                  {acct.bankAccountNumber && (
-                    <p className="text-xs font-mono text-[var(--ff-text-tertiary)] mt-0.5">
-                      Acc: {maskAccountNumber(acct.bankAccountNumber)}
-                    </p>
-                  )}
-                  {acct.description && (
-                    <p className="text-sm text-[var(--ff-text-secondary)] mt-1">{acct.description}</p>
-                  )}
-
-                  <div className="mt-4 pt-3 border-t border-[var(--ff-border-light)]">
-                    <p className="text-sm text-[var(--ff-text-secondary)]">Net Balance</p>
-                    <p className={`text-2xl font-bold ${acct.balance >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
-                      {formatCurrency(acct.balance)}
-                    </p>
-                  </div>
-
-                  <div className="mt-3 flex gap-4 text-sm">
-                    <div className="flex items-center gap-1 text-teal-400">
-                      <ArrowDownRight className="h-3.5 w-3.5" />
-                      <span>{formatCurrency(acct.totalCredits)}</span>
-                    </div>
-                    <div className="flex items-center gap-1 text-red-400">
-                      <ArrowUpRight className="h-3.5 w-3.5" />
-                      <span>{formatCurrency(acct.totalDebits)}</span>
-                    </div>
-                  </div>
-
-                  <div className="mt-3 flex items-center justify-between text-xs text-[var(--ff-text-tertiary)]">
-                    <span>{acct.txnCount.toLocaleString()} transactions</span>
-                    {acct.firstDate && acct.lastDate && (
-                      <span>{acct.firstDate} &rarr; {acct.lastDate}</span>
-                    )}
-                  </div>
-
-                  <div className="mt-3 pt-3 border-t border-[var(--ff-border-light)]">
-                    <Link
-                      href={`/accounting/bank-transactions?account_id=${acct.id}`}
-                      className="flex items-center gap-1.5 text-xs font-medium text-cyan-400 hover:text-cyan-300 transition-colors"
-                    >
-                      <ExternalLink className="h-3.5 w-3.5" />
-                      View Transactions
-                    </Link>
-                  </div>
-                </div>
+              {accounts.map(acct => (
+                <BankAccountCard key={acct.id} acct={acct} onEdit={handleEdit} />
               ))}
             </div>
           )}
         </div>
       </div>
 
-      {/* Add Bank Account Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-[var(--ff-bg-secondary)] rounded-xl border border-[var(--ff-border-light)] w-full max-w-md mx-4 p-6">
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="text-lg font-semibold text-[var(--ff-text-primary)]">Add Bank Account</h2>
-              <button onClick={() => setShowAddModal(false)} className="text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)]">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">
-                  Account Code *
-                </label>
-                <input
-                  type="text"
-                  name="accountCode"
-                  placeholder="e.g. 1114"
-                  value={form.accountCode}
-                  onChange={e => setForm(f => ({ ...f, accountCode: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-cyan-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">
-                  Account Name *
-                </label>
-                <input
-                  type="text"
-                  name="accountName"
-                  placeholder="e.g. Bank - FNB Current"
-                  value={form.accountName}
-                  onChange={e => setForm(f => ({ ...f, accountName: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-cyan-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">
-                  Parent Account <span className="text-[var(--ff-text-tertiary)] font-normal">(optional — for cards / sub-accounts)</span>
-                </label>
-                <select
-                  value={form.parentAccountId}
-                  onChange={e => setForm(f => ({ ...f, parentAccountId: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-cyan-500"
-                >
-                  <option value="">— None (root-level account) —</option>
-                  {accounts.map(a => (
-                    <option key={a.id} value={a.id}>
-                      {a.accountCode} — {a.accountName}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">
-                  Bank Account Number
-                </label>
-                <input
-                  type="text"
-                  name="bankAccountNumber"
-                  placeholder="e.g. 4078012345"
-                  value={form.bankAccountNumber}
-                  onChange={e => setForm(f => ({ ...f, bankAccountNumber: e.target.value }))}
-                  maxLength={50}
-                  className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-cyan-500"
-                />
-                <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">Displayed masked (last 4 digits only) for security</p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">
-                  Description
-                </label>
-                <input
-                  type="text"
-                  name="description"
-                  placeholder="Optional description"
-                  value={form.description}
-                  onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-cyan-500"
-                />
-              </div>
-
-              <p className="text-xs text-[var(--ff-text-tertiary)]">
-                Creates a GL account with type &quot;asset&quot; and subtype &quot;bank&quot;. Select a parent to create a sub-account (e.g. a credit card under a main bank account).
-              </p>
-            </div>
-
-            <div className="flex justify-end gap-3 mt-6">
-              <button
-                onClick={() => setShowAddModal(false)}
-                className="px-4 py-2 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleAdd}
-                disabled={saving}
-                className="px-4 py-2 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded-lg text-sm flex items-center gap-2"
-              >
-                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-                Create Account
-              </button>
-            </div>
-          </div>
-        </div>
+        <AddBankAccountModal
+          form={form} setForm={setForm}
+          candidates={buildParentCandidates(accounts)}
+          saving={saving} onSave={handleAdd} onClose={() => setShowAddModal(false)}
+        />
       )}
 
-      {/* Edit Bank Account Modal */}
       {editingAccount && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setEditingAccount(null)}>
-          <div className="bg-[var(--ff-bg-secondary)] rounded-xl border border-[var(--ff-border-light)] w-full max-w-md mx-4 p-6" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-5">
-              <div>
-                <h2 className="text-lg font-semibold text-[var(--ff-text-primary)]">Edit Bank Account</h2>
-                <p className="text-xs font-mono text-[var(--ff-text-tertiary)]">GL Code: {editingAccount.accountCode}</p>
-              </div>
-              <button onClick={() => setEditingAccount(null)} className="text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)]">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">
-                  Account Name *
-                </label>
-                <input
-                  type="text"
-                  name="accountName"
-                  value={editForm.accountName}
-                  onChange={e => setEditForm(f => ({ ...f, accountName: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-cyan-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">
-                  Bank Account Number
-                </label>
-                <input
-                  type="text"
-                  name="bankAccountNumber"
-                  placeholder="e.g. 4078012345"
-                  value={editForm.bankAccountNumber}
-                  onChange={e => setEditForm(f => ({ ...f, bankAccountNumber: e.target.value }))}
-                  maxLength={50}
-                  className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-cyan-500"
-                />
-                <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">Displayed masked (last 4 digits only) for security</p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">
-                  Description
-                </label>
-                <input
-                  type="text"
-                  name="description"
-                  placeholder="Optional description"
-                  value={editForm.description}
-                  onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-cyan-500"
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-3 mt-6">
-              <button
-                onClick={() => setEditingAccount(null)}
-                className="px-4 py-2 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSaveEdit}
-                disabled={saving}
-                className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white rounded-lg text-sm flex items-center gap-2"
-              >
-                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-                Save Changes
-              </button>
-            </div>
-          </div>
-        </div>
+        <EditBankAccountModal
+          accountCode={editingAccount.accountCode}
+          form={editForm} setForm={setEditForm}
+          candidates={buildParentCandidates(accounts, editingAccount.id)}
+          saving={saving} onSave={handleSaveEdit} onClose={() => setEditingAccount(null)}
+        />
       )}
     </AppLayout>
   );

@@ -47,7 +47,7 @@ interface BulkSummary {
   totalTransactions: number;
 }
 
-export function BulkImportPanel() {
+export function BulkImportPanel({ initialAccountId }: { initialAccountId?: string | null } = {}) {
   const [bankAccountId, setBankAccountId] = useState<string | null>(null);
   const [bankAccount, setBankAccount] = useState<BankAccountOption | null>(null);
   const [rows, setRows] = useState<BulkImportRowState[]>([]);
@@ -363,6 +363,7 @@ export function BulkImportPanel() {
     <div className="space-y-5">
       <BankAccountSelector
         value={bankAccountId}
+        initialValue={initialAccountId}
         onChange={(id, opt) => { setBankAccountId(id); setBankAccount(opt); }}
         disabled={isCommitting || rows.length > 0}
         helpText={rows.length > 0
