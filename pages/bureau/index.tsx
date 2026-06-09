@@ -21,7 +21,9 @@ import {
 } from 'lucide-react';
 import { Feed, ActionRow } from '@/components/ui';
 import { SEVERITY_BADGE } from '@/components/bureau/severityBadge';
+import { ClientTriageBoard } from '@/components/bureau/ClientTriageBoard';
 import type { Severity } from '@/modules/bureau/services/bureauWorkTypes';
+import type { ClientTriage } from '@/modules/bureau/services/bureauClientTriageService';
 
 interface WorkItem {
   bureauId: string;
@@ -48,6 +50,7 @@ interface DashboardData {
   workItems: WorkItem[];
   stats: { overdue: number; dueSoon: number; info: number; total: number; monthEnd?: { closed: number; total: number } };
   companyCount?: number;
+  clientTriage?: ClientTriage[];
 }
 
 export default function BureauDashboardPage() {
@@ -89,6 +92,11 @@ export default function BureauDashboardPage() {
       (!severityFilter || i.severity === severityFilter)
     );
   }, [data, bureauFilter, severityFilter]);
+
+  const visibleTriage = useMemo(() => {
+    if (!data?.clientTriage) return [];
+    return data.clientTriage.filter((t) => !bureauFilter || t.bureauId === bureauFilter);
+  }, [data, bureauFilter]);
 
   const handleOpen = async (item: WorkItem) => {
     if (activeCompany?.id !== item.companyId) {
@@ -186,6 +194,9 @@ export default function BureauDashboardPage() {
               ))}
             </div>
           )}
+
+          {/* Per-client triage board */}
+          <ClientTriageBoard items={visibleTriage} showBureau={data.bureaus.length > 1} />
 
           {/* Work queue */}
           <Feed
