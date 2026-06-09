@@ -13,6 +13,7 @@ import { useCompany } from '@/contexts/CompanyContext';
 import { apiFetch } from '@/lib/apiFetch';
 import { ArrowLeft, AlertCircle, Loader2 } from 'lucide-react';
 import { ClientHomeView } from '@/components/bureau/ClientHomeView';
+import { bureauClientErrorMessage } from '@/components/bureau/clientHomeError';
 import type { WorkItem } from '@/modules/bureau/services/bureauWorkTypes';
 import type { ClientMetrics } from '@/modules/bureau/services/bureauClientMetricsService';
 
@@ -35,8 +36,8 @@ export default function BureauClientHomePage() {
     setLoading(true); setError('');
     try {
       const res = await apiFetch(`/api/bureau/client/${companyId}`);
-      const json = await res.json() as { data?: ClientHomeData; message?: string };
-      if (!res.ok) throw new Error(json.message || 'Failed to load');
+      const json = await res.json() as { data?: ClientHomeData; error?: { message?: string }; message?: string };
+      if (!res.ok) throw new Error(bureauClientErrorMessage(res.status, json));
       setData(json.data ?? null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load');
