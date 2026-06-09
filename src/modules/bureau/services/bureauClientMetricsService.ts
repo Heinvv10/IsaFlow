@@ -1,0 +1,109 @@
+/**
+ * Client-home metric snapshot for the bureau Level 2 home.
+ *
+ * The query shapes are copied from pages/api/accounting/dashboard-stats.ts so
+ * these numbers match the Trial Balance / aging reports. Reads on the
+ * RLS-bypassing @/lib/neon pool — the CALLER must have already verified the
+ * companyId via getBureauClientForUser (tenant gate). Every query is scoped to
+ * the single companyId; this function adds no new tenant surface.
+ */
+import { sql } from '@/lib/neon';
+import { AR_OPEN_STATUSES, AP_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
+
+type Scalar = number | string | null | undefined;
+
+export interface ClientMetricsRows {
+  cash: Scalar;
+  ar: Scalar;
+  ap: Scalar;
+  revenue: Scalar;
+  expenses: Scalar;
+}
+
+export interface ClientMetrics {
+  cash: number;
+  ar: number;
+  ap: number;
+  revenueMtd: number;
+  profitMtd: number;
+}
+
+/** Driver-safe coercion: aggregates may arrive as numeric strings; null/NaN → 0. */
+function num(v: Scalar): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Pure: maps raw aggregate rows to the metric set; profit = revenue − expenses. */
+export function shapeClientMetrics(r: ClientMetricsRows): ClientMetrics {
+  const revenueMtd = num(r.revenue);
+  const expensesMtd = num(r.expenses);
+  return {
+    cash: num(r.cash),
+    ar: num(r.ar),
+    ap: num(r.ap),
+    revenueMtd,
+    profitMtd: revenueMtd - expensesMtd,
+  };
+}
+
+/** Runs 5 parallel aggregate queries and returns a typed metric set. Caller must pre-verify companyId via getBureauClientForUser. */
+export async function clientMetricsSnapshot(companyId: string): Promise<ClientMetrics> {
+  const now = new Date();
+  // NOTE: month boundary is server UTC — matches dashboard-stats.ts
+  const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+
+  const [cash, ar, ap, revenue, expenses] = await Promise.all([
+    // Cash: GL bank-account balances (matches Trial Balance, not raw bank_transactions).
+    // Sums all bank accounts into one total.
+    sql`
+      SELECT COALESCE(SUM(jl.debit - jl.credit), 0) AS total
+        FROM gl_accounts ga
+        LEFT JOIN gl_journal_lines jl ON jl.gl_account_id = ga.id AND jl.company_id = ${companyId}::UUID
+        LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+          AND je.company_id = ${companyId}::UUID AND je.status = 'posted'
+       WHERE ga.account_subtype = 'bank' AND ga.is_active = true AND ga.company_id = ${companyId}::UUID
+    `,
+    // AR open (same allowlist as arAgingService)
+    sql`
+      SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
+        FROM customer_invoices
+       WHERE company_id = ${companyId}
+         AND status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
+    `,
+    // AP open (same allowlist as apAgingService)
+    sql`
+      SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
+        FROM supplier_invoices
+       WHERE company_id = ${companyId}
+         AND status = ANY(${Array.from(AP_OPEN_STATUSES)}::text[])
+    `,
+    // Revenue MTD — SUM(credit - debit), matches dashboard-stats.ts revenue shape exactly
+    sql`
+      SELECT COALESCE(SUM(credit - debit), 0) AS total
+        FROM gl_journal_lines jl
+        JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+        JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+       WHERE ga.account_type = 'revenue' AND je.status = 'posted'
+         AND je.company_id = ${companyId} AND jl.company_id = ${companyId}::UUID AND je.entry_date >= ${monthStart}
+    `,
+    // Expenses MTD — matches dashboard-stats.ts: SUM(debit - credit) no jl. prefix,
+    // no jl.company_id filter (dashboard-stats.ts only uses je.company_id for expenses)
+    sql`
+      SELECT COALESCE(SUM(debit - credit), 0) AS total
+        FROM gl_journal_lines jl
+        JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+        JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+       WHERE ga.account_type = 'expense' AND je.status = 'posted'
+         AND je.company_id = ${companyId} AND je.entry_date >= ${monthStart}
+    `,
+  ]);
+
+  return shapeClientMetrics({
+    cash: (cash as Array<{ total: Scalar }>)[0]?.total,
+    ar: (ar as Array<{ total: Scalar }>)[0]?.total,
+    ap: (ap as Array<{ total: Scalar }>)[0]?.total,
+    revenue: (revenue as Array<{ total: Scalar }>)[0]?.total,
+    expenses: (expenses as Array<{ total: Scalar }>)[0]?.total,
+  });
+}
