@@ -44,6 +44,9 @@ export { getUserFromRequest, requireAuth } from './app-router';
 // ── Cookie constants ─────────────────────────────────────────────────────────
 export { ACCESS_COOKIE, REFRESH_COOKIE, ACTIVE_COMPANY_COOKIE } from './cookies';
 
+// ── Landing resolver ──────────────────────────────────────────────────────────
+export { resolveDefaultLanding, type LandingInput } from './resolveLanding';
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 import type { NextApiRequest } from 'next';
 import type { CompanyAuthedRequest } from './withAuth';

@@ -267,20 +267,25 @@ export default function LoginPage() {
       .catch(() => null);
   }, [inviteToken]);
 
-  // Post-auth redirect: send users with no companies to /onboarding
+  // Post-auth redirect. The server resolver decides the default landing
+  // (onboarding / firm /accounting / direct /home); an explicit deep-link
+  // returnTo still wins, and no-companies always forces onboarding.
   const postLoginRedirect = async (): Promise<string> => {
     if (isAdminHost) return returnTo;
     try {
-      const res = await fetch('/api/accounting/companies?action=user-companies', {
-        credentials: 'include',
-      });
+      const res = await fetch('/api/auth/landing', { credentials: 'include' });
       if (res.ok) {
-        const body = (await res.json()) as { data?: { items?: unknown[] } };
-        const items = body.data?.items;
-        if (Array.isArray(items) && items.length === 0) return '/onboarding';
+        const body = (await res.json()) as { data?: { defaultTarget?: string } };
+        const target = body.data?.defaultTarget;
+        if (target === '/onboarding') return '/onboarding';
+        if (returnTo && returnTo !== defaultRedirect) return returnTo;
+        if (target) return target;
       }
     } catch {
-      // Non-fatal — fall through to the configured returnTo
+      // Non-fatal — fall through to the configured returnTo.
+      // On a transient /api/auth/landing failure a direct client lands on the
+      // default (/accounting) rather than /home; acceptable since their data is
+      // still reachable and the next login resolves correctly.
     }
     return returnTo;
   };
