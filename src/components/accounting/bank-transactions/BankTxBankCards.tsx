@@ -3,7 +3,7 @@
  * Renders one card per bank account; active card is highlighted in teal.
  */
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { StatementBalanceWidget } from '@/components/accounting/StatementBalanceWidget';
 import { formatCurrency as fmtCurrency } from '@/utils/formatters';
 import { groupBankAccounts } from './groupBankAccounts';
@@ -40,9 +40,16 @@ interface Props {
 
 export function BankTxBankCards({ bankAccounts, selectedBank, tab, total, onSelectBank }: Props) {
   const bank = bankAccounts.find(b => b.id === selectedBank);
-  const { primaries, groups } = groupBankAccounts(bankAccounts);
+  const { primaries, groups } = useMemo(() => groupBankAccounts(bankAccounts), [bankAccounts]);
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
   const expandedGroup = groups.find(g => g.groupId === expandedGroupId);
+
+  // Deep links (?account_id=) can select a sub-account before any user
+  // interaction — auto-expand its group so the selection is visible.
+  useEffect(() => {
+    const owner = groups.find(g => g.accounts.some(a => a.id === selectedBank));
+    if (owner) setExpandedGroupId(prev => prev ?? owner.groupId);
+  }, [selectedBank, groups]);
 
   return (
     <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">

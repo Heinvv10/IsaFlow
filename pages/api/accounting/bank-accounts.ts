@@ -47,7 +47,8 @@ async function assignParent(companyId: string, id: string, parentId: string | nu
   if (parentId) {
     const [parent] = await sql`
       SELECT id, parent_account_id, account_subtype,
-        (SELECT p.account_subtype FROM gl_accounts p WHERE p.id = gl_accounts.parent_account_id) AS parent_subtype
+        (SELECT p.account_subtype FROM gl_accounts p
+          WHERE p.id = gl_accounts.parent_account_id AND p.company_id = ${companyId}) AS parent_subtype
       FROM gl_accounts
       WHERE id = ${parentId} AND company_id = ${companyId}
     `;
@@ -59,6 +60,15 @@ async function assignParent(companyId: string, id: string, parentId: string | nu
       LIMIT 1
     `;
     if (self) return 'This account is a group itself — move its sub-accounts first';
+    // A group parent becomes invisible on the Bank Transactions page (the list
+    // shows leaves only), so an account with its own imported transactions
+    // must not be promoted to umbrella — its transactions would be unreachable.
+    const [parentTx] = await sql`
+      SELECT 1 FROM bank_transactions
+      WHERE bank_account_id = ${parentId} AND company_id = ${companyId}
+      LIMIT 1
+    `;
+    if (parentTx) return 'Group account has its own bank transactions — pick an account without transactions as the group';
   }
   await sql`
     UPDATE gl_accounts SET parent_account_id = ${parentId}, updated_at = NOW()

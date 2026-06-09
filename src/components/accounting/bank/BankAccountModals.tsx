@@ -7,32 +7,9 @@
  */
 
 import { X, Loader2 } from 'lucide-react';
+import type { ParentCandidate } from './parentCandidates';
 
-export interface BankAccountRow {
-  id: string;
-  accountCode: string;
-  accountName: string;
-  groupId?: string | null;
-  groupName?: string | null;
-}
-
-export interface ParentCandidate {
-  id: string;
-  label: string;
-}
-
-/** Distinct group umbrellas + ungrouped accounts, excluding the account being edited. */
-export function buildParentCandidates(accounts: BankAccountRow[], excludeId?: string): ParentCandidate[] {
-  const groups = new Map<string, string>();
-  for (const a of accounts) {
-    if (a.groupId && a.groupName && a.groupId !== excludeId) groups.set(a.groupId, a.groupName);
-  }
-  const umbrellas: ParentCandidate[] = [...groups.entries()].map(([id, name]) => ({ id, label: name }));
-  const leaves: ParentCandidate[] = accounts
-    .filter(a => !a.groupId && a.id !== excludeId && !groups.has(a.id))
-    .map(a => ({ id: a.id, label: `${a.accountCode} — ${a.accountName}` }));
-  return [...umbrellas, ...leaves];
-}
+export { buildParentCandidates, type BankAccountRow, type ParentCandidate } from './parentCandidates';
 
 const inputCls = 'w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-cyan-500';
 const labelCls = 'block text-sm font-medium text-[var(--ff-text-secondary)] mb-1';

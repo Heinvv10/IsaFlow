@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Landmark, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 
@@ -58,12 +58,17 @@ export function BankAccountSelector(props: BankAccountSelectorProps) {
     return () => { alive = false; };
   }, []);
 
-  // Apply the deep-link preselect once options arrive; the `value` guard
-  // stops this from overriding a manual selection or re-firing.
+  // Apply the deep-link preselect once options arrive. The fired ref makes
+  // this one-shot even if the parent re-renders with a fresh onChange before
+  // `value` settles; the `value` guard keeps manual selections untouched.
+  const preselectFired = useRef(false);
   useEffect(() => {
-    if (!initialValue || value || options.length === 0) return;
+    if (preselectFired.current || !initialValue || value || options.length === 0) return;
     const option = options.find(o => o.id === initialValue);
-    if (option) onChange(option.id, option);
+    if (option) {
+      preselectFired.current = true;
+      onChange(option.id, option);
+    }
   }, [initialValue, value, options, onChange]);
 
   function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {

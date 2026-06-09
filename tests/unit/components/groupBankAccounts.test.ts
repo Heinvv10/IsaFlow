@@ -46,14 +46,15 @@ describe('groupBankAccounts', () => {
 
   it('rolls up balances and counts onto the group', () => {
     const accounts = [
-      acct({ id: 'pc1', groupId: 'g1', groupName: 'Paycards', balance: 150.5, unallocatedCount: 3, allocatedCount: 2, unreconciledBalance: 50 }),
-      acct({ id: 'pc2', groupId: 'g1', groupName: 'Paycards', balance: -20.25, unallocatedCount: 1, allocatedCount: 0, unreconciledBalance: -10 }),
+      acct({ id: 'pc1', groupId: 'g1', groupName: 'Paycards', balance: 150.5, unallocatedCount: 3, allocatedCount: 2, unreconciledBalance: 50, reconciledBalance: 100.5 }),
+      acct({ id: 'pc2', groupId: 'g1', groupName: 'Paycards', balance: -20.25, unallocatedCount: 1, allocatedCount: 0, unreconciledBalance: -10, reconciledBalance: -10.25 }),
     ];
     const [group] = groupBankAccounts(accounts).groups;
     expect(group!.balance).toBeCloseTo(130.25, 2);
     expect(group!.unallocatedCount).toBe(4);
     expect(group!.allocatedCount).toBe(2);
     expect(group!.unreconciledBalance).toBeCloseTo(40, 2);
+    expect(group!.reconciledBalance).toBeCloseTo(90.25, 2);
   });
 
   it('treats an account with a groupId but missing groupName as primary (defensive)', () => {
