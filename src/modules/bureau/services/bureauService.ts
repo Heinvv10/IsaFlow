@@ -225,6 +225,7 @@ export async function getBureauClientForUser(
       JOIN bureaus b ON b.id = bc.bureau_id
       JOIN companies c ON c.id = bc.company_id
      WHERE bc.bureau_id = ANY(${bureauIds}) AND bc.company_id = ${companyId}
+     ORDER BY b.name, bc.bureau_id
      LIMIT 1
   `) as unknown as CompanyMeta[];
   return rows[0] ?? null;

@@ -68,14 +68,14 @@ export async function clientMetricsSnapshot(companyId: string): Promise<ClientMe
     sql`
       SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
         FROM customer_invoices
-       WHERE company_id = ${companyId}
+       WHERE company_id = ${companyId}::UUID
          AND status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
     `,
     // AP open (same allowlist as apAgingService)
     sql`
       SELECT COALESCE(SUM(total_amount - COALESCE(amount_paid, 0)), 0) AS total
         FROM supplier_invoices
-       WHERE company_id = ${companyId}
+       WHERE company_id = ${companyId}::UUID
          AND status = ANY(${Array.from(AP_OPEN_STATUSES)}::text[])
     `,
     // Revenue MTD — SUM(credit - debit), matches dashboard-stats.ts revenue shape exactly
@@ -85,17 +85,20 @@ export async function clientMetricsSnapshot(companyId: string): Promise<ClientMe
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
        WHERE ga.account_type = 'revenue' AND je.status = 'posted'
-         AND je.company_id = ${companyId} AND jl.company_id = ${companyId}::UUID AND je.entry_date >= ${monthStart}
+         AND je.company_id = ${companyId}::UUID AND jl.company_id = ${companyId}::UUID AND je.entry_date >= ${monthStart}
     `,
-    // Expenses MTD — matches dashboard-stats.ts: SUM(debit - credit) no jl. prefix,
-    // no jl.company_id filter (dashboard-stats.ts only uses je.company_id for expenses)
+    // Expenses MTD — SUM(debit - credit), matches dashboard-stats.ts expense shape.
+    // jl.company_id filter added (dashboard-stats omits it) as defense-in-depth: the
+    // multi-tenant rule requires every query scoped by company_id, and it keeps this
+    // symmetric with the revenue query. Result-identical on valid data (jl.company_id
+    // always equals its entry's company_id via the NOT-NULL journal_entry_id FK).
     sql`
       SELECT COALESCE(SUM(debit - credit), 0) AS total
         FROM gl_journal_lines jl
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
        WHERE ga.account_type = 'expense' AND je.status = 'posted'
-         AND je.company_id = ${companyId} AND je.entry_date >= ${monthStart}
+         AND je.company_id = ${companyId}::UUID AND jl.company_id = ${companyId}::UUID AND je.entry_date >= ${monthStart}
     `,
   ]);
 
