@@ -197,9 +197,14 @@ export default function BureauClientsPage() {
                 <tbody>
                   {clients.map((c) => (
                     <tr key={c.companyId} className="border-b border-[var(--ff-border-primary)] last:border-0">
-                      <td className="py-2 px-4 text-[var(--ff-text-primary)] flex items-center gap-2">
-                        <Building2 className="h-4 w-4 text-[var(--ff-text-tertiary)]" />
-                        {c.companyName}
+                      <td className="py-2 px-4">
+                        <Link
+                          href={`/bureau/clients/${c.companyId}`}
+                          className="inline-flex items-center gap-2 text-[var(--ff-text-primary)] hover:text-teal-400"
+                        >
+                          <Building2 className="h-4 w-4 text-[var(--ff-text-tertiary)]" />
+                          {c.companyName}
+                        </Link>
                       </td>
                       <td className="py-2 px-4 text-[var(--ff-text-secondary)] text-xs">{new Date(c.addedAt).toLocaleDateString()}</td>
                       <td className="py-2 px-4 text-right">
