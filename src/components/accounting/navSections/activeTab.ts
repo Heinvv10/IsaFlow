@@ -3,9 +3,13 @@
  *
  * Tabs: dashboard · sales · purchases · inventory · banking ·
  *       accounting · reports · tax · payroll · (settings — cog only)
+ *
+ * getActiveModuleId returns the raw module id; getActiveTabId collapses
+ * demoted modules → 'library'.
  */
 
-export function getActiveTabId(
+/** Raw module-id resolver — the active module without Library collapsing. */
+export function getActiveModuleId(
   pathname: string,
   query: Record<string, string | string[] | undefined>,
 ): string {
@@ -144,10 +148,29 @@ export function getActiveTabId(
     return 'reports';
   }
 
+  // ── Practice (firm tools: clients, jobs, time, WIP) ─────────────────────
+  if (pathname.startsWith('/accounting/practice')) return 'practice';
+
   // ── Payroll (employees, runs, leave only — SARS bits live under Tax) ────
   if (pathname.startsWith('/payroll')) return 'payroll';
 
   return 'dashboard';
+}
+
+export const DEMOTED_MODULE_IDS = new Set([
+  'sales', 'purchases', 'inventory', 'accounting', 'reports', 'tax', 'payroll', 'practice',
+]);
+
+/** Top-bar resolver: demoted modules collapse onto the Library tab. */
+export function getActiveTabId(
+  pathname: string,
+  query: Record<string, string | string[] | undefined>,
+): string {
+  if (pathname.startsWith('/accounting/library')) return 'library';
+  if (pathname.startsWith('/accounting/portfolio-workbench')) return 'portfolio';
+  if (pathname.startsWith('/accounting/month-end-workbench')) return 'workbench';
+  const id = getActiveModuleId(pathname, query);
+  return DEMOTED_MODULE_IDS.has(id) ? 'library' : id;
 }
 
 export function isLinkActive(href: string, asPath: string): boolean {
