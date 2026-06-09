@@ -73,6 +73,9 @@ export function useBankTxKeyboardNav({
   const onKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     if (transactions.length === 0) return;
     if (focusedIndex === null) {
+      // Nothing focused yet: only an arrow key enters the stream (focus row 0).
+      // canAccept is passed false here purely because no row is selected — it is
+      // irrelevant since we only act on 'next'/'prev' below, never 'accept'.
       const entryAction = resolveBankTxKey(e.key, { isEditingCell: isTypingTarget(document.activeElement), canAccept: false });
       if (entryAction === 'next' || entryAction === 'prev') {
         e.preventDefault();

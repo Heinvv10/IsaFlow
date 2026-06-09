@@ -259,8 +259,8 @@ export function BankTxTable(props: Props) {
       <div
         {...(kbdEnabled ? containerProps : {})}
         tabIndex={kbdEnabled ? 0 : undefined}
-        role="group"
-        aria-label="Bank transactions — use arrow keys to navigate, Enter to accept, E edit, X exclude, S split"
+        role={kbdEnabled ? 'group' : undefined}
+        aria-label={kbdEnabled ? 'Bank transactions — use arrow keys to navigate, Enter to accept, E edit, X exclude, S split' : undefined}
         className="outline-none"
       >
         <table className="w-full text-sm">
