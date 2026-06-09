@@ -51,7 +51,7 @@ export function getActiveTabId(pathname, query): string {
 Single source of truth for both the flyout and the landing grid.
 
 - Imports the 8 existing module tab definitions (`salesTab`, `purchasesTab`, `inventoryTab`, `accountingTab`, `reportsTab`, `taxTab`, `payrollTab`, `practiceTab`).
-- `libraryTab: Tab` — a **link+flyout** tab: `{ id: 'library', label: 'Library', href: '/accounting/library', items: [...] }` where `items` is one `FlyoutSection` per module: `{ section: moduleTab.label, items: [...moduleTab.topItems-as-links, ...moduleTab.items] }`. Reuses the existing recursive flyout (Library → module section → its sub-sections → links).
+- `libraryTab: Tab` — a **link+flyout** tab: `{ id: 'library', label: 'Library', href: '/accounting/library', items: [...] }` where `items` is one `FlyoutSection` per module: `{ section: moduleTab.label, items: moduleTab.items }`. Reuses the existing recursive flyout (Library → module section → its sub-sections → links). Module `topItems` (quick-create shortcuts like "Add a Customer") are **intentionally not folded in** — the global `CreateNewMenu` is the canonical quick-create surface, so duplicating them into nested flyout sections would be redundant.
 - `LIBRARY_MODULES: LibraryModule[]` — landing-grid metadata: `{ id, label, icon, description, href }`. `href` = each module's primary home (Sales → `/accounting/customers`, Purchases → `/accounting/suppliers`, Inventory → `/accounting/items`, Accounting → `/accounting/chart-of-accounts`, Reports → `/accounting/reports/income-statement`, Tax → `/accounting/reports/vat-return`, Payroll → `/payroll`, Practice → `/accounting/practice/clients`). Icons from `lucide-react`, consistent with current usage.
 
 ### 3.3 Nav config — `src/components/accounting/accountingNavConfig.ts`
@@ -78,7 +78,7 @@ Both currently render a tab as **either** a `<Link>` (when `href`, no dropdown) 
 ### 3.5 Secondary in-module nav — `SecondaryModuleNav.tsx` (new)
 
 Reuses `ModuleNav`. Given the active module id (`getActiveModuleId`):
-- find the module tab; transform each of its `FlyoutSection`s into a `Tab` (`{ id: section.section, label: section.section, items: section.items }`); flat `DropdownItem`s become `href` tabs; `topItems` render as leading quick links.
+- find the module tab; transform each of its `FlyoutSection`s into a `Tab` (`{ id: section.section, label: section.section, items: section.items }`); flat `DropdownItem`s become `href` tabs. Module `topItems` are not surfaced here (same rationale as the Library flyout — `CreateNewMenu` owns quick-create). `isSetting` items keep their links but lose the gear-icon styling in the secondary bar's `FlatDropdown` rendering — an accepted cosmetic trade-off.
 - a section is "active" when any of its (recursively nested) links matches `isLinkActive(href, asPath)` — no new route table needed.
 - rendered with a subordinate accent (e.g. `slate`) to sit visually below the primary nav.
 
