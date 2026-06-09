@@ -17,6 +17,7 @@ import {
   aggregateBureauWork,
   type CompanyMeta,
 } from '@/modules/bureau/services/bureauWorkAggregatorService';
+import { rollupClientTriage } from '@/modules/bureau/services/bureauClientTriageService';
 
 function zeroStats() {
   return { overdue: 0, dueSoon: 0, info: 0, total: 0, monthEnd: { closed: 0, total: 0 } };
@@ -44,7 +45,7 @@ async function handler(req: UserAuthedRequest, res: NextApiResponse) {
   `) as unknown as CompanyMeta[];
 
   if (companyRows.length === 0) {
-    return apiResponse.success(res, { bureaus, workItems: [], stats: zeroStats(), companyCount: 0 });
+    return apiResponse.success(res, { bureaus, workItems: [], stats: zeroStats(), companyCount: 0, clientTriage: [] });
   }
 
   const companyIds = companyRows.map((r) => r.company_id);
@@ -60,7 +61,9 @@ async function handler(req: UserAuthedRequest, res: NextApiResponse) {
     monthEnd,
   };
 
-  return apiResponse.success(res, { bureaus, workItems: items, stats, companyCount: companyRows.length });
+  const clientTriage = rollupClientTriage(items, companyRows);
+
+  return apiResponse.success(res, { bureaus, workItems: items, stats, companyCount: companyRows.length, clientTriage });
 }
 
 export default withUserAuth(withErrorHandler(handler));
