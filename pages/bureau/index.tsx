@@ -21,8 +21,7 @@ import {
 } from 'lucide-react';
 import { Feed, ActionRow } from '@/components/ui';
 import { SEVERITY_BADGE } from '@/components/bureau/severityBadge';
-
-type Severity = 'overdue' | 'due_soon' | 'info';
+import type { Severity } from '@/modules/bureau/services/bureauWorkTypes';
 
 interface WorkItem {
   bureauId: string;

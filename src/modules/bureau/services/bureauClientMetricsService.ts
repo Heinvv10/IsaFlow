@@ -50,7 +50,7 @@ export function shapeClientMetrics(r: ClientMetricsRows): ClientMetrics {
 /** Runs 5 parallel aggregate queries and returns a typed metric set. Caller must pre-verify companyId via getBureauClientForUser. */
 export async function clientMetricsSnapshot(companyId: string): Promise<ClientMetrics> {
   const now = new Date();
-  // NOTE: month boundary is server UTC — matches dashboard-stats.ts
+  // NOTE: month boundary uses server local time — matches dashboard-stats.ts
   const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
 
   const [cash, ar, ap, revenue, expenses] = await Promise.all([
