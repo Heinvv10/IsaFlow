@@ -190,10 +190,11 @@ export default function BankTransactionsPage() {
   });
 
   const bank = bankAccounts.find(b => b.id === selectedBank);
-  // Transfer targets — every other bank GL account (source bank excluded)
+  // Transfer targets — every other bank GL account (source bank excluded).
+  // Sub-accounts carry their group name so 20+ paycards stay scannable.
   const transferTargets: SelectOption[] = bankAccounts
     .filter(b => b.id !== selectedBank)
-    .map(b => ({ id: b.id, code: b.accountCode, name: b.accountName }));
+    .map(b => ({ id: b.id, code: b.accountCode, name: b.groupName ? `${b.groupName} › ${b.accountName}` : b.accountName }));
   const totalPages = Math.ceil(total / PAGE_SIZE);
   const allSelected = transactions.length > 0 && transactions.every(t => selectedIds.has(t.id));
   const toggleSelect = (id: string) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });

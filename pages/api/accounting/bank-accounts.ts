@@ -30,7 +30,52 @@ const PutBankAccountSchema = z.object({
   description: z.string().max(500).nullable().optional(),
   accountName: z.string().max(100).nullable().optional(),
   isActive: z.boolean().nullable().optional(),
+  // Group assignment: another bank GL account acting as the sub-account
+  // umbrella (e.g. "Paycards"). Unlike the COALESCE fields above, an explicit
+  // null CLEARS the parent — the key being present is the update signal.
+  parentAccountId: UUID.nullable().optional(),
 }).strict();
+
+/**
+ * Validates a parent (group) assignment and applies it. Two-level only:
+ * the parent must be a bank account in the same company that is not itself
+ * a sub-account, and the account being grouped must not be an umbrella.
+ * Returns an error message, or null on success.
+ */
+async function assignParent(companyId: string, id: string, parentId: string | null): Promise<string | null> {
+  if (parentId === id) return 'An account cannot be its own group';
+  if (parentId) {
+    const [parent] = await sql`
+      SELECT id, parent_account_id, account_subtype,
+        (SELECT p.account_subtype FROM gl_accounts p
+          WHERE p.id = gl_accounts.parent_account_id AND p.company_id = ${companyId}) AS parent_subtype
+      FROM gl_accounts
+      WHERE id = ${parentId} AND company_id = ${companyId}
+    `;
+    if (!parent || parent.account_subtype !== 'bank') return 'Group must be a bank account in this company';
+    if (parent.parent_subtype === 'bank') return 'Group account is already a sub-account of another group';
+    const [self] = await sql`
+      SELECT 1 FROM gl_accounts
+      WHERE parent_account_id = ${id} AND company_id = ${companyId} AND account_subtype = 'bank'
+      LIMIT 1
+    `;
+    if (self) return 'This account is a group itself — move its sub-accounts first';
+    // A group parent becomes invisible on the Bank Transactions page (the list
+    // shows leaves only), so an account with its own imported transactions
+    // must not be promoted to umbrella — its transactions would be unreachable.
+    const [parentTx] = await sql`
+      SELECT 1 FROM bank_transactions
+      WHERE bank_account_id = ${parentId} AND company_id = ${companyId}
+      LIMIT 1
+    `;
+    if (parentTx) return 'Group account has its own bank transactions — pick an account without transactions as the group';
+  }
+  await sql`
+    UPDATE gl_accounts SET parent_account_id = ${parentId}, updated_at = NOW()
+    WHERE id = ${id} AND account_subtype = 'bank' AND company_id = ${companyId}
+  `;
+  return null;
+}
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -47,6 +92,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const n = (v: number | string | null | undefined) =>
         v !== undefined && v !== null && v !== '' ? Number(v) : null;
       const bool = (v: boolean | null | undefined) => (typeof v === 'boolean' ? v : null);
+
+      if (Object.prototype.hasOwnProperty.call(req.body, 'parentAccountId')) {
+        const parentError = await assignParent(companyId, id, b.parentAccountId ?? null);
+        if (parentError) return apiResponse.badRequest(res, parentError);
+      }
 
       await sql`
         UPDATE gl_accounts SET
@@ -103,8 +153,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         COALESCE(s.unallocated_count, 0)  AS unallocated_count,
         COALESCE(s.allocated_count, 0)    AS allocated_count,
         s.first_date,
-        s.last_date
+        s.last_date,
+        gp.id           AS group_id,
+        gp.account_name AS group_name,
+        gp.account_code AS group_code
       FROM gl_accounts ga
+      LEFT JOIN gl_accounts gp
+        ON gp.id = ga.parent_account_id
+       AND gp.company_id = ga.company_id
+       AND gp.account_subtype = 'bank'
       LEFT JOIN LATERAL (
         SELECT
           COUNT(*)::INT                                             AS txn_count,
@@ -168,6 +225,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       bankOpeningBalance: Number(r.bank_opening_balance || 0),
       bankOpeningBalanceDate: r.bank_opening_balance_date ? String(r.bank_opening_balance_date).split('T')[0] : null,
       isActive: r.is_active,
+      groupId: r.group_id || null,
+      groupName: r.group_name || null,
+      groupCode: r.group_code || null,
       txnCount: Number(r.txn_count),
       totalDebits: Number(r.total_debits),
       totalCredits: Number(r.total_credits),

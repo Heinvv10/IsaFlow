@@ -3,8 +3,11 @@
  * Renders one card per bank account; active card is highlighted in teal.
  */
 
+import { useEffect, useMemo, useState } from 'react';
 import { StatementBalanceWidget } from '@/components/accounting/StatementBalanceWidget';
 import { formatCurrency as fmtCurrency } from '@/utils/formatters';
+import { groupBankAccounts } from './groupBankAccounts';
+import { BankGroupCard, BankGroupWorklist } from './BankSubAccountGroup';
 
 export interface BankAcct {
   id: string;
@@ -17,6 +20,12 @@ export interface BankAcct {
   unreconciledCount: number;
   allocatedCount: number;
   unallocatedCount: number;
+  /** Set when this account is a sub-account (its parent is also a bank account). */
+  groupId?: string | null;
+  groupName?: string | null;
+  groupCode?: string | null;
+  /** Date of the most recent imported transaction (YYYY-MM-DD). */
+  lastDate?: string | null;
 }
 
 type Tab = 'new' | 'reviewed' | 'excluded';
@@ -31,12 +40,22 @@ interface Props {
 
 export function BankTxBankCards({ bankAccounts, selectedBank, tab, total, onSelectBank }: Props) {
   const bank = bankAccounts.find(b => b.id === selectedBank);
+  const { primaries, groups } = useMemo(() => groupBankAccounts(bankAccounts), [bankAccounts]);
+  const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
+  const expandedGroup = groups.find(g => g.groupId === expandedGroupId);
+
+  // Deep links (?account_id=) can select a sub-account before any user
+  // interaction — auto-expand its group so the selection is visible.
+  useEffect(() => {
+    const owner = groups.find(g => g.accounts.some(a => a.id === selectedBank));
+    if (owner) setExpandedGroupId(prev => prev ?? owner.groupId);
+  }, [selectedBank, groups]);
 
   return (
     <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
       <h1 className="text-2xl font-bold text-[var(--ff-text-primary)] mb-3">Bank Transactions</h1>
       <div className="flex items-center gap-3 flex-wrap">
-        {bankAccounts.map(b => {
+        {primaries.map(b => {
           const active = b.id === selectedBank;
           const gap = b.unreconciledBalance;
           const hasGap = Math.abs(gap) >= 0.01;
@@ -82,6 +101,16 @@ export function BankTxBankCards({ bankAccounts, selectedBank, tab, total, onSele
           );
         })}
 
+        {groups.map(g => (
+          <BankGroupCard
+            key={g.groupId}
+            group={g}
+            containsSelection={g.accounts.some(a => a.id === selectedBank)}
+            expanded={g.groupId === expandedGroupId}
+            onToggle={() => setExpandedGroupId(prev => (prev === g.groupId ? null : g.groupId))}
+          />
+        ))}
+
         {bank && (
           <div className="ml-auto flex items-center gap-4">
             <StatementBalanceWidget bankAccountId={selectedBank} glBalance={bank.balance} />
@@ -106,6 +135,10 @@ export function BankTxBankCards({ bankAccounts, selectedBank, tab, total, onSele
           </div>
         )}
       </div>
+
+      {expandedGroup && (
+        <BankGroupWorklist group={expandedGroup} selectedBank={selectedBank} onSelectBank={onSelectBank} />
+      )}
     </div>
   );
 }

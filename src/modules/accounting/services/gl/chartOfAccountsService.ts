@@ -224,7 +224,8 @@ export async function createAccount(companyId: string, input: CreateAccountInput
     let level = 1;
     if (input.parentAccountId) {
       const parent = await sql`
-        SELECT id, level FROM gl_accounts WHERE id = ${input.parentAccountId}
+        SELECT id, level FROM gl_accounts
+        WHERE id = ${input.parentAccountId} AND company_id = ${companyId}
       ` as { level: number }[];
       if (parent.length === 0) {
         throw new Error(`Parent account ${input.parentAccountId} not found`);

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Landmark, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 
@@ -16,10 +16,12 @@ interface BankAccountSelectorProps {
   disabled?: boolean;
   /** Optional helper text rendered below the select. */
   helpText?: string;
+  /** Pre-select this account once options load (e.g. from a ?account_id= link). */
+  initialValue?: string | null;
 }
 
 export function BankAccountSelector(props: BankAccountSelectorProps) {
-  const { value, onChange, disabled, helpText } = props;
+  const { value, onChange, disabled, helpText, initialValue } = props;
   const [options, setOptions] = useState<BankAccountOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -55,6 +57,19 @@ export function BankAccountSelector(props: BankAccountSelectorProps) {
     })();
     return () => { alive = false; };
   }, []);
+
+  // Apply the deep-link preselect once options arrive. The fired ref makes
+  // this one-shot even if the parent re-renders with a fresh onChange before
+  // `value` settles; the `value` guard keeps manual selections untouched.
+  const preselectFired = useRef(false);
+  useEffect(() => {
+    if (preselectFired.current || !initialValue || value || options.length === 0) return;
+    const option = options.find(o => o.id === initialValue);
+    if (option) {
+      preselectFired.current = true;
+      onChange(option.id, option);
+    }
+  }, [initialValue, value, options, onChange]);
 
   function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const id = e.target.value;
