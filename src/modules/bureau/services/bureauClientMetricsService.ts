@@ -3,9 +3,12 @@
  *
  * The query shapes are copied from pages/api/accounting/dashboard-stats.ts so
  * these numbers match the Trial Balance / aging reports. Reads on the
- * RLS-bypassing @/lib/neon pool — the CALLER must have already verified the
- * companyId via getBureauClientForUser (tenant gate). Every query is scoped to
- * the single companyId; this function adds no new tenant surface.
+ * RLS-bypassing @/lib/neon pool — the CALLER must have already verified that the
+ * companyId belongs to the authenticated user: either via getBureauClientForUser
+ * (the firm/bureau path, /api/bureau/client/[companyId]) OR via withAuth's
+ * company_users membership check on the active company (the direct-client path,
+ * /api/home). Every query is scoped to the single companyId; this function adds
+ * no new tenant surface.
  */
 import { sql } from '@/lib/neon';
 import { AR_OPEN_STATUSES, AP_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
@@ -47,7 +50,7 @@ export function shapeClientMetrics(r: ClientMetricsRows): ClientMetrics {
   };
 }
 
-/** Runs 5 parallel aggregate queries and returns a typed metric set. Caller must pre-verify companyId via getBureauClientForUser. */
+/** Runs 5 parallel aggregate queries and returns a typed metric set. Caller must pre-verify the companyId belongs to the authenticated user (getBureauClientForUser for the bureau path, or withAuth's company_users membership for the direct /api/home path). */
 export async function clientMetricsSnapshot(companyId: string): Promise<ClientMetrics> {
   const now = new Date();
   // NOTE: month boundary uses server local time — matches dashboard-stats.ts
