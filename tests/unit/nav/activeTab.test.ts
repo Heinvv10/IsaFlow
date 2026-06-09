@@ -11,6 +11,7 @@ describe('getActiveModuleId (unchanged route mapping)', () => {
     expect(getActiveModuleId('/accounting/chart-of-accounts', q)).toBe('accounting');
     expect(getActiveModuleId('/accounting/afs', q)).toBe('reports');
     expect(getActiveModuleId('/accounting/vat-201', q)).toBe('tax');
+    expect(getActiveModuleId('/accounting/practice/clients', q)).toBe('practice');
     expect(getActiveModuleId('/payroll', q)).toBe('payroll');
   });
   it('keeps the sales precedence over reports for shared report routes', () => {
@@ -23,6 +24,7 @@ describe('getActiveTabId (top-bar wrapper)', () => {
     expect(getActiveTabId('/accounting/customers', q)).toBe('library');
     expect(getActiveTabId('/accounting/chart-of-accounts', q)).toBe('library');
     expect(getActiveTabId('/payroll', q)).toBe('library');
+    expect(getActiveTabId('/accounting/practice/clients', q)).toBe('library');
     expect(getActiveTabId('/accounting/library', q)).toBe('library');
   });
   it('passes through promoted + non-module ids unchanged', () => {

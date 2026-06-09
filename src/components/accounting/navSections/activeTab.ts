@@ -3,8 +3,12 @@
  *
  * Tabs: dashboard · sales · purchases · inventory · banking ·
  *       accounting · reports · tax · payroll · (settings — cog only)
+ *
+ * getActiveModuleId returns the raw module id; getActiveTabId collapses
+ * demoted modules → 'library'.
  */
 
+/** Raw module-id resolver — the active module without Library collapsing. */
 export function getActiveModuleId(
   pathname: string,
   query: Record<string, string | string[] | undefined>,
@@ -143,6 +147,9 @@ export function getActiveModuleId(
   ) {
     return 'reports';
   }
+
+  // ── Practice (firm tools: clients, jobs, time, WIP) ─────────────────────
+  if (pathname.startsWith('/accounting/practice')) return 'practice';
 
   // ── Payroll (employees, runs, leave only — SARS bits live under Tax) ────
   if (pathname.startsWith('/payroll')) return 'payroll';
