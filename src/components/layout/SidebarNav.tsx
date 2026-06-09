@@ -202,6 +202,23 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
             );
           }
 
+          if (tab.href && hasItems) {
+            return (
+              <Link key={tab.id} href={tab.href}
+                onMouseEnter={(e) => openFlyout(tab.id, e.currentTarget)}
+                onMouseLeave={dl}
+                className={`flex items-center justify-between px-4 py-2 text-sm font-medium transition-colors border-l-[3px] ${
+                  active || isOpen
+                    ? 'text-teal-700 dark:text-teal-300 bg-teal-500/[0.08] border-teal-500 dark:border-teal-400'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/5 border-transparent'
+                } ${collapsed ? 'justify-center px-0' : ''}`}
+                title={collapsed ? tab.label : undefined}>
+                <span>{collapsed ? tab.label.slice(0, 2) : tab.label}</span>
+                {!collapsed && <ChevronRight className={`w-3.5 h-3.5 flex-shrink-0 ${isOpen ? 'text-teal-600 dark:text-teal-400' : 'text-slate-400 dark:text-slate-500'}`} />}
+              </Link>
+            );
+          }
+
           return (
             <div key={tab.id}
               onMouseEnter={(e) => openFlyout(tab.id, e.currentTarget)}

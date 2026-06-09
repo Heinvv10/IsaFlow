@@ -298,6 +298,11 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor }: ModuleNavProps)
     : 'dashboard';
   const accent = ACCENT_CLASSES[accentColor];
 
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearHover = () => { if (hoverTimer.current) clearTimeout(hoverTimer.current); };
+  const delayedClose = () => { hoverTimer.current = setTimeout(() => setOpenTab(null), 150); };
+  useEffect(() => () => clearHover(), []);
+
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (navRef.current && !navRef.current.contains(e.target as Node)) setOpenTab(null);
@@ -313,9 +318,19 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor }: ModuleNavProps)
   return (
     <nav ref={navRef} className="bg-white dark:bg-gray-900 border-b border-gray-300 dark:border-gray-700 relative z-30">
       <div className="flex items-center gap-0 px-2">
-        {(tabs ?? []).map(t => (
-          <div key={t.id} className="relative" data-tour={`nav-${t.id}`}>
-            {t.href ? (
+        {(tabs ?? []).map(t => {
+          const linkFlyout = !!(t.href && t.items?.length);
+          return (
+          <div
+            key={t.id}
+            className="relative"
+            data-tour={`nav-${t.id}`}
+            onMouseEnter={linkFlyout
+              ? () => { clearHover(); setOpenTab(t.id); }
+              : () => clearHover()}
+            onMouseLeave={linkFlyout ? delayedClose : undefined}
+          >
+            {t.href && !t.items?.length ? (
               <Link
                 href={t.href}
                 className={`block px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
@@ -325,6 +340,18 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor }: ModuleNavProps)
                 }`}
               >
                 {t.label}
+              </Link>
+            ) : linkFlyout ? (
+              <Link
+                href={t.href as string}
+                className={`px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors flex items-center gap-1 ${
+                  activeTab === t.id
+                    ? `${accent.activeBorder} ${accent.activeText}`
+                    : 'border-transparent text-gray-400 hover:text-white'
+                }`}
+              >
+                {t.label}
+                <ChevronDown className={`h-3 w-3 transition-transform ${openTab === t.id ? 'rotate-180' : ''}`} />
               </Link>
             ) : (
               <button
@@ -346,7 +373,8 @@ export function ModuleNav({ tabs, getActiveTabId, accentColor }: ModuleNavProps)
                 : <FlatDropdown items={t.items as DropdownItem[]} asPath={router.asPath} onClose={() => setOpenTab(null)} accent={accent} />
             )}
           </div>
-        ))}
+          );
+        })}
       </div>
     </nav>
   );

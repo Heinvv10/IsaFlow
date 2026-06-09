@@ -34,6 +34,8 @@ import { CreateNewMenu } from '@/components/layout/CreateNewMenu';
 import { SettingsMenu } from '@/components/layout/SettingsMenu';
 import { TableDensityToggle } from '@/components/ui/TableDensityToggle';
 import { SidebarNav } from '@/components/layout/SidebarNav';
+import { SecondaryModuleNav } from '@/components/accounting/SecondaryModuleNav';
+import { getActiveModuleId } from '@/components/accounting/accountingNavConfig';
 import { CommandPalette } from '@/components/layout/CommandPalette';
 import { ShortcutHelpOverlay } from '@/components/layout/ShortcutHelpOverlay';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
@@ -66,6 +68,10 @@ interface AppLayoutProps {
 
 export function AppLayout({ children }: AppLayoutProps) {
   const router = useRouter();
+  const activeModuleId = getActiveModuleId(
+    router.pathname,
+    router.query as Record<string, string | string[] | undefined>,
+  );
   const { user, loading, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { companyRole, activeCompany } = useCompany();
@@ -472,6 +478,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         {!showSidebar && !isAdminHost && (
           <div className="relative z-40">
             <AccountingNav />
+            <SecondaryModuleNav moduleId={activeModuleId} />
           </div>
         )}
 
