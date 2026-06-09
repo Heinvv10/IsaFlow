@@ -16,10 +16,11 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { useCompany } from '@/contexts/CompanyContext';
 import { apiFetch } from '@/lib/apiFetch';
 import {
-  Briefcase, AlertCircle, Loader2, Clock, AlertTriangle, Info,
+  Briefcase, AlertCircle, Loader2,
   Building2, Filter,
 } from 'lucide-react';
 import { Feed, ActionRow } from '@/components/ui';
+import { SEVERITY_BADGE } from '@/components/bureau/severityBadge';
 
 type Severity = 'overdue' | 'due_soon' | 'info';
 
@@ -49,13 +50,6 @@ interface DashboardData {
   stats: { overdue: number; dueSoon: number; info: number; total: number; monthEnd?: { closed: number; total: number } };
   companyCount?: number;
 }
-
-// Urgency colors (not record-status tones) — intentionally literal, not the StatusBadge/statusVocabulary set.
-const SEVERITY_BADGE: Record<Severity, { bg: string; fg: string; icon: typeof AlertTriangle; label: string }> = {
-  overdue:  { bg: 'bg-red-500/10',     fg: 'text-red-400',     icon: AlertTriangle, label: 'Overdue' },
-  due_soon: { bg: 'bg-amber-500/10',   fg: 'text-amber-400',   icon: Clock,         label: 'Due soon' },
-  info:     { bg: 'bg-sky-500/10',     fg: 'text-sky-400',     icon: Info,          label: 'Open' },
-};
 
 export default function BureauDashboardPage() {
   const router = useRouter();
