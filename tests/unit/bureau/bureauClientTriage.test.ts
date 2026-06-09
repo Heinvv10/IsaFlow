@@ -27,7 +27,7 @@ describe('rollupClientTriage', () => {
 
   it('lights amber when due_soon present and no overdue', () => {
     const rows = rollupClientTriage([item('c1', 'due_soon'), item('c1', 'info')], [meta('c1', 'H10')]);
-    expect(rows[0]!.light).toBe('amber');
+    expect(rows[0]).toMatchObject({ light: 'amber', dueSoon: 1, info: 1, total: 2 });
   });
 
   it('lights blue when only info items', () => {
@@ -55,6 +55,25 @@ describe('rollupClientTriage', () => {
       ],
     );
     expect(rows.map((r) => r.companyName)).toEqual(['Alpha', 'Bravo', 'Acme', 'Zeta']);
+  });
+
+  it('breaks ties by name alphabetically within the same light tier and overdue count', () => {
+    const rows = rollupClientTriage(
+      // Two red clients with the SAME overdue count (1 each) — only localeCompare can decide.
+      // Three green clients (zero work) — same light, same overdue (0) — also name-decided.
+      [item('redB', 'overdue'), item('redA', 'overdue')],
+      [
+        meta('greenC', 'Charlie'),
+        meta('greenA', 'Alpha'),
+        meta('greenB', 'Bravo'),
+        meta('redB', 'Yankee'),
+        meta('redA', 'Xray'),
+      ],
+    );
+    expect(rows.map((r) => r.companyName)).toEqual(['Xray', 'Yankee', 'Alpha', 'Bravo', 'Charlie']);
+    expect(rows[0]).toMatchObject({ light: 'red', overdue: 1 });
+    expect(rows[1]).toMatchObject({ light: 'red', overdue: 1 });
+    expect(rows.slice(2).map((r) => r.light)).toEqual(['green', 'green', 'green']);
   });
 
   it('carries the correct bureau id/name per row and ignores work for companies absent from the roster', () => {
