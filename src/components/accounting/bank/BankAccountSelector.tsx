@@ -16,10 +16,12 @@ interface BankAccountSelectorProps {
   disabled?: boolean;
   /** Optional helper text rendered below the select. */
   helpText?: string;
+  /** Pre-select this account once options load (e.g. from a ?account_id= link). */
+  initialValue?: string | null;
 }
 
 export function BankAccountSelector(props: BankAccountSelectorProps) {
-  const { value, onChange, disabled, helpText } = props;
+  const { value, onChange, disabled, helpText, initialValue } = props;
   const [options, setOptions] = useState<BankAccountOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -55,6 +57,14 @@ export function BankAccountSelector(props: BankAccountSelectorProps) {
     })();
     return () => { alive = false; };
   }, []);
+
+  // Apply the deep-link preselect once options arrive; the `value` guard
+  // stops this from overriding a manual selection or re-firing.
+  useEffect(() => {
+    if (!initialValue || value || options.length === 0) return;
+    const option = options.find(o => o.id === initialValue);
+    if (option) onChange(option.id, option);
+  }, [initialValue, value, options, onChange]);
 
   function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const id = e.target.value;

@@ -8,11 +8,14 @@
  */
 
 import Link from 'next/link';
+import { useRouter } from 'next/router';
 import { ArrowLeft } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { BulkImportPanel } from '@/components/accounting/bank/BulkImportPanel';
 
 export default function BankStatementImportPage() {
+  const router = useRouter();
+  const accountId = typeof router.query.account_id === 'string' ? router.query.account_id : null;
   return (
     <AppLayout>
       <div className="mx-auto max-w-4xl space-y-6 px-4 py-6">
@@ -33,7 +36,7 @@ export default function BankStatementImportPage() {
           </p>
         </div>
 
-        <BulkImportPanel />
+        <BulkImportPanel initialAccountId={accountId} />
       </div>
     </AppLayout>
   );
