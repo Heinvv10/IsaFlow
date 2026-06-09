@@ -6,7 +6,6 @@
  * Purely presentational — it renders the ClientTriage[] the endpoint already
  * computed (via rollupClientTriage). No data fetching, no company switching.
  */
-import * as React from 'react';
 import Link from 'next/link';
 import { ChevronRight } from 'lucide-react';
 import { Feed } from '@/components/ui';
