@@ -1,11 +1,15 @@
 /**
- * AccountingNav configuration — Option B: Sage/Xero-style 9-menu spine.
+ * AccountingNav configuration — 5-tab front door.
  *
  * Top nav (left → right):
- *   Dashboard · Sales · Purchases · Inventory · Banking · Accounting · Reports · Tax · Payroll
+ *   Dashboard · Portfolio · Month-End · Banking · Library
  *
- * Settings lives behind a cog icon in the AppLayout header (top-right), not in the
- * main tab bar. The settingsTab below is exported for the cog flyout to consume.
+ * The 8 module tabs (Sales, Purchases, Inventory, Accounting, Reports, Tax,
+ * Payroll, Practice) are reachable via Library: click → /accounting/library
+ * landing grid; hover → flyout of the 8 modules.
+ *
+ * Settings lives behind a cog icon in the AppLayout header (top-right), not
+ * in the main tab bar. The settingsTab below is exported for the cog flyout.
  */
 
 // Import types (also re-exported below for backward compatibility)
@@ -16,33 +20,19 @@ export type { DropdownItem, FlyoutSection, NavItem, Tab };
 export { isFlyout };
 
 // Re-export route helpers
-export { getActiveTabId, isLinkActive } from './navSections/activeTab';
+export { getActiveTabId, getActiveModuleId, isLinkActive } from './navSections/activeTab';
 
-// Option B section tabs
-import { salesTab } from './navSections/sales';
-import { purchasesTab } from './navSections/purchases';
-import { inventoryTab } from './navSections/inventory';
+// Front-door section tabs
 import { bankingTab } from './navSections/banking';
-import { accountingTab } from './navSections/accounting';
-import { reportsTab } from './navSections/reports';
-import { taxTab } from './navSections/tax';
-import { payrollTab } from './navSections/payroll';
-import { practiceTab } from './navSections/practice';
+import { libraryTab } from './navSections/library';
 import { settingsTab } from './navSections/settings';
 
 export const TABS: Tab[] = [
   { id: 'dashboard', label: 'Dashboard', href: '/accounting' },
   { id: 'portfolio', label: 'Portfolio', href: '/accounting/portfolio-workbench' },
   { id: 'workbench', label: 'Month-End', href: '/accounting/month-end-workbench' },
-  salesTab,
-  purchasesTab,
-  inventoryTab,
   bankingTab,
-  accountingTab,
-  reportsTab,
-  taxTab,
-  payrollTab,
-  practiceTab,
+  libraryTab,
 ];
 
 // Settings tab — rendered behind the cog in the header, not in the main tab strip.

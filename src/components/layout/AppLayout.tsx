@@ -50,6 +50,9 @@ const AccountingNav = dynamic(
   () => import('@/components/accounting/AccountingNav').then(mod => ({ default: mod.AccountingNav })),
 );
 
+import { SecondaryModuleNav } from '@/components/accounting/SecondaryModuleNav';
+import { getActiveModuleId } from '@/components/accounting/accountingNavConfig';
+
 const SIDEBAR_COLLAPSED_KEY = 'accounting-sidebar-collapsed';
 const NAV_MODE_KEY = 'accounting-nav-mode';
 const PWA_INSTALL_DISMISSED_KEY = 'isaflow-pwa-install-dismissed';
@@ -66,6 +69,10 @@ interface AppLayoutProps {
 
 export function AppLayout({ children }: AppLayoutProps) {
   const router = useRouter();
+  const activeModuleId = getActiveModuleId(
+    router.pathname,
+    router.query as Record<string, string | string[] | undefined>,
+  );
   const { user, loading, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { companyRole, activeCompany } = useCompany();
@@ -472,6 +479,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         {!showSidebar && !isAdminHost && (
           <div className="relative z-40">
             <AccountingNav />
+            <SecondaryModuleNav moduleId={activeModuleId} />
           </div>
         )}
 
