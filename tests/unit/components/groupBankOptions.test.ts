@@ -32,14 +32,14 @@ describe('groupBankAccountOptions', () => {
     expect(res.groups).toEqual([]);
   });
 
-  it('groups only one level: a child-of-a-child nests under its direct parent', () => {
+  it('keeps an umbrella unselectable even when it is itself a child; drops empty groups', () => {
+    // G is m's parent, m is n's parent. Both G and m are umbrellas → neither is
+    // a selectable option. n nests under m. G's only member (m) is an umbrella,
+    // so group G has no selectable children and is dropped.
     const res = groupBankAccountOptions([o('G'), o('m', 'G'), o('n', 'm')]);
-    const ids = res.groups.map(g => g.umbrella.id).sort();
-    expect(ids).toEqual(['G', 'm']);
-    const gGroup = res.groups.find(g => g.umbrella.id === 'G')!;
-    const mGroup = res.groups.find(g => g.umbrella.id === 'm')!;
-    expect(gGroup.children.map(a => a.id)).toEqual(['m']);
-    expect(mGroup.children.map(a => a.id)).toEqual(['n']);
     expect(res.primaries).toEqual([]);
+    expect(res.groups).toHaveLength(1);
+    expect(res.groups[0]!.umbrella.id).toBe('m');
+    expect(res.groups[0]!.children.map(a => a.id)).toEqual(['n']);
   });
 });

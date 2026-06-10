@@ -28,7 +28,8 @@ export function groupBankAccountOptions<
   const groupIndex = new Map<string, number>();
 
   for (const a of accounts) {
-    // Register this account as an umbrella group if it has children in the list
+    // An umbrella is a group label only — never a selectable option, not even
+    // when it is itself the child of another umbrella (it stays unselectable).
     if (umbrellaIds.has(a.id)) {
       if (!groupIndex.has(a.id)) {
         groupIndex.set(a.id, groups.length);
@@ -36,8 +37,7 @@ export function groupBankAccountOptions<
       } else {
         groups[groupIndex.get(a.id)!]!.umbrella = a;
       }
-      // An umbrella may also be a child of another umbrella — fall through to
-      // the parent-check below so it gets added as a child there too.
+      continue;
     }
 
     if (a.parentAccountId && byId.has(a.parentAccountId)) {
@@ -53,12 +53,10 @@ export function groupBankAccountOptions<
       continue;
     }
 
-    // Only reach here for accounts that are neither umbrellas nor have a
-    // known parent — i.e. true standalone primaries
-    if (!umbrellaIds.has(a.id)) {
-      primaries.push(a);
-    }
+    primaries.push(a);
   }
 
-  return { primaries, groups };
+  // Drop groups whose only members were themselves umbrellas (no selectable
+  // children) — an empty <optgroup> is noise.
+  return { primaries, groups: groups.filter(g => g.children.length > 0) };
 }

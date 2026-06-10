@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Landmark, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { groupBankAccountOptions } from './groupBankOptions';
@@ -80,7 +80,7 @@ export function BankAccountSelector(props: BankAccountSelectorProps) {
     if (option) onChange(id, option);
   }
 
-  const grouped = groupBankAccountOptions(options);
+  const grouped = useMemo(() => groupBankAccountOptions(options), [options]);
 
   return (
     <div className="space-y-1.5">

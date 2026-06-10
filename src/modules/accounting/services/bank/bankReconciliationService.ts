@@ -28,7 +28,7 @@ export async function getReconciliations(
             (SELECT COUNT(*) FROM bank_transactions WHERE reconciliation_id = br.id AND status = 'matched') AS matched_count,
             (SELECT COUNT(*) FROM bank_transactions WHERE reconciliation_id = br.id AND status = 'imported') AS unmatched_count
           FROM bank_reconciliations br
-          LEFT JOIN gl_accounts ga ON ga.id = br.bank_account_id
+          LEFT JOIN gl_accounts ga ON ga.id = br.bank_account_id AND ga.company_id = ${companyId}
           LEFT JOIN gl_accounts pa ON pa.id = ga.parent_account_id AND pa.company_id = ga.company_id
           WHERE br.company_id = ${companyId} AND br.bank_account_id = ${bankAccountId}::UUID
           ORDER BY br.statement_date DESC`) as DbRow[]
@@ -40,7 +40,7 @@ export async function getReconciliations(
             (SELECT COUNT(*) FROM bank_transactions WHERE reconciliation_id = br.id AND status = 'matched') AS matched_count,
             (SELECT COUNT(*) FROM bank_transactions WHERE reconciliation_id = br.id AND status = 'imported') AS unmatched_count
           FROM bank_reconciliations br
-          LEFT JOIN gl_accounts ga ON ga.id = br.bank_account_id
+          LEFT JOIN gl_accounts ga ON ga.id = br.bank_account_id AND ga.company_id = ${companyId}
           LEFT JOIN gl_accounts pa ON pa.id = ga.parent_account_id AND pa.company_id = ga.company_id
           WHERE br.company_id = ${companyId}
           ORDER BY br.statement_date DESC`) as DbRow[];

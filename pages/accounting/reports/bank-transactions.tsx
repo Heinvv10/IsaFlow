@@ -68,7 +68,11 @@ export default function BankTransactionsPage() {
         const first = grouped.primaries[0] || grouped.groups[0]?.children[0];
         if (first) setAccountCode(first.accountCode);
       })
-      .catch(() => { /* picker stays empty; report load guards on accountCode */ });
+      .catch((err) => {
+        // Surface the load failure rather than swallowing it — the report can't
+        // run without a bank account, so the user needs to know why it's idle.
+        setError(err instanceof Error ? err.message : 'Failed to load bank accounts');
+      });
   }, []);
 
   const load = useCallback(async () => {
