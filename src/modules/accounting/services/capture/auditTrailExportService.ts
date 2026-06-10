@@ -389,7 +389,9 @@ export async function listPortalSessions(
   companyId: string,
 ): Promise<PortalSession[]> {
   const rows = (await sql`
-    SELECT * FROM audit_portal_sessions
+    SELECT id, company_id, export_id, auditor_email, issued_by,
+           issued_at, expires_at, revoked_at, last_used_at, use_count
+    FROM audit_portal_sessions
     WHERE export_id = ${exportId}::uuid AND company_id = ${companyId}::uuid
     ORDER BY issued_at DESC
   `) as Row[];

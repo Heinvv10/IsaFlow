@@ -73,31 +73,39 @@ export interface AuditLogFilters {
 }
 
 /**
+ * Strict audit write: throws on failure. Use where an unrecorded action
+ * must abort the request (compliance-gated paths like audit-trail export).
+ */
+export async function logAuditOrThrow(params: LogAuditParams): Promise<void> {
+  const changesJson = params.changes ? JSON.stringify(params.changes) : null;
+  await sql`
+    INSERT INTO audit_log (
+      company_id, user_id, user_email, action,
+      entity_type, entity_id, entity_ref,
+      changes, ip_address, user_agent, session_id
+    ) VALUES (
+      ${params.companyId}::UUID,
+      ${params.userId},
+      ${params.userEmail ?? null},
+      ${params.action},
+      ${params.entityType},
+      ${params.entityId}::UUID,
+      ${params.entityRef ?? null},
+      ${changesJson}::JSONB,
+      ${params.ip ?? null},
+      ${params.userAgent ?? null},
+      ${params.sessionId ?? null}::UUID
+    )
+  `;
+}
+
+/**
  * Fire-and-forget audit log writer. Never throws — errors are swallowed
  * so audit failures never break the calling transaction.
  */
 export async function logAudit(params: LogAuditParams): Promise<void> {
   try {
-    const changesJson = params.changes ? JSON.stringify(params.changes) : null;
-    await sql`
-      INSERT INTO audit_log (
-        company_id, user_id, user_email, action,
-        entity_type, entity_id, entity_ref,
-        changes, ip_address, user_agent, session_id
-      ) VALUES (
-        ${params.companyId}::UUID,
-        ${params.userId},
-        ${params.userEmail ?? null},
-        ${params.action},
-        ${params.entityType},
-        ${params.entityId}::UUID,
-        ${params.entityRef ?? null},
-        ${changesJson}::JSONB,
-        ${params.ip ?? null},
-        ${params.userAgent ?? null},
-        ${params.sessionId ? params.sessionId + '::UUID' : null}
-      )
-    `;
+    await logAuditOrThrow(params);
   } catch (err) {
     // Never surface audit errors to callers
     log.warn('Audit log write failed', { error: err, params }, 'audit-trail');

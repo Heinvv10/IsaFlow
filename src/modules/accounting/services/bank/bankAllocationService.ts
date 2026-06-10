@@ -378,7 +378,7 @@ export async function allocateTransaction(
     }
   }
 
-  const updated = (await sql`SELECT * FROM bank_transactions WHERE id = ${bankTxId}::UUID`) as Row[];
+  const updated = (await sql`SELECT * FROM bank_transactions WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
   return { journalEntryId: je.id, bankTransaction: mapTxRow(updated[0]!) };
 }
 
@@ -462,7 +462,7 @@ export async function splitAllocateTransaction(
   }
 
   log.info('Split-allocated bank transaction', { bankTxId, journalEntryId: je.id, lineCount: lines.length }, 'accounting');
-  const updated = (await sql`SELECT * FROM bank_transactions WHERE id = ${bankTxId}::UUID`) as Row[];
+  const updated = (await sql`SELECT * FROM bank_transactions WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
   return { journalEntryId: je.id, bankTransaction: mapTxRow(updated[0]!) };
 }
 
