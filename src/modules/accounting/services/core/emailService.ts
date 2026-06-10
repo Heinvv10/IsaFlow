@@ -82,6 +82,14 @@ interface SmtpConfig {
   user: string;
   pass: string;
   from: string;
+  /**
+   * Optional TLS SNI / cert-validation hostname. Use when the SMTP host's
+   * certificate is issued for a different name than SMTP_HOST — e.g. a shared
+   * mail server reachable as mail.isaflow.co.za but holding a *.jnb1.host-h.net
+   * wildcard cert. Setting this to the cert-matching FQDN (www513.jnb1.host-h.net)
+   * keeps full TLS verification instead of disabling it.
+   */
+  tlsServername?: string;
 }
 
 function getSmtpConfig(): SmtpConfig | null {
@@ -101,6 +109,7 @@ function getSmtpConfig(): SmtpConfig | null {
     user,
     pass,
     from,
+    tlsServername: process.env.SMTP_TLS_SERVERNAME || undefined,
   };
 }
 
@@ -134,6 +143,12 @@ export async function sendEmail(options: EmailOptions): Promise<EmailResult> {
       host: config.host,
       port: config.port,
       secure: config.port === 465,
+      // Validate the TLS cert against its real wildcard name when the host the
+      // app dials (SMTP_HOST) differs from the cert's CN/SAN. rejectUnauthorized
+      // is left at its default (true) — verification stays ON; we only correct
+      // the name it verifies against. Without this nodemailer rejects the cert
+      // and every send fails.
+      ...(config.tlsServername ? { tls: { servername: config.tlsServername } } : {}),
       auth: {
         user: config.user,
         pass: config.pass,
