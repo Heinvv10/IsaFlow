@@ -23,7 +23,7 @@ import {
 import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 import { postProvisional } from '@/modules/accounting/services/capture/provisionalPostingService';
 
-const ON: AutoPostSettings = { enabled: true, minConfidence: 0.9, amountCap: 10000 };
+const ON: AutoPostSettings = { enabled: true, minConfidence: 0.9, amountCap: 10000, llmEnabled: false, llmMinConfidence: 0.95, llmAmountCap: 2000 };
 const tx = (over: Partial<GateTx> = {}): GateTx => ({
   status: 'imported', amount: -500, suggestedGlAccountId: 'gl-1', ...over,
 });
@@ -81,13 +81,13 @@ describe('getAutoPostSettings', () => {
   it('returns disabled defaults when no row exists', async () => {
     sqlMock.mockResolvedValueOnce([]);
     const s = await getAutoPostSettings('co-1');
-    expect(s).toEqual({ enabled: false, minConfidence: 0.9, amountCap: 10000 });
+    expect(s).toEqual({ enabled: false, minConfidence: 0.9, amountCap: 10000, llmEnabled: false, llmMinConfidence: 0.95, llmAmountCap: 2000 });
   });
 
   it('maps an existing row', async () => {
-    sqlMock.mockResolvedValueOnce([{ enabled: true, min_confidence: '0.85', amount_cap: '5000' }]);
+    sqlMock.mockResolvedValueOnce([{ enabled: true, min_confidence: '0.85', amount_cap: '5000', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }]);
     const s = await getAutoPostSettings('co-1');
-    expect(s).toEqual({ enabled: true, minConfidence: 0.85, amountCap: 5000 });
+    expect(s).toEqual({ enabled: true, minConfidence: 0.85, amountCap: 5000, llmEnabled: false, llmMinConfidence: 0.95, llmAmountCap: 2000 });
   });
 });
 
@@ -105,24 +105,34 @@ describe('updateAutoPostSettings', () => {
   });
 
   it('upserts and returns the merged settings', async () => {
-    sqlMock.mockResolvedValueOnce([{ enabled: true, min_confidence: '0.9', amount_cap: '10000' }]);
+    sqlMock.mockResolvedValueOnce([{ enabled: true, min_confidence: '0.9', amount_cap: '10000', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }]);
     const s = await updateAutoPostSettings('co-1', { enabled: true }, 'u-1');
     expect(s.enabled).toBe(true);
     expect(sqlMock).toHaveBeenCalledTimes(1);
   });
 
   it('persists enabled:false without dropping it', async () => {
-    sqlMock.mockResolvedValueOnce([{ enabled: false, min_confidence: '0.9', amount_cap: '10000' }]);
+    sqlMock.mockResolvedValueOnce([{ enabled: false, min_confidence: '0.9', amount_cap: '10000', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }]);
     const s = await updateAutoPostSettings('co-1', { enabled: false }, 'u-1');
     expect(s.enabled).toBe(false);
     expect(sqlMock).toHaveBeenCalledTimes(1);
   });
 
   it('accepts amountCap 0 (uncapped) and forwards it', async () => {
-    sqlMock.mockResolvedValueOnce([{ enabled: true, min_confidence: '0.9', amount_cap: '0' }]);
+    sqlMock.mockResolvedValueOnce([{ enabled: true, min_confidence: '0.9', amount_cap: '0', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }]);
     const s = await updateAutoPostSettings('co-1', { amountCap: 0 }, 'u-1');
     expect(s.amountCap).toBe(0);
     expect(sqlMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('updateAutoPostSettings — LLM field validation', () => {
+  it('rejects llmMinConfidence outside (0,1]', async () => {
+    await expect(updateAutoPostSettings('c', { llmMinConfidence: 0 }, 'u')).rejects.toThrow(/llm_min_confidence/);
+    await expect(updateAutoPostSettings('c', { llmMinConfidence: 1.5 }, 'u')).rejects.toThrow(/llm_min_confidence/);
+  });
+  it('rejects negative llmAmountCap', async () => {
+    await expect(updateAutoPostSettings('c', { llmAmountCap: -1 }, 'u')).rejects.toThrow(/llm_amount_cap/);
   });
 });
 
@@ -152,7 +162,7 @@ describe('sweep', () => {
 
   it('lazily creates the run row on the first post and tags the tx (suggestion path)', async () => {
     routeSql([
-      { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000' }] },
+      { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }] },
       { match: /FROM bank_transactions\s+WHERE id = ANY/, rows: [
         { id: 't1', status: 'imported', amount: -500, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.95', suggested_vat_code: null, description: 'Coffee' },
       ] },
@@ -180,7 +190,7 @@ describe('sweep', () => {
 
   it('records a skip and never creates a run when nothing qualifies', async () => {
     routeSql([
-      { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000' }] },
+      { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }] },
       { match: /FROM bank_transactions\s+WHERE id = ANY/, rows: [
         { id: 't1', status: 'imported', amount: -500, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.5', suggested_vat_code: null, description: 'x' },
       ] },
@@ -193,7 +203,7 @@ describe('sweep', () => {
 
   it('isolates a per-tx failure and keeps sweeping', async () => {
     routeSql([
-      { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000' }] },
+      { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }] },
       { match: /FROM bank_transactions\s+WHERE id = ANY/, rows: [
         { id: 't1', status: 'imported', amount: -100, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.95', suggested_vat_code: null, description: 'a' },
         { id: 't2', status: 'imported', amount: -200, suggested_gl_account_id: 'gl-2', suggested_confidence: '0.95', suggested_vat_code: null, description: 'b' },
@@ -213,7 +223,7 @@ describe('sweep', () => {
 
   it('uses the provisional path for the import source', async () => {
     routeSql([
-      { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000' }] },
+      { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }] },
       { match: /FROM bank_transactions\s+WHERE id = ANY/, rows: [
         { id: 't1', status: 'imported', amount: -300, suggested_gl_account_id: null, suggested_confidence: null, suggested_vat_code: null, description: 'EFT' },
       ] },
