@@ -210,7 +210,13 @@ export async function executeArchive(
           supplierInvoicesArchived: String(supplierInvoicesArchived),
         },
       },
-    }).catch(() => undefined);
+    }).catch((err: unknown) =>
+      log.error(
+        'archive run completed but audit_trail write failed',
+        { runId, companyId, error: err instanceof Error ? err.message : String(err) },
+        'archiveExecution',
+      ),
+    );
 
     log.info('Archive run completed', {
       companyId, runId, entriesArchived, linesArchived,
