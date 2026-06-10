@@ -144,7 +144,7 @@ export async function createCustomerPayment(companyId: string,
       ),
     ] as ReturnType<typeof tx>[]);
 
-    const paymentRows = (await sql`SELECT cp.*, c.name AS client_name FROM customer_payments cp LEFT JOIN customers c ON c.id = cp.client_id WHERE cp.id = ${paymentId}::UUID`) as Row[];
+    const paymentRows = (await sql`SELECT cp.*, c.name AS client_name FROM customer_payments cp LEFT JOIN customers c ON c.id = cp.client_id WHERE cp.id = ${paymentId}::UUID AND cp.company_id = ${companyId}::UUID`) as Row[];
     const paymentRow = paymentRows[0]!;
 
     log.info('Created customer payment', { paymentId, totalAmount: input.totalAmount }, 'accounting');
