@@ -41,41 +41,37 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     // Opening cash balance (bank accounts before period start)
     let openingBalance = 0;
-    try {
-      if (hasSubtype) {
-        const [row] = await sql`
-          SELECT COALESCE(SUM(
-            CASE WHEN ga.normal_balance = 'debit' THEN jl.debit - jl.credit ELSE jl.credit - jl.debit END
-          ), 0)::numeric AS balance
-          FROM gl_journal_lines jl
-          JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-          JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-          WHERE jl.company_id = ${companyId}::UUID
-          AND ga.account_subtype = 'bank'
-            AND je.company_id = ${companyId}
-            AND je.status = 'posted'
-            AND je.entry_date < ${periodStart}
-        `;
-        openingBalance = Number(row?.balance || 0);
-      } else {
-        const [row] = await sql`
-          SELECT COALESCE(SUM(
-            CASE WHEN ga.normal_balance = 'debit' THEN jl.debit - jl.credit ELSE jl.credit - jl.debit END
-          ), 0)::numeric AS balance
-          FROM gl_journal_lines jl
-          JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-          JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-          WHERE jl.company_id = ${companyId}::UUID
-          AND (ga.account_name ILIKE '%bank%' OR ga.account_code LIKE '11%')
-            AND ga.account_type = 'asset'
-            AND je.company_id = ${companyId}
-            AND je.status = 'posted'
-            AND je.entry_date < ${periodStart}
-        `;
-        openingBalance = Number(row?.balance || 0);
-      }
-    } catch {
-      openingBalance = 0;
+    if (hasSubtype) {
+      const [row] = await sql`
+        SELECT COALESCE(SUM(
+          CASE WHEN ga.normal_balance = 'debit' THEN jl.debit - jl.credit ELSE jl.credit - jl.debit END
+        ), 0)::numeric AS balance
+        FROM gl_journal_lines jl
+        JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+        JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+        WHERE jl.company_id = ${companyId}::UUID
+        AND ga.account_subtype = 'bank'
+          AND je.company_id = ${companyId}
+          AND je.status = 'posted'
+          AND je.entry_date < ${periodStart}
+      `;
+      openingBalance = Number(row?.balance || 0);
+    } else {
+      const [row] = await sql`
+        SELECT COALESCE(SUM(
+          CASE WHEN ga.normal_balance = 'debit' THEN jl.debit - jl.credit ELSE jl.credit - jl.debit END
+        ), 0)::numeric AS balance
+        FROM gl_journal_lines jl
+        JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+        JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+        WHERE jl.company_id = ${companyId}::UUID
+        AND (ga.account_name ILIKE '%bank%' OR ga.account_code LIKE '11%')
+          AND ga.account_type = 'asset'
+          AND je.company_id = ${companyId}
+          AND je.status = 'posted'
+          AND je.entry_date < ${periodStart}
+      `;
+      openingBalance = Number(row?.balance || 0);
     }
 
     // Net income from P&L accounts in period
