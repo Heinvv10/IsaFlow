@@ -199,6 +199,7 @@ interface SweepRow {
   suggested_gl_account_id: string | null;
   suggested_confidence: string | number | null;
   suggested_vat_code: string | null;
+  suggested_strategy: string | null;
   description: string | null;
 }
 
@@ -215,13 +216,13 @@ export async function sweep(
   userId: string,
 ): Promise<SweepResult> {
   const settings = await getAutoPostSettings(companyId);
-  if (!settings.enabled || txIds.length === 0) {
+  if ((!settings.enabled && !settings.llmEnabled) || txIds.length === 0) {
     return { runId: null, posted: 0, skipped: [] };
   }
 
   const rows = (await sql`
     SELECT id, status, amount, suggested_gl_account_id, suggested_confidence,
-           suggested_vat_code, description
+           suggested_vat_code, suggested_strategy, description
     FROM bank_transactions
     WHERE id = ANY(${txIds}::UUID[]) AND company_id = ${companyId}::UUID
   `) as unknown as SweepRow[];
@@ -254,7 +255,7 @@ export async function sweep(
       { status: row.status, amount: Number(row.amount), suggestedGlAccountId: row.suggested_gl_account_id },
       confidence,
       settings,
-      null,
+      isImport ? null : (row.suggested_strategy ?? null),
     );
     if (decision.outcome === 'skip') {
       skipped.push({ txId: row.id, reason: decision.reason });
