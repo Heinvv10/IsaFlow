@@ -80,6 +80,7 @@ export async function allocateTransaction(
   description?: string, allocType: AllocationType = 'account', entityId?: string,
   vatCode?: string, cc1Id?: string, cc2Id?: string, buId?: string,
   invoiceId?: string,
+  opts?: { postingAgent?: string },
 ): Promise<{ journalEntryId: string; bankTransaction: BankTransaction }> {
   const txRows = (await sql`SELECT * FROM bank_transactions WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
   if (txRows.length === 0) throw new Error(`Bank transaction ${bankTxId} not found`);
@@ -245,7 +246,7 @@ export async function allocateTransaction(
   }
 
   const allocationMeta: JournalEntryMeta = {
-    postingAgent: 'system:bank-allocation:v1',
+    postingAgent: opts?.postingAgent ?? 'system:bank-allocation:v1',
     sourceDocumentId: invoiceSourceDocId,
   };
 

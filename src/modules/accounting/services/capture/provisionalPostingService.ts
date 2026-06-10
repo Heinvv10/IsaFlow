@@ -272,22 +272,3 @@ export async function postProvisional(
   return { journalEntryId: je.id, prediction };
 }
 
-// ── Batch helper for bank import ─────────────────────────────────────────────
-
-export async function autoProvisionalBatch(
-  companyId: string,
-  bankTxIds: string[],
-  userId: string,
-): Promise<void> {
-  for (const txId of bankTxIds) {
-    try {
-      await postProvisional(companyId, txId, userId);
-    } catch (err) {
-      log.warn('Provisional post failed for bank transaction — skipping', {
-        companyId,
-        bankTxId: txId,
-        error: err instanceof Error ? err.message : String(err),
-      }, 'provisional-posting');
-    }
-  }
-}

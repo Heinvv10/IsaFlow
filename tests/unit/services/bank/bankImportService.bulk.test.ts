@@ -24,8 +24,8 @@ vi.mock('@/lib/neon', () => ({
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
-vi.mock('@/modules/accounting/services/capture/provisionalPostingService', () => ({
-  autoProvisionalBatch: vi.fn().mockResolvedValue(undefined),
+vi.mock('@/modules/accounting/services/bank/autoPostGateService', () => ({
+  sweep: vi.fn().mockResolvedValue({ runId: null, posted: 0, skipped: [] }),
 }));
 
 import { importParsedTransactions } from '@/modules/accounting/services/bank/bankImportService';

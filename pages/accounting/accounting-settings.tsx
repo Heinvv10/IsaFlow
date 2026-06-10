@@ -33,11 +33,20 @@ const SETTINGS_DEFINITIONS: Omit<SettingItem, 'value'>[] = [
   },
 ];
 
+interface AutoPostSettings {
+  enabled: boolean;
+  minConfidence: number;
+  amountCap: number;
+}
+
 export default function AccountingSettingsPage() {
   const [settings, setSettings] = useState<SettingItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [ap, setAp] = useState<AutoPostSettings>({ enabled: false, minConfidence: 0.9, amountCap: 10000 });
+  const [apDraft, setApDraft] = useState<{ minConfidence: string; amountCap: string }>({ minConfidence: '0.9', amountCap: '10000' });
+  const [apSaving, setApSaving] = useState(false);
 
   useEffect(() => {
     async function loadSettings() {
@@ -63,6 +72,43 @@ export default function AccountingSettingsPage() {
     }
     loadSettings();
   }, []);
+
+  useEffect(() => {
+    apiFetch('/api/accounting/bank-auto-post', { credentials: 'include' })
+      .then((r) => r.json())
+      .then((j: { data?: { settings?: AutoPostSettings } }) => {
+        if (j?.data?.settings) setAp(j.data.settings);
+        // else: leave defaults; card still renders with sensible values
+      })
+      .catch(() => {
+        // Leave defaults — the card still renders; non-fatal on settings load
+      });
+  }, []);
+
+  // Sync the editable string drafts whenever ap changes (initial GET hydration
+  // and after every successful save) so the inputs always track server state.
+  useEffect(() => {
+    setApDraft({ minConfidence: String(ap.minConfidence), amountCap: String(ap.amountCap) });
+  }, [ap.minConfidence, ap.amountCap]);
+
+  async function saveAutoPost(patch: Partial<AutoPostSettings>) {
+    setApSaving(true);
+    try {
+      const res = await apiFetch('/api/accounting/bank-auto-post', {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      const j = (await res.json()) as { data?: { settings?: AutoPostSettings }; error?: string };
+      if (j?.data?.settings) setAp(j.data.settings);
+      else setError(j?.error ?? 'Failed to save auto-post settings');
+    } catch {
+      setError('Failed to save auto-post settings');
+    } finally {
+      setApSaving(false);
+    }
+  }
 
   const updateSetting = async (key: string, value: string) => {
     setSettings(prev => prev.map(s => s.key === key ? { ...s, value } : s));
@@ -172,6 +218,50 @@ export default function AccountingSettingsPage() {
                   No configurable settings
                 </div>
               )}
+
+              <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5 mt-6">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1">
+                    <label className="block text-sm font-medium text-[var(--ff-text-primary)] mb-1">
+                      Auto-post high-confidence transactions
+                    </label>
+                    <p className="text-xs text-[var(--ff-text-tertiary)] mb-3">
+                      Posts journal entries automatically. Transactions above the cap or below the
+                      confidence threshold always go to review.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={apSaving}
+                    onClick={() => saveAutoPost({ enabled: !ap.enabled })}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 ${ap.enabled ? 'bg-green-600 text-white' : 'bg-slate-500/20 text-[var(--ff-text-secondary)]'}`}
+                  >
+                    {ap.enabled ? 'On' : 'Off'}
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-4 mt-2">
+                  <div>
+                    <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">Min confidence (0–1)</label>
+                    <input
+                      type="number" step="0.01" min="0.01" max="1"
+                      className="ff-input text-sm w-full"
+                      value={apDraft.minConfidence}
+                      onChange={(e) => setApDraft((d) => ({ ...d, minConfidence: e.target.value }))}
+                      onBlur={(e) => saveAutoPost({ minConfidence: Number(e.target.value) })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-[var(--ff-text-secondary)] mb-1">Amount cap (R, 0 = none)</label>
+                    <input
+                      type="number" step="1" min="0"
+                      className="ff-input text-sm w-full"
+                      value={apDraft.amountCap}
+                      onChange={(e) => setApDraft((d) => ({ ...d, amountCap: e.target.value }))}
+                      onBlur={(e) => saveAutoPost({ amountCap: Number(e.target.value) })}
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
           )}
         </div>

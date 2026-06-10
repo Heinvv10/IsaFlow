@@ -5,7 +5,7 @@
 
 import { transaction, sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { autoProvisionalBatch } from '../capture/provisionalPostingService';
+import { sweep } from './autoPostGateService';
 import {
   detectBankFormat,
   parseFNBStatement,
@@ -96,10 +96,10 @@ export async function importBankStatement(
       `) as { id: string }[];
       if (outflowIds.length > 0) {
         const systemUser = '00000000-0000-0000-0000-000000000000';
-        await autoProvisionalBatch(companyId, outflowIds.map((r) => String(r.id)), systemUser);
+        await sweep(companyId, outflowIds.map((r) => String(r.id)), 'import', systemUser);
       }
     } catch (provErr) {
-      log.warn('autoProvisionalBatch failed after import — non-fatal', { batchId, error: provErr }, 'accounting');
+      log.warn('auto-post sweep failed after import — non-fatal', { batchId, error: provErr }, 'accounting');
     }
 
     return {
@@ -250,10 +250,10 @@ export async function importParsedTransactions(
       `) as { id: string }[];
       if (outflowIds.length > 0) {
         const systemUser = '00000000-0000-0000-0000-000000000000';
-        await autoProvisionalBatch(companyId, outflowIds.map((r) => String(r.id)), systemUser);
+        await sweep(companyId, outflowIds.map((r) => String(r.id)), 'import', systemUser);
       }
     } catch (provErr) {
-      log.warn('autoProvisionalBatch failed after parsed import — non-fatal', { batchId, error: provErr }, 'accounting');
+      log.warn('auto-post sweep failed after parsed import — non-fatal', { batchId, error: provErr }, 'accounting');
     }
 
     return {
