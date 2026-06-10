@@ -11,6 +11,7 @@ import {
   parseCategorizationResponse,
   type ChartOfAccountEntry,
 } from '@/modules/accounting/services/core/aiCategorizationService';
+import { sweep as gateSweep } from './autoPostGateService';
 
 // ─── Residual selector ────────────────────────────────────────────────────────
 
@@ -168,11 +169,11 @@ export async function loadAccountsForCompany(
   companyId: string,
 ): Promise<Array<ChartOfAccountEntry & { id?: string }>> {
   const rows = await sql`
-    SELECT id, code, name, type
+    SELECT id, account_code AS code, account_name AS name, account_type AS type
     FROM gl_accounts
-    WHERE company_id = ${companyId}
+    WHERE company_id = ${companyId}::UUID
       AND is_active = true
-    ORDER BY code
+    ORDER BY account_code
   `;
   return rows as Array<ChartOfAccountEntry & { id?: string }>;
 }
@@ -186,16 +187,16 @@ export async function loadCandidatesForTxIds(
     SELECT id, status, suggested_gl_account_id, suggested_confidence,
            description, amount, transaction_date
     FROM bank_transactions
-    WHERE company_id = ${companyId}
+    WHERE company_id = ${companyId}::UUID
       AND id = ANY(${txIds}::uuid[])
   `;
   return rows.map((r: Record<string, unknown>) => ({
     id: r['id'] as string,
     status: r['status'] as string,
     suggestedGlAccountId: (r['suggested_gl_account_id'] as string | null) ?? null,
-    suggestedConfidence: (r['suggested_confidence'] as number | null) ?? null,
+    suggestedConfidence: r['suggested_confidence'] == null ? null : Number(r['suggested_confidence']),
     description: (r['description'] as string) ?? '',
-    amount: r['amount'] as number,
+    amount: Number(r['amount']),
     transactionDate: r['transaction_date'] instanceof Date
       ? (r['transaction_date'] as Date).toISOString().slice(0, 10)
       : String(r['transaction_date'] ?? ''),
@@ -217,4 +218,44 @@ export async function persistLlmResult(
     WHERE id = ${txId}
       AND company_id = ${companyId}
   `;
+}
+
+// ─── Daily ceiling helpers ────────────────────────────────────────────────────
+
+export const MAX_LLM_CALLS_PER_RUN = 200;
+export const DAILY_LLM_CEILING = 1000;
+
+/** Pure arithmetic — separated for unit-testability. */
+export function remainingFromCount(count: number): number {
+  return Math.max(0, DAILY_LLM_CEILING - count);
+}
+
+/** Remaining LLM-call headroom for the company today (under DAILY_LLM_CEILING). */
+export async function llmCallsRemainingToday(companyId: string): Promise<number> {
+  const rows = await sql`
+    SELECT COUNT(*)::int AS n
+    FROM bank_transactions
+    WHERE company_id = ${companyId}::UUID
+      AND suggested_strategy = 'llm'
+      AND updated_at >= date_trunc('day', NOW())
+  ` as Array<{ n: number }>;
+  return remainingFromCount(rows[0]?.n ?? 0);
+}
+
+// ─── RunDeps composer (single source of truth for endpoints) ─────────────────
+
+/** Builds production RunDeps for a residual id set. */
+export async function buildRunDeps(
+  companyId: string,
+  userId: string,
+  txIds: string[],
+): Promise<RunDeps> {
+  return {
+    maxCalls: MAX_LLM_CALLS_PER_RUN,
+    dailyRemaining: await llmCallsRemainingToday(companyId),
+    loadAccounts: () => loadAccountsForCompany(companyId),
+    loadCandidates: () => loadCandidatesForTxIds(companyId, txIds),
+    persist: (txId, r) => persistLlmResult(companyId, txId, r),
+    sweep: (ids) => gateSweep(companyId, ids, 'categorization', userId),
+  };
 }

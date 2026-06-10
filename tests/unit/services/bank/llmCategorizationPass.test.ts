@@ -6,6 +6,8 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.
 import {
   selectResidualTxIds,
   runLlmResidualPass,
+  remainingFromCount,
+  DAILY_LLM_CEILING,
   type ResidualCandidate,
   type LlmCatResult,
   type LlmTxContext,
@@ -42,6 +44,17 @@ const mockResult: LlmCatResult = {
 const makeTx = (id: string): LlmTxContext => ({
   id, status: 'imported', suggestedGlAccountId: null, suggestedConfidence: null,
   description: id === 't1' ? 'X' : 'Y', amount: -100, transactionDate: '2026-01-01',
+});
+
+// ─── Task 9: remainingFromCount (pure daily ceiling math) ─────────────────────
+
+describe('remainingFromCount', () => {
+  it('returns headroom when count is below ceiling', () => {
+    expect(remainingFromCount(950)).toBe(DAILY_LLM_CEILING - 950);
+  });
+  it('clamps to 0 when count exceeds ceiling', () => {
+    expect(remainingFromCount(1200)).toBe(0);
+  });
 });
 
 describe('runLlmResidualPass', () => {
