@@ -143,7 +143,7 @@ export async function runLlmResidualPass(
     const accounts = await deps.loadAccounts();
     const tagged: string[] = [];
     const catFn = deps.categorizeOne ?? categorizeOneWithLlm;
-    await runWithConcurrency(residualIds, 4, async (id) => {
+    const settled = await runWithConcurrency(residualIds, 4, async (id) => {
       const tx = byId.get(id);
       if (!tx) return;
       const r = await catFn(tx, accounts);
@@ -152,6 +152,10 @@ export async function runLlmResidualPass(
         tagged.push(id);
       }
     });
+    const failures = settled.filter((s) => s && s.status === 'rejected').length;
+    if (failures > 0) {
+      log.warn('LLM pass: some residual items failed', { companyId, failures, attempted: residualIds.length }, 'llm-pass');
+    }
     if (tagged.length > 0) await deps.sweep(tagged);
   } catch (err) {
     log.warn(
@@ -215,8 +219,8 @@ export async function persistLlmResult(
         suggested_vat_code      = ${r.vatCode ?? null},
         suggested_strategy      = 'llm',
         updated_at              = NOW()
-    WHERE id = ${txId}
-      AND company_id = ${companyId}
+    WHERE id = ${txId}::UUID
+      AND company_id = ${companyId}::UUID
   `;
 }
 
