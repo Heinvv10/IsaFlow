@@ -192,7 +192,7 @@ export async function executeArchive(
       WHERE id = ${runId}
     `;
 
-    logAuditOrThrow({
+    await logAuditOrThrow({
       companyId,
       userId,
       action: 'export',
