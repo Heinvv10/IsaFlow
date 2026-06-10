@@ -268,7 +268,7 @@ export default function LoginPage() {
   }, [inviteToken]);
 
   // Post-auth redirect. The server resolver decides the default landing
-  // (onboarding / firm /accounting / direct /home); an explicit deep-link
+  // (onboarding / firm /bureau / direct /home); an explicit deep-link
   // returnTo still wins, and no-companies always forces onboarding.
   const postLoginRedirect = async (): Promise<string> => {
     if (isAdminHost) return returnTo;
@@ -283,9 +283,10 @@ export default function LoginPage() {
       }
     } catch {
       // Non-fatal — fall through to the configured returnTo.
-      // On a transient /api/auth/landing failure a direct client lands on the
-      // default (/accounting) rather than /home; acceptable since their data is
-      // still reachable and the next login resolves correctly.
+      // On a transient /api/auth/landing failure the user lands on the default
+      // returnTo (/accounting) rather than their resolved target (firm /bureau,
+      // direct /home); acceptable since their data is still reachable and the
+      // next login resolves correctly.
     }
     return returnTo;
   };
