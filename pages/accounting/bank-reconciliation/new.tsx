@@ -3,18 +3,16 @@
  * PRD-060 Phase 4: Create reconciliation session
  */
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Landmark, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
-
-interface BankAccount { id: string; account_code: string; account_name: string; bank_account_number?: string | null }
+import { BankAccountSelector } from '@/components/accounting/bank/BankAccountSelector';
 
 export default function NewReconciliationPage() {
   const router = useRouter();
-  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -23,21 +21,6 @@ export default function NewReconciliationPage() {
     statementDate: new Date().toISOString().split('T')[0],
     statementBalance: 0,
   });
-
-  useEffect(() => {
-    apiFetch('/api/accounting/chart-of-accounts?subtype=bank')
-      .then(r => r.json())
-      .then(res => {
-        const data = res.data || res;
-        const accounts = Array.isArray(data) ? data : data.accounts || [];
-        setBankAccounts(accounts.map((a: { id: string; accountCode?: string; account_code?: string; accountName?: string; account_name?: string; bankAccountNumber?: string; bank_account_number?: string }) => ({
-          id: a.id,
-          account_code: a.accountCode || a.account_code || '',
-          account_name: a.accountName || a.account_name || '',
-          bank_account_number: a.bankAccountNumber || a.bank_account_number || null,
-        })));
-      });
-  }, []);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -92,24 +75,10 @@ export default function NewReconciliationPage() {
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-6 space-y-4">
             <h2 className="text-lg font-semibold text-[var(--ff-text-primary)]">Reconciliation Setup</h2>
 
-            <div>
-              <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Bank Account *</label>
-              <select
-                name="bankAccountId"
-                value={form.bankAccountId}
-                onChange={e => setForm(f => ({ ...f, bankAccountId: e.target.value }))}
-                className="ff-select w-full"
-                required
-              >
-                <option value="">Select bank account...</option>
-                {bankAccounts.map(a => (
-                  <option key={a.id} value={a.id}>
-                    {a.account_code} — {a.account_name}
-                    {a.bank_account_number ? ` (****${a.bank_account_number.slice(-4)})` : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <BankAccountSelector
+              value={form.bankAccountId || null}
+              onChange={(id) => setForm(f => ({ ...f, bankAccountId: id }))}
+            />
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>

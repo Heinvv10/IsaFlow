@@ -110,6 +110,8 @@ export interface BankReconciliation {
   bankAccountName?: string;
   matchedCount?: number;
   unmatchedCount?: number;
+  groupId?: string;
+  groupName?: string;
 }
 
 // ── Auto-Match ───────────────────────────────────────────────────────────────

@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Landmark, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { groupBankAccountOptions } from './groupBankOptions';
 
 export interface BankAccountOption {
   id: string;
@@ -8,6 +9,7 @@ export interface BankAccountOption {
   accountName: string;
   accountCode: string;
   accountNumberLast4: string;
+  parentAccountId: string | null;
 }
 
 interface BankAccountSelectorProps {
@@ -45,6 +47,7 @@ export function BankAccountSelector(props: BankAccountSelectorProps) {
             accountCode: code,
             accountNumberLast4: last4,
             label: `${code} — ${name}${last4 ? ` (****${last4})` : ''}`,
+            parentAccountId: a.parentAccountId || a.parent_account_id || null,
           };
         });
         setOptions(mapped);
@@ -77,6 +80,8 @@ export function BankAccountSelector(props: BankAccountSelectorProps) {
     if (option) onChange(id, option);
   }
 
+  const grouped = useMemo(() => groupBankAccountOptions(options), [options]);
+
   return (
     <div className="space-y-1.5">
       <label className="flex items-center gap-2 text-sm font-medium text-[var(--ff-text-primary)]">
@@ -93,10 +98,19 @@ export function BankAccountSelector(props: BankAccountSelectorProps) {
           <option value="" disabled>
             {loading ? 'Loading bank accounts…' : options.length === 0 ? 'No bank accounts found' : 'Select a bank account'}
           </option>
-          {options.map(o => (
+          {grouped.primaries.map(o => (
             <option key={o.id} value={o.id}>
               {o.label}
             </option>
+          ))}
+          {grouped.groups.map(g => (
+            <optgroup key={g.umbrella.id} label={g.umbrella.label}>
+              {g.children.map(o => (
+                <option key={o.id} value={o.id}>
+                  {o.label}
+                </option>
+              ))}
+            </optgroup>
           ))}
         </select>
         {loading && (

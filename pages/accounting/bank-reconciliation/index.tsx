@@ -3,7 +3,7 @@
  * PRD-060 Phase 4: Reconciliation sessions
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, Fragment } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import {
@@ -47,6 +47,52 @@ export default function BankReconciliationListPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  const grouped = useMemo(() => {
+    const primaries: BankReconciliation[] = [];
+    const order: string[] = [];
+    const byGroup = new Map<string, { name: string; rows: BankReconciliation[] }>();
+    for (const r of reconciliations) {
+      if (r.groupId && r.groupName) {
+        let g = byGroup.get(r.groupId);
+        if (!g) { g = { name: r.groupName, rows: [] }; byGroup.set(r.groupId, g); order.push(r.groupId); }
+        g.rows.push(r);
+      } else {
+        primaries.push(r);
+      }
+    }
+    return { primaries, groups: order.map(id => ({ id, ...byGroup.get(id)! })) };
+  }, [reconciliations]);
+
+  const renderRow = (r: BankReconciliation, indent = false) => (
+    <tr key={r.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)] transition-colors">
+      <td className={`px-4 py-3 text-[var(--ff-text-primary)] ${indent ? 'pl-8' : ''}`}>{r.bankAccountName || '—'}</td>
+      <td className="px-4 py-3 text-[var(--ff-text-secondary)]">
+        {new Date(r.statementDate).toLocaleDateString('en-ZA')}
+      </td>
+      <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">
+        {formatCurrency(r.statementBalance)}
+      </td>
+      <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">
+        {formatCurrency(r.reconciledBalance)}
+      </td>
+      <td className={`px-4 py-3 text-right font-mono font-bold ${Math.abs(r.difference) < 0.01 ? 'text-teal-400' : 'text-red-400'}`}>
+        {formatCurrency(r.difference)}
+      </td>
+      <td className="px-4 py-3 text-center">
+        <span className="text-[var(--ff-text-secondary)]">
+          {r.matchedCount ?? 0}
+          {r.unmatchedCount !== undefined && <span className="text-[var(--ff-text-tertiary)]"> / {(r.matchedCount ?? 0) + (r.unmatchedCount ?? 0)}</span>}
+        </span>
+      </td>
+      <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
+      <td className="px-4 py-3 text-right">
+        <Link href={`/accounting/bank-reconciliation/${r.id}`} className="text-teal-500 hover:text-teal-400">
+          {r.status === 'completed' ? <CheckCircle2 className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+        </Link>
+      </td>
+    </tr>
+  );
 
   return (
     <AppLayout>
@@ -116,38 +162,16 @@ export default function BankReconciliationListPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {reconciliations.map(r => (
-                    <tr key={r.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)] transition-colors">
-                      <td className="px-4 py-3 text-[var(--ff-text-primary)]">{r.bankAccountName || '—'}</td>
-                      <td className="px-4 py-3 text-[var(--ff-text-secondary)]">
-                        {new Date(r.statementDate).toLocaleDateString('en-ZA')}
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">
-                        {formatCurrency(r.statementBalance)}
-                      </td>
-                      <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">
-                        {formatCurrency(r.reconciledBalance)}
-                      </td>
-                      <td className={`px-4 py-3 text-right font-mono font-bold ${Math.abs(r.difference) < 0.01 ? 'text-teal-400' : 'text-red-400'}`}>
-                        {formatCurrency(r.difference)}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className="text-[var(--ff-text-secondary)]">
-                          {r.matchedCount ?? 0}
-                          {r.unmatchedCount !== undefined && <span className="text-[var(--ff-text-tertiary)]"> / {(r.matchedCount ?? 0) + (r.unmatchedCount ?? 0)}</span>}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
-                      <td className="px-4 py-3 text-right">
-                        <Link href={`/accounting/bank-reconciliation/${r.id}`} className="text-teal-500 hover:text-teal-400">
-                          {r.status === 'completed' ? (
-                            <CheckCircle2 className="h-4 w-4" />
-                          ) : (
-                            <ChevronRight className="h-4 w-4" />
-                          )}
-                        </Link>
-                      </td>
-                    </tr>
+                  {grouped.primaries.map(r => renderRow(r))}
+                  {grouped.groups.map(g => (
+                    <Fragment key={g.id}>
+                      <tr className="bg-[var(--ff-bg-primary)]/60">
+                        <td colSpan={8} className="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--ff-text-secondary)]">
+                          {g.name} <span className="text-[var(--ff-text-tertiary)]">({g.rows.length})</span>
+                        </td>
+                      </tr>
+                      {g.rows.map(r => renderRow(r, true))}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>

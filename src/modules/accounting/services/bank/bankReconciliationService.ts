@@ -22,18 +22,26 @@ export async function getReconciliations(
     const rows = bankAccountId
       ? (await sql`
           SELECT br.*, ga.account_name AS bank_account_name,
+            ga.parent_account_id AS group_id,
+            pa.account_name AS group_name,
+            pa.account_subtype AS parent_subtype,
             (SELECT COUNT(*) FROM bank_transactions WHERE reconciliation_id = br.id AND status = 'matched') AS matched_count,
             (SELECT COUNT(*) FROM bank_transactions WHERE reconciliation_id = br.id AND status = 'imported') AS unmatched_count
           FROM bank_reconciliations br
-          LEFT JOIN gl_accounts ga ON ga.id = br.bank_account_id
+          LEFT JOIN gl_accounts ga ON ga.id = br.bank_account_id AND ga.company_id = ${companyId}
+          LEFT JOIN gl_accounts pa ON pa.id = ga.parent_account_id AND pa.company_id = ga.company_id
           WHERE br.company_id = ${companyId} AND br.bank_account_id = ${bankAccountId}::UUID
           ORDER BY br.statement_date DESC`) as DbRow[]
       : (await sql`
           SELECT br.*, ga.account_name AS bank_account_name,
+            ga.parent_account_id AS group_id,
+            pa.account_name AS group_name,
+            pa.account_subtype AS parent_subtype,
             (SELECT COUNT(*) FROM bank_transactions WHERE reconciliation_id = br.id AND status = 'matched') AS matched_count,
             (SELECT COUNT(*) FROM bank_transactions WHERE reconciliation_id = br.id AND status = 'imported') AS unmatched_count
           FROM bank_reconciliations br
-          LEFT JOIN gl_accounts ga ON ga.id = br.bank_account_id
+          LEFT JOIN gl_accounts ga ON ga.id = br.bank_account_id AND ga.company_id = ${companyId}
+          LEFT JOIN gl_accounts pa ON pa.id = ga.parent_account_id AND pa.company_id = ga.company_id
           WHERE br.company_id = ${companyId}
           ORDER BY br.statement_date DESC`) as DbRow[];
     return rows.map(mapReconRow);
@@ -263,6 +271,10 @@ function mapReconRow(row: DbRow): BankReconciliation {
     bankAccountName: row.bank_account_name ? String(row.bank_account_name) : undefined,
     matchedCount: row.matched_count !== undefined ? Number(row.matched_count) : undefined,
     unmatchedCount: row.unmatched_count !== undefined ? Number(row.unmatched_count) : undefined,
+    // Only treat the parent as an umbrella group when it is itself a bank-subtype
+    // account (mirrors the bank-accounts grouping rule); otherwise leave ungrouped.
+    groupId: row.parent_subtype === 'bank' && row.group_id ? String(row.group_id) : undefined,
+    groupName: row.parent_subtype === 'bank' && row.group_name ? String(row.group_name) : undefined,
   };
 }
 

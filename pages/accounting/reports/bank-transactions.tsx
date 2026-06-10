@@ -8,6 +8,9 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Landmark, Loader2, AlertCircle, Download } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { groupBankAccountOptions } from '@/components/accounting/bank/groupBankOptions';
+
+interface AcctOpt { id: string; accountCode: string; label: string; parentAccountId: string | null }
 
 interface Txn {
   date: string;
@@ -37,13 +40,43 @@ export default function BankTransactionsPage() {
   const defaults = getDefaultDates();
   const [periodStart, setPeriodStart] = useState(defaults.periodStart);
   const [periodEnd, setPeriodEnd] = useState(defaults.periodEnd);
-  const [accountCode, setAccountCode] = useState('1110');
+  const [accounts, setAccounts] = useState<AcctOpt[]>([]);
+  const [accountCode, setAccountCode] = useState('');
   const [report, setReport] = useState<Report | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  useEffect(() => {
+    apiFetch('/api/accounting/chart-of-accounts?subtype=bank')
+      .then(r => r.json())
+      .then(res => {
+        const data = res.data || res;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const list: any[] = Array.isArray(data) ? data : data.accounts || [];
+        const opts: AcctOpt[] = list.map(a => {
+          const code = a.accountCode || a.account_code || '';
+          const name = a.accountName || a.account_name || '';
+          return {
+            id: String(a.id),
+            accountCode: code,
+            parentAccountId: a.parentAccountId || a.parent_account_id || null,
+            label: `${code} — ${name}`,
+          };
+        });
+        setAccounts(opts);
+        const grouped = groupBankAccountOptions(opts);
+        const first = grouped.primaries[0] || grouped.groups[0]?.children[0];
+        if (first) setAccountCode(first.accountCode);
+      })
+      .catch((err) => {
+        // Surface the load failure rather than swallowing it — the report can't
+        // run without a bank account, so the user needs to know why it's idle.
+        setError(err instanceof Error ? err.message : 'Failed to load bank accounts');
+      });
+  }, []);
+
   const load = useCallback(async () => {
-    if (!periodStart || !periodEnd) return;
+    if (!periodStart || !periodEnd || !accountCode) return;
     setLoading(true);
     setError('');
     try {
@@ -95,8 +128,24 @@ export default function BankTransactionsPage() {
             <div>
               <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Bank Account</label>
               <select value={accountCode} onChange={e => setAccountCode(e.target.value)} className="ff-select text-sm">
-                <option value="1110">1110 — Bank Primary</option>
-                <option value="1130">1130 — Petty Cash</option>
+                {accounts.length === 0 && <option value="">No bank accounts</option>}
+                {(() => {
+                  const grouped = groupBankAccountOptions(accounts);
+                  return (
+                    <>
+                      {grouped.primaries.map(o => (
+                        <option key={o.id} value={o.accountCode}>{o.label}</option>
+                      ))}
+                      {grouped.groups.map(g => (
+                        <optgroup key={g.umbrella.id} label={g.umbrella.label}>
+                          {g.children.map(o => (
+                            <option key={o.id} value={o.accountCode}>{o.label}</option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </>
+                  );
+                })()}
               </select>
             </div>
             <div>
