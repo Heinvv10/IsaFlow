@@ -7,8 +7,8 @@ describe('resolveDefaultLanding', () => {
     expect(resolveDefaultLanding({ hasCompanies: false, isBureauMember: true })).toBe('/onboarding');
   });
 
-  it('sends firm users (a bureau member with companies) to /accounting', () => {
-    expect(resolveDefaultLanding({ hasCompanies: true, isBureauMember: true })).toBe('/accounting');
+  it('sends firm users (a bureau member with companies) to the /bureau cockpit', () => {
+    expect(resolveDefaultLanding({ hasCompanies: true, isBureauMember: true })).toBe('/bureau');
   });
 
   it('sends direct clients (companies but no bureau) to /home', () => {
