@@ -52,11 +52,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return res.status(403).json({ success: false, error: 'Invalid Twilio signature' });
     }
   } else {
-    log.warn(
-      'TWILIO_AUTH_TOKEN not set — skipping signature verification (dev mode)',
-      undefined,
-      'whatsapp-inbound',
-    );
+    // Fail closed, same as the Postmark inbound route: an unconfigured
+    // deployment must not accept unauthenticated capture events.
+    log.error('TWILIO_AUTH_TOKEN not set — rejecting inbound WhatsApp webhook', undefined, 'whatsapp-inbound');
+    return res.status(503).json({ success: false, error: 'Webhook verification not configured' });
   }
 
   const payload = req.body as TwilioInboundPayload;
