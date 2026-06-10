@@ -8,7 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Settings, Loader2, AlertCircle, Save, Check } from 'lucide-react';
 import { notify } from '@/utils/toast';
 import { apiFetch } from '@/lib/apiFetch';
-import { AutoPostLlmSection } from './AutoPostLlmSection';
+import { AutoPostLlmSection } from '@/components/accounting/AutoPostLlmSection';
 
 interface SettingItem {
   key: string;
