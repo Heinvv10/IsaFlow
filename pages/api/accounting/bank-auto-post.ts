@@ -1,6 +1,6 @@
 /**
  * GET   /api/accounting/bank-auto-post → { settings, runs (last ~20) }
- * PUT   body { enabled?, minConfidence?, amountCap? } → upsert settings
+ * PUT   body { enabled?, minConfidence?, amountCap?, llmEnabled?, llmMinConfidence?, llmAmountCap? } → upsert settings
  * POST  body { action: 'undo', runId } → undo a whole run
  */
 
@@ -23,6 +23,9 @@ interface PutBody {
   enabled?: boolean;
   minConfidence?: number;
   amountCap?: number;
+  llmEnabled?: boolean;
+  llmMinConfidence?: number;
+  llmAmountCap?: number;
 }
 
 interface PostBody {
@@ -61,11 +64,14 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (
       body.enabled === undefined &&
       body.minConfidence === undefined &&
-      body.amountCap === undefined
+      body.amountCap === undefined &&
+      body.llmEnabled === undefined &&
+      body.llmMinConfidence === undefined &&
+      body.llmAmountCap === undefined
     ) {
       return apiResponse.badRequest(
         res,
-        'At least one of enabled | minConfidence | amountCap is required',
+        'At least one of enabled | minConfidence | amountCap | llmEnabled | llmMinConfidence | llmAmountCap is required',
       );
     }
     try {
