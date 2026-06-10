@@ -21,7 +21,7 @@ export interface CategorizationResult {
   vatCode?: string;
   confidence: number;
   confidenceLevel: ConfidenceLevel;
-  matchSource: 'rule' | 'pattern' | 'historical';
+  matchSource: 'rule' | 'pattern' | 'historical' | 'llm';
   matchDetail?: string;
 }
 

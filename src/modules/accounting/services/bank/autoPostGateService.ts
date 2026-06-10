@@ -21,6 +21,9 @@ export interface AutoPostSettings {
   enabled: boolean;
   minConfidence: number;
   amountCap: number; // 0 = uncapped
+  llmEnabled: boolean;
+  llmMinConfidence: number;
+  llmAmountCap: number; // 0 = uncapped
 }
 
 export interface GateTx {
@@ -44,56 +47,79 @@ export const AUTO_POST_AGENT = 'ai:auto-post:v1';
 // ── Pure gate ────────────────────────────────────────────────────────────────
 
 /**
- * Decision ladder, first failure wins. `confidence === null` is the provisional
- * path: the predictor's score is only known inside postProvisional, so rungs 3
- * (confidence) and 5 (target) defer to it; rungs 1/2/4 still apply up front.
+ * Decision ladder, first failure wins. The status check (rung 2) now runs
+ * BEFORE any feature-flag check so it always applies to both tiers.
+ *
+ * `strategy === 'llm'` routes through the fully-separate LLM tier: the
+ * standard enabled/minConfidence/amountCap settings have NO effect here.
+ * The LLM tier only posts when `llmEnabled && confidence >= llmMinConfidence
+ * && within llmAmountCap`.
+ *
+ * `confidence === null` is the provisional path (source='import'): the
+ * predictor's score is only known inside postProvisional, so rungs 3
+ * (confidence) and 5 (target) defer to it; rung 2 and the amount cap
+ * still apply up front.
  */
 export function evaluate(
   tx: GateTx,
   confidence: number | null,
   settings: AutoPostSettings,
+  strategy: string | null,
 ): GateDecision {
   const isProvisionalPath = confidence === null;
+  const isLlm = strategy === 'llm';
 
-  // Rung 1: feature flag
-  if (!settings.enabled) return { outcome: 'skip', reason: 'disabled' };
-
-  // Rung 2: tx must be in the 'imported' state
+  // Rung 2 always applies: tx must be in the 'imported' state.
   if (tx.status !== 'imported') return { outcome: 'skip', reason: 'not eligible' };
 
-  // Rung 3: confidence gate (deferred on the provisional path)
+  if (isLlm) {
+    // LLM tier — fully separate from the standard gate.
+    if (!settings.llmEnabled) return { outcome: 'skip', reason: 'llm disabled' };
+    if (confidence == null || confidence < settings.llmMinConfidence) {
+      return { outcome: 'skip', reason: 'llm confidence too low' };
+    }
+    if (settings.llmAmountCap > 0 && Math.abs(tx.amount) > settings.llmAmountCap) {
+      return { outcome: 'skip', reason: 'llm over amount cap' };
+    }
+    if (tx.suggestedGlAccountId == null) return { outcome: 'skip', reason: 'no target' };
+    return { outcome: 'post' };
+  }
+
+  // Standard tier (rules/patterns/history, or provisional import path).
+  if (!settings.enabled) return { outcome: 'skip', reason: 'disabled' };
   if (!isProvisionalPath && confidence < settings.minConfidence) {
     return { outcome: 'skip', reason: 'confidence too low' };
   }
-
-  // Rung 4: amount cap (0 = uncapped; use absolute value so credits/debits are treated equally)
   if (settings.amountCap > 0 && Math.abs(tx.amount) > settings.amountCap) {
     return { outcome: 'skip', reason: 'over amount cap' };
   }
-
-  // Rung 5: must have a target GL account (deferred on the provisional path)
   if (!isProvisionalPath && tx.suggestedGlAccountId == null) {
     return { outcome: 'skip', reason: 'no target' };
   }
-
   return { outcome: 'post' };
 }
 
 // ── Settings accessors ───────────────────────────────────────────────────────
 
-const DEFAULTS: AutoPostSettings = { enabled: false, minConfidence: 0.9, amountCap: 10000 };
+const DEFAULTS: AutoPostSettings = {
+  enabled: false, minConfidence: 0.9, amountCap: 10000,
+  llmEnabled: false, llmMinConfidence: 0.95, llmAmountCap: 2000,
+};
 
 function mapSettings(row: Row): AutoPostSettings {
   return {
     enabled: Boolean(row.enabled),
     minConfidence: Number(row.min_confidence),
     amountCap: Number(row.amount_cap),
+    llmEnabled: Boolean(row.llm_enabled),
+    llmMinConfidence: Number(row.llm_min_confidence),
+    llmAmountCap: Number(row.llm_amount_cap),
   };
 }
 
 export async function getAutoPostSettings(companyId: string): Promise<AutoPostSettings> {
   const rows = (await sql`
-    SELECT enabled, min_confidence, amount_cap
+    SELECT enabled, min_confidence, amount_cap, llm_enabled, llm_min_confidence, llm_amount_cap
     FROM bank_auto_post_settings
     WHERE company_id = ${companyId}::UUID
     LIMIT 1
@@ -105,6 +131,9 @@ export interface AutoPostSettingsPatch {
   enabled?: boolean;
   minConfidence?: number;
   amountCap?: number;
+  llmEnabled?: boolean;
+  llmMinConfidence?: number;
+  llmAmountCap?: number;
 }
 
 export async function updateAutoPostSettings(
@@ -118,28 +147,43 @@ export async function updateAutoPostSettings(
   if (patch.amountCap != null && patch.amountCap < 0) {
     throw new Error('amount_cap must be >= 0');
   }
+  if (patch.llmMinConfidence != null && (patch.llmMinConfidence <= 0 || patch.llmMinConfidence > 1)) {
+    throw new Error('llm_min_confidence must be within (0, 1]');
+  }
+  if (patch.llmAmountCap != null && patch.llmAmountCap < 0) {
+    throw new Error('llm_amount_cap must be >= 0');
+  }
 
   const enabled = patch.enabled ?? null;
   const minConfidence = patch.minConfidence ?? null;
   const amountCap = patch.amountCap ?? null;
+  const llmEnabled = patch.llmEnabled ?? null;
+  const llmMinConfidence = patch.llmMinConfidence ?? null;
+  const llmAmountCap = patch.llmAmountCap ?? null;
 
   const rows = (await sql`
-    INSERT INTO bank_auto_post_settings (company_id, enabled, min_confidence, amount_cap, updated_by, updated_at)
+    INSERT INTO bank_auto_post_settings (company_id, enabled, min_confidence, amount_cap, llm_enabled, llm_min_confidence, llm_amount_cap, updated_by, updated_at)
     VALUES (
       ${companyId}::UUID,
       COALESCE(${enabled}, FALSE),
       COALESCE(${minConfidence}::NUMERIC, 0.90),
       COALESCE(${amountCap}::NUMERIC, 10000),
+      COALESCE(${llmEnabled}, FALSE),
+      COALESCE(${llmMinConfidence}::NUMERIC, 0.95),
+      COALESCE(${llmAmountCap}::NUMERIC, 2000),
       ${userId}::UUID,
       NOW()
     )
     ON CONFLICT (company_id) DO UPDATE SET
-      enabled        = COALESCE(${enabled}, bank_auto_post_settings.enabled),
-      min_confidence = COALESCE(${minConfidence}::NUMERIC, bank_auto_post_settings.min_confidence),
-      amount_cap     = COALESCE(${amountCap}::NUMERIC, bank_auto_post_settings.amount_cap),
-      updated_by     = ${userId}::UUID,
-      updated_at     = NOW()
-    RETURNING enabled, min_confidence, amount_cap
+      enabled            = COALESCE(${enabled}, bank_auto_post_settings.enabled),
+      min_confidence     = COALESCE(${minConfidence}::NUMERIC, bank_auto_post_settings.min_confidence),
+      amount_cap         = COALESCE(${amountCap}::NUMERIC, bank_auto_post_settings.amount_cap),
+      llm_enabled        = COALESCE(${llmEnabled}, bank_auto_post_settings.llm_enabled),
+      llm_min_confidence = COALESCE(${llmMinConfidence}::NUMERIC, bank_auto_post_settings.llm_min_confidence),
+      llm_amount_cap     = COALESCE(${llmAmountCap}::NUMERIC, bank_auto_post_settings.llm_amount_cap),
+      updated_by         = ${userId}::UUID,
+      updated_at         = NOW()
+    RETURNING enabled, min_confidence, amount_cap, llm_enabled, llm_min_confidence, llm_amount_cap
   `) as Row[];
 
   log.info('Updated auto-post settings', { companyId, patch }, 'auto-post-gate');
@@ -155,6 +199,7 @@ interface SweepRow {
   suggested_gl_account_id: string | null;
   suggested_confidence: string | number | null;
   suggested_vat_code: string | null;
+  suggested_strategy: string | null;
   description: string | null;
 }
 
@@ -171,13 +216,13 @@ export async function sweep(
   userId: string,
 ): Promise<SweepResult> {
   const settings = await getAutoPostSettings(companyId);
-  if (!settings.enabled || txIds.length === 0) {
+  if ((!settings.enabled && !settings.llmEnabled) || txIds.length === 0) {
     return { runId: null, posted: 0, skipped: [] };
   }
 
   const rows = (await sql`
     SELECT id, status, amount, suggested_gl_account_id, suggested_confidence,
-           suggested_vat_code, description
+           suggested_vat_code, suggested_strategy, description
     FROM bank_transactions
     WHERE id = ANY(${txIds}::UUID[]) AND company_id = ${companyId}::UUID
   `) as unknown as SweepRow[];
@@ -210,6 +255,7 @@ export async function sweep(
       { status: row.status, amount: Number(row.amount), suggestedGlAccountId: row.suggested_gl_account_id },
       confidence,
       settings,
+      isImport ? null : (row.suggested_strategy ?? null),
     );
     if (decision.outcome === 'skip') {
       skipped.push({ txId: row.id, reason: decision.reason });

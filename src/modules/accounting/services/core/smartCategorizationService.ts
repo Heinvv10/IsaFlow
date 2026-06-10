@@ -177,7 +177,8 @@ export async function bulkCategorize(companyId: string,
           suggested_gl_account_id = COALESCE(${result.glAccountId ?? null}::UUID, suggested_gl_account_id),
           suggested_category       = COALESCE(${result.category ?? null},           suggested_category),
           suggested_vat_code       = COALESCE(${result.vatCode ?? null},            suggested_vat_code),
-          suggested_confidence     = ${result.confidence}
+          suggested_confidence     = ${result.confidence},
+          suggested_strategy       = ${result.matchSource}
         WHERE id = ${txId}::UUID
           AND company_id = ${companyId}::UUID
           AND suggested_gl_account_id IS NULL
