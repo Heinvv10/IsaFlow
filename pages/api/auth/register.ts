@@ -68,7 +68,13 @@ const handler: NextApiHandler = async (req, res) => {
     );
     await client.query('COMMIT');
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
+    await client.query('ROLLBACK').catch((rollbackErr: unknown) =>
+      log.error(
+        'ROLLBACK failed after transaction error',
+        { error: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr) },
+        'auth',
+      ),
+    );
     // Clean up the GoTrue user so the email isn't stuck in a half-created state
     log.warn('register rollback', { message: err instanceof Error ? err.message : String(err) }, 'Auth');
     throw err;

@@ -6,7 +6,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { logAudit } from './auditTrailService';
+import { logAuditOrThrow } from './auditTrailService';
 import type { DbRow } from '@/types/db';
 
 
@@ -192,7 +192,13 @@ export async function executeArchive(
       WHERE id = ${runId}
     `;
 
-    logAudit({
+    // Fatal by design: this runs inside the caller's withAuth request
+    // transaction, so NOTHING above (moved rows, the completed UPDATE) is
+    // durable yet — and a failed INSERT puts that shared tx into aborted
+    // state. Swallowing the error here would return 200 "success" while
+    // COMMIT silently degrades to ROLLBACK, losing the entire archive run.
+    // Letting it throw keeps the response consistent with the DB state.
+    await logAuditOrThrow({
       companyId,
       userId,
       action: 'export',
@@ -210,7 +216,7 @@ export async function executeArchive(
           supplierInvoicesArchived: String(supplierInvoicesArchived),
         },
       },
-    }).catch(() => undefined);
+    });
 
     log.info('Archive run completed', {
       companyId, runId, entriesArchived, linesArchived,

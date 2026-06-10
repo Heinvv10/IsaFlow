@@ -22,7 +22,12 @@ async function fetchCompanyMeta(): Promise<Partial<StatementData>> {
       companyAddress: parts.join(', '),
       accentColor: c.primary_color || '#0d9488',
     };
-  } catch {
+  } catch (err) {
+    log.warn(
+      'statement batch: company profile load failed, using default branding',
+      { error: err instanceof Error ? err.message : String(err) },
+      'statements',
+    );
     return { accentColor: '#0d9488' };
   }
 }

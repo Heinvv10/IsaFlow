@@ -15,7 +15,7 @@ import {
   REFRESH_COOKIE,
 } from '@/lib/auth/cookies';
 import { generateLink, verifyMagicLink, GotrueAdminLinkError } from '@/lib/auth/gotrue-admin-link';
-import { stashAdminTokens, validateImpersonationTarget } from '@/modules/admin/services/userImpersonationService';
+import { stashAdminTokens, validateImpersonationTarget, deleteStash } from '@/modules/admin/services/userImpersonationService';
 import { setImpersonationCookies } from '@/lib/auth/impersonation-cookies';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -70,19 +70,32 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise
     targetUserId: target.userId,
   });
 
-  // Pentest H11: impersonation_start is a CRITICAL_ACTION — audit failure
-  // rolls back the whole request (withAuth holds the tx open until the handler
-  // returns). Audit-silent impersonation is not allowed.
-  await sql`
-    INSERT INTO admin_audit_log (admin_user_id, action, target_type, target_id, details)
-    VALUES (
-      ${req.user.id},
-      'impersonation_start',
-      'user',
-      ${target.userId},
-      ${JSON.stringify({ stash_id: stashId, target_email: target.email })}::jsonb
-    )
-  `;
+  // Pentest H11: impersonation_start is a CRITICAL_ACTION. withAdmin opens NO
+  // transaction, so ordering is the guarantee: the audit INSERT is awaited
+  // BEFORE cookies are set — if it throws, impersonation never starts. On
+  // failure we also remove the freshly-stashed admin tokens so no orphan row
+  // remains.
+  try {
+    await sql`
+      INSERT INTO admin_audit_log (admin_user_id, action, target_type, target_id, details)
+      VALUES (
+        ${req.user.id},
+        'impersonation_start',
+        'user',
+        ${target.userId},
+        ${JSON.stringify({ stash_id: stashId, target_email: target.email })}::jsonb
+      )
+    `;
+  } catch (auditErr) {
+    await deleteStash(stashId).catch((cleanupErr: unknown) =>
+      log.error(
+        'impersonate: stash cleanup failed after audit failure',
+        { stashId, error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr) },
+        'Admin',
+      ),
+    );
+    throw auditErr;
+  }
 
   setAuthCookies(res, {
     accessToken: targetTokens.access_token,

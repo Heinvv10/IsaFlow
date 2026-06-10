@@ -29,7 +29,7 @@ export async function confirmCustomerPayment(
     // Auto-post GL: DR Bank, CR Accounts Receivable
     const arAccount = await getSystemAccount('receivable', companyId);
     const bankAccount = payment.bankAccountId
-      ? ((await sql`SELECT id FROM gl_accounts WHERE id = ${payment.bankAccountId}`) as Row[])[0]
+      ? ((await sql`SELECT id FROM gl_accounts WHERE id = ${payment.bankAccountId} AND company_id = ${companyId}`) as Row[])[0]
       : await getSystemAccount('bank', companyId);
     if (!bankAccount) throw new Error('Bank account not found');
 

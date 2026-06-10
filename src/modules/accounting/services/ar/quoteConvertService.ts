@@ -1,6 +1,15 @@
 /**
  * Quote Convert Service
  * Convert-to-sales-order and convert-to-invoice — split from quoteService.ts.
+ *
+ * ATOMICITY: the multi-statement conversions below are NOT individually
+ * transacted on purpose. Their only caller is an API route under `withAuth`,
+ * which runs the whole request inside one BEGIN/COMMIT on the ALS-bound
+ * connection (see src/lib/auth/withAuth.ts), so a failure anywhere rolls back
+ * every statement — including the document-number increment. Do NOT wrap
+ * these in `withTransaction`: it takes a fresh pool connection without the
+ * request's RLS GUCs and commits independently of the request tx. Any future
+ * non-request caller (cron/script) must provide its own transaction.
  */
 
 import { sql } from '@/lib/neon';

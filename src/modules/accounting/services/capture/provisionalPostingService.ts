@@ -225,16 +225,11 @@ export async function postProvisional(
     },
   ];
 
+  // A missing vat_input system account is a config error; refuse to post a
+  // provisional journal with the VAT line silently dropped.
   if (hasVat) {
-    let vatAccountId: string;
-    try {
-      vatAccountId = await getSystemAccountId('vat_input', companyId);
-    } catch {
-      vatAccountId = '';
-    }
-    if (vatAccountId) {
-      lines.push({ glAccountId: vatAccountId, debit: vatAmount, credit: 0, description: `VAT @ ${VAT_RATE}%`, vatType: 'standard' });
-    }
+    const vatAccountId = await getSystemAccountId('vat_input', companyId);
+    lines.push({ glAccountId: vatAccountId, debit: vatAmount, credit: 0, description: `VAT @ ${VAT_RATE}%`, vatType: 'standard' });
   }
 
   lines.push({ glAccountId: bankAccountId, debit: 0, credit: totalAmount, description });
