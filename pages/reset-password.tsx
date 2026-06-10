@@ -1,12 +1,13 @@
 /**
  * /reset-password
- * GoTrue's recovery mailer lands the user here with the recovery token in
- * the URL fragment: `#access_token=<jwt>&refresh_token=<r>&type=recovery`.
- * We read it client-side, strip the fragment, and POST to do-reset-password.
+ * The forgot-password mailer lands the user here with a self-owned single-use
+ * reset token in the URL fragment: `#token=<token>`. The fragment is never sent
+ * to the server, logged, put in the Referer header, or seen by the page's
+ * analytics tracker. We read it client-side, strip it, and POST to
+ * do-reset-password, which consumes the token and updates the password.
  */
 
 import { useEffect, useState, FormEvent } from 'react';
-import { useRouter } from 'next/router';
 import Link from 'next/link';
 import Image from 'next/image';
 import { Eye, EyeOff, CheckCircle } from 'lucide-react';
@@ -37,24 +38,18 @@ function checkStrength(password: string): StrengthResult {
 const STRENGTH_COLORS = ['bg-red-500', 'bg-red-500', 'bg-yellow-500', 'bg-green-500', 'bg-teal-500'];
 
 export default function ResetPasswordPage() {
-  const router = useRouter();
-  // GoTrue puts the recovery JWT in the URL fragment, not the query string.
-  // Fall back to ?token= for back-compat with the legacy flow during cutover.
+  // The reset token arrives in the URL fragment: /reset-password#token=<token>.
   const [token, setToken] = useState('');
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const hash = window.location.hash.replace(/^#/, '');
-    const params = new URLSearchParams(hash);
-    const accessToken = params.get('access_token');
-    const type = params.get('type');
-    if (accessToken && type === 'recovery') {
-      setToken(accessToken);
-      // Strip the fragment so a page reload doesn't surface the JWT again.
+    const params = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const fragToken = params.get('token');
+    if (fragToken) {
+      setToken(fragToken);
+      // Strip the fragment so the token doesn't linger in history or survive a reload.
       window.history.replaceState({}, '', window.location.pathname + window.location.search);
-      return;
     }
-    if (typeof router.query.token === 'string') setToken(router.query.token);
-  }, [router.query.token]);
+  }, []);
 
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');

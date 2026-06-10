@@ -164,17 +164,3 @@ export async function adminDeleteUser(userId: string): Promise<void> {
   if (!res.ok) throw new Error(`gotrue adminDeleteUser failed: ${res.status}`);
 }
 
-export async function recoverPassword(email: string, redirectTo: string): Promise<void> {
-  // GoTrue's /recover validates redirect_to against GOTRUE_URI_ALLOW_LIST but
-  // prefers the Referer header when constructing the recovery mail link. If
-  // Referer is missing or just the site origin, the emailed redirect_to is
-  // stripped to bare SITE_URL and users land on /login instead of
-  // /reset-password. Set Referer explicitly to the target URL so the emailed
-  // link preserves the full path.
-  const res = await gotrueFetch(
-    '/recover',
-    { method: 'POST', body: JSON.stringify({ email, redirect_to: redirectTo }) },
-    { apikey: getEnv('SUPABASE_ANON_KEY'), Referer: redirectTo }
-  );
-  if (!res.ok) throw new Error(`gotrue recover failed: ${res.status}`);
-}
