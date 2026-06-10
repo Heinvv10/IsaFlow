@@ -34,7 +34,7 @@
 
 | File | Responsibility |
 |---|---|
-| `scripts/migrations/sql/491_bank_auto_post.sql` | settings + runs tables, `auto_post_run_id` column |
+| `scripts/migrations/sql/492_bank_auto_post.sql` | settings + runs tables, `auto_post_run_id` column |
 | `src/modules/accounting/services/bank/autoPostGateService.ts` | `evaluate` (pure), settings accessors, `sweep` |
 | `src/modules/accounting/services/bank/autoPostUndoService.ts` | `undoRun` (kept separate to respect 300-line cap) |
 | `tests/unit/services/bank/autoPostGateService.test.ts` | gate + sweep tests |
@@ -51,15 +51,15 @@
 
 ---
 
-## Task 1: Migration — `491_bank_auto_post.sql`
+## Task 1: Migration — `492_bank_auto_post.sql`
 
 **Files:**
-- Create: `scripts/migrations/sql/491_bank_auto_post.sql`
+- Create: `scripts/migrations/sql/492_bank_auto_post.sql`
 
 - [ ] **Step 1: Write the migration**
 
 ```sql
--- 491_bank_auto_post.sql
+-- 492_bank_auto_post.sql
 -- Confidence Auto-Post (UI-modernization Phase 3, increment 2).
 -- Per-company opt-in gate + run-level audit for silent JE auto-posting.
 -- Retrofits PRD-05 provisional posting under the same gate: with no settings
@@ -99,12 +99,12 @@ CREATE INDEX IF NOT EXISTS idx_bt_auto_post_run ON bank_transactions(auto_post_r
 - [ ] **Step 2: Verify it applies cleanly**
 
 Run: `bun run db:migrate`
-Expected: applies `491_bank_auto_post.sql`, no error. (If the DB is unreachable in this environment, instead run `psql … -f scripts/migrations/sql/491_bank_auto_post.sql` against a scratch DB, or at minimum eyeball that every `CREATE`/`ALTER` carries `IF NOT EXISTS`.)
+Expected: applies `492_bank_auto_post.sql`, no error. (If the DB is unreachable in this environment, instead run `psql … -f scripts/migrations/sql/492_bank_auto_post.sql` against a scratch DB, or at minimum eyeball that every `CREATE`/`ALTER` carries `IF NOT EXISTS`.)
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add scripts/migrations/sql/491_bank_auto_post.sql
+git add scripts/migrations/sql/492_bank_auto_post.sql
 git commit -m "feat(banking): migration 491 — bank auto-post settings + runs"
 ```
 

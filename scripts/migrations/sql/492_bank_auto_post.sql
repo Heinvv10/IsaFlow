@@ -1,4 +1,4 @@
--- 491_bank_auto_post.sql
+-- 492_bank_auto_post.sql
 -- Confidence Auto-Post (UI-modernization Phase 3, increment 2).
 -- Per-company opt-in gate + run-level audit for silent JE auto-posting.
 -- Retrofits PRD-05 provisional posting under the same gate: with no settings

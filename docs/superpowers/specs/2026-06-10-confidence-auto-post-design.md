@@ -36,7 +36,7 @@ provisional predictor is 0–1. At 0.90 the high-confidence patterns qualify but
 weaker learned/historical matches do not. The accountant lowers it per client
 as trust builds.
 
-## Data model — migration `491_bank_auto_post.sql`
+## Data model — migration `492_bank_auto_post.sql`
 
 ```sql
 CREATE TABLE IF NOT EXISTS bank_auto_post_settings (
