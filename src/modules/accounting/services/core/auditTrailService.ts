@@ -94,7 +94,7 @@ export async function logAuditOrThrow(params: LogAuditParams): Promise<void> {
       ${changesJson}::JSONB,
       ${params.ip ?? null},
       ${params.userAgent ?? null},
-      ${params.sessionId ? params.sessionId + '::UUID' : null}
+      ${params.sessionId ?? null}::UUID
     )
   `;
 }
