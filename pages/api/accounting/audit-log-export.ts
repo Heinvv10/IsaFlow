@@ -50,8 +50,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         offset: 0,
       });
 
-      // Log the export action itself
-      void logAudit({
+      // Log the export action itself. Awaited deliberately: exporting the audit
+      // trail without recording who did it is a compliance violation, so a failed
+      // audit write fails the export (withErrorHandler -> 500).
+      await logAudit({
         companyId,
         userId: req.user.id,
         userEmail: req.user.email,
