@@ -47,38 +47,55 @@ export const AUTO_POST_AGENT = 'ai:auto-post:v1';
 // ── Pure gate ────────────────────────────────────────────────────────────────
 
 /**
- * Decision ladder, first failure wins. `confidence === null` is the provisional
- * path: the predictor's score is only known inside postProvisional, so rungs 3
- * (confidence) and 5 (target) defer to it; rungs 1/2/4 still apply up front.
+ * Decision ladder, first failure wins. The status check (rung 2) now runs
+ * BEFORE any feature-flag check so it always applies to both tiers.
+ *
+ * `strategy === 'llm'` routes through the fully-separate LLM tier: the
+ * standard enabled/minConfidence/amountCap settings have NO effect here.
+ * The LLM tier only posts when `llmEnabled && confidence >= llmMinConfidence
+ * && within llmAmountCap`.
+ *
+ * `confidence === null` is the provisional path (source='import'): the
+ * predictor's score is only known inside postProvisional, so rungs 3
+ * (confidence) and 5 (target) defer to it; rung 2 and the amount cap
+ * still apply up front.
  */
 export function evaluate(
   tx: GateTx,
   confidence: number | null,
   settings: AutoPostSettings,
+  strategy: string | null,
 ): GateDecision {
   const isProvisionalPath = confidence === null;
+  const isLlm = strategy === 'llm';
 
-  // Rung 1: feature flag
-  if (!settings.enabled) return { outcome: 'skip', reason: 'disabled' };
-
-  // Rung 2: tx must be in the 'imported' state
+  // Rung 2 always applies: tx must be in the 'imported' state.
   if (tx.status !== 'imported') return { outcome: 'skip', reason: 'not eligible' };
 
-  // Rung 3: confidence gate (deferred on the provisional path)
+  if (isLlm) {
+    // LLM tier — fully separate from the standard gate.
+    if (!settings.llmEnabled) return { outcome: 'skip', reason: 'llm disabled' };
+    if (confidence == null || confidence < settings.llmMinConfidence) {
+      return { outcome: 'skip', reason: 'llm confidence too low' };
+    }
+    if (settings.llmAmountCap > 0 && Math.abs(tx.amount) > settings.llmAmountCap) {
+      return { outcome: 'skip', reason: 'llm over amount cap' };
+    }
+    if (tx.suggestedGlAccountId == null) return { outcome: 'skip', reason: 'no target' };
+    return { outcome: 'post' };
+  }
+
+  // Standard tier (rules/patterns/history, or provisional import path).
+  if (!settings.enabled) return { outcome: 'skip', reason: 'disabled' };
   if (!isProvisionalPath && confidence < settings.minConfidence) {
     return { outcome: 'skip', reason: 'confidence too low' };
   }
-
-  // Rung 4: amount cap (0 = uncapped; use absolute value so credits/debits are treated equally)
   if (settings.amountCap > 0 && Math.abs(tx.amount) > settings.amountCap) {
     return { outcome: 'skip', reason: 'over amount cap' };
   }
-
-  // Rung 5: must have a target GL account (deferred on the provisional path)
   if (!isProvisionalPath && tx.suggestedGlAccountId == null) {
     return { outcome: 'skip', reason: 'no target' };
   }
-
   return { outcome: 'post' };
 }
 
@@ -237,6 +254,7 @@ export async function sweep(
       { status: row.status, amount: Number(row.amount), suggestedGlAccountId: row.suggested_gl_account_id },
       confidence,
       settings,
+      null,
     );
     if (decision.outcome === 'skip') {
       skipped.push({ txId: row.id, reason: decision.reason });
