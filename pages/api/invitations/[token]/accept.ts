@@ -5,6 +5,7 @@ import { withInviteToken, type InviteTokenRequest } from '@/lib/auth/withInviteT
 import { adminUpdateUser, signIn } from '@/lib/auth/gotrue';
 import { sql } from '@/lib/neon';
 import { setAuthCookies, setActiveCompanyCookie } from '@/lib/auth/cookies';
+import { log } from '@/lib/logger';
 
 function adminPool(): pg.Pool {
   const url = process.env.MIGRATION_ADMIN_DATABASE_URL;
@@ -81,7 +82,13 @@ const handler: NextApiHandler = async (req, res) => {
     );
     await client.query('COMMIT');
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
+    await client.query('ROLLBACK').catch((rollbackErr: unknown) =>
+      log.error(
+        'ROLLBACK failed after transaction error',
+        { error: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr) },
+        'auth',
+      ),
+    );
     throw err;
   } finally {
     client.release();
