@@ -10,6 +10,8 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { allocateTransaction } from './bankAllocationService';
+import { postProvisional } from '../capture/provisionalPostingService';
 
 type Row = DbRow;
 
@@ -28,6 +30,16 @@ export interface GateTx {
 }
 
 export type GateDecision = { outcome: 'post' } | { outcome: 'skip'; reason: string };
+
+export type AutoPostSource = 'import' | 'categorization' | 'manual';
+
+export interface SweepResult {
+  runId: string | null;
+  posted: number;
+  skipped: Array<{ txId: string; reason: string }>;
+}
+
+export const AUTO_POST_AGENT = 'ai:auto-post:v1';
 
 // ── Pure gate ────────────────────────────────────────────────────────────────
 
@@ -132,4 +144,123 @@ export async function updateAutoPostSettings(
 
   log.info('Updated auto-post settings', { companyId, patch }, 'auto-post-gate');
   return mapSettings(rows[0]!);
+}
+
+// ── Sweep ────────────────────────────────────────────────────────────────────
+
+interface SweepRow {
+  id: string;
+  status: string;
+  amount: string | number;
+  suggested_gl_account_id: string | null;
+  suggested_confidence: string | number | null;
+  suggested_vat_code: string | null;
+  description: string | null;
+}
+
+/**
+ * Evaluate the given txs and post the eligible ones through the existing
+ * plumbing. source 'import' uses the provisional predictor path; everything
+ * else uses the suggestion (allocate) path. The run row is created lazily on
+ * the first successful post — a sweep that posts nothing leaves no run row.
+ */
+export async function sweep(
+  companyId: string,
+  txIds: string[],
+  source: AutoPostSource,
+  userId: string,
+): Promise<SweepResult> {
+  const settings = await getAutoPostSettings(companyId);
+  if (!settings.enabled || txIds.length === 0) {
+    return { runId: null, posted: 0, skipped: [] };
+  }
+
+  const rows = (await sql`
+    SELECT id, status, amount, suggested_gl_account_id, suggested_confidence,
+           suggested_vat_code, description
+    FROM bank_transactions
+    WHERE id = ANY(${txIds}::UUID[]) AND company_id = ${companyId}::UUID
+  `) as unknown as SweepRow[];
+
+  const skipped: Array<{ txId: string; reason: string }> = [];
+  let runId: string | null = null;
+  let posted = 0;
+  let totalAmount = 0;
+
+  async function ensureRun(): Promise<string> {
+    if (runId) return runId;
+    const r = (await sql`
+      INSERT INTO bank_auto_post_runs (company_id, source, min_confidence, amount_cap, created_by)
+      VALUES (${companyId}::UUID, ${source}, ${settings.minConfidence}::NUMERIC,
+              ${settings.amountCap}::NUMERIC, ${userId}::UUID)
+      RETURNING id
+    `) as Row[];
+    runId = String(r[0]!.id);
+    return runId;
+  }
+
+  const isImport = source === 'import';
+
+  for (const row of rows) {
+    const confidence = isImport
+      ? null
+      : (row.suggested_confidence != null ? Number(row.suggested_confidence) : null);
+
+    const decision = evaluate(
+      { status: row.status, amount: Number(row.amount), suggestedGlAccountId: row.suggested_gl_account_id },
+      confidence,
+      settings,
+    );
+    if (decision.outcome === 'skip') {
+      skipped.push({ txId: row.id, reason: decision.reason });
+      continue;
+    }
+
+    let jePosted = false;
+    try {
+      if (isImport) {
+        const res = await postProvisional(companyId, row.id, userId, { minConfidence: settings.minConfidence });
+        if (!res.journalEntryId) {
+          skipped.push({ txId: row.id, reason: res.skipped ?? 'no target' });
+          continue;
+        }
+        jePosted = true;
+      } else {
+        await allocateTransaction(
+          companyId, row.id, row.suggested_gl_account_id, userId,
+          row.description ?? undefined, 'account', undefined,
+          row.suggested_vat_code ?? undefined,
+          undefined, undefined, undefined, undefined,
+          { postingAgent: AUTO_POST_AGENT },
+        );
+        jePosted = true;
+      }
+      const id = await ensureRun();
+      await sql`
+        UPDATE bank_transactions SET auto_post_run_id = ${id}::UUID
+        WHERE id = ${row.id}::UUID AND company_id = ${companyId}::UUID
+      `;
+      posted += 1;
+      totalAmount += Math.abs(Number(row.amount));
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      if (jePosted) {
+        log.error('Auto-post JE posted but run-tag failed — JE orphaned (needs manual reconciliation)', { companyId, txId: row.id, reason }, 'auto-post-gate');
+      } else {
+        log.warn('Auto-post failed for bank transaction — skipping', { companyId, txId: row.id, reason }, 'auto-post-gate');
+      }
+      skipped.push({ txId: row.id, reason });
+    }
+  }
+
+  if (runId) {
+    await sql`
+      UPDATE bank_auto_post_runs
+      SET posted_count = ${posted}, total_amount = ${totalAmount}::NUMERIC
+      WHERE id = ${runId}::UUID AND company_id = ${companyId}::UUID
+    `;
+  }
+
+  log.info('Auto-post sweep complete', { companyId, source, posted, skipped: skipped.length, runId }, 'auto-post-gate');
+  return { runId, posted, skipped };
 }

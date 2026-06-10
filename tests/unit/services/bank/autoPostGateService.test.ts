@@ -16,9 +16,12 @@ import {
   evaluate,
   getAutoPostSettings,
   updateAutoPostSettings,
+  sweep,
   type AutoPostSettings,
   type GateTx,
 } from '@/modules/accounting/services/bank/autoPostGateService';
+import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
+import { postProvisional } from '@/modules/accounting/services/capture/provisionalPostingService';
 
 const ON: AutoPostSettings = { enabled: true, minConfidence: 0.9, amountCap: 10000 };
 const tx = (over: Partial<GateTx> = {}): GateTx => ({
@@ -120,5 +123,108 @@ describe('updateAutoPostSettings', () => {
     const s = await updateAutoPostSettings('co-1', { amountCap: 0 }, 'u-1');
     expect(s.amountCap).toBe(0);
     expect(sqlMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Route sqlMock responses by query text so order-independence holds.
+function routeSql(handlers: Array<{ match: RegExp; rows: unknown[] }>) {
+  sqlMock.mockImplementation((strings: TemplateStringsArray) => {
+    const text = strings.join('?');
+    const h = handlers.find((x) => x.match.test(text));
+    if (!h) throw new Error(`routeSql: unhandled query:\n${text}`);
+    return Promise.resolve(h.rows);
+  });
+}
+
+describe('sweep', () => {
+  beforeEach(() => {
+    sqlMock.mockReset();
+    (allocateTransaction as ReturnType<typeof vi.fn>).mockReset();
+    (postProvisional as ReturnType<typeof vi.fn>).mockReset();
+  });
+
+  it('early-outs with no run row when disabled', async () => {
+    routeSql([{ match: /FROM bank_auto_post_settings/, rows: [] }]); // no row → disabled
+    const r = await sweep('co-1', ['t1', 't2'], 'categorization', 'u-1');
+    expect(r).toEqual({ runId: null, posted: 0, skipped: [] });
+    expect(sqlMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('lazily creates the run row on the first post and tags the tx (suggestion path)', async () => {
+    routeSql([
+      { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000' }] },
+      { match: /FROM bank_transactions\s+WHERE id = ANY/, rows: [
+        { id: 't1', status: 'imported', amount: -500, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.95', suggested_vat_code: null, description: 'Coffee' },
+      ] },
+      { match: /INSERT INTO bank_auto_post_runs/, rows: [{ id: 'run-1' }] },
+      { match: /UPDATE bank_transactions SET auto_post_run_id/, rows: [] },
+      { match: /UPDATE bank_auto_post_runs/, rows: [] },
+    ]);
+    (allocateTransaction as ReturnType<typeof vi.fn>).mockResolvedValue({ journalEntryId: 'je-1' });
+
+    const r = await sweep('co-1', ['t1'], 'categorization', 'u-1');
+
+    expect(r.posted).toBe(1);
+    expect(r.runId).toBe('run-1');
+    expect(allocateTransaction).toHaveBeenCalledWith(
+      'co-1', 't1', 'gl-1', 'u-1', 'Coffee', 'account', undefined, undefined,
+      undefined, undefined, undefined, undefined, { postingAgent: 'ai:auto-post:v1' },
+    );
+    // Prove the stats UPDATE fired with posted_count = 1.
+    const statsCall = sqlMock.mock.calls.find(
+      (c) => (c[0] as TemplateStringsArray).join('?').includes('SET posted_count'),
+    );
+    expect(statsCall).toBeDefined();
+    expect(statsCall![1]).toBe(1);
+  });
+
+  it('records a skip and never creates a run when nothing qualifies', async () => {
+    routeSql([
+      { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000' }] },
+      { match: /FROM bank_transactions\s+WHERE id = ANY/, rows: [
+        { id: 't1', status: 'imported', amount: -500, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.5', suggested_vat_code: null, description: 'x' },
+      ] },
+    ]);
+    const r = await sweep('co-1', ['t1'], 'categorization', 'u-1');
+    expect(r.posted).toBe(0);
+    expect(r.runId).toBeNull();
+    expect(r.skipped).toEqual([{ txId: 't1', reason: 'confidence too low' }]);
+  });
+
+  it('isolates a per-tx failure and keeps sweeping', async () => {
+    routeSql([
+      { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000' }] },
+      { match: /FROM bank_transactions\s+WHERE id = ANY/, rows: [
+        { id: 't1', status: 'imported', amount: -100, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.95', suggested_vat_code: null, description: 'a' },
+        { id: 't2', status: 'imported', amount: -200, suggested_gl_account_id: 'gl-2', suggested_confidence: '0.95', suggested_vat_code: null, description: 'b' },
+      ] },
+      { match: /INSERT INTO bank_auto_post_runs/, rows: [{ id: 'run-1' }] },
+      { match: /UPDATE bank_transactions SET auto_post_run_id/, rows: [] },
+      { match: /UPDATE bank_auto_post_runs/, rows: [] },
+    ]);
+    (allocateTransaction as ReturnType<typeof vi.fn>)
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValueOnce({ journalEntryId: 'je-2' });
+
+    const r = await sweep('co-1', ['t1', 't2'], 'categorization', 'u-1');
+    expect(r.posted).toBe(1);
+    expect(r.skipped).toContainEqual({ txId: 't1', reason: 'boom' });
+  });
+
+  it('uses the provisional path for the import source', async () => {
+    routeSql([
+      { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000' }] },
+      { match: /FROM bank_transactions\s+WHERE id = ANY/, rows: [
+        { id: 't1', status: 'imported', amount: -300, suggested_gl_account_id: null, suggested_confidence: null, suggested_vat_code: null, description: 'EFT' },
+      ] },
+      { match: /INSERT INTO bank_auto_post_runs/, rows: [{ id: 'run-9' }] },
+      { match: /UPDATE bank_transactions SET auto_post_run_id/, rows: [] },
+      { match: /UPDATE bank_auto_post_runs/, rows: [] },
+    ]);
+    (postProvisional as ReturnType<typeof vi.fn>).mockResolvedValue({ journalEntryId: 'je-9', prediction: {} });
+
+    const r = await sweep('co-1', ['t1'], 'import', 'u-1');
+    expect(postProvisional).toHaveBeenCalledWith('co-1', 't1', 'u-1', { minConfidence: 0.9 });
+    expect(r.posted).toBe(1);
   });
 });
