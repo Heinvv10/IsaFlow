@@ -20,6 +20,7 @@ import { buildBankTxActions } from '@/components/accounting/bank-transactions/us
 import { useBankTxRefData } from '@/components/accounting/bank-transactions/useBankTxRefData';
 import { Loader2, AlertCircle } from 'lucide-react';
 import { BankEmptyState } from '@/components/accounting/banking/BankEmptyState';
+import { AutoPostRunsPanel } from '@/components/accounting/bank-transactions/AutoPostRunsPanel';
 
 type Tab = 'new' | 'reviewed' | 'excluded';
 const PAGE_SIZE = 25;
@@ -267,6 +268,7 @@ export default function BankTransactionsPage() {
 
         {/* Table */}
         <div className="px-4 py-2">
+          <AutoPostRunsPanel onUndone={loadTransactions} />
           {isLoading ? (
             <div className="flex items-center justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-blue-500" /></div>
           ) : error ? (
