@@ -49,6 +49,7 @@ export function mapTxRow(row: Row): BankTransaction {
     suggestedVatCode: row.suggested_vat_code && row.suggested_vat_code !== 'none'
       ? String(row.suggested_vat_code) : undefined,
     suggestedConfidence: row.suggested_confidence != null ? Number(row.suggested_confidence) : undefined,
+    suggestedStrategy: row.suggested_strategy ? String(row.suggested_strategy) : undefined,
     cc1Id: row.cc1_id ? String(row.cc1_id) : undefined,
     cc2Id: row.cc2_id ? String(row.cc2_id) : undefined,
     buId: row.bu_id ? String(row.bu_id) : undefined,
@@ -96,7 +97,7 @@ const TX_SELECT = `
     bt.import_batch_id, bt.excluded_reason, bt.notes,
     bt.suggested_gl_account_id, bt.suggested_category,
     bt.suggested_supplier_id, bt.suggested_client_id,
-    bt.suggested_vat_code, bt.suggested_confidence,
+    bt.suggested_vat_code, bt.suggested_confidence, bt.suggested_strategy,
     bt.cc1_id, bt.cc2_id, bt.bu_id,
     bt.allocation_type, bt.allocated_entity_name,
     bt.created_at, bt.updated_at,

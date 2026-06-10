@@ -63,6 +63,8 @@ export interface BankTransaction {
   suggestedVatCode?: string;
   /** Smart categorization confidence score (0-1) */
   suggestedConfidence?: number;
+  /** LLM tier: categorization strategy used ('llm' | 'rule' | 'history' | ...) */
+  suggestedStrategy?: string;
   /** Dimension fields — cost centres and business unit */
   cc1Id?: string;
   cc2Id?: string;

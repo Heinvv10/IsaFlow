@@ -139,6 +139,32 @@ export default function BankTransactionsPage() {
 
   useEffect(() => { loadTransactions(); }, [loadTransactions]);
 
+  // AI background poll — picks up late-arriving LLM suggestions after smart-categorize
+  const [aiPolling, setAiPolling] = useState(0);
+  const transactionsRef = useRef<BankTx[]>([]);
+  useEffect(() => { transactionsRef.current = transactions; }, [transactions]);
+  const aiPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => () => { if (aiPollTimerRef.current) clearInterval(aiPollTimerRef.current); }, []);
+
+  const pollForLlmResults = useCallback((residualCount: number) => {
+    if (residualCount <= 0) return;
+    if (aiPollTimerRef.current) clearInterval(aiPollTimerRef.current);
+    setAiPolling(residualCount);
+    let ticks = 0;
+    let lastLlm = -1;
+    aiPollTimerRef.current = setInterval(async () => {
+      ticks += 1;
+      await loadTransactions();
+      const llmCount = transactionsRef.current.filter((t) => t.suggestedStrategy === 'llm').length;
+      if ((llmCount === lastLlm && ticks > 1) || ticks >= 8) {
+        if (aiPollTimerRef.current) clearInterval(aiPollTimerRef.current);
+        aiPollTimerRef.current = null;
+        setAiPolling(0);
+      }
+      lastLlm = llmCount;
+    }, 4000);
+  }, [loadTransactions]);
+
   // Silently re-link any imported transactions that are the counterpart of
   // an existing allocation (covers 'account' type pointing to a bank GL).
   useEffect(() => {
@@ -188,6 +214,7 @@ export default function BankTransactionsPage() {
     excludingTxId, createEntityTxId,
     setSmartRunning, setRowSelections, setTransactions, setSelectedIds, setShowBatchEdit,
     setRulePrompt, setExcludingTxId, loadTransactions, refreshBankAccounts,
+    onLlmResidual: pollForLlmResults,
   });
 
   const bank = bankAccounts.find(b => b.id === selectedBank);
@@ -269,6 +296,11 @@ export default function BankTransactionsPage() {
         {/* Table */}
         <div className="px-4 py-2">
           <AutoPostRunsPanel onUndone={loadTransactions} />
+          {aiPolling > 0 && (
+            <div className="flex items-center gap-2 text-xs text-[var(--ff-text-secondary)] py-1 pb-2">
+              <Loader2 className="h-3 w-3 animate-spin" /> AI is categorizing {aiPolling} transaction{aiPolling === 1 ? '' : 's'}…
+            </div>
+          )}
           {isLoading ? (
             <div className="flex items-center justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-blue-500" /></div>
           ) : error ? (

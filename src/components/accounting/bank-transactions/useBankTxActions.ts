@@ -29,6 +29,7 @@ interface ActionDeps {
   setExcludingTxId: (v: string | null) => void;
   loadTransactions: () => void;
   refreshBankAccounts: () => void;
+  onLlmResidual?: (n: number) => void;
 }
 
 export function buildBankTxActions(deps: ActionDeps) {
@@ -36,7 +37,7 @@ export function buildBankTxActions(deps: ActionDeps) {
     transactions, glAccounts, selectedBank, selectedIds, rowSelections, batchType,
     excludingTxId, createEntityTxId,
     setSmartRunning, setRowSelections, setTransactions, setSelectedIds, setShowBatchEdit,
-    setRulePrompt, setExcludingTxId, loadTransactions, refreshBankAccounts,
+    setRulePrompt, setExcludingTxId, loadTransactions, refreshBankAccounts, onLlmResidual,
   } = deps;
 
   const callAction = async (body: Record<string, string>) => {
@@ -191,6 +192,8 @@ export function buildBankTxActions(deps: ActionDeps) {
         const smartJson = await smartRes.json();
         smartCategorized = smartJson.data?.categorized ?? 0;
         totalSkipped = smartJson.data?.skipped ?? 0;
+        const residualCount: number = smartJson.data?.residualCount ?? 0;
+        if (residualCount > 0) onLlmResidual?.(residualCount);
       } catch { /* AI categorization timed out */ }
       notify.success(rulesApplied + smartCategorized > 0
         ? `${rulesApplied} rules applied, ${smartCategorized} smart-categorised, ${totalSkipped} skipped`

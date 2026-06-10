@@ -58,6 +58,8 @@ export interface BankTx {
   provisionalJeId?: string | null;
   /** PRD-05 Phase 5: true when the provisional JE has no attached evidence yet */
   needsEvidence?: boolean;
+  /** LLM tier: categorization strategy used ('llm' | 'rule' | 'history' | ...) */
+  suggestedStrategy?: string;
 }
 
 export interface SelectOption {
