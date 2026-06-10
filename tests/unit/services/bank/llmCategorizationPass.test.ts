@@ -1,5 +1,15 @@
 import { describe, it, expect, vi } from 'vitest';
-import { selectResidualTxIds, type ResidualCandidate } from '@/modules/accounting/services/bank/llmCategorizationPass';
+
+vi.mock('@/lib/neon', () => ({ sql: () => Promise.resolve([]) }));
+vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+
+import {
+  selectResidualTxIds,
+  runLlmResidualPass,
+  type ResidualCandidate,
+  type LlmCatResult,
+  type LlmTxContext,
+} from '@/modules/accounting/services/bank/llmCategorizationPass';
 
 const c = (id: string, o: Partial<ResidualCandidate> = {}): ResidualCandidate => ({
   id, suggestedGlAccountId: null, suggestedConfidence: null, status: 'imported', ...o,
@@ -20,5 +30,53 @@ describe('selectResidualTxIds', () => {
   });
   it('caps the residual list at maxCalls', () => {
     expect(selectResidualTxIds([c('a'), c('b'), c('d')], 2)).toEqual(['a', 'b']);
+  });
+});
+
+// ─── Task 8: runLlmResidualPass ───────────────────────────────────────────────
+
+const mockResult: LlmCatResult = {
+  glAccountId: 'gl-1', vatCode: 'standard', confidence: 0.97, accountCode: '5200', accountName: 'Office',
+};
+
+const makeTx = (id: string): LlmTxContext => ({
+  id, status: 'imported', suggestedGlAccountId: null, suggestedConfidence: null,
+  description: id === 't1' ? 'X' : 'Y', amount: -100, transactionDate: '2026-01-01',
+});
+
+describe('runLlmResidualPass', () => {
+  it('calls the LLM seam once per residual id and persists strategy=llm', async () => {
+    const categorizeOne = vi.fn<[LlmTxContext, unknown[]], Promise<LlmCatResult | null>>()
+      .mockResolvedValue(mockResult);
+    const persisted: string[] = [];
+
+    await runLlmResidualPass('company-1', ['t1', 't2'], 'user-1', {
+      maxCalls: 200,
+      dailyRemaining: 100,
+      loadAccounts: async () => [{ code: '5200', name: 'Office', type: 'expense' }],
+      loadCandidates: async () => [makeTx('t1'), makeTx('t2')],
+      persist: async (txId) => { persisted.push(txId); },
+      sweep: async () => ({ runId: null, posted: 0, skipped: [] }),
+      categorizeOne,
+    });
+
+    expect(categorizeOne).toHaveBeenCalledTimes(2);
+    expect(persisted.sort()).toEqual(['t1', 't2']);
+  });
+
+  it('no-ops when dailyRemaining is 0', async () => {
+    const categorizeOne = vi.fn();
+
+    await runLlmResidualPass('company-1', ['t1'], 'user-1', {
+      maxCalls: 200,
+      dailyRemaining: 0,
+      loadAccounts: async () => [],
+      loadCandidates: async () => [],
+      persist: async () => {},
+      sweep: async () => ({ runId: null, posted: 0, skipped: [] }),
+      categorizeOne,
+    });
+
+    expect(categorizeOne).not.toHaveBeenCalled();
   });
 });
