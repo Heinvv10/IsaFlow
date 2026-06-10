@@ -2,7 +2,11 @@
  * POST /api/accounting/capture/inbound/whatsapp
  * Twilio WABA inbound webhook.
  * Verifies X-Twilio-Signature when TWILIO_AUTH_TOKEN is set.
- * Returns 200 regardless of rejection reason so Twilio does not retry.
+ * Responses:
+ *  - 403 on invalid signature (4xx is terminal for Twilio — no retry)
+ *  - 503 when TWILIO_AUTH_TOKEN is unconfigured (fail closed; Twilio retries
+ *    5xx — intentional, the deployment must be fixed)
+ *  - 200 otherwise, including rejected payloads, so Twilio does not retry
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
