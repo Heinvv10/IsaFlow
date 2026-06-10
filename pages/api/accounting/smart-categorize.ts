@@ -16,12 +16,15 @@ import {
   smartCategorizeForAccount,
   learnFromAllocation,
 } from '@/modules/accounting/services/core/smartCategorizationService';
+import { sweep } from '@/modules/accounting/services/bank/autoPostGateService';
 import { sql } from '@/lib/neon';
 type Row = Record<string, unknown>;
 
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyAuthedRequest;
+  const authedReq = req as CompanyAuthedRequest;
+  const { companyId } = authedReq;
+  const userId = authedReq.user.id;
 
   // ── GET: Single transaction suggestion ─────────────────────────────────────
   if (req.method === 'GET') {
@@ -74,7 +77,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             return apiResponse.badRequest(res, 'transactionIds array or bankAccountId required');
           }
           const result = await bulkCategorize(companyId, transactionIds);
-          return apiResponse.success(res, result);
+          const categorizedIds = result.results.filter((r) => r.result).map((r) => r.transactionId);
+          const autoPost = await sweep(companyId, categorizedIds, 'categorization', userId);
+          return apiResponse.success(res, { ...result, autoPost });
         }
 
         case 'learn': {
