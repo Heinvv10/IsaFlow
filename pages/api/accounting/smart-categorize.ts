@@ -18,6 +18,12 @@ import {
 } from '@/modules/accounting/services/core/smartCategorizationService';
 import { sweep } from '@/modules/accounting/services/bank/autoPostGateService';
 import { sql } from '@/lib/neon';
+import {
+  selectResidualTxIds,
+  runLlmResidualPass,
+  buildRunDeps,
+  MAX_LLM_CALLS_PER_RUN,
+} from '@/modules/accounting/services/bank/llmCategorizationPass';
 type Row = Record<string, unknown>;
 
 
@@ -70,7 +76,37 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           // If bankAccountId provided, categorize all uncategorized for that account
           if (bankAccountId) {
             const result = await smartCategorizeForAccount(companyId, bankAccountId);
-            return apiResponse.success(res, result);
+
+            // Derive affected tx ids for the residual pass
+            const acctRows = (await sql`
+              SELECT id FROM bank_transactions
+              WHERE company_id = ${companyId}::UUID
+                AND bank_account_id = ${bankAccountId}::UUID
+                AND status = 'imported'
+            `) as Array<{ id: string }>;
+            const affectedTxIds = acctRows.map((r) => r.id);
+
+            const candidateRows = (await sql`
+              SELECT id, status,
+                     suggested_gl_account_id AS "suggestedGlAccountId",
+                     suggested_confidence    AS "suggestedConfidence"
+              FROM bank_transactions
+              WHERE id = ANY(${affectedTxIds}::uuid[])
+                AND company_id = ${companyId}::UUID
+            `) as Array<{ id: string; status: string; suggestedGlAccountId: string | null; suggestedConfidence: number | null }>;
+            const residualIds = selectResidualTxIds(
+              candidateRows.map((r) => ({
+                ...r,
+                suggestedConfidence: r.suggestedConfidence == null ? null : Number(r.suggestedConfidence),
+              })),
+              MAX_LLM_CALLS_PER_RUN,
+            );
+            if (residualIds.length > 0) {
+              const deps = await buildRunDeps(companyId, userId, residualIds);
+              void runLlmResidualPass(companyId, residualIds, userId, deps); // fire-and-forget
+            }
+
+            return apiResponse.success(res, { ...result, residualCount: residualIds.length });
           }
           // Otherwise, categorize specific transaction IDs
           if (!Array.isArray(transactionIds) || transactionIds.length === 0) {
@@ -79,7 +115,29 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           const result = await bulkCategorize(companyId, transactionIds);
           const categorizedIds = result.results.filter((r) => r.result).map((r) => r.transactionId);
           const autoPost = await sweep(companyId, categorizedIds, 'categorization', userId);
-          return apiResponse.success(res, { ...result, autoPost });
+
+          // Derive residual pass over the request's transaction ids
+          const candidateRows = (await sql`
+            SELECT id, status,
+                   suggested_gl_account_id AS "suggestedGlAccountId",
+                   suggested_confidence    AS "suggestedConfidence"
+            FROM bank_transactions
+            WHERE id = ANY(${transactionIds as string[]}::uuid[])
+              AND company_id = ${companyId}::UUID
+          `) as Array<{ id: string; status: string; suggestedGlAccountId: string | null; suggestedConfidence: number | null }>;
+          const residualIds = selectResidualTxIds(
+            candidateRows.map((r) => ({
+              ...r,
+              suggestedConfidence: r.suggestedConfidence == null ? null : Number(r.suggestedConfidence),
+            })),
+            MAX_LLM_CALLS_PER_RUN,
+          );
+          if (residualIds.length > 0) {
+            const deps = await buildRunDeps(companyId, userId, residualIds);
+            void runLlmResidualPass(companyId, residualIds, userId, deps); // fire-and-forget
+          }
+
+          return apiResponse.success(res, { ...result, autoPost, residualCount: residualIds.length });
         }
 
         case 'learn': {

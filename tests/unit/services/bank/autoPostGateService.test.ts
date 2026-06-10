@@ -23,54 +23,56 @@ import {
 import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 import { postProvisional } from '@/modules/accounting/services/capture/provisionalPostingService';
 
-const ON: AutoPostSettings = { enabled: true, minConfidence: 0.9, amountCap: 10000 };
+const ON: AutoPostSettings = { enabled: true, minConfidence: 0.9, amountCap: 10000, llmEnabled: false, llmMinConfidence: 0.95, llmAmountCap: 2000 };
 const tx = (over: Partial<GateTx> = {}): GateTx => ({
   status: 'imported', amount: -500, suggestedGlAccountId: 'gl-1', ...over,
 });
 
 describe('evaluate — decision ladder', () => {
   it('skips when disabled', () => {
-    expect(evaluate(tx(), 0.99, { ...ON, enabled: false })).toEqual({ outcome: 'skip', reason: 'disabled' });
+    expect(evaluate(tx(), 0.99, { ...ON, enabled: false }, null)).toEqual({ outcome: 'skip', reason: 'disabled' });
   });
 
   it('skips when tx not imported', () => {
-    expect(evaluate(tx({ status: 'allocated' }), 0.99, ON)).toEqual({ outcome: 'skip', reason: 'not eligible' });
+    // NOTE: with the reordered ladder (status check before feature-flag), a non-imported tx
+    // now returns 'not eligible' regardless of the enabled flag.
+    expect(evaluate(tx({ status: 'allocated' }), 0.99, ON, null)).toEqual({ outcome: 'skip', reason: 'not eligible' });
   });
 
   it('skips when confidence below threshold', () => {
-    expect(evaluate(tx(), 0.89, ON)).toEqual({ outcome: 'skip', reason: 'confidence too low' });
+    expect(evaluate(tx(), 0.89, ON, null)).toEqual({ outcome: 'skip', reason: 'confidence too low' });
   });
 
   it('posts when confidence is exactly at threshold', () => {
-    expect(evaluate(tx(), 0.9, ON)).toEqual({ outcome: 'post' });
+    expect(evaluate(tx(), 0.9, ON, null)).toEqual({ outcome: 'post' });
   });
 
   it('skips when amount over cap', () => {
-    expect(evaluate(tx({ amount: -10000.01 }), 0.99, ON)).toEqual({ outcome: 'skip', reason: 'over amount cap' });
+    expect(evaluate(tx({ amount: -10000.01 }), 0.99, ON, null)).toEqual({ outcome: 'skip', reason: 'over amount cap' });
   });
 
   it('posts when amount is exactly at the cap', () => {
-    expect(evaluate(tx({ amount: -10000 }), 0.99, ON)).toEqual({ outcome: 'post' });
+    expect(evaluate(tx({ amount: -10000 }), 0.99, ON, null)).toEqual({ outcome: 'post' });
   });
 
   it('treats cap of 0 as uncapped', () => {
-    expect(evaluate(tx({ amount: -999999 }), 0.99, { ...ON, amountCap: 0 })).toEqual({ outcome: 'post' });
+    expect(evaluate(tx({ amount: -999999 }), 0.99, { ...ON, amountCap: 0 }, null)).toEqual({ outcome: 'post' });
   });
 
   it('skips suggestion-path tx with no target', () => {
-    expect(evaluate(tx({ suggestedGlAccountId: null }), 0.99, ON)).toEqual({ outcome: 'skip', reason: 'no target' });
+    expect(evaluate(tx({ suggestedGlAccountId: null }), 0.99, ON, null)).toEqual({ outcome: 'skip', reason: 'no target' });
   });
 
   it('defers confidence + no-target rungs when confidence is null (provisional path)', () => {
-    expect(evaluate(tx({ suggestedGlAccountId: null }), null, ON)).toEqual({ outcome: 'post' });
+    expect(evaluate(tx({ suggestedGlAccountId: null }), null, ON, null)).toEqual({ outcome: 'post' });
   });
 
   it('enforces status on the provisional path (null confidence)', () => {
-    expect(evaluate(tx({ status: 'allocated' }), null, ON)).toEqual({ outcome: 'skip', reason: 'not eligible' });
+    expect(evaluate(tx({ status: 'allocated' }), null, ON, null)).toEqual({ outcome: 'skip', reason: 'not eligible' });
   });
 
   it('still enforces enabled/status/cap on the provisional path', () => {
-    expect(evaluate(tx({ amount: -20000, suggestedGlAccountId: null }), null, ON))
+    expect(evaluate(tx({ amount: -20000, suggestedGlAccountId: null }), null, ON, null))
       .toEqual({ outcome: 'skip', reason: 'over amount cap' });
   });
 });
@@ -81,13 +83,13 @@ describe('getAutoPostSettings', () => {
   it('returns disabled defaults when no row exists', async () => {
     sqlMock.mockResolvedValueOnce([]);
     const s = await getAutoPostSettings('co-1');
-    expect(s).toEqual({ enabled: false, minConfidence: 0.9, amountCap: 10000 });
+    expect(s).toEqual({ enabled: false, minConfidence: 0.9, amountCap: 10000, llmEnabled: false, llmMinConfidence: 0.95, llmAmountCap: 2000 });
   });
 
   it('maps an existing row', async () => {
-    sqlMock.mockResolvedValueOnce([{ enabled: true, min_confidence: '0.85', amount_cap: '5000' }]);
+    sqlMock.mockResolvedValueOnce([{ enabled: true, min_confidence: '0.85', amount_cap: '5000', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }]);
     const s = await getAutoPostSettings('co-1');
-    expect(s).toEqual({ enabled: true, minConfidence: 0.85, amountCap: 5000 });
+    expect(s).toEqual({ enabled: true, minConfidence: 0.85, amountCap: 5000, llmEnabled: false, llmMinConfidence: 0.95, llmAmountCap: 2000 });
   });
 });
 
@@ -105,24 +107,34 @@ describe('updateAutoPostSettings', () => {
   });
 
   it('upserts and returns the merged settings', async () => {
-    sqlMock.mockResolvedValueOnce([{ enabled: true, min_confidence: '0.9', amount_cap: '10000' }]);
+    sqlMock.mockResolvedValueOnce([{ enabled: true, min_confidence: '0.9', amount_cap: '10000', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }]);
     const s = await updateAutoPostSettings('co-1', { enabled: true }, 'u-1');
     expect(s.enabled).toBe(true);
     expect(sqlMock).toHaveBeenCalledTimes(1);
   });
 
   it('persists enabled:false without dropping it', async () => {
-    sqlMock.mockResolvedValueOnce([{ enabled: false, min_confidence: '0.9', amount_cap: '10000' }]);
+    sqlMock.mockResolvedValueOnce([{ enabled: false, min_confidence: '0.9', amount_cap: '10000', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }]);
     const s = await updateAutoPostSettings('co-1', { enabled: false }, 'u-1');
     expect(s.enabled).toBe(false);
     expect(sqlMock).toHaveBeenCalledTimes(1);
   });
 
   it('accepts amountCap 0 (uncapped) and forwards it', async () => {
-    sqlMock.mockResolvedValueOnce([{ enabled: true, min_confidence: '0.9', amount_cap: '0' }]);
+    sqlMock.mockResolvedValueOnce([{ enabled: true, min_confidence: '0.9', amount_cap: '0', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }]);
     const s = await updateAutoPostSettings('co-1', { amountCap: 0 }, 'u-1');
     expect(s.amountCap).toBe(0);
     expect(sqlMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('updateAutoPostSettings — LLM field validation', () => {
+  it('rejects llmMinConfidence outside (0,1]', async () => {
+    await expect(updateAutoPostSettings('c', { llmMinConfidence: 0 }, 'u')).rejects.toThrow(/llm_min_confidence/);
+    await expect(updateAutoPostSettings('c', { llmMinConfidence: 1.5 }, 'u')).rejects.toThrow(/llm_min_confidence/);
+  });
+  it('rejects negative llmAmountCap', async () => {
+    await expect(updateAutoPostSettings('c', { llmAmountCap: -1 }, 'u')).rejects.toThrow(/llm_amount_cap/);
   });
 });
 
@@ -152,7 +164,7 @@ describe('sweep', () => {
 
   it('lazily creates the run row on the first post and tags the tx (suggestion path)', async () => {
     routeSql([
-      { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000' }] },
+      { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }] },
       { match: /FROM bank_transactions\s+WHERE id = ANY/, rows: [
         { id: 't1', status: 'imported', amount: -500, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.95', suggested_vat_code: null, description: 'Coffee' },
       ] },
@@ -180,7 +192,7 @@ describe('sweep', () => {
 
   it('records a skip and never creates a run when nothing qualifies', async () => {
     routeSql([
-      { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000' }] },
+      { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }] },
       { match: /FROM bank_transactions\s+WHERE id = ANY/, rows: [
         { id: 't1', status: 'imported', amount: -500, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.5', suggested_vat_code: null, description: 'x' },
       ] },
@@ -193,7 +205,7 @@ describe('sweep', () => {
 
   it('isolates a per-tx failure and keeps sweeping', async () => {
     routeSql([
-      { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000' }] },
+      { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }] },
       { match: /FROM bank_transactions\s+WHERE id = ANY/, rows: [
         { id: 't1', status: 'imported', amount: -100, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.95', suggested_vat_code: null, description: 'a' },
         { id: 't2', status: 'imported', amount: -200, suggested_gl_account_id: 'gl-2', suggested_confidence: '0.95', suggested_vat_code: null, description: 'b' },
@@ -213,7 +225,7 @@ describe('sweep', () => {
 
   it('uses the provisional path for the import source', async () => {
     routeSql([
-      { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000' }] },
+      { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }] },
       { match: /FROM bank_transactions\s+WHERE id = ANY/, rows: [
         { id: 't1', status: 'imported', amount: -300, suggested_gl_account_id: null, suggested_confidence: null, suggested_vat_code: null, description: 'EFT' },
       ] },
@@ -226,5 +238,37 @@ describe('sweep', () => {
     const r = await sweep('co-1', ['t1'], 'import', 'u-1');
     expect(postProvisional).toHaveBeenCalledWith('co-1', 't1', 'u-1', { minConfidence: 0.9 });
     expect(r.posted).toBe(1);
+  });
+});
+
+// ── LLM tier quarantine tests ────────────────────────────────────────────────
+
+const S = (o: Partial<AutoPostSettings> = {}): AutoPostSettings => ({
+  enabled: true, minConfidence: 0.9, amountCap: 10000,
+  llmEnabled: false, llmMinConfidence: 0.95, llmAmountCap: 2000, ...o,
+});
+const TX = { status: 'imported', amount: -500, suggestedGlAccountId: 'gl' };
+
+describe('evaluate — LLM tier quarantine', () => {
+  it('standard strategy with high confidence still posts (unchanged)', () => {
+    expect(evaluate(TX, 0.96, S(), 'rule')).toEqual({ outcome: 'post' });
+  });
+  it('LLM suggestion is NOT posted by the standard gate even when standard thresholds pass', () => {
+    expect(evaluate(TX, 0.96, S({ llmEnabled: false }), 'llm')).toEqual({ outcome: 'skip', reason: 'llm disabled' });
+  });
+  it('LLM suggestion posts only under the LLM gate when enabled + above llm threshold + within llm cap', () => {
+    expect(evaluate(TX, 0.96, S({ llmEnabled: true }), 'llm')).toEqual({ outcome: 'post' });
+  });
+  it('LLM suggestion below llm_min_confidence is skipped', () => {
+    expect(evaluate(TX, 0.93, S({ llmEnabled: true }), 'llm')).toEqual({ outcome: 'skip', reason: 'llm confidence too low' });
+  });
+  it('LLM suggestion over llm_amount_cap is skipped', () => {
+    expect(evaluate({ ...TX, amount: -2500 }, 0.99, S({ llmEnabled: true }), 'llm')).toEqual({ outcome: 'skip', reason: 'llm over amount cap' });
+  });
+  it('LLM tier ignores the standard enabled flag (standard off, llm on → posts)', () => {
+    expect(evaluate(TX, 0.96, S({ enabled: false, llmEnabled: true }), 'llm')).toEqual({ outcome: 'post' });
+  });
+  it('provisional import path (confidence null, no strategy) unchanged', () => {
+    expect(evaluate(TX, null, S(), null)).toEqual({ outcome: 'post' });
   });
 });

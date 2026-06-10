@@ -8,6 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Settings, Loader2, AlertCircle, Save, Check } from 'lucide-react';
 import { notify } from '@/utils/toast';
 import { apiFetch } from '@/lib/apiFetch';
+import { AutoPostLlmSection } from '@/components/accounting/AutoPostLlmSection';
 
 interface SettingItem {
   key: string;
@@ -37,6 +38,9 @@ interface AutoPostSettings {
   enabled: boolean;
   minConfidence: number;
   amountCap: number;
+  llmEnabled: boolean;
+  llmMinConfidence: number;
+  llmAmountCap: number;
 }
 
 export default function AccountingSettingsPage() {
@@ -44,8 +48,8 @@ export default function AccountingSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [error, setError] = useState('');
-  const [ap, setAp] = useState<AutoPostSettings>({ enabled: false, minConfidence: 0.9, amountCap: 10000 });
-  const [apDraft, setApDraft] = useState<{ minConfidence: string; amountCap: string }>({ minConfidence: '0.9', amountCap: '10000' });
+  const [ap, setAp] = useState<AutoPostSettings>({ enabled: false, minConfidence: 0.9, amountCap: 10000, llmEnabled: false, llmMinConfidence: 0.95, llmAmountCap: 2000 });
+  const [apDraft, setApDraft] = useState<{ minConfidence: string; amountCap: string; llmMinConfidence: string; llmAmountCap: string }>({ minConfidence: '0.9', amountCap: '10000', llmMinConfidence: '0.95', llmAmountCap: '2000' });
   const [apSaving, setApSaving] = useState(false);
 
   useEffect(() => {
@@ -88,8 +92,13 @@ export default function AccountingSettingsPage() {
   // Sync the editable string drafts whenever ap changes (initial GET hydration
   // and after every successful save) so the inputs always track server state.
   useEffect(() => {
-    setApDraft({ minConfidence: String(ap.minConfidence), amountCap: String(ap.amountCap) });
-  }, [ap.minConfidence, ap.amountCap]);
+    setApDraft({
+      minConfidence: String(ap.minConfidence),
+      amountCap: String(ap.amountCap),
+      llmMinConfidence: String(ap.llmMinConfidence),
+      llmAmountCap: String(ap.llmAmountCap),
+    });
+  }, [ap.minConfidence, ap.amountCap, ap.llmMinConfidence, ap.llmAmountCap]);
 
   async function saveAutoPost(patch: Partial<AutoPostSettings>) {
     setApSaving(true);
@@ -261,6 +270,15 @@ export default function AccountingSettingsPage() {
                     />
                   </div>
                 </div>
+
+                {/* LLM tier subsection */}
+                <AutoPostLlmSection
+                  ap={ap}
+                  apDraft={apDraft}
+                  apSaving={apSaving}
+                  onDraftChange={(key, value) => setApDraft((d) => ({ ...d, [key]: value }))}
+                  onSave={saveAutoPost}
+                />
               </div>
             </div>
           )}
