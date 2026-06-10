@@ -38,6 +38,7 @@ import {
   postProvisional,
 } from '@/modules/accounting/services/capture/provisionalPostingService';
 import { createJournalEntry, postJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
+import { getSystemAccountId } from '@/modules/accounting/services/gl/systemAccountResolver';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -312,5 +313,23 @@ describe('postProvisional', () => {
     await expect(postProvisional(COMPANY_ID, BANK_TX_ID, USER_ID)).rejects.toThrow(
       'not found',
     );
+  });
+
+  it('rejects when the vat_input system account is missing for a VAT-bearing posting', async () => {
+    vi.mocked(sqlMock).mockResolvedValueOnce([
+      { id: BANK_TX_ID, amount: -800, description: 'ESKOM HOLDINGS PAYMENT', status: 'imported', bank_account_id: 'ba-1', transaction_date: '2026-04-10' },
+    ] as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Eskom Holdings' }] as never);
+    // vat_code 'standard' → hasVat path; 4 consistent rows → confidence 0.9
+    vi.mocked(sqlMock).mockResolvedValueOnce(makeHistoryRows(GL_ACC_ID, 'standard', 4) as never);
+    // vat_input lookup fails — system account not configured
+    vi.mocked(getSystemAccountId).mockRejectedValueOnce(
+      new Error('system account vat_input not configured'),
+    );
+
+    await expect(postProvisional(COMPANY_ID, BANK_TX_ID, USER_ID)).rejects.toThrow(
+      'vat_input not configured',
+    );
+    expect(vi.mocked(createJournalEntry)).not.toHaveBeenCalled();
   });
 });
