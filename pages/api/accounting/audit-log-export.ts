@@ -53,6 +53,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       // Log the export action itself. Awaited deliberately: exporting the audit
       // trail without recording who did it is a compliance violation, so a failed
       // audit write fails the export (withErrorHandler -> 500).
+      // x-forwarded-for can be string[] (repeated header) or a comma-separated
+      // chain; bind only the client IP, never an array.
+      const forwardedFor = req.headers['x-forwarded-for'];
+      const clientIp =
+        (Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor)?.split(',')[0]?.trim() ||
+        req.socket?.remoteAddress;
       await logAuditOrThrow({
         companyId,
         userId: req.user.id,
@@ -61,7 +67,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         entityType: 'audit_log',
         entityId: companyId,
         entityRef: 'audit-trail-export',
-        ip: req.headers['x-forwarded-for'] as string ?? req.socket?.remoteAddress,
+        ip: clientIp,
         userAgent: req.headers['user-agent'],
       });
 

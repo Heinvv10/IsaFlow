@@ -192,6 +192,10 @@ export async function executeArchive(
       WHERE id = ${runId}
     `;
 
+    // Deliberately non-fatal: the archive run is already marked completed
+    // above, so a failed audit write must not fail the call — but unlike the
+    // swallowing logAudit (warn, no context), the strict variant + local
+    // .catch logs at ERROR level with runId/companyId for follow-up.
     await logAuditOrThrow({
       companyId,
       userId,
