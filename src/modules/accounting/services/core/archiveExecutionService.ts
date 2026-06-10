@@ -6,7 +6,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { logAudit } from './auditTrailService';
+import { logAuditOrThrow } from './auditTrailService';
 import type { DbRow } from '@/types/db';
 
 
@@ -192,7 +192,7 @@ export async function executeArchive(
       WHERE id = ${runId}
     `;
 
-    logAudit({
+    logAuditOrThrow({
       companyId,
       userId,
       action: 'export',
