@@ -124,14 +124,23 @@ export async function adminCreateUser(input: AdminCreateUserInput): Promise<GoTr
 }
 
 export async function adminGetUserByEmail(email: string): Promise<GoTrueUser> {
+  // GoTrue's admin `/admin/users?filter=` is a free-text ILIKE over email/phone,
+  // NOT a PostgREST `col.op.val` expression: `email.eq.<x>` is taken literally
+  // and matches nothing, so the old query silently found no users (e.g. every
+  // forgot-password lookup threw "no user" → no reset email was ever sent).
+  // Filter by the raw email to narrow server-side, then exact-match (case-
+  // insensitive) client-side since ILIKE can also return substring near-matches.
+  // per_page large enough that the exact match can't be paginated off page 1
+  // even if many substring near-matches share the filter (admin list paginates).
   const res = await gotrueFetch(
-    `/admin/users?filter=${encodeURIComponent(`email.eq.${email}`)}`,
+    `/admin/users?filter=${encodeURIComponent(email)}&per_page=1000`,
     { method: 'GET' },
     adminHeaders()
   );
   if (!res.ok) throw new Error(`gotrue getUserByEmail failed: ${res.status}`);
   const body = (await res.json()) as { users?: GoTrueUser[] };
-  const user = body.users?.[0];
+  const target = email.trim().toLowerCase();
+  const user = body.users?.find((u) => u.email?.trim().toLowerCase() === target);
   if (!user) throw new Error(`no gotrue user with email ${email}`);
   return user;
 }
