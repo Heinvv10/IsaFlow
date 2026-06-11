@@ -149,11 +149,13 @@ export function BankTxModals({
         />
       )}
 
-      <BankTxQueryModal
-        tx={queryTx}
-        onClose={onQueryClose}
-        onSent={onQuerySent}
-      />
+      {queryTx && (
+        <BankTxQueryModal
+          tx={queryTx}
+          onClose={onQueryClose}
+          onSent={onQuerySent}
+        />
+      )}
     </>
   );
 }

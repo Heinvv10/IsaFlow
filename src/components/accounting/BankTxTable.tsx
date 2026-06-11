@@ -610,7 +610,7 @@ export function BankTxTable(props: Props) {
                             {onAskClient && (
                               <button onClick={() => onAskClient(tx.id)} title="Ask client on WhatsApp"
                                 className="p-1 rounded hover:bg-gray-500/10 text-[var(--ff-text-tertiary)]">
-                                <MessageCircle size={14} />
+                                <MessageCircle className="h-3.5 w-3.5" />
                               </button>
                             )}
                             <button onClick={() => onExclude(tx.id)} title="Exclude"
@@ -635,7 +635,7 @@ export function BankTxTable(props: Props) {
                             {onAskClient && (
                               <button onClick={() => onAskClient(tx.id)} title="Ask client on WhatsApp"
                                 className="p-1 rounded hover:bg-gray-500/10 text-[var(--ff-text-tertiary)]">
-                                <MessageCircle size={14} />
+                                <MessageCircle className="h-3.5 w-3.5" />
                               </button>
                             )}
                           </>
@@ -660,7 +660,7 @@ export function BankTxTable(props: Props) {
                             {onAskClient && (
                               <button onClick={() => onAskClient(tx.id)} title="Ask client on WhatsApp"
                                 className="p-1 rounded hover:bg-gray-500/10 text-[var(--ff-text-tertiary)]">
-                                <MessageCircle size={14} />
+                                <MessageCircle className="h-3.5 w-3.5" />
                               </button>
                             )}
                           </>

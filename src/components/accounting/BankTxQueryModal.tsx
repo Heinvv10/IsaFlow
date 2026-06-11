@@ -75,6 +75,7 @@ export function BankTxQueryModal({ tx, onClose, onSent }: Props) {
   // On new tx: reset state, then fetch settings + prior queries in parallel
   useEffect(() => {
     if (!tx) return;
+    let cancelled = false;
     setPhone('');
     setMessage('');
     setMessageDirty(false);
@@ -90,9 +91,11 @@ export function BankTxQueryModal({ tx, onClose, onSent }: Props) {
           apiFetch('/api/accounting/bank-tx-queries/settings'),
           apiFetch(`/api/accounting/bank-tx-queries?bankTransactionId=${encodeURIComponent(tx.id)}`),
         ]);
+        if (cancelled) return;
 
         if (settingsRes.ok) {
           const json = await settingsRes.json() as { data: Settings };
+          if (cancelled) return;
           const s: Settings = json.data;
           setPhone(s.clientQueryWhatsapp ?? '');
           setCompanyName(s.companyName);
@@ -102,14 +105,17 @@ export function BankTxQueryModal({ tx, onClose, onSent }: Props) {
 
         if (queriesRes.ok) {
           const json = await queriesRes.json() as { data: QueryRow[] };
+          if (cancelled) return;
           const rows: QueryRow[] = json.data ?? [];
           const prior = rows.find(r => r.status === 'sent' || r.status === 'replied');
           setPriorQuery(prior ?? null);
         }
       } finally {
-        setLoadingSettings(false);
+        if (!cancelled) setLoadingSettings(false);
       }
     })();
+
+    return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tx?.id]);
 
@@ -172,6 +178,7 @@ export function BankTxQueryModal({ tx, onClose, onSent }: Props) {
           </div>
           <button
             onClick={onClose}
+            aria-label="Close"
             className="p-1.5 rounded hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)]"
           >
             <X className="h-4 w-4" />
