@@ -16,6 +16,7 @@ import {
   vatQuickPeriods, defaultVatQuickPeriod, normalizeVatAlignment, normalizeVatCadence,
   type VatQuickPeriod,
 } from '@/modules/bureau/services/vatPeriodHelper';
+import { useCompany } from '@/contexts/CompanyContext';
 
 interface VAT201Invoice {
   id: string; invoiceNumber: string; counterpartyName: string;
@@ -35,6 +36,7 @@ const fmt = (n: number) =>
   new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
 export default function VAT201Page() {
+  const { activeCompany } = useCompany();
   const [alignment, setAlignment] = useState<'odd' | 'even'>('odd');
   const [vatPeriod, setVatPeriod] = useState<'monthly' | 'bi-monthly'>('bi-monthly');
   const [quickPeriods, setQuickPeriods] = useState<VatQuickPeriod[]>([]);
@@ -54,20 +56,31 @@ export default function VAT201Page() {
   const [exceptionsKey, setExceptionsKey] = useState(0);
 
   useEffect(() => {
+    // The list endpoint (/api/accounting/companies) returns slim
+    // { items: CompanyUser[] } rows WITHOUT VAT settings — reading them put
+    // every company on the odd/bi-monthly defaults. Fetch the active
+    // company's full record (?id=) instead, same as the settings page.
+    if (!activeCompany?.id) return;
+    let cancelled = false;
     (async () => {
-      const res = await apiFetch('/api/accounting/companies', { credentials: 'include' });
-      const json = await res.json();
-      if (res.ok && json.data) {
-        const c = Array.isArray(json.data) ? json.data[0] : json.data;
-        const a = normalizeVatAlignment(c?.vatPeriodAlignment || c?.vat_period_alignment);
-        const vp = normalizeVatCadence(c?.vatPeriod || c?.vat_period);
+      try {
+        const res = await apiFetch(`/api/accounting/companies?id=${activeCompany.id}`, { credentials: 'include' });
+        const json = await res.json();
+        if (cancelled || !res.ok || !json.data) return;
+        const c = json.data as Record<string, unknown>;
+        const a = normalizeVatAlignment((c.vatPeriodAlignment ?? c.vat_period_alignment) as string | undefined);
+        const vp = normalizeVatCadence((c.vatPeriod ?? c.vat_period) as string | undefined);
         setAlignment(a); setVatPeriod(vp);
         setQuickPeriods(vatQuickPeriods(new Date().getUTCFullYear(), vp, a));
         const def = defaultVatQuickPeriod(vp, a, new Date());
         setFrom(def.from); setTo(def.to);
+      } catch {
+        // Silent defaults are exactly the bug class this effect fixes — say so.
+        if (!cancelled) setError('Could not load company VAT settings — periods shown use the bi-monthly Category A default');
       }
     })();
-  }, []);
+    return () => { cancelled = true; };
+  }, [activeCompany?.id]);
 
   const generate = useCallback(async () => {
     if (!from || !to) return;
