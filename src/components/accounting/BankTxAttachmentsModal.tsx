@@ -41,6 +41,11 @@ const MAX_BYTES = 2 * 1024 * 1024; // 2 MB
 const ACCEPT = '.jpg,.jpeg,.png,.pdf';
 const ACCEPTED_MIME = ['image/jpeg', 'image/png', 'application/pdf'];
 
+// Stored attachments are server-mirrored data-URLs (whitelisted MIME at write
+// time) or https links. Refuse to hyperlink anything else — a corrupt or
+// directly-inserted data:text/html row must never become a clickable XSS.
+const SAFE_HREF = /^(https:\/\/|data:(image\/(jpeg|png|webp|tiff)|application\/pdf);base64,)/;
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function formatBytes(bytes: number | null): string {
@@ -274,18 +279,24 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
                     </p>
                   </div>
 
-                  {/* Download link */}
-                  <a
-                    href={att.file_url}
-                    download={att.file_name}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="shrink-0 p-1.5 rounded hover:bg-blue-500/10 text-[var(--ff-text-tertiary)] hover:text-blue-400 transition-colors"
-                    title="Download"
-                    onClick={e => e.stopPropagation()}
-                  >
-                    <Upload className="h-3.5 w-3.5 rotate-180" />
-                  </a>
+                  {/* Download link — only rendered when the URL is a safe scheme */}
+                  {SAFE_HREF.test(att.file_url) ? (
+                    <a
+                      href={att.file_url}
+                      download={att.file_name}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="shrink-0 p-1.5 rounded hover:bg-blue-500/10 text-[var(--ff-text-tertiary)] hover:text-blue-400 transition-colors"
+                      title="Download"
+                      onClick={e => e.stopPropagation()}
+                    >
+                      <Upload className="h-3.5 w-3.5 rotate-180" />
+                    </a>
+                  ) : (
+                    <span className="shrink-0 p-1.5 text-[var(--ff-text-tertiary)]" title={att.file_name}>
+                      <Upload className="h-3.5 w-3.5 rotate-180 opacity-30" />
+                    </span>
+                  )}
 
                   {/* Delete */}
                   <button

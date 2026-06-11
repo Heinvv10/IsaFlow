@@ -13,12 +13,15 @@ import { useCompany } from '@/contexts/CompanyContext';
 import { apiFetch } from '@/lib/apiFetch';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { ClientHomeView } from '@/components/bureau/ClientHomeView';
+import { OwnerCashPanel } from '@/components/home/OwnerCashPanel';
 import type { WorkItem } from '@/modules/bureau/services/bureauWorkTypes';
 import type { ClientMetrics } from '@/modules/bureau/services/bureauClientMetricsService';
+import type { OwnerCashPosition } from '@/modules/bureau/services/ownerCashPositionService';
 
 interface HomeData {
   metrics: ClientMetrics;
   workItems: WorkItem[];
+  cashPosition?: OwnerCashPosition;
 }
 
 export default function HomePage() {
@@ -85,6 +88,12 @@ export default function HomePage() {
             <p className="text-sm text-[var(--ff-text-secondary)]">Here&apos;s what needs you today.</p>
           </div>
         </div>
+
+        {data.cashPosition && (
+          <div className="px-6 pt-6">
+            <OwnerCashPanel position={data.cashPosition} />
+          </div>
+        )}
 
         <ClientHomeView
           metrics={data.metrics}

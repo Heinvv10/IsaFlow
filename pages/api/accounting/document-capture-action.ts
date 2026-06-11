@@ -12,6 +12,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import type { CapturedDocumentAction, CapturedDocument } from '@/modules/accounting/types/documentCapture.types';
+import { attachCapturedDocToBankTx } from '@/modules/accounting/services/capture/captureBankTxAttachService';
 
 function mapRow(row: Record<string, unknown>): CapturedDocument {
   return {
@@ -58,7 +59,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   // Verify document exists and belongs to this company
   const [existing] = await sql`
-    SELECT * FROM captured_documents WHERE id = ${id}::uuid AND company_id = ${companyId}
+    SELECT * FROM captured_documents WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
   ` as Record<string, unknown>[];
 
   if (!existing) {
@@ -71,7 +72,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     if (action === 'match_bank_tx') {
-      return handleMatchBankTx(res, id, companyId, data);
+      const { user } = req as CompanyAuthedRequest;
+      return handleMatchBankTx(res, id, companyId, user?.id ?? null, data);
     }
 
     if (action === 'reject') {
@@ -121,11 +123,12 @@ async function handleConfirm(
   return apiResponse.success(res, mapRow(row as Record<string, unknown>), 'Document confirmed');
 }
 
-/** Match to bank transaction */
+/** Match to bank transaction (and mirror the file into bank_transaction_attachments) */
 async function handleMatchBankTx(
   res: NextApiResponse,
   id: string,
   companyId: string,
+  userId: string | null,
   data?: Record<string, unknown>,
 ) {
   const bankTxId = data?.bankTxId as string;
@@ -133,25 +136,27 @@ async function handleMatchBankTx(
     return apiResponse.badRequest(res, 'bankTxId is required for match_bank_tx action');
   }
 
-  // Verify bank transaction exists and belongs to the same company (IDOR prevention)
-  const [bankTx] = await sql`
-    SELECT id FROM bank_transactions WHERE id = ${bankTxId}::uuid AND company_id = ${companyId}::uuid
-  ` as Record<string, unknown>[];
-
-  if (!bankTx) {
-    return apiResponse.notFound(res, 'Bank transaction', bankTxId);
+  const result = await attachCapturedDocToBankTx(companyId, id, bankTxId, userId);
+  if (!result.ok) {
+    return result.reason === 'bank_tx_not_found'
+      ? apiResponse.notFound(res, 'Bank transaction', bankTxId)
+      : apiResponse.notFound(res, 'Captured document', id);
   }
 
   const [row] = await sql`
-    UPDATE captured_documents
-    SET status = 'matched',
-        matched_bank_tx_id = ${bankTxId}::uuid
-    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
-    RETURNING *
+    SELECT * FROM captured_documents WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
   ` as Record<string, unknown>[];
 
-  log.info('Document matched to bank transaction', { id, bankTxId }, 'document-capture');
-  return apiResponse.success(res, mapRow(row as Record<string, unknown>), 'Document matched to bank transaction');
+  if (!row) {
+    return apiResponse.notFound(res, 'Captured document', id);
+  }
+
+  log.info('Document matched to bank transaction', { id, bankTxId, mirrored: result.mirrored }, 'document-capture');
+  return apiResponse.success(
+    res,
+    { ...mapRow(row as Record<string, unknown>), mirrored: result.mirrored },
+    'Document matched to bank transaction',
+  );
 }
 
 /** Reject — mark as rejected */
