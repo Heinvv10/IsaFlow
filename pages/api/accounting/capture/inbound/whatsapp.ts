@@ -43,13 +43,29 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     // Lazy-import twilio to avoid hard startup dep when env not configured
 
-    const twilioLib = await import('twilio');
-    const validateRequest: (
+    // twilio is CJS: under webpack's ESM interop the static helpers live on
+    // .default, not the namespace (the reply service calls twilioMod.default()
+    // for the same reason). Fall back across both shapes, fail closed if absent.
+    type ValidateRequestFn = (
       authToken: string,
       signature: string,
       url: string,
       params: Record<string, string>,
-    ) => boolean = twilioLib.validateRequest;
+    ) => boolean;
+    const twilioLib = (await import('twilio')) as unknown as {
+      validateRequest?: ValidateRequestFn;
+      default?: { validateRequest?: ValidateRequestFn };
+    };
+    const validateRequest =
+      twilioLib.validateRequest ?? twilioLib.default?.validateRequest;
+    if (typeof validateRequest !== 'function') {
+      log.error(
+        'twilio.validateRequest unavailable — cannot verify webhook signature; rejecting',
+        undefined,
+        'whatsapp-inbound',
+      );
+      return res.status(503).json({ success: false, error: 'Webhook verification not configured' });
+    }
 
     const signature =
       (req.headers['x-twilio-signature'] as string | undefined) ?? '';

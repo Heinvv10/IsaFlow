@@ -171,6 +171,7 @@ describe('sendWhatsAppMessage', () => {
 
     const result = await sendWhatsAppMessage('+27611111111', 'Hello');
     expect(result.sent).toBe(true);
+    expect(result.sid).toBe('SM123');
   });
 
   it('returns {sent: false, reason: <message>} when twilio SDK throws', async () => {
