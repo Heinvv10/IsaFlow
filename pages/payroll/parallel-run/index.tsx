@@ -33,10 +33,6 @@ interface ReportPayload {
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const periodLabel = (m: number, y: number) => `${MONTHS[m - 1] ?? m} ${y}`;
 
-/** withAuth flushes the response before COMMIT — give a mutation time to land
- *  before refetching, or the refetch can miss the row it just changed. */
-const settle = () => new Promise((r) => setTimeout(r, 600));
-
 export default function ParallelRunPage() {
   const [imports, setImports] = useState<ImportSummary[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -67,13 +63,7 @@ export default function ParallelRunPage() {
     setError('');
     setReport(null);
     try {
-      let res = await apiFetch(`/api/payroll/parallel-run/compare?importId=${importId}`);
-      if (!res.ok) {
-        // A just-created import can race the creating request's COMMIT
-        // (withAuth flushes the response before committing) — retry once.
-        await new Promise((r) => setTimeout(r, 600));
-        res = await apiFetch(`/api/payroll/parallel-run/compare?importId=${importId}`);
-      }
+      const res = await apiFetch(`/api/payroll/parallel-run/compare?importId=${importId}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json() as { data?: ReportPayload };
       setReport(json.data ?? null);
@@ -88,10 +78,9 @@ export default function ParallelRunPage() {
     if (selectedId) loadComparison(selectedId);
   }, [selectedId, loadComparison]);
 
-  const handleImported = async (importId: string, errors: Array<{ line: number; message: string }>) => {
+  const handleImported = (importId: string, errors: Array<{ line: number; message: string }>) => {
     setRowWarnings(errors);
     setSelectedId(importId);
-    await settle();
     loadImports();
   };
 
@@ -102,7 +91,6 @@ export default function ParallelRunPage() {
     const res = await apiFetch(`/api/payroll/parallel-run/imports/${importId}`, { method: 'DELETE' });
     if (res.ok) {
       if (selectedId === importId) { setSelectedId(null); setReport(null); }
-      await settle();
       loadImports();
     } else {
       setError('Failed to delete import');
