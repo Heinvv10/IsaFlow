@@ -156,6 +156,45 @@ describe('getBankTransactions — BL-17: status filter without bankAccountId', (
   });
 });
 
+// ── Capture attach sheet: search filter without bankAccountId ─────────────────
+//
+// The company-wide (final else) branch previously ignored `search`, so the
+// attach-to-transaction sheet's search box was dead. After the fix the ILIKE
+// pattern must be passed as a parameterised value to BOTH queries.
+
+describe('getBankTransactions — search filter without bankAccountId', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('passes the ILIKE search pattern to the SQL query when only search is provided', async () => {
+    const rows = [makeTxRow({ id: 'tx-s-001', description: 'Coffee shop' })];
+    vi.mocked(sql)
+      .mockResolvedValueOnce(rows as never)
+      .mockResolvedValueOnce([{ cnt: '1' }] as never);
+
+    const result = await getBankTransactions(COMPANY_ID, { search: 'coffee' });
+
+    expect(result.transactions).toHaveLength(1);
+    expect(result.total).toBe(1);
+
+    // The wrapped pattern must appear in the data query AND the count query.
+    const dataValues = vi.mocked(sql).mock.calls[0]!.slice(1).flat();
+    const countValues = vi.mocked(sql).mock.calls[1]!.slice(1).flat();
+    expect(dataValues).toContain('%coffee%');
+    expect(countValues).toContain('%coffee%');
+  });
+
+  it('defaults to match-all pattern when no search is provided', async () => {
+    vi.mocked(sql)
+      .mockResolvedValueOnce([makeTxRow()] as never)
+      .mockResolvedValueOnce([{ cnt: '1' }] as never);
+
+    await getBankTransactions(COMPANY_ID);
+
+    const allValues = flatSqlValues(vi.mocked(sql));
+    expect(allValues).toContain('%');
+  });
+});
+
 // ── Backwards-compatible: bankAccountId + status branch ───────────────────────
 
 describe('getBankTransactions — bankAccountId + status branch (backwards compat)', () => {

@@ -1,8 +1,8 @@
 /**
  * Mobile-first post-upload step (Workstream G): pick a bank transaction to
- * attach the just-captured document(s) to. Lists unallocated transactions via
- * GET /api/accounting/bank-transactions; attach posts the existing
- * document-capture-action match_bank_tx per document.
+ * attach the just-captured document(s) to. Lists recent transactions
+ * (searchable by description/reference) via GET /api/accounting/bank-transactions;
+ * attach posts the existing document-capture-action match_bank_tx per document.
  *
  * Error unwrap rule: apiResponse error envelope is {error:{code,message}} —
  * only ever render json.error?.message / json.message, never json.error.
@@ -47,7 +47,7 @@ export function AttachToTransactionSheet({ documentIds, onDone }: AttachToTransa
   const load = useCallback(async (q: string) => {
     setLoading(true); setError('');
     try {
-      const params = new URLSearchParams({ allocation_filter: 'unallocated', limit: '20', sort_order: 'desc' });
+      const params = new URLSearchParams({ limit: '20' });
       if (q.trim()) params.set('search', q.trim());
       const res = await apiFetch(`/api/accounting/bank-transactions?${params.toString()}`);
       const json = await res.json() as {
@@ -121,7 +121,7 @@ export function AttachToTransactionSheet({ documentIds, onDone }: AttachToTransa
           ) : error ? (
             <p className="text-sm text-red-400 text-center py-8">{error}</p>
           ) : txs.length === 0 ? (
-            <p className="text-sm text-[var(--ff-text-secondary)] text-center py-8">No unallocated transactions found.</p>
+            <p className="text-sm text-[var(--ff-text-secondary)] text-center py-8">No transactions found.</p>
           ) : (
             txs.map((tx) => (
               <button
