@@ -55,13 +55,13 @@ export function VatTab({ company, onChange }: Props) {
               <div>
                 <label className={LABEL_CLS}>Bi-Monthly Period Alignment</label>
                 <select className={INPUT_CLS} value={company.vatPeriodAlignment || 'odd'} onChange={e => onChange('vatPeriodAlignment', e.target.value)}>
-                  <option value="odd">Odd months (Jan-Feb, Mar-Apr, May-Jun...)</option>
-                  <option value="even">Even months (Feb-Mar, Apr-May, Jun-Jul...)</option>
+                  <option value="odd">Category A (Dec-Jan, Feb-Mar, Apr-May...)</option>
+                  <option value="even">Category B (Jan-Feb, Mar-Apr, May-Jun...)</option>
                 </select>
                 <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">
                   {company.vatPeriodAlignment === 'even'
-                    ? 'Category B: periods start in even months (Feb, Apr, Jun, Aug, Oct, Dec)'
-                    : 'Category A: periods start in odd months (Jan, Mar, May, Jul, Sep, Nov)'}
+                    ? 'Category B: periods end in even months (Feb, Apr, Jun, Aug, Oct, Dec)'
+                    : 'Category A: periods end in odd months (Jan, Mar, May, Jul, Sep, Nov)'}
                 </p>
               </div>
             )}

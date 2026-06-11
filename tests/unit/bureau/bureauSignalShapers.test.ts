@@ -147,6 +147,27 @@ describe('shapeVatDue', () => {
     const items = shapeVatDue([{ id: 'c1', vat_period_alignment: 'even' }], [], meta, new Date('2026-06-08T00:00:00Z'));
     expect(items[0]).toMatchObject({ task: 'VAT return due', detail: 'Mar–Apr 2026', dueAt: '2026-05-25', severity: 'overdue' });
   });
+
+  it('monthly (Cat C) vendor gets a one-month period with a single-month label', () => {
+    const items = shapeVatDue([{ id: 'c1', vat_period_alignment: 'odd', vat_period: 'monthly' }], [], meta, today);
+    expect(items[0]).toMatchObject({ task: 'VAT return due', detail: 'May 2026', dueAt: '2026-06-25' });
+  });
+
+  it('a filed one-month return suppresses the monthly vendor item', () => {
+    const returns = [{ company_id: 'c1', period_start: '2026-05-01', period_end: '2026-05-31' }];
+    const items = shapeVatDue([{ id: 'c1', vat_period_alignment: 'odd', vat_period: 'monthly' }], returns, meta, today);
+    expect(items).toHaveLength(0);
+  });
+
+  it('treats vat_period case-insensitively (legacy "Monthly" rows)', () => {
+    const items = shapeVatDue([{ id: 'c1', vat_period_alignment: 'odd', vat_period: 'Monthly' }], [], meta, today);
+    expect(items[0]).toMatchObject({ detail: 'May 2026', dueAt: '2026-06-25' });
+  });
+
+  it('legacy "Bi-Monthly" rows keep the bi-monthly period', () => {
+    const items = shapeVatDue([{ id: 'c1', vat_period_alignment: 'odd', vat_period: 'Bi-Monthly' }], [], meta, today);
+    expect(items[0]).toMatchObject({ detail: 'Apr–May 2026', dueAt: '2026-06-25' });
+  });
 });
 
 describe('reduceMonthEnd', () => {

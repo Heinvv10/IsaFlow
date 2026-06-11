@@ -7,15 +7,18 @@
  * supplied meta map.
  */
 import { sql } from '@/lib/neon';
-import { expectedVatPeriodAsOf, type VatAlignment } from './vatPeriodHelper';
+import { expectedVatPeriodAsOf, normalizeVatAlignment, normalizeVatCadence } from './vatPeriodHelper';
 import { MONTHS, severityForDate, type WorkItem, type CompanyMeta } from './bureauWorkTypes';
 
-export interface CompanyVatRow { id: string; vat_period_alignment: string | null; }
+export interface CompanyVatRow { id: string; vat_period_alignment: string | null; vat_period?: string | null; }
 export interface VatReturnRow { company_id: string; period_start: string; period_end: string; }
 
 function vatDetail(periodStart: string, periodEnd: string): string {
   const s = new Date(`${periodStart}T00:00:00Z`);
   const e = new Date(`${periodEnd}T00:00:00Z`);
+  if (s.getUTCMonth() === e.getUTCMonth() && s.getUTCFullYear() === e.getUTCFullYear()) {
+    return `${MONTHS[e.getUTCMonth()]!} ${e.getUTCFullYear()}`; // monthly (Cat C)
+  }
   return `${MONTHS[s.getUTCMonth()]!}–${MONTHS[e.getUTCMonth()]!} ${e.getUTCFullYear()}`;
 }
 
@@ -30,8 +33,9 @@ export function shapeVatDue(
     const m = meta.get(c.id);
     if (!m) continue;
     // Column DEFAULT is 'odd'; null (pre-migration rows) falls through safely.
-    const alignment: VatAlignment = c.vat_period_alignment === 'even' ? 'even' : 'odd';
-    const period = expectedVatPeriodAsOf(alignment, today);
+    const alignment = normalizeVatAlignment(c.vat_period_alignment);
+    const cadence = normalizeVatCadence(c.vat_period);
+    const period = expectedVatPeriodAsOf(alignment, today, cadence);
     const covered = returns.some(
       (r) => r.company_id === c.id && r.period_start <= period.periodStart && r.period_end >= period.periodEnd,
     );
@@ -49,7 +53,7 @@ export function shapeVatDue(
 export async function vatDueSignal(companyIds: string[], meta: Map<string, CompanyMeta>, today: Date): Promise<WorkItem[]> {
   const sixMonthsAgo = new Date(today.getTime() - 183 * 24 * 3600 * 1000).toISOString().slice(0, 10);
   const [companies, returns] = await Promise.all([
-    sql`SELECT id, vat_period_alignment FROM companies WHERE id = ANY(${companyIds})`,
+    sql`SELECT id, vat_period_alignment, vat_period FROM companies WHERE id = ANY(${companyIds})`,
     sql`SELECT company_id, period_start::text, period_end::text
           FROM vat_returns
          WHERE company_id = ANY(${companyIds})

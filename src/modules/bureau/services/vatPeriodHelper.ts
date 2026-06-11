@@ -1,20 +1,25 @@
 /**
- * Pure VAT-period derivation for the bureau cockpit's "VAT due" signal.
+ * Pure VAT-period derivation — the single source of truth for SA VAT cycle
+ * semantics (used by the bureau cockpit signals, the compliance calendar and
+ * the VAT201 page's quick-period buttons).
  *
- * SA VAT vendors file bi-monthly. `companies.vat_period_alignment` records
- * which month-number parity a vendor's period ENDS on: 'odd' = Category A
- * (periods end Jan/Mar/May/…), 'even' = Category B (Feb/Apr/…). Each period
- * spans two calendar months. Returns are due by the 25th of the month
- * following the period end.
+ * `companies.vat_period_alignment` records which month-number parity a
+ * vendor's bi-monthly period ENDS on, per SARS:
+ *   'odd'  = Category A — periods end Jan/Mar/May/Jul/Sep/Nov
+ *   'even' = Category B — periods end Feb/Apr/Jun/Aug/Oct/Dec
+ * Each bi-monthly period spans two calendar months. Monthly (Category C)
+ * vendors are driven by `companies.vat_period` instead — alignment is
+ * irrelevant for them. Returns are due by the 25th of the month following
+ * the period end.
  *
- * NOTE: monthly (Category C) vendors are out of scope this increment — the
- * column only encodes odd/even parity. Treating everyone as bi-monthly is the
- * documented simplification; refine if a monthly flag is added.
+ * Legacy rows store cadence with mixed casing ('Bi-Monthly'); always go
+ * through the normalizers.
  */
 export type VatAlignment = 'odd' | 'even';
+export type VatCadence = 'monthly' | 'bi-monthly';
 
 export interface VatPeriod {
-  /** YYYY-MM-DD, first day of the two-month period. */
+  /** YYYY-MM-DD, first day of the period. */
   periodStart: string;
   /** YYYY-MM-DD, last day of the period (a month of the requested parity). */
   periodEnd: string;
@@ -22,15 +27,49 @@ export interface VatPeriod {
   dueDate: string;
 }
 
+export interface VatQuickPeriod {
+  label: string;
+  /** YYYY-MM-DD */
+  from: string;
+  /** YYYY-MM-DD */
+  to: string;
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+export function normalizeVatCadence(raw: string | null | undefined): VatCadence {
+  return raw?.toLowerCase() === 'monthly' ? 'monthly' : 'bi-monthly';
+}
+
+export function normalizeVatAlignment(raw: string | null | undefined): VatAlignment {
+  return raw?.toLowerCase() === 'even' ? 'even' : 'odd';
+}
+
 function iso(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+function isoYmd(y: number, m: number, d: number): string {
+  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+/** Last calendar day of month m (1..12) in year y — leap-aware. */
+function lastDayOf(y: number, m: number): number {
+  return new Date(Date.UTC(y, m, 0)).getUTCDate();
+}
+
 /**
- * @param asOf - The reference instant. Only UTC year/month fields are read.
+ * Most recent fully-ended VAT period as of `asOf` — the period the
+ * cockpit's "VAT due" signal expects a return for.
+ *
+ * @param asOf - The reference instant. Only UTC year/month/day fields are read.
  *   `new Date()` is safe; avoid Dates built from local-midnight strings without a 'Z'.
  */
-export function expectedVatPeriodAsOf(alignment: VatAlignment, asOf: Date): VatPeriod {
+export function expectedVatPeriodAsOf(
+  alignment: VatAlignment,
+  asOf: Date,
+  cadence: VatCadence = 'bi-monthly',
+): VatPeriod {
   const wantOddEnd = alignment === 'odd';
   let y = asOf.getUTCFullYear();
   let m = asOf.getUTCMonth() + 1; // 1..12
@@ -38,8 +77,10 @@ export function expectedVatPeriodAsOf(alignment: VatAlignment, asOf: Date): VatP
   for (let i = 0; i < 13; i++) {
     const lastDay = new Date(Date.UTC(y, m, 0)); // day 0 of month m+1 = last day of month m
     const parityOdd = m % 2 === 1;
-    if (parityOdd === wantOddEnd && lastDay.getTime() <= asOf.getTime()) {
-      const periodStart = new Date(Date.UTC(y, m - 2, 1)); // first day of the preceding month
+    const endsHere = cadence === 'monthly' || parityOdd === wantOddEnd;
+    if (endsHere && lastDay.getTime() <= asOf.getTime()) {
+      const startMonthsBack = cadence === 'monthly' ? 1 : 2;
+      const periodStart = new Date(Date.UTC(y, m - startMonthsBack, 1));
       const dueMonth = m === 12 ? 1 : m + 1;
       const dueYear = m === 12 ? y + 1 : y;
       const dueDate = new Date(Date.UTC(dueYear, dueMonth - 1, 25));
@@ -49,4 +90,39 @@ export function expectedVatPeriodAsOf(alignment: VatAlignment, asOf: Date): VatP
     if (m === 0) { m = 12; y -= 1; }
   }
   throw new Error('expectedVatPeriodAsOf: no period found');
+}
+
+/**
+ * The filing periods that END in `year`, for the VAT201 page's quick-period
+ * buttons. Bi-monthly 'odd' (Cat A) therefore starts at Dec(year-1)–Jan(year).
+ */
+export function vatQuickPeriods(year: number, cadence: VatCadence, alignment: VatAlignment): VatQuickPeriod[] {
+  if (cadence === 'monthly') {
+    return Array.from({ length: 12 }, (_, i) => {
+      const m = i + 1;
+      return {
+        label: `${MONTHS[m - 1]} ${year}`,
+        from: isoYmd(year, m, 1),
+        to: isoYmd(year, m, lastDayOf(year, m)),
+      };
+    });
+  }
+  const endMonths = alignment === 'odd' ? [1, 3, 5, 7, 9, 11] : [2, 4, 6, 8, 10, 12];
+  return endMonths.map((em) => {
+    const startYear = em === 1 ? year - 1 : year;
+    const sm = em === 1 ? 12 : em - 1;
+    return {
+      label: `${MONTHS[sm - 1]}–${MONTHS[em - 1]} ${startYear !== year ? `${startYear}/${year}` : year}`,
+      from: isoYmd(startYear, sm, 1),
+      to: isoYmd(year, em, lastDayOf(year, em)),
+    };
+  });
+}
+
+/** The quick period containing `asOf` (UTC date), crossing year boundaries when needed. */
+export function defaultVatQuickPeriod(cadence: VatCadence, alignment: VatAlignment, asOf: Date): VatQuickPeriod {
+  const today = iso(asOf);
+  const year = asOf.getUTCFullYear();
+  const candidates = [...vatQuickPeriods(year, cadence, alignment), ...vatQuickPeriods(year + 1, cadence, alignment)];
+  return candidates.find((p) => p.from <= today && p.to >= today) ?? candidates[0]!;
 }
