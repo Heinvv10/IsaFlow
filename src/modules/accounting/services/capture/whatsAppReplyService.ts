@@ -20,6 +20,7 @@ export interface PostingConfirmationInput {
 export interface SendResult {
   sent: boolean;
   reason?: string;
+  sid?: string;
 }
 
 // ─── Pure composer ────────────────────────────────────────────────────────────
@@ -95,7 +96,7 @@ export async function sendWhatsAppMessage(
     log.info('sendWhatsAppMessage: sent', {
       to, from, messageSid: msg.sid,
     }, 'whatsapp-reply');
-    return { sent: true };
+    return { sent: true, sid: msg.sid };
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     log.warn('sendWhatsAppMessage: send failed', { to, reason }, 'whatsapp-reply');

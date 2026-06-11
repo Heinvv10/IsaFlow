@@ -12,6 +12,12 @@ import {
   parseExpenseCommand,
   type WhatsAppExpenseCommand,
 } from './whatsAppTextCommandParser';
+import {
+  findOpenQuery,
+  attachReplyMedia,
+  markQueryReplied,
+} from './bankTxQueryReplyService';
+import { fetchTwilioMedia } from './twilioMediaFetch';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -61,47 +67,6 @@ function stripWaPrefix(addr: string): string {
 
 type Row = Record<string, unknown>;
 
-// ─── Media fetch ──────────────────────────────────────────────────────────────
-
-/**
- * Fetch a Twilio media URL using HTTP basic-auth (SID + token).
- * Returns null when env vars are absent, logging a warning.
- */
-async function fetchTwilioMedia(
-  url: string,
-): Promise<{ buffer: Buffer; contentType: string } | null> {
-  const sid = process.env.TWILIO_ACCOUNT_SID;
-  const token = process.env.TWILIO_AUTH_TOKEN;
-
-  if (!sid || !token) {
-    log.warn(
-      'whatsAppInbound: TWILIO_ACCOUNT_SID/AUTH_TOKEN not configured — skipping media fetch',
-      { url },
-      'whatsapp-inbound',
-    );
-    return null;
-  }
-
-  const creds = Buffer.from(`${sid}:${token}`).toString('base64');
-  const resp = await fetch(url, {
-    headers: { Authorization: `Basic ${creds}` },
-  });
-
-  if (!resp.ok) {
-    log.warn(
-      'whatsAppInbound: media fetch failed',
-      { url, status: resp.status },
-      'whatsapp-inbound',
-    );
-    return null;
-  }
-
-  const contentType =
-    resp.headers.get('content-type') ?? 'application/octet-stream';
-  const arrayBuf = await resp.arrayBuffer();
-  return { buffer: Buffer.from(arrayBuf), contentType };
-}
-
 // ─── Core ingestion ───────────────────────────────────────────────────────────
 
 export async function ingestTwilioPayload(
@@ -140,8 +105,21 @@ export async function ingestTwilioPayload(
   const companyId = String(inbox.company_id);
   const inboxId = String(inbox.id);
 
+  // Workstream D: is this sender replying to an open bank-tx query?
+  // All query-loop calls fail OPEN — a throw here would 500 the webhook and
+  // make Twilio retry, re-ingesting the document (no MessageSid dedupe).
+  const openQuery = await findOpenQuery(companyId, stripWaPrefix(payload.From)).catch(
+    (err: unknown) => {
+      log.warn('whatsAppInbound: query lookup failed — proceeding without reply routing', {
+        companyId, error: err instanceof Error ? err.message : String(err),
+      }, 'whatsapp-inbound');
+      return null;
+    },
+  );
+
   const eventIds: string[] = [];
-  const numMedia = parseInt(payload.NumMedia ?? '0', 10);
+  // Cap at 10 — Twilio's real per-message media limit.
+  const numMedia = Math.min(parseInt(payload.NumMedia ?? '0', 10), 10);
 
   // 2. Process each media attachment
   for (let i = 0; i < numMedia; i++) {
@@ -231,6 +209,18 @@ export async function ingestTwilioPayload(
       companyId, inboxId, documentId, eventId, fileName, size, hash,
     }, 'whatsapp-inbound');
 
+    // Workstream D: attach media to the queried bank transaction if open
+    if (openQuery) {
+      await attachReplyMedia(companyId, openQuery, { buffer, mimeType, fileName }).catch(
+        (err: unknown) => {
+          log.warn('whatsAppInbound: reply media attach failed', {
+            companyId, queryId: openQuery.id, fileName,
+            error: err instanceof Error ? err.message : String(err),
+          }, 'whatsapp-inbound');
+        },
+      );
+    }
+
     // 2e. Fire-and-forget VLM extraction
     routeEvent(eventId, companyId).catch((err: unknown) => {
       log.error('whatsAppInbound: routeEvent background error', {
@@ -273,6 +263,18 @@ export async function ingestTwilioPayload(
     log.info('whatsAppInbound: text-command capture event created', {
       companyId, inboxId, eventId, parsedCommand,
     }, 'whatsapp-inbound');
+  }
+
+  // Workstream D: flip the query to replied (text and/or media)
+  const replyBody = (payload.Body ?? '').trim();
+  if (openQuery && (eventIds.length > 0 || replyBody)) {
+    await markQueryReplied(companyId, openQuery.id, replyBody || null, eventIds[0] ?? null)
+      .catch((err: unknown) => {
+        log.warn('whatsAppInbound: mark replied failed', {
+          companyId, queryId: openQuery.id,
+          error: err instanceof Error ? err.message : String(err),
+        }, 'whatsapp-inbound');
+      });
   }
 
   return { captureEventIds: eventIds, companyId, parsedCommand };

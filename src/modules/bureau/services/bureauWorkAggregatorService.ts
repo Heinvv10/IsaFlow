@@ -10,6 +10,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { vatDueSignal } from './bureauVatSignal';
 import { complianceSignal } from './complianceSignal';
+import { bankQuerySignal } from './bankQuerySignal';
 import {
   formatPeriod,
   endOfNextMonth,
@@ -229,6 +230,7 @@ export async function aggregateBureauWork(
       safeSignal('bills', () => billsToApproveSignal(companyIds, meta, today)),
       safeSignal('vat', () => vatDueSignal(companyIds, meta, today)),
       safeSignal('compliance', () => complianceSignal(companyIds, meta, today)),
+      safeSignal('bankQueries', () => bankQuerySignal(companyIds, meta, today)),
     ]),
     // monthEndProgress returns a stat not WorkItem[], so safeSignal doesn't apply.
     monthEndProgress(companyIds, meta.size).catch((err) => {

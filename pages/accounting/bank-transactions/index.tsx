@@ -91,6 +91,7 @@ export default function BankTransactionsPage() {
   const [excludingTxId, setExcludingTxId] = useState<string | null>(null);
   const [findMatchTxId, setFindMatchTxId] = useState<string | null>(null);
   const [attachmentsTxId, setAttachmentsTxId] = useState<string | null>(null);
+  const [queryTx, setQueryTx] = useState<BankTx | null>(null);
   const [createRuleTx, setCreateRuleTx] = useState<BankTx | null>(null);
   const [rulePrompt, setRulePrompt] = useState<RulePrompt | null>(null);
   const [createEntityTxId, setCreateEntityTxId] = useState<string | null>(null);
@@ -324,6 +325,7 @@ export default function BankTransactionsPage() {
               onUnmatch={actions.handleUnmatch} onSplit={id => setSplitTxId(id)}
               onUpdateNotes={actions.handleUpdateNotes} onFindMatch={id => setFindMatchTxId(id)}
               onReverse={actions.handleReverse} onAttachments={id => setAttachmentsTxId(id)}
+              onAskClient={id => setQueryTx(transactions.find(t => t.id === id) ?? null)}
               onCreateRule={tx => setCreateRuleTx(tx)}
               onCreateEntity={(txId, type) => { setCreateEntityTxId(txId); setCreateEntityType(type); }}
             />
@@ -367,6 +369,7 @@ export default function BankTransactionsPage() {
         selectedBank={selectedBank} rowSelections={rowSelections} splitTxId={splitTxId}
         excludingTxId={excludingTxId} findMatchTxId={findMatchTxId} attachmentsTxId={attachmentsTxId}
         createRuleTx={createRuleTx} createEntityTxId={createEntityTxId} createEntityType={createEntityType}
+        queryTx={queryTx}
         onSplitClose={() => setSplitTxId(null)} onSplitDone={() => { setSplitTxId(null); loadTransactions(); }}
         onExcludeClose={() => setExcludingTxId(null)} onExcludeConfirm={actions.handleExcludeConfirm}
         onFindMatchClose={() => setFindMatchTxId(null)} onFindMatchDone={() => { setFindMatchTxId(null); loadTransactions(); }}
@@ -374,6 +377,8 @@ export default function BankTransactionsPage() {
         onCreateRuleDone={() => { setCreateRuleTx(null); setRowSelections(() => ({})); loadTransactions(); refreshBankAccounts(); }}
         onCreateEntityClose={() => { setCreateEntityTxId(null); setCreateEntityType(null); }}
         onCreateEntityDone={(entity, type) => { actions.handleCreateEntityDone(entity, type, setGlAccounts, setSuppliers, setCustomers); setCreateEntityTxId(null); setCreateEntityType(null); }}
+        onQueryClose={() => setQueryTx(null)}
+        onQuerySent={() => setQueryTx(null)}
       />
     </AppLayout>
   );
