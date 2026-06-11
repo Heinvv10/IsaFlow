@@ -149,12 +149,26 @@ describe('setQueryStatus', () => {
   });
 
   it('cancel only allowed from sent; reports invalid state', async () => {
-    routeMock([{ match: 'UPDATE bank_tx_queries', rows: [] }]);
+    routeMock([
+      { match: 'UPDATE bank_tx_queries', rows: [] },
+      { match: 'SELECT status FROM bank_tx_queries', rows: [{ status: 'replied' }] },
+    ]);
     const res = await setQueryStatus(COMPANY_ID, QUERY_ID, 'cancel');
     expect(res.ok).toBe(false);
+    expect(res.reason).toMatch(/invalid state/);
     const upd = sqlCalls.find((c) => c.sql.includes('UPDATE bank_tx_queries'))!;
     expect(upd.sql).toContain("'cancelled'");
     expect(upd.sql).not.toContain("'resolved'");
+  });
+
+  it('reports not found when the query does not exist for the company', async () => {
+    routeMock([
+      { match: 'UPDATE bank_tx_queries', rows: [] },
+      { match: 'SELECT status FROM bank_tx_queries', rows: [] },
+    ]);
+    const res = await setQueryStatus(COMPANY_ID, QUERY_ID, 'cancel');
+    expect(res.ok).toBe(false);
+    expect(res.reason).toBe('not found');
   });
 });
 

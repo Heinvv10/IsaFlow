@@ -149,7 +149,17 @@ export async function setQueryStatus(
             AND status = 'sent'
           RETURNING id
         `) as Row[]);
-  if (rows.length === 0) return { ok: false, reason: 'query not found or invalid state' };
+  if (rows.length === 0) {
+    // Distinguish "no such query" (→ 404 at the route) from "exists but the
+    // action is not allowed from its current status" (→ 400).
+    const [existing] = (await sql`
+      SELECT status FROM bank_tx_queries
+      WHERE id = ${queryId}::uuid AND company_id = ${companyId}::uuid
+      LIMIT 1
+    `) as Row[];
+    if (!existing) return { ok: false, reason: 'not found' };
+    return { ok: false, reason: `invalid state: ${String(existing.status)}` };
+  }
   log.info('bankTxQuery: status changed', { companyId, queryId, action }, 'bank-tx-queries');
   return { ok: true };
 }

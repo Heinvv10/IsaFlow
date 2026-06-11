@@ -27,7 +27,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
   }
   const result = await setQueryStatus(companyId, id.data, parsed.data.action);
-  if (!result.ok) return apiResponse.notFound(res, 'Bank-tx query', id.data);
+  if (!result.ok) {
+    if (result.reason === 'not found') return apiResponse.notFound(res, 'Bank-tx query', id.data);
+    return apiResponse.badRequest(res, result.reason ?? 'invalid state');
+  }
   return apiResponse.success(res, { id: id.data, action: parsed.data.action });
 }
 
