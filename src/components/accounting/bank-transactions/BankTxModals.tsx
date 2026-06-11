@@ -31,6 +31,10 @@ const CreateEntityModal = dynamic(
   () => import('@/components/accounting/CreateEntityModal').then(m => ({ default: m.CreateEntityModal })),
   { ssr: false },
 );
+const BankTxQueryModal = dynamic(
+  () => import('@/components/accounting/BankTxQueryModal').then(m => ({ default: m.BankTxQueryModal })),
+  { ssr: false },
+);
 
 interface Props {
   transactions: BankTx[];
@@ -47,6 +51,7 @@ interface Props {
   createRuleTx: BankTx | null;
   createEntityTxId: string | null;
   createEntityType: AllocType | null;
+  queryTx: BankTx | null;
   onSplitClose: () => void;
   onSplitDone: () => void;
   onExcludeClose: () => void;
@@ -58,18 +63,21 @@ interface Props {
   onCreateRuleDone: () => void;
   onCreateEntityClose: () => void;
   onCreateEntityDone: (entity: { id: string; name: string; code?: string }, type: AllocType) => void;
+  onQueryClose: () => void;
+  onQuerySent?: () => void;
 }
 
 export function BankTxModals({
   transactions, glAccounts, suppliers, customers, bankAccounts, selectedBank, rowSelections,
   splitTxId, excludingTxId, findMatchTxId, attachmentsTxId, createRuleTx,
-  createEntityTxId, createEntityType,
+  createEntityTxId, createEntityType, queryTx,
   onSplitClose, onSplitDone,
   onExcludeClose, onExcludeConfirm,
   onFindMatchClose, onFindMatchDone,
   onAttachmentsClose,
   onCreateRuleClose, onCreateRuleDone,
   onCreateEntityClose, onCreateEntityDone,
+  onQueryClose, onQuerySent,
 }: Props) {
   const splitTx = splitTxId ? transactions.find(t => t.id === splitTxId) : null;
   const excludeTx = excludingTxId ? transactions.find(t => t.id === excludingTxId) : null;
@@ -140,6 +148,12 @@ export function BankTxModals({
           onCreated={entity => onCreateEntityDone(entity, createEntityType)}
         />
       )}
+
+      <BankTxQueryModal
+        tx={queryTx}
+        onClose={onQueryClose}
+        onSent={onQuerySent}
+      />
     </>
   );
 }

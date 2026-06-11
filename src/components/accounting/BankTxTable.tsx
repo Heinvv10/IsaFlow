@@ -7,7 +7,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
-import { Check, X, Undo2, Search, Scissors, SearchCheck, RotateCcw, Paperclip, BookmarkPlus, Plus, Clock } from 'lucide-react';
+import { Check, X, Undo2, Search, Scissors, SearchCheck, RotateCcw, Paperclip, BookmarkPlus, Plus, Clock, MessageCircle } from 'lucide-react';
 import { useBankTxKeyboardNav } from '@/components/accounting/useBankTxKeyboardNav';
 
 export type AllocType = 'account' | 'supplier' | 'customer' | 'transfer';
@@ -110,6 +110,7 @@ interface Props {
   onFindMatch?: (txId: string) => void;
   onReverse?: (txId: string) => void;
   onAttachments?: (txId: string) => void;
+  onAskClient?: (txId: string) => void;
   onCreateRule?: (tx: BankTx) => void;
   onCreateEntity?: (txId: string, type: AllocType) => void;
 }
@@ -181,7 +182,7 @@ export function BankTxTable(props: Props) {
     onToggleSelect, onSelectAll, onRowTypeChange, onRowEntityChange, onRowVatChange,
     onRowDimensionChange,
     onAccept, onExclude, onUnmatch, onSplit, onUpdateNotes,
-    onFindMatch, onReverse, onAttachments, onCreateRule, onCreateEntity,
+    onFindMatch, onReverse, onAttachments, onAskClient, onCreateRule, onCreateEntity,
   } = props;
   const { containerProps, getRowProps } = useBankTxKeyboardNav({
     transactions, rowSelections, onAccept, onExclude, onSplit,
@@ -606,6 +607,12 @@ export function BankTxTable(props: Props) {
                                 <Paperclip className="h-3.5 w-3.5" />
                               </button>
                             )}
+                            {onAskClient && (
+                              <button onClick={() => onAskClient(tx.id)} title="Ask client on WhatsApp"
+                                className="p-1 rounded hover:bg-gray-500/10 text-[var(--ff-text-tertiary)]">
+                                <MessageCircle size={14} />
+                              </button>
+                            )}
                             <button onClick={() => onExclude(tx.id)} title="Exclude"
                               className="p-1 rounded hover:bg-red-500/10 text-red-400">
                               <X className="h-3.5 w-3.5" />
@@ -625,6 +632,12 @@ export function BankTxTable(props: Props) {
                                 <Paperclip className="h-3.5 w-3.5" />
                               </button>
                             )}
+                            {onAskClient && (
+                              <button onClick={() => onAskClient(tx.id)} title="Ask client on WhatsApp"
+                                className="p-1 rounded hover:bg-gray-500/10 text-[var(--ff-text-tertiary)]">
+                                <MessageCircle size={14} />
+                              </button>
+                            )}
                           </>
                         ) : (
                           <>
@@ -642,6 +655,12 @@ export function BankTxTable(props: Props) {
                               <button onClick={() => onAttachments(tx.id)} title="Attachments"
                                 className="p-1 rounded hover:bg-gray-500/10 text-[var(--ff-text-tertiary)]">
                                 <Paperclip className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                            {onAskClient && (
+                              <button onClick={() => onAskClient(tx.id)} title="Ask client on WhatsApp"
+                                className="p-1 rounded hover:bg-gray-500/10 text-[var(--ff-text-tertiary)]">
+                                <MessageCircle size={14} />
                               </button>
                             )}
                           </>
