@@ -38,6 +38,7 @@ export const payrollTab: Tab = {
     {
       section: 'Reports',
       items: [
+        { label: 'Parallel Run Comparison', href: '/payroll/parallel-run' },
         { label: 'IRP5 Readiness',         href: '/payroll/irp5' },
         { label: 'EMP501 Reconciliation',  href: '/payroll/emp501' },
         { label: 'Tax Directives',         href: '/payroll/tax-directives' },
