@@ -3,7 +3,7 @@
  * and a per-employee table with expandable component drill-down.
  * All amounts arrive as integer cents.
  */
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import type {
   EmployeeComparison,
@@ -65,7 +65,7 @@ export function ParallelRunReportView({ report }: { report: ParallelRunCompariso
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <SummaryChip label="IsaFlow employees" value={String(s.employeesIsaflow)} />
         <SummaryChip label="External payslips" value={String(s.employeesExternal)} />
-        <SummaryChip label="Match to the cent" value={String(s.matchToTheCent)} tone="good" />
+        <SummaryChip label="Match to the cent" value={String(s.matchToTheCent)} tone={s.matchToTheCent > 0 ? 'good' : undefined} />
         <SummaryChip label="With variance" value={String(s.withVariance)} tone={s.withVariance > 0 ? 'bad' : 'good'} />
         <SummaryChip
           label="Missing either side"
@@ -75,7 +75,7 @@ export function ParallelRunReportView({ report }: { report: ParallelRunCompariso
         <SummaryChip
           label="Match rate"
           value={s.matchRate === null ? '—' : `${(s.matchRate * 100).toFixed(1)}%`}
-          tone={clean && s.matchRate === 1 ? 'good' : 'bad'}
+          tone={s.matchRate === null ? undefined : clean && s.matchRate === 1 ? 'good' : 'bad'}
         />
       </div>
 
@@ -124,9 +124,9 @@ export function ParallelRunReportView({ report }: { report: ParallelRunCompariso
           <tbody>
             {report.employees.map((emp) => {
               const isOpen = expanded.has(emp.employeeNumber);
-              return [
+              return (
+                <Fragment key={emp.employeeNumber}>
                 <tr
-                  key={emp.employeeNumber}
                   onClick={() => toggle(emp.employeeNumber)}
                   className="border-b border-[var(--ff-border)] cursor-pointer hover:bg-[var(--ff-bg-tertiary)]"
                 >
@@ -145,9 +145,9 @@ export function ParallelRunReportView({ report }: { report: ParallelRunCompariso
                   <td className={`px-4 py-2 text-right tabular-nums ${emp.maxAbsDiffCents > 0 ? 'text-red-400' : 'text-teal-400'}`}>
                     {rand(emp.maxAbsDiffCents)}
                   </td>
-                </tr>,
-                isOpen ? (
-                  <tr key={`${emp.employeeNumber}-detail`} className="border-b border-[var(--ff-border)] bg-[var(--ff-bg-primary)]">
+                </tr>
+                {isOpen && (
+                  <tr className="border-b border-[var(--ff-border)] bg-[var(--ff-bg-primary)]">
                     <td />
                     <td colSpan={3} className="px-4 py-2">
                       <table className="w-full text-xs">
@@ -172,8 +172,9 @@ export function ParallelRunReportView({ report }: { report: ParallelRunCompariso
                       </table>
                     </td>
                   </tr>
-                ) : null,
-              ];
+                )}
+                </Fragment>
+              );
             })}
             {report.employees.length === 0 && (
               <tr>

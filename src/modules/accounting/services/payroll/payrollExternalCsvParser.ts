@@ -37,6 +37,9 @@ const COLUMN_ALIASES: Record<string, ComparisonComponentKey> = {
   'net': 'net', 'net pay': 'net', 'nett': 'net', 'nett pay': 'net', 'take home': 'net',
 };
 
+/** Hard cap on data rows — payroll headcounts are thousands, not hundreds of thousands. */
+const MAX_ROWS = 10_000;
+
 const NUMBER_ALIASES = new Set([
   'employee number', 'employee no', 'employee code', 'emp no', 'emp number', 'code',
 ]);
@@ -66,6 +69,7 @@ export function parseAmountToCents(raw: string): number | null {
   }
   s = s.replace(/^R/i, '').replace(/[\s ']/g, '');
   if (s === '' || !/^[\d.,]+$/.test(s)) return null;
+  if (/[.,]$/.test(s)) return null; // trailing separator: malformed, never truncate
 
   const lastComma = s.lastIndexOf(',');
   const lastDot = s.lastIndexOf('.');
@@ -157,6 +161,15 @@ export function parseExternalPayslipCsv(csv: string): ExternalCsvParseResult {
     return { rows: [], errors, componentsPresent: [] };
   }
 
+  const dataLines = lines.slice(headerIdx + 1).filter((l) => l.trim() !== '');
+  if (dataLines.length > MAX_ROWS) {
+    return {
+      rows: [],
+      errors: [{ line: 0, message: `Too many rows (${dataLines.length}); the limit is ${MAX_ROWS}` }],
+      componentsPresent: [],
+    };
+  }
+
   const rows: ExternalPayslipRow[] = [];
   const seen = new Set<string>();
   for (let i = headerIdx + 1; i < lines.length; i++) {
@@ -164,6 +177,13 @@ export function parseExternalPayslipCsv(csv: string): ExternalCsvParseResult {
     const lineRaw = lines[i] ?? '';
     if (lineRaw.trim() === '') continue;
     const cells = splitLine(lineRaw, delim);
+    if (cells.length < headers.length) {
+      errors.push({
+        line: lineNo,
+        message: `Row has ${cells.length} columns, header has ${headers.length} — refusing to guess which amounts are missing`,
+      });
+      continue;
+    }
 
     const employeeNumber = (cells[numberCol] ?? '').trim();
     if (employeeNumber === '') {

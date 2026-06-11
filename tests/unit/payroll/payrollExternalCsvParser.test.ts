@@ -55,6 +55,11 @@ describe('parseAmountToCents', () => {
     expect(parseAmountToCents('abc')).toBeNull();
     expect(parseAmountToCents('12.34.56,7,8')).toBeNull();
   });
+
+  it('trailing separator is rejected, not silently truncated', () => {
+    expect(parseAmountToCents('1,')).toBeNull();
+    expect(parseAmountToCents('1.')).toBeNull();
+  });
 });
 
 const HEADER = 'employee_number,employee_name,gross,paye,uif_employee,uif_employer,sdl,eti,net';
@@ -187,5 +192,25 @@ describe('parseExternalPayslipCsv', () => {
     const result = parseExternalPayslipCsv('');
     expect(result.rows).toEqual([]);
     expect(result.errors).toHaveLength(1);
+  });
+
+  it('a truncated row (fewer cells than header) is an error, not silent zeros', () => {
+    const csv = [
+      'employee_number,gross,paye,net',
+      'E001,25000.00,3955.42',
+      'E002,100.00,10.00,90.00',
+    ].join('\n');
+    const result = parseExternalPayslipCsv(csv);
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]!.employeeNumber).toBe('E002');
+    expect(result.errors[0]!.line).toBe(2);
+    expect(result.errors[0]!.message).toMatch(/column/i);
+  });
+
+  it('rejects files above the row cap', () => {
+    const body = Array.from({ length: 10_001 }, (_, i) => `E${i},100.00`).join('\n');
+    const result = parseExternalPayslipCsv(`employee_number,net\n${body}`);
+    expect(result.rows).toEqual([]);
+    expect(result.errors.some((e) => /too many rows/i.test(e.message))).toBe(true);
   });
 });

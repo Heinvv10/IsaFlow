@@ -119,6 +119,28 @@ describe('compareParallelRun', () => {
     expect(emp.components.map((c) => c.component).sort()).toEqual(['gross', 'net', 'paye']);
   });
 
+  it('drops uifTotal when the external data also has the split (no double counting)', () => {
+    const report = compareParallelRun(
+      [isaLine()],
+      [extRow({ amounts: { uifEmployee: 17712, uifEmployer: 17712, uifTotal: 35424, net: 2089034 } })],
+    );
+    expect(report.componentsCompared).not.toContain('uifTotal');
+    expect(report.componentsCompared).toEqual(
+      expect.arrayContaining(['uifEmployee', 'uifEmployer', 'net']),
+    );
+  });
+
+  it('throws on employee numbers that collide after normalization instead of dropping one', () => {
+    expect(() => compareParallelRun(
+      [isaLine({ employeeNumber: '001' }), isaLine({ employeeNumber: '1' })],
+      [],
+    )).toThrow(/001/);
+    expect(() => compareParallelRun(
+      [],
+      [extRow({ employeeNumber: '007' }), extRow({ employeeNumber: '7' })],
+    )).toThrow(/007/);
+  });
+
   it('uifTotal compares against IsaFlow employee + employer UIF', () => {
     const report = compareParallelRun(
       [isaLine({ uifEmployee: 17712, uifEmployer: 17712 })],

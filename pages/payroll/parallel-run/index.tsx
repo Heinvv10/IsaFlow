@@ -85,6 +85,9 @@ export default function ParallelRunPage() {
   };
 
   const handleDelete = async (importId: string) => {
+    const imp = imports.find((i) => i.id === importId);
+    const label = imp ? `${periodLabel(imp.periodMonth, imp.periodYear)} (${imp.payslipCount} payslips)` : 'this import';
+    if (!window.confirm(`Delete the ${label} import? This cannot be undone.`)) return;
     const res = await apiFetch(`/api/payroll/parallel-run/imports/${importId}`, { method: 'DELETE' });
     if (res.ok) {
       if (selectedId === importId) { setSelectedId(null); setReport(null); }

@@ -62,14 +62,16 @@ async function getRunById(companyId: string, runId: string): Promise<DbRow | nul
   return rows[0] ?? null;
 }
 
-async function loadRunLines(runId: string): Promise<IsaflowRunLineInput[]> {
+async function loadRunLines(companyId: string, runId: string): Promise<IsaflowRunLineInput[]> {
   const rows = (await sql`
     SELECT prl.gross_pay, prl.paye, prl.uif_employee, prl.uif_employer,
            prl.sdl, prl.eti, prl.net_pay,
            e.employee_number, e.first_name, e.last_name
       FROM payroll_run_lines prl
+      JOIN payroll_run_headers prh ON prh.id = prl.run_id
       JOIN payroll_employees e ON e.id = prl.employee_id
      WHERE prl.run_id = ${runId}::uuid
+       AND prh.company_id = ${companyId}::uuid
   `) as DbRow[];
   return rows.map((r) => ({
     employeeNumber: String(r.employee_number),
@@ -108,7 +110,7 @@ export async function getParallelRunReport(
   }
 
   const [lines, payslips] = await Promise.all([
-    loadRunLines(String(runRow.id)),
+    loadRunLines(companyId, String(runRow.id)),
     getExternalImportPayslips(companyId, importId),
   ]);
 

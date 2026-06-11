@@ -49,14 +49,37 @@ export function compareParallelRun(
 ): ParallelRunComparisonReport {
   const toleranceCents = options.toleranceCents ?? 0;
 
-  const componentsCompared = ([...new Set(
+  let componentsCompared = ([...new Set(
     externalRows.flatMap((r) => Object.keys(r.amounts) as ComparisonComponentKey[]),
   )]);
+  // When the external data provides the UIF split, the redundant total would
+  // double-count UIF in grand totals — compare the split only.
+  if (componentsCompared.includes('uifEmployee') || componentsCompared.includes('uifEmployer')) {
+    componentsCompared = componentsCompared.filter((c) => c !== 'uifTotal');
+  }
 
   const isaMap = new Map<string, IsaflowRunLineInput>();
-  for (const line of isaflowLines) isaMap.set(matchKey(line.employeeNumber), line);
+  for (const line of isaflowLines) {
+    const key = matchKey(line.employeeNumber);
+    const existing = isaMap.get(key);
+    if (existing) {
+      throw new Error(
+        `IsaFlow employee numbers "${existing.employeeNumber}" and "${line.employeeNumber}" collide after normalization`,
+      );
+    }
+    isaMap.set(key, line);
+  }
   const extMap = new Map<string, ExternalPayslipRow>();
-  for (const row of externalRows) extMap.set(matchKey(row.employeeNumber), row);
+  for (const row of externalRows) {
+    const key = matchKey(row.employeeNumber);
+    const existing = extMap.get(key);
+    if (existing) {
+      throw new Error(
+        `External employee numbers "${existing.employeeNumber}" and "${row.employeeNumber}" collide after normalization`,
+      );
+    }
+    extMap.set(key, row);
+  }
 
   const allKeys = [...new Set([...isaMap.keys(), ...extMap.keys()])];
   const employees: EmployeeComparison[] = [];

@@ -65,7 +65,8 @@ export function ParallelRunUploadCard({ onImported }: Props) {
       <p className="text-xs text-[var(--ff-text-tertiary)] mb-4">
         CSV with a header row: <code>employee_number</code> plus any of <code>gross, paye,
         uif_employee, uif_employer, uif, sdl, eti, net</code> (VIP/Sage column names are
-        recognised). Amounts in rand; blank cells are zero.
+        recognised). Amounts in rand; blank cells are zero. &ldquo;Gross&rdquo; must be total
+        gross remuneration including allowances — match what IsaFlow&rsquo;s run calls gross.
       </p>
       <div className="flex flex-wrap items-end gap-3">
         <label className="text-xs text-[var(--ff-text-secondary)]">
