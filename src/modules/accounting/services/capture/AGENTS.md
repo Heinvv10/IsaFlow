@@ -7,7 +7,8 @@
 PRD-05 autonomous capture + evidence-first ledger. Pure business logic — HTTP handlers live under `pages/api/accounting/capture/`.
 
 ## Modules
-- **Ingress**: `captureInboxService.ts` (mint `cap-<6hex>@inbox.isaflow.co.za`), `inboundEmailService.ts` (Postmark webhook → `capture_events` + `captured_documents`), `imapMirrorService.ts` + `mirrorConnectionService.ts`, `whatsAppInboundService.ts` (Twilio WABA), `whatsAppTextCommandParser.ts` (pure SA expense shorthand parser), `whatsAppReplyService.ts`, `whatsAppChaseService.ts`.
+- **Ingress**: `captureInboxService.ts` (mint `cap-<6hex>@inbox.isaflow.co.za`), `inboundEmailService.ts` (Postmark webhook → `capture_events` + `captured_documents`), `imapMirrorService.ts` + `mirrorConnectionService.ts`, `whatsAppInboundService.ts` (Twilio WABA; includes bank-tx query reply hook), `whatsAppTextCommandParser.ts` (pure SA expense shorthand parser), `whatsAppReplyService.ts`, `whatsAppChaseService.ts`.
+- **Bank-Tx Client Query (Workstream D)**: `bankTxQueryMessage.ts` (pure compose + normalize, no DB/clock), `bankTxQueryService.ts` (create/send/list/status/settings), `bankTxQueryReplyService.ts` (find open query, attach reply media, mark replied), `twilioMediaFetch.ts` (HTTP basic-auth Twilio media download, extracted from inbound service for file-size cap).
 - **Routing / query**: `captureRouterService.ts` (`routeEvent` orchestrates VLM fire-and-forget), `captureQueryService.ts` (inbox listing w/ joins).
 - **Rules + auto-publish**: `supplierRulesService.ts` (per-supplier GL defaults, learning loop → `auto_publish=true` at 5 consecutive matches), `autoPublishGateService.ts` (decision ladder), `duplicateDetectionService.ts` (fingerprint + fuzzy fallback).
 - **Provisional posting (Phase 5)**: `provisionalPostingService.ts` (`postProvisional` stamps `ai-provisional:v1`, `needs_evidence=true`), `evidenceAttachmentService.ts` (flips to `ai-evidenced`).
@@ -26,6 +27,10 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/capture/**`
 - `predictFromHistory(companyId, bankTx)`, `postProvisional(companyId, bankTxId, userId, opts)` — called by `autoPostGateService.sweep` for the import path.
 - `recordPaymentMatch(companyId, invoiceId, paymentId)` — flips `payment_matched=true` when cumulative allocation ≥ total (±R0.01).
 - `recomputeForSupplier / recomputeAllForCompany` — expectation engine; cadence inferred (monthly 25–40d, quarterly 80–100d, annual 330–400d, irregular), locks at sample≥3.
+- **bankTxQueryMessage**: `composeBankTxQueryMessage(input: BankTxQueryTemplateInput): { body: string }` — builds the ~500-char freeform SA-locale WhatsApp message; `normalizeWhatsAppNumber(raw): string | null` — strips `whatsapp:` prefix, normalises to E.164; accepts SA local `0XXXXXXXXX`.
+- **bankTxQueryService**: `createAndSendQuery(companyId, input: CreateQueryInput): Promise<CreateQueryResult>` — composes or uses supplied message, sends via Twilio, inserts row on success only; `listQueries(companyId, filters?): Promise<Row[]>` — company-scoped, joined with bank_transactions + gl_accounts + attachment count, ≤200 rows newest first; `setQueryStatus(companyId, queryId, action): Promise<{ok,reason?}>` — resolve (from sent|replied) or cancel (from sent only); returns reason `'not found'` (→ 404) or `'invalid state: <current>'` (→ 400); `getQuerySettings / saveQuerySettings(companyId, ...)` — read/write `companies.client_query_whatsapp`.
+- **bankTxQueryReplyService**: `findOpenQuery(companyId, fromNumber): Promise<OpenQuery | null>` — normalises fromNumber, returns newest 'sent'-preferred open query for that sender+company; `attachReplyMedia(companyId, query, media): Promise<boolean>` — inserts to `bank_transaction_attachments`; skips (warn log) if >2MB; `markQueryReplied(companyId, queryId, replyText, captureEventId): Promise<void>` — appends reply_text, sets replied_at on first call, silently guards resolved/cancelled (WHERE status IN ('sent','replied')).
+- **twilioMediaFetch**: `fetchTwilioMedia(url): Promise<{buffer, contentType} | null>` — HTTP basic-auth using `TWILIO_ACCOUNT_SID`/`TWILIO_AUTH_TOKEN`; returns null (warn log) when env absent or HTTP error.
 
 ## Business rules
 - **Evidence-first**: every JE carries `posting_agent` (`human:<uid>` | `ai:<name>:v1` | `rule:<id>` | `system:<job>` | `legacy:*`). Enforced at service write-path, not DB CHECK.
@@ -33,15 +38,25 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/capture/**`
 - **Idempotency**: `expected_invoice_alerts(company, supplier, expected_by)` UNIQUE + `ON CONFLICT DO NOTHING`; `payment_matched` once-true; `ai-provisional → ai-evidenced` one-way.
 - **Graceful degradation**: Twilio / Postmark / Storage return `{ sent: false, reason }` or null when env vars absent — never throw.
 - Twilio webhook signature validates against `NEXT_PUBLIC_APP_URL` — must match Twilio console exactly.
+- **Bank-Tx Query — fail-closed send**: No Twilio send → no `bank_tx_queries` row. The send failure `reason` is surfaced verbatim in the POST 400 response.
+- **Bank-Tx Query — reply matching**: `findOpenQuery` matches by `company_id` + normalised E.164 `to_number`, status IN ('sent','replied'), 'sent' preferred (ORDER BY `status='sent' DESC, sent_at DESC`), limit 1. Resolved/cancelled queries are never resurrected — `markQueryReplied`'s WHERE guards status IN ('sent','replied').
+- **Bank-Tx Query — reply text append**: a second message from the same sender appends to `reply_text` with newline; `replied_at` is set only on the first reply (COALESCE).
+- **Bank-Tx Query — media size cap**: reply media ≤2MB is attached to `bank_transaction_attachments` (same surface as manual uploads); media >2MB is captured by the normal inbound pipeline but NOT attached to the query row (warn log). `attachReplyMedia` trusts the company scoping from `findOpenQuery` — no re-verification of tx ownership.
+- **Bank-Tx Query — webhook fail-open**: the inbound Twilio webhook's query-reply hook is wrapped so a DB error never 500s the webhook. A 500 would cause Twilio to retry and duplicate the capture event (no MessageSid dedupe exists). The normal capture path still runs regardless.
+- **Bank-Tx Query — dual intent**: an expense-command text arriving from a sender with an open query BOTH creates the text-command capture event AND records the text as the query reply (intended behaviour, not a bug).
+- **Bank-Tx Query — lifecycle**: statuses follow `sent → replied → resolved` or `sent → cancelled`. The `cancel` action is only allowed from `sent`; `resolve` is allowed from both `sent` and `replied`.
 
 ## Related files
 - `pages/api/accounting/capture/**`, `/supplier-rules/**`, `/supplier-expectations/**`, `/provisional/**`, `/evidence/**`, `/supplier-statements/**`.
+- `pages/api/accounting/bank-tx-queries/**` — bank-tx query API routes.
 - `src/modules/accounting/services/bank/vlmBankService.ts`, `vlmSupplierStatementService.ts` — VLM siblings.
 - `src/modules/accounting/services/core/evidenceGraphService.ts` — TB→JE→doc drill.
 - `scripts/migrations/sql/409-418_*.sql` — capture/evidence/chase schema.
+- `scripts/migrations/sql/496_bank_tx_queries.sql` — bank_tx_queries table + companies.client_query_whatsapp.
 - `docs/prd/PRD-05-autonomous-capture-evidence-ledger.md` — spec.
 
 ## Recent changes
+- 2026-06-11: Workstream D — bankTxQueryMessage, bankTxQueryService, bankTxQueryReplyService, twilioMediaFetch; inbound webhook reply hook added to whatsAppInboundService; `sid` on whatsAppReplyService SendResult.
 - 2026-04-24: pentest remediation — 2 Critical + 11 High.
 - 2026-04-23: rules + expectations API joins supplier name.
 - 2026-04-23: closed 3 post-Phase-8 caveats.
