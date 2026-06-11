@@ -16,6 +16,7 @@ export const bankingTab: Tab = {
         { label: 'Import Statement', href: '/accounting/bank-reconciliation/import' },
         { label: 'Reconcile', href: '/accounting/bank-reconciliation' },
         { label: 'Transfers', href: '/accounting/bank-transfers' },
+        { label: 'Client Queries', href: '/accounting/bank/queries' },
       ],
     },
     {
