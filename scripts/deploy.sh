@@ -70,6 +70,25 @@ fi
 echo "Building production bundle..."
 NODE_ENV=production $BUN run build
 
+# 1b. Build-integrity gate — a surviving dev-server watcher once rewrote
+# pages-manifest.json mid-build (2026-06-11: the standalone output shipped a
+# 6-page dev manifest → 11-minute all-404 outage). Refuse to go further with
+# a manifest that is obviously not a full production build; real builds carry
+# ~1125 entries. Runs BEFORE migrations so an aborted deploy touches nothing.
+MANIFEST="$REPO_DIR/.next/standalone/.next/server/pages-manifest.json"
+MIN_MANIFEST_ENTRIES=1000
+if [ ! -f "$MANIFEST" ]; then
+  echo "ERROR: $MANIFEST missing — build did not produce a standalone pages-manifest"
+  exit 1
+fi
+MANIFEST_ENTRIES=$($BUN -e "console.log(Object.keys(require('$MANIFEST')).length)")
+if ! [ "$MANIFEST_ENTRIES" -ge "$MIN_MANIFEST_ENTRIES" ] 2>/dev/null; then
+  echo "ERROR: pages-manifest has $MANIFEST_ENTRIES entries (need >= $MIN_MANIFEST_ENTRIES) — refusing to deploy a corrupted build"
+  echo "Likely cause: a dev server's watcher is still running against this checkout. Sweep processes by /proc/*/cwd, rm -rf .next, rebuild."
+  exit 1
+fi
+echo "Build integrity OK: $MANIFEST_ENTRIES pages-manifest entries"
+
 # 2. Run database migrations against production DB
 # Migrations run BEFORE rsync so that a failing migration leaves both the
 # on-disk standalone and the running service untouched (consistent rollback
