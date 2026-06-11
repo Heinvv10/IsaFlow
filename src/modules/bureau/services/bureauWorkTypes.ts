@@ -50,3 +50,23 @@ export function severityForDate(due: Date, today: Date): Severity {
   if (days <= 7) return 'due_soon';
   return 'info';
 }
+
+/**
+ * Collapse fully identical work items (same company + task + due date + href),
+ * keeping the first occurrence. Defence-in-depth against signal overlap —
+ * the compliance engine and vatDueSignal emit disjoint VAT periods by design
+ * (future-ending vs just-ended), so a collision indicates drift. The href is
+ * part of the key so distinct targets (e.g. two pay runs sharing a period)
+ * are never merged.
+ */
+export function dedupeWorkItems(items: WorkItem[]): WorkItem[] {
+  const seen = new Set<string>();
+  const out: WorkItem[] = [];
+  for (const it of items) {
+    const key = `${it.companyId}|${it.task}|${it.dueAt ?? ''}|${it.href}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(it);
+  }
+  return out;
+}
