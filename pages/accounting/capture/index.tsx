@@ -8,92 +8,20 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Camera, Upload, X, FileText, Wifi, WifiOff, Loader2, CheckCircle2 } from 'lucide-react';
 import toast from 'react-hot-toast';
-
-const QUEUE_STORAGE_KEY = 'isaflow_capture_queue';
-const COMPANY_STORAGE_KEY = 'isaflow_active_company';
-
-interface QueuedItem {
-  id: string;
-  files: { name: string; type: string; dataUrl: string }[];
-  queuedAt: string;
-}
+import {
+  QUEUE_STORAGE_KEY,
+  type QueuedItem,
+  fileToDataUrl,
+  uploadFiles,
+  flushQueue,
+} from '@/components/capture/captureUpload';
+import { AttachToTransactionSheet } from '@/components/capture/AttachToTransactionSheet';
 
 interface PreviewFile {
   name: string;
   type: string;
   objectUrl: string | null;
   file: File;
-}
-
-function readCompanyId(): string | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const stored = localStorage.getItem(COMPANY_STORAGE_KEY);
-    if (!stored) return null;
-    const { id } = JSON.parse(stored);
-    return id ?? null;
-  } catch { return null; }
-}
-
-function readCsrfCookie(): string | null {
-  if (typeof document === 'undefined') return null;
-  const match = document.cookie.split('; ').find(c => c.startsWith('isaflow_csrf='));
-  return match ? match.slice('isaflow_csrf='.length) : null;
-}
-
-async function fileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-async function uploadFiles(files: File[]): Promise<{ eventIds: string[] }> {
-  const form = new FormData();
-  files.forEach(f => form.append('files[]', f));
-  const headers = new Headers();
-  const companyId = readCompanyId();
-  if (companyId) headers.set('X-Company-Id', companyId);
-  const csrf = readCsrfCookie();
-  if (csrf) headers.set('X-CSRF-Token', csrf);
-  const res = await fetch('/api/accounting/capture/upload', {
-    method: 'POST',
-    body: form,
-    headers,
-    credentials: 'include',
-  });
-  if (!res.ok) {
-    const json = await res.json().catch(() => ({}));
-    throw new Error((json as { message?: string }).message ?? 'Upload failed');
-  }
-  const json = await res.json();
-  return (json.data as { eventIds: string[] }) ?? { eventIds: [] };
-}
-
-async function flushQueue(): Promise<void> {
-  const raw = localStorage.getItem(QUEUE_STORAGE_KEY);
-  if (!raw) return;
-  const queue: QueuedItem[] = JSON.parse(raw);
-  if (queue.length === 0) return;
-
-  const remaining: QueuedItem[] = [];
-  for (const item of queue) {
-    try {
-      const files = await Promise.all(
-        item.files.map(async f => {
-          const res = await fetch(f.dataUrl);
-          const blob = await res.blob();
-          return new File([blob], f.name, { type: f.type });
-        })
-      );
-      await uploadFiles(files);
-    } catch {
-      remaining.push(item);
-    }
-  }
-  localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(remaining));
 }
 
 export default function CapturePage() {
@@ -104,6 +32,7 @@ export default function CapturePage() {
   const [uploading, setUploading] = useState(false);
   const [online, setOnline] = useState(true);
   const [queueCount, setQueueCount] = useState(0);
+  const [attachDocIds, setAttachDocIds] = useState<string[] | null>(null);
 
   useEffect(() => {
     setOnline(navigator.onLine);
@@ -111,7 +40,13 @@ export default function CapturePage() {
     if (rawQueue) {
       try { setQueueCount((JSON.parse(rawQueue) as QueuedItem[]).length); } catch { /* ignore */ }
     }
-    const onOnline = () => { setOnline(true); flushQueue().then(() => { const r = localStorage.getItem(QUEUE_STORAGE_KEY); setQueueCount(r ? (JSON.parse(r) as QueuedItem[]).length : 0); }); };
+    const onOnline = () => {
+      setOnline(true);
+      flushQueue().then(() => {
+        const r = localStorage.getItem(QUEUE_STORAGE_KEY);
+        setQueueCount(r ? (JSON.parse(r) as QueuedItem[]).length : 0);
+      }).catch(() => { /* queue flush errors are non-fatal */ });
+    };
     const onOffline = () => setOnline(false);
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
@@ -147,18 +82,22 @@ export default function CapturePage() {
           previews.map(async p => ({ name: p.name, type: p.type, dataUrl: await fileToDataUrl(p.file) }))
         );
         const raw = localStorage.getItem(QUEUE_STORAGE_KEY);
-        const queue: QueuedItem[] = raw ? JSON.parse(raw) : [];
+        const queue: QueuedItem[] = raw ? JSON.parse(raw) as QueuedItem[] : [];
         queue.push({ id: crypto.randomUUID(), files: serialised, queuedAt: new Date().toISOString() });
         localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(queue));
         setQueueCount(queue.length);
         toast.success(`Queued — ${queue.length} pending (offline)`);
         setPreviews([]);
       } else {
-        await uploadFiles(previews.map(p => p.file));
+        const result = await uploadFiles(previews.map(p => p.file));
         toast.success('Documents uploaded successfully');
         previews.forEach(p => { if (p.objectUrl) URL.revokeObjectURL(p.objectUrl); });
         setPreviews([]);
-        router.push('/accounting/capture/inbox');
+        if (result.documentIds.length > 0) {
+          setAttachDocIds(result.documentIds);
+        } else {
+          void router.push('/accounting/capture/inbox');
+        }
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Upload failed');
@@ -264,6 +203,13 @@ export default function CapturePage() {
           )}
         </div>
       </div>
+
+      {attachDocIds && (
+        <AttachToTransactionSheet
+          documentIds={attachDocIds}
+          onDone={() => { setAttachDocIds(null); void router.push('/accounting/capture/inbox'); }}
+        />
+      )}
     </AppLayout>
   );
 }
