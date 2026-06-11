@@ -20,3 +20,17 @@ CREATE TABLE IF NOT EXISTS company_compliance_obligations (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Tenant isolation backstop — same pattern as every post-348 per-company
+-- table (e.g. 441/442). Mig 348's bulk-RLS loop only covered tables that
+-- existed at the time it ran.
+ALTER TABLE company_compliance_obligations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE company_compliance_obligations FORCE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS tenant_isolation ON company_compliance_obligations;
+CREATE POLICY tenant_isolation ON company_compliance_obligations
+  FOR ALL
+  USING (company_id IN (SELECT auth.user_companies()))
+  WITH CHECK (company_id = app.current_company_id());
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON company_compliance_obligations TO app_user;

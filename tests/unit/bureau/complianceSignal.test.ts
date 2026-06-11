@@ -41,16 +41,31 @@ describe('shapeCompliance', () => {
   it('maps EMP201 obligations to work items with due date, href and severity', () => {
     const items = shapeCompliance([row({ emp201_enabled: true })], META, JUN_11);
 
-    expect(items.length).toBe(3); // 7 Jul, 7 Aug, 7 Sep within 90 days
-    const first = items[0]!;
-    expect(first.companyId).toBe(CO_A);
-    expect(first.companyName).toBe('Alpha Ltd');
-    expect(first.bureauName).toBe('Bureau One');
-    expect(first.task).toBe('EMP201 due');
-    expect(first.detail).toBe('Jun 2026');
-    expect(first.dueAt).toBe('2026-07-07');
-    expect(first.href).toBe('/accounting/sars/emp201');
-    expect(first.severity).toBe('info'); // 26 days out
+    // Fri 5 Jun (May, overdue within grace), 7 Jul, 7 Aug, 7 Sep
+    expect(items.length).toBe(4);
+    const overdueItem = items[0]!;
+    expect(overdueItem.dueAt).toBe('2026-06-05');
+    expect(overdueItem.detail).toBe('May 2026');
+    expect(overdueItem.severity).toBe('overdue');
+    const next = items[1]!;
+    expect(next.companyId).toBe(CO_A);
+    expect(next.companyName).toBe('Alpha Ltd');
+    expect(next.bureauName).toBe('Bureau One');
+    expect(next.task).toBe('EMP201 due');
+    expect(next.detail).toBe('Jun 2026');
+    expect(next.dueAt).toBe('2026-07-07');
+    expect(next.href).toBe('/accounting/sars/emp201');
+    expect(next.severity).toBe('info'); // 26 days out
+  });
+
+  it('coerces pg string numerics in the config row', () => {
+    const items = shapeCompliance(
+      [row({ provisional_tax_enabled: true, year_end_month: '2' as unknown as number })],
+      META,
+      JUN_11,
+    );
+    expect(items.map((i) => i.dueAt)).toEqual(['2026-08-31']);
+    expect(items[0]!.detail).toBe('1st payment FY2027');
   });
 
   it('derives the VAT cycle from the joined company columns', () => {
@@ -74,13 +89,13 @@ describe('shapeCompliance', () => {
   });
 
   it('marks an obligation due within 7 days as due_soon', () => {
-    const jun20 = new Date(Date.UTC(2026, 5, 20));
+    const jul1 = new Date(Date.UTC(2026, 6, 1));
     const items = shapeCompliance(
-      [row({ vat_enabled: true })], // Cat A: due 25 Jun
+      [row({ emp201_enabled: true })], // Jun's EMP201 due Tue 7 Jul
       META,
-      jun20,
+      jul1,
     );
-    expect(items[0]!.dueAt).toBe('2026-06-25');
+    expect(items[0]!.dueAt).toBe('2026-07-07');
     expect(items[0]!.severity).toBe('due_soon');
   });
 });
@@ -92,11 +107,17 @@ describe('dedupeWorkItems', () => {
     href: '/accounting/reports/vat-return', severity: 'info',
   };
 
-  it('collapses items with the same company, task and due date, keeping the first', () => {
-    const dupe: WorkItem = { ...base, href: '/accounting/sars/vat201' };
+  it('collapses identical items (same company, task, due date AND href)', () => {
+    const dupe: WorkItem = { ...base, detail: 'Apr–May 2026 (dup)' };
     const out = dedupeWorkItems([base, dupe]);
     expect(out).toHaveLength(1);
-    expect(out[0]!.href).toBe('/accounting/reports/vat-return');
+    expect(out[0]!.detail).toBe('Apr–May 2026');
+  });
+
+  it('keeps same-task same-due items with different hrefs (e.g. two pay runs)', () => {
+    const runA: WorkItem = { ...base, task: 'Pay run · draft', href: '/payroll/runs/run-a' };
+    const runB: WorkItem = { ...base, task: 'Pay run · draft', href: '/payroll/runs/run-b' };
+    expect(dedupeWorkItems([runA, runB])).toHaveLength(2);
   });
 
   it('keeps items that differ in due date or task', () => {

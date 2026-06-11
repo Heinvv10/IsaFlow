@@ -34,8 +34,8 @@ const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December'];
 
 const TOGGLES: { key: keyof Obligations; label: string; desc: string }[] = [
-  { key: 'vatEnabled', label: 'VAT returns (VAT201)', desc: 'Due the 25th after each VAT period — cycle follows the VAT Settings tab (monthly / bi-monthly, Category A/B)' },
-  { key: 'emp201Enabled', label: 'EMP201 (monthly PAYE/UIF/SDL)', desc: 'Due the 7th of every month for the prior payroll month' },
+  { key: 'vatEnabled', label: 'VAT returns (VAT201)', desc: 'Adds upcoming VAT deadlines — cycle follows the VAT Settings tab (monthly / bi-monthly, Category A/B). The just-ended period’s filing status is tracked automatically either way.' },
+  { key: 'emp201Enabled', label: 'EMP201 (monthly PAYE/UIF/SDL)', desc: 'Due on or before the 7th of every month (weekends pull the date back to the Friday)' },
   { key: 'emp501Enabled', label: 'EMP501 reconciliations', desc: 'Interim due 31 October, annual due 31 May' },
   { key: 'provisionalTaxEnabled', label: 'Provisional tax (IRP6)', desc: '1st payment 6 months before year end, 2nd payment at year end' },
   { key: 'cipcEnabled', label: 'CIPC annual return', desc: 'Due in the company registration anniversary month' },
@@ -54,7 +54,8 @@ export function ComplianceTab() {
       try {
         const res = await apiFetch('/api/accounting/compliance-obligations');
         const json = await res.json();
-        if (!cancelled && res.ok && json.data) {
+        if (!res.ok) throw new Error(json.error?.message || json.message || 'Failed to load');
+        if (!cancelled && json.data) {
           setConfig(json.data as Obligations);
           setExists(true);
         }

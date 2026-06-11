@@ -52,15 +52,18 @@ export function severityForDate(due: Date, today: Date): Severity {
 }
 
 /**
- * Collapse duplicate work items (same company + task + due date), keeping the
- * first occurrence. Needed because the compliance-calendar signal and the
- * vatDueSignal can both emit the same upcoming VAT period.
+ * Collapse fully identical work items (same company + task + due date + href),
+ * keeping the first occurrence. Defence-in-depth against signal overlap —
+ * the compliance engine and vatDueSignal emit disjoint VAT periods by design
+ * (future-ending vs just-ended), so a collision indicates drift. The href is
+ * part of the key so distinct targets (e.g. two pay runs sharing a period)
+ * are never merged.
  */
 export function dedupeWorkItems(items: WorkItem[]): WorkItem[] {
   const seen = new Set<string>();
   const out: WorkItem[] = [];
   for (const it of items) {
-    const key = `${it.companyId}|${it.task}|${it.dueAt ?? ''}`;
+    const key = `${it.companyId}|${it.task}|${it.dueAt ?? ''}|${it.href}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(it);

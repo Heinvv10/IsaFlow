@@ -3,16 +3,24 @@
  * a per-company obligation config. No DB, no clock — callers supply `today`.
  *
  * Date conventions (deliberate, documented):
- * - Window is (today, today + horizonDays], compared on UTC calendar dates.
+ * - Window is [today - graceDays, today + horizonDays] on UTC calendar dates:
+ *   items due today stay visible, and a missed deadline lingers as overdue
+ *   for the grace period (default 7 days) instead of silently vanishing.
  * - VAT due the 25th of the month after period end — same rule as
  *   vatPeriodHelper. 'odd' alignment = periods END in odd months (the
  *   cockpit's existing Category-A convention); 'even' = END in even months.
+ *   Only periods ending AFTER today are emitted: the just-ended period is
+ *   owned by vatDueSignal, which knows whether the return was filed.
  * - EMP201 due the 7th of every month, covering the prior payroll month.
+ *   SARS moves this deadline EARLIER over weekends, so a Saturday/Sunday 7th
+ *   is pulled back to the Friday. Public holidays are out of scope.
  * - EMP501 interim due 31 Oct (Mar–Aug), annual due 31 May (Mar–Feb).
  * - IRP6 1st payment: last day of the 6th month before financial year end;
  *   2nd payment: last day of the year-end month (leap-aware).
- * - CIPC annual return: last day of the anniversary month.
- * - No weekend/holiday adjustment (consistent with vatPeriodHelper).
+ * - CIPC annual return: last day of the anniversary month (always at or
+ *   before the true 30-business-day rule, so the simplification is safe).
+ * - No weekend adjustment for VAT/EMP501/IRP6/CIPC: the 25th eFiling rule
+ *   extends later, and the last-day rules are already the earliest-safe pick.
  */
 
 import { MONTHS, formatPeriod } from './bureauWorkTypes';
@@ -53,20 +61,32 @@ function prevMonth(y: number, m: number): { y: number; m: number } {
   return m === 1 ? { y: y - 1, m: 12 } : { y, m: m - 1 };
 }
 
+/** Pull a weekend due day back to the preceding Friday. */
+function backToFriday(y: number, m: number, d: number): string {
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  if (dow === 6) return iso(y, m, d - 1); // Saturday → Friday
+  if (dow === 0) return iso(y, m, d - 2); // Sunday → Friday
+  return iso(y, m, d);
+}
+
 /**
- * Upcoming statutory obligations within (today, today + horizonDays],
+ * Statutory obligations due within [today - graceDays, today + horizonDays],
  * sorted by due date.
  */
 export function upcomingObligations(
   config: EngineConfig,
   today: Date,
   horizonDays = 90,
+  graceDays = 7,
 ): ObligationDue[] {
   const todayIso = today.toISOString().slice(0, 10);
+  const startIso = new Date(today.getTime() - graceDays * 24 * 3600 * 1000)
+    .toISOString()
+    .slice(0, 10);
   const horizonIso = new Date(today.getTime() + horizonDays * 24 * 3600 * 1000)
     .toISOString()
     .slice(0, 10);
-  const inWindow = (d: string) => d > todayIso && d <= horizonIso;
+  const inWindow = (d: string) => d >= startIso && d <= horizonIso;
   const items: ObligationDue[] = [];
 
   // Iterate candidate months from last month through horizon + 1 month.
@@ -79,9 +99,9 @@ export function upcomingObligations(
     const y = Math.floor(total / 12);
     const m = (total % 12) + 1;
 
-    // EMP201 — 7th of month m covers payroll month m-1
+    // EMP201 — 7th of month m covers payroll month m-1 (weekends pull back)
     if (config.emp201Enabled) {
-      const due = iso(y, m, 7);
+      const due = backToFriday(y, m, 7);
       if (inWindow(due)) {
         const p = prevMonth(y, m);
         items.push({ kind: 'emp201', task: 'EMP201 due', detail: formatPeriod(p.m, p.y), dueDate: due });
@@ -89,12 +109,15 @@ export function upcomingObligations(
     }
 
     // VAT — period ends last day of month m when parity matches (or monthly);
-    // due the 25th of the following month.
+    // due the 25th of the following month. Periods that have already ended
+    // belong to vatDueSignal (which checks vat_returns), so only future-ending
+    // periods are emitted here.
     if (config.vat.enabled) {
       const endsHere =
         config.vat.period === 'monthly' ||
         (m % 2 === 1) === (config.vat.alignment === 'odd');
-      if (endsHere) {
+      const periodEndIso = iso(y, m, lastDay(y, m));
+      if (endsHere && periodEndIso > todayIso) {
         const dueMonth = m === 12 ? { y: y + 1, m: 1 } : { y, m: m + 1 };
         const due = iso(dueMonth.y, dueMonth.m, 25);
         if (inWindow(due)) {

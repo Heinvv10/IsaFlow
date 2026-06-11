@@ -236,8 +236,8 @@ export async function aggregateBureauWork(
       return { closed: 0, total: meta.size };
     }),
   ]);
-  // vatDueSignal precedes complianceSignal in the array, so on a duplicate
-  // upcoming VAT period the filing-status-aware item wins the dedupe.
+  // Defence-in-depth: vatDueSignal owns just-ended periods and the compliance
+  // engine emits only future-ending ones, so true duplicates indicate drift.
   const items = dedupeWorkItems(groups.flat());
   items.sort((a, b) => {
     const order: Record<Severity, number> = { overdue: 0, due_soon: 1, info: 2 };
