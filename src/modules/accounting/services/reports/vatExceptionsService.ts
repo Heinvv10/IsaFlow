@@ -98,6 +98,8 @@ export async function getVatExceptions(
       // 4. Customer invoices whose posted GL output VAT differs from invoice VAT.
       // je_any (no status filter) supplies the linked JE's status so a draft
       // JE can be labeled 'je_not_posted' instead of an amount mismatch.
+      // je_any joins on the JE primary key, so adding je_any.status to the
+      // GROUP BY keeps the one-row-per-invoice cardinality.
       sql`
         SELECT ci.id AS invoice_id, ci.invoice_number, ci.invoice_date,
           COALESCE(c.name, cl.name, 'Unknown') AS counterparty_name,
