@@ -108,6 +108,7 @@ export async function getVatExceptions(
         LEFT JOIN clients cl ON cl.id = ci.client_id
         LEFT JOIN gl_journal_entries je
           ON je.id = ci.gl_journal_entry_id AND je.status = 'posted'
+          AND je.company_id = ${companyId}::UUID
         LEFT JOIN gl_journal_lines jl
           ON jl.journal_entry_id = je.id AND jl.company_id = ${companyId}::UUID
         LEFT JOIN gl_accounts ga ON ga.id = jl.gl_account_id
@@ -134,6 +135,7 @@ export async function getVatExceptions(
         LEFT JOIN suppliers s ON s.id = si.supplier_id
         LEFT JOIN gl_journal_entries je
           ON je.id = si.gl_journal_entry_id AND je.status = 'posted'
+          AND je.company_id = ${companyId}::UUID
         LEFT JOIN gl_journal_lines jl
           ON jl.journal_entry_id = je.id AND jl.company_id = ${companyId}::UUID
         LEFT JOIN gl_accounts ga ON ga.id = jl.gl_account_id

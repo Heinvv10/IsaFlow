@@ -11,7 +11,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { isValidDate } from '@/lib/validation';
-import { getVatExceptions } from '@/modules/accounting/services/reports/vatExceptionsService';
+import { getVatExceptions } from '@/modules/accounting/services/reports/sarsService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
