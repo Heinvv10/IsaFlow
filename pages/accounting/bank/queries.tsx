@@ -73,8 +73,8 @@ export default function ClientQueriesPage() {
         await settle();
         res = await apiFetch(url);
       }
-      const json = await res.json() as { data?: BankTxQueryRow[]; message?: string };
-      if (!res.ok) { setError(json.message ?? 'Failed to load queries'); return; }
+      const json = await res.json() as { data?: BankTxQueryRow[]; message?: string; error?: { message?: string } };
+      if (!res.ok) { setError(json.message ?? json.error?.message ?? 'Failed to load queries'); return; }
       setRows(json.data ?? []);
     } catch (err) {
       log.error('Failed to load bank-tx queries', { err }, 'client-queries-page');
@@ -103,8 +103,8 @@ export default function ClientQueriesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action }),
       });
-      const json = await res.json() as { message?: string };
-      if (!res.ok) { setToast({ msg: json.message ?? `${action} failed`, kind: 'err' }); return; }
+      const json = await res.json() as { message?: string; error?: { message?: string } };
+      if (!res.ok) { setToast({ msg: json.message ?? json.error?.message ?? `${action} failed`, kind: 'err' }); return; }
       setToast({ msg: action === 'resolve' ? 'Query marked resolved' : 'Query cancelled', kind: 'ok' });
       await settle();
       await load(true);

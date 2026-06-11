@@ -143,8 +143,10 @@ export function BankTxQueryModal({ tx, onClose, onSent }: Props) {
       });
 
       if (!res.ok) {
-        const json = await res.json() as { message?: string; error?: string };
-        setInlineError(json.message ?? json.error ?? 'Failed to send query');
+        // apiResponse error envelope: { success: false, error: { code, message } }
+        const json = await res.json() as { message?: string; error?: { message?: string } | string };
+        const errMsg = typeof json.error === 'string' ? json.error : json.error?.message;
+        setInlineError(json.message ?? errMsg ?? 'Failed to send query');
         return;
       }
 
