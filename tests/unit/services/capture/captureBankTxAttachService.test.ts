@@ -45,6 +45,7 @@ describe('attachCapturedDocToBankTx', () => {
     expect(calls.some((q) => q.includes('INSERT INTO bank_transaction_attachments'))).toBe(true);
     expect(calls.find((q) => q.includes('FROM captured_documents'))).toContain('company_id');
     expect(calls.find((q) => q.includes('FROM bank_transactions'))).toContain('company_id');
+    expect(calls.find((q) => q.includes('UPDATE captured_documents'))).toContain('company_id');
   });
 
   it('returns notFound when the document is not in this company', async () => {
@@ -71,7 +72,9 @@ describe('attachCapturedDocToBankTx', () => {
     expect(calls.some((q) => q.includes('UPDATE captured_documents'))).toBe(true);
   });
 
-  it('skips the mirror when an attachment with the same file name already exists (dedupe)', async () => {
+  it('skips the mirror when the SAME document is already mirrored on this tx (dedupe)', async () => {
+    // The mocked dup row stands in for an existing attachment stored under the
+    // documentId-prefixed key (`${DOC}_slip.jpg`) — i.e. a retry of the SAME doc.
     mockSqlByQuery(happyHandlers({ dup: [{ id: 'existing' }] }));
     vi.mocked(fetchRawBytes).mockResolvedValue({
       buffer: Buffer.from('img'), hash: 'h', size: 3, fileType: 'jpeg',
@@ -80,6 +83,37 @@ describe('attachCapturedDocToBankTx', () => {
     expect(result).toEqual({ ok: true, mirrored: true });
     const calls = sqlMock.mock.calls.map((c) => (c[0] as readonly string[]).join('?'));
     expect(calls.some((q) => q.includes('INSERT INTO bank_transaction_attachments'))).toBe(false);
+    // The dedupe key embeds the documentId, not the bare file name.
+    const dupCall = sqlMock.mock.calls.find((c) =>
+      (c[0] as readonly string[]).join('?').includes('SELECT id FROM bank_transaction_attachments'));
+    expect(dupCall).toBeDefined();
+    expect(dupCall!.slice(1)).toContain(`${DOC}_slip.jpg`);
+  });
+
+  it('dedupes per-document: two different docs with the same original file name both mirror', async () => {
+    const DOC2 = '44444444-4444-4444-4444-444444444444';
+    mockSqlByQuery(happyHandlers()); // dup check returns [] for every doc
+    vi.mocked(fetchRawBytes).mockResolvedValue({
+      buffer: Buffer.from('img'), hash: 'h', size: 3, fileType: 'jpeg',
+    });
+    expect(await attachCapturedDocToBankTx(COMPANY, DOC, TX, 'user-1'))
+      .toEqual({ ok: true, mirrored: true });
+    expect(await attachCapturedDocToBankTx(COMPANY, DOC2, TX, 'user-1'))
+      .toEqual({ ok: true, mirrored: true });
+
+    const inserts = sqlMock.mock.calls.filter((c) =>
+      (c[0] as readonly string[]).join('?').includes('INSERT INTO bank_transaction_attachments'));
+    expect(inserts).toHaveLength(2);
+
+    // Each dup check / insert carries its own documentId-prefixed name.
+    const dupChecks = sqlMock.mock.calls.filter((c) =>
+      (c[0] as readonly string[]).join('?').includes('SELECT id FROM bank_transaction_attachments'));
+    expect(dupChecks.map((c) => c.slice(1)).flat()).toEqual(
+      expect.arrayContaining([`${DOC}_slip.jpg`, `${DOC2}_slip.jpg`]),
+    );
+    expect(inserts.map((c) => c.slice(1)).flat()).toEqual(
+      expect.arrayContaining([`${DOC}_slip.jpg`, `${DOC2}_slip.jpg`]),
+    );
   });
 
   it('still links when raw bytes are unavailable (mirrored:false, warn logged)', async () => {

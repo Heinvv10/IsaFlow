@@ -48,6 +48,9 @@ export async function attachCapturedDocToBankTx(
   `) as Row[];
   if (!tx) return { ok: false, reason: 'bank_tx_not_found' };
 
+  // Crash-recovery: UPDATE-then-mirror ordering means a crash between the two
+  // heals on a retry — the re-UPDATE is idempotent and the dup-check misses,
+  // so the mirror is attempted again.
   await sql`
     UPDATE captured_documents
        SET status = 'matched',
@@ -76,10 +79,13 @@ async function mirrorIntoAttachments(
   userId: string | null,
 ): Promise<boolean> {
   try {
-    // Dedupe: same file on the same tx (retry / double-tap) — treat as already mirrored.
+    // Dedupe key is documentId-prefixed: a retry / double-tap of the SAME
+    // document is treated as already mirrored, but two DIFFERENT documents
+    // that happen to share a file name (e.g. image.jpg) both mirror.
+    const storedFileName = `${documentId}_${fileName}`;
     const [dup] = (await sql`
       SELECT id FROM bank_transaction_attachments
-       WHERE bank_transaction_id = ${bankTxId}::uuid AND file_name = ${fileName}
+       WHERE bank_transaction_id = ${bankTxId}::uuid AND file_name = ${storedFileName}
        LIMIT 1
     `) as Row[];
     if (dup) return true;
@@ -104,7 +110,7 @@ async function mirrorIntoAttachments(
       INSERT INTO bank_transaction_attachments
         (bank_transaction_id, file_url, file_name, file_size, uploaded_by)
       VALUES
-        (${bankTxId}::uuid, ${dataUrl}, ${fileName}, ${raw.buffer.length}, ${userId})
+        (${bankTxId}::uuid, ${dataUrl}, ${storedFileName}, ${raw.buffer.length}, ${userId})
     `;
     return true;
   } catch (err) {
