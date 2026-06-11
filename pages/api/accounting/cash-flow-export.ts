@@ -11,7 +11,7 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
@@ -30,14 +30,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!periodEnd) return apiResponse.badRequest(res, 'period_end is required');
 
   try {
-    // Detect whether account_subtype column exists
-    let hasSubtype = false;
-    try {
+    // Detect whether account_subtype column exists. The probe MUST run in a
+    // savepoint: a failed query would otherwise abort withAuth's request-wide
+    // transaction and every fallback query below would 500.
+    const hasSubtype = await withSavepoint('subtype_probe', async () => {
       await sql`SELECT account_subtype FROM gl_accounts LIMIT 1`;
-      hasSubtype = true;
-    } catch {
-      // Column absent — fall back to name-matching
-    }
+      return true;
+    }).catch(() => false); // Column absent — fall back to name-matching
 
     // Opening cash balance (bank accounts before period start)
     let openingBalance = 0;

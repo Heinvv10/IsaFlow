@@ -27,8 +27,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // ─── Twilio signature verification ─────────────────────────────────────────
   const authToken = process.env.TWILIO_AUTH_TOKEN;
   if (authToken) {
+    // Signature verification needs the exact public URL Twilio called.
+    // Without a configured base URL every legitimate webhook would 403 as
+    // "invalid signature" (terminal for Twilio — the message is lost), so a
+    // missing URL fails closed as a config error instead: 503, Twilio retries.
+    const appUrl = process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL;
+    if (!appUrl) {
+      log.error(
+        'APP_URL/NEXT_PUBLIC_APP_URL not set — cannot verify Twilio signature; rejecting inbound WhatsApp webhook',
+        undefined,
+        'whatsapp-inbound',
+      );
+      return res.status(503).json({ success: false, error: 'Webhook verification not configured' });
+    }
+
     // Lazy-import twilio to avoid hard startup dep when env not configured
-     
+
     const twilioLib = await import('twilio');
     const validateRequest: (
       authToken: string,
@@ -40,7 +54,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const signature =
       (req.headers['x-twilio-signature'] as string | undefined) ?? '';
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
     const webhookUrl = `${appUrl}/api/accounting/capture/inbound/whatsapp`;
 
     const params = (req.body ?? {}) as Record<string, string>;
