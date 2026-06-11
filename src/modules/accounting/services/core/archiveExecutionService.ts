@@ -4,7 +4,7 @@
  * SA Companies Act minimum retention: 5 years.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { logAuditOrThrow } from './auditTrailService';
 import type { DbRow } from '@/types/db';
@@ -35,7 +35,15 @@ export async function executeArchive(
 
   log.info('Archive run started', { companyId, runId, cutoffDate, userId }, COMPONENT);
 
+  // The archive body runs inside a savepoint on the caller's withAuth
+  // request transaction. Without it, a failed step leaves that shared tx
+  // aborted: the failure-mark UPDATE in the catch below would itself throw
+  // ("current transaction is aborted"), masking the original error, and the
+  // 'failed' run record could never persist. Rolling back to the savepoint
+  // un-aborts the tx so the mark commits with the request; the run-record
+  // INSERT above sits OUTSIDE the savepoint so it survives the rollback.
   try {
+    return await withSavepoint('archive_body', async (): Promise<ArchiveResult> => {
     // Step 1: Archive GL journal entries
     const jeRows = (await sql`
       INSERT INTO archive_gl_journal_entries
@@ -192,12 +200,11 @@ export async function executeArchive(
       WHERE id = ${runId}
     `;
 
-    // Fatal by design: this runs inside the caller's withAuth request
-    // transaction, so NOTHING above (moved rows, the completed UPDATE) is
-    // durable yet — and a failed INSERT puts that shared tx into aborted
-    // state. Swallowing the error here would return 200 "success" while
-    // COMMIT silently degrades to ROLLBACK, losing the entire archive run.
-    // Letting it throw keeps the response consistent with the DB state.
+    // Fatal by design: nothing above (moved rows, the completed UPDATE) is
+    // durable until the request tx commits. Swallowing this error would
+    // return 200 "success" for an archive that the savepoint rollback then
+    // erases. Letting it throw rolls the archive back to the savepoint and
+    // marks the run failed — response stays consistent with the DB state.
     await logAuditOrThrow({
       companyId,
       userId,
@@ -224,14 +231,21 @@ export async function executeArchive(
     }, COMPONENT);
 
     return { runId, entriesArchived, linesArchived, transactionsArchived, invoicesArchived, supplierInvoicesArchived };
+    });
   } catch (err) {
-    await sql`
-      UPDATE archive_runs
-      SET status = 'failed',
-          completed_at = NOW(),
-          error_message = ${String(err)}
-      WHERE id = ${runId}
-    `;
+    // Own savepoint + logged catch: if even the failure mark cannot be
+    // written, the original error must still be the one that propagates.
+    await withSavepoint('archive_mark_failed', async () => {
+      await sql`
+        UPDATE archive_runs
+        SET status = 'failed',
+            completed_at = NOW(),
+            error_message = ${String(err)}
+        WHERE id = ${runId}
+      `;
+    }).catch((markErr: unknown) => {
+      log.error('Failed to record archive failure', { companyId, runId, markErr: String(markErr) }, COMPONENT);
+    });
     log.error('Archive run failed', { companyId, runId, error: err }, COMPONENT);
     throw err;
   }
