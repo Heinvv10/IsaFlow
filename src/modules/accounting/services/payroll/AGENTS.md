@@ -14,6 +14,7 @@ South African payroll: PAYE, UIF, SDL, ETI + run lifecycle, leave, termination/I
 - **Statutory**: `uifDeclarationService.ts` (UI-19 + `markUifDeclarationPaid`: DR 2150 / CR 1110), `taxDirectiveService.ts`, `taxDirectivePaymentService.ts` (`applyTaxDirective`: DR 5200 / CR 2140 / CR 1110), `easyFileExportService.ts` (e@syFile EMP501 CSV).
 - **Loans / costing**: `payrollLoanService.ts`, `payrollCostAllocationService.ts`, `costCentreGlMappingService.ts`, `costCentreService.ts`, `cashPayRegisterService.ts`.
 - **Variance / duplicates / training / equity**: `payrollVarianceService.ts`, `payrollDuplicateDetectionService.ts`, `trainingEventService.ts`, `equityReportService.ts`.
+- **Parallel-run comparison (Dotbiz Workstream C)**: `payrollParallelRunTypes.ts`, `payrollExternalCsvParser.ts` (pure; SA number formats → integer cents), `payrollParallelRunComparator.ts` (pure; IsaFlow run vs imported external payslips, per-employee per-component cent diffs), `payrollParallelRunCsv.ts` (pure CSV render), `payrollExternalImportService.ts` (DB; mig 495), `payrollParallelRunReportService.ts` (DB; assembles report).
 
 ## Caller contract
 Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/payroll/*`. Every DB function takes `companyId` first. Pure engines accept plain typed inputs and return plain results.
@@ -26,6 +27,9 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/payroll/*`.
 - `markUifDeclarationPaid(companyId, declarationId, userId)` — idempotent (returns existing row when already paid).
 - `applyTaxDirective(companyId, directiveId, input)` — one payment per directive.
 - `computeExpectedAccrual(input): number`, `computeCarryOver(balance, maxCarryOver)` — pure leave helpers.
+- `parseExternalPayslipCsv(csv): ExternalCsvParseResult` — pure; header aliases (VIP/Sage), comma/semicolon, SA amount formats; integer cents out.
+- `compareParallelRun(isaflowLines, externalRows, opts?): ParallelRunComparisonReport` — pure; employee-number matching is trim/case/zero-pad-insensitive (numeric only); `uifTotal` compares vs ee+er sum; only components present in the external data are compared.
+- `getParallelRunReport(companyId, importId, runId?)` — resolves the run by the import's period when runId omitted; `run`/`comparison` null when no run exists.
 
 ## Business rules
 - Run state: `draft → calculated → processed → approved`. Re-approve is allowed when `status=approved` but journal unposted (2026-04-24 fix).
@@ -41,6 +45,7 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/payroll/*`.
 - `scripts/migrations/sql/*payroll*`, `*uif*`, `*tax_directive*`, `*leave_accrual*`.
 
 ## Recent changes
+- 2026-06-11: parallel-run comparison (Workstream C) — external payslip import (mig 495, amounts in integer CENTS) + pure cent-level comparator + CSV export; routes `pages/api/payroll/parallel-run/*`, page `/payroll/parallel-run`.
 - 2026-04-24: leave balance INSERTs supply `company_id` for RLS.
 - 2026-04-24: leave accrual — EXCLUDED out of scope in RETURNING.
 - 2026-04-24: leave accrual uses `payroll_employees.status` not `is_active`.
