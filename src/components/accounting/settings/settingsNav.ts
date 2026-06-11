@@ -7,6 +7,7 @@ export type TabId =
   | 'details'
   | 'general'
   | 'vat'
+  | 'compliance'
   | 'documents'
   | 'branding'
   | 'dimensions'
@@ -44,6 +45,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
     label: 'Accounting & Tax',
     items: [
       { id: 'vat', label: 'VAT Settings' },
+      { id: 'compliance', label: 'Compliance' },
       { id: 'aging', label: 'Aging' },
     ],
   },

@@ -43,7 +43,7 @@ export function ClientHomeView({ metrics, workItems, onOpenItem }: ClientHomeVie
           const Icon = badge.icon;
           return (
             <ActionRow
-              key={`${it.task}-${it.href}`}
+              key={`${it.task}-${it.href}-${it.dueAt ?? ''}-${it.detail}`}
               onClick={() => onOpenItem(it)}
               leading={
                 <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${badge.bg} ${badge.fg}`}>
