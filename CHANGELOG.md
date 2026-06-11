@@ -13,6 +13,26 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 
 ---
 
+## 2026-06-11 — Dotbiz Pilot Workstreams + VAT/Auto-Post Fixes
+
+**Dotbiz Pilot — 4 workstreams shipped**
+
+- Workstream A: pre-filing VAT exceptions report with degraded-data flag, draft-JE labeling, item-level unposted VAT (#158)
+- Workstream C: payroll parallel-run comparison vs external payslips (migration 495) (#165)
+- Workstream D: WhatsApp client query loop for bank transaction queries (migration 496) (#166)
+- Workstream E: statutory calendar → triage-board work items (migration 494) (#159)
+
+**Bug fixes**
+
+- `vat201`: active company's full VAT settings now fetched — page was reading stale data (#164)
+- `vat`: SARS-correct Cat C (monthly) vendor alignment semantics (#163)
+- `auto-post`: LLM pass gated behind opt-in flag — no AI spend until explicitly enabled; run-record snapshot corrected (#160)
+- `audit`: savepoints for in-request fallbacks + WhatsApp webhook URL hardened fail-closed (#161)
+
+Migrations: **494** (`company_compliance_obligations`), **495** (`payroll_external_imports`), **496** (`bank_tx_queries`)
+
+---
+
 ## 2026-04-19 — Phase 3 Admin Platform on GoTrue
 
 Platform-admin layer now rides on Supabase auth with BYPASSRLS for cross-tenant reads.
