@@ -101,6 +101,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
 
   const eventIds: string[] = [];
+  const documentIds: string[] = [];
 
   for (const file of fileList) {
     const mimeType = file.mimetype ?? '';
@@ -156,6 +157,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
     const eventId = eventRows[0]!.id as string;
     eventIds.push(eventId);
+    documentIds.push(documentId);
 
     log.info('upload: capture event created', { companyId, documentId, eventId, fileName }, 'capture-upload');
 
@@ -172,7 +174,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'No valid files processed');
   }
 
-  return apiResponse.created(res, { eventIds });
+  return apiResponse.created(res, { eventIds, documentIds });
 }
 
 /**
