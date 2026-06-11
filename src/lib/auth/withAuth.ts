@@ -160,6 +160,25 @@ export function withAuth(handler: Handler): NextApiHandler {
         }
       }
 
+      // ── Defer the response flush until AFTER the transaction is finalised ──
+      // The handler calls res.json/res.end INSIDE this open transaction. If the
+      // response flushes before COMMIT, a client that immediately refetches can
+      // read the DB before the write has landed (reproduced: a GET 404'd 78ms
+      // after a 201). Next's res.json/res.send both funnel through res.end
+      // (api-utils/node sendData/sendJson), so patching res.end captures every
+      // apiResponse.* helper plus the xlsx/pdf buffer routes. We buffer the
+      // single final end(), COMMIT/ROLLBACK on the resolved status, then replay.
+      let bufferedEndArgs: unknown[] | null = null;
+      let handlerEnded = false;
+      const realEnd = res.end.bind(res) as (...a: unknown[]) => unknown;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (res as any).end = (...args: unknown[]) => {
+        if (handlerEnded) return res; // double-end guard — flush exactly once
+        handlerEnded = true;
+        bufferedEndArgs = args;
+        return res;
+      };
+
       const runHandler = async () =>
         als.run(
           { client, userId: claims.sub, companyId: activeCompanyId, claims: claims as Record<string, unknown> },
@@ -175,7 +194,51 @@ export function withAuth(handler: Handler): NextApiHandler {
         await runHandler();
       }
 
-      await client.query('COMMIT');
+      // Finalise on the resolved status. A 5xx means the request failed — most
+      // commonly withErrorHandler (which sits INSIDE withAuth) caught an error,
+      // responded 500, and returned normally; we must NOT COMMIT its partial
+      // writes. <5xx commits (4xx keeps today's behaviour — handlers that
+      // validate-then-4xx almost always return before any write).
+      const handlerFailed = res.statusCode >= 500;
+      try {
+        await client.query(handlerFailed ? 'ROLLBACK' : 'COMMIT');
+      } catch (finalizeErr) {
+        // The transaction could not be finalised after the handler "responded".
+        // Best-effort rollback, then replace the buffered (usually 2xx) flush
+        // with an honest 500 — today this is a silent lie (a committed-failed
+        // 200). Headers were never sent because the flush was deferred.
+        try { await client.query('ROLLBACK'); } catch { /* secondary */ }
+        log.error('withAuth: transaction finalize failed after handler responded', {
+          url: req.url,
+          status: res.statusCode,
+          message: finalizeErr instanceof Error ? finalizeErr.message : String(finalizeErr),
+        }, 'Auth');
+        if (process.env.SENTRY_ENABLED === 'true' && finalizeErr instanceof Error) {
+          Sentry.captureException(finalizeErr);
+        }
+        if (res.headersSent) {
+          // A streaming route flushed headers before COMMIT — can't rewrite the
+          // status, just complete the response (no withAuth route does this).
+          if (handlerEnded) realEnd(...(bufferedEndArgs ?? []));
+        } else {
+          const body = JSON.stringify({
+            success: false,
+            data: null,
+            message: 'An unexpected error occurred',
+            code: 'COMMIT_FAILED',
+          });
+          res.statusCode = 500;
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          res.setHeader('Content-Length', Buffer.byteLength(body));
+          realEnd(body);
+        }
+        return; // finally still runs (release + slow-request log)
+      }
+
+      // Transaction durable — now replay the buffered flush. If the handler
+      // never responded there is nothing to replay (Next surfaces its own
+      // "resolved without sending a response" path, unchanged from before).
+      if (handlerEnded) realEnd(...(bufferedEndArgs ?? []));
     } catch (err) {
       try { await client.query('ROLLBACK'); } catch { /* secondary */ }
       throw err;
