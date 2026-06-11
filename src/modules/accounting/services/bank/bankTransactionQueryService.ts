@@ -211,13 +211,13 @@ export async function getBankTransactions(
       // bare ILIKE '%', which would drop them).
       const searchPattern = filters?.search ? `%${filters.search}%` : null;
       rows = (await sql`${sql.unsafe(TX_SELECT)}
-        WHERE bt.company_id = ${companyId}
+        WHERE bt.company_id = ${companyId}::UUID
           AND (${statusFilter}::text IS NULL OR bt.status = ${statusFilter}::text)
           AND (${searchPattern}::text IS NULL OR bt.description ILIKE ${searchPattern} OR bt.reference ILIKE ${searchPattern})
         ORDER BY bt.transaction_date DESC, bt.amount DESC
         LIMIT ${limit} OFFSET ${offset}`) as Row[];
       countRows = (await sql`SELECT COUNT(*) AS cnt FROM bank_transactions bt
-        WHERE bt.company_id = ${companyId}
+        WHERE bt.company_id = ${companyId}::UUID
           AND (${statusFilter}::text IS NULL OR bt.status = ${statusFilter}::text)
           AND (${searchPattern}::text IS NULL OR bt.description ILIKE ${searchPattern} OR bt.reference ILIKE ${searchPattern})`) as Row[];
     }

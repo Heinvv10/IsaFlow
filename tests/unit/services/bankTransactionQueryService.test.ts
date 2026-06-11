@@ -190,9 +190,15 @@ describe('getBankTransactions — search filter without bankAccountId', () => {
 
     await getBankTransactions(COMPANY_ID);
 
+    // The pattern is null when no search term is given — no ILIKE pattern of
+    // any kind may reach the SQL layer (a bare '%' would drop rows where both
+    // description and reference are NULL).
     const allValues = flatSqlValues(vi.mocked(sql));
     expect(allValues).toContain(null);
-    expect(allValues).not.toContain('%');
+    const likePatterns = allValues.filter(
+      (v): v is string => typeof v === 'string' && v.includes('%')
+    );
+    expect(likePatterns).toHaveLength(0);
   });
 });
 

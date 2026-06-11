@@ -1,10 +1,14 @@
 /**
  * Client-side upload + offline-queue helpers for the PWA capture page.
  * Extracted from pages/accounting/capture/index.tsx (300-line rule).
+ *
+ * Uses apiFetch, which injects X-Company-Id + X-CSRF-Token and leaves
+ * Content-Type unset for FormData bodies (browser sets the multipart boundary).
  */
 
+import { apiFetch } from '@/lib/apiFetch';
+
 export const QUEUE_STORAGE_KEY = 'isaflow_capture_queue';
-const COMPANY_STORAGE_KEY = 'isaflow_active_company';
 
 export interface QueuedItem {
   id: string;
@@ -15,22 +19,6 @@ export interface QueuedItem {
 export interface UploadResult {
   eventIds: string[];
   documentIds: string[];
-}
-
-function readCompanyId(): string | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const stored = localStorage.getItem(COMPANY_STORAGE_KEY);
-    if (!stored) return null;
-    const { id } = JSON.parse(stored) as { id?: string };
-    return id ?? null;
-  } catch { return null; }
-}
-
-function readCsrfCookie(): string | null {
-  if (typeof document === 'undefined') return null;
-  const match = document.cookie.split('; ').find(c => c.startsWith('isaflow_csrf='));
-  return match ? match.slice('isaflow_csrf='.length) : null;
 }
 
 export async function fileToDataUrl(file: File): Promise<string> {
@@ -45,20 +33,16 @@ export async function fileToDataUrl(file: File): Promise<string> {
 export async function uploadFiles(files: File[]): Promise<UploadResult> {
   const form = new FormData();
   files.forEach(f => form.append('files[]', f));
-  const headers = new Headers();
-  const companyId = readCompanyId();
-  if (companyId) headers.set('X-Company-Id', companyId);
-  const csrf = readCsrfCookie();
-  if (csrf) headers.set('X-CSRF-Token', csrf);
-  const res = await fetch('/api/accounting/capture/upload', {
+  const res = await apiFetch('/api/accounting/capture/upload', {
     method: 'POST',
     body: form,
-    headers,
-    credentials: 'include',
   });
   if (!res.ok) {
-    const json = await res.json().catch(() => ({}));
-    throw new Error((json as { message?: string }).message ?? 'Upload failed');
+    const json = await res.json().catch(() => ({})) as {
+      error?: { message?: string };
+      message?: string;
+    };
+    throw new Error(json.error?.message ?? json.message ?? 'Upload failed');
   }
   const json = await res.json();
   const data = (json.data as Partial<UploadResult>) ?? {};

@@ -12,7 +12,7 @@
  * where BankTransaction uses camelCase fields (transactionDate, description, amount).
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { X, Search, Link2, Loader2, CheckCircle2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { apiFetch } from '@/lib/apiFetch';
@@ -43,8 +43,12 @@ export function AttachToTransactionSheet({ documentIds, onDone }: AttachToTransa
   const [loading, setLoading] = useState(true);
   const [attaching, setAttaching] = useState<string | null>(null);
   const [error, setError] = useState('');
+  // Monotonic sequence guard: a slow earlier response must not clobber the
+  // result of a later request (out-of-order resolution during fast typing).
+  const loadSeqRef = useRef(0);
 
   const load = useCallback(async (q: string) => {
+    const seq = ++loadSeqRef.current;
     setLoading(true); setError('');
     try {
       const params = new URLSearchParams({ limit: '20' });
@@ -56,11 +60,13 @@ export function AttachToTransactionSheet({ documentIds, onDone }: AttachToTransa
         message?: string;
       };
       if (!res.ok) throw new Error(json.error?.message || json.message || 'Failed to load transactions');
+      if (seq !== loadSeqRef.current) return;
       setTxs(json.data?.transactions ?? []);
     } catch (err) {
+      if (seq !== loadSeqRef.current) return;
       setError(err instanceof Error ? err.message : 'Failed to load transactions');
     } finally {
-      setLoading(false);
+      if (seq === loadSeqRef.current) setLoading(false);
     }
   }, []);
 
@@ -68,6 +74,12 @@ export function AttachToTransactionSheet({ documentIds, onDone }: AttachToTransa
     const t = setTimeout(() => void load(search), search ? 300 : 0);
     return () => clearTimeout(t);
   }, [search, load]);
+
+  // Lock body scroll while the sheet is open (mobile bottom-sheet behavior).
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = ''; };
+  }, []);
 
   const attach = useCallback(async (txId: string) => {
     setAttaching(txId);
