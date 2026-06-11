@@ -40,6 +40,7 @@ export function makeVat201(field5: number, field10: number) {
     field11_vatPayableOrRefundable: field5 - field10,
     outputInvoices: [],
     inputInvoices: [],
+    degradedSources: [] as string[],
   };
 }
 

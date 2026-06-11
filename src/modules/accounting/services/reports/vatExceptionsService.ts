@@ -95,17 +95,24 @@ export async function getVatExceptions(
         ORDER BY si.invoice_date, si.invoice_number
         LIMIT ${LIST_CAP}
       ` as Promise<Row[]>,
-      // 4. Customer invoices whose posted GL output VAT differs from invoice VAT
+      // 4. Customer invoices whose posted GL output VAT differs from invoice VAT.
+      // je_any (no status filter) supplies the linked JE's status so a draft
+      // JE can be labeled 'je_not_posted' instead of an amount mismatch.
+      // je_any joins on the JE primary key, so adding je_any.status to the
+      // GROUP BY keeps the one-row-per-invoice cardinality.
       sql`
         SELECT ci.id AS invoice_id, ci.invoice_number, ci.invoice_date,
           COALESCE(c.name, cl.name, 'Unknown') AS counterparty_name,
           COALESCE(ci.tax_amount, 0) AS invoice_vat,
           COALESCE(SUM(CASE WHEN ga.account_subtype = 'vat_output'
             THEN jl.credit - jl.debit ELSE 0 END), 0) AS gl_vat,
+          je_any.status AS je_status,
           COUNT(*) OVER() AS total_count
         FROM customer_invoices ci
         LEFT JOIN customers c ON c.id = ci.customer_id
         LEFT JOIN clients cl ON cl.id = ci.client_id
+        LEFT JOIN gl_journal_entries je_any
+          ON je_any.id = ci.gl_journal_entry_id AND je_any.company_id = ${companyId}::UUID
         LEFT JOIN gl_journal_entries je
           ON je.id = ci.gl_journal_entry_id AND je.status = 'posted'
           AND je.company_id = ${companyId}::UUID
@@ -117,22 +124,26 @@ export async function getVatExceptions(
           AND ci.invoice_date <= ${periodEnd}::DATE
           AND ci.status != 'cancelled'
           AND ci.gl_journal_entry_id IS NOT NULL
-        GROUP BY ci.id, ci.invoice_number, ci.invoice_date, ci.tax_amount, c.name, cl.name
+        GROUP BY ci.id, ci.invoice_number, ci.invoice_date, ci.tax_amount, c.name, cl.name, je_any.status
         HAVING ABS(COALESCE(ci.tax_amount, 0) - COALESCE(SUM(CASE WHEN ga.account_subtype = 'vat_output'
           THEN jl.credit - jl.debit ELSE 0 END), 0)) > ${CENT}
         ORDER BY ci.invoice_date, ci.invoice_number
         LIMIT ${LIST_CAP}
       ` as Promise<Row[]>,
       // 5. Supplier invoices whose posted GL input VAT differs from invoice VAT
+      // (je_any: same 'je_not_posted' labeling as the customer query above)
       sql`
         SELECT si.id AS invoice_id, si.invoice_number, si.invoice_date,
           COALESCE(s.name, 'Unknown') AS counterparty_name,
           COALESCE(si.tax_amount, 0) AS invoice_vat,
           COALESCE(SUM(CASE WHEN ga.account_subtype = 'vat_input'
             THEN jl.debit - jl.credit ELSE 0 END), 0) AS gl_vat,
+          je_any.status AS je_status,
           COUNT(*) OVER() AS total_count
         FROM supplier_invoices si
         LEFT JOIN suppliers s ON s.id = si.supplier_id
+        LEFT JOIN gl_journal_entries je_any
+          ON je_any.id = si.gl_journal_entry_id AND je_any.company_id = ${companyId}::UUID
         LEFT JOIN gl_journal_entries je
           ON je.id = si.gl_journal_entry_id AND je.status = 'posted'
           AND je.company_id = ${companyId}::UUID
@@ -144,7 +155,7 @@ export async function getVatExceptions(
           AND si.invoice_date <= ${periodEnd}::DATE
           AND si.status != 'cancelled'
           AND si.gl_journal_entry_id IS NOT NULL
-        GROUP BY si.id, si.invoice_number, si.invoice_date, si.tax_amount, s.name
+        GROUP BY si.id, si.invoice_number, si.invoice_date, si.tax_amount, s.name, je_any.status
         HAVING ABS(COALESCE(si.tax_amount, 0) - COALESCE(SUM(CASE WHEN ga.account_subtype = 'vat_input'
           THEN jl.debit - jl.credit ELSE 0 END), 0)) > ${CENT}
         ORDER BY si.invoice_date, si.invoice_number
@@ -167,8 +178,21 @@ export async function getVatExceptions(
           AND je.entry_date <= ${periodEnd}::DATE
           AND ga.account_subtype IN ('vat_input', 'vat_output')
       ` as Promise<Row[]>,
-      // 7. Invoice VAT not yet posted to the GL (context for recon variance)
+      // 7. Invoice VAT not yet posted to the GL (context for recon variance).
+      // Supplier side aggregates from supplier_invoice_items when an invoice
+      // has items — the same source generateVAT201 uses for field10 — falling
+      // back to the header tax_amount for item-less invoices.
       sql`
+        WITH unposted_si AS (
+          SELECT COALESCE(
+              (SELECT SUM(sii.tax_amount) FROM supplier_invoice_items sii
+                WHERE sii.supplier_invoice_id = si.id),
+              si.tax_amount, 0) AS eff_vat
+          FROM supplier_invoices si
+          WHERE si.company_id = ${companyId}::UUID AND si.gl_journal_entry_id IS NULL
+            AND si.invoice_date >= ${periodStart}::DATE AND si.invoice_date <= ${periodEnd}::DATE
+            AND si.status != 'cancelled'
+        )
         SELECT
           (SELECT COALESCE(SUM(tax_amount), 0) FROM customer_invoices
             WHERE company_id = ${companyId}::UUID AND gl_journal_entry_id IS NULL
@@ -178,14 +202,8 @@ export async function getVatExceptions(
             WHERE company_id = ${companyId}::UUID AND gl_journal_entry_id IS NULL
               AND invoice_date >= ${periodStart}::DATE AND invoice_date <= ${periodEnd}::DATE
               AND status != 'cancelled' AND COALESCE(tax_amount, 0) <> 0) AS unposted_customer_count,
-          (SELECT COALESCE(SUM(tax_amount), 0) FROM supplier_invoices
-            WHERE company_id = ${companyId}::UUID AND gl_journal_entry_id IS NULL
-              AND invoice_date >= ${periodStart}::DATE AND invoice_date <= ${periodEnd}::DATE
-              AND status != 'cancelled' AND COALESCE(tax_amount, 0) <> 0) AS unposted_supplier_vat,
-          (SELECT COUNT(*) FROM supplier_invoices
-            WHERE company_id = ${companyId}::UUID AND gl_journal_entry_id IS NULL
-              AND invoice_date >= ${periodStart}::DATE AND invoice_date <= ${periodEnd}::DATE
-              AND status != 'cancelled' AND COALESCE(tax_amount, 0) <> 0) AS unposted_supplier_count
+          (SELECT COALESCE(SUM(eff_vat), 0) FROM unposted_si WHERE eff_vat <> 0) AS unposted_supplier_vat,
+          (SELECT COUNT(*) FROM unposted_si WHERE eff_vat <> 0) AS unposted_supplier_count
       ` as Promise<Row[]>,
       generateVAT201(companyId, periodStart, periodEnd),
     ]);
@@ -242,5 +260,7 @@ export async function getVatExceptions(
     controlRecon,
     totalExceptions:
       uncodedGlLineCount + invoiceTaxCodeIssueCount + invoiceGlMismatchCount + reconExceptions,
+    degradedData: vat201.degradedSources.length > 0,
+    degradedSources: vat201.degradedSources,
   };
 }
