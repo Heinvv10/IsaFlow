@@ -17,6 +17,7 @@ import {
   getAutoPostSettings,
   updateAutoPostSettings,
   sweep,
+  autoPostRunSnapshot,
   type AutoPostSettings,
   type GateTx,
 } from '@/modules/accounting/services/bank/autoPostGateService';
@@ -238,6 +239,19 @@ describe('sweep', () => {
     const r = await sweep('co-1', ['t1'], 'import', 'u-1');
     expect(postProvisional).toHaveBeenCalledWith('co-1', 't1', 'u-1', { minConfidence: 0.9 });
     expect(r.posted).toBe(1);
+  });
+});
+
+// ── autoPostRunSnapshot ──────────────────────────────────────────────────────
+
+describe('autoPostRunSnapshot', () => {
+  const s: AutoPostSettings = { enabled: true, minConfidence: 0.9, amountCap: 10000, llmEnabled: true, llmMinConfidence: 0.95, llmAmountCap: 2000 };
+  it('records the LLM pair for an llm post', () => {
+    expect(autoPostRunSnapshot('llm', s)).toEqual({ minConfidence: 0.95, amountCap: 2000 });
+  });
+  it('records the standard pair for rule/pattern/historical/null', () => {
+    expect(autoPostRunSnapshot('rule', s)).toEqual({ minConfidence: 0.9, amountCap: 10000 });
+    expect(autoPostRunSnapshot(null, s)).toEqual({ minConfidence: 0.9, amountCap: 10000 });
   });
 });
 
