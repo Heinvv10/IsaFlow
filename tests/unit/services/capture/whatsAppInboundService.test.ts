@@ -378,4 +378,37 @@ describe('ingestTwilioPayload', () => {
 
     vi.unstubAllGlobals();
   });
+
+  it('capture pipeline continues even when query lookup throws', async () => {
+    process.env.TWILIO_ACCOUNT_SID = 'AC_test';
+    process.env.TWILIO_AUTH_TOKEN  = 'token_test';
+
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(Buffer.from('fakejpegbytes'), {
+      status: 200,
+      headers: { 'content-type': 'image/jpeg' },
+    })));
+
+    vi.mocked(sqlMock)
+      .mockResolvedValueOnce([{ id: 'inbox-1', company_id: QUERY_COMPANY_ID }] as never)
+      .mockResolvedValueOnce([{ id: 'doc-1' }] as never)
+      .mockResolvedValueOnce([] as never)
+      .mockResolvedValueOnce([{ id: 'event-1' }] as never);
+
+    vi.mocked(findOpenQueryMock).mockRejectedValue(new Error('DB down'));
+
+    const res = await ingestTwilioPayload({
+      From: 'whatsapp:+27821234567', To: 'whatsapp:+14155238886',
+      Body: 'here is the slip', NumMedia: '1', MessageSid: 'SM5',
+      MediaUrl0: 'https://api.twilio.com/m/0', MediaContentType0: 'image/jpeg',
+    });
+
+    expect('rejected' in res).toBe(false);
+    if ('captureEventIds' in res) {
+      expect(res.captureEventIds).toHaveLength(1); // document still ingested
+    }
+    expect(attachReplyMediaMock).not.toHaveBeenCalled();
+    expect(markQueryRepliedMock).not.toHaveBeenCalled();
+
+    vi.unstubAllGlobals();
+  });
 });
