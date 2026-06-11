@@ -26,11 +26,11 @@ export interface PayrollRunRow {
   period_month: number;
   period_year: number;
   status: string;
-  total_net: string | number | null;
-  total_paye: string | number | null;
-  total_uif: string | number | null;
-  total_sdl: string | number | null;
-  total_eti: string | number | null;
+  total_net: string | number;
+  total_paye: string | number;
+  total_uif: string | number;
+  total_sdl: string | number;
+  total_eti: string | number;
 }
 
 export interface CashPositionPayroll {
@@ -63,8 +63,10 @@ export interface OwnerCashPosition {
   vat: CashPositionVat | null;
 }
 
+/** Null/undefined branch is defensive only — payroll money columns are NOT NULL DEFAULT 0 (migration 382). */
 const num = (v: string | number | null | undefined): number => (v == null ? 0 : Number(v)) || 0;
 
+// Deliberately local, not shared: the plain-language payroll label wants full month names, while the VAT label matches the bureau short-form via MONTHS.
 const MONTH_FULL = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
@@ -133,12 +135,6 @@ async function nextPayrollSection(
   return shapePayrollAffordability(rows[0] ?? null, cash);
 }
 
-async function debtorsSection(
-  companyId: string,
-): Promise<{ topDebtors: CashPositionDebtor[]; arTotal: number }> {
-  return shapeTopDebtors(await getDebtorsSummary(companyId));
-}
-
 async function vatSection(companyId: string, today: Date): Promise<CashPositionVat | null> {
   const rows = (await sql`
     SELECT vat_period_alignment, vat_period FROM companies WHERE id = ${companyId}::uuid
@@ -174,6 +170,7 @@ export async function getOwnerCashPosition(
           companyId,
           section,
           error: err instanceof Error ? err.message : String(err),
+          stack: err instanceof Error ? err.stack : undefined,
         },
         'owner-cash-position',
       );
@@ -183,8 +180,8 @@ export async function getOwnerCashPosition(
 
   const [payroll, debtors, vat] = await Promise.all([
     soft<CashPositionPayroll | null>('payroll', null, () => nextPayrollSection(companyId, cash)),
-    soft('debtors', { topDebtors: [] as CashPositionDebtor[], arTotal: 0 }, () =>
-      debtorsSection(companyId),
+    soft('debtors', { topDebtors: [] as CashPositionDebtor[], arTotal: 0 }, async () =>
+      shapeTopDebtors(await getDebtorsSummary(companyId)),
     ),
     soft<CashPositionVat | null>('vat', null, () => vatSection(companyId, today)),
   ]);

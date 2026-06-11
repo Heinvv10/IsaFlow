@@ -10,7 +10,11 @@ vi.mock('@/modules/accounting/services/reports/vatReturnService', () => ({ getVA
 import { getOwnerCashPosition } from '@/modules/bureau/services/ownerCashPositionService';
 import { getDebtorsSummary } from '@/modules/accounting/services/ar/debtorsManagerService';
 import { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';
+import type { VATReturnReport } from '@/modules/accounting/types/gl.types';
 import { log } from '@/lib/logger';
+
+const vatReturn = (netVAT: number): VATReturnReport =>
+  ({ netVAT } as Partial<VATReturnReport> as VATReturnReport);
 
 const COMPANY = '11111111-1111-1111-1111-111111111111';
 const TODAY = new Date('2026-06-11T08:00:00Z');
@@ -39,7 +43,7 @@ describe('getOwnerCashPosition', () => {
     vi.mocked(getDebtorsSummary).mockResolvedValue([
       { clientId: 'c1', clientName: 'Acme', current: 0, days30: 5000, days60: 0, days90: 0, days90Plus: 0, totalOutstanding: 50000, invoiceCount: 2 },
     ]);
-    vi.mocked(getVATReturn).mockResolvedValue({ netVAT: 23000 } as never);
+    vi.mocked(getVATReturn).mockResolvedValue(vatReturn(23000));
 
     const pos = await getOwnerCashPosition(COMPANY, 150000, TODAY);
     expect(pos.cash).toBe(150000);
@@ -55,7 +59,7 @@ describe('getOwnerCashPosition', () => {
   it('returns null payroll when no unpaid run exists', async () => {
     mockSqlByQuery({ 'FROM companies': [{ vat_period_alignment: 'odd', vat_period: 'bi-monthly' }] });
     vi.mocked(getDebtorsSummary).mockResolvedValue([]);
-    vi.mocked(getVATReturn).mockResolvedValue({ netVAT: 0 } as never);
+    vi.mocked(getVATReturn).mockResolvedValue(vatReturn(0));
     const pos = await getOwnerCashPosition(COMPANY, 1000, TODAY);
     expect(pos.payroll).toBeNull();
     expect(pos.topDebtors).toEqual([]);
@@ -77,10 +81,18 @@ describe('getOwnerCashPosition', () => {
     expect(vi.mocked(log.warn)).toHaveBeenCalled();
   });
 
+  it('returns null vat when company row is missing', async () => {
+    mockSqlByQuery({ payroll_run_headers: [], 'FROM companies': [] });
+    vi.mocked(getDebtorsSummary).mockResolvedValue([]);
+    const pos = await getOwnerCashPosition(COMPANY, 0, TODAY);
+    expect(pos.vat).toBeNull();
+    expect(vi.mocked(log.warn)).not.toHaveBeenCalled();
+  });
+
   it('fails soft when debtors summary throws', async () => {
     mockSqlByQuery({ 'FROM companies': [{ vat_period_alignment: 'odd', vat_period: 'bi-monthly' }] });
     vi.mocked(getDebtorsSummary).mockRejectedValue(new Error('boom'));
-    vi.mocked(getVATReturn).mockResolvedValue({ netVAT: 0 } as never);
+    vi.mocked(getVATReturn).mockResolvedValue(vatReturn(0));
     const pos = await getOwnerCashPosition(COMPANY, 1000, TODAY);
     expect(pos.topDebtors).toEqual([]);
     expect(pos.arTotal).toBe(0);

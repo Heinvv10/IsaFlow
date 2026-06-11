@@ -42,8 +42,8 @@ describe('shapePayrollAffordability', () => {
     expect(shapePayrollAffordability(null, 100)).toBeNull();
   });
 
-  it('handles pg numeric strings and null eti', () => {
-    const p = shapePayrollAffordability(run({ total_eti: null }), 0);
+  it('handles pg numeric strings and zero eti', () => {
+    const p = shapePayrollAffordability(run({ total_eti: '0' }), 0);
     expect(p!.totalRequired).toBe(106800);
   });
 });
