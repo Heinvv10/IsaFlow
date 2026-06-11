@@ -99,6 +99,22 @@ export function evaluate(
   return { outcome: 'post' };
 }
 
+/**
+ * The (min_confidence, amount_cap) pair to record on a bank_auto_post_runs row,
+ * chosen by the posting strategy. An 'llm' post is gated by the LLM pair; every
+ * other strategy (and the provisional import path) uses the standard pair.
+ * NOTE: a run row is created lazily on the first post, so for a (rare) mixed-
+ * strategy sweep the snapshot reflects the FIRST posted row's tier.
+ */
+export function autoPostRunSnapshot(
+  strategy: string | null,
+  settings: AutoPostSettings,
+): { minConfidence: number; amountCap: number } {
+  return strategy === 'llm'
+    ? { minConfidence: settings.llmMinConfidence, amountCap: settings.llmAmountCap }
+    : { minConfidence: settings.minConfidence, amountCap: settings.amountCap };
+}
+
 // ── Settings accessors ───────────────────────────────────────────────────────
 
 const DEFAULTS: AutoPostSettings = {
@@ -232,12 +248,13 @@ export async function sweep(
   let posted = 0;
   let totalAmount = 0;
 
-  async function ensureRun(): Promise<string> {
+  async function ensureRun(strategy: string | null): Promise<string> {
     if (runId) return runId;
+    const snap = autoPostRunSnapshot(strategy, settings);
     const r = (await sql`
       INSERT INTO bank_auto_post_runs (company_id, source, min_confidence, amount_cap, created_by)
-      VALUES (${companyId}::UUID, ${source}, ${settings.minConfidence}::NUMERIC,
-              ${settings.amountCap}::NUMERIC, ${userId}::UUID)
+      VALUES (${companyId}::UUID, ${source}, ${snap.minConfidence}::NUMERIC,
+              ${snap.amountCap}::NUMERIC, ${userId}::UUID)
       RETURNING id
     `) as Row[];
     runId = String(r[0]!.id);
@@ -281,7 +298,7 @@ export async function sweep(
         );
         jePosted = true;
       }
-      const id = await ensureRun();
+      const id = await ensureRun(isImport ? null : (row.suggested_strategy ?? null));
       await sql`
         UPDATE bank_transactions SET auto_post_run_id = ${id}::UUID
         WHERE id = ${row.id}::UUID AND company_id = ${companyId}::UUID

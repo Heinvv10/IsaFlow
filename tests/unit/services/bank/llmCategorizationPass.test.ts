@@ -64,6 +64,7 @@ describe('runLlmResidualPass', () => {
     const persisted: string[] = [];
 
     await runLlmResidualPass('company-1', ['t1', 't2'], 'user-1', {
+      llmEnabled: true,
       maxCalls: 200,
       dailyRemaining: 100,
       loadAccounts: async () => [{ code: '5200', name: 'Office', type: 'expense' }],
@@ -81,6 +82,7 @@ describe('runLlmResidualPass', () => {
     const categorizeOne = vi.fn();
 
     await runLlmResidualPass('company-1', ['t1'], 'user-1', {
+      llmEnabled: true,
       maxCalls: 200,
       dailyRemaining: 0,
       loadAccounts: async () => [],
@@ -91,5 +93,20 @@ describe('runLlmResidualPass', () => {
     });
 
     expect(categorizeOne).not.toHaveBeenCalled();
+  });
+
+  it('no-ops (no LLM spend) when llmEnabled is false', async () => {
+    const categorizeOne = vi.fn();
+    let loaded = false;
+    await runLlmResidualPass('c', ['t1'], 'u', {
+      llmEnabled: false, maxCalls: 200, dailyRemaining: 100,
+      loadAccounts: async () => { loaded = true; return []; },
+      loadCandidates: async () => { loaded = true; return []; },
+      persist: async () => {},
+      sweep: async () => ({ runId: null, posted: 0, skipped: [] }),
+      categorizeOne,
+    });
+    expect(categorizeOne).not.toHaveBeenCalled();
+    expect(loaded).toBe(false); // returns before loading candidates/accounts
   });
 });

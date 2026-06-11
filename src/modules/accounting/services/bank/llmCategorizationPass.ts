@@ -11,7 +11,7 @@ import {
   parseCategorizationResponse,
   type ChartOfAccountEntry,
 } from '@/modules/accounting/services/core/aiCategorizationService';
-import { sweep as gateSweep } from './autoPostGateService';
+import { sweep as gateSweep, getAutoPostSettings } from './autoPostGateService';
 
 // ─── Residual selector ────────────────────────────────────────────────────────
 
@@ -104,6 +104,7 @@ export async function categorizeOneWithLlm(
 // ─── Orchestrator ─────────────────────────────────────────────────────────────
 
 export interface RunDeps {
+  llmEnabled: boolean;
   maxCalls: number;
   dailyRemaining: number;
   loadAccounts: () => Promise<Array<ChartOfAccountEntry & { id?: string }>>;
@@ -128,6 +129,7 @@ export async function runLlmResidualPass(
   void txIds;
   void userId;
   try {
+    if (!deps.llmEnabled) return; // LLM tier not opted in → no Anthropic spend
     if (deps.dailyRemaining <= 0) {
       log.warn('LLM pass skipped — daily ceiling reached', { companyId }, 'llm-pass');
       return;
@@ -254,7 +256,9 @@ export async function buildRunDeps(
   userId: string,
   txIds: string[],
 ): Promise<RunDeps> {
+  const settings = await getAutoPostSettings(companyId);
   return {
+    llmEnabled: settings.llmEnabled,
     maxCalls: MAX_LLM_CALLS_PER_RUN,
     dailyRemaining: await llmCallsRemainingToday(companyId),
     loadAccounts: () => loadAccountsForCompany(companyId),
