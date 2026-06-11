@@ -16,6 +16,7 @@ import type { TabId } from '@/components/accounting/settings/settingsNav';
 import { DetailsTab } from '@/components/accounting/settings/DetailsTab';
 import { GeneralTab } from '@/components/accounting/settings/GeneralTab';
 import { VatTab } from '@/components/accounting/settings/VatTab';
+import { ComplianceTab } from '@/components/accounting/settings/ComplianceTab';
 import { DocumentsTab } from '@/components/accounting/settings/DocumentsTab';
 import { BrandingTab } from '@/components/accounting/settings/BrandingTab';
 import { DimensionsTab } from '@/components/accounting/settings/DimensionsTab';
@@ -155,6 +156,8 @@ export default function CompanySettingsPage() {
         return <GeneralTab company={company} onChange={update} />;
       case 'vat':
         return <VatTab company={company} onChange={update} />;
+      case 'compliance':
+        return <ComplianceTab />;
       case 'documents':
         return (
           <DocumentsTab

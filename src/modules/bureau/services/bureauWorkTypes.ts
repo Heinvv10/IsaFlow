@@ -50,3 +50,20 @@ export function severityForDate(due: Date, today: Date): Severity {
   if (days <= 7) return 'due_soon';
   return 'info';
 }
+
+/**
+ * Collapse duplicate work items (same company + task + due date), keeping the
+ * first occurrence. Needed because the compliance-calendar signal and the
+ * vatDueSignal can both emit the same upcoming VAT period.
+ */
+export function dedupeWorkItems(items: WorkItem[]): WorkItem[] {
+  const seen = new Set<string>();
+  const out: WorkItem[] = [];
+  for (const it of items) {
+    const key = `${it.companyId}|${it.task}|${it.dueAt ?? ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(it);
+  }
+  return out;
+}

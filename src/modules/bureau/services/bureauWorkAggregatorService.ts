@@ -9,10 +9,12 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { vatDueSignal } from './bureauVatSignal';
+import { complianceSignal } from './complianceSignal';
 import {
   formatPeriod,
   endOfNextMonth,
   severityForDate,
+  dedupeWorkItems,
   type Severity,
   type WorkItem,
   type CompanyMeta,
@@ -226,6 +228,7 @@ export async function aggregateBureauWork(
       safeSignal('unreconciled', () => unreconciledSignal(companyIds, meta)),
       safeSignal('bills', () => billsToApproveSignal(companyIds, meta, today)),
       safeSignal('vat', () => vatDueSignal(companyIds, meta, today)),
+      safeSignal('compliance', () => complianceSignal(companyIds, meta, today)),
     ]),
     // monthEndProgress returns a stat not WorkItem[], so safeSignal doesn't apply.
     monthEndProgress(companyIds, meta.size).catch((err) => {
@@ -233,7 +236,9 @@ export async function aggregateBureauWork(
       return { closed: 0, total: meta.size };
     }),
   ]);
-  const items = groups.flat();
+  // vatDueSignal precedes complianceSignal in the array, so on a duplicate
+  // upcoming VAT period the filing-status-aware item wins the dedupe.
+  const items = dedupeWorkItems(groups.flat());
   items.sort((a, b) => {
     const order: Record<Severity, number> = { overdue: 0, due_soon: 1, info: 2 };
     if (order[a.severity] !== order[b.severity]) return order[a.severity] - order[b.severity];
