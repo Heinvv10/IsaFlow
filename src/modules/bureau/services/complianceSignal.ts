@@ -12,6 +12,7 @@
  */
 import { sql } from '@/lib/neon';
 import { upcomingObligations, type ObligationKind } from './complianceCalendarEngine';
+import { normalizeVatAlignment, normalizeVatCadence } from './vatPeriodHelper';
 import { severityForDate, type WorkItem, type CompanyMeta } from './bureauWorkTypes';
 
 export interface ComplianceConfigRow {
@@ -48,8 +49,8 @@ export function shapeCompliance(
       {
         vat: {
           enabled: Boolean(r.vat_enabled),
-          period: r.vat_period === 'monthly' ? 'monthly' : 'bi-monthly',
-          alignment: r.vat_period_alignment === 'even' ? 'even' : 'odd',
+          period: normalizeVatCadence(r.vat_period),
+          alignment: normalizeVatAlignment(r.vat_period_alignment),
         },
         emp201Enabled: Boolean(r.emp201_enabled),
         emp501Enabled: Boolean(r.emp501_enabled),
