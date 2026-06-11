@@ -9,13 +9,17 @@
  *   - Media with TWILIO env set → document + event created, routeEvent called
  *   - Two media → two events
  *   - Media + text command → both paths fire
+ *   - Workstream D: open query reply routing (attach media, mark replied)
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ── Hoisted mocks ─────────────────────────────────────────────────────────────
 
-const { sqlMock, storeMock, sha256Mock, routeEventMock } = vi.hoisted(() => {
+const {
+  sqlMock, storeMock, sha256Mock, routeEventMock,
+  findOpenQueryMock, attachReplyMediaMock, markQueryRepliedMock,
+} = vi.hoisted(() => {
   const sqlMock = Object.assign(vi.fn(), {
     unsafe: vi.fn().mockReturnValue(''),
   });
@@ -28,7 +32,13 @@ const { sqlMock, storeMock, sha256Mock, routeEventMock } = vi.hoisted(() => {
   });
   const sha256Mock = vi.fn().mockReturnValue('deadbeef');
   const routeEventMock = vi.fn().mockResolvedValue(undefined);
-  return { sqlMock, storeMock, sha256Mock, routeEventMock };
+  const findOpenQueryMock = vi.fn();
+  const attachReplyMediaMock = vi.fn(async () => true);
+  const markQueryRepliedMock = vi.fn(async () => undefined);
+  return {
+    sqlMock, storeMock, sha256Mock, routeEventMock,
+    findOpenQueryMock, attachReplyMediaMock, markQueryRepliedMock,
+  };
 });
 
 vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
@@ -41,6 +51,11 @@ vi.mock('@/lib/documentStorage', () => ({
 }));
 vi.mock('@/modules/accounting/services/capture/captureRouterService', () => ({
   routeEvent: routeEventMock,
+}));
+vi.mock('@/modules/accounting/services/capture/bankTxQueryReplyService', () => ({
+  findOpenQuery: (...a: unknown[]) => findOpenQueryMock(...(a as [string, string])),
+  attachReplyMedia: (...a: unknown[]) => attachReplyMediaMock(...(a as [])),
+  markQueryReplied: (...a: unknown[]) => markQueryRepliedMock(...(a as [])),
 }));
 
 import {
@@ -107,6 +122,10 @@ describe('ingestTwilioPayload', () => {
       documentId: DOC_ID,
     });
     vi.mocked(routeEventMock).mockResolvedValue(undefined);
+    // Workstream D mocks: default to no open query
+    vi.mocked(findOpenQueryMock).mockResolvedValue(null);
+    vi.mocked(attachReplyMediaMock).mockResolvedValue(true);
+    vi.mocked(markQueryRepliedMock).mockResolvedValue(undefined);
   });
 
   // ── Unknown To ───────────────────────────────────────────────────────────────
@@ -255,6 +274,107 @@ describe('ingestTwilioPayload', () => {
       expect(result.parsedCommand).not.toBeNull();
       expect(result.parsedCommand?.amount).toBe(850);
     }
+
+    vi.unstubAllGlobals();
+  });
+
+  // ── Workstream D: bank-tx query reply routing ─────────────────────────────────
+
+  const OPEN_QUERY = { id: 'q1', bankTransactionId: 'tx1', status: 'sent' as const };
+  const QUERY_COMPANY_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+
+  it('attaches reply media and marks the query replied', async () => {
+    process.env.TWILIO_ACCOUNT_SID = 'AC_test';
+    process.env.TWILIO_AUTH_TOKEN  = 'token_test';
+
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(Buffer.from('fakejpegbytes'), {
+      status: 200,
+      headers: { 'content-type': 'image/jpeg' },
+    })));
+
+    // sqlMock: inbox lookup → doc insert → storage update → event insert
+    vi.mocked(sqlMock)
+      .mockResolvedValueOnce([{ id: 'inbox-1', company_id: QUERY_COMPANY_ID }] as never)
+      .mockResolvedValueOnce([{ id: 'doc-1' }] as never)
+      .mockResolvedValueOnce([] as never)
+      .mockResolvedValueOnce([{ id: 'event-1' }] as never);
+
+    vi.mocked(findOpenQueryMock).mockResolvedValue(OPEN_QUERY);
+
+    const res = await ingestTwilioPayload({
+      From: 'whatsapp:+27821234567', To: 'whatsapp:+14155238886',
+      Body: 'here is the slip', NumMedia: '1', MessageSid: 'SM1',
+      MediaUrl0: 'https://api.twilio.com/m/0', MediaContentType0: 'image/jpeg',
+    });
+
+    expect('rejected' in res).toBe(false);
+    expect(findOpenQueryMock).toHaveBeenCalledWith(QUERY_COMPANY_ID, '+27821234567');
+    expect(attachReplyMediaMock).toHaveBeenCalledTimes(1);
+    expect(markQueryRepliedMock).toHaveBeenCalledWith(
+      QUERY_COMPANY_ID, 'q1', 'here is the slip', 'event-1',
+    );
+
+    vi.unstubAllGlobals();
+  });
+
+  it('marks a text-only non-command reply as replied (no capture event required)', async () => {
+    vi.mocked(sqlMock)
+      .mockResolvedValueOnce([{ id: 'inbox-1', company_id: QUERY_COMPANY_ID }] as never);
+
+    vi.mocked(findOpenQueryMock).mockResolvedValue(OPEN_QUERY);
+
+    await ingestTwilioPayload({
+      From: 'whatsapp:+27821234567', To: 'whatsapp:+14155238886',
+      Body: 'that was the printer repair', NumMedia: '0', MessageSid: 'SM2',
+    });
+
+    expect(attachReplyMediaMock).not.toHaveBeenCalled();
+    expect(markQueryRepliedMock).toHaveBeenCalledWith(
+      QUERY_COMPANY_ID, 'q1', 'that was the printer repair', null,
+    );
+  });
+
+  it('does nothing query-related when no open query matches', async () => {
+    vi.mocked(sqlMock)
+      .mockResolvedValueOnce([{ id: 'inbox-1', company_id: QUERY_COMPANY_ID }] as never);
+
+    vi.mocked(findOpenQueryMock).mockResolvedValue(null);
+
+    await ingestTwilioPayload({
+      From: 'whatsapp:+27829999999', To: 'whatsapp:+14155238886',
+      Body: 'hello', NumMedia: '0', MessageSid: 'SM3',
+    });
+
+    expect(attachReplyMediaMock).not.toHaveBeenCalled();
+    expect(markQueryRepliedMock).not.toHaveBeenCalled();
+  });
+
+  it('still ingests normally when query lookup matches but media attach fails', async () => {
+    process.env.TWILIO_ACCOUNT_SID = 'AC_test';
+    process.env.TWILIO_AUTH_TOKEN  = 'token_test';
+
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(Buffer.from('fakejpegbytes'), {
+      status: 200,
+      headers: { 'content-type': 'image/jpeg' },
+    })));
+
+    vi.mocked(sqlMock)
+      .mockResolvedValueOnce([{ id: 'inbox-1', company_id: QUERY_COMPANY_ID }] as never)
+      .mockResolvedValueOnce([{ id: 'doc-1' }] as never)
+      .mockResolvedValueOnce([] as never)
+      .mockResolvedValueOnce([{ id: 'event-1' }] as never);
+
+    vi.mocked(findOpenQueryMock).mockResolvedValue(OPEN_QUERY);
+    vi.mocked(attachReplyMediaMock).mockResolvedValue(false); // e.g. over 2MB
+
+    const res = await ingestTwilioPayload({
+      From: 'whatsapp:+27821234567', To: 'whatsapp:+14155238886',
+      NumMedia: '1', MessageSid: 'SM4',
+      MediaUrl0: 'https://api.twilio.com/m/0', MediaContentType0: 'image/jpeg',
+    });
+
+    expect('rejected' in res).toBe(false); // capture pipeline unaffected
+    expect(markQueryRepliedMock).toHaveBeenCalled(); // still replied (doc captured)
 
     vi.unstubAllGlobals();
   });

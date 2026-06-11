@@ -12,6 +12,11 @@ import {
   parseExpenseCommand,
   type WhatsAppExpenseCommand,
 } from './whatsAppTextCommandParser';
+import {
+  findOpenQuery,
+  attachReplyMedia,
+  markQueryReplied,
+} from './bankTxQueryReplyService';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -140,6 +145,9 @@ export async function ingestTwilioPayload(
   const companyId = String(inbox.company_id);
   const inboxId = String(inbox.id);
 
+  // Workstream D: is this sender replying to an open bank-tx query?
+  const openQuery = await findOpenQuery(companyId, stripWaPrefix(payload.From));
+
   const eventIds: string[] = [];
   const numMedia = parseInt(payload.NumMedia ?? '0', 10);
 
@@ -231,6 +239,11 @@ export async function ingestTwilioPayload(
       companyId, inboxId, documentId, eventId, fileName, size, hash,
     }, 'whatsapp-inbound');
 
+    // Workstream D: attach media to the queried bank transaction if open
+    if (openQuery) {
+      await attachReplyMedia(companyId, openQuery, { buffer, mimeType, fileName });
+    }
+
     // 2e. Fire-and-forget VLM extraction
     routeEvent(eventId, companyId).catch((err: unknown) => {
       log.error('whatsAppInbound: routeEvent background error', {
@@ -273,6 +286,12 @@ export async function ingestTwilioPayload(
     log.info('whatsAppInbound: text-command capture event created', {
       companyId, inboxId, eventId, parsedCommand,
     }, 'whatsapp-inbound');
+  }
+
+  // Workstream D: flip the query to replied (text and/or media)
+  const replyBody = (payload.Body ?? '').trim();
+  if (openQuery && (eventIds.length > 0 || replyBody)) {
+    await markQueryReplied(companyId, openQuery.id, replyBody || null, eventIds[0] ?? null);
   }
 
   return { captureEventIds: eventIds, companyId, parsedCommand };
