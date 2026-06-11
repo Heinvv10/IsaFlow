@@ -11,6 +11,15 @@ export type { EMP201Data, EMP201PayrollRun } from './emp201Service';
 export { generateEMP201 } from './emp201Service';
 
 export type {
+  VatExceptionsReport,
+  VatControlRecon,
+  UncodedGlVatLine,
+  InvoiceTaxCodeIssue,
+  InvoiceGlVatMismatch,
+} from './vatExceptionsTypes';
+export { getVatExceptions } from './vatExceptionsService';
+
+export type {
   TaxPeriod,
   ComplianceEvent,
   SARSSubmission,

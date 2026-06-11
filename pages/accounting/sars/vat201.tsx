@@ -11,6 +11,7 @@ import { VAT201PeriodSelector } from '@/components/accounting/sars/VAT201PeriodS
 import { TransactionTable } from '@/components/accounting/sars/VAT201FormSections';
 import { VAT201SummaryForm } from '@/components/accounting/sars/VAT201SummaryForm';
 import { VAT201SubmitModal } from '@/components/accounting/sars/VAT201SubmitModal';
+import { VAT201ExceptionsPanel } from '@/components/accounting/sars/VAT201ExceptionsPanel';
 
 interface VAT201Invoice {
   id: string; invoiceNumber: string; counterpartyName: string;
@@ -73,6 +74,7 @@ export default function VAT201Page() {
   const [sarsRef, setSarsRef] = useState('');
   const [savedId, setSavedId] = useState('');
   const [showSubmitModal, setShowSubmitModal] = useState(false);
+  const [exceptionsKey, setExceptionsKey] = useState(0);
 
   useEffect(() => {
     (async () => {
@@ -108,6 +110,7 @@ export default function VAT201Page() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error?.message || json.message || 'Failed');
       setData(json.data);
+      setExceptionsKey(k => k + 1);
     } catch (err) { setError(err instanceof Error ? err.message : 'Failed to generate VAT201'); }
     finally { setLoading(false); }
   }, [from, to]);
@@ -236,6 +239,8 @@ export default function VAT201Page() {
                   </div>
                 </div>
               )}
+
+              <VAT201ExceptionsPanel from={data.periodStart} to={data.periodEnd} reloadKey={exceptionsKey} />
 
               <div className="flex items-center gap-3">
                 <button onClick={saveDraft} disabled={saving}
