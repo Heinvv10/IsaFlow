@@ -98,4 +98,18 @@ describe('getOwnerCashPosition', () => {
     expect(pos.arTotal).toBe(0);
     expect(vi.mocked(log.warn)).toHaveBeenCalled();
   });
+
+  it('fails soft when the payroll query throws', async () => {
+    sqlMock.mockImplementation(async (strings: readonly string[]) => {
+      const q = strings.join('?');
+      if (q.includes('payroll_run_headers')) throw new Error('boom');
+      if (q.includes('FROM companies')) return [{ vat_period_alignment: 'odd', vat_period: 'bi-monthly' }];
+      return [];
+    });
+    vi.mocked(getDebtorsSummary).mockResolvedValue([]);
+    vi.mocked(getVATReturn).mockResolvedValue(vatReturn(0));
+    const pos = await getOwnerCashPosition(COMPANY, 1000, TODAY);
+    expect(pos.payroll).toBeNull();
+    expect(vi.mocked(log.warn)).toHaveBeenCalled();
+  });
 });

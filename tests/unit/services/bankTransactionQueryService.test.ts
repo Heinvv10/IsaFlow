@@ -242,6 +242,7 @@ describe('getBankTransactions — bankAccountId + status branch (backwards compa
 
     expect(result.transactions).toHaveLength(2);
     expect(result.total).toBe(2);
+    expect(flatSqlValues(vi.mocked(sql))).toContain(ACCOUNT_ID);
   });
 });
 

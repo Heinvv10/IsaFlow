@@ -59,7 +59,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   // Verify document exists and belongs to this company
   const [existing] = await sql`
-    SELECT * FROM captured_documents WHERE id = ${id}::uuid AND company_id = ${companyId}
+    SELECT * FROM captured_documents WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
   ` as Record<string, unknown>[];
 
   if (!existing) {
@@ -146,6 +146,10 @@ async function handleMatchBankTx(
   const [row] = await sql`
     SELECT * FROM captured_documents WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
   ` as Record<string, unknown>[];
+
+  if (!row) {
+    return apiResponse.notFound(res, 'Captured document', id);
+  }
 
   log.info('Document matched to bank transaction', { id, bankTxId, mirrored: result.mirrored }, 'document-capture');
   return apiResponse.success(

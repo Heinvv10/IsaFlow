@@ -8,6 +8,8 @@
  * Tenant safety: both the document and the bank transaction are preflighted
  * against companyId before any write. The attachments table has no company_id —
  * scoping is via the verified bank_transaction_id (same as bankTxQueryReplyService).
+ *
+ * Known debt: attachments carry no captured_document_id FK — provenance/dedupe rides on the filename prefix; a follow-up migration should add a nullable captured_document_id column.
  */
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -82,6 +84,7 @@ async function mirrorIntoAttachments(
     // Dedupe key is documentId-prefixed: a retry / double-tap of the SAME
     // document is treated as already mirrored, but two DIFFERENT documents
     // that happen to share a file name (e.g. image.jpg) both mirror.
+    // TENANT-SAFETY: bank_transaction_attachments has no company_id; isolation rides on bankTxId being preflighted above — keep that ordering.
     const storedFileName = `${documentId}_${fileName}`;
     const [dup] = (await sql`
       SELECT id FROM bank_transaction_attachments

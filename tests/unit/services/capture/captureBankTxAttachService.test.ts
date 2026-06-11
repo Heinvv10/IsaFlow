@@ -46,6 +46,8 @@ describe('attachCapturedDocToBankTx', () => {
     expect(calls.find((q) => q.includes('FROM captured_documents'))).toContain('company_id');
     expect(calls.find((q) => q.includes('FROM bank_transactions'))).toContain('company_id');
     expect(calls.find((q) => q.includes('UPDATE captured_documents'))).toContain('company_id');
+    const allValues = sqlMock.mock.calls.flatMap((c) => c.slice(1));
+    expect(allValues).toContain(COMPANY);
   });
 
   it('returns notFound when the document is not in this company', async () => {

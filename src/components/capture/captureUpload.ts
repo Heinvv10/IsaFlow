@@ -58,8 +58,10 @@ export async function flushQueue(): Promise<void> {
   const remaining: QueuedItem[] = [];
   for (const item of queue) {
     try {
+      // localStorage is same-origin-writable: never replay a tampered queue
+      // entry whose URL is not a data: URL (defense-in-depth vs SSRF-ish fetch).
       const files = await Promise.all(
-        item.files.map(async f => {
+        item.files.filter(f => f.dataUrl.startsWith('data:')).map(async f => {
           const r = await fetch(f.dataUrl);
           const blob = await r.blob();
           return new File([blob], f.name, { type: f.type });
@@ -67,6 +69,7 @@ export async function flushQueue(): Promise<void> {
       );
       await uploadFiles(files);
     } catch {
+      // INTENTIONAL: offline-retry — item stays queued; no client-side logger available here.
       remaining.push(item);
     }
   }

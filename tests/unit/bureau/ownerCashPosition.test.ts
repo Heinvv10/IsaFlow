@@ -78,4 +78,9 @@ describe('shapeVatSetAside', () => {
     expect(v.periodLabel).toBe('Jun 2026');
     expect(v.netVat).toBe(-500);
   });
+
+  it('labels a cross-year bi-monthly period with the end year', () => {
+    const v = shapeVatSetAside(100, { periodStart: '2025-12-01', periodEnd: '2026-01-31', dueDate: '2026-02-25' });
+    expect(v.periodLabel).toBe('Dec–Jan 2026');
+  });
 });
