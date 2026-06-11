@@ -183,7 +183,7 @@ describe('getBankTransactions — search filter without bankAccountId', () => {
     expect(countValues).toContain('%coffee%');
   });
 
-  it('defaults to match-all pattern when no search is provided', async () => {
+  it('passes a NULL pattern when no search is provided (condition collapses to TRUE, keeping NULL-description rows)', async () => {
     vi.mocked(sql)
       .mockResolvedValueOnce([makeTxRow()] as never)
       .mockResolvedValueOnce([{ cnt: '1' }] as never);
@@ -191,7 +191,8 @@ describe('getBankTransactions — search filter without bankAccountId', () => {
     await getBankTransactions(COMPANY_ID);
 
     const allValues = flatSqlValues(vi.mocked(sql));
-    expect(allValues).toContain('%');
+    expect(allValues).toContain(null);
+    expect(allValues).not.toContain('%');
   });
 });
 

@@ -206,17 +206,20 @@ export async function getBankTransactions(
           AND transaction_date >= ${fromDate} AND transaction_date <= ${toDate}`) as Row[];
     } else {
       const statusFilter = filters?.status ?? null;
-      const searchPattern = filters?.search ? `%${filters.search}%` : '%';
+      // Null-safe search: when no term is given the condition collapses to TRUE,
+      // so rows with NULL description AND NULL reference still list (unlike a
+      // bare ILIKE '%', which would drop them).
+      const searchPattern = filters?.search ? `%${filters.search}%` : null;
       rows = (await sql`${sql.unsafe(TX_SELECT)}
         WHERE bt.company_id = ${companyId}
           AND (${statusFilter}::text IS NULL OR bt.status = ${statusFilter}::text)
-          AND (bt.description ILIKE ${searchPattern} OR bt.reference ILIKE ${searchPattern})
+          AND (${searchPattern}::text IS NULL OR bt.description ILIKE ${searchPattern} OR bt.reference ILIKE ${searchPattern})
         ORDER BY bt.transaction_date DESC, bt.amount DESC
         LIMIT ${limit} OFFSET ${offset}`) as Row[];
       countRows = (await sql`SELECT COUNT(*) AS cnt FROM bank_transactions bt
         WHERE bt.company_id = ${companyId}
           AND (${statusFilter}::text IS NULL OR bt.status = ${statusFilter}::text)
-          AND (bt.description ILIKE ${searchPattern} OR bt.reference ILIKE ${searchPattern})`) as Row[];
+          AND (${searchPattern}::text IS NULL OR bt.description ILIKE ${searchPattern} OR bt.reference ILIKE ${searchPattern})`) as Row[];
     }
 
     return { transactions: rows.map(mapTxRow), total: Number(countRows[0]!.cnt) };
