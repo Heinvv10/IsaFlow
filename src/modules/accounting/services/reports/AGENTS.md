@@ -44,6 +44,7 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/reports/*`,
 
 ## Recent changes
 - 2026-06-11: `vatExceptionsService` + `vatExceptionsTypes` added (Dotbiz Workstream A) — reuses `generateVAT201` for box totals so the recon matches the VAT201 page to the cent.
+- 2026-06-11 (refinements): `generateVAT201` returns `degradedSources: string[]` (source queries it swallowed — non-empty means box totals are incomplete; exceptions report surfaces `degradedData` and the panel warns 'do not file'). Mismatch rows carry `reason: 'amount_mismatch' | 'je_not_posted'` (draft-JE invoices are posting gaps, not mismatches). Unposted-VAT footnote aggregates the supplier side from `supplier_invoice_items` when present (field10 source parity), header `tax_amount` fallback.
 - 2026-04-24: PR-8 L-tier IDOR cleanup.
 - 2026-04-24: VIP-parity foundations touched several services.
 - 2026-04-21: 5 schema-drift 400s fixed from UI walkthrough.

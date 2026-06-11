@@ -89,7 +89,8 @@ export function VAT201ExceptionsPanel({ from, to, reloadKey }: Props) {
 
   if (reloadKey === 0) return null;
 
-  const clean = report !== null && report.totalExceptions === 0;
+  const degraded = report !== null && report.degradedData;
+  const clean = report !== null && report.totalExceptions === 0 && !degraded;
   const recon = report?.controlRecon;
 
   return (
@@ -113,6 +114,14 @@ export function VAT201ExceptionsPanel({ from, to, reloadKey }: Props) {
       {error && (
         <div className="mx-4 mb-3 p-2.5 rounded-lg bg-red-500/10 text-red-400 text-sm flex items-center gap-2">
           <AlertTriangle className="h-4 w-4 shrink-0" /> {error}
+        </div>
+      )}
+
+      {degraded && (
+        <div className="mx-4 mb-3 p-2.5 rounded-lg bg-red-500/10 text-red-400 text-sm flex items-center gap-2">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          VAT201 source data is incomplete ({report.degradedSources.join(', ')} could not be read) —
+          the reconciliation below compares PARTIAL box totals against the GL. Do not file from this run.
         </div>
       )}
 
@@ -217,8 +226,16 @@ export function VAT201ExceptionsPanel({ from, to, reloadKey }: Props) {
                     <td className={td}>{m.invoiceKind}</td>
                     <td className={td}>{m.counterpartyName}</td>
                     <td className={tdNum}>{fmt(m.invoiceVat)}</td>
-                    <td className={tdNum}>{fmt(m.glVat)}</td>
-                    <VarianceCell value={m.variance} />
+                    {m.reason === 'je_not_posted' ? (
+                      <td className={`${td} text-right text-amber-400 font-semibold`} colSpan={2}>
+                        JE not posted
+                      </td>
+                    ) : (
+                      <>
+                        <td className={tdNum}>{fmt(m.glVat)}</td>
+                        <VarianceCell value={m.variance} />
+                      </>
+                    )}
                   </tr>
                 ))}
               </tbody>

@@ -26,6 +26,12 @@ export interface VAT201Data {
   field11_vatPayableOrRefundable: number;
   outputInvoices: VAT201Invoice[];
   inputInvoices: VAT201Invoice[];
+  /**
+   * Source tables whose query failed (swallowed so the page still renders).
+   * Non-empty means box totals are INCOMPLETE — consumers comparing them to
+   * other sources (e.g. the exceptions GL recon) must warn, not trust zeros.
+   */
+  degradedSources: string[];
 }
 
 export interface VAT201Invoice {
@@ -53,6 +59,7 @@ export async function generateVAT201(companyId: string,
 ): Promise<VAT201Data> {
   log.info('Generating VAT201', { periodStart, periodEnd }, 'vat201Service');
 
+  const degradedSources: string[] = [];
   let customerInvoices: Row[] = [];
   try {
     customerInvoices = (await sql`
@@ -86,6 +93,7 @@ export async function generateVAT201(companyId: string,
       ORDER BY ci.invoice_date
     `) as Row[];
   } catch (err) {
+    degradedSources.push('customer_invoices');
     log.warn('Could not query customer_invoices for VAT201', { error: err }, 'vat201Service');
   }
 
@@ -110,6 +118,7 @@ export async function generateVAT201(companyId: string,
       ORDER BY si.invoice_date
     `) as Row[];
   } catch (err) {
+    degradedSources.push('supplier_invoices');
     log.warn('Could not query supplier_invoices for VAT201', { error: err }, 'vat201Service');
   }
 
@@ -129,6 +138,7 @@ export async function generateVAT201(companyId: string,
       GROUP BY COALESCE(sii.vat_classification, 'standard')
     `) as Row[];
   } catch (err) {
+    degradedSources.push('supplier_invoice_items');
     log.warn('Could not query supplier_invoice_items for VAT201 classification', { error: err }, 'vat201Service');
   }
 
@@ -228,5 +238,6 @@ export async function generateVAT201(companyId: string,
     field11_vatPayableOrRefundable: field11_vatPayable,
     outputInvoices,
     inputInvoices,
+    degradedSources,
   };
 }

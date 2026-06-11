@@ -39,6 +39,11 @@ export interface InvoiceGlVatMismatch {
   invoiceVat: number;
   glVat: number;
   variance: number;
+  /**
+   * 'je_not_posted': the linked JE exists but is not posted — the GL side is
+   * legitimately 0.00, so the row is a posting gap, not an amount mismatch.
+   */
+  reason: 'amount_mismatch' | 'je_not_posted';
 }
 
 export interface VatControlRecon {
@@ -68,6 +73,9 @@ export interface VatExceptionsReport {
   invoiceGlMismatchCount: number;
   controlRecon: VatControlRecon;
   totalExceptions: number;
+  /** True when generateVAT201 ran on missing sources — recon totals untrustworthy. */
+  degradedData: boolean;
+  degradedSources: string[];
 }
 
 export function toNum(v: unknown): number {
@@ -134,6 +142,9 @@ export function mapMismatch(kind: 'customer' | 'supplier') {
       invoiceVat,
       glVat,
       variance: r2(invoiceVat - glVat),
+      // je_status comes from an unconditional join on the linked JE; the
+      // mismatch query itself only sums VAT from POSTED lines.
+      reason: r.je_status != null && String(r.je_status) !== 'posted' ? 'je_not_posted' : 'amount_mismatch',
     };
   };
 }
