@@ -186,3 +186,36 @@ describe('query settings', () => {
     expect((await saveQuerySettings(COMPANY_ID, null)).ok).toBe(true); // clearing is allowed
   });
 });
+
+describe('createAndSendQuery — date string handling', () => {
+  it('composes successfully when transaction_date is a string (not a Date object)', async () => {
+    const TX_ROW_DATE_STRING = {
+      ...TX_ROW,
+      transaction_date: '2026-05-14', // pg may return string in some environments
+    };
+    routeMock([
+      { match: 'FROM bank_transactions', rows: [TX_ROW_DATE_STRING] },
+      { match: 'INSERT INTO bank_tx_queries', rows: [{ id: QUERY_ID, status: 'sent' }] },
+    ]);
+    sendMock.mockResolvedValue({ sent: true, sid: 'SM_STR_DATE' });
+    const res = await createAndSendQuery(COMPANY_ID, {
+      bankTransactionId: TX_ID,
+      toNumber: '082 123 4567',
+      message: null,
+      saveAsDefault: false,
+      userId: null,
+    });
+    expect(res.ok).toBe(true);
+    // Message body should contain a human-readable date
+    expect(sendMock).toHaveBeenCalledWith('whatsapp:+27821234567', expect.stringContaining('2026'));
+  });
+});
+
+describe('listQueries — bankTransactionId filter', () => {
+  it('includes bankTransactionId in the query values when supplied', async () => {
+    routeMock([{ match: 'FROM bank_tx_queries', rows: [] }]);
+    await listQueries(COMPANY_ID, { bankTransactionId: TX_ID });
+    const q = sqlCalls[0]!;
+    expect(q.values).toContain(TX_ID);
+  });
+});

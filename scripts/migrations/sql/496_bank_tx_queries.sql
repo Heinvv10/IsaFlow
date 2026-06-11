@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS bank_tx_queries (
     CHECK (status IN ('sent','replied','resolved','cancelled')),
   reply_text TEXT,
   reply_capture_event_id UUID REFERENCES capture_events(id) ON DELETE SET NULL,
-  created_by UUID,
+  created_by UUID,                       -- no FK: auth users live in GoTrue's schema
   sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   replied_at TIMESTAMPTZ,
   resolved_at TIMESTAMPTZ,

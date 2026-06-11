@@ -118,7 +118,8 @@ export async function ingestTwilioPayload(
   );
 
   const eventIds: string[] = [];
-  const numMedia = parseInt(payload.NumMedia ?? '0', 10);
+  // Cap at 10 — Twilio's real per-message media limit.
+  const numMedia = Math.min(parseInt(payload.NumMedia ?? '0', 10), 10);
 
   // 2. Process each media attachment
   for (let i = 0; i < numMedia; i++) {

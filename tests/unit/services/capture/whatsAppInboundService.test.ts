@@ -411,4 +411,33 @@ describe('ingestTwilioPayload', () => {
 
     vi.unstubAllGlobals();
   });
+
+  it('ingest returns non-rejected result even when markQueryReplied rejects', async () => {
+    vi.mocked(sqlMock)
+      .mockResolvedValueOnce([{ id: 'inbox-1', company_id: QUERY_COMPANY_ID }] as never);
+
+    vi.mocked(findOpenQueryMock).mockResolvedValue(OPEN_QUERY);
+    vi.mocked(markQueryRepliedMock).mockRejectedValue(new Error('DB constraint'));
+
+    const res = await ingestTwilioPayload({
+      From: 'whatsapp:+27821234567', To: 'whatsapp:+14155238886',
+      Body: 'some text reply', NumMedia: '0', MessageSid: 'SM6',
+    });
+
+    expect('rejected' in res).toBe(false);
+  });
+
+  it('open query + empty Body + NumMedia 0 → markQueryReplied NOT called', async () => {
+    vi.mocked(sqlMock)
+      .mockResolvedValueOnce([{ id: 'inbox-1', company_id: QUERY_COMPANY_ID }] as never);
+
+    vi.mocked(findOpenQueryMock).mockResolvedValue(OPEN_QUERY);
+
+    await ingestTwilioPayload({
+      From: 'whatsapp:+27821234567', To: 'whatsapp:+14155238886',
+      Body: '', NumMedia: '0', MessageSid: 'SM7',
+    });
+
+    expect(markQueryRepliedMock).not.toHaveBeenCalled();
+  });
 });

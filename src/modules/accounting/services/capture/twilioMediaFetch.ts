@@ -8,10 +8,28 @@ import { log } from '@/lib/logger';
 /**
  * Fetch a Twilio media URL using HTTP basic-auth (SID + token).
  * Returns null when env vars are absent, logging a warning.
+ * SSRF guard: only fetches from *.twilio.com / *.twiliocdn.com hosts.
  */
 export async function fetchTwilioMedia(
   url: string,
 ): Promise<{ buffer: Buffer; contentType: string } | null> {
+  // SSRF hostname allowlist: only fetch from Twilio-owned domains.
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch (_err) {
+    log.warn('twilioMediaFetch: invalid media URL', { url }, 'whatsapp-inbound');
+    return null;
+  }
+  const allowed =
+    host === 'api.twilio.com' ||
+    host.endsWith('.twilio.com') ||
+    host.endsWith('.twiliocdn.com');
+  if (!allowed) {
+    log.warn('twilioMediaFetch: refusing non-Twilio media host', { host }, 'whatsapp-inbound');
+    return null;
+  }
+
   const sid = process.env.TWILIO_ACCOUNT_SID;
   const token = process.env.TWILIO_AUTH_TOKEN;
 

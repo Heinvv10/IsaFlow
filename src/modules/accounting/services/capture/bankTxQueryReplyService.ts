@@ -16,6 +16,9 @@ type Row = DbRow;
 /** Same cap as the manual upload API (bank-tx-attachments.ts). */
 const MAX_ATTACH_BYTES = 2 * 1024 * 1024;
 
+/** Allowed reply media MIME types — defense-in-depth re-validation. */
+const MIME_RE = /^(image\/(jpeg|jpg|png|webp|tiff)|application\/pdf)$/;
+
 export interface OpenQuery {
   id: string;
   bankTransactionId: string;
@@ -53,8 +56,10 @@ export interface ReplyMedia {
 
 /**
  * Attach reply media to the queried bank transaction.
- * Tenant safety: `query` comes from findOpenQuery, which is company-scoped —
- * no re-verification of tx ownership needed here.
+ * Tenant safety (defense-in-depth): although `query` comes from findOpenQuery
+ * (which is company-scoped), we re-verify that the bank_transaction belongs to
+ * the company before inserting — matching the guard in the manual-upload API
+ * (bank-tx-attachments.ts).
  */
 export async function attachReplyMedia(
   companyId: string,
@@ -67,6 +72,43 @@ export async function attachReplyMedia(
     }, 'bank-tx-queries');
     return false;
   }
+
+  // Re-validate mimeType before building the data URL.
+  if (!MIME_RE.test(media.mimeType)) {
+    log.warn('bankTxQueryReply: refusing attach for unexpected mime type', {
+      companyId, queryId: query.id, mimeType: media.mimeType,
+    }, 'bank-tx-queries');
+    return false;
+  }
+
+  // Ownership preflight: verify the bank tx belongs to this company (defense-in-depth).
+  const [owner] = (await sql`
+    SELECT id FROM bank_transactions
+    WHERE id = ${query.bankTransactionId}::uuid AND company_id = ${companyId}::uuid
+    LIMIT 1
+  `) as Row[];
+  if (!owner) {
+    log.error('bankTxQueryReply: bank tx does not belong to company — refusing attach', {
+      companyId, queryId: query.id, bankTransactionId: query.bankTransactionId,
+    }, 'bank-tx-queries');
+    return false;
+  }
+
+  // Retry-dedupe: fileName embeds the Twilio MessageSid, so a webhook retry
+  // would re-attach the identical file. Skip silently and return true so the
+  // caller still marks the query replied.
+  const [dup] = (await sql`
+    SELECT id FROM bank_transaction_attachments
+    WHERE bank_transaction_id = ${query.bankTransactionId}::uuid AND file_name = ${media.fileName}
+    LIMIT 1
+  `) as Row[];
+  if (dup) {
+    log.info('bankTxQueryReply: attachment already exists (webhook retry) — skipping duplicate', {
+      companyId, queryId: query.id, fileName: media.fileName,
+    }, 'bank-tx-queries');
+    return true;
+  }
+
   const dataUrl = `data:${media.mimeType};base64,${media.buffer.toString('base64')}`;
   await sql`
     INSERT INTO bank_transaction_attachments
@@ -92,11 +134,11 @@ export async function markQueryReplied(
     UPDATE bank_tx_queries
     SET status = 'replied',
         replied_at = COALESCE(replied_at, NOW()),
-        reply_text = CASE
+        reply_text = LEFT(CASE
           WHEN ${replyText}::text IS NULL OR ${replyText} = '' THEN reply_text
           WHEN reply_text IS NULL THEN ${replyText}
           ELSE reply_text || E'\n' || ${replyText}
-        END,
+        END, 10000),
         reply_capture_event_id = COALESCE(reply_capture_event_id, ${captureEventId}::uuid),
         updated_at = NOW()
     WHERE id = ${queryId}::uuid
