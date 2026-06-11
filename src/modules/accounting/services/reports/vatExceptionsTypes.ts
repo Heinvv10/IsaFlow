@@ -80,7 +80,13 @@ export function r2(n: number): number {
 }
 
 export function dateStr(v: unknown): string {
-  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  if (v instanceof Date) {
+    // pg returns DATE columns as Date objects at local midnight — format with
+    // local components; toISOString() would shift the day in UTC+ timezones.
+    const m = String(v.getMonth() + 1).padStart(2, '0');
+    const d = String(v.getDate()).padStart(2, '0');
+    return `${v.getFullYear()}-${m}-${d}`;
+  }
   return String(v ?? '');
 }
 

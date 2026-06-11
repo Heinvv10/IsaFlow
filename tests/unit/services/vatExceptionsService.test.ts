@@ -161,6 +161,21 @@ describe('getVatExceptions — clean books', () => {
   });
 });
 
+describe('getVatExceptions — date handling', () => {
+  it('renders pg Date objects as local calendar dates (no UTC day-shift)', async () => {
+    // pg returns DATE columns as Date objects at local midnight; in UTC+2
+    // toISOString() would shift 2026-03-15 back to 2026-03-14.
+    mockExceptionsSql({
+      uncoded: [makeUncodedRow({ entry_date: new Date(2026, 2, 15) })],
+    });
+    vi.mocked(generateVAT201).mockResolvedValueOnce(makeVat201(0, 0));
+
+    const report = await getVatExceptions(COMPANY_ID, PERIOD_START, PERIOD_END);
+
+    expect(report.uncodedGlLines[0]!.entryDate).toBe('2026-03-15');
+  });
+});
+
 describe('getVatExceptions — uncoded GL VAT lines', () => {
   it('lists uncoded VAT lines with journal metadata and signed amount', async () => {
     mockExceptionsSql({ uncoded: [makeUncodedRow()] });
