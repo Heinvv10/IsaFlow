@@ -3,8 +3,8 @@
  * Route: /accounting/bank/queries
  *
  * Lists bank-tx WhatsApp queries; actionable queue defaults to "replied" tab.
- * Supports resolve (sent|replied) and cancel (sent only) with settle+retry
- * to guard against the withAuth pre-COMMIT flush race.
+ * Supports resolve (sent|replied) and cancel (sent only). Refetch-after-mutation
+ * needs no settle/retry: withAuth now COMMITs before flushing the response.
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -36,9 +36,6 @@ const fmtDateTime = (s: string | Date | null) => {
   try { return new Date(s).toLocaleString('en-ZA', { dateStyle: 'short', timeStyle: 'short' }); } catch { return String(s); }
 };
 
-/** Guard against withAuth pre-COMMIT flush race — wait before refetching. */
-const settle = () => new Promise<void>((r) => setTimeout(r, 600));
-
 // ── Tab config ────────────────────────────────────────────────────────────────
 
 const TABS: { id: StatusFilter; label: string; param: string | null; empty: string }[] = [
@@ -62,17 +59,13 @@ export default function ClientQueriesPage() {
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
 
-  const load = useCallback(async (retry = false) => {
-    if (!retry) setLoading(true);
+  const load = useCallback(async () => {
+    setLoading(true);
     setError('');
     const param = TABS.find(t => t.id === tab)?.param;
     const url = `/api/accounting/bank-tx-queries${param ? `?status=${param}` : ''}`;
     try {
-      let res = await apiFetch(url);
-      if (!res.ok) {
-        await settle();
-        res = await apiFetch(url);
-      }
+      const res = await apiFetch(url);
       const json = await res.json() as { data?: BankTxQueryRow[]; message?: string; error?: { message?: string } };
       if (!res.ok) { setError(json.message ?? json.error?.message ?? 'Failed to load queries'); return; }
       setRows(json.data ?? []);
@@ -106,8 +99,7 @@ export default function ClientQueriesPage() {
       const json = await res.json() as { message?: string; error?: { message?: string } };
       if (!res.ok) { setToast({ msg: json.message ?? json.error?.message ?? `${action} failed`, kind: 'err' }); return; }
       setToast({ msg: action === 'resolve' ? 'Query marked resolved' : 'Query cancelled', kind: 'ok' });
-      await settle();
-      await load(true);
+      await load();
     } catch (err) {
       log.error('Bank-tx query action failed', { id, action, err }, 'client-queries-page');
       setToast({ msg: 'Network error', kind: 'err' });

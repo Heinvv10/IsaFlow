@@ -46,16 +46,31 @@ function mkReq(token: string, companyId: string) {
 }
 
 function mkRes() {
-  let status = 200;
-  let body: unknown = undefined;
+  const state = { status: 200, body: undefined as unknown, finished: false, headersSent: false };
   const headers: Record<string, unknown> = {};
-  const res = {
-    status(c: number) { status = c; return this; },
-    json(v: unknown) { body = v; return this; },
+  // Mirrors Next's api-resolver: json/send funnel through end, and headersSent
+  // only flips once end actually flushes — so withAuth's deferred-flush patch
+  // (which rebinds res.end) is exercised faithfully.
+  const res: Record<string, unknown> = {
+    get statusCode() { return state.status; },
+    set statusCode(c: number) { state.status = c; },
+    get headersSent() { return state.headersSent; },
+    get finished() { return state.finished; },
+    status(c: number) { state.status = c; return res; },
+    json(v: unknown) { state.body = v; return (res.send as (b: unknown) => unknown)(JSON.stringify(v)); },
+    send(v: unknown) { state.body = v; return (res.end as (b?: unknown) => unknown)(v); },
+    end(v?: unknown) {
+      if (state.finished) return res;
+      state.finished = true;
+      state.headersSent = true;
+      if (v !== undefined) state.body = v;
+      return res;
+    },
     setHeader(k: string, v: unknown) { headers[k.toLowerCase()] = v; },
     getHeader(k: string) { return headers[k.toLowerCase()]; },
-  } as unknown as NextApiResponse;
-  return { res, get status() { return status; }, get body() { return body; } };
+    removeHeader(k: string) { delete headers[k.toLowerCase()]; },
+  };
+  return { res: res as unknown as NextApiResponse, get status() { return state.status; }, get body() { return state.body; } };
 }
 
 beforeAll(async () => { await seed(); });
