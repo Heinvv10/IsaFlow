@@ -204,22 +204,26 @@ export function withAuth(handler: Handler): NextApiHandler {
         await client.query(handlerFailed ? 'ROLLBACK' : 'COMMIT');
       } catch (finalizeErr) {
         // The transaction could not be finalised after the handler "responded".
-        // Best-effort rollback, then replace the buffered (usually 2xx) flush
-        // with an honest 500 — today this is a silent lie (a committed-failed
-        // 200). Headers were never sent because the flush was deferred.
+        // Best-effort rollback, then (for the common deferred-flush case where
+        // headers have NOT yet been sent) replace the buffered 2xx flush with an
+        // honest 500 — today that is a silent lie (a committed-failed 200).
         try { await client.query('ROLLBACK'); } catch { /* secondary */ }
         log.error('withAuth: transaction finalize failed after handler responded', {
           url: req.url,
           status: res.statusCode,
+          handlerFailed, // distinguishes a failed COMMIT (2xx) from a failed ROLLBACK (5xx)
           message: finalizeErr instanceof Error ? finalizeErr.message : String(finalizeErr),
         }, 'Auth');
         if (process.env.SENTRY_ENABLED === 'true' && finalizeErr instanceof Error) {
           Sentry.captureException(finalizeErr);
         }
         if (res.headersSent) {
-          // A streaming route flushed headers before COMMIT — can't rewrite the
-          // status, just complete the response (no withAuth route does this).
-          if (handlerEnded) realEnd(...(bufferedEndArgs ?? []));
+          // A streaming/redirect route already flushed headers before COMMIT
+          // (e.g. an xlsx export that pipes via res.write, or res.redirect's
+          // writeHead) — the status can't be rewritten, so just complete the
+          // response. Always replay so the socket is closed, never hung, even
+          // if the handler wrote bytes without calling end (bufferedEndArgs null).
+          realEnd(...(bufferedEndArgs ?? []));
         } else {
           const body = JSON.stringify({
             success: false,

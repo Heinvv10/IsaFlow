@@ -186,6 +186,24 @@ describe('withAuth — commit-before-respond ordering', () => {
     expect(events.indexOf('COMMIT')).toBeLessThan(events.indexOf('FLUSH'));
   });
 
+  it('ROLLBACKs and rethrows when the handler throws without responding', async () => {
+    const events: string[] = [];
+    currentClient = makeClient({ events });
+    const { res } = makeRes(events);
+    const { withAuth } = await import('@/lib/auth/withAuth');
+    const tok = await makeToken('user-1');
+
+    // A handler that throws BEFORE responding (bypasses withErrorHandler) must
+    // hit withAuth's outer catch: ROLLBACK + rethrow, nothing to replay.
+    await expect(
+      withAuth(async () => { throw new Error('handler exploded'); })(mkReq(tok, COMPANY_ID), res),
+    ).rejects.toThrow('handler exploded');
+
+    expect(events).toContain('ROLLBACK');
+    expect(events).not.toContain('COMMIT');
+    expect(events).not.toContain('FLUSH'); // handler never called end → nothing replayed
+  });
+
   it('COMMITs (preserves current behaviour) on a 4xx response', async () => {
     const events: string[] = [];
     currentClient = makeClient({ events });
