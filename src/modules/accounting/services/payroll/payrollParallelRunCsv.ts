@@ -15,10 +15,14 @@ function rand(cents: number | null): string {
 }
 
 function escapeCsvField(val: string): string {
-  if (val.includes(',') || val.includes('"') || val.includes('\n')) {
-    return `"${val.replace(/"/g, '""')}"`;
+  // Imported employee names are untrusted: disarm Excel formula injection,
+  // but leave plain (possibly negative) numbers untouched.
+  const isPlainNumber = /^-?\d+(\.\d+)?$/.test(val);
+  let v = !isPlainNumber && /^[=+@\t\r-]/.test(val) ? `'${val}` : val;
+  if (v.includes(',') || v.includes('"') || v.includes('\n') || v.includes('\r')) {
+    v = `"${v.replace(/"/g, '""')}"`;
   }
-  return val;
+  return v;
 }
 
 function componentRows(

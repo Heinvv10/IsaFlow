@@ -24,6 +24,21 @@ describe('buildParallelRunComparisonCsv', () => {
     expect(csv).toContain('TOTAL,,,Gross,25000.00,25000.00,0.00');
   });
 
+  it('disarms Excel formula injection in names but keeps negative amounts plain', () => {
+    const report = compareParallelRun(
+      [{
+        employeeNumber: '=2+5', employeeName: '=HYPERLINK("http://evil")',
+        gross: 100, paye: 0, uifEmployee: 0, uifEmployer: 0, sdl: 0, eti: 0, net: 100,
+      }],
+      [{ employeeNumber: '=2+5', employeeName: null, amounts: { net: 200 } }],
+    );
+    const csv = buildParallelRunComparisonCsv(report);
+    expect(csv).toContain(`'=2+5,"'=HYPERLINK(""http://evil"")"`);
+    // negative diff stays a plain number
+    expect(csv).toContain(',-1.00');
+    expect(csv).not.toContain("'-1.00");
+  });
+
   it('leaves missing-side amounts blank', () => {
     const report = compareParallelRun(
       [],
