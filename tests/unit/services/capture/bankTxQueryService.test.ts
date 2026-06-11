@@ -11,7 +11,7 @@ vi.mock('@/lib/neon', () => ({
   },
 }));
 
-const sendMock = vi.fn(async (_to: string, _body: string): Promise<{ sent: boolean; reason?: string }> => ({ sent: true }));
+const sendMock = vi.fn(async (_to: string, _body: string): Promise<{ sent: boolean; reason?: string; sid?: string }> => ({ sent: true }));
 vi.mock('@/modules/accounting/services/capture/whatsAppReplyService', () => ({
   sendWhatsAppMessage: (to: string, body: string) => sendMock(to, body),
 }));
@@ -81,6 +81,7 @@ describe('createAndSendQuery', () => {
       { match: 'FROM bank_transactions', rows: [TX_ROW] },
       { match: 'INSERT INTO bank_tx_queries', rows: [{ id: QUERY_ID, status: 'sent' }] },
     ]);
+    sendMock.mockResolvedValue({ sent: true, sid: 'SM_TEST_SID' });
     const res = await createAndSendQuery(COMPANY_ID, input);
     expect(res.ok).toBe(true);
     expect(sendMock).toHaveBeenCalledWith('whatsapp:+27821234567', expect.stringContaining('Acme Trading'));
@@ -88,6 +89,19 @@ describe('createAndSendQuery', () => {
     expect(insert).toBeDefined();
     expect(insert!.values).toContain(COMPANY_ID);
     expect(insert!.values).toContain('+27821234567');
+    expect(insert!.sql).toContain('message_sid');
+    expect(insert!.values).toContain('SM_TEST_SID');
+  });
+
+  it('fails (and skips UPDATE companies) when the INSERT returns no row', async () => {
+    routeMock([
+      { match: 'FROM bank_transactions', rows: [TX_ROW] },
+      { match: 'INSERT INTO bank_tx_queries', rows: [] },
+    ]);
+    const res = await createAndSendQuery(COMPANY_ID, { ...input, saveAsDefault: true });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.reason).toMatch(/internal/i);
+    expect(sqlCalls.some((c) => c.sql.includes('UPDATE companies'))).toBe(false);
   });
 
   it('uses a caller-supplied message verbatim', async () => {
@@ -138,6 +152,9 @@ describe('setQueryStatus', () => {
     routeMock([{ match: 'UPDATE bank_tx_queries', rows: [] }]);
     const res = await setQueryStatus(COMPANY_ID, QUERY_ID, 'cancel');
     expect(res.ok).toBe(false);
+    const upd = sqlCalls.find((c) => c.sql.includes('UPDATE bank_tx_queries'))!;
+    expect(upd.sql).toContain("'cancelled'");
+    expect(upd.sql).not.toContain("'resolved'");
   });
 });
 

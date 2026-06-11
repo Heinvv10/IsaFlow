@@ -70,13 +70,19 @@ export async function createAndSendQuery(
 
   const [query] = (await sql`
     INSERT INTO bank_tx_queries (
-      company_id, bank_transaction_id, to_number, message_body, created_by
+      company_id, bank_transaction_id, to_number, message_body, message_sid, created_by
     ) VALUES (
       ${companyId}::uuid, ${input.bankTransactionId}::uuid,
-      ${toNumber}, ${body}, ${input.userId}
+      ${toNumber}, ${body}, ${sendResult.sid ?? null}, ${input.userId}::uuid
     )
     RETURNING *
   `) as Row[];
+  if (!query) {
+    log.error('bankTxQuery: INSERT returned no row', {
+      companyId, bankTransactionId: input.bankTransactionId,
+    }, 'bank-tx-queries');
+    return { ok: false, reason: 'internal error: query row not returned' };
+  }
 
   if (input.saveAsDefault) {
     await sql`
@@ -86,10 +92,10 @@ export async function createAndSendQuery(
   }
 
   log.info('bankTxQuery: sent', {
-    companyId, bankTransactionId: input.bankTransactionId, queryId: query?.id, to: toNumber,
+    companyId, bankTransactionId: input.bankTransactionId, queryId: query.id, to: toNumber,
   }, 'bank-tx-queries');
 
-  return { ok: true, query: query! };
+  return { ok: true, query };
 }
 
 export interface ListQueryFilters {
