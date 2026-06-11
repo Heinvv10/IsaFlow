@@ -3,14 +3,16 @@
  * "Can I pay salaries?", "Who owes me?", "VAT set-aside". Presentational —
  * receives the /api/home cashPosition payload.
  */
+import * as React from 'react';
 import Link from 'next/link';
 import { Wallet, Users, Landmark, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { Money } from '@/components/ui';
+import { formatDisplayDate } from '@/utils/dateFormat';
 import type { OwnerCashPosition } from '@/modules/bureau/services/ownerCashPositionService';
 
 function SectionCard({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-xl border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] p-4 space-y-2">
+    <div className="rounded-xl border border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] p-4 space-y-2">
       <div className="flex items-center gap-2 text-sm font-semibold text-[var(--ff-text-primary)]">
         {icon} {title}
       </div>
@@ -63,7 +65,11 @@ function DebtorsSection({ pos }: { pos: OwnerCashPosition }) {
           </span>
         </div>
       ))}
-      <Link href="/accounting/debtors-manager" className="block text-xs text-teal-500 hover:text-teal-400 pt-1">
+      <Link
+        href="/accounting/debtors-manager"
+        aria-label="View all debtors in the debtors manager"
+        className="block text-xs text-teal-500 hover:text-teal-400 pt-1"
+      >
         Chase debtors → (total owed: <Money amount={pos.arTotal} />)
       </Link>
     </div>
@@ -77,7 +83,7 @@ function VatSection({ pos }: { pos: OwnerCashPosition }) {
     return (
       <p className="text-sm text-[var(--ff-text-primary)]">
         Put aside <Money amount={v.netVat} className="font-semibold" /> for VAT ({v.periodLabel}, due{' '}
-        {new Date(`${v.dueDate}T00:00:00Z`).toLocaleDateString()})
+        {formatDisplayDate(v.dueDate)})
       </p>
     );
   }
