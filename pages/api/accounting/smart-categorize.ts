@@ -16,7 +16,7 @@ import {
   smartCategorizeForAccount,
   learnFromAllocation,
 } from '@/modules/accounting/services/core/smartCategorizationService';
-import { sweep } from '@/modules/accounting/services/bank/autoPostGateService';
+import { sweep, getAutoPostSettings } from '@/modules/accounting/services/bank/autoPostGateService';
 import { sql } from '@/lib/neon';
 import {
   selectResidualTxIds,
@@ -101,12 +101,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
               })),
               MAX_LLM_CALLS_PER_RUN,
             );
-            if (residualIds.length > 0) {
+            const apSettings = await getAutoPostSettings(companyId);
+            const willRunLlm = apSettings.llmEnabled && residualIds.length > 0;
+            if (willRunLlm) {
               const deps = await buildRunDeps(companyId, userId, residualIds);
               void runLlmResidualPass(companyId, residualIds, userId, deps); // fire-and-forget
             }
 
-            return apiResponse.success(res, { ...result, residualCount: residualIds.length });
+            return apiResponse.success(res, { ...result, residualCount: willRunLlm ? residualIds.length : 0 });
           }
           // Otherwise, categorize specific transaction IDs
           if (!Array.isArray(transactionIds) || transactionIds.length === 0) {
@@ -132,12 +134,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             })),
             MAX_LLM_CALLS_PER_RUN,
           );
-          if (residualIds.length > 0) {
+          const apSettings = await getAutoPostSettings(companyId);
+          const willRunLlm = apSettings.llmEnabled && residualIds.length > 0;
+          if (willRunLlm) {
             const deps = await buildRunDeps(companyId, userId, residualIds);
             void runLlmResidualPass(companyId, residualIds, userId, deps); // fire-and-forget
           }
 
-          return apiResponse.success(res, { ...result, autoPost, residualCount: residualIds.length });
+          return apiResponse.success(res, { ...result, autoPost, residualCount: willRunLlm ? residualIds.length : 0 });
         }
 
         case 'learn': {
