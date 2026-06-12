@@ -405,7 +405,7 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
           </button>
         </div>
         <p className="mt-3 text-xs text-[var(--ff-text-muted)]">
-          PDF, CSV, OFX, QIF · up to {DEFAULT_BULK_LIMITS.maxFiles} files,
+          PDF, CSV, OFX, QIF, MT940 · up to {DEFAULT_BULK_LIMITS.maxFiles} files,
           {' '}{Math.round(DEFAULT_BULK_LIMITS.maxBytesPerFile / 1024 / 1024)} MB each,
           {' '}{Math.round(DEFAULT_BULK_LIMITS.maxTotalBytes / 1024 / 1024)} MB total
         </p>
@@ -421,7 +421,7 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
           ref={fileInputRef}
           type="file"
           multiple
-          accept=".pdf,.csv,.ofx,.qfx,.qif"
+          accept=".pdf,.csv,.ofx,.qfx,.qif,.sta,.mt940,.940"
           className="hidden"
           onChange={onPickFiles}
         />

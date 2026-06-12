@@ -28,7 +28,7 @@
  *     bulkImportId: string;          // UUID minted client-side
  *     bulkSequence: number;          // 1-based position in the bulk
  *     filename: string;
- *     fileType: 'pdf' | 'csv' | 'ofx' | 'qif';
+ *     fileType: 'pdf' | 'csv' | 'ofx' | 'qif' | 'mt940';
  *     statementDate: string;         // YYYY-MM-DD; client derives from preview's dateRange.to
  *     sourceFileSizeBytes: number;
  *     pdfBase64?: string;
@@ -79,12 +79,12 @@ const BulkCommitSchema = z.object({
   bulkImportId: UUID,
   bulkSequence: z.number().int().min(1),
   filename: z.string().min(1).max(500),
-  fileType: z.enum(['pdf', 'csv', 'ofx', 'qif']).optional(),
+  fileType: z.enum(['pdf', 'csv', 'ofx', 'qif', 'mt940']).optional(),
   statementDate: z.string().min(8).max(30),
   sourceFileSizeBytes: z.number().int().nonnegative().optional(),
   pdfBase64: z.string().optional(),
   csvContent: z.string().optional(),
-  bankFormat: z.enum(['fnb', 'standard_bank', 'nedbank', 'absa', 'capitec', 'ofx', 'qif', 'unknown']).optional(),
+  bankFormat: z.enum(['fnb', 'standard_bank', 'nedbank', 'absa', 'capitec', 'ofx', 'qif', 'mt940', 'unknown']).optional(),
   applyBankRules: z.boolean().optional(),
 }).strict();
 

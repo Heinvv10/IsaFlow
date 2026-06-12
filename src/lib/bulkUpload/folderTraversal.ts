@@ -7,9 +7,9 @@
  * caps before any network call is made.
  */
 
-export type AllowedExtension = 'pdf' | 'csv' | 'ofx' | 'qif';
+export type AllowedExtension = 'pdf' | 'csv' | 'ofx' | 'qif' | 'mt940' | 'sta' | '940';
 
-export const ALLOWED_EXTENSIONS: AllowedExtension[] = ['pdf', 'csv', 'ofx', 'qif'];
+export const ALLOWED_EXTENSIONS: AllowedExtension[] = ['pdf', 'csv', 'ofx', 'qif', 'mt940', 'sta', '940'];
 
 export interface BulkUploadLimits {
   maxFiles: number;
@@ -199,14 +199,16 @@ function enforceAggregateLimits(
  */
 export async function readFileForUpload(collected: CollectedFile): Promise<
   | { fileType: 'pdf'; pdfBase64: string }
-  | { fileType: 'csv' | 'ofx' | 'qif'; csvContent: string }
+  | { fileType: 'csv' | 'ofx' | 'qif' | 'mt940'; csvContent: string }
 > {
   if (collected.extension === 'pdf') {
     const buffer = await collected.file.arrayBuffer();
     return { fileType: 'pdf', pdfBase64: bufferToBase64(buffer) };
   }
   const text = await collected.file.text();
-  return { fileType: collected.extension, csvContent: text };
+  // .sta, .940 and .mt940 all carry SWIFT MT940 content — normalise to one fileType.
+  const fileType = collected.extension === 'sta' || collected.extension === '940' ? 'mt940' : collected.extension;
+  return { fileType, csvContent: text };
 }
 
 function bufferToBase64(buffer: ArrayBuffer): string {
