@@ -69,6 +69,15 @@ describe('parseMt940Statement', () => {
     expect(amounts).toEqual([100, -100, -100, 100]);
   });
 
+  it('consumes a non-N/F/S transaction-type code so the reference is clean', () => {
+    // SWIFT restricts the type-code letter to N/F/S, but some banks emit others
+    // (e.g. T…). The code is mandatory, so it must be consumed, not leak into ref.
+    const stmt = [':25:9999', ':61:260101C100,00TAXSpayref//bankref', ':86:tax'].join('\n');
+    const t = parseMt940Statement(stmt).transactions[0]!;
+    expect(t.amount).toBe(100);
+    expect(t.reference).toBe('payref');
+  });
+
   it('records an error for a malformed :61: line but keeps the good ones', () => {
     const stmt = [
       ':25:9999',

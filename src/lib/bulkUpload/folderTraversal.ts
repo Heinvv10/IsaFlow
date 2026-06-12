@@ -7,9 +7,9 @@
  * caps before any network call is made.
  */
 
-export type AllowedExtension = 'pdf' | 'csv' | 'ofx' | 'qif' | 'mt940' | 'sta';
+export type AllowedExtension = 'pdf' | 'csv' | 'ofx' | 'qif' | 'mt940' | 'sta' | '940';
 
-export const ALLOWED_EXTENSIONS: AllowedExtension[] = ['pdf', 'csv', 'ofx', 'qif', 'mt940', 'sta'];
+export const ALLOWED_EXTENSIONS: AllowedExtension[] = ['pdf', 'csv', 'ofx', 'qif', 'mt940', 'sta', '940'];
 
 export interface BulkUploadLimits {
   maxFiles: number;
@@ -206,8 +206,8 @@ export async function readFileForUpload(collected: CollectedFile): Promise<
     return { fileType: 'pdf', pdfBase64: bufferToBase64(buffer) };
   }
   const text = await collected.file.text();
-  // Both .sta and .mt940 carry SWIFT MT940 content — normalise to one fileType.
-  const fileType = collected.extension === 'sta' ? 'mt940' : collected.extension;
+  // .sta, .940 and .mt940 all carry SWIFT MT940 content — normalise to one fileType.
+  const fileType = collected.extension === 'sta' || collected.extension === '940' ? 'mt940' : collected.extension;
   return { fileType, csvContent: text };
 }
 

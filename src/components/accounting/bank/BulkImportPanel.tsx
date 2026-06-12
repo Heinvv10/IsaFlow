@@ -421,7 +421,7 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
           ref={fileInputRef}
           type="file"
           multiple
-          accept=".pdf,.csv,.ofx,.qfx,.qif,.sta,.mt940"
+          accept=".pdf,.csv,.ofx,.qfx,.qif,.sta,.mt940,.940"
           className="hidden"
           onChange={onPickFiles}
         />

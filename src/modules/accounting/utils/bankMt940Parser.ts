@@ -89,7 +89,10 @@ function parseAmount(raw: string, mark: string): number | null {
 }
 
 // :61: value date(6) [entry date(4)] mark fundsCode? amount typeCode? refs
-const LINE_RE = /^(\d{6})(\d{4})?(RC|RD|C|D)([A-Z])?([0-9,]+)(?:[NFS][A-Z0-9]{3})?(.*)$/;
+// The transaction-type code is `1!a3!c` (one letter + 3 chars); the spec
+// restricts the letter to N/F/S but some banks emit other letters, so accept
+// any. It is mandatory, so consuming 4 chars after the amount is always right.
+const LINE_RE = /^(\d{6})(\d{4})?(RC|RD|C|D)([A-Z])?([0-9,]+)(?:[A-Z][A-Z0-9]{3})?(.*)$/;
 
 interface Mt940Line {
   transactionDate: string;
