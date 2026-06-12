@@ -17,15 +17,16 @@ import {
 } from '../../utils/bankCsvParsers';
 import { parseOfxStatement } from '../../utils/bankOfxParser';
 import { parseQifStatement } from '../../utils/bankQifParser';
+import { parseMt940Statement } from '../../utils/bankMt940Parser';
 import type { BankCsvParseResult, BankFormat } from '../../types/bank.types';
 
-export type StatementFileType = 'pdf' | 'csv' | 'ofx' | 'qif';
+export type StatementFileType = 'pdf' | 'csv' | 'ofx' | 'qif' | 'mt940';
 
 export interface ParseStatementArgs {
   fileType: StatementFileType;
   /** Required when fileType === 'pdf'. Optional `data:application/pdf;base64,` prefix is stripped. */
   pdfBase64?: string;
-  /** Required for 'csv' | 'ofx' | 'qif'. */
+  /** Required for 'csv' | 'ofx' | 'qif' | 'mt940'. */
   csvContent?: string;
   /** Optional hint when auto-detect fails. */
   bankFormat?: BankFormat;
@@ -49,11 +50,12 @@ export async function parseStatement(args: ParseStatementArgs): Promise<BankCsvP
   }
 
   if (!csvContent) {
-    throw new Error('csvContent is required for CSV / OFX / QIF imports');
+    throw new Error('csvContent is required for CSV / OFX / QIF / MT940 imports');
   }
 
   if (fileType === 'ofx') return parseOfxStatement(csvContent);
   if (fileType === 'qif') return parseQifStatement(csvContent);
+  if (fileType === 'mt940') return parseMt940Statement(csvContent);
 
   // CSV path with bank-format dispatch.
   const format = bankFormat && bankFormat !== 'unknown' ? bankFormat : detectBankFormat(csvContent);

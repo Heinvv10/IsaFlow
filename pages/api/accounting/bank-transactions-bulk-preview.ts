@@ -19,10 +19,10 @@
  * Body:
  *   {
  *     bankAccountId: string;
- *     fileType: 'pdf' | 'csv' | 'ofx' | 'qif';
+ *     fileType: 'pdf' | 'csv' | 'ofx' | 'qif' | 'mt940';
  *     filename: string;
  *     pdfBase64?: string;            // PDF
- *     csvContent?: string;           // CSV / OFX / QIF
+ *     csvContent?: string;           // CSV / OFX / QIF / MT940
  *     bankFormat?: BankFormat;
  *   }
  */
@@ -56,11 +56,11 @@ export type AccountMatchStatus = 'match' | 'mismatch' | 'inconclusive' | 'parse_
 
 const BulkPreviewSchema = z.object({
   bankAccountId: UUID,
-  fileType: z.enum(['pdf', 'csv', 'ofx', 'qif']).optional(),
+  fileType: z.enum(['pdf', 'csv', 'ofx', 'qif', 'mt940']).optional(),
   filename: z.string().min(1).max(500),
   pdfBase64: z.string().optional(),
   csvContent: z.string().optional(),
-  bankFormat: z.enum(['fnb', 'standard_bank', 'nedbank', 'absa', 'capitec', 'ofx', 'qif', 'unknown']).optional(),
+  bankFormat: z.enum(['fnb', 'standard_bank', 'nedbank', 'absa', 'capitec', 'ofx', 'qif', 'mt940', 'unknown']).optional(),
 }).strict();
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
