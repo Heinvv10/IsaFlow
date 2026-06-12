@@ -13,6 +13,21 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 
 ---
 
+## 2026-06-12 — MT940 Bank Import + Auth/Email Fixes
+
+**Bank import (Dotbiz Pilot — WS-F groundwork)**
+
+- MT940 SWIFT statement parser added (`bankMt940Parser`); accepts `.mt940`, `.sta`, `.940` extensions — covers Standard Bank BusinessOnline, FNB Enterprise, Nedbank business exports (#170)
+- Threaded `mt940` through full import path: BankFormat, StatementFileType, Zod enums, folderTraversal, BulkImportPanel; no new endpoint or migration needed
+- WS-F aggregator spike kit landed: runbook + coverage probe for Salt Edge / Mono vendor evaluation (`docs/wsf-bank-feeds/`, `scripts/wsf-aggregator-probe.ts`) (#170)
+
+**Bug fixes**
+
+- `auth`: GoTrue `adminGetUserByEmail` used wrong filter syntax (PostgREST expression vs literal ILIKE) — every password-reset lookup resolved zero users; fixed with exact client-side match, also closes ILIKE substring-match security edge (#170)
+- `email`: SMTP transport had no TLS servername — all outbound app emails (invoices, password resets) silently errored since April; resolved via `SMTP_TLS_SERVERNAME` env var matching the host cert's SAN (#170)
+
+---
+
 ## 2026-06-11 — Dotbiz Pilot Workstreams + VAT/Auto-Post Fixes
 
 **Dotbiz Pilot — 4 workstreams shipped**
