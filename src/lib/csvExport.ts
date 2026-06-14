@@ -4,6 +4,7 @@
  */
 
 import Papa from 'papaparse';
+import { neutralizeCsvCell } from '@/lib/csvSafe';
 
 export interface CsvColumn<T> {
   header: string;
@@ -19,7 +20,7 @@ export function downloadCsv<T>(filename: string, columns: CsvColumn<T>[], rows: 
   const data = rows.map((r) =>
     columns.map((c) => {
       const v = c.accessor(r);
-      return v == null ? '' : v;
+      return v == null ? '' : (typeof v === 'string' ? neutralizeCsvCell(v) : v);
     }),
   );
   const csv = Papa.unparse({ fields, data });

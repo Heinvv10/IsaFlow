@@ -10,6 +10,7 @@ import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { neutralizeCsvCell } from '@/lib/csvSafe';
 
 type Row = DbRow;
 
@@ -26,8 +27,8 @@ const CSV_HEADERS = [
 
 function escapeCell(value: unknown): string {
   if (value == null) return '""';
-  const str = String(value);
-  return `"${str.replace(/"/g, '""')}"`;
+  const safe = neutralizeCsvCell(String(value));
+  return `"${safe.replace(/"/g, '""')}"`;
 }
 
 function toIsoOrEmpty(value: unknown): string {
