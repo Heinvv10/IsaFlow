@@ -129,6 +129,27 @@ export async function checkAiRateLimit(
   );
 }
 
+/**
+ * Per-IP + per-company + daily-quota limiting for email-send endpoints.
+ * Prevents bulk-send abuse (M13). Returns true when ALLOWED, false when 429'd.
+ */
+export async function checkSendRateLimit(
+  req: NextApiRequest,
+  companyId: string,
+  name: string,
+  opts: { ipMax?: number; companyMax?: number; dailyMax?: number } = {},
+): Promise<boolean> {
+  const ip = getClientIp(req);
+  const ipMax = opts.ipMax ?? 30;
+  const companyMax = opts.companyMax ?? 60;
+  const dailyMax = opts.dailyMax ?? 500;
+  return (
+    (await checkRateLimit(`send:${name}:ip:${ip}`, { max: ipMax, windowSecs: 900 })) &&
+    (await checkRateLimit(`send:${name}:co:${companyId}`, { max: companyMax, windowSecs: 900 })) &&
+    (await checkRateLimit(`send:${name}:co:${companyId}:day`, { max: dailyMax, windowSecs: 86_400 }))
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Middleware wrapper (convenience helper for simple IP-based limiting)
 // ---------------------------------------------------------------------------

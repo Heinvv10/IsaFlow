@@ -1,9 +1,9 @@
 // pages/api/auth/register.ts
 import type { NextApiHandler } from 'next';
 import pg from 'pg';
-import { adminCreateUser, signIn } from '@/lib/auth/gotrue';
+import { adminCreateUser, adminGetUserByEmail, signIn } from '@/lib/auth/gotrue';
 import { setAuthCookies, setActiveCompanyCookie } from '@/lib/auth/cookies';
-import { withRateLimit } from '@/lib/rateLimit';
+import { withRateLimit, checkRateLimit } from '@/lib/rateLimit';
 import { log } from '@/lib/logger';
 
 function adminPool(): pg.Pool {
@@ -36,6 +36,34 @@ const handler: NextApiHandler = async (req, res) => {
   }
 
   const cleanEmail = (email as string).toLowerCase().trim();
+
+  // A1-6: per-email registration throttle. The per-IP limit (export below) is
+  // defeated by IP rotation; a per-email cap slows enumeration/abuse that probes
+  // many passwords or re-registers the same address. Generic 429 either way.
+  const emailAllowed = await checkRateLimit(`register:email:${cleanEmail}`, { max: 5, windowSecs: 3600 });
+  if (!emailAllowed) {
+    return res.status(429).json({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many attempts. Please try again later.' } });
+  }
+
+  // A1-6: reject an already-registered email with a GENERIC message BEFORE doing
+  // any work. adminCreateUser silently returns the existing user on a 422, which
+  // previously let register create a SECOND company + owner membership for that
+  // user and then fail at signIn — both an enumeration signal (existing vs new
+  // behaved differently) and a latent data bug. We do not confirm existence; the
+  // message points existing users to sign in without asserting the email is taken.
+  let emailExists = false;
+  try {
+    await adminGetUserByEmail(cleanEmail);
+    emailExists = true;
+  } catch {
+    emailExists = false; // not found (or lookup failed) → proceed with registration
+  }
+  if (emailExists) {
+    return res.status(400).json({
+      success: false,
+      error: { code: 'REGISTRATION_FAILED', message: 'Unable to complete registration. If you already have an account, please sign in.' },
+    });
+  }
 
   // 1. Create GoTrue user
   const gotrueUser = await adminCreateUser({
