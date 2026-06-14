@@ -48,6 +48,17 @@ function assertProductionUrl(name: string, expectedHost?: string): void {
   }
 }
 
+// M7: secrets must be long enough not to be offline-forgeable. PORTAL/EXTENSION
+// secrets are length-checked in their own modules; assert the rest here.
+const MIN_SECRET_LEN = 32;
+const LENGTH_CHECKED_SECRETS = [
+  'JWT_SECRET',
+  'ENCRYPTION_KEY',
+  'IMPERSONATION_JWT_SECRET',
+  'CRON_SECRET',
+  'PORTAL_JWT_SECRET',
+] as const;
+
 export function validateEnv(): void {
   const missing = REQUIRED_VARS.filter(v => !process.env[v]);
   if (missing.length > 0) {
@@ -55,6 +66,12 @@ export function validateEnv(): void {
   }
   if (process.env.NODE_ENV === 'production') {
     assertProductionUrl('NEXT_PUBLIC_ADMIN_URL', 'admin.isaflow.co.za');
+    // M7: enforce minimum secret strength in production only (dev/test may use
+    // short throwaway secrets without blocking local boot).
+    const weak = LENGTH_CHECKED_SECRETS.filter(v => (process.env[v] ?? '').length < MIN_SECRET_LEN);
+    if (weak.length > 0) {
+      throw new Error(`Secret(s) shorter than ${MIN_SECRET_LEN} chars: ${weak.join(', ')}`);
+    }
   }
   const missingRecommended = RECOMMENDED_VARS.filter(v => !process.env[v]);
   if (missingRecommended.length > 0) {

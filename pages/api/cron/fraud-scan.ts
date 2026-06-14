@@ -13,6 +13,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
+import { timingSafeEqualStr } from '@/lib/timingSafe';
 import { scanCompanyForFraud } from '@/modules/accounting/services/capture/supplierGraphService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -20,7 +21,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!process.env.CRON_SECRET) {
     return apiResponse.internalError(res, new Error('CRON_SECRET not configured'));
   }
-  if (req.headers['x-cron-secret'] !== process.env.CRON_SECRET) {
+  if (!timingSafeEqualStr(String(req.headers['x-cron-secret'] ?? ''), process.env.CRON_SECRET ?? '')) {
     log.warn('Unauthorized cron attempt', { ip: req.socket.remoteAddress }, 'cron-fraud-scan');
     return apiResponse.unauthorized(res);
   }

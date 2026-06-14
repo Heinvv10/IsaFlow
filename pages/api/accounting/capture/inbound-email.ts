@@ -8,6 +8,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
+import { timingSafeEqualStr } from '@/lib/timingSafe';
 import {
   ingestPostmarkPayload,
   type PostmarkInboundPayload,
@@ -28,7 +29,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return res.status(503).json({ success: false, error: 'Webhook misconfigured' });
   }
   const provided = req.headers['x-postmark-token'];
-  if (provided !== expectedToken) {
+  if (!timingSafeEqualStr(String(provided), String(expectedToken ?? ''))) {
     log.warn('Postmark webhook: invalid token', undefined, 'inbound-email');
     return res.status(401).json({ success: false, error: 'Invalid webhook token' });
   }
