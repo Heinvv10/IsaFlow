@@ -7,7 +7,8 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
+import { checkAiRateLimit } from '@/lib/rateLimit';
 import { log } from '@/lib/logger';
 import { pdfToImage } from '@/lib/pdf-to-image';
 import { callVlmChat, getVlmConfig } from '@/modules/accounting/services/bank/vlmCore';
@@ -60,6 +61,12 @@ function parseResponse(raw: string): { name: string; idNumber: string } {
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
+  }
+
+  const { companyId } = req as CompanyAuthedRequest;
+
+  if (!(await checkAiRateLimit(req, companyId, 'onboarding-extract-id', { companyMax: 30, dailyMax: 300 }))) {
+    return apiResponse.tooManyRequests(res, 'AI request limit reached. Please slow down and try again later.');
   }
 
   const { image } = req.body as { image?: unknown };
