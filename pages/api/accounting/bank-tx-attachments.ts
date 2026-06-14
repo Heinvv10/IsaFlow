@@ -21,6 +21,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
+import { magicBytesMatchMime, decodeUploadPayload } from '@/lib/fileMagic';
 import { extractFromPdf, extractFromImage } from '@/modules/accounting/services/core/ocrService';
 import { isVlmAvailable } from '@/modules/accounting/services/bank/vlmService';
 
@@ -45,11 +46,8 @@ const PostBodySchema = z.object({
 /** 2 MB limit — data URLs expand ~33 % in transit, so clamp at 2 MB of raw bytes */
 const MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024;
 
-/** Allowed MIME types derived from the data URL header */
+/** Allowed attachment types — enforced against the decoded magic bytes (see POST). */
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'application/pdf'];
-
-/** Magic-byte signatures for server-side MIME validation (attacker cannot spoof these) */
-const ALLOWED_ATTACHMENT_MIMES = ['image/jpeg', 'image/png', 'image/gif', 'application/pdf'];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -119,14 +117,16 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     ` as SqlRow[];
     if (!btCheck) return apiResponse.forbidden(res, 'Bank transaction does not belong to your company');
 
-    // Validate MIME type against data URL header
+    // Validate the claimed MIME (from the client-controlled data URL header).
     const mime = extractMime(fileData);
     if (!mime || !ALLOWED_MIME_TYPES.includes(mime)) {
       return apiResponse.badRequest(res, `File type not allowed. Accepted: ${ALLOWED_MIME_TYPES.join(', ')}`);
     }
-    // Secondary allowlist check — attacker-controlled data URL cannot bypass this
-    if (!ALLOWED_ATTACHMENT_MIMES.includes(mime)) {
-      return apiResponse.badRequest(res, `File type ${mime} not allowed`);
+    // H6: the header is spoofable, so confirm the DECODED bytes actually match the
+    // claimed type (magic-byte sniffing). The old code only re-checked the header.
+    const decoded = decodeUploadPayload(fileData);
+    if (!decoded || !magicBytesMatchMime(decoded, mime)) {
+      return apiResponse.badRequest(res, 'File contents do not match the declared type');
     }
 
     // Validate file size

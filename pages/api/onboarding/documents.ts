@@ -7,7 +7,9 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { checkRateLimit } from '@/lib/rateLimit';
+import { magicBytesMatchMime, decodeUploadPayload } from '@/lib/fileMagic';
 import { sql, transaction } from '@/lib/neon';
 
 interface DocumentPayload {
@@ -42,9 +44,21 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const ALLOWED_DOC_MIMES = ['application/pdf', 'image/jpeg', 'image/png', 'image/gif'];
+  const MAX_DOC_BYTES = 20 * 1024 * 1024;
   for (const doc of documents) {
-    if (doc.mimeType && !ALLOWED_DOC_MIMES.includes(doc.mimeType)) {
-      return apiResponse.badRequest(res, `File type ${doc.mimeType} not allowed`);
+    // H5: MIME is mandatory + allowlisted — the old `if (doc.mimeType && ...)` skipped
+    // the check entirely when the client omitted mimeType.
+    if (!doc.mimeType || !ALLOWED_DOC_MIMES.includes(doc.mimeType)) {
+      return apiResponse.badRequest(res, `File type ${doc.mimeType || '(missing)'} not allowed`);
+    }
+    // H5: validate the real decoded bytes match the claimed type (defeats spoofed/polyglot uploads).
+    const buf = decodeUploadPayload(doc.data);
+    if (!buf) return apiResponse.badRequest(res, `Document "${doc.name}": invalid or empty file data`);
+    if (buf.length > MAX_DOC_BYTES) {
+      return apiResponse.badRequest(res, `Document "${doc.name}" exceeds the 20 MB limit`);
+    }
+    if (!magicBytesMatchMime(buf, doc.mimeType)) {
+      return apiResponse.badRequest(res, `Document "${doc.name}": contents do not match ${doc.mimeType}`);
     }
   }
 
@@ -77,7 +91,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
  
-export default withAuth(withErrorHandler(handler));
+export default withAuth(withErrorHandler(withCsrf(handler)));
 
 export const config = {
   api: { bodyParser: { sizeLimit: '50mb' } },

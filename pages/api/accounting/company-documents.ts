@@ -12,6 +12,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { checkRateLimit } from '@/lib/rateLimit';
+import { magicBytesMatchMime, decodeUploadPayload } from '@/lib/fileMagic';
 import { sql } from '@/lib/neon';
 import { isVlmAvailable } from '@/modules/accounting/services/bank/vlmService';
 import { extractStatutoryDocWithVlm } from '@/modules/accounting/services/bank/vlmService';
@@ -98,8 +99,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, 'companyId, documentType, documentName, and fileData are required');
     }
     const ALLOWED_DOC_MIMES = ['application/pdf', 'image/jpeg', 'image/png', 'image/gif'];
-    if (mimeType && !ALLOWED_DOC_MIMES.includes(mimeType as string)) {
-      return apiResponse.badRequest(res, `File type ${mimeType} not allowed`);
+    // M15: MIME mandatory + allowlisted (the old `if (mimeType && ...)` skipped the
+    // check when omitted), and the decoded bytes must match the claimed type.
+    if (!mimeType || !ALLOWED_DOC_MIMES.includes(mimeType as string)) {
+      return apiResponse.badRequest(res, `File type ${mimeType || '(missing)'} not allowed`);
+    }
+    const docBuf = decodeUploadPayload(String(fileData));
+    if (!docBuf || !magicBytesMatchMime(docBuf, mimeType as string)) {
+      return apiResponse.badRequest(res, 'File contents do not match the declared type');
     }
     if (!(await validateMembership(companyId))) {
       return apiResponse.forbidden(res, 'You do not have access to this company');
