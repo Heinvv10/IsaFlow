@@ -21,6 +21,7 @@ import {
   createImportFromDocument,
   listImports,
 } from '@/modules/accounting/services/bank/bankStatementOcrService';
+import { magicBytesMatchMime } from '@/lib/fileMagic';
 
 export const config = { api: { bodyParser: false } };
 
@@ -122,6 +123,12 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   const buffer = fileBuffers.get(file);
   if (!buffer || buffer.length === 0) return apiResponse.badRequest(res, 'Empty file');
+
+  // Cross-validate actual file bytes against the declared MIME — prevents polyglot
+  // files from passing a MIME allowlist check before reaching statement parsers.
+  if (!magicBytesMatchMime(buffer, mimeType)) {
+    return apiResponse.badRequest(res, 'File content does not match declared type');
+  }
 
   const fileName = file.originalFilename || `bank_statement_${Date.now()}.${fileTypeKey}`;
   const hash = sha256(buffer);

@@ -14,6 +14,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { extractFromPdf, extractFromImage } from '@/modules/accounting/services/core/ocrService';
+import { magicBytesMatchMime } from '@/lib/fileMagic';
 import type { CapturedDocument } from '@/modules/accounting/types/documentCapture.types';
 
 export const config = {
@@ -40,8 +41,9 @@ function parseForm(req: NextApiRequest): Promise<{ fields: formidable.Fields; fi
       maxFileSize: MAX_FILE_SIZE,
       keepExtensions: true,
       filter: (part) => {
+        // Reject parts with no MIME or an unrecognised MIME — H13 skip-when-absent guard.
         const mime = part.mimetype || '';
-        return mime in ALLOWED_MIME_TYPES || !mime;
+        return !!mime && mime in ALLOWED_MIME_TYPES;
       },
       fileWriteStreamHandler: (file) => {
         const chunks: Buffer[] = [];
@@ -165,17 +167,14 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, 'Failed to read uploaded file');
     }
 
-    // Validate file magic bytes
-    const hex = buffer.subarray(0, 4).toString('hex').toUpperCase();
-    const isPdf = hex.startsWith('25504446'); // %PDF
-    const isJpeg = hex.startsWith('FFD8FF');
-    const isPng = hex.startsWith('89504E47');
-    const isWebp = buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP';
-    const isTiff = hex.startsWith('49492A00') || hex.startsWith('4D4D002A');
-
-    if (!isPdf && !isJpeg && !isPng && !isWebp && !isTiff) {
-      return apiResponse.badRequest(res, 'File does not appear to be a valid PDF or image');
+    // Cross-validate actual file bytes against the declared MIME — prevents polyglot
+    // files from reaching the OCR pipeline.
+    if (!magicBytesMatchMime(buffer, mimeType)) {
+      return apiResponse.badRequest(res, 'File content does not match declared type');
     }
+
+    // isPdf is still needed to branch between PDF and image extraction paths.
+    const isPdf = buffer.subarray(0, 4).toString('hex').toUpperCase().startsWith('25504446');
 
     log.info('Starting document capture extraction', {
       fileName: file.originalFilename,

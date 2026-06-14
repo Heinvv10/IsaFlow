@@ -14,6 +14,7 @@ import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { storeCapturedBytes } from '@/lib/documentStorage';
+import { magicBytesMatchMime } from '@/lib/fileMagic';
 import { sql } from '@/lib/neon';
 import {
   createReconciliation,
@@ -94,6 +95,12 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse, companyId: 
     }
 
     const buffer = await fs.promises.readFile(file.filepath);
+
+    // Cross-validate actual file bytes against the declared MIME — prevents polyglot
+    // files from passing a MIME allowlist check before reaching the VLM pipeline.
+    if (!magicBytesMatchMime(buffer, mimeType)) {
+      return apiResponse.badRequest(res, 'File content does not match declared type');
+    }
 
     // Create a captured_documents row first, then store bytes
     const [docRow] = (await sql`

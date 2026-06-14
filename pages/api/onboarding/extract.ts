@@ -8,6 +8,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
 import { checkAiRateLimit } from '@/lib/rateLimit';
 import { log } from '@/lib/logger';
 import { pdfToImages } from '@/lib/pdf-to-image';
@@ -272,4 +273,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 
  
-export default withAuth(withErrorHandler(handler));
+export default withAuth(withErrorHandler(withCsrf(handler)));

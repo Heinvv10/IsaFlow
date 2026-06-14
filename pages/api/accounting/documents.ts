@@ -20,11 +20,11 @@ import {
   VALID_DOCUMENT_TYPES,
   ALLOWED_MIME_TYPES,
   MAX_FILE_SIZE,
-  validateMagicBytes,
   mapRow,
   verifyEntityOwnership,
   uploadDocument,
 } from '@/modules/accounting/services/core/documentStorageService';
+import { magicBytesMatchMime } from '@/lib/fileMagic';
 
 export const config = {
   api: { bodyParser: false },
@@ -32,7 +32,15 @@ export const config = {
 
 function parseForm(req: NextApiRequest): Promise<{ fields: formidable.Fields; files: formidable.Files }> {
   return new Promise((resolve, reject) => {
-    const form = formidable({ maxFileSize: MAX_FILE_SIZE, keepExtensions: true });
+    const form = formidable({
+      maxFileSize: MAX_FILE_SIZE,
+      keepExtensions: true,
+      // Reject parts with no MIME or an unrecognised MIME before buffering to disk — H13.
+      filter: (part) => {
+        const mime = part.mimetype || '';
+        return !!mime && ALLOWED_MIME_TYPES.includes(mime);
+      },
+    });
     form.parse(req, (err, fields, files) => {
       if (err) reject(err);
       else resolve({ fields, files });
@@ -136,7 +144,9 @@ async function handlePost(
     }
 
     const buffer = await fs.promises.readFile(file.filepath);
-    if (!validateMagicBytes(buffer)) {
+    // Cross-validate actual bytes against the claimed MIME — prevents a ZIP/OOXML
+    // from masquerading as image/jpeg by passing the allowlist check alone.
+    if (!magicBytesMatchMime(buffer, file.mimetype || '')) {
       return apiResponse.badRequest(res, 'File content does not match declared type');
     }
 
