@@ -10,6 +10,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { apiResponse } from '@/lib/apiResponse';
+import { magicBytesMatchMime, decodeUploadPayload } from '@/lib/fileMagic';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth/withAuth';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { checkRateLimit } from '@/lib/rateLimit';
@@ -67,8 +68,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         // idDocument.data is a base64 data URL — extract MIME from the prefix
         const mimeMatch = (dir.idDocument.data as string).match(/^data:([^;]+);base64,/);
         const detectedMime = mimeMatch?.[1] ?? null;
-        if (detectedMime && !ALLOWED_DOC_MIMES.includes(detectedMime)) {
-          return apiResponse.badRequest(res, `File type ${detectedMime} not allowed for ID document`);
+        // M15: require a valid MIME prefix + magic-byte match (the data-URL header is spoofable).
+        if (!detectedMime || !ALLOWED_DOC_MIMES.includes(detectedMime)) {
+          return apiResponse.badRequest(res, `File type ${detectedMime || '(missing)'} not allowed for ID document`);
+        }
+        const idBuf = decodeUploadPayload(String(dir.idDocument.data));
+        if (!idBuf || !magicBytesMatchMime(idBuf, detectedMime)) {
+          return apiResponse.badRequest(res, 'ID document contents do not match the declared type');
         }
       }
     }

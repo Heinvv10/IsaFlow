@@ -37,6 +37,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!from || !to) {
     return apiResponse.badRequest(res, 'from and to dates are required');
   }
+  // M4: from/to are interpolated into the returned text/html document and the
+  // Content-Disposition filename — constrain to ISO dates so they cannot carry
+  // markup (reflected XSS).
+  const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+  if (!ISO_DATE.test(from) || !ISO_DATE.test(to)) {
+    return apiResponse.badRequest(res, 'from and to must be ISO dates (YYYY-MM-DD)');
+  }
 
   const [pnlRow, balancesRow, companyRow] = await Promise.all([
     getPnLTotals(companyId, from, to),
