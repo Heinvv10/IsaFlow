@@ -3,6 +3,7 @@ import type { NextApiHandler } from 'next';
 import { logout as gotrueLogout } from '@/lib/auth/gotrue';
 import { parseCookies, clearAuthCookies, ACCESS_COOKIE } from '@/lib/auth/cookies';
 import { log } from '@/lib/logger';
+import { withCsrf } from '@/lib/auth/withCsrf';
 
 const handler: NextApiHandler = async (req, res) => {
   if (req.method !== 'POST') {
@@ -17,4 +18,4 @@ const handler: NextApiHandler = async (req, res) => {
   return res.status(200).json({ success: true, data: null });
 };
 
-export default handler;
+export default withCsrf(handler);

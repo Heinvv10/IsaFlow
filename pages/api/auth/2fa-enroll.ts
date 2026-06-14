@@ -4,6 +4,7 @@ import { parseCookies, ACCESS_COOKIE } from '@/lib/auth/cookies';
 import { enrollTotp, GotrueMfaError } from '@/lib/auth/gotrue-mfa';
 import { verifyToken } from '@/lib/auth/gotrue';
 import { log } from '@/lib/logger';
+import { withCsrf } from '@/lib/auth/withCsrf';
 
 const handler: NextApiHandler = async (req, res) => {
   if (req.method !== 'POST') {
@@ -32,4 +33,4 @@ const handler: NextApiHandler = async (req, res) => {
   }
 };
 
-export default handler;
+export default withCsrf(handler);

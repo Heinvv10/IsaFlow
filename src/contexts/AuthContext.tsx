@@ -185,9 +185,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    */
   const logout = async () => {
     try {
+      // Mirror apiFetch's double-submit CSRF header so this survives /api/auth/logout
+      // being wrapped with withCsrf (pentest M8). The isaflow_csrf cookie is
+      // readable from JS by design; logout itself is best-effort (finally clears
+      // local state + redirects regardless), but the server-side cookie clear must
+      // not silently 403.
+      const headers: Record<string, string> = {};
+      const csrfMatch = typeof document !== 'undefined'
+        ? document.cookie.split('; ').find((c) => c.startsWith('isaflow_csrf='))
+        : undefined;
+      if (csrfMatch) headers['X-CSRF-Token'] = csrfMatch.slice('isaflow_csrf='.length);
       await fetch('/api/auth/logout', {
         method: 'POST',
         credentials: 'include',
+        headers,
       });
     } finally {
       setUser(null);

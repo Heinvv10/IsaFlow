@@ -4,6 +4,7 @@ import type { NextApiHandler } from 'next';
 import { parseCookies, ACCESS_COOKIE } from '@/lib/auth/cookies';
 import { challengeFactor, verifyFactor, unenrollFactor, GotrueMfaError } from '@/lib/auth/gotrue-mfa';
 import { log } from '@/lib/logger';
+import { withCsrf } from '@/lib/auth/withCsrf';
 
 const handler: NextApiHandler = async (req, res) => {
   if (req.method !== 'POST') {
@@ -34,4 +35,4 @@ const handler: NextApiHandler = async (req, res) => {
   }
 };
 
-export default handler;
+export default withCsrf(handler);
