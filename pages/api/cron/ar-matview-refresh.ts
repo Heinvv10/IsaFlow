@@ -18,6 +18,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
+import { timingSafeEqualStr } from '@/lib/timingSafe';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -30,7 +31,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const cronSecret = req.headers['x-cron-secret'];
-  if (!cronSecret || cronSecret !== process.env.CRON_SECRET) {
+  if (!cronSecret || !timingSafeEqualStr(String(cronSecret), process.env.CRON_SECRET ?? '')) {
     log.warn('Unauthorized cron attempt', { ip: req.socket.remoteAddress }, 'cron-ar-matview-refresh');
     return apiResponse.unauthorized(res);
   }

@@ -12,6 +12,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { verifyTransaction } from '@/modules/billing/services/paystackClient';
 
 interface PrRow {
@@ -33,6 +34,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
   const ref = typeof req.query.ref === 'string' ? req.query.ref : '';
   if (!ref) return apiResponse.badRequest(res, 'Missing ref');
+
+  // H7: this endpoint is public and re-queries the Paystack API — rate-limit by IP
+  // to stop reference brute-forcing and Paystack-API abuse.
+  if (!(await checkRateLimit(`paystack-verify:${getClientIp(req)}`, { max: 30, windowSecs: 900 }))) {
+    return apiResponse.tooManyRequests(res, 'Too many verification attempts. Please wait and retry.');
+  }
 
   const rows = await sql<PrRow>`
     SELECT pr.id, pr.company_id, pr.customer_invoice_id, pr.paystack_reference,
@@ -66,7 +73,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
               paystack_transaction_id = ${live.id ?? null},
               paystack_authorization_code = COALESCE(${live.authorization?.authorizationCode ?? null}, paystack_authorization_code),
               channel = COALESCE(${live.channel ?? null}, channel)
-          WHERE id = ${pr.id}
+          WHERE id = ${pr.id} AND company_id = ${pr.company_id}
         `;
         // If the webhook hasn't run yet, also apply the invoice-paid update so
         // the return page doesn't have to wait for it.
