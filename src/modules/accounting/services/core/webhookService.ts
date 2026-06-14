@@ -7,6 +7,8 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import crypto from 'crypto';
+import { safeFetch } from '@/lib/safeFetch';
+import { encryptToken, decryptToken } from '@/lib/encryption';
 import { WEBHOOK_EVENTS } from '@/modules/accounting/constants/webhookEvents';
 type Row = DbRow;
 
@@ -78,6 +80,20 @@ function signPayload(secret: string, body: string): string {
   return crypto.createHmac('sha256', secret).update(body).digest('hex');
 }
 
+/**
+ * Read a stored signing secret. New rows are AES-GCM ciphertext (decryptToken);
+ * legacy rows are plaintext. decryptToken throws on a non-ciphertext value that
+ * merely *looks* 3-part (e.g. a legacy plaintext secret like `a:b:c`), so fall
+ * back to the raw stored value rather than failing the delivery.
+ */
+function readStoredSecret(stored: string): string {
+  try {
+    return decryptToken(stored);
+  } catch {
+    return stored;
+  }
+}
+
 /** Fire webhook for an event — non-blocking, never throws to caller. */
 export async function fireWebhook(
   companyId: string,
@@ -96,17 +112,20 @@ export async function fireWebhook(
 
       for (const row of rows) {
         const endpoint = mapWebhook(row);
+        // Sign with the real (decrypted) secret — mapWebhook masks it, so the old
+        // `endpoint.secret` signed every payload with the literal '••••••••'.
+        const rawSecret = row.secret ? readStoredSecret(String(row.secret)) : null;
         const body = JSON.stringify(payload);
-        const signature = endpoint.secret ? signPayload(endpoint.secret, body) : '';
+        const signature = rawSecret ? signPayload(rawSecret, body) : '';
 
         let responseStatus: number | null = null;
         let responseBody: string | null = null;
         let success = false;
 
         try {
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 5000);
-          const resp = await fetch(endpoint.url, {
+          // safeFetch re-validates the (re-resolved) target on every delivery, so a
+          // URL that now points to private space (rebinding) is refused fail-closed.
+          const resp = await safeFetch(endpoint.url, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -114,11 +133,9 @@ export async function fireWebhook(
               ...(signature ? { 'X-Webhook-Signature': signature } : {}),
             },
             body,
-            signal: controller.signal,
           });
-          clearTimeout(timeout);
           responseStatus = resp.status;
-          responseBody = await resp.text().catch(() => null);
+          responseBody = (await resp.text().catch(() => null))?.slice(0, 2000) ?? null;
           success = resp.ok;
         } catch (fetchErr) {
           log.warn('Webhook delivery failed', { endpointId: endpoint.id, error: fetchErr }, 'webhook');
@@ -163,9 +180,12 @@ export async function getWebhooks(companyId: string): Promise<Webhook[]> {
 }
 
 export async function createWebhook(companyId: string, input: WebhookInput): Promise<Webhook> {
+  // M1: encrypt the signing secret at rest (AES-256-GCM). Legacy plaintext rows
+  // still decrypt transparently via decryptToken's 3-part-format check.
+  const secretAtRest = input.secret ? encryptToken(input.secret) : null;
   const rows = (await sql`
     INSERT INTO webhook_endpoints (company_id, name, url, secret, events, is_active)
-    VALUES (${companyId}, ${input.name}, ${input.url}, ${input.secret ?? null},
+    VALUES (${companyId}, ${input.name}, ${input.url}, ${secretAtRest},
             ${input.events}, ${input.isActive ?? true})
     RETURNING *
   `) as Row[];
@@ -188,7 +208,8 @@ export async function updateWebhook(
     if (r.length === 0) throw new Error(`Webhook not found: ${id}`);
   }
   if (updates.secret !== undefined) {
-    const r = (await sql`UPDATE webhook_endpoints SET secret = ${updates.secret ?? null} WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING id`) as Row[];
+    const secretAtRest = updates.secret ? encryptToken(updates.secret) : null;
+    const r = (await sql`UPDATE webhook_endpoints SET secret = ${secretAtRest} WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING id`) as Row[];
     if (r.length === 0) throw new Error(`Webhook not found: ${id}`);
   }
   if (updates.events !== undefined) {
@@ -237,16 +258,14 @@ export async function testWebhook(
   `) as Row[];
   if (!rows[0]) throw new Error('Webhook not found');
   const endpoint = mapWebhook(rows[0]!);
-  const rawSecret = rows[0]!.secret ? String(rows[0]!.secret) : null;
+  const rawSecret = rows[0]!.secret ? readStoredSecret(String(rows[0]!.secret)) : null;
 
   const payload = { test: true, event: 'webhook.test', timestamp: new Date().toISOString() };
   const body = JSON.stringify(payload);
   const signature = rawSecret ? signPayload(rawSecret, body) : '';
 
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-    const resp = await fetch(endpoint.url, {
+    const resp = await safeFetch(endpoint.url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -254,12 +273,15 @@ export async function testWebhook(
         ...(signature ? { 'X-Webhook-Signature': signature } : {}),
       },
       body,
-      signal: controller.signal,
     });
-    clearTimeout(timeout);
-    const respBody = await resp.text().catch(() => '');
     log.info('Webhook test sent', { id, status: resp.status }, 'webhook');
-    return { success: resp.ok, status: resp.status, body: respBody };
+    // H2: never return the upstream response body to the tenant (readable SSRF).
+    // The status is enough to confirm the endpoint accepted the test.
+    return {
+      success: resp.ok,
+      status: resp.status,
+      body: resp.ok ? 'Endpoint responded successfully' : 'Endpoint returned a non-success status',
+    };
   } catch (err) {
     log.warn('Webhook test failed', { id, error: err }, 'webhook');
     return { success: false, status: 0, body: err instanceof Error ? err.message : 'Request failed' };
