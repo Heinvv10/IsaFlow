@@ -28,9 +28,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const job = await transitionJob(companyId, id, newStatus as Parameters<typeof transitionJob>[2], req.user.id);
     return apiResponse.success(res, job);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Transition failed';
     log.error('Job transition failed', { error: err, id, newStatus }, 'practice-api');
-    return apiResponse.badRequest(res, msg);
+    return apiResponse.badRequestFromError(res, err, 'Transition failed');
   }
 }
 

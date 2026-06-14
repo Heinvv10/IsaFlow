@@ -53,9 +53,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       });
       return apiResponse.success(res, item);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Create failed';
       log.error('Recurring template create failed', { error: err }, 'recurring-api');
-      return apiResponse.badRequest(res, msg);
+      return apiResponse.badRequestFromError(res, err, 'Create failed');
     }
   }
 
@@ -69,9 +68,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       );
       return apiResponse.success(res, item);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Update failed';
       log.error('Recurring template update failed', { error: err }, 'recurring-api');
-      return apiResponse.badRequest(res, msg);
+      return apiResponse.badRequestFromError(res, err, 'Update failed');
     }
   }
 
@@ -82,9 +80,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       await deleteRecurringTemplate(companyId, id);
       return apiResponse.success(res, { deleted: true });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Delete failed';
       log.error('Recurring template delete failed', { error: err }, 'recurring-api');
-      return apiResponse.badRequest(res, msg);
+      return apiResponse.badRequestFromError(res, err, 'Delete failed');
     }
   }
 

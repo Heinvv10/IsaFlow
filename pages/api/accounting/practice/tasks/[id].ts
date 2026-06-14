@@ -32,9 +32,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       const task = await updateTask(companyId, id, req.body);
       return apiResponse.success(res, task);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Update failed';
       log.error('Task update failed', { error: err, id }, 'practice-api');
-      return apiResponse.badRequest(res, msg);
+      return apiResponse.badRequestFromError(res, err, 'Update failed');
     }
   }
 
@@ -43,9 +42,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       await deleteTask(companyId, id);
       return apiResponse.success(res, { deleted: true });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Delete failed';
       log.error('Task delete failed', { error: err, id }, 'practice-api');
-      return apiResponse.badRequest(res, msg);
+      return apiResponse.badRequestFromError(res, err, 'Delete failed');
     }
   }
 

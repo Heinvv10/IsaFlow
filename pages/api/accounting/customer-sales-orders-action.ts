@@ -28,8 +28,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         await confirmSalesOrder(companyId, id, userId);
         return apiResponse.success(res, { confirmed: true });
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return apiResponse.badRequest(res, msg);
+        return apiResponse.badRequestFromError(res, err, 'Action failed');
       }
     }
     case 'invoice': {
@@ -37,8 +36,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         const result = await convertSalesOrderToInvoice(companyId, id, userId);
         return apiResponse.success(res, result);
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return apiResponse.badRequest(res, msg);
+        return apiResponse.badRequestFromError(res, err, 'Action failed');
       }
     }
     default:

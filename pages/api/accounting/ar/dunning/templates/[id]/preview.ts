@@ -49,12 +49,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
     }
     apiResponse.success(res, { preview: rendered });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (/not found/i.test(msg)) {
+    const errMsg = err instanceof Error ? err.message : '';
+    if (/not found/i.test(errMsg)) {
       apiResponse.notFound(res, 'Template', templateId);
       return;
     }
-    apiResponse.badRequest(res, msg);
+    apiResponse.badRequestFromError(res, err, 'Failed to render preview');
   }
 }
 

@@ -53,21 +53,21 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
     }
     apiResponse.success(res, result);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (/Invoice .* not found/i.test(msg)) {
+    const errMsg = err instanceof Error ? err.message : '';
+    if (/Invoice .* not found/i.test(errMsg)) {
       apiResponse.notFound(res, 'Invoice', invoiceId);
       return;
     }
-    if (/Template .* not found/i.test(msg)) {
+    if (/Template .* not found/i.test(errMsg)) {
       apiResponse.notFound(res, 'Template', templateId);
       return;
     }
     if (
-      /no outstanding balance/i.test(msg) ||
-      /cancelled invoice/i.test(msg) ||
-      /no email address/i.test(msg)
+      /no outstanding balance/i.test(errMsg) ||
+      /cancelled invoice/i.test(errMsg) ||
+      /no email address/i.test(errMsg)
     ) {
-      apiResponse.badRequest(res, msg);
+      apiResponse.badRequestFromError(res, err, 'Failed to send dunning notices');
       return;
     }
     throw err;

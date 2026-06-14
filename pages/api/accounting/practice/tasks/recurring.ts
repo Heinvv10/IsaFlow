@@ -28,9 +28,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const task = await generateNextRecurringInstance(companyId, req.user.id, sourceTaskId);
     return apiResponse.created(res, task);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Recurring instance generation failed';
     log.error('Task recurring generate failed', { error: err, sourceTaskId }, 'practice-api');
-    return apiResponse.badRequest(res, msg);
+    return apiResponse.badRequestFromError(res, err, 'Recurring instance generation failed');
   }
 }
 

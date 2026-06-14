@@ -25,9 +25,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const result = await generateWipInvoice(companyId, req.user.id, req.body);
     return apiResponse.created(res, result);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'WIP invoice failed';
     log.error('WIP invoice generation failed', { error: err }, 'practice-api');
-    return apiResponse.badRequest(res, msg);
+    return apiResponse.badRequestFromError(res, err, 'WIP invoice failed');
   }
 }
 

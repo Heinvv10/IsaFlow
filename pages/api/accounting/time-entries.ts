@@ -52,9 +52,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       const entry = await createTimeEntry(companyId, req.body, userId);
       return apiResponse.created(res, entry);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Create failed';
       log.error('Time entry create failed', { error: err }, 'accounting-api');
-      return apiResponse.badRequest(res, msg);
+      return apiResponse.badRequestFromError(res, err, 'Create failed');
     }
   }
 
@@ -65,9 +64,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       const entry = await updateTimeEntry(companyId, id, input);
       return apiResponse.success(res, entry);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Update failed';
       log.error('Time entry update failed', { error: err }, 'accounting-api');
-      return apiResponse.badRequest(res, msg);
+      return apiResponse.badRequestFromError(res, err, 'Update failed');
     }
   }
 
@@ -78,9 +76,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       await deleteTimeEntry(companyId, id as string);
       return apiResponse.success(res, { deleted: true });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Delete failed';
       log.error('Time entry delete failed', { error: err }, 'accounting-api');
-      return apiResponse.badRequest(res, msg);
+      return apiResponse.badRequestFromError(res, err, 'Delete failed');
     }
   }
 

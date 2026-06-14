@@ -54,12 +54,12 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       });
       return apiResponse.success(res, group, 'Group created', 201);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to create group';
-      if (msg.includes('unique') || msg.includes('duplicate')) {
+      const errMsg = err instanceof Error ? err.message : '';
+      if (errMsg.includes('unique') || errMsg.includes('duplicate')) {
         return apiResponse.badRequest(res, 'A group with that name already exists');
       }
       log.error('Failed to create account reporting group', { error: err, companyId }, 'accounting-api');
-      return apiResponse.badRequest(res, msg);
+      return apiResponse.badRequestFromError(res, err, 'Failed to create group');
     }
   }
 

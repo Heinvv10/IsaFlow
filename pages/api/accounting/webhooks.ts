@@ -43,9 +43,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       const item = await createWebhook(companyId, { name, url, secret, events, isActive });
       return apiResponse.success(res, item);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Create failed';
       log.error('Webhook create failed', { error: err }, 'webhooks-api');
-      return apiResponse.badRequest(res, msg);
+      return apiResponse.badRequestFromError(res, err, 'Create failed');
     }
   }
 
@@ -64,9 +63,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       const item = await updateWebhook(companyId, id, updates as Parameters<typeof updateWebhook>[2]);
       return apiResponse.success(res, item);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Update failed';
       log.error('Webhook update failed', { error: err }, 'webhooks-api');
-      return apiResponse.badRequest(res, msg);
+      return apiResponse.badRequestFromError(res, err, 'Update failed');
     }
   }
 
@@ -77,9 +75,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       await deleteWebhook(companyId, id);
       return apiResponse.success(res, { deleted: true });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Delete failed';
       log.error('Webhook delete failed', { error: err }, 'webhooks-api');
-      return apiResponse.badRequest(res, msg);
+      return apiResponse.badRequestFromError(res, err, 'Delete failed');
     }
   }
 

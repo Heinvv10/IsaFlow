@@ -24,9 +24,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const result = await executeRecurring(companyId, templateId, userId);
     return apiResponse.success(res, result);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Execute failed';
     log.error('Recurring execute failed', { templateId, error: err }, 'recurring-execute-api');
-    return apiResponse.badRequest(res, msg);
+    return apiResponse.badRequestFromError(res, err, 'Execute failed');
   }
 }
 
