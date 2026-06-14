@@ -52,12 +52,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
       const override = await setOverride(companyId, customerId, input);
       apiResponse.success(res, { override });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (/template .* not found/i.test(msg)) {
+      const errMsg = err instanceof Error ? err.message : '';
+      if (/template .* not found/i.test(errMsg)) {
         apiResponse.notFound(res, 'Template', String(rest.template_id_override ?? ''));
         return;
       }
-      apiResponse.badRequest(res, msg);
+      apiResponse.badRequestFromError(res, err, 'Request failed');
     }
     return;
   }

@@ -43,9 +43,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         return apiResponse.success(res, { status: 'cancelled' });
     }
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Action failed';
     log.error('Write-off action failed', { error: err }, 'accounting-api');
-    return apiResponse.badRequest(res, msg);
+    return apiResponse.badRequestFromError(res, err, 'Action failed');
   }
 }
 

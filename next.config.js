@@ -1,10 +1,9 @@
 /** @type {import('next').NextConfig} */
 
-// Pentest M10: api.anthropic.com removed from connect-src — all Claude API
-// calls are server-side (pages/api/, src/modules/.../services/). The browser
-// never speaks to api.anthropic.com directly.
-const cspDev = "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.isaflow.co.za https://*.gravatar.com; font-src 'self' data:; connect-src 'self' https://*.sageone.co.za https://*.isaflow.co.za https://*.cloudflare.com https://cloudflareinsights.com http://localhost:3101 http://localhost:3004; frame-src 'self' https://signum.brighttech.co.za; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests";
-const cspProd = "default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.isaflow.co.za https://*.gravatar.com; font-src 'self' data:; connect-src 'self' https://*.sageone.co.za https://*.isaflow.co.za https://*.cloudflare.com https://cloudflareinsights.com https://static.cloudflareinsights.com; frame-src 'self' https://signum.brighttech.co.za; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests";
+// Security headers + CSP live in a CJS module so the policy is unit-testable
+// (tests/unit/config/securityHeaders.test.ts). See that module for the WS-5
+// pentest rationale (M2 wildcard tightening, L3 X-XSS-Protection, M1/M10 notes).
+const { securityHeaders } = require('./config/securityHeaders');
 
 const nextConfig = {
   reactStrictMode: true,
@@ -92,20 +91,12 @@ const nextConfig = {
     ];
   },
 
-  // Security headers
+  // Security headers (see config/securityHeaders.js)
   async headers() {
     return [
       {
         source: '/:path*',
-        headers: [
-          { key: 'X-Frame-Options', value: 'DENY' },
-          { key: 'X-Content-Type-Options', value: 'nosniff' },
-          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=(), usb=()' },
-          { key: 'X-DNS-Prefetch-Control', value: 'on' },
-          { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains; preload' },
-          { key: 'Content-Security-Policy', value: process.env.NODE_ENV === 'production' ? cspProd : cspDev },
-        ],
+        headers: securityHeaders(process.env.NODE_ENV),
       },
     ];
   },

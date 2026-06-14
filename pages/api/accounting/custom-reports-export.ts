@@ -40,9 +40,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     result = await runReport(companyId, config);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Export failed';
-    if (msg.includes('Unknown data source') || msg.includes('No valid columns')) {
-      return apiResponse.badRequest(res, msg);
+    const errMsg = err instanceof Error ? err.message : '';
+    if (errMsg.includes('Unknown data source') || errMsg.includes('No valid columns')) {
+      return apiResponse.badRequestFromError(res, err, 'Export failed');
     }
     throw err;
   }

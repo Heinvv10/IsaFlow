@@ -60,9 +60,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       );
       return apiResponse.success(res, record);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'VAT submission failed';
       log.error('VAT return submission failed', { error: err, companyId }, 'accounting-api');
-      return apiResponse.badRequest(res, msg);
+      return apiResponse.badRequestFromError(res, err, 'VAT submission failed');
     }
   }
 

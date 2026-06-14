@@ -27,9 +27,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const count = await submitPracticeEntries(companyId, ids as string[]);
     return apiResponse.success(res, { count });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Submit failed';
     log.error('Practice time entries submit failed', { error: err }, 'practice-api');
-    return apiResponse.badRequest(res, msg);
+    return apiResponse.badRequestFromError(res, err, 'Submit failed');
   }
 }
 

@@ -36,9 +36,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       const job = await createJob(companyId, req.user.id, req.body);
       return apiResponse.created(res, job);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Create failed';
       log.error('Job create failed', { error: err }, 'practice-api');
-      return apiResponse.badRequest(res, msg);
+      return apiResponse.badRequestFromError(res, err, 'Create failed');
     }
   }
 

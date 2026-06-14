@@ -40,9 +40,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     log.info('Report run via API', { dataSource: config.dataSource, rowCount: result.rowCount, companyId }, 'CustomReportsRunAPI');
     return apiResponse.success(res, result);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Report execution failed';
-    if (msg.includes('Unknown data source') || msg.includes('No valid columns')) {
-      return apiResponse.badRequest(res, msg);
+    const errMsg = err instanceof Error ? err.message : '';
+    if (errMsg.includes('Unknown data source') || errMsg.includes('No valid columns')) {
+      return apiResponse.badRequestFromError(res, err, 'Report execution failed');
     }
     throw err;
   }

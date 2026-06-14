@@ -59,15 +59,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
       const tmpl = await createTemplate(companyId, input);
       apiResponse.success(res, tmpl, 'Template created', 201);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (/duplicate key|unique constraint/i.test(msg)) {
+      const errMsg = err instanceof Error ? err.message : '';
+      if (/duplicate key|unique constraint/i.test(errMsg)) {
         res.status(409).json({
           success: false,
           error: { code: 'TEMPLATE_NAME_TAKEN', message: `A template named "${data.name}" already exists` },
         });
         return;
       }
-      apiResponse.badRequest(res, msg);
+      apiResponse.badRequestFromError(res, err, 'Request failed');
     }
     return;
   }

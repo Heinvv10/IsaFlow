@@ -35,9 +35,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       const item = await createRecurringJournal(companyId, req.body, userId);
       return apiResponse.success(res, item);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Create failed';
       log.error('Recurring journal create failed', { error: err }, 'accounting-api');
-      return apiResponse.badRequest(res, msg);
+      return apiResponse.badRequestFromError(res, err, 'Create failed');
     }
   }
 

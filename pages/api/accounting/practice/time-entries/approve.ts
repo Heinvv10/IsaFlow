@@ -27,9 +27,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const count = await approvePracticeEntries(companyId, ids as string[], req.user.id);
     return apiResponse.success(res, { count });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Approve failed';
     log.error('Practice time entries approve failed', { error: err }, 'practice-api');
-    return apiResponse.badRequest(res, msg);
+    return apiResponse.badRequestFromError(res, err, 'Approve failed');
   }
 }
 

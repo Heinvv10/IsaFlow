@@ -34,9 +34,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const entry = await updatePracticeEntry(companyId, id, req.body);
       return apiResponse.success(res, entry);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Update failed';
       log.error('Practice time entry update failed', { error: err, id }, 'practice-api');
-      return apiResponse.badRequest(res, msg);
+      return apiResponse.badRequestFromError(res, err, 'Update failed');
     }
   }
 
@@ -45,9 +44,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       await deletePracticeEntry(companyId, id);
       return apiResponse.success(res, { deleted: true });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Delete failed';
       log.error('Practice time entry delete failed', { error: err, id }, 'practice-api');
-      return apiResponse.badRequest(res, msg);
+      return apiResponse.badRequestFromError(res, err, 'Delete failed');
     }
   }
 

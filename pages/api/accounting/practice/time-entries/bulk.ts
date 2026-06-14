@@ -49,9 +49,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // 201 even when some failed — the UI shows the partial summary
     return res.status(201).json({ data: result });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Bulk create failed';
     log.error('Practice bulk create from template failed', { error: err }, 'practice-api');
-    return apiResponse.badRequest(res, msg);
+    return apiResponse.badRequestFromError(res, err, 'Bulk create failed');
   }
 }
 

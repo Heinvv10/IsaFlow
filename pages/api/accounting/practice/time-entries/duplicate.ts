@@ -25,9 +25,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const entry = await duplicatePracticeEntry(companyId, id, newDate);
     return apiResponse.created(res, entry);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Duplicate failed';
     log.error('Practice time entry duplicate failed', { error: err }, 'practice-api');
-    return apiResponse.badRequest(res, msg);
+    return apiResponse.badRequestFromError(res, err, 'Duplicate failed');
   }
 }
 
