@@ -19,8 +19,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'POST') {
     try {
-      const { reset_link } = await resetPassword(userId);
-
+      // M6: audit-then-act. resetPassword() mints a GoTrue recovery link — an
+      // external, non-transactional side-effect that a tx rollback cannot undo.
+      // Writing the (critical) audit row first means a failed audit throws
+      // BEFORE the link is generated, so a reset can never occur unaudited.
       await logAdminAction(
         req.user.id,
         'user.reset_password',
@@ -29,6 +31,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         null,
         getIp(req)
       );
+
+      const { reset_link } = await resetPassword(userId);
 
       log.info('Password reset performed', { userId }, 'admin-api');
       return apiResponse.success(res, {

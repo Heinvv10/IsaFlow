@@ -5,8 +5,22 @@
  */
 
 import { sql } from '@/lib/neon';
+import { als } from '@/lib/als';
 import { log } from '@/lib/logger';
 import type { AuditLogEntry, PaginatedResult } from '../types/admin.types';
+
+/**
+ * Thrown by logAdminAction when a CRITICAL_ACTIONS audit write fails. A
+ * distinct type so callers/middleware can tell "the audit failed" apart from
+ * "the mutation failed" and refuse to let the privileged action persist
+ * unaudited. (Pentest M6.)
+ */
+export class CriticalAuditError extends Error {
+  constructor(action: string) {
+    super(`Audit logging failed for critical action: ${action}`);
+    this.name = 'CriticalAuditError';
+  }
+}
 
 // Re-export read functions for backward compatibility
 export type { UnifiedAuditEntry, UnifiedAuditFilters } from './auditQueryService';
@@ -66,7 +80,12 @@ export async function logAdminAction(
   } catch (err) {
     log.error('logAdminAction failed', { adminUserId, action, error: err }, 'auditService');
     if (CRITICAL_ACTIONS.has(action)) {
-      throw new Error(`Audit logging failed for critical action: ${action}`);
+      // M6: flag the request context so withPlatformAdmin ROLLS BACK the whole
+      // transaction even if a route-level catch swallows the throw below — a
+      // privileged action must never COMMIT without its audit row.
+      const ctx = als.getStore();
+      if (ctx) ctx.criticalAuditFailed = true;
+      throw new CriticalAuditError(action);
     }
   }
 }

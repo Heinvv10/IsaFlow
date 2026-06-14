@@ -8,6 +8,14 @@ export interface RequestContext {
   /** Absent for platform-admin requests (admin is global, not tenant-scoped). */
   companyId?: string;
   claims: Record<string, unknown>;
+  /**
+   * Set by auditService.logAdminAction when a CRITICAL_ACTIONS audit write
+   * fails. The platform-admin middleware (withPlatformAdmin) checks this before
+   * COMMIT and forces a ROLLBACK, so a privileged action can never persist
+   * without its audit row — even if a route-level catch swallows the thrown
+   * CriticalAuditError. (Pentest M6.)
+   */
+  criticalAuditFailed?: boolean;
 }
 
 export const als = new AsyncLocalStorage<RequestContext>();
