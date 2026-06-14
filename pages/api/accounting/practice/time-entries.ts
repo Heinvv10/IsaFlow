@@ -37,9 +37,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       const entry = await createPracticeEntry(companyId, req.user.id, req.body);
       return apiResponse.created(res, entry);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Create failed';
       log.error('Practice time entry create failed', { error: err }, 'practice-api');
-      return apiResponse.badRequest(res, msg);
+      return apiResponse.badRequestFromError(res, err, 'Create failed');
     }
   }
 

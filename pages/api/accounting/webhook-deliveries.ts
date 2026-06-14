@@ -24,9 +24,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const deliveries = await getDeliveries(companyId, webhookId, limit);
     return apiResponse.success(res, deliveries);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Fetch failed';
     log.error('Webhook deliveries fetch failed', { webhookId, error: err }, 'webhook-deliveries-api');
-    return apiResponse.badRequest(res, msg);
+    return apiResponse.badRequestFromError(res, err, 'Fetch failed');
   }
 }
 

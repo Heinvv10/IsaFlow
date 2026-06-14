@@ -46,9 +46,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         return apiResponse.badRequest(res, `Unknown action: ${action}`);
     }
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Action failed';
     log.error('Time entry action failed', { error: err }, 'accounting-api');
-    return apiResponse.badRequest(res, msg);
+    return apiResponse.badRequestFromError(res, err, 'Action failed');
   }
 }
 

@@ -48,12 +48,12 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       const members = await replaceGroupMembers(companyId, groupId, gl_account_ids as string[]);
       return apiResponse.success(res, { items: members, count: members.length });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to update members';
+      const errMsg = err instanceof Error ? err.message : '';
       log.error('Failed to replace group members', { error: err, companyId, groupId }, 'accounting-api');
-      if (msg.includes('not found') || msg.includes('access denied')) {
-        return apiResponse.notFound(res, msg);
+      if (errMsg.includes('not found') || errMsg.includes('access denied')) {
+        return apiResponse.notFound(res, errMsg);
       }
-      return apiResponse.badRequest(res, msg);
+      return apiResponse.badRequestFromError(res, err, 'Failed to update members');
     }
   }
 

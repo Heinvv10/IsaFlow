@@ -140,9 +140,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       bankFormat,
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Failed to parse statement';
-    log.warn('Bulk commit parse failed', { error: msg, filename }, 'accounting-api');
-    return apiResponse.badRequest(res, msg);
+    log.warn('Bulk commit parse failed', { error: err, filename }, 'accounting-api');
+    return apiResponse.badRequestFromError(res, err, 'Failed to parse statement');
   }
 
   if (parseResult.errors.length > 0 && parseResult.transactions.length === 0) {

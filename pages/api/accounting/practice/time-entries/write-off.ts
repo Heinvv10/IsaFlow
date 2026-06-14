@@ -31,9 +31,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const count = await writeOffEntries(companyId, ids as string[], req.user.id, reason);
     return apiResponse.success(res, { count });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Write-off failed';
     log.error('Practice time entries write-off failed', { error: err }, 'practice-api');
-    return apiResponse.badRequest(res, msg);
+    return apiResponse.badRequestFromError(res, err, 'Write-off failed');
   }
 }
 

@@ -40,8 +40,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       if (!claim) return apiResponse.notFound(res, 'Expense claim', id);
       return apiResponse.success(res, { claim });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return apiResponse.badRequest(res, msg);
+      return apiResponse.badRequestFromError(res, err, 'Request failed');
     }
   }
 

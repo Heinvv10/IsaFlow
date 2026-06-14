@@ -22,9 +22,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const result = await testWebhook(companyId, webhookId);
     return apiResponse.success(res, result);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Test failed';
     log.error('Webhook test failed', { webhookId, error: err }, 'webhooks-test-api');
-    return apiResponse.badRequest(res, msg);
+    return apiResponse.badRequestFromError(res, err, 'Test failed');
   }
 }
 

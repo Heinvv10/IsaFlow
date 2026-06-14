@@ -37,8 +37,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (!loan) return apiResponse.notFound(res, 'Loan', loanId);
       return apiResponse.success(res, loan);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Update failed';
-      return apiResponse.badRequest(res, msg);
+      return apiResponse.badRequestFromError(res, err, 'Update failed');
     }
   }
 
@@ -48,8 +47,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (!ok) return apiResponse.notFound(res, 'Loan', loanId);
       return apiResponse.success(res, { deleted: true, loanId });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Delete failed';
-      return apiResponse.badRequest(res, msg);
+      return apiResponse.badRequestFromError(res, err, 'Delete failed');
     }
   }
 
