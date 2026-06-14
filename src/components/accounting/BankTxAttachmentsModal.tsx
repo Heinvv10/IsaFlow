@@ -44,6 +44,10 @@ const ACCEPTED_MIME = ['image/jpeg', 'image/png', 'application/pdf'];
 // Stored attachments are server-mirrored data-URLs (whitelisted MIME at write
 // time) or https links. Refuse to hyperlink anything else — a corrupt or
 // directly-inserted data:text/html row must never become a clickable XSS.
+// SECURITY-CRITICAL allowlist: this is the single render sink for stored attachment
+// data URLs and is the last line of defence against a magic-byte polyglot (a valid
+// image/PDF header with appended markup). Do NOT widen it to gif/svg/html/* — the
+// upload magic-byte validation (src/lib/fileMagic.ts) assumes inert MIMEs render here.
 const SAFE_HREF = /^(https:\/\/|data:(image\/(jpeg|png|webp|tiff)|application\/pdf);base64,)/;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
