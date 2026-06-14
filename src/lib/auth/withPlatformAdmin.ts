@@ -3,7 +3,7 @@ import type { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
 import * as Sentry from '@sentry/nextjs';
 import { verifyToken } from './gotrue';
 import { parseCookies, clearAuthCookies, ACCESS_COOKIE } from './cookies';
-import { als } from '@/lib/als';
+import { als, type RequestContext } from '@/lib/als';
 import { log } from '@/lib/logger';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { getAppPool, getPlatformAdminPool } from './withPlatformAdmin.pools';
@@ -104,11 +104,15 @@ export function withPlatformAdmin(handler: Handler): NextApiHandler {
         claims: claims as Record<string, unknown>,
       };
 
+      // Hold a reference to the ALS context so we can read criticalAuditFailed
+      // after the handler returns (M6).
+      const ctx: RequestContext = {
+        client: adminClient,
+        userId: claims!.sub,
+        claims: claims as Record<string, unknown>,
+      };
       const runHandler = async () =>
-        als.run(
-          { client: adminClient, userId: claims!.sub, claims: claims as Record<string, unknown> },
-          async () => { await handler(req, res); }
-        );
+        als.run(ctx, async () => { await handler(req, res); });
 
       if (process.env.SENTRY_ENABLED === 'true') {
         await Sentry.withIsolationScope(async () => {
@@ -118,6 +122,26 @@ export function withPlatformAdmin(handler: Handler): NextApiHandler {
         });
       } else {
         await runHandler();
+      }
+
+      // M6: a CRITICAL_ACTIONS audit write failed somewhere in the handler. Even
+      // if the route's own catch swallowed the CriticalAuditError and returned a
+      // response, the privileged mutation must NOT persist without its audit
+      // row — ROLLBACK instead of COMMIT (fail-closed).
+      if (ctx.criticalAuditFailed) {
+        await adminClient.query('ROLLBACK');
+        log.error(
+          'withPlatformAdmin: critical audit write failed — admin action rolled back',
+          { url: req.url, userId: claims!.sub },
+          'Auth'
+        );
+        if (!res.headersSent) {
+          res.status(500).json({
+            success: false,
+            error: { code: 'AUDIT_WRITE_FAILED', message: 'Action aborted: audit log could not be written.' },
+          });
+        }
+        return;
       }
 
       await adminClient.query('COMMIT');

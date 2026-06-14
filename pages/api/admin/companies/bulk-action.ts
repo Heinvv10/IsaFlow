@@ -12,7 +12,7 @@ import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { suspendCompany } from '@/modules/admin/services/adminCompanyService';
-import { logAdminAction } from '@/modules/admin/services/auditService';
+import { logAdminAction, CriticalAuditError } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 import { sql } from '@/lib/neon';
 import { UUID } from '@/lib/schemas/common';
@@ -58,6 +58,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         await logAdminAction(req.user.id, 'company.suspend', 'company', companyId, { reason, bulk: true }, ip);
         processed++;
       } catch (err) {
+        // M6: a failed CRITICAL audit must abort the whole bulk op (the shared
+        // tx is poisoned anyway) — never swallow it into a per-item "error" and
+        // continue, which would report success while the tx rolls back.
+        if (err instanceof CriticalAuditError) throw err;
         const msg = err instanceof Error ? err.message : 'Unknown error';
         errors.push(`${companyId}: ${msg}`);
         log.error('bulk suspend failed for company', { companyId, error: err }, 'admin-bulk-action');
