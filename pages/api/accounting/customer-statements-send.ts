@@ -15,6 +15,7 @@ import { withAuth, withWriteAccess, type CompanyAuthedRequest, type Authenticate
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
+import { checkSendRateLimit } from '@/lib/rateLimit';
 import { sendStatementEmail } from '@/modules/accounting/services/ar/statementEmailService';
 
 type Row = Record<string, unknown>;
@@ -53,6 +54,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   const { companyId } = req as CompanyAuthedRequest;
+
+  const sendAllowed = await checkSendRateLimit(req, companyId, 'customer-statements');
+  if (!sendAllowed) {
+    return apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
+  }
 
   const body = req.body as {
     customer_ids?: unknown;
