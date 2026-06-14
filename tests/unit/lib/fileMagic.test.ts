@@ -13,6 +13,17 @@ const GIF = buf(0x47, 0x49, 0x46, 0x38, 0x39, 0x61);
 const PDF = buf(0x25, 0x50, 0x44, 0x46, 0x2d);
 const ZIP = buf(0x50, 0x4b, 0x03, 0x04);
 const HTML = Buffer.from('<html><script>alert(1)</script>', 'utf8');
+// WebP: RIFF????WEBP (12-byte minimum)
+const WEBP = Buffer.concat([
+  Buffer.from([0x52, 0x49, 0x46, 0x46]), // RIFF
+  Buffer.from([0x00, 0x00, 0x00, 0x00]), // file size (4 bytes, arbitrary)
+  Buffer.from('WEBP'),                   // WEBP marker
+  Buffer.alloc(8),
+]);
+// TIFF little-endian
+const TIFF_LE = buf(0x49, 0x49, 0x2a, 0x00);
+// TIFF big-endian
+const TIFF_BE = buf(0x4d, 0x4d, 0x00, 0x2a);
 
 describe('detectMimeFromMagic', () => {
   it('detects real types', () => {
@@ -21,6 +32,11 @@ describe('detectMimeFromMagic', () => {
     expect(detectMimeFromMagic(GIF)).toBe('image/gif');
     expect(detectMimeFromMagic(PDF)).toBe('application/pdf');
     expect(detectMimeFromMagic(ZIP)).toBe('application/zip');
+  });
+  it('detects WebP and TIFF (new in upload audit fix)', () => {
+    expect(detectMimeFromMagic(WEBP)).toBe('image/webp');
+    expect(detectMimeFromMagic(TIFF_LE)).toBe('image/tiff');
+    expect(detectMimeFromMagic(TIFF_BE)).toBe('image/tiff');
   });
   it('returns null for unknown / too-short / html-polyglot bytes', () => {
     expect(detectMimeFromMagic(HTML)).toBeNull();
@@ -43,6 +59,18 @@ describe('magicBytesMatchMime — bytes must match the claimed type', () => {
   it('accepts ZIP bytes for openxml docx/xlsx claims', () => {
     expect(magicBytesMatchMime(ZIP, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')).toBe(true);
     expect(magicBytesMatchMime(ZIP, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')).toBe(true);
+  });
+  it('accepts WebP and TIFF with matching claims', () => {
+    expect(magicBytesMatchMime(WEBP, 'image/webp')).toBe(true);
+    expect(magicBytesMatchMime(TIFF_LE, 'image/tiff')).toBe(true);
+    expect(magicBytesMatchMime(TIFF_BE, 'image/tiff')).toBe(true);
+  });
+  it('accepts image/jpg alias for JPEG bytes', () => {
+    expect(magicBytesMatchMime(JPEG, 'image/jpg')).toBe(true);
+    expect(magicBytesMatchMime(JPEG, 'image/jpeg')).toBe(true);
+  });
+  it('rejects WebP bytes claimed as image/jpeg', () => {
+    expect(magicBytesMatchMime(WEBP, 'image/jpeg')).toBe(false);
   });
   it('rejects an empty/short buffer', () => {
     expect(magicBytesMatchMime(Buffer.alloc(2), 'image/png')).toBe(false);

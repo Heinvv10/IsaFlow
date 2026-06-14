@@ -17,6 +17,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { checkAiRateLimit } from '@/lib/rateLimit';
 import { log } from '@/lib/logger';
 import { extractFromPdf, extractFromImage } from '@/modules/accounting/services/core/ocrService';
+import { magicBytesMatchMime } from '@/lib/fileMagic';
 
 export const config = {
   api: { bodyParser: false },
@@ -41,8 +42,9 @@ function parseForm(req: NextApiRequest): Promise<{ fields: formidable.Fields; fi
       maxFileSize: MAX_FILE_SIZE,
       keepExtensions: true,
       filter: (part) => {
+        // Reject parts with no MIME or an unrecognised MIME — H13 skip-when-absent guard.
         const mime = part.mimetype || '';
-        return mime in ALLOWED_MIME_TYPES || !mime;
+        return !!mime && mime in ALLOWED_MIME_TYPES;
       },
       fileWriteStreamHandler: (file) => {
         const chunks: Buffer[] = [];
@@ -95,6 +97,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const buffer = fileBuffers.get(file);
     if (!buffer || buffer.length === 0) {
       return apiResponse.badRequest(res, 'Failed to read uploaded file');
+    }
+
+    // Cross-validate actual file bytes against the declared MIME — prevents polyglot
+    // files (e.g. ZIP claiming image/jpeg) from reaching the VLM pipeline.
+    if (!magicBytesMatchMime(buffer, mimeType)) {
+      return apiResponse.badRequest(res, 'File content does not match declared type');
     }
 
     const isPdf = buffer.subarray(0, 4).toString('hex').toUpperCase().startsWith('25504446');

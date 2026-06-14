@@ -10,7 +10,7 @@
 /** Detect a MIME type from a buffer's leading bytes, or null if unrecognised. */
 export function detectMimeFromMagic(buffer: Buffer): string | null {
   if (buffer.length < 4) return null;
-  const hex = buffer.subarray(0, 8).toString('hex').toUpperCase();
+  const hex = buffer.subarray(0, 12).toString('hex').toUpperCase();
   if (hex.startsWith('FFD8FF')) return 'image/jpeg';
   if (hex.startsWith('89504E47')) return 'image/png';
   if (hex.startsWith('474946383761') || hex.startsWith('474946383961')) return 'image/gif';
@@ -18,6 +18,16 @@ export function detectMimeFromMagic(buffer: Buffer): string | null {
   if (hex.startsWith('504B0304') || hex.startsWith('504B0506') || hex.startsWith('504B0708')) {
     return 'application/zip'; // also docx/xlsx/odt containers
   }
+  // WebP: RIFF????WEBP
+  if (
+    hex.startsWith('52494646') &&
+    buffer.length >= 12 &&
+    buffer.subarray(8, 12).toString('ascii') === 'WEBP'
+  ) {
+    return 'image/webp';
+  }
+  // TIFF: little-endian (II) or big-endian (MM)
+  if (hex.startsWith('49492A00') || hex.startsWith('4D4D002A')) return 'image/tiff';
   return null;
 }
 
@@ -35,6 +45,8 @@ export function magicBytesMatchMime(buffer: Buffer, claimedMime: string): boolea
   if (detected === claimedMime) return true;
   // Office Open XML files (docx/xlsx/pptx) are ZIP containers on disk.
   if (detected === 'application/zip' && OOXML_ZIP_MIMES.has(claimedMime)) return true;
+  // image/jpg is a non-standard alias some browsers and formidable emit for JPEG files.
+  if (detected === 'image/jpeg' && claimedMime === 'image/jpg') return true;
   return false;
 }
 

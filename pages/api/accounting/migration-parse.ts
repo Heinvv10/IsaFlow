@@ -45,32 +45,36 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   });
 
   const [fields, files] = await form.parse(req);
-  const source = (Array.isArray(fields.source) ? fields.source[0] : fields.source) as string;
-  const fileType = (Array.isArray(fields.fileType) ? fields.fileType[0] : fields.fileType) as string;
 
-  if (!VALID_SOURCES.includes(source as MigrationSource)) {
-    return apiResponse.badRequest(res, `Invalid source. Must be one of: ${VALID_SOURCES.join(', ')}`);
-  }
-  if (!VALID_FILE_TYPES.includes(fileType as FileType)) {
-    return apiResponse.badRequest(res, `Invalid fileType. Must be one of: ${VALID_FILE_TYPES.join(', ')}`);
-  }
-
+  // Resolve temp file path early so cleanup runs regardless of which validation fails.
   const uploadedFile = Array.isArray(files.file) ? files.file[0] : files.file;
-  if (!uploadedFile) {
-    return apiResponse.badRequest(res, 'No file uploaded');
-  }
-
-  let fileContent: string;
-  try {
-    fileContent = fs.readFileSync(uploadedFile.filepath, 'utf-8');
-  } catch (err) {
-    log.error('Failed to read uploaded file', { error: err }, 'migration');
-    return apiResponse.badRequest(res, 'Could not read uploaded file');
-  }
-
-  const src = source as MigrationSource;
+  const tempFilePath = uploadedFile?.filepath ?? null;
 
   try {
+    const source = (Array.isArray(fields.source) ? fields.source[0] : fields.source) as string;
+    const fileType = (Array.isArray(fields.fileType) ? fields.fileType[0] : fields.fileType) as string;
+
+    if (!VALID_SOURCES.includes(source as MigrationSource)) {
+      return apiResponse.badRequest(res, `Invalid source. Must be one of: ${VALID_SOURCES.join(', ')}`);
+    }
+    if (!VALID_FILE_TYPES.includes(fileType as FileType)) {
+      return apiResponse.badRequest(res, `Invalid fileType. Must be one of: ${VALID_FILE_TYPES.join(', ')}`);
+    }
+
+    if (!uploadedFile) {
+      return apiResponse.badRequest(res, 'No file uploaded');
+    }
+
+    let fileContent: string;
+    try {
+      fileContent = fs.readFileSync(uploadedFile.filepath, 'utf-8');
+    } catch (err) {
+      log.error('Failed to read uploaded file', { error: err }, 'migration');
+      return apiResponse.badRequest(res, 'Could not read uploaded file');
+    }
+
+    const src = source as MigrationSource;
+
     if (fileType === 'accounts') {
       const parsed = parseAccountsFile(src, fileContent);
       const mapped = autoMapAccounts(src, parsed);
@@ -88,7 +92,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     log.info('Parsed suppliers file', { source: src, count: parsed.length }, 'migration');
     return apiResponse.success(res, { parsed, count: parsed.length });
   } finally {
-    try { fs.unlinkSync(uploadedFile.filepath); } catch { /* ignore cleanup errors */ }
+    // Always clean up the temp file — including on early validation failures.
+    if (tempFilePath) {
+      try { fs.unlinkSync(tempFilePath); } catch { /* ignore cleanup errors */ }
+    }
   }
 }
 
