@@ -27,6 +27,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { log } from '@/lib/logger';
+import { safeFetch, checkPublicUrl } from '@/lib/safeFetch';
 import {
   mapSageAccounts,
   mapSageCustomers,
@@ -36,6 +37,9 @@ import {
 } from '@/modules/accounting/services/core/sageAutoImportService';
 
 const DEFAULT_SAGE_BASE = 'https://accounting.sageone.co.za';
+// M5: the caller-supplied sageBase must be a Sage host — never let the cookie be
+// replayed to an attacker-chosen internal/metadata endpoint (SSRF).
+const SAGE_ALLOWED_HOSTS = ['sageone.co.za'];
 const PAGE_SIZE = 200;
 
 interface SageEnvelope { Results?: unknown[]; TotalResults?: number; }
@@ -64,11 +68,11 @@ async function pullEndpoint(
   let skip = 0;
   let total = Infinity;
   while (skip < total) {
-    const res = await fetch(`${base}${endpoint}`, {
+    const res = await safeFetch(`${base}${endpoint}`, {
       method: 'POST',
       headers: buildHeaders(cookie),
       body: JSON.stringify({ FilterId: 0, Search: '', Skip: skip, Take: PAGE_SIZE, ...bodyExtras }),
-    });
+    }, { allowHosts: SAGE_ALLOWED_HOSTS });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`${endpoint} failed: ${res.status} ${text.slice(0, 200)}`);
@@ -96,10 +100,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
   const base = (sageBase || DEFAULT_SAGE_BASE).replace(/\/+$/, '');
 
+  // M5: reject a non-Sage / private / non-https base before any cookie is sent.
+  const baseReason = await checkPublicUrl(base, { allowHosts: SAGE_ALLOWED_HOSTS });
+  if (baseReason) {
+    return apiResponse.badRequest(res, `sageBase must be a Sage HTTPS host (${baseReason})`);
+  }
+
   log.info('Sage server-side pull starting', { companyId, base }, 'migration');
 
   try {
-    const companyRes = await fetch(`${base}/services/Company/Current`, { headers: buildHeaders(sageCookie) });
+    const companyRes = await safeFetch(`${base}/services/Company/Current`, {
+      headers: buildHeaders(sageCookie),
+    }, { allowHosts: SAGE_ALLOWED_HOSTS });
     if (!companyRes.ok) {
       const status = companyRes.status;
       const text = await companyRes.text().catch(() => '');

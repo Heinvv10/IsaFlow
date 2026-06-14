@@ -12,25 +12,13 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { checkPublicUrl } from '@/lib/safeFetch';
 import {
   getWebhooks,
   createWebhook,
   updateWebhook,
   deleteWebhook,
 } from '@/modules/accounting/services/core/webhookService';
-
-/** SSRF guard — only allow HTTPS URLs pointing to public internet hosts */
-function isValidWebhookUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== 'https:') return false;
-    const hostname = parsed.hostname;
-    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0') return false;
-    if (hostname.startsWith('10.') || hostname.startsWith('192.168.') || hostname.startsWith('172.')) return false;
-    if (hostname === '169.254.169.254') return false; // AWS metadata endpoint
-    return true;
-  } catch { return false; }
-}
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -47,8 +35,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (!name || !url || !events || events.length === 0) {
       return apiResponse.badRequest(res, 'name, url, and at least one event are required');
     }
-    if (!isValidWebhookUrl(url)) {
-      return apiResponse.badRequest(res, 'Webhook URL must be a valid HTTPS URL pointing to a public host');
+    const urlReason = await checkPublicUrl(url);
+    if (urlReason) {
+      return apiResponse.badRequest(res, `Webhook URL must be a public HTTPS endpoint (${urlReason})`);
     }
     try {
       const item = await createWebhook(companyId, { name, url, secret, events, isActive });
@@ -63,6 +52,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method === 'PUT') {
     const { id, ...updates } = req.body as { id?: string; [key: string]: unknown };
     if (!id) return apiResponse.badRequest(res, 'id is required');
+    // H2: validate the URL on UPDATE too — the old code only checked it on create,
+    // so an attacker could create a benign webhook then PUT an internal URL.
+    if (typeof updates.url === 'string') {
+      const urlReason = await checkPublicUrl(updates.url);
+      if (urlReason) {
+        return apiResponse.badRequest(res, `Webhook URL must be a public HTTPS endpoint (${urlReason})`);
+      }
+    }
     try {
       const item = await updateWebhook(companyId, id, updates as Parameters<typeof updateWebhook>[2]);
       return apiResponse.success(res, item);
