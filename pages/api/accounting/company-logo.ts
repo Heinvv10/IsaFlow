@@ -11,6 +11,7 @@ import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { UUID } from '@/lib/schemas/common';
+import { decodeUploadPayload, magicBytesMatchMime } from '@/lib/fileMagic';
 type Row = Record<string, unknown>;
 
 // Pentest M14: accept only safe raster formats. Excludes data:image/svg+xml
@@ -45,6 +46,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
   }
   const { companyId, logoData } = parsed.data;
+
+  // Cross-validate actual bytes against the claimed MIME — the regex above checks the
+  // data-URL prefix is a safe raster format, but doesn't inspect real file content.
+  // This prevents a polyglot (e.g. GIF89a header + embedded payload) from being stored.
+  const logoMimeMatch = /^data:(image\/(?:jpeg|png|gif|webp));base64,/.exec(logoData);
+  const logoMime = logoMimeMatch?.[1] ?? '';
+  const logoBuffer = decodeUploadPayload(logoData);
+  if (!logoBuffer || !magicBytesMatchMime(logoBuffer, logoMime)) {
+    return apiResponse.badRequest(res, 'Logo file content does not match declared type');
+  }
 
   // Validate ownership (owner or admin)
   const membership = (await sql`
