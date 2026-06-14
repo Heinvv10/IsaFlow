@@ -28,13 +28,12 @@ const handler: NextApiHandler = async (req, res) => {
     return res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'factor_id and code required' } });
   }
 
-  // Pentest H6: pending_token is now read from the HttpOnly cookie set by
-  // /api/auth/login. Body-provided tokens (old client) are still tolerated
-  // for the current release so clients can be rolled out gradually; remove
-  // the body fallback after the frontend lands the cookie-based flow.
-  const cookiePendingToken = parseCookies(req)[PENDING_MFA_COOKIE];
-  const bodyPendingToken = typeof req.body?.pending_token === 'string' ? req.body.pending_token : '';
-  const pending_token = cookiePendingToken || bodyPendingToken;
+  // Pentest H6 / M8: pending_token is read ONLY from the HttpOnly cookie set by
+  // /api/auth/login. The body fallback (old client) has been removed now that the
+  // frontend uses the cookie-based flow (pages/login.tsx sends pending_token: '').
+  // A body-supplied token would let an attacker who obtained an AAL1 token by
+  // other means complete the MFA step without the HttpOnly cookie.
+  const pending_token = parseCookies(req)[PENDING_MFA_COOKIE];
   if (!pending_token) {
     return res.status(401).json({ success: false, error: { code: 'NO_PENDING_TOKEN', message: 'Pending session missing' } });
   }
