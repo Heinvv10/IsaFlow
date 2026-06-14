@@ -97,11 +97,36 @@ export function getClientIp(req: NextApiRequest): string {
   // using the last (nginx-appended) is still safe for rate limiting purposes.
   const forwarded = req.headers['x-forwarded-for'];
   if (forwarded) {
-    const raw = Array.isArray(forwarded) ? forwarded[0] ?? '' : forwarded;
-    const ips = raw.split(',').map(s => s.trim());
+    // If the header appears multiple times Node gives an array; the LAST one is
+    // appended by the closest trusted proxy (H8: the old code took forwarded[0],
+    // the client-supplied/spoofable header).
+    const raw = Array.isArray(forwarded) ? forwarded[forwarded.length - 1] ?? '' : forwarded;
+    const ips = raw.split(',').map(s => s.trim()).filter(Boolean);
     return ips[ips.length - 1] || req.socket.remoteAddress || 'unknown';
   }
   return req.socket.remoteAddress || 'unknown';
+}
+
+/**
+ * Per-IP + per-company + daily-quota limiting for expensive AI/LLM endpoints
+ * (pentest H3: an authenticated tenant could otherwise burn the inference budget
+ * with unbounded calls). Returns true when ALLOWED, false when it should be 429'd.
+ */
+export async function checkAiRateLimit(
+  req: NextApiRequest,
+  companyId: string,
+  name: string,
+  opts: { ipMax?: number; companyMax?: number; dailyMax?: number } = {},
+): Promise<boolean> {
+  const ip = getClientIp(req);
+  const ipMax = opts.ipMax ?? 20;
+  const companyMax = opts.companyMax ?? 40;
+  const dailyMax = opts.dailyMax ?? 300;
+  return (
+    (await checkRateLimit(`ai:${name}:ip:${ip}`, { max: ipMax, windowSecs: 900 })) &&
+    (await checkRateLimit(`ai:${name}:co:${companyId}`, { max: companyMax, windowSecs: 900 })) &&
+    (await checkRateLimit(`ai:${name}:co:${companyId}:day`, { max: dailyMax, windowSecs: 86_400 }))
+  );
 }
 
 // ---------------------------------------------------------------------------

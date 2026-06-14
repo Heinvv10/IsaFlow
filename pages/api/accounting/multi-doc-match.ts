@@ -8,8 +8,9 @@ import { Writable } from 'stream';
 import formidable from 'formidable';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, withWriteAccess} from '@/lib/auth';
+import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { checkAiRateLimit } from '@/lib/rateLimit';
 import { log } from '@/lib/logger';
 import { performMultiDocMatch } from '@/modules/accounting/services/bank/multiDocMatchService';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
@@ -66,6 +67,12 @@ function parseForm(req: NextApiRequest): Promise<{ fields: formidable.Fields; fi
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
+  }
+
+  const { companyId } = req as CompanyAuthedRequest;
+
+  if (!(await checkAiRateLimit(req, companyId, 'multi-doc-match', { companyMax: 30, dailyMax: 300 }))) {
+    return apiResponse.tooManyRequests(res, 'AI request limit reached. Please slow down and try again later.');
   }
 
   const { fields } = await parseForm(req);

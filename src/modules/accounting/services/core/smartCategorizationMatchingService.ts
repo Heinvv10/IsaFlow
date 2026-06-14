@@ -8,6 +8,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { safeRegexTest } from '@/lib/safeRegex';
 import type { DbRow } from '@/types/db';
 
 
@@ -100,12 +101,8 @@ export function matchAgainstPatternsInMemory(
         matched = description.startsWith(pat) || reference.startsWith(pat);
         break;
       case 'regex':
-        try {
-          const re = new RegExp(String(p.pattern), 'i');
-          matched = re.test(description) || re.test(reference);
-        } catch {
-          matched = false;
-        }
+        // H4: ReDoS-safe — refuses catastrophic-backtracking patterns + bounds input.
+        matched = safeRegexTest(String(p.pattern), description) || safeRegexTest(String(p.pattern), reference);
         break;
       default:
         matched = combined.includes(pat);

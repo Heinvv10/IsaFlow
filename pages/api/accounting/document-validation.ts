@@ -8,6 +8,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { checkAiRateLimit } from '@/lib/rateLimit';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
@@ -27,6 +28,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
 
   const { companyId } = req;
+
+  if (!(await checkAiRateLimit(req, companyId, 'document-validation', { companyMax: 30, dailyMax: 300 }))) {
+    return apiResponse.tooManyRequests(res, 'AI request limit reached. Please slow down and try again later.');
+  }
+
   const { entityType, entityId, documentId } = req.body as {
     entityType?: string;
     entityId?: string;
