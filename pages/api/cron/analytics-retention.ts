@@ -13,6 +13,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { timingSafeEqualStr } from '@/lib/timingSafe';
 
 const RETENTION_DAYS = 180;
 
@@ -26,7 +27,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.internalError(res, new Error('Cron secret not configured'));
   }
   const cronSecret = req.headers['x-cron-secret'];
-  if (!cronSecret || cronSecret !== process.env.CRON_SECRET) {
+  if (!cronSecret || !timingSafeEqualStr(String(cronSecret), process.env.CRON_SECRET ?? '')) {
     log.warn('Unauthorized cron attempt', { ip: req.socket.remoteAddress }, 'cron-analytics-retention');
     return apiResponse.unauthorized(res);
   }

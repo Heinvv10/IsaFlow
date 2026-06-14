@@ -82,10 +82,18 @@ export function decrypt(ciphertext: string): string {
   }
 }
 
-/** Encrypt token if key is available, otherwise warn and return plaintext. */
+/**
+ * Encrypt a token. M3: in production a missing ENCRYPTION_KEY is a hard error —
+ * never silently store a secret as plaintext. (validateEnv already requires the
+ * key at boot; this also covers scripts/workers that skip that gate.) In
+ * dev/test without a key it warns and returns plaintext so local flows still run.
+ */
 export function encryptToken(plaintext: string): string {
   if (!isEncryptionAvailable()) {
-    log.warn('ENCRYPTION_KEY not set — storing token as plaintext', {}, 'encryption');
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('ENCRYPTION_KEY is required to encrypt secrets at rest');
+    }
+    log.warn('ENCRYPTION_KEY not set — storing token as plaintext (non-production)', {}, 'encryption');
     return plaintext;
   }
   return encrypt(plaintext);

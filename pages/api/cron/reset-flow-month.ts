@@ -12,6 +12,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
+import { timingSafeEqualStr } from '@/lib/timingSafe';
 import { resetMonthlyCounter } from '@/modules/billing/services/flowWalletService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -24,7 +25,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.internalError(res, new Error('Cron secret not configured'));
   }
   const cronSecret = req.headers['x-cron-secret'];
-  if (!cronSecret || cronSecret !== process.env.CRON_SECRET) {
+  if (!cronSecret || !timingSafeEqualStr(String(cronSecret), process.env.CRON_SECRET ?? '')) {
     log.warn('Unauthorized cron attempt', { ip: req.socket.remoteAddress }, 'cron-reset-flow-month');
     return apiResponse.unauthorized(res);
   }
