@@ -65,7 +65,8 @@ scripts/security-scan.ts
 scripts/workflow-test.ts
 scripts/large-scale-seed.ts
 scripts/run-sql.mjs
-.env.local.bak-*
+# Never commit any env backup/dump (H1 pentest 2026-06-14: .env.local.bak-prod leaked live secrets)
+.env*.bak*
 .claude/scheduled_tasks.lock
 .claude/worktrees/
 .playwright-mcp/

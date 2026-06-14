@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Secret-scan pre-commit guard.
+# Added after H1 pentest finding 2026-06-14 (.env.local.bak-prod committed live secrets).
+# Goal: make it hard to commit env-backups, key material, or credential-bearing
+# connection strings. Bypass with SKIP_SECRET_SCAN=1 for genuine emergencies.
+#
+# NOTE: this is a LOCAL, best-effort guard — any committer can bypass it. It is not
+# a substitute for a server-side gate; CI should also scan for secrets.
+
+if [ "${SKIP_SECRET_SCAN:-0}" = "1" ]; then
+  echo "[pre-commit] SKIP_SECRET_SCAN=1 — skipping secret scan"
+  exit 0
+fi
+
+cd "$(git rev-parse --show-toplevel)"
+
+fail=0
+
+# 1) Block staged env files (anything env-shaped except the committed template).
+#    NUL-delimited so filenames with spaces/newlines can't split a name; process
+#    substitution keeps the loop in the current shell so `fail` survives.
+while IFS= read -r -d '' f; do
+  [ -z "$f" ] && continue
+  base="$(basename "$f")"
+  case "$base" in
+    .env.example) ;;                       # the only env file allowed in the tree
+    .env|.env.*|*.env|*.env.*)             # .env, .env.local, .env.local.bak-prod, foo.env, ...
+      echo "[pre-commit] BLOCKED: refusing to commit env file: $f"
+      fail=1
+      ;;
+    *) ;;
+  esac
+done < <(git diff --cached -z --name-only --diff-filter=ACM)
+
+# 2) Block private-key material and credentialed connection strings in staged content.
+#    -U0 keeps it to changed lines; '^\+[^+]' selects added content lines while
+#    skipping the '+++' file headers. Secret values match quoted OR unquoted forms.
+#    The final grep -v drops benign env *references* (KEY = process.env.X / config.x
+#    to end-of-line) which aren't literal secrets; the `$` anchor means a hardcoded
+#    literal fallback after `||` or `??` is NOT excluded (stays blocked).
+key_hits="$(git diff --cached -U0 --diff-filter=ACM \
+  | grep -E '^\+[^+]' \
+  | grep -aE 'BEGIN (RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY|postgres(ql)?://[^:[:space:]]+:[^@[:space:]]+@|(SECRET|PASSWORD|API_?KEY|ACCESS_?TOKEN|PRIVATE_?KEY)[[:space:]]*[:=][[:space:]]*["'"'"']?[^"'"'"'[:space:]]{12,}' \
+  | grep -vaE '(SECRET|PASSWORD|API_?KEY|ACCESS_?TOKEN|PRIVATE_?KEY)[[:space:]]*[:=][[:space:]]*(process\.env|import\.meta|os\.environ|getenv|config|cfg|settings|env)\b[][:space:]A-Za-z0-9_.(){};,'"'"'"]*$' \
+  || true)"
+
+if [ -n "$key_hits" ]; then
+  echo "[pre-commit] BLOCKED: possible secret(s) in staged changes:"
+  echo "$key_hits" | sed 's/^/    /' | head -20
+  echo "[pre-commit] If this is a false positive, commit with SKIP_SECRET_SCAN=1."
+  fail=1
+fi
+
+# 3) If gitleaks is installed, run its staged-protection scan for deeper coverage.
+if command -v gitleaks >/dev/null 2>&1; then
+  if ! gitleaks protect --staged --no-banner >/dev/null 2>&1; then
+    echo "[pre-commit] BLOCKED: gitleaks flagged staged changes. Run: gitleaks protect --staged --verbose"
+    fail=1
+  fi
+else
+  echo "[pre-commit] note: gitleaks not installed — using built-in patterns only. Install gitleaks for full coverage."
+fi
+
+if [ "$fail" = "1" ]; then
+  echo "[pre-commit] commit aborted."
+  exit 1
+fi
+
+exit 0
