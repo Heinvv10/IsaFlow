@@ -13,6 +13,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID, requireUuidParam } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
+import { checkSendRateLimit } from '@/lib/rateLimit';
 import { sendForSigning } from '@/modules/accounting/services/afs/signumIntegrationService';
 import { notifySigningRequested } from '@/modules/accounting/services/afs/portalNotificationService';
 import type { PortalRole } from '@/modules/accounting/services/afs/afsTypes';
@@ -29,6 +30,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const { companyId } = req as CompanyAuthedRequest;
+
+  const sendAllowed = await checkSendRateLimit(req, companyId, 'afs-signing');
+  if (!sendAllowed) {
+    return apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
+  }
+
   const documentId = requireUuidParam(req, res, 'documentId');
   if (!documentId) return;
 
