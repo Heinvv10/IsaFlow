@@ -13,7 +13,7 @@
  * Required env (reads .env.local automatically):
  *   SWEEP_BASE_URL   — defaults to http://localhost:3200
  *   SWEEP_EMAIL      — defaults to admin@isaflow.co.za
- *   SWEEP_PASSWORD   — defaults to admin123
+ *   SWEEP_PASSWORD   — falls back to ADMIN_PASSWORD; required (no hardcoded default)
  *   SWEEP_COMPANY_ID — defaults to 00000000-0000-0000-0000-0000000d4e02
  *
  * scripts/audit/api-contract-sweep.ts
@@ -41,7 +41,8 @@ import { ROUTES, NIL_UUID, type RouteSpec } from './sweep-routes.ts';
 // ── Config ───────────────────────────────────────────────────────────────────
 const BASE_URL    = process.env['SWEEP_BASE_URL']    ?? 'http://localhost:3200';
 const EMAIL       = process.env['SWEEP_EMAIL']       ?? 'admin@isaflow.co.za';
-const PASSWORD    = process.env['SWEEP_PASSWORD']    ?? 'admin123';
+const PASSWORD    = process.env['SWEEP_PASSWORD'] ?? process.env['ADMIN_PASSWORD'];
+if (!PASSWORD) { console.error('SWEEP_PASSWORD or ADMIN_PASSWORD env var is required (hardcoded default removed for security)'); process.exit(1); }
 const COMPANY_ID  = process.env['SWEEP_COMPANY_ID']  ?? '00000000-0000-0000-0000-0000000d4e02';
 
 // Output paths

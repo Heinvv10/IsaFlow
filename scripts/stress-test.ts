@@ -24,6 +24,8 @@ if (fs.existsSync(envPath)) {
 
 const sql = createSql();
 const BASE = 'http://localhost:3200';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+if (!ADMIN_PASSWORD) { console.error('ADMIN_PASSWORD env var is required (hardcoded default removed for security)'); process.exit(1); }
 const args = process.argv.slice(2);
 const SEED_ONLY  = args.includes('--seed-only');
 const LOAD_ONLY  = args.includes('--load-only');
@@ -337,7 +339,7 @@ async function getAuthCookie(): Promise<string> {
   const r = await fetch(`${BASE}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: 'admin@isaflow.co.za', password: 'admin123' }),
+    body: JSON.stringify({ email: 'admin@isaflow.co.za', password: ADMIN_PASSWORD }),
   });
   const setCookie = r.headers.get('set-cookie') || '';
   const match = setCookie.match(/isaflow_auth=([^;]+)/);
