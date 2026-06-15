@@ -177,6 +177,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Default POST: create group
     const { name, holdingCompanyId, defaultCurrency, financialYearStart } = req.body;
     if (!name) return apiResponse.badRequest(res, 'name is required');
+    // createGroup auto-enrolls holdingCompanyId as a group member, so it is the same
+    // cross-tenant injection vector as add-member — gate it on caller membership (H1).
+    if (holdingCompanyId && !(await verifyCompanyMembership(holdingCompanyId))) {
+      return apiResponse.forbidden(res, 'Access denied to the specified holding company');
+    }
     const group = await createGroup({ name, holdingCompanyId, defaultCurrency, financialYearStart }, userId);
     return apiResponse.success(res, group);
   }

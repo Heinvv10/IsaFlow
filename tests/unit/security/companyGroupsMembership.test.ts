@@ -43,7 +43,7 @@ vi.mock('@/lib/apiResponse', () => ({
 
 import { apiResponse } from '@/lib/apiResponse';
 import {
-  addMember, autoGenerateGroupCOA, setCoaMapping, autoMapAccounts,
+  addMember, autoGenerateGroupCOA, setCoaMapping, autoMapAccounts, createGroup,
 } from '@/modules/accounting/services/reports/groupCompanyService';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — pages/ is outside src/ so the @/ alias won't resolve; relative path needed
@@ -132,5 +132,36 @@ describe('company-groups H1 — per-company membership guard', () => {
     );
     expect(apiResponse.forbidden).toHaveBeenCalledTimes(1);
     expect(autoMapAccounts).not.toHaveBeenCalled();
+  });
+
+  it('create-group: rejects a holdingCompanyId the caller is NOT a member of', async () => {
+    // createGroup auto-enrolls holdingCompanyId as a member → same vector as add-member.
+    wireSql({ hasGroupAccess: false, isCompanyMember: false });
+    await (handler as Handler)(
+      makeReq({ name: 'Group X', holdingCompanyId: OTHER_COMPANY }),
+      makeRes(),
+    );
+    expect(apiResponse.forbidden).toHaveBeenCalledTimes(1);
+    expect(createGroup).not.toHaveBeenCalled();
+  });
+
+  it('create-group: allows a holdingCompanyId the caller IS a member of', async () => {
+    wireSql({ hasGroupAccess: false, isCompanyMember: true });
+    await (handler as Handler)(
+      makeReq({ name: 'Group X', holdingCompanyId: OTHER_COMPANY }),
+      makeRes(),
+    );
+    expect(apiResponse.forbidden).not.toHaveBeenCalled();
+    expect(createGroup).toHaveBeenCalledTimes(1);
+  });
+
+  it('create-group: allows creation with no holdingCompanyId (no membership query)', async () => {
+    wireSql({ hasGroupAccess: false, isCompanyMember: false });
+    await (handler as Handler)(
+      makeReq({ name: 'Group X' }),
+      makeRes(),
+    );
+    expect(apiResponse.forbidden).not.toHaveBeenCalled();
+    expect(createGroup).toHaveBeenCalledTimes(1);
   });
 });
