@@ -18,6 +18,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
+import { timingSafeEqualStr } from '@/lib/timingSafe';
 import { recordResponse } from '@/modules/accounting/services/ar/dunningAdmin';
 import type { ResponseAction } from '@/modules/accounting/services/ar/dunningService';
 
@@ -39,7 +40,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
     res.status(503).json({ success: false, error: { code: 'WEBHOOK_MISCONFIGURED', message: 'Webhook misconfigured' } });
     return;
   }
-  if (req.headers['x-webhook-secret'] !== expectedSecret) {
+  const providedSecret = req.headers['x-webhook-secret'];
+  // Constant-time compare to avoid leaking the secret via response timing (pentest H11).
+  if (typeof providedSecret !== 'string' || !timingSafeEqualStr(providedSecret, expectedSecret)) {
     log.warn('dunning-response unauthorized', { ip: req.socket.remoteAddress }, 'dunning-webhook');
     apiResponse.unauthorized(res);
     return;
