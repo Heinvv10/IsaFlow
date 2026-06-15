@@ -9,6 +9,7 @@ import { log } from '@/lib/logger';
 import type { DbRow } from '@/lib/neon';
 import { sendEmail } from '@/modules/accounting/services/core/emailService';
 import { BRAND, emailLayout } from '@/lib/email-templates';
+import { safeFetch } from '@/lib/safeFetch';
  
 import type { SystemHealthResponse } from '../../../../pages/api/admin/health';
 
@@ -153,7 +154,7 @@ async function sendEmailAlert(
 
 // ─── Webhook alert ────────────────────────────────────────────────────────────
 
-async function sendWebhookAlert(
+export async function sendWebhookAlert(
   health: SystemHealthResponse,
   webhookUrl: string,
 ): Promise<void> {
@@ -165,16 +166,19 @@ async function sendWebhookAlert(
     email_success_rate: health.email.success_rate_percent,
   };
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10_000);
-
   try {
-    const res = await fetch(webhookUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
+    // safeFetch re-resolves the host and rejects private/reserved/metadata addresses
+    // before connecting — the webhook URL is admin-supplied and otherwise only format-
+    // validated, so a plain fetch() here is an SSRF sink (pentest H3).
+    const res = await safeFetch(
+      webhookUrl,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      },
+      { timeoutMs: 10_000 },
+    );
 
     if (!res.ok) {
       log.warn('Health alert webhook returned non-2xx', { status: res.status, webhookUrl }, 'healthAlertService');
@@ -183,8 +187,6 @@ async function sendWebhookAlert(
     }
   } catch (err) {
     log.warn('Health alert webhook failed', { error: err instanceof Error ? err.message : err, webhookUrl }, 'healthAlertService');
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
