@@ -12,6 +12,9 @@ import { writeFileSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+if (!ADMIN_PASSWORD) { console.error('ADMIN_PASSWORD env var is required (hardcoded default removed for security)'); process.exit(1); }
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BASE_URL = 'https://admin.isaflow.co.za';
 const SCREENSHOT_DIR = join(__dirname, '../tmp/admin-qa-screenshots');
@@ -27,7 +30,7 @@ async function run() {
   // Login
   await page.goto(`${BASE_URL}/login`, { waitUntil: 'networkidle', timeout: 15000 });
   await page.locator('input[type="email"]').first().fill('admin@isaflow.co.za');
-  await page.locator('input[type="password"]').first().fill('admin123');
+  await page.locator('input[type="password"]').first().fill(ADMIN_PASSWORD);
   await page.locator('button[type="submit"]').first().click();
   await page.waitForTimeout(4000);
   console.log('Logged in. Current URL:', page.url());

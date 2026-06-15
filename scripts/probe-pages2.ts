@@ -1,5 +1,7 @@
 import { chromium } from 'playwright';
 const BASE = 'https://app.isaflow.co.za';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+if (!ADMIN_PASSWORD) { console.error('ADMIN_PASSWORD env var is required (hardcoded default removed for security)'); process.exit(1); }
 
 async function main() {
   const browser = await chromium.launch({ headless: true });
@@ -11,7 +13,7 @@ async function main() {
   await page.waitForLoadState('domcontentloaded');
   if (!page.url().includes('/accounting')) {
     await page.fill('input[type="email"]', 'admin@isaflow.co.za');
-    await page.fill('input[type="password"]', 'admin123');
+    await page.fill('input[type="password"]', ADMIN_PASSWORD);
     await page.click('button[type="submit"]');
     await page.waitForTimeout(4000);
   }

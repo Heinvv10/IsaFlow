@@ -8,7 +8,8 @@ const ROOT = path.resolve(HERE, '..');
 const BASE_URL = process.env.QA_BASE_URL ?? 'http://localhost:3200';
 const COMPANY_ID = process.env.COMPANY_ID_ISADEMO2 ?? '00000000-0000-0000-0000-0000000d4e02';
 const ADMIN_EMAIL = process.env.QA_ADMIN_EMAIL ?? process.env.E2E_ADMIN_EMAIL ?? 'admin@isaflow.co.za';
-const ADMIN_PASSWORD = process.env.QA_ADMIN_PASSWORD ?? process.env.E2E_ADMIN_PASSWORD ?? 'admin123';
+const ADMIN_PASSWORD = process.env.QA_ADMIN_PASSWORD ?? process.env.E2E_ADMIN_PASSWORD ?? process.env.ADMIN_PASSWORD;
+if (!ADMIN_PASSWORD) { console.error('Set ADMIN_PASSWORD (or QA_ADMIN_PASSWORD/E2E_ADMIN_PASSWORD) env var (hardcoded default removed for security)'); process.exit(1); }
 
 async function login(page) {
   const res = await page.request.post(`${BASE_URL}/api/auth/login`, {

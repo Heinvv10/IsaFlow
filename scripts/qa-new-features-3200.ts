@@ -8,7 +8,8 @@ import { chromium, Browser, BrowserContext, Page } from 'playwright';
 
 const BASE = 'http://localhost:3200';
 const EMAIL = 'admin@isaflow.co.za';
-const PASS = 'admin123';
+const PASS = process.env.ADMIN_PASSWORD;
+if (!PASS) { console.error('ADMIN_PASSWORD env var is required (hardcoded default removed for security)'); process.exit(1); }
 
 interface TestResult {
   step: number;

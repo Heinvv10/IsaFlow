@@ -14,6 +14,11 @@ if [ -z "$DATABASE_URL" ]; then
   exit 1
 fi
 
+if [ -z "$ADMIN_PASSWORD_HASH" ]; then
+  echo "ERROR: ADMIN_PASSWORD_HASH is not set (bcrypt hash for the seed super_admin; the hardcoded default was removed for security)"
+  exit 1
+fi
+
 echo "=== Accounting Database Setup ==="
 echo ""
 
@@ -50,8 +55,8 @@ INSERT INTO users (id, email, password_hash, first_name, last_name, role, permis
 VALUES (
   'admin-001',
   'admin@accounting.local',
-  -- bcrypt hash of 'admin123' (change in production!)
-  '\$2b\$12\$uabVX3TLtKt5yMdFm3GioObqpAk43vXvClYnjc9nEm8ISKRMD1jSG',
+  -- bcrypt hash supplied via the ADMIN_PASSWORD_HASH env var (no hardcoded default)
+  '$ADMIN_PASSWORD_HASH',
   'Admin',
   'User',
   'super_admin',

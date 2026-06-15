@@ -12,6 +12,8 @@ import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BASE_URL = 'https://admin.isaflow.co.za';
 const SCREENSHOT_DIR = join(__dirname, '../tmp/admin-qa-screenshots');
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+if (!ADMIN_PASSWORD) { console.error('ADMIN_PASSWORD env var is required (hardcoded default removed for security)'); process.exit(1); }
 const REPORT_PATH = join(__dirname, '../tmp/admin-qa-report.md');
 
 mkdirSync(SCREENSHOT_DIR, { recursive: true });
@@ -106,7 +108,7 @@ async function run() {
     const passwordInput = page.locator('input[type="password"]').first();
 
     await emailInput.fill('admin@isaflow.co.za');
-    await passwordInput.fill('admin123');
+    await passwordInput.fill(ADMIN_PASSWORD);
     await screenshot(page, '02-login-filled');
 
     await page.locator('button[type="submit"], button:has-text("Sign in"), button:has-text("Login"), button:has-text("Log in")').first().click();
@@ -117,7 +119,7 @@ async function run() {
     await screenshot(page, '03-after-login');
 
     record(
-      'Login with admin@isaflow.co.za / admin123',
+      'Login with admin@isaflow.co.za',
       'Redirect away from login page',
       `URL: ${afterLoginUrl}`,
       loggedIn
@@ -181,7 +183,7 @@ async function run() {
         const emailInput = page.locator('input[type="email"], input[name="email"]').first();
         const passwordInput = page.locator('input[type="password"]').first();
         await emailInput.fill('admin@isaflow.co.za');
-        await passwordInput.fill('admin123');
+        await passwordInput.fill(ADMIN_PASSWORD);
         await page.locator('button[type="submit"]').first().click();
         await page.waitForTimeout(3000);
         await page.goto(`${BASE_URL}${pageTest.path}`, { waitUntil: 'networkidle', timeout: 15000 });

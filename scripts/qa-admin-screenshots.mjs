@@ -11,6 +11,9 @@ const BASE_URL = 'https://admin.isaflow.co.za';
 const SCREENSHOT_DIR = join(__dirname, '../tmp/admin-qa-screenshots');
 mkdirSync(SCREENSHOT_DIR, { recursive: true });
 
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+if (!ADMIN_PASSWORD) { console.error('ADMIN_PASSWORD env var is required (hardcoded default removed for security)'); process.exit(1); }
+
 async function run() {
   const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
@@ -19,7 +22,7 @@ async function run() {
   // Login
   await page.goto(`${BASE_URL}/login`, { waitUntil: 'networkidle', timeout: 15000 });
   await page.locator('input[type="email"]').first().fill('admin@isaflow.co.za');
-  await page.locator('input[type="password"]').first().fill('admin123');
+  await page.locator('input[type="password"]').first().fill(ADMIN_PASSWORD);
   await page.locator('button[type="submit"]').first().click();
   await page.waitForTimeout(3000);
   console.log('Logged in:', page.url());
