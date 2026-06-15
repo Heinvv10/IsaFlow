@@ -8,7 +8,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
-import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
+import { checkAiRateLimit } from '@/lib/rateLimit';
 import {
   buildForecastScenario, calculateWeeklyForecast,
   buildForecastNarrativePrompt, parseForecastNarrative,
@@ -17,13 +17,10 @@ import {
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
 
-  const ip = getClientIp(req);
   const companyId = (req as unknown as { companyId: string }).companyId;
-  if (!(await checkRateLimit(`ai-forecast:ip:${ip}`, { max: 30, windowSecs: 15 * 60 }))) {
-    return apiResponse.tooManyRequests(res);
-  }
-  if (!(await checkRateLimit(`ai-forecast:company:${companyId}`, { max: 60, windowSecs: 15 * 60 }))) {
-    return apiResponse.tooManyRequests(res);
+  // Anthropic-backed: per-IP + per-company + per-company-daily budget cap (pentest H8).
+  if (!(await checkAiRateLimit(req, companyId, 'ai-forecast', { ipMax: 30, companyMax: 60, dailyMax: 300 }))) {
+    return apiResponse.tooManyRequests(res, 'AI request limit reached. Please try again later.');
   }
 
   const { baseRevenue = 0, baseExpenses = 0, cashBalance = 0, months = 6, weeklyMode = false } = req.body;

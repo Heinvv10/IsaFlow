@@ -9,7 +9,7 @@ import { withAuth, type AuthenticatedNextApiRequest, withWriteAccess} from '@/li
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
+import { checkAiRateLimit } from '@/lib/rateLimit';
 import type { CompanyAuthedRequest } from '@/lib/auth/withAuth';
 import {
   buildTextToSQLPrompt, parseSQLResponse, validateGeneratedSQL,
@@ -37,13 +37,10 @@ const SCHEMA_TABLES: SchemaTable[] = [
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
 
-  const ip = getClientIp(req);
   const companyId = (req as CompanyAuthedRequest).companyId;
-  if (!(await checkRateLimit(`nl-query:ip:${ip}`, { max: 30, windowSecs: 15 * 60 }))) {
-    return apiResponse.tooManyRequests(res);
-  }
-  if (!(await checkRateLimit(`nl-query:company:${companyId}`, { max: 60, windowSecs: 15 * 60 }))) {
-    return apiResponse.tooManyRequests(res);
+  // Anthropic-backed: per-IP + per-company + per-company-daily budget cap (pentest H8).
+  if (!(await checkAiRateLimit(req, companyId, 'nl-query', { ipMax: 30, companyMax: 60, dailyMax: 300 }))) {
+    return apiResponse.tooManyRequests(res, 'AI request limit reached. Please try again later.');
   }
 
   const { question } = req.body;

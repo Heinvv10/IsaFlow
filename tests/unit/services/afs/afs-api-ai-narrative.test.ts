@@ -17,6 +17,7 @@ vi.mock('@/lib/logger', () => ({
 }));
 vi.mock('@/lib/rateLimit', () => ({
   checkRateLimit: vi.fn().mockResolvedValue(true),
+  checkAiRateLimit: vi.fn().mockResolvedValue(true),
   getClientIp: vi.fn().mockReturnValue('1.2.3.4'),
 }));
 vi.mock('@/modules/accounting/services/afs/noteAiService', () => ({

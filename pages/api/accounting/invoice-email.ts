@@ -9,6 +9,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { checkSendRateLimit } from '@/lib/rateLimit';
 import { sendInvoiceEmail } from '@/modules/accounting/services/core/emailService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -16,6 +17,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
+  }
+
+  // Each call sends a real SMTP email to an arbitrary address — bound it per IP/company/day
+  // so a logged-in user can't loop it into a spam cannon (pentest H9).
+  if (!(await checkSendRateLimit(req, companyId, 'invoice-email'))) {
+    return apiResponse.tooManyRequests(res, 'Email send limit reached. Please try again later.');
   }
 
   const { invoiceId, recipientEmail } = req.body;
