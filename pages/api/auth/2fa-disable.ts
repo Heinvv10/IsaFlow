@@ -5,6 +5,7 @@ import { parseCookies, ACCESS_COOKIE } from '@/lib/auth/cookies';
 import { challengeFactor, verifyFactor, unenrollFactor, GotrueMfaError } from '@/lib/auth/gotrue-mfa';
 import { log } from '@/lib/logger';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 
 const handler: NextApiHandler = async (req, res) => {
   if (req.method !== 'POST') {
@@ -17,6 +18,11 @@ const handler: NextApiHandler = async (req, res) => {
   const { factor_id, code } = req.body ?? {};
   if (typeof factor_id !== 'string' || typeof code !== 'string') {
     return res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'factor_id and code required' } });
+  }
+  // Bound TOTP brute-force per factor before allowing a 2FA-disable (pentest H7).
+  if (!(await checkRateLimit(`2fa:disable:${factor_id}`, { max: 5, windowSecs: 900 }))) {
+    log.warn('2fa-disable rate limit (factor)', { factor_id, ip: getClientIp(req) }, 'Auth');
+    return res.status(429).json({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many attempts. Please try again later.' } });
   }
   try {
     const challengeId = await challengeFactor(factor_id, token);
