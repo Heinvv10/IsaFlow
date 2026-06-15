@@ -27,10 +27,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const sessionClientId = session.clientId;
   const sessionCompanyId = session.companyId;
 
-  // Rate limit: 20 requests per 15 minutes (calls Claude API)
+  // Rate limit: 20 requests per 15 minutes per IP (calls Claude API) PLUS a per-company
+  // daily cap so one tenant's portal customers can't collectively exhaust the AI budget
+  // across many IPs (pentest H8 — portal chat had no per-company/daily bound).
   const ip = getClientIp(req);
   if (!(await checkRateLimit(`portal-chat:${ip}`, { max: 20, windowSecs: 15 * 60 }))) {
     return res.status(429).json({ success: false, error: { code: 'RATE_LIMITED', message: 'Too many requests. Please try again later.' } });
+  }
+  if (!(await checkRateLimit(`portal-chat:co:${sessionCompanyId}:day`, { max: 500, windowSecs: 86_400 }))) {
+    return res.status(429).json({ success: false, error: { code: 'RATE_LIMITED', message: 'Daily AI request limit reached. Please try again tomorrow.' } });
   }
 
   const { question, clientId } = req.body;
