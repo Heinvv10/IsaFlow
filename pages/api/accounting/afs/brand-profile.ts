@@ -6,6 +6,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { checkPublicUrl } from '@/lib/safeFetch';
 import {
   getBrandProfile,
   upsertBrandProfile,
@@ -43,6 +44,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     const parsed = PutBrandProfileSchema.safeParse(req.body ?? {});
     if (!parsed.success) return apiResponse.zodValidationError(res, parsed.error);
+
+    // The logo URL is fetched server-side by WeasyPrint when rendering PDFs, so an
+    // https:// URL pointing at an internal/metadata address is an SSRF sink. Re-resolve
+    // it and reject private/reserved targets before storing (pentest H2).
+    if (parsed.data.logoUrl) {
+      const reason = await checkPublicUrl(parsed.data.logoUrl);
+      if (reason) return apiResponse.badRequest(res, `logoUrl is not allowed: ${reason}`);
+    }
+
     const profile = await upsertBrandProfile(companyId, {
       primaryColour: parsed.data.primaryColour ?? '#000000',
       secondaryColour: parsed.data.secondaryColour ?? '#000000',
