@@ -20,6 +20,7 @@ import {
   markInvitationEmailFailed,
 } from '@/modules/accounting/services/core/userAccessService';
 import { sendInviteEmail } from '@/modules/accounting/services/core/emailService';
+import { checkSendRateLimit } from '@/lib/rateLimit';
 type Row = Record<string, unknown>;
 
 
@@ -53,6 +54,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const emailLower = email.toLowerCase().trim();
     if (!emailLower.includes('@')) {
       return apiResponse.badRequest(res, 'A valid email address is required.');
+    }
+
+    // Sends a real invite email to an arbitrary address — bound it so an admin can't loop
+    // it into invite spam (pentest H9; the active UI route had no send cap).
+    if (!(await checkSendRateLimit(req, companyId, 'company-invitations', { companyMax: 20, dailyMax: 100 }))) {
+      return apiResponse.tooManyRequests(res, 'Invitation send limit reached. Please try again later.');
     }
 
     const invitedBy = companyReq.user.id;
