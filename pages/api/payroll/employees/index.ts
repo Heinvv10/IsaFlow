@@ -13,6 +13,7 @@ import {
   type CompanyAuthedRequest,
 } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import {
   listPayrollEmployees,
   createPayrollEmployee,
@@ -66,4 +67,4 @@ async function handler(
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST']);
 }
 
-export default withAuth(withErrorHandler(withCsrf(handler)));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
