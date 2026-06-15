@@ -6,6 +6,7 @@ import { getBrandProfile } from './brandProfileService';
 import { runPreExportChecks } from './afsPreExportChecks';
 import { renderAfsToHtml } from './afsHtmlRendererService';
 import { htmlToPdf } from './weasyprintService';
+import { checkPublicUrl } from '@/lib/safeFetch';
 
 export type { ExportCheck } from './afsPreExportChecks';
 export { runPreExportChecks } from './afsPreExportChecks';
@@ -131,9 +132,20 @@ export async function exportToPdf(
   const companyName         = companyRow.name as string;
   const registrationNumber  = (companyRow.registration_number as string | null) ?? '';
 
-  // 6. Render HTML
+  // 6. Render HTML. Defence-in-depth: WeasyPrint fetches the logo URL server-side, so
+  // re-validate it here (covers rows stored before the save-time guard) and drop it if it
+  // now resolves to a private/reserved address rather than letting WeasyPrint reach it (H2).
+  let safeBrandProfile = brandProfile;
+  if (brandProfile.logoUrl) {
+    const reason = await checkPublicUrl(brandProfile.logoUrl);
+    if (reason) {
+      log.warn('pdfExportService: dropping non-public logoUrl from render', { companyId, reason });
+      safeBrandProfile = { ...brandProfile, logoUrl: null };
+    }
+  }
+
   const html = renderAfsToHtml(
-    { document, sections, brandProfile, companyName, registrationNumber },
+    { document, sections, brandProfile: safeBrandProfile, companyName, registrationNumber },
     { watermark: options?.watermark },
   );
 
