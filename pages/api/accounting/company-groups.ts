@@ -51,6 +51,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return rows.length > 0;
   }
 
+  // Verify the user is a member of a SPECIFIC company. Body-supplied companyIds
+  // (add-member / auto-generate-coa / set-mapping / auto-map) must be gated by this
+  // so a group member cannot pull an unrelated tenant's company into the group and
+  // read its COA/financials (pentest H1 — cross-tenant IDOR).
+  async function verifyCompanyMembership(cId: string): Promise<boolean> {
+    const rows = (await sql`
+      SELECT 1 FROM company_users
+      WHERE company_id = ${cId}::UUID AND user_id = ${userId}::UUID
+      LIMIT 1
+    `) as Record<string, unknown>[];
+    return rows.length > 0;
+  }
+
   // ── GET ────────────────────────────────────────────────────────────────────
   if (req.method === 'GET') {
     const groupId = req.query.group_id as string | undefined;
@@ -112,6 +125,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const { groupId, companyId, ownershipPct, consolidationMethod } = req.body;
       if (!groupId || !companyId) return apiResponse.badRequest(res, 'groupId and companyId required');
       if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
+      if (!(await verifyCompanyMembership(companyId))) return apiResponse.forbidden(res, 'Access denied to the specified company');
       const member = await addMember(groupId, companyId, {
         ownershipPct: ownershipPct ?? 100,
         consolidationMethod: consolidationMethod ?? 'full',
@@ -135,6 +149,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const { groupId, sourceCompanyId } = req.body;
       if (!groupId || !sourceCompanyId) return apiResponse.badRequest(res, 'groupId and sourceCompanyId required');
       if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
+      if (!(await verifyCompanyMembership(sourceCompanyId))) return apiResponse.forbidden(res, 'Access denied to the specified company');
       const count = await autoGenerateGroupCOA(groupId, sourceCompanyId);
       return apiResponse.success(res, { accountsCreated: count });
     }
@@ -145,6 +160,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         return apiResponse.badRequest(res, 'groupId, companyId, companyAccountId, groupAccountId required');
       }
       if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
+      if (!(await verifyCompanyMembership(companyId))) return apiResponse.forbidden(res, 'Access denied to the specified company');
       const mapping = await setCoaMapping(groupId, companyId, companyAccountId, groupAccountId);
       return apiResponse.success(res, mapping);
     }
@@ -153,6 +169,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const { groupId, companyId } = req.body;
       if (!groupId || !companyId) return apiResponse.badRequest(res, 'groupId and companyId required');
       if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
+      if (!(await verifyCompanyMembership(companyId))) return apiResponse.forbidden(res, 'Access denied to the specified company');
       const count = await autoMapAccounts(groupId, companyId);
       return apiResponse.success(res, { mappedCount: count });
     }
@@ -160,6 +177,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Default POST: create group
     const { name, holdingCompanyId, defaultCurrency, financialYearStart } = req.body;
     if (!name) return apiResponse.badRequest(res, 'name is required');
+    // createGroup auto-enrolls holdingCompanyId as a group member, so it is the same
+    // cross-tenant injection vector as add-member — gate it on caller membership (H1).
+    if (holdingCompanyId && !(await verifyCompanyMembership(holdingCompanyId))) {
+      return apiResponse.forbidden(res, 'Access denied to the specified holding company');
+    }
     const group = await createGroup({ name, holdingCompanyId, defaultCurrency, financialYearStart }, userId);
     return apiResponse.success(res, group);
   }

@@ -35,6 +35,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, 'userId and role are required.');
     }
 
+    // Only an existing owner may grant the owner role — otherwise an admin could
+    // self-promote to owner (pentest H5 — privilege escalation).
+    if (role === 'owner' && companyRole !== 'owner') {
+      return apiResponse.forbidden(res, 'Only an owner can grant the owner role.');
+    }
+
     try {
       await updateCompanyUserRole(companyId, userId, role);
       const users = await listCompanyUsers(companyId);
