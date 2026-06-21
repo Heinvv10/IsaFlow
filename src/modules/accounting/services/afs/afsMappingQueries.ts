@@ -113,6 +113,10 @@ export async function getMappedTrialBalance(
   const lines = await getStatementLines(companyId);
   const activeLines = lines.filter((l) => l.isActive);
 
+  // Derive balances from posted journal lines (source of truth) rather than the
+  // gl_account_balances cache. That cache is maintained only by a gl_journal_lines
+  // trigger that skips non-posted entries and is never refreshed when an entry
+  // flips draft -> posted, so it silently drops rows -> understated statements.
   const currentRows = await sql`
     SELECT
       m.afs_line_code,
@@ -122,8 +126,18 @@ export async function getMappedTrialBalance(
       COALESCE(b.debit_total, 0) - COALESCE(b.credit_total, 0) AS balance
     FROM afs_account_mappings m
     JOIN gl_accounts a ON a.id = m.gl_account_id AND a.company_id = m.company_id
-    LEFT JOIN gl_account_balances b
-      ON b.gl_account_id = m.gl_account_id AND b.fiscal_period_id = ${fiscalPeriodId}
+    LEFT JOIN (
+      SELECT jl.gl_account_id,
+             SUM(jl.debit) AS debit_total,
+             SUM(jl.credit) AS credit_total
+      FROM gl_journal_lines jl
+      JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+      WHERE je.company_id = ${companyId}
+        AND jl.company_id = ${companyId}
+        AND je.fiscal_period_id = ${fiscalPeriodId}
+        AND je.status = 'posted'
+      GROUP BY jl.gl_account_id
+    ) b ON b.gl_account_id = m.gl_account_id
     WHERE m.company_id = ${companyId}
     ORDER BY m.afs_line_code, a.account_code`;
 
@@ -134,8 +148,18 @@ export async function getMappedTrialBalance(
         m.gl_account_id,
         COALESCE(b.debit_total, 0) - COALESCE(b.credit_total, 0) AS balance
       FROM afs_account_mappings m
-      LEFT JOIN gl_account_balances b
-        ON b.gl_account_id = m.gl_account_id AND b.fiscal_period_id = ${priorPeriodId}
+      LEFT JOIN (
+        SELECT jl.gl_account_id,
+               SUM(jl.debit) AS debit_total,
+               SUM(jl.credit) AS credit_total
+        FROM gl_journal_lines jl
+        JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+        WHERE je.company_id = ${companyId}
+          AND jl.company_id = ${companyId}
+          AND je.fiscal_period_id = ${priorPeriodId}
+          AND je.status = 'posted'
+        GROUP BY jl.gl_account_id
+      ) b ON b.gl_account_id = m.gl_account_id
       WHERE m.company_id = ${companyId}`;
     for (const r of priorRows) {
       priorMap.set(String(r.gl_account_id), Number(r.balance));
