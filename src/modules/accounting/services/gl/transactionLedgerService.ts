@@ -84,7 +84,9 @@ export async function getBankTransactions(
     `) as Row[];
 
     const acctRows = (await sql`
-      SELECT account_name FROM gl_accounts WHERE account_code = ${bankCode} LIMIT 1
+      SELECT account_name FROM gl_accounts
+      WHERE account_code = ${bankCode} AND company_id = ${companyId}::UUID
+      LIMIT 1
     `) as Row[];
 
     let running = openingBalance;

@@ -205,7 +205,8 @@ export async function autoMapAccounts(companyId: string, userId: string): Promis
       SELECT id, sage_account_id, name, account_type, balance FROM sage_accounts WHERE company_id = ${companyId}::UUID AND gl_account_id IS NULL ORDER BY name
     `) as Row[];
     const glAccounts = (await sql`
-      SELECT id, account_code, account_name, account_type FROM gl_accounts WHERE level >= 3 AND is_active = true ORDER BY account_code
+      SELECT id, account_code, account_name, account_type FROM gl_accounts
+      WHERE company_id = ${companyId}::UUID AND level >= 3 AND is_active = true ORDER BY account_code
     `) as Row[];
 
     let succeeded = 0; let skipped = 0;

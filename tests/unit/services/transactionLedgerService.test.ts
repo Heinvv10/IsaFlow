@@ -163,6 +163,35 @@ describe('transactionLedgerService — tenant isolation (S-001 / BL-01)', () => 
       expect(obCallArgs).not.toContain(COMPANY_B);
       expect(txnCallArgs).not.toContain(COMPANY_B);
     });
+
+    it('scopes the bank account-name lookup to companyId — no cross-tenant name leak', async () => {
+      /**
+       * The standalone `SELECT account_name FROM gl_accounts WHERE account_code = ...`
+       * lookup (used only to label the report) omitted company_id. Because many
+       * tenants share the same bank account_code (e.g. "1010"), `LIMIT 1` with no
+       * ORDER BY returned an arbitrary tenant's row — leaking another company's
+       * account name onto the bank-transactions report. The fix scopes the lookup
+       * by company_id, matching its sibling in getAccountTransactions.
+       */
+      sqlMock
+        .mockResolvedValueOnce([makeObRow(0)])                              // opening balance
+        .mockResolvedValueOnce([makeBankTxRow(COMPANY_A, { debit: 1000 })]) // period transactions
+        .mockResolvedValueOnce([makeAcctNameRow()]);                        // account-name lookup
+
+      await getBankTransactions(COMPANY_A, PERIOD_START, PERIOD_END, BANK_CODE);
+
+      // Isolate the standalone account-name lookup among the SQL calls.
+      const nameLookup = sqlMock.mock.calls.find((args) =>
+        /account_name\s+FROM\s+gl_accounts/i.test((args[0] as readonly string[]).join(' ')),
+      );
+      expect(nameLookup, 'account-name lookup query not found').toBeDefined();
+
+      // It must filter by company_id and carry COMPANY_A as an interpolated param.
+      const text = (nameLookup![0] as readonly string[]).join(' ');
+      expect(text).toMatch(/company_id/i);
+      expect(nameLookup!.slice(1)).toContain(COMPANY_A);
+      expect(nameLookup!.slice(1)).not.toContain(COMPANY_B);
+    });
   });
 
   // ── getAuditTrail ───────────────────────────────────────────────────────────

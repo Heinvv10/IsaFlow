@@ -49,7 +49,7 @@ export async function processSupplierPayment(
 
     const apAccount = await getSystemAccount('payable', companyId);
     const bankAccount = payment.bankAccountId
-      ? ((await sql`SELECT * FROM gl_accounts WHERE id = ${payment.bankAccountId}`) as Row[])[0]
+      ? ((await sql`SELECT * FROM gl_accounts WHERE id = ${payment.bankAccountId}::UUID AND company_id = ${companyId}::UUID`) as Row[])[0]
       : await getSystemAccount('bank', companyId);
 
     if (!bankAccount) throw new Error('Bank account not found');
