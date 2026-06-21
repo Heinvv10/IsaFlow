@@ -20,6 +20,7 @@
     "ci:install-hooks": "bash scripts/ci/install-hooks.sh",
     "db:migrate": "bun scripts/apply-migrations.ts",
     "db:audit-drift": "bun scripts/audit-schema-drift.ts",
+    "db:integrity-check": "bun scripts/integrity-check.ts",
     "prepare": "bash scripts/ci/install-hooks.sh || true"
   },
   "dependencies": {
