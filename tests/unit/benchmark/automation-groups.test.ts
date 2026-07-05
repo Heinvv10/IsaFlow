@@ -36,6 +36,12 @@ vi.mock('@/lib/neon', () => {
   return {
     sql: noopTag,
     withTransaction: (_cb: unknown) => Promise.resolve(),
+    // Real-shaped fmtDate: archiveQueryService.toISODate routes pg Dates
+    // through it (P1.4 sweep) — local getters, no toISOString rollback.
+    fmtDate: (d: unknown) =>
+      d instanceof Date
+        ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+        : String(d ?? ''),
   };
 });
 

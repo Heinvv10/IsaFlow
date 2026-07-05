@@ -4,7 +4,7 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { sql } from '@/lib/neon';
+import { sql, fmtDate } from '@/lib/neon';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
@@ -15,8 +15,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
 
   try {
-    const from = (typeof req.query.from === 'string' ? req.query.from : null) || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
-    const to = (typeof req.query.to === 'string' ? req.query.to : null) || new Date().toISOString().split('T')[0];
+    const from = (typeof req.query.from === 'string' ? req.query.from : null) || fmtDate(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+    const to = (typeof req.query.to === 'string' ? req.query.to : null) || fmtDate(new Date());
     const format = typeof req.query.format === 'string' ? req.query.format : undefined;
 
     const { companyId } = req as CompanyAuthedRequest;

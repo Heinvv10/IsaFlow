@@ -3,7 +3,7 @@
  * Read-only queries: storage stats, preview, validation, run history, archived entries.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, fmtDate } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 
@@ -48,8 +48,10 @@ export interface ArchiveRun {
 }
 
 export function toISODate(val: Date | string | null): string | null {
+  // P1.4 sweep: toISOString() on a pg DATE (local midnight, UTC+2) rolls the
+  // date back a day — fmtDate uses local getters.
   if (!val) return null;
-  if (val instanceof Date) return val.toISOString().split('T')[0] ?? null;
+  if (val instanceof Date) return fmtDate(val) || null;
   return String(val).split('T')[0] ?? null;
 }
 
