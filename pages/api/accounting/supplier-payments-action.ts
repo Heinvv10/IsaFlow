@@ -1,7 +1,7 @@
 /**
  * Supplier Payment Actions API
  * POST /api/accounting/supplier-payments-action
- *   action: approve | process
+ *   action: approve | process | void
  */
 
 import type { NextApiResponse } from 'next';
@@ -14,6 +14,7 @@ import {
   approveSupplierPayment,
   processSupplierPayment,
 } from '@/modules/accounting/services/ap/supplierPaymentService';
+import { voidSupplierPayment } from '@/modules/accounting/services/ap/supplierPaymentWorkflowService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -37,6 +38,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       }
       case 'process': {
         const payment = await processSupplierPayment(companyId, paymentId, userId);
+        return apiResponse.success(res, payment);
+      }
+      case 'void': {
+        // P2.1 (audit W4): reverses the GL journal and un-applies allocations.
+        const payment = await voidSupplierPayment(companyId, paymentId, userId);
         return apiResponse.success(res, payment);
       }
       default:

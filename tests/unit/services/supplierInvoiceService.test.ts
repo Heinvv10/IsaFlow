@@ -531,23 +531,17 @@ describe('createSupplierInvoice — line-item arithmetic', () => {
 describe('createSupplierInvoice — edge cases', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('creates invoice with a single zero-quantity line without crashing', async () => {
-    // quantity=0 → lineTotal=0, taxAmount=0; still passes through to DB
+  it('rejects a zero-quantity line (W1: ghost lines are invalid documents)', async () => {
+    // Pre-P2.1 this passed through and created a R0.00 ghost line; the audit
+    // (W1) requires positive quantities server-side.
     const zeroQtyInput: SupplierInvoiceCreateInput = {
       ...validInput,
       items: [{ description: 'Ghost line', quantity: 0, unitPrice: 100, taxRate: 15 }],
     };
 
-    mockSql.mockResolvedValueOnce([{ vat_number: '4000123456' }]);
-    mockWithTransaction.mockImplementation(async (fn) => {
-      const row = { ...sampleInvoiceRow, subtotal: '0.00', tax_amount: '0.00', total_amount: '0.00' };
-      const fakeTx = vi.fn().mockResolvedValue([row]) as unknown as typeof sql;
-      return fn(fakeTx);
-    });
-
-    const inv = await createSupplierInvoice(COMPANY_ID, zeroQtyInput, USER_ID);
-    expect(inv.subtotal).toBe(0);
-    expect(inv.totalAmount).toBe(0);
+    await expect(createSupplierInvoice(COMPANY_ID, zeroQtyInput, USER_ID)).rejects.toThrow(
+      /quantity must be positive/i,
+    );
   });
 
   it('sets vatClassification to zero_rated when taxRate is 0', async () => {

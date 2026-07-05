@@ -199,6 +199,51 @@ export async function softDelete(
       }
     }
 
+    // W2 (P2.1): masters with OPEN documents cannot be deleted out from
+    // under them — invoices/payments would point at a vanished master.
+    // "Open" = any non-terminal invoice, or any unconfirmed payment.
+    if (entityType === 'customer') {
+      const inv = (await sql`
+        SELECT COUNT(*)::INT AS open_count FROM customer_invoices
+        WHERE COALESCE(client_id, customer_id) = ${entityId}::UUID
+          AND company_id = ${companyId}::UUID
+          AND deleted_at IS NULL
+          AND status NOT IN ('cancelled', 'paid')
+      `) as { open_count: number }[];
+      if (Number(inv[0]?.open_count ?? 0) > 0) {
+        throw new Error('Cannot delete customer with open invoices — cancel or settle them first');
+      }
+      const pay = (await sql`
+        SELECT COUNT(*)::INT AS open_count FROM customer_payments
+        WHERE client_id = ${entityId}::UUID
+          AND company_id = ${companyId}::UUID
+          AND status = 'draft'
+      `) as { open_count: number }[];
+      if (Number(pay[0]?.open_count ?? 0) > 0) {
+        throw new Error('Cannot delete customer with open (draft) payments — confirm or cancel them first');
+      }
+    } else if (entityType === 'supplier') {
+      const inv = (await sql`
+        SELECT COUNT(*)::INT AS open_count FROM supplier_invoices
+        WHERE supplier_id = ${entityId}::UUID
+          AND company_id = ${companyId}::UUID
+          AND deleted_at IS NULL
+          AND status NOT IN ('cancelled', 'paid')
+      `) as { open_count: number }[];
+      if (Number(inv[0]?.open_count ?? 0) > 0) {
+        throw new Error('Cannot delete supplier with open invoices — cancel or settle them first');
+      }
+      const pay = (await sql`
+        SELECT COUNT(*)::INT AS open_count FROM supplier_payments
+        WHERE supplier_id = ${entityId}::UUID
+          AND company_id = ${companyId}::UUID
+          AND status IN ('draft', 'approved')
+      `) as { open_count: number }[];
+      if (Number(pay[0]?.open_count ?? 0) > 0) {
+        throw new Error('Cannot delete supplier with open (unprocessed) payments — process or cancel them first');
+      }
+    }
+
     const deleted = await softDeleteRow(entityType, entityId, companyId);
     if (!deleted) {
       throw new Error(`${entityType} not found or already deleted`);

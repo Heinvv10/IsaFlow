@@ -34,8 +34,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'POST') {
     const userId = req.user.id;
-    const quote = await createQuote(companyId, req.body, userId);
-    return apiResponse.created(res, quote);
+    try {
+      const quote = await createQuote(companyId, req.body, userId);
+      return apiResponse.created(res, quote);
+    } catch (err) {
+      // Line-validation failures (W1) are client errors, not 500s.
+      const msg = err instanceof Error ? err.message : '';
+      if (/quantity|unit price/i.test(msg)) return apiResponse.badRequest(res, msg);
+      throw err;
+    }
   }
 
   if (req.method === 'PUT') {

@@ -178,20 +178,28 @@ export async function approveCreditNote(companyId: string, id: string, userId: s
     }, userId);
     await postJournalEntry(companyId, je.id, userId);
 
+    // N6 (P2.1): approving a LINKED note auto-applies it, so it must land in
+    // 'applied' — leaving it 'approved' let the separate apply action credit
+    // the same invoice a SECOND time (applyCreditNoteToInvoice recomputes
+    // outstanding from the already-bumped row and happily double-credits).
+    let autoApplied = false;
     if (String(cn.type) === 'customer' && cn.customer_invoice_id) {
       await sql`
         UPDATE customer_invoices SET amount_paid = amount_paid + ${Number(cn.total_amount)}
         WHERE id = ${cn.customer_invoice_id}::UUID AND company_id = ${companyId}::UUID
       `;
+      autoApplied = true;
     } else if (String(cn.type) === 'supplier' && cn.supplier_invoice_id) {
       await sql`
         UPDATE supplier_invoices SET amount_paid = amount_paid + ${Number(cn.total_amount)}
         WHERE id = ${cn.supplier_invoice_id}::UUID AND company_id = ${companyId}::UUID
       `;
+      autoApplied = true;
     }
 
+    const finalStatus = autoApplied ? 'applied' : 'approved';
     const updatedRows = (await sql`
-      UPDATE credit_notes SET status = 'approved', approved_by = ${userId}::UUID,
+      UPDATE credit_notes SET status = ${finalStatus}, approved_by = ${userId}::UUID,
         approved_at = NOW(), gl_journal_entry_id = ${je.id}::UUID
       WHERE id = ${id} AND company_id = ${companyId}::UUID RETURNING *
     `) as Record<string, unknown>[];
