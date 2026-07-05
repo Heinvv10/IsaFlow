@@ -123,4 +123,33 @@ describe('postDualDepreciationToLedger atomicity (PR #200)', () => {
     expect(result.glFailed).toBe(false);
     expect(result.entryId).toBe('je-existing');
   });
+
+  it('a REVERSED same-month entry is NOT treated as already-posted — the re-run fails LOUD', async () => {
+    // The idempotency SELECT filters reversed_at IS NULL, so a reversed
+    // original is invisible to it; the INSERT then hits the unique index
+    // (number still taken by the reversed row) → savepoint → glFailed:true.
+    // Silent success here would permanently under-depreciate the asset
+    // (reversal never touches assets.accumulated_depreciation).
+    const idempotencySql = mockSql; // alias for clarity
+    mockByText({
+      'SELECT id FROM gl_journal_entries': [], // reversed row filtered out
+      'INSERT INTO gl_journal_entries': Object.assign(
+        new Error('duplicate key value violates unique constraint "uq_gl_je_company_entry_number"'),
+        { code: '23505' },
+      ),
+    });
+
+    const result = await postDualDepreciationToLedger(
+      COMPANY_ID, ASSET_ID, input, '202607', USER_ID,
+    );
+
+    expect(result.glFailed).toBe(true);
+    expect(result.entryId).toBeNull();
+    const existingCheck = idempotencySql.mock.calls
+      .map((c) => (c[0] as unknown as string[]).join('?'))
+      .find((t) => /SELECT id FROM gl_journal_entries/i.test(t));
+    expect(existingCheck, 'idempotency check must exclude reversed entries').toMatch(
+      /reversed_at IS NULL/i,
+    );
+  });
 });

@@ -176,29 +176,46 @@ export class Api {
    * their non-RFC UUIDs fail zod-strict endpoints (baseline finding N1).
    */
   async fixtureCustomer(): Promise<string> {
-    const found = await this.get<any[]>(
-      `/api/accounting/customers?q=${encodeURIComponent('0GP-Golden-Customer')}`,
-    );
-    if (Array.isArray(found) && found.length > 0) return found[0].id;
-    const created = await this.post<any>('/api/accounting/customers', {
-      name: '0GP-Golden-Customer',
-      email: 'gp-golden-customer@example.test',
-    });
-    return created.id;
+    const NAME = '0GP-Golden-Customer';
+    const exact = (rows: any[]) => rows.find((r) => r?.name === NAME)?.id as string | undefined;
+    const found = await this.get<any[]>(`/api/accounting/customers?q=${encodeURIComponent(NAME)}`);
+    const hit = Array.isArray(found) ? exact(found) : undefined;
+    if (hit) return hit;
+    try {
+      const created = await this.post<any>('/api/accounting/customers', {
+        name: NAME,
+        email: 'gp-golden-customer@example.test',
+      });
+      return created.id;
+    } catch (err) {
+      // Concurrent run may have created it between our find and create
+      // (no unique index on name) — re-find before giving up.
+      const again = await this.get<any[]>(`/api/accounting/customers?q=${encodeURIComponent(NAME)}`);
+      const retryHit = Array.isArray(again) ? exact(again) : undefined;
+      if (retryHit) return retryHit;
+      throw err;
+    }
   }
 
   async fixtureSupplier(): Promise<string> {
-    const found = await this.get<any>(
-      `/api/accounting/suppliers-list?q=${encodeURIComponent('0GP-Golden-Supplier')}`,
-    );
-    const list = found?.suppliers ?? [];
-    if (list.length > 0) return list[0].id;
-    const created = await this.post<any>('/api/accounting/suppliers-list', {
-      name: '0GP-Golden-Supplier',
-      email: 'gp-golden-supplier@example.test',
-      payment_terms: 30,
-    });
-    return created.id;
+    const NAME = '0GP-Golden-Supplier';
+    const exact = (rows: any[]) => rows.find((r) => r?.name === NAME)?.id as string | undefined;
+    const found = await this.get<any>(`/api/accounting/suppliers-list?q=${encodeURIComponent(NAME)}`);
+    const hit = exact(found?.suppliers ?? []);
+    if (hit) return hit;
+    try {
+      const created = await this.post<any>('/api/accounting/suppliers-list', {
+        name: NAME,
+        email: 'gp-golden-supplier@example.test',
+        payment_terms: 30,
+      });
+      return created.id;
+    } catch (err) {
+      const again = await this.get<any>(`/api/accounting/suppliers-list?q=${encodeURIComponent(NAME)}`);
+      const retryHit = exact(again?.suppliers ?? []);
+      if (retryHit) return retryHit;
+      throw err;
+    }
   }
 }
 
