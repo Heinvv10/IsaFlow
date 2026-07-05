@@ -62,14 +62,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     try {
       const rows = (await sql`
         SELECT ci.id, ci.invoice_number, ci.customer_id, ci.client_id,
-               ci.billing_period_start, ci.billing_period_end,
                ci.subtotal, ci.tax_rate, ci.tax_amount, ci.total_amount,
-               ci.amount_paid, ci.status, ci.invoice_date, ci.due_date,
+               ci.amount_paid, ci.status,
+               to_char(ci.invoice_date, 'YYYY-MM-DD') AS invoice_date,
+               to_char(ci.due_date, 'YYYY-MM-DD') AS due_date,
                ci.sent_at, ci.paid_at, ci.notes, ci.internal_notes,
                ci.project_id, ci.gl_journal_entry_id,
                ci.email_sent_at, ci.email_sent_to,
                ci.online_payment_enabled, ci.payment_url,
                ci.currency_code, ci.exchange_rate, ci.functional_total,
+               to_char(ci.billing_period_start, 'YYYY-MM-DD') AS billing_period_start,
+               to_char(ci.billing_period_end, 'YYYY-MM-DD') AS billing_period_end,
                ci.created_at, ci.updated_at,
                c.name AS client_name, c.email AS client_email
         FROM customer_invoices ci
