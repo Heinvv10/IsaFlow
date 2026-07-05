@@ -67,7 +67,8 @@ export async function deleteBusinessUnit(companyId: string, id: string): Promise
     throw new Error('Cannot delete business unit used in journal entries. Deactivate instead.');
   }
   const btUsage = (await sql`
-    SELECT COUNT(*) as cnt FROM bank_transactions WHERE bu_id = ${id}::UUID
+    SELECT COUNT(*) as cnt FROM bank_transactions
+    WHERE bu_id = ${id}::UUID AND company_id = ${companyId}::UUID
   `) as Record<string, unknown>[];
   if (Number(btUsage[0]?.cnt) > 0) {
     throw new Error('Cannot delete business unit used in bank transactions. Deactivate instead.');
