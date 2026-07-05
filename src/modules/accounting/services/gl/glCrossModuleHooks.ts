@@ -5,7 +5,7 @@
  * - Below-threshold    → DR Expense, CR Bank
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getSystemAccountId } from './systemAccountResolver';
 import {
@@ -24,7 +24,28 @@ export async function postAssetDepreciationToGL(
   depreciationAmount: number,
   userId: string
 ): Promise<string | null> {
+  // SAVEPOINT: this function swallows errors (returns null so a bad asset
+  // doesn't kill the run), but inside the withAuth request transaction a
+  // failed INSERT would otherwise poison the tx and every later statement
+  // dies with "current transaction is aborted" — turning one bad asset into
+  // a 500 for the whole depreciation run (P1.5, observed live 2026-07-05).
   try {
+    return await withSavepoint('asset_dep_gl', () =>
+      postAssetDepreciationToGLInner(companyId, assetId, depreciationAmount, userId),
+    );
+  } catch (err) {
+    log.error('Failed to post asset depreciation to GL', { assetId, error: err }, 'accounting');
+    return null;
+  }
+}
+
+async function postAssetDepreciationToGLInner(
+  companyId: string,
+  assetId: string,
+  depreciationAmount: number,
+  userId: string
+): Promise<string | null> {
+  {
     if (depreciationAmount <= 0) return null;
 
     const asset = (await sql`
@@ -78,9 +99,6 @@ export async function postAssetDepreciationToGL(
 
     log.info('Asset depreciation GL posted', { assetId, entryId, depreciationAmount }, 'accounting');
     return entryId;
-  } catch (err) {
-    log.error('Failed to post asset depreciation to GL', { assetId, error: err }, 'accounting');
-    return null;
   }
 }
 

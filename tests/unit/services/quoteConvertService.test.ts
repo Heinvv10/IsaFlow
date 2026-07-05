@@ -36,6 +36,11 @@ vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
 
+vi.mock('@/modules/accounting/services/core/companySettingsService', () => ({
+  // convert now shares the create path's 'customer_invoice' sequence
+  reserveNextDocumentNumber: vi.fn().mockResolvedValue('INV0000099'),
+}));
+
 import { getQuote } from '@/modules/accounting/services/ar/quoteService';
 import { convertToInvoice } from '@/modules/accounting/services/ar/quoteConvertService';
 
@@ -101,8 +106,7 @@ describe('quote date serialization + convert column names (P1.2 residual)', () =
     sqlResults.push(
       [quoteRow()],
       [lineRow],
-      [{ current_number: 7, prefix: 'INV-' }],
-      [{ id: 'eeeeeeee-0000-4000-8000-eeeeeeeeeeee' }],
+      [{ id: 'eeeeeeee-0000-4000-8000-eeeeeeeeeeee' }], // invoice insert
       [], // item insert
       [], // quote update
       [quoteRow({ status: 'converted', converted_invoice_id: 'eeeeeeee-0000-4000-8000-eeeeeeeeeeee' })],

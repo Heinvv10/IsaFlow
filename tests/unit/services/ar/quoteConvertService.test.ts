@@ -13,8 +13,18 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 
 vi.mock('@/lib/neon', () => {
   const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn() });
-  return { sql: sqlMock, withTransaction: vi.fn() };
+  return {
+    sql: sqlMock,
+    withTransaction: vi.fn(),
+    withSavepoint: vi.fn((_n: string, fn: () => unknown) => fn()),
+  };
 });
+
+vi.mock('@/modules/accounting/services/core/companySettingsService', () => ({
+  // convert shares the create path's 'customer_invoice' sequence (P1.5 fix:
+  // the old inline 'invoice'/'INV-' counter collided with historical numbers)
+  reserveNextDocumentNumber: vi.fn().mockResolvedValue('INV0000099'),
+}));
 
 vi.mock('@/modules/accounting/services/ar/quoteService', () => ({
   getQuote: vi.fn(),
@@ -75,7 +85,6 @@ beforeEach(() => {
 describe('convertToInvoice — writes real customer_invoice_items columns', () => {
   it('inserts line items using amount/gl_account_id, not line_total/account_id', async () => {
     mockGetQuote.mockResolvedValueOnce(acceptedQuote() as never);
-    mockSql.mockResolvedValueOnce([{ current_number: 1, prefix: 'INV-' }]); // document number reservation
     mockSql.mockResolvedValueOnce([{ id: 'inv-1' }]); // INSERT customer_invoices RETURNING id
     mockSql.mockResolvedValueOnce([]); // INSERT customer_invoice_items
     mockSql.mockResolvedValueOnce([]); // UPDATE customer_quotes status
