@@ -14,7 +14,7 @@ interface RecurringInvoice {
   frequency: string; nextRunDate: string; lastRunDate?: string; runCount: number;
   status: string; totalAmount: number; description?: string;
 }
-interface RunResult { generated: number; invoice_ids: string[]; errors: string[] }
+interface RunResult { generated: number; invoice_ids: string[]; errors: string[]; remaining?: boolean }
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
@@ -148,7 +148,7 @@ export default function RecurringInvoicesPage() {
           )}
           {runResult && (
             <div className={`flex items-start justify-between gap-2 p-3 rounded-xl border text-sm ${runResult.errors.length > 0 ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400' : 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400'}`}>
-              <span className="flex items-center gap-2"><CheckCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />{runResult.generated} invoice{runResult.generated !== 1 ? 's' : ''} generated{runResult.errors.length > 0 ? ` (${runResult.errors.length} errors)` : ''}</span>
+              <span className="flex items-center gap-2"><CheckCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />{runResult.generated} invoice{runResult.generated !== 1 ? 's' : ''} generated{runResult.errors.length > 0 ? ` (${runResult.errors.length} errors)` : ''}{runResult.remaining ? ' — batch cap reached, more due invoices remain: run again to continue' : ''}</span>
               <button onClick={() => setRunResult(null)}><X className="h-4 w-4" /></button>
             </div>
           )}

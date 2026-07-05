@@ -10,6 +10,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
+import { parsePagination } from '@/lib/pagination';
 
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -18,11 +19,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const { companyId } = req as CompanyAuthedRequest;
+  // P3.4: was the audit's worst unbounded endpoint (GROUP BY over the full
+  // invoice history, no LIMIT). One row per customer, so a generous cap
+  // keeps every realistic tenant intact while ending the pathological case.
+  const { limit, offset } = parsePagination(req.query, 1000, 2000);
 
   try {
+    // COALESCE(client_id, customer_id): both columns exist and either may
+    // hold the customer reference (project rule) — grouping on client_id
+    // alone lumped customer_id-only invoices into a NULL row.
     const customers = await sql`
       SELECT
-        ci.client_id,
+        COALESCE(ci.client_id, ci.customer_id) as client_id,
         c.name as client_name,
         SUM(ci.total_amount::numeric) as total_invoiced,
         COALESCE(paid.total_paid, 0) as total_paid,
@@ -30,30 +38,34 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         paid.last_payment_date,
         COUNT(*)::int as invoice_count
       FROM customer_invoices ci
-      LEFT JOIN customers c ON c.id = ci.client_id
+      LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
       LEFT JOIN (
         SELECT client_id,
           SUM(total_amount::numeric) as total_paid,
           MAX(payment_date) as last_payment_date
         FROM customer_payments
-        WHERE status IN ('confirmed', 'reconciled')
+        WHERE company_id = ${companyId} AND status IN ('confirmed', 'reconciled')
         GROUP BY client_id
-      ) paid ON paid.client_id = ci.client_id
+      ) paid ON paid.client_id = COALESCE(ci.client_id, ci.customer_id)
       WHERE ci.company_id = ${companyId} AND ci.status != 'cancelled'
-      GROUP BY ci.client_id, c.name, paid.total_paid, paid.last_payment_date
+      GROUP BY COALESCE(ci.client_id, ci.customer_id), c.name, paid.total_paid, paid.last_payment_date
       HAVING SUM(ci.total_amount::numeric) > 0
-      ORDER BY SUM(ci.total_amount::numeric) - COALESCE(paid.total_paid, 0) DESC
+      ORDER BY SUM(ci.total_amount::numeric) - COALESCE(paid.total_paid, 0) DESC, COALESCE(ci.client_id, ci.customer_id)
+      LIMIT ${limit + 1} OFFSET ${offset}
     `;
 
+    const hasMore = customers.length > limit;
+    const page = hasMore ? customers.slice(0, limit) : customers;
+
     return apiResponse.success(res, {
-      customers: customers.map(c => ({
+      customers: page.map(c => ({
         ...c,
         total_invoiced: Number(c.total_invoiced),
         total_paid: Number(c.total_paid),
         balance: Number(c.balance),
         invoice_count: Number(c.invoice_count),
       })),
-    });
+    }, undefined, 200, { limit, offset, hasMore });
   } catch (err) {
     log.error('Failed to fetch customer statements', { error: err, module: 'accounting' });
     return apiResponse.databaseError(res, err, 'Failed to fetch customer statements');

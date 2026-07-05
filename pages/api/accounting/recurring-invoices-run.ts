@@ -24,7 +24,14 @@ interface RunResult {
   generated: number;
   invoice_ids: string[];
   errors: string[];
+  /** True when more due invoices remain beyond this run's batch cap —
+   *  run again to continue. */
+  remaining?: boolean;
 }
+
+/** P3.4: cap the run-all batch — an unbounded due-list meant an unbounded
+ *  synchronous loop in one request (timeout risk). Remainder runs next call. */
+const RUN_BATCH_CAP = 200;
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -53,14 +60,23 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   // Run all due — next_run_date <= today, status = 'active'
-  const dueRows = (await sql`
+  const dueRowsRaw = (await sql`
     SELECT id
     FROM recurring_invoices
     WHERE company_id = ${companyId}
       AND status = 'active'
       AND next_run_date <= CURRENT_DATE
     ORDER BY next_run_date ASC
+    LIMIT ${RUN_BATCH_CAP + 1}
   `) as DbRow[];
+
+  const dueRows = dueRowsRaw.slice(0, RUN_BATCH_CAP);
+  if (dueRowsRaw.length > RUN_BATCH_CAP) {
+    result.remaining = true;
+    log.warn('Recurring run batch cap hit — more due invoices remain', {
+      companyId, cap: RUN_BATCH_CAP,
+    }, 'recurring-run');
+  }
 
   if (dueRows.length === 0) {
     log.info('No due recurring invoices to run', { companyId }, 'recurring-run');

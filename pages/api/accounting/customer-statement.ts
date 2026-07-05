@@ -23,6 +23,15 @@ import { buildStatementHtml } from '@/modules/accounting/utils/customerStatement
 
 type Row = Record<string, unknown>;
 
+// P3.4: this endpoint has no offset-pagination UI (single full-history view
+// with a running balance), and offset paging would silently break the
+// running-balance math anyway. Instead cap each source at a generous
+// per-entity ceiling — a safety valve, not user-facing paging, on top of the
+// existing date-range filter — and source the headline totals from a SQL
+// aggregate over the FULL (date-filtered) population so they stay correct
+// even if a pathological single customer ever hits the ceiling.
+const STATEMENT_ROW_CEILING = 2000;
+
 interface StatementTransaction {
   id: string;
   date: string;
@@ -73,17 +82,18 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
     const customer = customerRows[0]!;
 
-    const invoices = await sql`
+    const invoicesRaw = await sql`
       SELECT id, invoice_number, invoice_date, total_amount, status
       FROM customer_invoices
       WHERE client_id   = ${customerId}::UUID
         AND company_id  = ${companyId}::UUID
         AND status     != 'cancelled'
         AND invoice_date BETWEEN ${from}::DATE AND ${to}::DATE
-      ORDER BY invoice_date
+      ORDER BY invoice_date, id
+      LIMIT ${STATEMENT_ROW_CEILING + 1}
     ` as Row[];
 
-    const payments = await sql`
+    const paymentsRaw = await sql`
       SELECT cp.id, cp.payment_number, cp.payment_date, cp.bank_reference,
         COALESCE(SUM(cpa.amount_allocated), cp.total_amount) AS amount_allocated
       FROM customer_payments cp
@@ -93,9 +103,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         AND cp.status IN ('confirmed', 'reconciled')
         AND cp.payment_date BETWEEN ${from}::DATE AND ${to}::DATE
       GROUP BY cp.id, cp.payment_number, cp.payment_date, cp.bank_reference, cp.total_amount
+      ORDER BY cp.payment_date, cp.id
+      LIMIT ${STATEMENT_ROW_CEILING + 1}
     ` as Row[];
 
-    const creditNotes = await sql`
+    const creditNotesRaw = await sql`
       SELECT id, credit_note_number, credit_date, reason, total_amount
       FROM credit_notes
       WHERE client_id  = ${customerId}::UUID
@@ -103,6 +115,50 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         AND type       = 'customer'
         AND status     = 'approved'
         AND credit_date BETWEEN ${from}::DATE AND ${to}::DATE
+      ORDER BY credit_date, id
+      LIMIT ${STATEMENT_ROW_CEILING + 1}
+    ` as Row[];
+
+    const truncated =
+      invoicesRaw.length > STATEMENT_ROW_CEILING ||
+      paymentsRaw.length > STATEMENT_ROW_CEILING ||
+      creditNotesRaw.length > STATEMENT_ROW_CEILING;
+    if (truncated) {
+      log.warn('Customer statement hit the per-entity row ceiling', {
+        customerId, from, to, ceiling: STATEMENT_ROW_CEILING,
+      }, 'accounting');
+    }
+    const invoices = invoicesRaw.slice(0, STATEMENT_ROW_CEILING);
+    const payments = paymentsRaw.slice(0, STATEMENT_ROW_CEILING);
+    const creditNotes = creditNotesRaw.slice(0, STATEMENT_ROW_CEILING);
+
+    // Headline totals come from a SQL aggregate over the FULL (date-filtered)
+    // population, so they stay correct even when the row ceiling above
+    // truncates the detail list.
+    const [totalsRow] = await sql`
+      SELECT
+        COALESCE((
+          SELECT SUM(total_amount::numeric) FROM customer_invoices
+          WHERE client_id = ${customerId}::UUID AND company_id = ${companyId}::UUID
+            AND status != 'cancelled' AND invoice_date BETWEEN ${from}::DATE AND ${to}::DATE
+        ), 0) AS total_invoiced,
+        COALESCE((
+          SELECT SUM(pmt_total) FROM (
+            SELECT COALESCE(SUM(cpa.amount_allocated), cp.total_amount) AS pmt_total
+            FROM customer_payments cp
+            LEFT JOIN customer_payment_allocations cpa ON cpa.payment_id = cp.id
+            WHERE cp.client_id = ${customerId}::UUID AND cp.company_id = ${companyId}::UUID
+              AND cp.status IN ('confirmed', 'reconciled')
+              AND cp.payment_date BETWEEN ${from}::DATE AND ${to}::DATE
+            GROUP BY cp.id, cp.total_amount
+          ) pmt
+        ), 0) AS total_paid,
+        COALESCE((
+          SELECT SUM(total_amount::numeric) FROM credit_notes
+          WHERE client_id = ${customerId}::UUID AND company_id = ${companyId}::UUID
+            AND type = 'customer' AND status = 'approved'
+            AND credit_date BETWEEN ${from}::DATE AND ${to}::DATE
+        ), 0) AS total_credits
     ` as Row[];
 
     const transactions: StatementTransaction[] = [];
@@ -139,20 +195,17 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return (typeOrder[a.type] ?? 9) - (typeOrder[b.type] ?? 9);
     });
 
+    // Running balance within the (possibly-capped) returned transaction list.
     let runningBalance = 0;
-    let totalInvoiced = 0;
-    let totalPaid = 0;
-    let totalCredits = 0;
-
     for (const txn of transactions) {
       runningBalance += txn.debit - txn.credit;
       txn.balance = runningBalance;
-      totalInvoiced += txn.debit;
-      if (txn.type === 'payment') totalPaid += txn.credit;
-      if (txn.type === 'credit_note') totalCredits += txn.credit;
     }
 
-    const summary = { totalInvoiced, totalPaid, totalCredits, balance: runningBalance };
+    const totalInvoiced = Number(totalsRow?.total_invoiced ?? 0);
+    const totalPaid = Number(totalsRow?.total_paid ?? 0);
+    const totalCredits = Number(totalsRow?.total_credits ?? 0);
+    const summary = { totalInvoiced, totalPaid, totalCredits, balance: totalInvoiced - totalPaid - totalCredits };
     const clientData = {
       id: String(customer.id), name: String(customer.name),
       email: customer.email ? String(customer.email) : null,
@@ -186,7 +239,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       toDate: to,
       transactions,
       summary,
-    });
+    }, undefined, 200, { truncated });
   } catch (err) {
     log.error('Failed to fetch customer statement', { customerId, error: err }, 'accounting');
     return apiResponse.databaseError(res, err, 'Failed to fetch customer statement');

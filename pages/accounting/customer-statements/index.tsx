@@ -53,6 +53,7 @@ function buildCsv(rows: CustomerBalance[]): string {
 
 export default function CustomerStatementsPage() {
   const [customers, setCustomers] = useState<CustomerBalance[]>([]);
+  const [hasMore, setHasMore] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [asAtDate, setAsAtDate] = useState(new Date().toISOString().split('T')[0]);
@@ -67,7 +68,12 @@ export default function CustomerStatementsPage() {
   /** Downloads all loaded customer balances as a single CSV file. */
   function handleDownloadAll(): void {
     if (customers.length === 0) return;
-    const csv = buildCsv(customers);
+    let csv = buildCsv(customers);
+    if (hasMore) {
+      // P3.4: the list is capped server-side — "Download All" must never
+      // silently deliver a partial file that looks complete.
+      csv += '\n"TRUNCATED — customer list capped by the server; refine or page to get the rest.",,,,,';
+    }
     triggerCsvDownload(csv, `statements-all-${asAtDate}.csv`);
   }
 
@@ -79,6 +85,7 @@ export default function CustomerStatementsPage() {
       const json = await res.json();
       const data = json.data || json;
       setCustomers(data.customers || []);
+      setHasMore(Boolean(json.meta?.hasMore));
     } catch {
       setError('Failed to load customer statements');
     } finally {
