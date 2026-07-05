@@ -13,6 +13,7 @@ export const bankingTab: Tab = {
       section: 'Transactions',
       items: [
         { label: 'Transactions', href: '/accounting/bank-transactions' },
+        { label: 'Cashbook', href: '/accounting/cashbook' },
         { label: 'Import Statement', href: '/accounting/bank-reconciliation/import' },
         { label: 'Reconcile', href: '/accounting/bank-reconciliation' },
         { label: 'Transfers', href: '/accounting/bank-transfers' },

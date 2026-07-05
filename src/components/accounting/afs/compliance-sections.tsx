@@ -69,7 +69,15 @@ export function IssueList({ result }: { result: ComplianceResult }) {
 
 // ── CipcGuideSection ──────────────────────────────────────────────────────────
 
-export function CipcGuideSection({ guide }: { guide: CipcFilingGuide }) {
+export function CipcGuideSection({
+  guide,
+  onToggleSubmitted,
+  togglingSubmitted,
+}: {
+  guide: CipcFilingGuide;
+  onToggleSubmitted?: (submitted: boolean) => void;
+  togglingSubmitted?: boolean;
+}) {
   const days = daysUntil(guide.filingDeadline);
   const deadlineColour = days <= 14 ? 'text-red-600' : days <= 30 ? 'text-amber-600' : 'text-gray-900';
   return (
@@ -103,17 +111,34 @@ export function CipcGuideSection({ guide }: { guide: CipcFilingGuide }) {
       <div className="mb-4">
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Documents Checklist</p>
         <div className="space-y-2">
-          {guide.documentsReady.map(item => (
-            <div key={item.label} className="flex items-start gap-3">
-              {item.ready
-                ? <CheckCircle className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
-                : <XCircle className="w-4 h-4 text-gray-700 dark:text-gray-300 flex-shrink-0 mt-0.5" />}
-              <div>
-                <p className="text-sm text-gray-800">{item.label}</p>
-                {item.detail && <p className="text-xs text-gray-600 dark:text-gray-400">{item.detail}</p>}
+          {guide.documentsReady.map(item => {
+            const isCipcSubmission = item.label === 'CIPC annual return submitted';
+            return (
+              <div key={item.label} className="flex items-start gap-3">
+                {isCipcSubmission && onToggleSubmitted ? (
+                  <button
+                    type="button"
+                    role="checkbox"
+                    aria-checked={item.ready}
+                    disabled={togglingSubmitted}
+                    onClick={() => onToggleSubmitted(!item.ready)}
+                    title={item.ready ? 'Mark as not submitted' : 'Mark as submitted'}
+                    className="flex-shrink-0 mt-0.5 disabled:opacity-50"
+                  >
+                    {item.ready
+                      ? <CheckCircle className="w-4 h-4 text-green-600" />
+                      : <XCircle className="w-4 h-4 text-gray-700 dark:text-gray-300" />}
+                  </button>
+                ) : item.ready
+                  ? <CheckCircle className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
+                  : <XCircle className="w-4 h-4 text-gray-700 dark:text-gray-300 flex-shrink-0 mt-0.5" />}
+                <div>
+                  <p className="text-sm text-gray-800">{item.label}</p>
+                  {item.detail && <p className="text-xs text-gray-600 dark:text-gray-400">{item.detail}</p>}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
       <div className="bg-indigo-50 border border-indigo-200 rounded-lg px-4 py-3 text-sm text-indigo-800">

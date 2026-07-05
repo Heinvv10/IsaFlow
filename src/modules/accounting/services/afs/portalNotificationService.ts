@@ -116,12 +116,33 @@ export async function notifyAnnotationReceived(
   authorName: string,
 ): Promise<void> {
   try {
+    const recipients = (await sql`
+      SELECT u.email, u.first_name
+      FROM company_users cu
+      JOIN users u ON u.id = cu.user_id::VARCHAR
+      WHERE cu.company_id = ${companyId}::UUID
+        AND cu.role IN ('owner', 'admin', 'manager')
+    `) as Array<{ email: string; first_name: string | null }>;
+
+    for (const row of recipients) {
+      const html = emailLayout(`
+        <h2>New Client Annotation — AFS Review</h2>
+        <p>Hi ${row.first_name ?? 'there'},</p>
+        <p><strong>${authorName}</strong> left a comment on a section of the annual financial statements.</p>
+        ${ctaButton('Review Annotations', `${APP_URL}/accounting/afs`)}
+      `);
+      await sendEmail({
+        to: row.email,
+        subject: 'New client annotation on AFS document',
+        html,
+        _log: { companyId, emailType: 'other', sentBy: null },
+      });
+    }
     log.info(
-      'Annotation received (email notification not yet implemented)',
-      { companyId, sectionId, authorName },
+      'Annotation notification sent',
+      { companyId, sectionId, authorName, recipientCount: recipients.length },
       'portalNotificationService',
     );
-    // TODO: email the reviewing accountant that a client annotation was received
   } catch (err) {
     log.error(
       'Failed to send annotation notification',
