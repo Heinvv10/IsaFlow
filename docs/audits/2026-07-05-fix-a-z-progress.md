@@ -49,7 +49,7 @@ State: **merged** (#202, master 0cccfba5; 2-round blind review incl. a reversed-
 |------|-------|--------|----|----------|----------|
 | P2.1 Input validation cluster | **merged** | fix/p2-1-input-validation | #203 | — | W1 (invoice/quote/supplier-invoice/CN/recurring incl. PUT/sales-order lines; Sage import exempt for migration fidelity; E2E spec l proves the audit's exact −R115 POST 400s), W2 (masterDeleteGuards), W3 unified AR+AP (AP re-pointed at LIVE payment_allocations — mig-201 table dead, 0 rows dev+prod), W4 voidSupplierPayment (action 'void'), N6 (linked CN approve→'applied' + cancel accepts 'applied'). 3-round blind review. BACKLOG (reviewer, pre-existing): supplier-allocations.ts writes to the dead zero-row table; batchPaymentService creation-time validation |
 | P2.2 fiscal_period_id invariant + repairs | **merged** | fix/p2-2-fiscal-period-invariants | #204 | — | 2 invariants (suite 15 checks); mig 501 trigger + service validation of supplied periods + bank-transfers date-resolved; mig 502 no-overlap EXCLUDE (btree_gist pre-installed on prod); backfill executed dev(485)+prod-Demo(47); Britech+VF repairs HUMAN-GATED. 2-round blind review SHIP. Residual: uncoverable-list filter relaxation queued |
-| P2.3 Demo bank seed + residue cleanup | **partial (pre-deploy done)** | — (data only) | — | — | Prod Demo ALREADY has bank acct 1110 + 1,695 txns (audit line stale) but ALL were matched → recon queue empty; seeded 6 fresh status=imported lines (DEMO-JUL-01..06, Jul 2026, zero GL impact) — Process Bank demoable. Draft CN-2026-00001 residue DELETED (unposted/inert, gl link NULL). POST-DEPLOY remainder: void SP-2026-00068 via the new W4 action, then cancel SIV0000001 (GL-reversing path) — added to deploy runbook. N1 seeded non-RFC UUIDs: DEFERRED (re-keying masters touches FKs across 8+ tables — needs its own plan; workaround: fixture masters used by suite) |
+| P2.3 Demo bank seed + residue cleanup | **done** | — (data + prod API) | — | 48c1f2e7 | Recon queue seeded (6 imported lines); draft CN deleted; SP-2026-00068 VOIDED + SIV0000001 CANCELLED via deployed W4/cancel paths (2026-07-05 14:25); N1 master re-keying deferred to its own plan |
 | P2.4 W7 impersonation cookie | **merged** | fix/p2-4-impersonation-cookie | #205 | — | impersonate-exchange now sets the active_company cookie when the super_admin has a membership, or refuses with a pointer to user-impersonation when not (withAuth hard-requires membership by design) — label-only responses (name over wrong data) impossible. 2 unit tests |
 
 ## Phase 3 — Permanent reliability gate
@@ -84,7 +84,18 @@ State: **merged** (#202, master 0cccfba5; 2-round blind review incl. a reversed-
 |------|-------|--------|----|----------|----------|
 | Pricing SKUs / price-lock page / bank-feed BD pack / SAIPA one-pager | todo | | | | |
 
-## Phase 1 exit gate — REMAINING: Hein's deploy (everything else done)
+## Phase 1 exit gate — ✅ PASSED 2026-07-05 14:25 SAST
+
+Deployed master 48c1f2e7 via scripts/deploy.sh (Hein-approved, Saturday):
+CI gate ✅ · migs 500/501/502 applied+psql-verified on prod ✅ · schema-drift
+audit OK (277 tables) ✅ · service healthy ✅ · **post-deploy golden run vs
+prod Demo: 12/12** ✅ · prod integrity 14/15 (single FAIL = the HUMAN-GATED
+Britech/VF period population, by design) ✅.
+P2.3 residue resolved through the NEW code paths on prod: SP-2026-00068
+voided (W4's first real use — GL reversed, allocation un-applied),
+SIV0000001 cancelled (GL-reversing path). Reversal-pairs check: 0 residual.
+
+## (superseded) Phase 1 exit gate — runbook
 
 **Code state:** ALL P1 items merged (PRs #191–#202). All 11 golden paths are
 plain passes on dev Demo; zero test.fail() in the suite. Prod integrity 13/13.
