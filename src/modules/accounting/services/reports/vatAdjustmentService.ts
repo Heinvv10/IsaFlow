@@ -105,11 +105,14 @@ export async function approveVATAdjustment(companyId: string,
   const entryDate = fmtDate(va.adjustment_date);
   if (!entryDate) throw new Error(`VAT adjustment ${id} has an invalid adjustment_date value`);
 
+  // No sourceDocumentId: gl_journal_entries.source_document_id has an FK to
+  // captured_documents(id) only (migration 409); a VAT adjustment's own id
+  // would violate it. The adjustment <-> journal entry link is instead
+  // persisted below via vat_adjustments.gl_journal_entry_id.
   const je = await createJournalEntry(companyId, {
     entryDate,
     description: `VAT adjustment ${va.adjustment_number}`,
     source: 'auto_vat_adjustment',
-    sourceDocumentId: id,
     lines,
   }, safeUserId);
   await postJournalEntry(companyId, je.id, safeUserId);

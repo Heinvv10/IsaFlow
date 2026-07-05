@@ -166,11 +166,14 @@ export async function approveCreditNote(companyId: string, id: string, userId: s
     const entryDate = fmtDate(cn.credit_date);
     if (!entryDate) throw new Error(`Credit note ${id} has an invalid credit_date value`);
 
+    // No sourceDocumentId: gl_journal_entries.source_document_id has an FK to
+    // captured_documents(id) only (migration 409); a credit note's own id
+    // would violate it. The credit_note <-> journal entry link is instead
+    // persisted below via credit_notes.gl_journal_entry_id.
     const je = await createJournalEntry(companyId, {
       entryDate,
       description: `Credit note ${cn.credit_note_number}`,
       source: 'auto_credit_note',
-      sourceDocumentId: id,
       lines,
     }, userId);
     await postJournalEntry(companyId, je.id, userId);

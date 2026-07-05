@@ -12,6 +12,14 @@
  * These tests pin entryDate passed to createJournalEntry to 'YYYY-MM-DD'
  * for both Date-typed and string-typed credit_date values.
  *
+ * Also covers a follow-up finding from the same investigation:
+ * gl_journal_entries.source_document_id has an FK to captured_documents(id)
+ * only (migration 409). approveCreditNote used to pass sourceDocumentId: id
+ * (the credit note's own id), which would violate that FK on any
+ * environment where it's enforced (confirmed VALIDATED in prod) — trading
+ * the date crash for a new FK-violation crash. The credit_note <-> journal
+ * entry link is instead persisted via credit_notes.gl_journal_entry_id.
+ *
  * The Date fixture below is built with `new Date(2026, 6, 4)` (local-time
  * constructor), not `new Date('2026-07-04T00:00:00.000Z')` — node-postgres
  * itself constructs `DATE` column values at LOCAL midnight, so a fixture
@@ -58,6 +66,15 @@ const COMPANY_ID = '11111111-1111-1111-1111-111111111111';
 const CN_ID = '22222222-2222-2222-2222-222222222222';
 const USER_ID = '33333333-3333-3333-3333-333333333333';
 const JE_ID = '44444444-4444-4444-4444-444444444444';
+
+// Tagged-template sql mock calls are (stringsArray, ...interpolatedValues).
+// This checks a call's template text + interpolated values without caring
+// about exact argument position, so it's robust to unrelated query edits.
+function sqlCallTouches(call: unknown[], textFragment: string, value: unknown): boolean {
+  const [strings, ...values] = call as [readonly string[], ...unknown[]];
+  const text = Array.isArray(strings) ? strings.join('') : '';
+  return text.includes(textFragment) && values.includes(value);
+}
 
 function creditNoteRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -142,5 +159,30 @@ describe('approveCreditNote — credit_date normalization', () => {
 
     const [, journalInput] = mockCreateJournalEntry.mock.calls[0]!;
     expect(journalInput.entryDate).toBe('2026-07-04');
+  });
+});
+
+describe('approveCreditNote — no sourceDocumentId, linked via gl_journal_entry_id', () => {
+  it('does not pass sourceDocumentId to createJournalEntry (would violate fk_gl_je_source_document)', async () => {
+    mockSql
+      .mockResolvedValueOnce([creditNoteRow()])
+      .mockResolvedValueOnce([creditNoteRow({ status: 'approved', gl_journal_entry_id: JE_ID })]);
+
+    await approveCreditNote(COMPANY_ID, CN_ID, USER_ID);
+
+    const [, journalInput] = mockCreateJournalEntry.mock.calls[0]!;
+    expect(journalInput.sourceDocumentId).toBeUndefined();
+  });
+
+  it('persists gl_journal_entry_id on the credit note when approving', async () => {
+    mockSql
+      .mockResolvedValueOnce([creditNoteRow()])
+      .mockResolvedValueOnce([creditNoteRow({ status: 'approved', gl_journal_entry_id: JE_ID })]);
+
+    const result = await approveCreditNote(COMPANY_ID, CN_ID, USER_ID);
+
+    expect(result.glJournalEntryId).toBe(JE_ID);
+    const updateCall = mockSql.mock.calls[1]!;
+    expect(sqlCallTouches(updateCall, 'gl_journal_entry_id', JE_ID)).toBe(true);
   });
 });
