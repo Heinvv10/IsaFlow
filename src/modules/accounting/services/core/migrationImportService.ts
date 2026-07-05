@@ -157,14 +157,24 @@ export async function importARInvoices(
         journalLines.push({ glAccountId: vatOutputId, debit: 0, credit: inv.taxAmount, description: `VAT — ${inv.invoiceNumber}` });
       }
 
+      // No sourceDocumentId: gl_journal_entries.source_document_id has an FK
+      // to captured_documents(id) only (migration 409); the invoice's own id
+      // would violate it. The invoice <-> journal entry link is instead
+      // persisted below via customer_invoices.gl_journal_entry_id — same
+      // column postCustomerInvoiceToGL uses for a normally-created invoice's
+      // own posting entry; safe here because a migrated invoice is inserted
+      // pre-approved and never goes through that flow afterward.
       const entry = await createJournalEntry(companyId, {
         entryDate: inv.invoiceDate,
         description: `Migrated AR invoice ${inv.invoiceNumber}`,
         source: 'auto_migration',
-        sourceDocumentId: invoiceId,
         lines: journalLines,
       }, userId);
       await postJournalEntry(companyId, entry.id, userId);
+      await sql`
+        UPDATE customer_invoices SET gl_journal_entry_id = ${entry.id}::UUID
+        WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
+      `;
       imported++;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

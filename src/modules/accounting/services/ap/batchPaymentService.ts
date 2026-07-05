@@ -138,11 +138,14 @@ export async function processBatch(companyId: string, id: string, userId: string
       description: `Batch payment ${batch.batchNumber}` },
   ];
 
+  // No sourceDocumentId: gl_journal_entries.source_document_id has an FK to
+  // captured_documents(id) only (migration 409); a batch's own id would
+  // violate it. The batch <-> journal entry link is instead persisted below
+  // via supplier_payment_batches.gl_journal_entry_id.
   const je = await createJournalEntry(companyId, {
     entryDate: batch.batchDate,
     description: `Supplier batch payment ${batch.batchNumber}`,
     source: 'auto_batch_payment',
-    sourceDocumentId: id,
     lines,
   }, userId);
   await postJournalEntry(companyId, je.id, userId);
