@@ -18,9 +18,10 @@
  * Atomicity: all queries run on the ALS-bound `sql` client so they participate
  * in the outer withAuth request transaction (same pattern as
  * cancelCustomerPayment). The gl_account_balances cache is maintained
- * automatically by the trg_gl_je_status_balance trigger (migration 499), which
- * fires on the posted↔reversed status transitions performed by
- * reverseJournalEntry — no explicit cache maintenance is needed here.
+ * automatically by the trg_gl_je_status_balance trigger (migration 499): the
+ * reversal contra entry's draft->posted transition fires a full recompute of the
+ * affected accounts from posted lines, which now includes both the (still-posted)
+ * original and the contra, netting them to zero — no explicit cache work here.
  */
 
 import { sql } from '@/lib/neon';
@@ -101,16 +102,18 @@ export async function cancelCustomerInvoice(
       throw new InvoiceHasPaymentsError();
     }
 
-    // Reverse the posted GL journal, if one exists and is still posted.
-    // A draft invoice (no journal) and an already-reversed journal both skip this.
+    // Reverse the posted GL journal, if one exists and is still posted and not
+    // already reversed. A draft invoice (no journal) skips this. Note: after the
+    // reversal-semantics fix an already-reversed entry KEEPS status='posted', so
+    // idempotency is checked via reversed_at, not status.
     let reversedJournalEntryId: string | null = null;
     const journalEntryId = inv.gl_journal_entry_id ? String(inv.gl_journal_entry_id) : null;
     if (journalEntryId) {
       const jeRows = (await sql`
-        SELECT status FROM gl_journal_entries
+        SELECT status, reversed_at FROM gl_journal_entries
         WHERE id = ${journalEntryId}::UUID AND company_id = ${companyId}::UUID
       `) as Row[];
-      if (jeRows.length > 0 && String(jeRows[0]!.status) === 'posted') {
+      if (jeRows.length > 0 && String(jeRows[0]!.status) === 'posted' && jeRows[0]!.reversed_at == null) {
         const reversal = await reverseJournalEntry(companyId, journalEntryId, userId);
         reversedJournalEntryId = reversal.id;
       }

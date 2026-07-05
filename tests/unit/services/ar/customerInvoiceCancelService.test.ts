@@ -74,7 +74,7 @@ describe('cancelCustomerInvoice', () => {
     mockSql
       .mockResolvedValueOnce([invoiceRow()]) // 1. invoice lookup
       .mockResolvedValueOnce([{ allocated: '0' }]) // 2. live-allocation guard
-      .mockResolvedValueOnce([{ status: 'posted' }]) // 3. JE status lookup
+      .mockResolvedValueOnce([{ status: 'posted', reversed_at: null }]) // 3. JE status lookup
       .mockResolvedValueOnce([]); // 4. UPDATE customer_invoices
     mockReverse.mockResolvedValue({ id: REVERSAL_ID } as never);
 
@@ -133,11 +133,13 @@ describe('cancelCustomerInvoice', () => {
     expect(sqlText(updates[0]!)).not.toMatch(/\bbalance\b/i);
   });
 
-  it('does not reverse a journal that is already reversed', async () => {
+  it('does not reverse a journal that is already reversed (posted + reversed_at set)', async () => {
+    // Post-fix: a reversed entry keeps status='posted' with reversed_at set, so
+    // idempotency hinges on reversed_at, not status.
     mockSql
       .mockResolvedValueOnce([invoiceRow()])
       .mockResolvedValueOnce([{ allocated: '0' }])
-      .mockResolvedValueOnce([{ status: 'reversed' }])
+      .mockResolvedValueOnce([{ status: 'posted', reversed_at: '2026-07-01T00:00:00Z' }])
       .mockResolvedValueOnce([]);
 
     const result = await cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID);

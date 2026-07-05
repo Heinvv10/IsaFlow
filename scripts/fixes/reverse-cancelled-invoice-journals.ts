@@ -14,7 +14,8 @@
  * cancelled invoices by status.
  *
  * SAFE BY DEFAULT: dry-run unless --apply is passed. Idempotent — once a
- * journal is reversed it no longer matches (je.status becomes 'reversed').
+ * journal is reversed its reversed_at is set, so it no longer matches (the
+ * original keeps status='posted' under the reversal-semantics fix).
  *
  * Linkage: the authoritative invoice->journal link is
  * customer_invoices.gl_journal_entry_id (postCustomerInvoiceToGL persists it on
@@ -114,7 +115,7 @@ async function findOrphanedJournals(): Promise<Row[]> {
       FROM customer_invoices ci
       JOIN gl_journal_entries je
         ON je.id = ci.gl_journal_entry_id AND je.company_id = ci.company_id
-      WHERE ci.status = 'cancelled' AND je.status = 'posted'
+      WHERE ci.status = 'cancelled' AND je.status = 'posted' AND je.reversed_at IS NULL
         AND ci.company_id = ${companyFilter}::UUID
       ORDER BY ci.company_id, ci.invoice_number
     `) as Row[];
@@ -126,7 +127,7 @@ async function findOrphanedJournals(): Promise<Row[]> {
     FROM customer_invoices ci
     JOIN gl_journal_entries je
       ON je.id = ci.gl_journal_entry_id AND je.company_id = ci.company_id
-    WHERE ci.status = 'cancelled' AND je.status = 'posted'
+    WHERE ci.status = 'cancelled' AND je.status = 'posted' AND je.reversed_at IS NULL
     ORDER BY ci.company_id, ci.invoice_number
   `) as Row[];
 }
@@ -151,6 +152,7 @@ async function findNullLinkOrphanCandidates(): Promise<Row[]> {
         ON je.company_id = ci.company_id
        AND je.source = 'auto_invoice'
        AND je.status = 'posted'
+       AND je.reversed_at IS NULL
        AND je.description = ('Customer invoice ' || ci.invoice_number)
       WHERE ci.status = 'cancelled' AND ci.gl_journal_entry_id IS NULL
         AND ci.company_id = ${companyFilter}::UUID
@@ -165,6 +167,7 @@ async function findNullLinkOrphanCandidates(): Promise<Row[]> {
       ON je.company_id = ci.company_id
      AND je.source = 'auto_invoice'
      AND je.status = 'posted'
+     AND je.reversed_at IS NULL
      AND je.description = ('Customer invoice ' || ci.invoice_number)
     WHERE ci.status = 'cancelled' AND ci.gl_journal_entry_id IS NULL
     ORDER BY ci.company_id, ci.invoice_number
