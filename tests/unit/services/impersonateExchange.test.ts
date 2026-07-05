@@ -26,6 +26,10 @@ vi.mock('@/lib/auth', () => ({
   withAuth: (fn: Function) => fn,
 }));
 
+vi.mock('@/lib/api-error-handler', () => ({
+  withErrorHandler: (fn: Function) => fn,
+}));
+
 const setCookieMock = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/auth/cookies', () => ({
   setActiveCompanyCookie: setCookieMock,
@@ -64,7 +68,12 @@ function routeSql(hasMembership: boolean) {
   sqlMock.mockImplementation((strings: TemplateStringsArray) => {
     const text = (strings as unknown as string[]).join('?');
     if (/SELECT role FROM users/i.test(text)) return Promise.resolve([{ role: 'super_admin' }]);
-    if (/FROM companies/i.test(text)) return Promise.resolve([{ id: COMPANY_ID, name: 'Target Co' }]);
+    // Model RLS: companies_member_read makes the companies row visible ONLY
+    // to members — mirroring prod semantics so the membership-first ordering
+    // in the handler is actually exercised (blind-review HIGH on PR #205).
+    if (/FROM companies/i.test(text)) {
+      return Promise.resolve(hasMembership ? [{ id: COMPANY_ID, name: 'Target Co' }] : []);
+    }
     if (/FROM company_users/i.test(text)) return Promise.resolve(hasMembership ? [{ '?column?': 1 }] : []);
     return Promise.resolve([]);
   });

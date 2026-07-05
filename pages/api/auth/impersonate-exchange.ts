@@ -13,6 +13,7 @@ import type { NextApiResponse } from 'next';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { setActiveCompanyCookie } from '@/lib/auth/cookies';
 import { withAuth } from '@/lib/auth';
+import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -51,21 +52,18 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   try {
-    const rows = await sql`
-      SELECT id, name FROM companies WHERE id = ${payload.company_id}::UUID LIMIT 1
-    `;
-
-    if (rows.length === 0) {
-      return apiResponse.notFound(res, 'Company not found');
-    }
-
     // W7 (P2.4): previously this returned only the label — the frontend wrote
     // localStorage while the active_company cookie (which withAuth actually
     // scopes every query by) still pointed at the admin's own company: the
-    // impersonated company's NAME over the wrong company's DATA. withAuth
-    // hard-requires a company_users membership (no super_admin bypass, by
-    // design) — so either set the cookie for a real membership, or refuse
-    // loudly and point at user-impersonation. Never label-only.
+    // impersonated company's NAME over the wrong company's DATA.
+    //
+    // Membership is checked FIRST: under RLS the companies table is only
+    // visible to members (companies_member_read mirrors this exact join), so
+    // a company lookup for a non-member returns 0 rows and would masquerade
+    // as a misleading 404. company_users rows for the caller ARE visible
+    // under RLS, making this check reachable and honest. withAuth
+    // hard-requires membership on every later request anyway (no
+    // super_admin bypass, by design) — never set a label-only response.
     const membership = await sql`
       SELECT 1 FROM company_users
       WHERE user_id = ${req.user.id} AND company_id = ${payload.company_id}::UUID
@@ -76,6 +74,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         res,
         'You are not a member of this company — use user-impersonation (admin platform → Users → Impersonate), which signs you in as an actual member',
       );
+    }
+
+    const rows = await sql`
+      SELECT id, name FROM companies WHERE id = ${payload.company_id}::UUID LIMIT 1
+    `;
+    if (rows.length === 0) {
+      return apiResponse.notFound(res, 'Company not found');
     }
 
     const company = rows[0]!;
@@ -90,4 +95,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(handler);
+export default withAuth(withErrorHandler(handler));
