@@ -1,17 +1,18 @@
 /**
  * Golden path (a): quote → accept → convert to invoice → PDF.
  *
- * EXPECTED FAIL at baseline — July-4 audit H2: quoteService inserts
+ * Was EXPECTED FAIL at baseline — July-4 audit H2: quoteService inserted
  * line_number/line_total/account_id but customer_quote_lines has
- * sort_order/amount/gl_account_id → every create 500s; the feature has never
- * worked. The P1.2 fix must flip this spec to a plain passing test.
+ * sort_order/amount/gl_account_id → every create 500s; the feature had never
+ * worked. Flipped to a plain test by P1.2: PR #192 aligned the quote
+ * services with the schema; the residual convert crash (mapQuote fed
+ * String(pg Date) back into the conversion INSERT → `time zone "gmt+0200"
+ * not recognized`) is fixed alongside this flip.
  */
 import { test, expect } from '@playwright/test';
 import { Api, gpRef, today } from './_api';
 
 test('quote: create → accept → convert to invoice → PDF renders', async ({ baseURL }) => {
-  test.fail(true, 'AUDIT H2 (2026-07-04): quote create 500s on schema mismatch — fixed by P1.2');
-
   const api = await Api.login(baseURL!);
   try {
     const customers = await api.get<any[]>('/api/accounting/customers?limit=1');

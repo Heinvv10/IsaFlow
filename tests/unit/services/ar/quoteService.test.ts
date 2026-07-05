@@ -25,7 +25,15 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 
 vi.mock('@/lib/neon', () => {
   const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn() });
-  return { sql: sqlMock, withTransaction: vi.fn() };
+  return {
+    sql: sqlMock,
+    withTransaction: vi.fn(),
+    // Minimal faithful fmtDate: mapQuote serializes pg DATE via fmtDate (P1.2).
+    fmtDate: (d: unknown) =>
+      d instanceof Date
+        ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+        : String(d),
+  };
 });
 
 import { sql } from '@/lib/neon';
