@@ -26,7 +26,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       FROM asset_disposals d
       JOIN assets a ON d.asset_id = a.id
       WHERE a.company_id = ${companyId}
-      ORDER BY d.disposal_date DESC
+      ORDER BY d.disposal_date DESC, d.id DESC
       LIMIT ${limit + 1} OFFSET ${offset}
     ` as Row[];
     const hasMore = disposalsRaw.length > limit;

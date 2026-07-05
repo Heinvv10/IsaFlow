@@ -52,7 +52,7 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
       FROM supplier_invoices
       WHERE supplier_id = ${Number(supplier_id)} AND company_id = ${companyId}
         AND status NOT IN ('cancelled', 'draft')
-      ORDER BY invoice_date ASC
+      ORDER BY invoice_date ASC, id
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     `;
 
@@ -63,7 +63,7 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
       FROM supplier_payments sp
       WHERE sp.supplier_id = ${Number(supplier_id)} AND sp.company_id = ${companyId}
         AND sp.status NOT IN ('cancelled', 'draft')
-      ORDER BY sp.payment_date ASC
+      ORDER BY sp.payment_date ASC, sp.id
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     `;
 
@@ -75,7 +75,7 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
       WHERE cn.supplier_id = ${Number(supplier_id)} AND cn.company_id = ${companyId}
         AND cn.type = 'supplier'
         AND cn.status NOT IN ('cancelled', 'draft')
-      ORDER BY cn.credit_date ASC
+      ORDER BY cn.credit_date ASC, cn.id
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     `;
 

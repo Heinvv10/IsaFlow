@@ -85,7 +85,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse, companyId: s
     WHERE entity_type = ${entityType}
       AND entity_id = ${entityId}::uuid
       AND is_active = true
-    ORDER BY uploaded_at DESC
+    ORDER BY uploaded_at DESC, id DESC
     LIMIT ${limit + 1} OFFSET ${offset}
   `;
 
@@ -96,7 +96,7 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse, companyId: s
     WHERE dl.linked_entity_type = ${entityType}
       AND dl.linked_entity_id = ${entityId}::uuid
       AND pd.is_active = true
-    ORDER BY pd.uploaded_at DESC
+    ORDER BY pd.uploaded_at DESC, pd.id DESC
     LIMIT ${limit + 1} OFFSET ${offset}
   `;
 

@@ -89,7 +89,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         AND company_id  = ${companyId}::UUID
         AND status     != 'cancelled'
         AND invoice_date BETWEEN ${from}::DATE AND ${to}::DATE
-      ORDER BY invoice_date
+      ORDER BY invoice_date, id
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     ` as Row[];
 
@@ -103,7 +103,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         AND cp.status IN ('confirmed', 'reconciled')
         AND cp.payment_date BETWEEN ${from}::DATE AND ${to}::DATE
       GROUP BY cp.id, cp.payment_number, cp.payment_date, cp.bank_reference, cp.total_amount
-      ORDER BY cp.payment_date
+      ORDER BY cp.payment_date, cp.id
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     ` as Row[];
 
@@ -115,7 +115,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         AND type       = 'customer'
         AND status     = 'approved'
         AND credit_date BETWEEN ${from}::DATE AND ${to}::DATE
-      ORDER BY credit_date
+      ORDER BY credit_date, id
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     ` as Row[];
 

@@ -44,13 +44,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           SUM(total_amount::numeric) as total_paid,
           MAX(payment_date) as last_payment_date
         FROM customer_payments
-        WHERE status IN ('confirmed', 'reconciled')
+        WHERE company_id = ${companyId} AND status IN ('confirmed', 'reconciled')
         GROUP BY client_id
       ) paid ON paid.client_id = COALESCE(ci.client_id, ci.customer_id)
       WHERE ci.company_id = ${companyId} AND ci.status != 'cancelled'
       GROUP BY COALESCE(ci.client_id, ci.customer_id), c.name, paid.total_paid, paid.last_payment_date
       HAVING SUM(ci.total_amount::numeric) > 0
-      ORDER BY SUM(ci.total_amount::numeric) - COALESCE(paid.total_paid, 0) DESC
+      ORDER BY SUM(ci.total_amount::numeric) - COALESCE(paid.total_paid, 0) DESC, COALESCE(ci.client_id, ci.customer_id)
       LIMIT ${limit + 1} OFFSET ${offset}
     `;
 

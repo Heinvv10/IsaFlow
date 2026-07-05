@@ -33,7 +33,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     FROM assets a
     LEFT JOIN asset_categories ac ON a.category_id = ac.id
     WHERE a.purchase_date <= ${asOfDate} AND a.company_id = ${companyId}::UUID
-    ORDER BY a.category, a.asset_number
+    ORDER BY a.category, a.asset_number, a.id
     LIMIT ${limit + 1} OFFSET ${offset}
   ` as Row[];
 

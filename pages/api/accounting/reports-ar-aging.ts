@@ -84,7 +84,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         AND ci.status NOT IN ('paid', 'cancelled', 'draft')
         AND (ci.total_amount - ci.amount_paid) > 0
         AND ci.due_date IS NOT NULL
-      ORDER BY ci.due_date
+      ORDER BY ci.due_date, ci.id
       LIMIT ${limit + 1} OFFSET ${offset}
     `) as Row[];
 

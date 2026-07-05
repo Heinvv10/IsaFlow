@@ -13,7 +13,7 @@ import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withFlowMeter } from '@/lib/billing/withFlowMeter';
 import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
-import { sql } from '@/lib/neon';
+import { sql, fmtDate } from '@/lib/neon';
 import { parsePagination } from '@/lib/pagination';
 
 type Bucket = 'current' | '1-30' | '31-60' | '61-90' | '90+';
@@ -63,7 +63,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     const asAtRaw = req.query.as_at_date ? String(req.query.as_at_date) : null;
     const asAt = asAtRaw ? new Date(asAtRaw) : new Date();
-    const asAtStr = asAt.toISOString().split('T')[0] as string;
+    // Local date — toISOString() rolls back a day between 00:00–02:00 SAST
+    // (UTC+2 server); same fix as reports-ar-aging (P1.4 date family).
+    const asAtStr = fmtDate(asAt);
 
     const rows = (await sql`
       SELECT
@@ -82,7 +84,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         AND si.status NOT IN ('paid', 'cancelled', 'draft')
         AND si.balance > 0
         AND si.due_date IS NOT NULL
-      ORDER BY si.due_date
+      ORDER BY si.due_date, si.id
       LIMIT ${limit + 1} OFFSET ${offset}
     `) as Row[];
 

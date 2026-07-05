@@ -46,7 +46,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       SELECT id, invoice_number, invoice_date, notes, total_amount, status
       FROM customer_invoices
       WHERE COALESCE(client_id, customer_id) = ${clientId}::UUID AND company_id = ${companyId} AND status != 'cancelled'
-      ORDER BY invoice_date
+      ORDER BY invoice_date, id
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     `) as Row[];
 
@@ -58,7 +58,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       LEFT JOIN customer_payment_allocations cpa ON cpa.payment_id = cp.id
       WHERE cp.client_id = ${clientId}::UUID AND cp.company_id = ${companyId} AND cp.status IN ('confirmed', 'reconciled')
       GROUP BY cp.id, cp.payment_number, cp.payment_date, cp.bank_reference, cp.total_amount
-      ORDER BY cp.payment_date
+      ORDER BY cp.payment_date, cp.id
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     `) as Row[];
 
@@ -67,7 +67,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       SELECT id, credit_note_number, credit_date, reason, total_amount
       FROM credit_notes
       WHERE client_id = ${clientId}::UUID AND company_id = ${companyId} AND type = 'customer' AND status = 'approved'
-      ORDER BY credit_date
+      ORDER BY credit_date, id
       LIMIT ${STATEMENT_ROW_CEILING + 1}
     `) as Row[];
 
