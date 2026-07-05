@@ -20,7 +20,12 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 
 vi.mock('@/lib/neon', () => {
   const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn() });
-  return { sql: sqlMock };
+  return {
+    sql: sqlMock,
+    // Pass-through savepoint: the service wraps its body in withSavepoint so a
+    // 400-path failure can't orphan-commit partial writes (PR #198 review).
+    withSavepoint: vi.fn((_name: string, fn: () => unknown) => fn()),
+  };
 });
 
 vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
@@ -180,6 +185,13 @@ describe('cancelCustomerInvoice', () => {
 
     expect(mockReverse).not.toHaveBeenCalled();
     expect(updateInvoiceCalls()).toHaveLength(0);
+  });
+
+  it('runs inside a savepoint so 400-path failures cannot orphan-commit partial writes', async () => {
+    const { withSavepoint } = await import('@/lib/neon');
+    mockSql.mockResolvedValueOnce([]); // not found → throws, but wrapper must be used
+    await cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID).catch(() => undefined);
+    expect(withSavepoint).toHaveBeenCalledWith('cancel_customer_invoice', expect.any(Function));
   });
 
   it('is a no-op when the invoice is already cancelled', async () => {

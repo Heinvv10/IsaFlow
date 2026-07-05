@@ -53,7 +53,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         return apiResponse.success(res, invoice);
       }
       case 'cancel': {
-        const invoice = await cancelSupplierInvoice(companyId, invoiceId);
+        const invoice = await cancelSupplierInvoice(companyId, invoiceId, userId);
         return apiResponse.success(res, invoice);
       }
       case 'match': {

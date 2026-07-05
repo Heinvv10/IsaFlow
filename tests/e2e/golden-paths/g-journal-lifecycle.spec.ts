@@ -52,7 +52,9 @@ test('journal entry: draft → post → reverse nets to zero', async ({ baseURL 
     const afterPost = await api.get<any>(`/api/accounting/journal-entries-detail?id=${entry.id}`);
     expect(afterPost.status).toBe('posted');
 
-    // Reverse.
+    // Reverse. Semantics (PR #197): the original KEEPS status='posted' —
+    // reversal is metadata (reversed_at + reversal_of_id on the contra) so
+    // posted-only readers see the pair net to zero, not the contra alone.
     const reversal = await api.post<any>('/api/accounting/journal-entries-action', {
       id: entry.id,
       action: 'reverse',
@@ -61,7 +63,8 @@ test('journal entry: draft → post → reverse nets to zero', async ({ baseURL 
     expect(reversal.id).not.toBe(entry.id);
 
     const original = await api.get<any>(`/api/accounting/journal-entries-detail?id=${entry.id}`);
-    expect(original.status).toBe('reversed');
+    expect(original.status, 'original stays posted — reversal is metadata').toBe('posted');
+    expect(original.reversedAt, 'original carries reversed_at').toBeTruthy();
 
     const reversalDetail = await api.get<any>(
       `/api/accounting/journal-entries-detail?id=${reversal.id}`,

@@ -1,17 +1,15 @@
 /**
  * Golden path (e): credit note → approve → apply to invoice.
  *
- * EXPECTED FAIL at baseline — July-4 audit H3: approveCreditNote does
- * String(cn.credit_date) on a pg Date → Postgres gets a JS toString like
- * "…GMT+0200 (South Africa Standard Time)" → `time zone "gmt+0200" not
- * recognized` → credit notes can never leave draft. Fixed by P1.4 (fmtDate).
+ * Was EXPECTED FAIL at baseline — July-4 audit H3: approveCreditNote did
+ * String(cn.credit_date) on a pg Date → `time zone "gmt+0200" not
+ * recognized` → credit notes could never leave draft. Flipped to a plain
+ * test by P1.4's date fix (PR #193, creditNoteService serialization).
  */
 import { test, expect } from '@playwright/test';
 import { Api, gpRef, today } from './_api';
 
 test('credit note: create → approve → apply to invoice', async ({ baseURL }) => {
-  test.fail(true, 'AUDIT H3 (2026-07-04): approve throws timezone SQL error — fixed by P1.4');
-
   const api = await Api.login(baseURL!);
   try {
     const customers = await api.get<any[]>('/api/accounting/customers?limit=1');

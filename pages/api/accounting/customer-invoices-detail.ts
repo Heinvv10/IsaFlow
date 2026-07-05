@@ -257,13 +257,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         return apiResponse.badRequest(res, `Cannot approve an invoice with status '${String(cur[0]!.status)}'`);
       }
     } else {
+      // 'sent' is in AR_OPEN_STATUSES — sending a cancelled invoice would
+      // resurrect it into outstanding AR against a net-zero reversed journal.
       const sent = (await sql`
         UPDATE customer_invoices
         SET status = 'sent', updated_at = NOW()
         WHERE id = ${id}::UUID AND company_id = ${companyId}
+          AND status != 'cancelled'
         RETURNING id
       `) as Row[];
-      if (sent.length === 0) return apiResponse.notFound(res, 'Invoice', id);
+      if (sent.length === 0) {
+        const cur = (await sql`SELECT status FROM customer_invoices WHERE id = ${id}::UUID AND company_id = ${companyId}`) as Row[];
+        if (cur.length === 0) return apiResponse.notFound(res, 'Invoice', id);
+        return apiResponse.badRequest(res, 'Cannot send a cancelled invoice');
+      }
     }
 
     // Post to GL on approve (accrual accounting: DR AR, CR Revenue, CR VAT Output)

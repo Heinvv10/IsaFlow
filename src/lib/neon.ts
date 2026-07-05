@@ -36,6 +36,9 @@ function getDatabaseUrl(): string {
 
 let _pool: pg.Pool | null = null;
 
+/** Per-process sequence for ALS-batch savepoint names (nested batches must not collide). */
+let alsBatchSeq = 0;
+
 function getPool(): pg.Pool {
   if (!_pool) {
     _pool = new pg.Pool({
@@ -185,6 +188,42 @@ function createSql(client?: pg.PoolClient): SqlFunction {
     queries: LazyQuery<unknown>[] | ((tx: SqlFunction) => LazyQuery<unknown>[]),
     options: TransactionOptions = {}
   ): Promise<T[][]> => {
+    // Inside a withAuth/withPlatformAdmin request transaction, run the batch
+    // on the ALS-bound client so it JOINS that transaction: atomic with the
+    // handler's other writes (a later request failure rolls the batch back)
+    // and the RLS GUCs (request.jwt.claims) stay visible. The previous
+    // behavior — a fresh pool connection with its own BEGIN/COMMIT — silently
+    // committed batch writes even when the surrounding request failed, and
+    // ran them without the request's RLS claims. Isolation options are
+    // ignored on this path: the outer request transaction owns them.
+    const ctxClient = (client ? undefined : (await import('@/lib/als')).als.getStore()?.client);
+    if (ctxClient) {
+      // SAVEPOINT so a failed batch aborts only the batch, not the whole
+      // request transaction — callers with per-item try/catch loops (e.g.
+      // sageImportService's messy-data groups) must be able to continue
+      // after a batch error without "current transaction is aborted".
+      const sp = `sp_sqltx_${++alsBatchSeq}`;
+      await ctxClient.query(`SAVEPOINT ${sp}`);
+      try {
+        const list =
+          typeof queries === 'function' ? queries(createSql(ctxClient)) : queries;
+        const results: T[][] = [];
+        for (const q of list) {
+          const res = await ctxClient.query(q.text, q.values);
+          results.push(res.rows as T[]);
+        }
+        await ctxClient.query(`RELEASE SAVEPOINT ${sp}`);
+        return results;
+      } catch (err) {
+        try {
+          await ctxClient.query(`ROLLBACK TO SAVEPOINT ${sp}`);
+        } catch {
+          // rollback-to failure is secondary to the original error
+        }
+        throw err;
+      }
+    }
+
     const pool = getPool();
     const txClient = await pool.connect();
     try {

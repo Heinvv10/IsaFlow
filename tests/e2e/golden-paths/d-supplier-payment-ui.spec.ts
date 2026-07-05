@@ -2,10 +2,10 @@
  * Golden path (d): supplier invoice → approve → supplier payment VIA THE UI
  * FORM → allocation.
  *
- * EXPECTED FAIL at baseline — July-4 audit H1: the form posts
- * supplierId: Number(uuid) → NaN → 422 "supplierId expected string", and the
- * failure is silent on screen. Deliberately UI-driven (the API path works);
- * P1.3 fixes the payload AND surfaces API errors in the form.
+ * Was EXPECTED FAIL at baseline — July-4 audit H1: the form posted
+ * supplierId: Number(uuid) → NaN → silent 422. Flipped to a plain test by
+ * P1.3 (PR #191: string UUID + on-screen error surfacing). Deliberately
+ * UI-driven — the API path always worked; the defect was form wiring.
  */
 import { test, expect } from '@playwright/test';
 import { Api, gpRef, today } from './_api';
@@ -14,15 +14,16 @@ test('supplier payment created through the /new form allocates to the invoice', 
   page,
   baseURL,
 }) => {
-  test.fail(true, 'AUDIT H1 (2026-07-04): form sends Number(uuid) → silent 422 — fixed by P1.3');
-
   const api = await Api.login(baseURL!);
   try {
     // Fresh supplier so the form's invoice table contains exactly our invoice.
-    const ref = gpRef('SUPP');
+    // Name starts with '0' so it sorts into the dropdown's FIRST page — the
+    // form loads suppliers-list without a limit param (default 25) and a
+    // later-sorting name silently falls off the list (found live 2026-07-05).
+    const ref = `0${gpRef('SUPP')}`;
     const supplier = await api.post<any>('/api/accounting/suppliers-list', {
       name: ref,
-      email: 'gp-supplier@example.test',
+      email: `${gpRef('supp')}@example.test`,
       payment_terms: 30,
     });
     const supplierId = supplier.id;
@@ -45,11 +46,12 @@ test('supplier payment created through the /new form allocates to the invoice', 
     await page.goto('/accounting/supplier-payments/new');
     await page.selectOption('select[name="supplierId"]', supplierId);
 
-    // The approved invoice row loads; allocate its full total (115.00).
-    // Allocation rows are CSS-grid divs (no <table>); the allocation amount
-    // field is the page's only step-0.01 number input.
+    // Each allocation row = invoice <select name="invoiceId"> + amount input
+    // (CSS-grid divs, no <table>). Pick our approved invoice — selectOption
+    // auto-waits for the option to appear after the invoices fetch — then
+    // allocate its full total (115.00).
+    await page.selectOption('select[name="invoiceId"]', invoiceId, { timeout: 15_000 });
     const allocationInput = page.locator('input[type="number"][step="0.01"]').first();
-    await allocationInput.waitFor({ state: 'visible', timeout: 15_000 });
     await allocationInput.fill('115');
 
     await page.getByRole('button', { name: /record|create|save|payment/i }).last().click();

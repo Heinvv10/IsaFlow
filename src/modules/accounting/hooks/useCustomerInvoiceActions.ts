@@ -46,7 +46,9 @@ export function useCustomerInvoiceActions(opts: Options | null): {
   const balance = Number(invoice.total_amount) - Number(invoice.amount_paid);
   const canApprove = invoice.status === 'draft' || invoice.status === 'pending_approval';
   const canSend = invoice.status === 'approved';
-  const canCancel = !['paid', 'cancelled'].includes(invoice.status);
+  // Server blocks cancel whenever amount_paid > 0 (P1.1) — partially_paid
+  // would always fail there, so don't offer it.
+  const canCancel = !['paid', 'partially_paid', 'cancelled'].includes(invoice.status);
   const canRecordPayment = ['approved', 'sent', 'overdue', 'partially_paid'].includes(invoice.status);
   const recordPaymentClientId = invoice.client_id ?? invoice.customer_id ?? '';
   const canShowPortalLink = !['draft', 'cancelled'].includes(invoice.status);
