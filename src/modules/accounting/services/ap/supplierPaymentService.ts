@@ -149,14 +149,17 @@ export async function createSupplierPayment(companyId: string,
     // unprocessed (draft/approved) payments' pending allocations, two drafts
     // could each claim the full balance and both process into an over-payment
     // (same bug class as the customer-side W3 fix).
+    // payment_allocations is the LIVE table (mig 201's supplier_payment_
+    // allocations has 0 rows in dev AND prod — every writer in this file,
+    // batchPaymentService, and the process/void readers use payment_allocations).
     const pendingRows = (await sql`
-      SELECT spa.invoice_id, COALESCE(SUM(spa.amount_allocated), 0) AS pending
-      FROM supplier_payment_allocations spa
-      JOIN supplier_payments sp ON sp.id = spa.payment_id
-      WHERE spa.invoice_id = ANY(${invoiceIds}::UUID[])
+      SELECT pa.invoice_id, COALESCE(SUM(pa.amount_allocated), 0) AS pending
+      FROM payment_allocations pa
+      JOIN supplier_payments sp ON sp.id = pa.payment_id
+      WHERE pa.invoice_id = ANY(${invoiceIds}::UUID[])
         AND sp.company_id = ${companyId}::UUID
         AND sp.status IN ('draft', 'approved')
-      GROUP BY spa.invoice_id
+      GROUP BY pa.invoice_id
     `) as Row[];
     const pendingByInvoice = new Map(pendingRows.map((r) => [String(r.invoice_id), Number(r.pending)]));
 

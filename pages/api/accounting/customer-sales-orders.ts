@@ -19,6 +19,7 @@ import {
   updateSalesOrder,
   deleteSalesOrder,
 } from '@/modules/accounting/services/ar/salesOrderService';
+import { LineValidationError } from '@/modules/accounting/services/ar/quoteService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -41,16 +42,26 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'POST') {
     const userId = req.user.id;
-    const order = await createSalesOrder(companyId, req.body, userId);
-    return apiResponse.created(res, order);
+    try {
+      const order = await createSalesOrder(companyId, req.body, userId);
+      return apiResponse.created(res, order);
+    } catch (err) {
+      if (err instanceof LineValidationError) return apiResponse.badRequest(res, err.message);
+      throw err;
+    }
   }
 
   if (req.method === 'PUT') {
     const { id, ...input } = req.body;
     if (!id) return apiResponse.badRequest(res, 'id is required');
-    const order = await updateSalesOrder(companyId, id, input);
-    if (!order) return apiResponse.badRequest(res, 'Sales order not found or not in draft status');
-    return apiResponse.success(res, order);
+    try {
+      const order = await updateSalesOrder(companyId, id, input);
+      if (!order) return apiResponse.badRequest(res, 'Sales order not found or not in draft status');
+      return apiResponse.success(res, order);
+    } catch (err) {
+      if (err instanceof LineValidationError) return apiResponse.badRequest(res, err.message);
+      throw err;
+    }
   }
 
   if (req.method === 'DELETE') {

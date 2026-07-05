@@ -6,6 +6,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { LineValidationError } from './quoteService';
 
 // Re-export workflow functions for backward compatibility
 export { confirmSalesOrder, convertSalesOrderToInvoice } from './salesOrderWorkflowService';
@@ -114,8 +115,8 @@ function calcTotals(items: SalesOrderInput['items']) {
   // same positive-quantity / non-negative-price rule applies here. calcTotals
   // runs on every create AND update path, making it the single choke point.
   for (const item of items || []) {
-    if (!(Number(item.quantity) > 0)) throw new Error(`Line "${item.description}": quantity must be positive`);
-    if (Number(item.unit_price) < 0) throw new Error(`Line "${item.description}": unit price cannot be negative`);
+    if (!(Number(item.quantity) > 0)) throw new LineValidationError(`Line "${item.description}": quantity must be positive`);
+    if (Number(item.unit_price) < 0) throw new LineValidationError(`Line "${item.description}": unit price cannot be negative`);
   }
   for (const item of items) {
     const lt = Math.round(item.quantity * item.unit_price * 100) / 100;
