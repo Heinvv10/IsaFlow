@@ -14,26 +14,37 @@ test('payroll run: create → calculate → approve posts a GL journal', async (
     const employees = await api.get<any[]>('/api/payroll/employees?limit=1');
     expect(employees.length, 'Demo company must have employees').toBeGreaterThan(0);
 
-    // Pick a period with no existing run (runs are unique per company+month).
+    // Reuse the sandbox run a previous suite execution left behind (cleanup
+    // below reopens it to 'calculated'), else claim the next free period.
+    // Runs are unique per company+month; without reuse every execution would
+    // permanently consume a period slot.
     const existing = await api.get<any[]>('/api/payroll/runs');
-    const used = new Set(existing.map((r) => `${r.periodYear}-${r.periodMonth}`));
-    let year = 2031; // future sandbox years — clear of seeded demo data
-    let month = 1;
-    while (used.has(`${year}-${month}`)) {
-      month += 1;
-      if (month > 12) {
-        month = 1;
-        year += 1;
+    const reusable = existing.find(
+      (r) => r.periodYear >= 2031 && ['draft', 'calculated'].includes(r.status),
+    );
+    let runId: string;
+    if (reusable) {
+      runId = reusable.id;
+    } else {
+      const used = new Set(existing.map((r) => `${r.periodYear}-${r.periodMonth}`));
+      let year = 2031; // future sandbox years — clear of seeded demo data
+      let month = 1;
+      while (used.has(`${year}-${month}`)) {
+        month += 1;
+        if (month > 12) {
+          month = 1;
+          year += 1;
+        }
       }
+      const run = await api.post<any>('/api/payroll/runs', { month, year });
+      expect(run.id).toBeTruthy();
+      runId = run.id;
     }
 
-    const run = await api.post<any>('/api/payroll/runs', { month, year });
-    expect(run.id).toBeTruthy();
-
-    const calculated = await api.post<any>(`/api/payroll/runs/${run.id}/calculate`);
+    const calculated = await api.post<any>(`/api/payroll/runs/${runId}/calculate`);
     expect(Number(calculated.employeeCount ?? calculated.totalGross ?? 1)).toBeGreaterThan(0);
 
-    const approved = await api.post<any>(`/api/payroll/runs/${run.id}/approve`);
+    const approved = await api.post<any>(`/api/payroll/runs/${runId}/approve`);
     expect(approved.status).toBe('approved');
     expect(approved.journalEntryId, 'approve must post a GL journal').toBeTruthy();
 
@@ -47,16 +58,21 @@ test('payroll run: create → calculate → approve posts a GL journal', async (
     expect(drTotal).toBeCloseTo(crTotal, 2);
     expect(drTotal).toBeGreaterThan(0);
 
-    // Best-effort cleanup: reverse the journal and reopen the run so the
-    // sandbox period stays reusable. Failure here must not fail the pin.
+    // Cleanup: reopen the run (approved → calculated, needs a ≥5-char reason)
+    // so the NEXT execution reuses this same slot. Do NOT reverse the journal:
+    // reopen keeps payroll_run_headers.journal_entry_id, and approve's
+    // idempotent skip returns that same journal on reuse — reversing it here
+    // would make the next run's `status === 'posted'` assertion fail.
+    // Residue is bounded: one sandbox run + one posted journal, reused forever.
     try {
-      await api.post('/api/accounting/journal-entries-action', {
-        id: approved.journalEntryId,
-        action: 'reverse',
+      await api.post(`/api/payroll/runs/${runId}/reopen`, {
+        reason: 'golden-path sandbox reset',
       });
-      await api.post(`/api/payroll/runs/${run.id}/reopen`);
-    } catch {
-      // cleanup is advisory only
+    } catch (cleanupErr) {
+      test.info().annotations.push({
+        type: 'cleanup-failed',
+        description: String(cleanupErr),
+      });
     }
   } finally {
     await api.dispose();

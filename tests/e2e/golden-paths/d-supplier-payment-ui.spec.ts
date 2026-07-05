@@ -46,7 +46,9 @@ test('supplier payment created through the /new form allocates to the invoice', 
     await page.selectOption('select[name="supplierId"]', supplierId);
 
     // The approved invoice row loads; allocate its full total (115.00).
-    const allocationInput = page.locator('table input[type="number"]').first();
+    // Allocation rows are CSS-grid divs (no <table>); the allocation amount
+    // field is the page's only step-0.01 number input.
+    const allocationInput = page.locator('input[type="number"][step="0.01"]').first();
     await allocationInput.waitFor({ state: 'visible', timeout: 15_000 });
     await allocationInput.fill('115');
 

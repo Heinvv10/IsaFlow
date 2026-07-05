@@ -25,7 +25,7 @@ States: `todo` · `in-progress` · `pr-open` · `merged` · `deployed` · `block
 | Task | State | Branch | PR | Deployed | Evidence |
 |------|-------|--------|----|----------|----------|
 | P1.1 Cancel → GL reversal (+ Demo JE-2026-00927 repair; Britech JE-2026-00507 HUMAN-GATED) | todo | | | | |
-| P1.2 Quotes service/schema mismatch | todo | | | | |
+| P1.2 Quotes service/schema mismatch — fix ALL sites: INSERTs (quoteService.ts:172,199) AND the read path getQuote SELECT `ORDER BY line_number` (:146) + mapLine (:74,77); createQuote/convertToInvoice both re-read via getQuote, so INSERT-only fix still 500s (blind-review finding on PR #196) | todo | | | | |
 | P1.3 Supplier-payment UI 422 + error surfacing | todo | | | | |
 | P1.4 Credit-note approve date + repo date sweep (incl. PR #194 review LOWs: customer-invoices-export.ts String(date) CSV; reports-customer-ledger, reports-ar-aging, sales-by-customer, sales-by-item, dashboard-todos, continuous-close; PLUS baseline N4: customerPaymentAllocationService postCustomerInvoiceToGL toISOString rollback — auto_invoice journals dated a day early) | todo | | | | |
 | P1.5 FAR report join + honest error | todo | | | | |

@@ -77,9 +77,12 @@ test('bank import: CSV and MT940 statements create transactions and rules can ma
     });
     expect(mtCommit).toBeTruthy();
 
-    // ── All three transactions are queryable on the account
+    // ── All three transactions are queryable on the account. `status` is
+    // required alongside bankAccountId for the search ILIKE branch to apply
+    // (without it the endpoint ignores `search` and returns recent rows only,
+    // which goes flaky once the account accumulates >50 same-day rows).
     const txns = await api.get<any>(
-      `/api/accounting/bank-transactions?bankAccountId=${bankAccountId}&search=${encodeURIComponent(ref)}`,
+      `/api/accounting/bank-transactions?bankAccountId=${bankAccountId}&status=imported&search=${encodeURIComponent(ref)}`,
     );
     const txnText = JSON.stringify(txns);
     expect(txnText).toContain(`${ref} coffee supplies`);

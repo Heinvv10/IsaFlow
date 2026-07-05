@@ -33,11 +33,13 @@ test('credit note: create → approve → apply to invoice', async ({ baseURL })
       action: 'approve',
     });
 
-    // Create the credit note (draft) — 100.00 + 15% VAT.
+    // Create the credit note (draft) — 100.00 + 15% VAT. Deliberately NOT
+    // linked to the invoice at create time: approveCreditNote auto-applies a
+    // linked credit (creditNoteService ~167), and a later explicit `apply`
+    // would then bump amount_paid a SECOND time. Create unlinked, apply once.
     const cn = await api.post<any>('/api/accounting/credit-notes', {
       type: 'customer',
       clientId,
-      customerInvoiceId: invoiceId,
       creditDate: today(),
       reason: gpRef('CN'),
       subtotal: 100,

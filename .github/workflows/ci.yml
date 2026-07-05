@@ -49,6 +49,13 @@ jobs:
     runs-on: [self-hosted, linux, velo]
     timeout-minutes: 30
     continue-on-error: true
+    # The suite writes to the SHARED isaflow_dev Demo company; the workflow's
+    # ci-${{ github.ref }} group only serialises same-ref runs, so two branches
+    # could otherwise interleave money flows (e.g. both claiming the same
+    # payroll sandbox period). Serialise across ALL refs, never cancel.
+    concurrency:
+      group: golden-paths-dev-demo
+      cancel-in-progress: false
 
     steps:
       - uses: actions/checkout@v4
