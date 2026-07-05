@@ -5,7 +5,7 @@
  * - Below-threshold    → DR Expense, CR Bank
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getSystemAccountId } from './systemAccountResolver';
 import {
@@ -24,64 +24,80 @@ export async function postAssetDepreciationToGL(
   depreciationAmount: number,
   userId: string
 ): Promise<string | null> {
+  // SAVEPOINT + swallow: legacy single-asset entry point. The dual-track run
+  // (postDualDepreciationToLedger) manages its own savepoint so ledger row +
+  // GL entry commit or roll back TOGETHER — use that for depreciation runs.
   try {
-    if (depreciationAmount <= 0) return null;
-
-    const asset = (await sql`
-      SELECT id, asset_number, name FROM assets WHERE id = ${assetId}
-    `) as DbRow[];
-
-    if (!asset[0]) {
-      log.warn('Asset not found for depreciation GL', { assetId }, 'accounting');
-      return null;
-    }
-
-    const assetRow = asset[0];
-    const assetNumber = String(assetRow.asset_number ?? '');
-    const assetName = String(assetRow.name ?? '');
-
-    const depExpenseId = await getSystemAccountId('depreciation_expense', companyId);
-    const accumDepId = await getSystemAccountId('accumulated_depreciation', companyId);
-
-    const entry = (await sql`
-      INSERT INTO gl_journal_entries (
-        company_id, entry_number, entry_date, description, source, status, created_by,
-        posting_agent
-      ) VALUES (
-        ${companyId}, ${`DEP-${assetNumber}-${new Date().toISOString().slice(0, 7)}`}, CURRENT_DATE,
-        ${`Depreciation: ${assetName} (${assetNumber})`},
-        'auto_depreciation', 'posted', ${userId},
-        'system:asset-depreciation:v1'
-      ) RETURNING id
-    `) as DbRow[];
-
-    const entryId = String(entry[0]!.id);
-
-    await sql`
-      INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description, company_id)
-      VALUES (${entryId}::UUID, ${depExpenseId}::UUID, ${depreciationAmount}, 0,
-        ${`Depreciation: ${assetNumber}`}, ${companyId}::UUID)
-    `;
-    await sql`
-      INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description, company_id)
-      VALUES (${entryId}::UUID, ${accumDepId}::UUID, 0, ${depreciationAmount},
-        ${`Depreciation: ${assetNumber}`}, ${companyId}::UUID)
-    `;
-
-    await sql`
-      UPDATE assets SET
-        accumulated_depreciation = COALESCE(accumulated_depreciation, 0) + ${depreciationAmount},
-        current_book_value = COALESCE(purchase_price, 0) - (COALESCE(accumulated_depreciation, 0) + ${depreciationAmount}),
-        updated_at = NOW()
-      WHERE id = ${assetId}
-    `;
-
-    log.info('Asset depreciation GL posted', { assetId, entryId, depreciationAmount }, 'accounting');
-    return entryId;
+    return await withSavepoint('asset_dep_gl', () =>
+      postAssetDepreciationToGLThrows(companyId, assetId, depreciationAmount, userId),
+    );
   } catch (err) {
     log.error('Failed to post asset depreciation to GL', { assetId, error: err }, 'accounting');
     return null;
   }
+}
+
+/** Throwing core — callers own savepoint/error policy. */
+async function postAssetDepreciationToGLThrows(
+  companyId: string,
+  assetId: string,
+  depreciationAmount: number,
+  userId: string
+): Promise<string | null> {
+  if (depreciationAmount <= 0) return null;
+
+  const asset = (await sql`
+    SELECT id, asset_number, name FROM assets
+    WHERE id = ${assetId} AND company_id = ${companyId}::UUID
+  `) as DbRow[];
+
+  if (!asset[0]) {
+    log.warn('Asset not found for depreciation GL', { assetId }, 'accounting');
+    return null;
+  }
+
+  const assetRow = asset[0];
+  const assetNumber = String(assetRow.asset_number ?? '');
+  const assetName = String(assetRow.name ?? '');
+
+  const depExpenseId = await getSystemAccountId('depreciation_expense', companyId);
+  const accumDepId = await getSystemAccountId('accumulated_depreciation', companyId);
+
+  const entry = (await sql`
+    INSERT INTO gl_journal_entries (
+      company_id, entry_number, entry_date, description, source, status, created_by,
+      posting_agent
+    ) VALUES (
+      ${companyId}, ${`DEP-${assetNumber}-${new Date().toISOString().slice(0, 7)}`}, CURRENT_DATE,
+      ${`Depreciation: ${assetName} (${assetNumber})`},
+      'auto_depreciation', 'posted', ${userId},
+      'system:asset-depreciation:v1'
+    ) RETURNING id
+  `) as DbRow[];
+
+  const entryId = String(entry[0]!.id);
+
+  await sql`
+    INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description, company_id)
+    VALUES (${entryId}::UUID, ${depExpenseId}::UUID, ${depreciationAmount}, 0,
+      ${`Depreciation: ${assetNumber}`}, ${companyId}::UUID)
+  `;
+  await sql`
+    INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description, company_id)
+    VALUES (${entryId}::UUID, ${accumDepId}::UUID, 0, ${depreciationAmount},
+      ${`Depreciation: ${assetNumber}`}, ${companyId}::UUID)
+  `;
+
+  await sql`
+    UPDATE assets SET
+      accumulated_depreciation = COALESCE(accumulated_depreciation, 0) + ${depreciationAmount},
+      current_book_value = COALESCE(purchase_price, 0) - (COALESCE(accumulated_depreciation, 0) + ${depreciationAmount}),
+      updated_at = NOW()
+    WHERE id = ${assetId} AND company_id = ${companyId}::UUID
+  `;
+
+  log.info('Asset depreciation GL posted', { assetId, entryId, depreciationAmount }, 'accounting');
+  return entryId;
 }
 
 // ── Enhanced Depreciation Run → GL + asset_period_ledger ──────────────────────
@@ -110,7 +126,7 @@ export async function postDualDepreciationToLedger(
   input: DualDepInput,
   yyyymm: string,
   userId: string
-): Promise<{ policyDep: number; taxDep: number; entryId: string | null }> {
+): Promise<{ policyDep: number; taxDep: number; entryId: string | null; glFailed: boolean }> {
   const policy = calculatePolicyDepreciation({
     cost: input.cost,
     residualPct: input.residualPct,
@@ -136,40 +152,53 @@ export async function postDualDepreciationToLedger(
     deferredTaxRate: input.deferredTaxRate,
   });
 
-  // Upsert period ledger row
-  await sql`
-    INSERT INTO asset_period_ledger (
-      company_id, asset_id, period_date, yyyymm,
-      policy_cost, policy_opening_acc_dep, policy_current_dep,
-      policy_closing_acc_dep, policy_carrying_amount, policy_dep_rate,
-      tax_cost, tax_opening_acc_dep, tax_current_dep,
-      tax_closing_acc_dep, tax_carrying_amount, deferred_tax
-    ) VALUES (
-      ${companyId}::UUID, ${assetId}::UUID,
-      ${input.periodDate}::DATE, ${yyyymm},
-      ${input.cost}, ${policy.openingAccDep}, ${policy.monthlyDep},
-      ${policy.closingAccDep}, ${policy.policyCarryingAmount}, ${policy.depRate},
-      ${input.cost}, ${tax.openingTaxAccDep}, ${tax.monthlyTaxDep},
-      ${tax.closingTaxAccDep}, ${tax.taxCarryingAmount}, ${deferred.deferredTax}
-    )
-    ON CONFLICT (company_id, asset_id, yyyymm) DO UPDATE SET
-      policy_current_dep      = EXCLUDED.policy_current_dep,
-      policy_closing_acc_dep  = EXCLUDED.policy_closing_acc_dep,
-      policy_carrying_amount  = EXCLUDED.policy_carrying_amount,
-      tax_current_dep         = EXCLUDED.tax_current_dep,
-      tax_closing_acc_dep     = EXCLUDED.tax_closing_acc_dep,
-      tax_carrying_amount     = EXCLUDED.tax_carrying_amount,
-      deferred_tax            = EXCLUDED.deferred_tax,
-      updated_at              = NOW()
-  `;
+  // Ledger row + GL entry commit or roll back TOGETHER: a subledger period
+  // row without its backing journal (or vice versa) permanently skews
+  // closing accumulated depreciation / carrying amounts, because the next
+  // period's run computes from the persisted opening balances. One SAVEPOINT
+  // per asset also stops a single bad asset from poisoning the request
+  // transaction and 500ing the rest of the run (P1.5, observed live).
+  try {
+    const entryId = await withSavepoint('asset_dep_period', async () => {
+      await sql`
+        INSERT INTO asset_period_ledger (
+          company_id, asset_id, period_date, yyyymm,
+          policy_cost, policy_opening_acc_dep, policy_current_dep,
+          policy_closing_acc_dep, policy_carrying_amount, policy_dep_rate,
+          tax_cost, tax_opening_acc_dep, tax_current_dep,
+          tax_closing_acc_dep, tax_carrying_amount, deferred_tax
+        ) VALUES (
+          ${companyId}::UUID, ${assetId}::UUID,
+          ${input.periodDate}::DATE, ${yyyymm},
+          ${input.cost}, ${policy.openingAccDep}, ${policy.monthlyDep},
+          ${policy.closingAccDep}, ${policy.policyCarryingAmount}, ${policy.depRate},
+          ${input.cost}, ${tax.openingTaxAccDep}, ${tax.monthlyTaxDep},
+          ${tax.closingTaxAccDep}, ${tax.taxCarryingAmount}, ${deferred.deferredTax}
+        )
+        ON CONFLICT (company_id, asset_id, yyyymm) DO UPDATE SET
+          policy_current_dep      = EXCLUDED.policy_current_dep,
+          policy_closing_acc_dep  = EXCLUDED.policy_closing_acc_dep,
+          policy_carrying_amount  = EXCLUDED.policy_carrying_amount,
+          tax_current_dep         = EXCLUDED.tax_current_dep,
+          tax_closing_acc_dep     = EXCLUDED.tax_closing_acc_dep,
+          tax_carrying_amount     = EXCLUDED.tax_carrying_amount,
+          deferred_tax            = EXCLUDED.deferred_tax,
+          updated_at              = NOW()
+      `;
+      return postAssetDepreciationToGLThrows(companyId, assetId, policy.monthlyDep, userId);
+    });
 
-  const entryId = await postAssetDepreciationToGL(companyId, assetId, policy.monthlyDep, userId);
+    log.info('Dual depreciation ledger updated', {
+      assetId, yyyymm, policyDep: policy.monthlyDep, taxDep: tax.monthlyTaxDep,
+    }, 'accounting');
 
-  log.info('Dual depreciation ledger updated', {
-    assetId, yyyymm, policyDep: policy.monthlyDep, taxDep: tax.monthlyTaxDep,
-  }, 'accounting');
-
-  return { policyDep: policy.monthlyDep, taxDep: tax.monthlyTaxDep, entryId };
+    return { policyDep: policy.monthlyDep, taxDep: tax.monthlyTaxDep, entryId, glFailed: false };
+  } catch (err) {
+    // Whole period rolled back for this asset — nothing persisted. Report
+    // loudly so the run's caller can surface a failure count.
+    log.error('Dual depreciation period failed — rolled back', { assetId, yyyymm, error: err }, 'accounting');
+    return { policyDep: policy.monthlyDep, taxDep: tax.monthlyTaxDep, entryId: null, glFailed: true };
+  }
 }
 
 // ── Asset Disposal → GL ───────────────────────────────────────────────────────
