@@ -155,7 +155,7 @@ export async function getQuote(companyId: string, id: string): Promise<Quote | n
 export async function createQuote(companyId: string, input: QuoteInput, userId?: string): Promise<Quote> {
   const quoteNumber = await nextQuoteNumber();
   const { subtotal, taxAmount, total } = calcTotals(input.lines);
-  const qd = input.quoteDate || new Date().toISOString().split('T')[0];
+  const qd = input.quoteDate || fmtDate(new Date()); // local date — toISOString rolls back a day before 02:00 SAST
 
   const rows = (await sql`
     INSERT INTO customer_quotes (company_id, quote_number, client_id, customer_name, quote_date, expiry_date,
