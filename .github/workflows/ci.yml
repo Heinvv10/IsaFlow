@@ -40,3 +40,40 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           JWT_SECRET: test-secret-for-ci-only
           NODE_ENV: test
+
+  # Golden-paths money-flow E2E (A–Z programme Phase 0). ADVISORY for now —
+  # becomes blocking in Phase 3 (P3.1). Boots a dev server against isaflow_dev
+  # using the runner-local env file and runs tests/e2e/golden-paths/ over HTTP.
+  golden-paths:
+    name: Golden Paths E2E (advisory)
+    runs-on: [self-hosted, linux, velo]
+    timeout-minutes: 30
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Boot dev server and run golden paths
+        env:
+          E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
+          E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
+        run: |
+          set -e
+          if [ ! -f /home/hein/isaflow-ci.env ]; then
+            echo "::warning::/home/hein/isaflow-ci.env missing on runner — golden paths skipped"
+            exit 0
+          fi
+          cp /home/hein/isaflow-ci.env .env.local
+          bunx playwright install chromium
+          bunx next dev -p 3210 > golden-dev.log 2>&1 &
+          DEVPID=$!
+          trap 'kill $DEVPID 2>/dev/null || true' EXIT
+          for i in $(seq 1 90); do
+            curl -sf http://localhost:3210/api/health >/dev/null && break
+            sleep 2
+          done
+          curl -sf http://localhost:3210/api/health >/dev/null || { echo "dev server failed to boot"; tail -50 golden-dev.log; exit 1; }
+          BASE_URL=http://localhost:3210 bun run test:e2e:golden
