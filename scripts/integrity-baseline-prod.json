@@ -1,0 +1,7 @@
+[
+  {
+    "label": "Posted JE fiscal period matches entry date",
+    "maxOffending": 436,
+    "reason": "HUMAN-GATED Britech(5)+Velocity Fibre(431) period repairs awaiting Hein sign-off — tracker HUMAN-GATED queue (docs/audits/2026-07-05-fix-a-z-progress.md). Cap=436 (prod count 2026-07-05): repairs only shrink it; any growth means backdated postings into uncovered months and must block the deploy. DELETE THIS ENTRY once the repairs land."
+  }
+]

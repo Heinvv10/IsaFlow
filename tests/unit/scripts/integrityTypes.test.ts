@@ -10,9 +10,12 @@ import { describe, it, expect } from 'vitest';
 import {
   summarize,
   renderResult,
+  applyBaseline,
+  parseBaselineJson,
   fmt,
   plural,
   type CheckResult,
+  type BaselineEntry,
 } from '../../../scripts/lib/integrityTypes';
 
 describe('summarize', () => {
@@ -23,7 +26,7 @@ describe('summarize', () => {
       { label: 'c', status: 'info', lines: ['x'] },
       { label: 'd', status: 'pass', detail: 'ok' },
     ];
-    expect(summarize(results)).toEqual({ passed: 3, total: 4, failed: 1 });
+    expect(summarize(results)).toEqual({ passed: 3, total: 4, failed: 1, waived: 0 });
   });
 
   it('reports all-passed when there are no failures', () => {
@@ -31,11 +34,141 @@ describe('summarize', () => {
       { label: 'a', status: 'pass', detail: 'ok' },
       { label: 'b', status: 'info', lines: [] },
     ];
-    expect(summarize(results)).toEqual({ passed: 2, total: 2, failed: 0 });
+    expect(summarize(results)).toEqual({ passed: 2, total: 2, failed: 0, waived: 0 });
   });
 
   it('handles an empty result set', () => {
-    expect(summarize([])).toEqual({ passed: 0, total: 0, failed: 0 });
+    expect(summarize([])).toEqual({ passed: 0, total: 0, failed: 0, waived: 0 });
+  });
+
+  it('counts waived as passed (does not fail the run) and reports it separately', () => {
+    const results: CheckResult[] = [
+      { label: 'a', status: 'pass', detail: 'ok' },
+      { label: 'b', status: 'waived', detail: 'known HUMAN-GATED failure' },
+      { label: 'c', status: 'fail', detail: 'bad' },
+    ];
+    expect(summarize(results)).toEqual({ passed: 2, total: 3, failed: 1, waived: 1 });
+  });
+});
+
+// applyBaseline: the post-deploy prod gate must tolerate the known
+// HUMAN-GATED failure (Britech+VF "Posted JE fiscal period", 436 rows —
+// repairs waiting on Hein) WITHOUT going blind to new or worsening failures.
+describe('applyBaseline', () => {
+  const baseline: BaselineEntry[] = [
+    {
+      label: 'Posted JE fiscal period matches entry date',
+      maxOffending: 436,
+      reason: 'HUMAN-GATED Britech/VF period repairs awaiting Hein (tracker queue)',
+    },
+  ];
+
+  it('waives a listed failure at or under the offending-row cap', () => {
+    const results: CheckResult[] = [
+      {
+        label: 'Posted JE fiscal period matches entry date',
+        status: 'fail',
+        detail: '436 posted entries with NULL or mismatched fiscal period',
+        offending: 436,
+      },
+    ];
+    const out = applyBaseline(results, baseline);
+    expect(out[0]!.status).toBe('waived');
+    expect(out[0]!.detail).toContain('waived');
+    expect(out[0]!.detail).toContain('HUMAN-GATED');
+    expect(summarize(out).failed).toBe(0);
+  });
+
+  it('does NOT waive when the failure got worse than the cap', () => {
+    const results: CheckResult[] = [
+      {
+        label: 'Posted JE fiscal period matches entry date',
+        status: 'fail',
+        detail: '437 posted entries with NULL or mismatched fiscal period',
+        offending: 437,
+      },
+    ];
+    const out = applyBaseline(results, baseline);
+    expect(out[0]!.status).toBe('fail');
+    expect(summarize(out).failed).toBe(1);
+  });
+
+  it('does NOT waive a capped entry when the result carries no offending count', () => {
+    // A cap that cannot be enforced must fail loudly rather than waive blindly.
+    const results: CheckResult[] = [
+      { label: 'Posted JE fiscal period matches entry date', status: 'fail', detail: 'bad' },
+    ];
+    expect(applyBaseline(results, baseline)[0]!.status).toBe('fail');
+  });
+
+  it('does NOT waive failures that are not in the baseline', () => {
+    const results: CheckResult[] = [
+      { label: 'JE balance (per entry)', status: 'fail', detail: '1 unbalanced entry', offending: 1 },
+    ];
+    const out = applyBaseline(results, baseline);
+    expect(out[0]!.status).toBe('fail');
+    expect(summarize(out).failed).toBe(1);
+  });
+
+  it('does NOT waive when a (malformed, cap-missing) entry reaches it at runtime — fail-safe', () => {
+    // parseBaselineJson rejects capless entries, but applyBaseline must not
+    // waive unboundedly even if one sneaks through an untyped call site.
+    const capless = [{ label: 'X', reason: 'known' }] as unknown as BaselineEntry[];
+    const out = applyBaseline([{ label: 'X', status: 'fail', detail: 'bad', offending: 1 }], capless);
+    expect(out[0]!.status).toBe('fail');
+  });
+
+  it('leaves pass and info results untouched even when their label is listed', () => {
+    const results: CheckResult[] = [
+      { label: 'Posted JE fiscal period matches entry date', status: 'pass', detail: '0 bad' },
+      { label: 'Posted JE fiscal period matches entry date', status: 'info', lines: ['x'] },
+    ];
+    const out = applyBaseline(results, baseline);
+    expect(out[0]!.status).toBe('pass');
+    expect(out[1]!.status).toBe('info');
+  });
+
+  it('returns results unchanged for an empty baseline', () => {
+    const results: CheckResult[] = [{ label: 'a', status: 'fail', detail: 'bad' }];
+    expect(applyBaseline(results, [])).toEqual(results);
+  });
+});
+
+// parseBaselineJson gates every production deploy via verify-deploy.sh — a
+// shape-validation regression here must be caught by CI, not by a red deploy.
+describe('parseBaselineJson', () => {
+  const valid = JSON.stringify([{ label: 'X', maxOffending: 10, reason: 'why' }]);
+
+  it('parses a valid baseline array', () => {
+    expect(parseBaselineJson(valid)).toEqual([{ label: 'X', maxOffending: 10, reason: 'why' }]);
+  });
+
+  it('parses an empty array', () => {
+    expect(parseBaselineJson('[]')).toEqual([]);
+  });
+
+  it('throws on malformed JSON', () => {
+    expect(() => parseBaselineJson('{nope')).toThrow();
+  });
+
+  it('throws when the root is not an array', () => {
+    expect(() => parseBaselineJson('{"label":"X"}')).toThrow(/array/i);
+  });
+
+  it('throws on an entry missing label', () => {
+    expect(() => parseBaselineJson('[{"maxOffending":1,"reason":"r"}]')).toThrow(/label/i);
+  });
+
+  it('throws on an entry missing reason', () => {
+    expect(() => parseBaselineJson('[{"label":"X","maxOffending":1}]')).toThrow(/reason/i);
+  });
+
+  it('throws on an entry missing maxOffending — unbounded waivers are not allowed', () => {
+    expect(() => parseBaselineJson('[{"label":"X","reason":"r"}]')).toThrow(/maxOffending/i);
+  });
+
+  it('throws on a non-numeric maxOffending', () => {
+    expect(() => parseBaselineJson('[{"label":"X","maxOffending":"10","reason":"r"}]')).toThrow(/maxOffending/i);
   });
 });
 
@@ -56,6 +189,12 @@ describe('renderResult', () => {
     const out: string[] = [];
     renderResult({ label: 'Stats', status: 'info', lines: ['co A', 'co B'] }, (s) => out.push(s));
     expect(out).toEqual(['', '[INFO] Stats:', '  co A', '  co B']);
+  });
+
+  it('formats a waived row as "[WAIVED] label — detail" with indented lines', () => {
+    const out: string[] = [];
+    renderResult({ label: 'X', status: 'waived', detail: 'known', lines: ['row1'] }, (s) => out.push(s));
+    expect(out).toEqual(['[WAIVED] X — known', '  row1']);
   });
 });
 
