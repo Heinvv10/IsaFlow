@@ -84,6 +84,11 @@ describe('cancelCustomerInvoice', () => {
     expect(mockReverse).toHaveBeenCalledWith(COMPANY_ID, JE_ID, USER_ID);
     expect(result.reversedJournalEntryId).toBe(REVERSAL_ID);
 
+    // Both row reads must lock (FOR UPDATE) to close the double-cancel race.
+    // call 0 = invoice SELECT, call 2 = JE SELECT. Fails if either lock is dropped.
+    expect(sqlText(mockSql.mock.calls[0]!)).toMatch(/FROM\s+customer_invoices[\s\S]*FOR UPDATE/i);
+    expect(sqlText(mockSql.mock.calls[2]!)).toMatch(/FROM\s+gl_journal_entries[\s\S]*FOR UPDATE/i);
+
     const updates = updateInvoiceCalls();
     expect(updates).toHaveLength(1);
     const text = sqlText(updates[0]!);

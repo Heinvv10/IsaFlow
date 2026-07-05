@@ -64,6 +64,27 @@ const call = (body: unknown) =>
     {} as NextApiResponse,
   );
 
+/** Concatenate a tagged-template sql call's static fragments for assertions. */
+function sqlText(call: unknown[]): string {
+  return (call[0] as readonly string[]).join(' ');
+}
+/** The interpolated values of a tagged-template sql call. */
+function sqlParams(call: unknown[]): unknown[] {
+  return call.slice(1);
+}
+/** Assert an UPDATE constrained approve to the pre-approval statuses. Fails if
+ *  the `AND status = ANY(${APPROVABLE_STATUSES}::text[])` guard is removed. */
+function expectApproveGuard(call: unknown[]): void {
+  expect(sqlText(call)).toMatch(/UPDATE\s+customer_invoices/i);
+  expect(sqlText(call)).toMatch(/status\s*=\s*ANY\s*\(/i);
+  expect(sqlText(call)).toMatch(/::text\[\]/i);
+  expect(
+    sqlParams(call).some(
+      (p) => Array.isArray(p) && p.includes('draft') && p.includes('pending_approval'),
+    ),
+  ).toBe(true);
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   sqlMock.mockReset();
@@ -77,6 +98,8 @@ describe('customer-invoices-detail POST action guards', () => {
 
     const result = await call({ id: INV_ID, action: 'approve' });
 
+    // The rejection must come from the DB guard, not just the mock returning [].
+    expectApproveGuard(sqlMock.mock.calls[0]!);
     expect(result.kind).toBe('badRequest');
     expect(result.error).toMatch(/cannot approve/i);
     expect(result.error).toMatch(/cancelled/);
@@ -100,6 +123,8 @@ describe('customer-invoices-detail POST action guards', () => {
 
     const result = await call({ id: INV_ID, action: 'approve' });
 
+    // Even the happy path must go through the status-guarded UPDATE.
+    expectApproveGuard(sqlMock.mock.calls[0]!);
     expect(result.kind).toBe('success');
     expect(postGlMock).toHaveBeenCalledWith(COMPANY_ID, INV_ID, USER_ID);
   });
