@@ -35,6 +35,7 @@ export const inventoryTab: Tab = {
         { label: 'Item Movement', href: '/accounting/reports/item-movement' },
         { label: 'Item Valuation', href: '/accounting/reports/item-valuation' },
         { label: 'Item Quantities', href: '/accounting/reports/item-quantities' },
+        { label: 'Stock Levels', href: '/accounting/stock-levels' },
       ],
     },
   ],

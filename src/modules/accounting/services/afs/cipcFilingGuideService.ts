@@ -2,9 +2,8 @@
 // Generates a CIPC filing guide for an AFS document, including deadline,
 // required forms, and a documents-ready checklist.
 // Filing deadline is computed at runtime (fiscal year-end + 6 months).
-// companies.cipc_annual_return_submitted does not exist — always returns not ready.
 
-import { sql } from '@/lib/neon';
+import { sql, fmtDate } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { computePisScoreForDocument } from './pisCalculatorService';
 import type { CipcFilingGuide } from './afsTypes';
@@ -79,6 +78,8 @@ interface DocumentRow {
   name: string;
   registration_number: string | null;
   financial_year_start: number;
+  cipc_annual_return_submitted: boolean;
+  cipc_annual_return_submitted_at: string | Date | null;
 }
 
 interface SectionRow {
@@ -97,7 +98,8 @@ export async function generateCipcFilingGuide(
   const [docRows, sectionRows, pisScore] = await Promise.all([
     sql`
       SELECT d.id, d.fiscal_year, d.status, d.pis_score, d.reporting_framework,
-             c.name, c.registration_number, c.financial_year_start
+             c.name, c.registration_number, c.financial_year_start,
+             c.cipc_annual_return_submitted, c.cipc_annual_return_submitted_at
       FROM afs_documents d
       JOIN companies c ON c.id = d.company_id
       WHERE d.id = ${documentId}::UUID
@@ -154,9 +156,10 @@ export async function generateCipcFilingGuide(
     },
     {
       label: 'CIPC annual return submitted',
-      ready: false,
-      // companies.cipc_annual_return_submitted column not yet added
-      detail: 'Data not available — companies.cipc_annual_return_submitted column not yet added',
+      ready: doc.cipc_annual_return_submitted,
+      detail: doc.cipc_annual_return_submitted
+        ? `Submitted ${fmtDate(doc.cipc_annual_return_submitted_at)}`
+        : 'Not yet submitted — mark it done once filed on the CIPC e-services portal',
     },
   ];
 

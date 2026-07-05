@@ -234,11 +234,22 @@ export default function ProvisionalEntriesPage() {
         <div className="fixed inset-0 z-40 bg-black/60 flex items-center justify-center p-4">
           <div className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-xl shadow-2xl w-full max-w-sm p-6">
             <h2 className="font-semibold text-[var(--ff-text-primary)] mb-2">Dismiss provisional entry?</h2>
-            <p className="text-sm text-[var(--ff-text-secondary)] mb-4">Automatic reversal is not yet implemented. You will need to reverse this journal entry manually in Journal Entries.</p>
+            <p className="text-sm text-[var(--ff-text-secondary)] mb-4">The journal entry will be reversed (net-zero contra) and any linked bank transaction returns to the review queue.</p>
             <div className="flex justify-end gap-2">
               <button onClick={() => setDismissJeId(null)} className="px-4 py-2 rounded-lg text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]">Cancel</button>
-              <button onClick={() => { setDismissJeId(null); setToast({ msg: 'Automatic reversal not yet implemented — manual reversal required in Journal Entries.', kind: 'warn' }); }}
-                className="px-4 py-2 rounded-lg text-sm bg-red-600 hover:bg-red-700 text-white font-medium">Dismiss anyway</button>
+              <button onClick={() => {
+                const jeId = dismissJeId;
+                setDismissJeId(null);
+                apiFetch(`/api/accounting/provisional/${jeId}/dismiss`, { method: 'POST' })
+                  .then(async (res) => {
+                    const json = await res.json();
+                    if (!res.ok || !json.success) throw new Error(json.error?.message ?? 'Failed to dismiss');
+                    setToast({ msg: 'Provisional entry reversed — linked bank transaction returned to the review queue.', kind: 'ok' });
+                    void load();
+                  })
+                  .catch((err: unknown) => setToast({ msg: err instanceof Error ? err.message : 'Failed to dismiss entry', kind: 'err' }));
+              }}
+                className="px-4 py-2 rounded-lg text-sm bg-red-600 hover:bg-red-700 text-white font-medium">Dismiss &amp; reverse</button>
             </div>
           </div>
         </div>

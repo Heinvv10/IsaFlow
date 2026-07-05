@@ -3,8 +3,7 @@
  * Sage-parity: all fields from Sage's New Customer form.
  */
 
-import React, { useEffect, useState } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import React from 'react';
 import { localISODate } from '@/lib/dateUtils';
 
 export interface CustomerFormData {
@@ -35,7 +34,6 @@ export interface CustomerFormData {
   default_vat_type: string;
   subject_to_drc_vat: boolean;
   invoices_viewable_online: boolean;
-  sales_rep_id: string;
   default_price_list: string;
 }
 
@@ -67,14 +65,8 @@ export const INITIAL_CUSTOMER_FORM: CustomerFormData = {
   default_vat_type: '',
   subject_to_drc_vat: false,
   invoices_viewable_online: true,
-  sales_rep_id: '',
   default_price_list: '',
 };
-
-interface SalesRep {
-  id: string;
-  name: string;
-}
 
 interface Props {
   form: CustomerFormData;
@@ -139,20 +131,6 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: 
 }
 
 export function CustomerForm({ form, onChange, fieldErrors = {}, categories = [] }: Props) {
-  const [salesReps, setSalesReps] = useState<SalesRep[]>([]);
-
-  useEffect(() => {
-    apiFetch('/api/accounting/sales-reps')
-      .then((r) => r.json())
-      .then((json: { data?: SalesRep[] } | SalesRep[]) => {
-        const rows = Array.isArray(json) ? json : (json.data ?? []);
-        setSalesReps(rows.filter((r) => r.id && r.name));
-      })
-      .catch(() => {
-        // Sales reps are optional — silently ignore fetch failures
-      });
-  }, []);
-
   function set<K extends keyof CustomerFormData>(key: K, value: CustomerFormData[K]) {
     onChange({ ...form, [key]: value });
   }
@@ -279,14 +257,6 @@ export function CustomerForm({ form, onChange, fieldErrors = {}, categories = []
               <option value="standard">Standard Rate (15%)</option>
               <option value="zero">Zero Rated (0%)</option>
               <option value="exempt">Exempt</option>
-            </select>
-          </Field>
-          <Field label="Sales Rep">
-            <select value={form.sales_rep_id} onChange={(e) => set('sales_rep_id', e.target.value)} className={inputClass}>
-              <option value="">(None)</option>
-              {salesReps.map((r) => (
-                <option key={r.id} value={r.id}>{r.name}</option>
-              ))}
             </select>
           </Field>
           <Field label="Default Price List">

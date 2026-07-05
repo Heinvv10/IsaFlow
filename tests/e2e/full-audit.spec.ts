@@ -17,9 +17,9 @@ const ALL_PAGES = [
   '/accounting/customers', '/accounting/customers/new',
   '/accounting/customer-categories', '/accounting/customer-invoices',
   '/accounting/customer-invoices/new', '/accounting/customer-payments',
-  '/accounting/customer-payments/new', '/accounting/customer-credit-notes',
+  '/accounting/customer-payments/new',
   '/accounting/customer-quotes', '/accounting/customer-statements',
-  '/accounting/customer-allocations', '/accounting/customer-age-analysis',
+  '/accounting/customer-allocations',
   '/accounting/customer-sales-orders', '/accounting/debtors-manager',
   '/accounting/write-offs', '/accounting/statement-run',
   // Suppliers
@@ -28,7 +28,7 @@ const ALL_PAGES = [
   '/accounting/supplier-invoices/new', '/accounting/supplier-payments',
   '/accounting/supplier-payments/new', '/accounting/supplier-credit-notes',
   '/accounting/supplier-returns', '/accounting/supplier-allocations',
-  '/accounting/supplier-age-analysis', '/accounting/supplier-statements',
+  '/accounting/supplier-statements',
   '/accounting/batch-payments', '/accounting/batch-payments/new',
   '/accounting/supplier-purchase-orders',
   // Items

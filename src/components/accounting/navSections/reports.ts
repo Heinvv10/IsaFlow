@@ -32,6 +32,8 @@ export const reportsTab: Tab = {
       items: [
         { label: 'Customer Report', href: '/accounting/reports/customer-reports' },
         { label: 'Supplier Report', href: '/accounting/reports/supplier-reports' },
+        { label: 'Customer Ledger', href: '/accounting/reports/customer-ledger' },
+        { label: 'Supplier Ledger', href: '/accounting/reports/supplier-ledger' },
         { label: 'Bank Transactions', href: '/accounting/reports/bank-transactions' },
         { label: 'Account Transactions', href: '/accounting/reports/account-transactions' },
         // Account Ledger has no meaningful default account/date — enter via TB/BS drill-down only.
