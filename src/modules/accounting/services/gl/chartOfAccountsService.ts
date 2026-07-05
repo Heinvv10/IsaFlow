@@ -399,6 +399,7 @@ export async function deleteAccount(companyId: string, id: string): Promise<void
       const pendingRows = await sql`
         SELECT COUNT(*) AS cnt FROM bank_transactions
         WHERE bank_account_id = ${id}
+          AND company_id = ${companyId}
           AND status NOT IN ('reconciled', 'excluded')
       ` as { cnt: string }[];
       const pendingCount = Number(pendingRows[0]!.cnt);
