@@ -10,6 +10,7 @@ import { Api } from './_api';
 
 test('payroll run: create → calculate → approve posts a GL journal', async ({ baseURL }) => {
   const api = await Api.login(baseURL!);
+  let approvedRunId = '';
   try {
     const employees = await api.get<any[]>('/api/payroll/employees?limit=1');
     expect(employees.length, 'Demo company must have employees').toBeGreaterThan(0);
@@ -45,6 +46,7 @@ test('payroll run: create → calculate → approve posts a GL journal', async (
     expect(Number(calculated.employeeCount ?? calculated.totalGross ?? 1)).toBeGreaterThan(0);
 
     const approved = await api.post<any>(`/api/payroll/runs/${runId}/approve`);
+    approvedRunId = runId;
     expect(approved.status).toBe('approved');
     expect(approved.journalEntryId, 'approve must post a GL journal').toBeTruthy();
 
@@ -58,23 +60,27 @@ test('payroll run: create → calculate → approve posts a GL journal', async (
     expect(drTotal).toBeCloseTo(crTotal, 2);
     expect(drTotal).toBeGreaterThan(0);
 
-    // Cleanup: reopen the run (approved → calculated, needs a ≥5-char reason)
-    // so the NEXT execution reuses this same slot. Do NOT reverse the journal:
+  } finally {
+    // Cleanup IN FINALLY (late #196 review MEDIUM: an assertion failure used
+    // to skip cleanup and strand the run 'approved', burning sandbox months).
+    // Reopen the run (approved → calculated, needs a ≥5-char reason) so the
+    // NEXT execution reuses this same slot. Do NOT reverse the journal:
     // reopen keeps payroll_run_headers.journal_entry_id, and approve's
     // idempotent skip returns that same journal on reuse — reversing it here
     // would make the next run's `status === 'posted'` assertion fail.
     // Residue is bounded: one sandbox run + one posted journal, reused forever.
     try {
-      await api.post(`/api/payroll/runs/${runId}/reopen`, {
-        reason: 'golden-path sandbox reset',
-      });
+      if (approvedRunId) {
+        await api.post(`/api/payroll/runs/${approvedRunId}/reopen`, {
+          reason: 'golden-path sandbox reset',
+        });
+      }
     } catch (cleanupErr) {
       test.info().annotations.push({
         type: 'cleanup-failed',
         description: String(cleanupErr),
       });
     }
-  } finally {
     await api.dispose();
   }
 });

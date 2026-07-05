@@ -20,11 +20,7 @@ test('cancelling a posted invoice reverses its GL journal to a net-zero pair', a
 }) => {
   const api = await Api.login(baseURL!);
   try {
-    const customer = await api.post<any>('/api/accounting/customers', {
-      name: gpRef('CXLCUST'),
-      email: `${gpRef('cxl')}@example.test`,
-    });
-    const clientId = customer.id;
+    const clientId = await api.fixtureCustomer();
 
     // Create + approve an invoice so a GL journal exists.
     const ref = gpRef('CXL');
