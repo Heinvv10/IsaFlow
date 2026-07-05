@@ -22,6 +22,14 @@ interface Transaction {
   balance: number;
 }
 
+// P3.4: this endpoint has no offset-pagination UI (single full-history view
+// with a running balance), and offset paging would silently break the
+// running-balance math anyway. Instead cap each source at a generous
+// per-entity ceiling — a safety valve, not user-facing paging — and source
+// the headline totals from a SQL aggregate over the FULL population so they
+// stay correct even if a pathological single supplier ever hits the ceiling.
+const STATEMENT_ROW_CEILING = 2000;
+
 export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextApiResponse) => {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method || '', ['GET']);
 
@@ -38,27 +46,29 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
     const supplier = supplierRows[0] as { id: number; name: string; email: string | null; phone: string | null };
 
     // Get invoices
-    const invoices = await sql`
+    const invoicesRaw = await sql`
       SELECT id, invoice_number as reference, invoice_date as date,
         total_amount as amount, amount_paid, notes as description
       FROM supplier_invoices
       WHERE supplier_id = ${Number(supplier_id)} AND company_id = ${companyId}
         AND status NOT IN ('cancelled', 'draft')
       ORDER BY invoice_date ASC
+      LIMIT ${STATEMENT_ROW_CEILING + 1}
     `;
 
     // Get payments
-    const payments = await sql`
+    const paymentsRaw = await sql`
       SELECT sp.id, sp.payment_number as reference, sp.payment_date as date,
         sp.total_amount as amount, sp.description
       FROM supplier_payments sp
       WHERE sp.supplier_id = ${Number(supplier_id)} AND sp.company_id = ${companyId}
         AND sp.status NOT IN ('cancelled', 'draft')
       ORDER BY sp.payment_date ASC
+      LIMIT ${STATEMENT_ROW_CEILING + 1}
     `;
 
     // Get debit notes (supplier returns)
-    const returns = await sql`
+    const returnsRaw = await sql`
       SELECT cn.id, cn.credit_note_number as reference, cn.credit_date as date,
         cn.total_amount as amount, cn.reason as description
       FROM credit_notes cn
@@ -66,7 +76,39 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
         AND cn.type = 'supplier'
         AND cn.status NOT IN ('cancelled', 'draft')
       ORDER BY cn.credit_date ASC
+      LIMIT ${STATEMENT_ROW_CEILING + 1}
     `;
+
+    const truncated =
+      invoicesRaw.length > STATEMENT_ROW_CEILING ||
+      paymentsRaw.length > STATEMENT_ROW_CEILING ||
+      returnsRaw.length > STATEMENT_ROW_CEILING;
+    if (truncated) {
+      log.warn('Supplier statement detail hit the per-entity row ceiling', {
+        supplier_id, ceiling: STATEMENT_ROW_CEILING,
+      }, 'accounting-api');
+    }
+    const invoices = invoicesRaw.slice(0, STATEMENT_ROW_CEILING);
+    const payments = paymentsRaw.slice(0, STATEMENT_ROW_CEILING);
+    const returns = returnsRaw.slice(0, STATEMENT_ROW_CEILING);
+
+    // Headline totals come from a SQL aggregate over the FULL population, so
+    // they stay correct even when the row ceiling above truncates the detail list.
+    const [totalsRow] = await sql`
+      SELECT
+        COALESCE((
+          SELECT SUM(total_amount::numeric) FROM supplier_invoices
+          WHERE supplier_id = ${Number(supplier_id)} AND company_id = ${companyId} AND status NOT IN ('cancelled', 'draft')
+        ), 0) AS total_invoiced,
+        COALESCE((
+          SELECT SUM(total_amount::numeric) FROM supplier_payments
+          WHERE supplier_id = ${Number(supplier_id)} AND company_id = ${companyId} AND status NOT IN ('cancelled', 'draft')
+        ), 0) AS total_paid,
+        COALESCE((
+          SELECT SUM(total_amount::numeric) FROM credit_notes
+          WHERE supplier_id = ${Number(supplier_id)} AND company_id = ${companyId} AND type = 'supplier' AND status NOT IN ('cancelled', 'draft')
+        ), 0) AS total_returns
+    ` as { total_invoiced: number; total_paid: number; total_returns: number }[];
 
     // Normalize date to YYYY-MM-DD regardless of input format
     const toISODate = (val: unknown): string => {
@@ -127,16 +169,16 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
       return (typeOrder[a.type] ?? 9) - (typeOrder[b.type] ?? 9);
     });
 
-    // Calculate running balance
+    // Running balance within the (possibly-capped) returned transaction list.
     let running = 0;
     for (const txn of transactions) {
       running += txn.debit - txn.credit;
       txn.balance = running;
     }
 
-    const totalInvoiced = transactions.reduce((s, t) => s + t.debit, 0);
-    const totalPaid = transactions.filter(t => t.type === 'payment').reduce((s, t) => s + t.credit, 0);
-    const totalReturns = transactions.filter(t => t.type === 'debit_note').reduce((s, t) => s + t.credit, 0);
+    const totalInvoiced = Number(totalsRow?.total_invoiced ?? 0);
+    const totalPaid = Number(totalsRow?.total_paid ?? 0);
+    const totalReturns = Number(totalsRow?.total_returns ?? 0);
 
     return apiResponse.success(res, {
       supplier,
@@ -147,7 +189,7 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
         totalReturns,
         balance: totalInvoiced - totalPaid - totalReturns,
       },
-    });
+    }, undefined, 200, { truncated });
   } catch (err) {
     log.error('Supplier statement detail failed', { error: err }, 'accounting-api');
     return apiResponse.internalError(res, err, 'Failed to load supplier statement');

@@ -12,7 +12,13 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { log } from '@/lib/logger';
 type Row = Record<string, unknown>;
 
-
+// P3.4: this endpoint has no offset-pagination UI (single full-history view
+// with a running balance), and offset paging would silently break the
+// running-balance math anyway. Instead cap each source at a generous
+// per-entity ceiling — a safety valve, not user-facing paging — and source
+// the headline totals from a SQL aggregate over the FULL population so they
+// stay correct even if a pathological single client ever hits the ceiling.
+const STATEMENT_ROW_CEILING = 2000;
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -36,28 +42,69 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const client = clientRows[0]!;
 
     // Get invoices
-    const invoices = (await sql`
+    const invoicesRaw = (await sql`
       SELECT id, invoice_number, invoice_date, notes, total_amount, status
       FROM customer_invoices
       WHERE COALESCE(client_id, customer_id) = ${clientId}::UUID AND company_id = ${companyId} AND status != 'cancelled'
       ORDER BY invoice_date
+      LIMIT ${STATEMENT_ROW_CEILING + 1}
     `) as Row[];
 
     // Get confirmed payments — includes both allocated and unallocated (bank-sourced)
-    const payments = (await sql`
+    const paymentsRaw = (await sql`
       SELECT cp.id, cp.payment_number, cp.payment_date, cp.bank_reference,
         COALESCE(SUM(cpa.amount_allocated), cp.total_amount) AS amount_allocated
       FROM customer_payments cp
       LEFT JOIN customer_payment_allocations cpa ON cpa.payment_id = cp.id
       WHERE cp.client_id = ${clientId}::UUID AND cp.company_id = ${companyId} AND cp.status IN ('confirmed', 'reconciled')
       GROUP BY cp.id, cp.payment_number, cp.payment_date, cp.bank_reference, cp.total_amount
+      ORDER BY cp.payment_date
+      LIMIT ${STATEMENT_ROW_CEILING + 1}
     `) as Row[];
 
     // Get approved customer credit notes
-    const creditNotes = (await sql`
+    const creditNotesRaw = (await sql`
       SELECT id, credit_note_number, credit_date, reason, total_amount
       FROM credit_notes
       WHERE client_id = ${clientId}::UUID AND company_id = ${companyId} AND type = 'customer' AND status = 'approved'
+      ORDER BY credit_date
+      LIMIT ${STATEMENT_ROW_CEILING + 1}
+    `) as Row[];
+
+    const truncated =
+      invoicesRaw.length > STATEMENT_ROW_CEILING ||
+      paymentsRaw.length > STATEMENT_ROW_CEILING ||
+      creditNotesRaw.length > STATEMENT_ROW_CEILING;
+    if (truncated) {
+      log.warn('Customer statement detail hit the per-entity row ceiling', {
+        clientId, ceiling: STATEMENT_ROW_CEILING,
+      }, 'accounting');
+    }
+    const invoices = invoicesRaw.slice(0, STATEMENT_ROW_CEILING);
+    const payments = paymentsRaw.slice(0, STATEMENT_ROW_CEILING);
+    const creditNotes = creditNotesRaw.slice(0, STATEMENT_ROW_CEILING);
+
+    // Headline totals come from a SQL aggregate over the FULL population, so
+    // they stay correct even when the row ceiling above truncates the detail list.
+    const [totalsRow] = (await sql`
+      SELECT
+        COALESCE((
+          SELECT SUM(total_amount::numeric) FROM customer_invoices
+          WHERE COALESCE(client_id, customer_id) = ${clientId}::UUID AND company_id = ${companyId} AND status != 'cancelled'
+        ), 0) AS total_invoiced,
+        COALESCE((
+          SELECT SUM(pmt_total) FROM (
+            SELECT COALESCE(SUM(cpa.amount_allocated), cp.total_amount) AS pmt_total
+            FROM customer_payments cp
+            LEFT JOIN customer_payment_allocations cpa ON cpa.payment_id = cp.id
+            WHERE cp.client_id = ${clientId}::UUID AND cp.company_id = ${companyId} AND cp.status IN ('confirmed', 'reconciled')
+            GROUP BY cp.id, cp.total_amount
+          ) pmt
+        ), 0) AS total_paid,
+        COALESCE((
+          SELECT SUM(total_amount::numeric) FROM credit_notes
+          WHERE client_id = ${clientId}::UUID AND company_id = ${companyId} AND type = 'customer' AND status = 'approved'
+        ), 0) AS total_credits
     `) as Row[];
 
     // Normalize date to YYYY-MM-DD regardless of input format
@@ -130,19 +177,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return (typeOrder[a.type] ?? 9) - (typeOrder[b.type] ?? 9);
     });
 
-    // Calculate running balance
+    // Running balance within the (possibly-capped) returned transaction list.
     let runningBalance = 0;
-    let totalInvoiced = 0;
-    let totalPaid = 0;
-    let totalCredits = 0;
-
     for (const txn of transactions) {
       runningBalance += txn.debit - txn.credit;
       txn.balance = runningBalance;
-      totalInvoiced += txn.debit;
-      if (txn.type === 'payment') totalPaid += txn.credit;
-      if (txn.type === 'credit_note') totalCredits += txn.credit;
     }
+
+    const totalInvoiced = Number(totalsRow?.total_invoiced ?? 0);
+    const totalPaid = Number(totalsRow?.total_paid ?? 0);
+    const totalCredits = Number(totalsRow?.total_credits ?? 0);
 
     return apiResponse.success(res, {
       client: {
@@ -156,9 +200,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         totalInvoiced,
         totalPaid,
         totalCredits,
-        balance: runningBalance,
+        balance: totalInvoiced - totalPaid - totalCredits,
       },
-    });
+    }, undefined, 200, { truncated });
   } catch (err) {
     log.error('Failed to fetch customer statement detail', { clientId, error: err, module: 'accounting' });
     return apiResponse.databaseError(res, err, 'Failed to fetch customer statement');

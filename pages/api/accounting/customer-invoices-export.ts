@@ -10,6 +10,7 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { csvCell } from '@/lib/csv';
+import { EXPORT_ROW_CEILING } from '@/lib/pagination';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -31,6 +32,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         WHERE ci.company_id = ${companyId}
           AND ci.status = ${status as string}
         ORDER BY ci.invoice_date DESC
+        LIMIT ${EXPORT_ROW_CEILING + 1}
       `;
     } else {
       rows = await sql`
@@ -42,12 +44,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         LEFT JOIN customers c ON c.id = ci.client_id
         WHERE ci.company_id = ${companyId}
         ORDER BY ci.invoice_date DESC
+        LIMIT ${EXPORT_ROW_CEILING + 1}
       `;
     }
 
+    // P3.4: cap the export rather than paginate — the extra row (if present)
+    // is dropped and replaced with a truncation marker row.
+    const truncated = rows.length > EXPORT_ROW_CEILING;
+    const pageRows = truncated ? rows.slice(0, EXPORT_ROW_CEILING) : rows;
+
     const csvLines = [
       'Invoice #,Client,Project,Date,Due Date,Amount,Paid,Outstanding,Status',
-      ...rows.map((r: Record<string, unknown>) => {
+      ...pageRows.map((r: Record<string, unknown>) => {
         const total = Number(r.total_amount || 0);
         const paid = Number(r.amount_paid || 0);
         return [
@@ -65,6 +73,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         ].join(',');
       }),
     ];
+    if (truncated) {
+      csvLines.push([
+        csvCell(`TRUNCATED — export capped at ${EXPORT_ROW_CEILING} rows; narrow the date range`),
+        ...Array(8).fill(csvCell(undefined)),
+      ].join(','));
+    }
 
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="customer-invoices-${new Date().toISOString().split('T')[0]}.csv"`);

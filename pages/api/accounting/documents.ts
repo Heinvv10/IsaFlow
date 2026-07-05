@@ -25,6 +25,7 @@ import {
   uploadDocument,
 } from '@/modules/accounting/services/core/documentStorageService';
 import { magicBytesMatchMime } from '@/lib/fileMagic';
+import { parsePagination } from '@/lib/pagination';
 
 export const config = {
   api: { bodyParser: false },
@@ -74,12 +75,18 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse, companyId: s
   const owned = await verifyEntityOwnership(entityId, companyId);
   if (!owned) return apiResponse.forbidden(res, 'Entity does not belong to your company');
 
+  // P3.4: entity-scoped, so normally small — the cap is insurance against a
+  // single entity accumulating unbounded attachments. Applied per query; the
+  // merged response is at most 2×limit.
+  const { limit, offset } = parsePagination(req.query, 200, 500);
+
   const directRows = await sql`
     SELECT * FROM procurement_documents
     WHERE entity_type = ${entityType}
       AND entity_id = ${entityId}::uuid
       AND is_active = true
     ORDER BY uploaded_at DESC
+    LIMIT ${limit + 1} OFFSET ${offset}
   `;
 
   const linkedRows = await sql`
@@ -90,14 +97,16 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse, companyId: s
       AND dl.linked_entity_id = ${entityId}::uuid
       AND pd.is_active = true
     ORDER BY pd.uploaded_at DESC
+    LIMIT ${limit + 1} OFFSET ${offset}
   `;
 
+  const hasMore = directRows.length > limit || linkedRows.length > limit;
   const results = [
-    ...directRows.map(r => mapRow(r as Record<string, unknown>, 'direct')),
-    ...linkedRows.map(r => mapRow(r as Record<string, unknown>, 'linked', (r as Record<string, unknown>).link_reason as string)),
+    ...directRows.slice(0, limit).map(r => mapRow(r as Record<string, unknown>, 'direct')),
+    ...linkedRows.slice(0, limit).map(r => mapRow(r as Record<string, unknown>, 'linked', (r as Record<string, unknown>).link_reason as string)),
   ];
 
-  return apiResponse.success(res, results);
+  return apiResponse.success(res, results, undefined, 200, { limit, offset, hasMore });
 }
 
 /** POST — Upload a document to an accounting entity */

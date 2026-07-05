@@ -11,6 +11,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { validateDisposal } from '@/modules/accounting/services/items/assetService';
+import { parsePagination } from '@/lib/pagination';
 
 type Row = Record<string, unknown>;
 
@@ -18,14 +19,19 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const companyId = (req as unknown as CompanyAuthedRequest).companyId;
 
   if (req.method === 'GET') {
-    const disposals = await sql`
+    // P3.4: was an unbounded per-tenant list. One row per disposal event.
+    const { limit, offset } = parsePagination(req.query, 500, 1000);
+    const disposalsRaw = await sql`
       SELECT d.*, a.asset_number, a.name as asset_name, a.category
       FROM asset_disposals d
       JOIN assets a ON d.asset_id = a.id
       WHERE a.company_id = ${companyId}
       ORDER BY d.disposal_date DESC
+      LIMIT ${limit + 1} OFFSET ${offset}
     ` as Row[];
-    return apiResponse.success(res, disposals);
+    const hasMore = disposalsRaw.length > limit;
+    const disposals = hasMore ? disposalsRaw.slice(0, limit) : disposalsRaw;
+    return apiResponse.success(res, disposals, undefined, 200, { limit, offset, hasMore });
   }
 
   if (req.method === 'POST') {

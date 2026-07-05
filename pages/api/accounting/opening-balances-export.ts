@@ -10,6 +10,7 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { csvCell } from '@/lib/csv';
+import { EXPORT_ROW_CEILING } from '@/lib/pagination';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
@@ -33,11 +34,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       ) ob ON ob.gl_account_id = a.id
       WHERE a.company_id = ${companyId}
       ORDER BY a.account_code
+      LIMIT ${EXPORT_ROW_CEILING + 1}
     `;
+
+    // P3.4: cap the export rather than paginate — the extra row (if present)
+    // is dropped and replaced with a truncation marker row.
+    const truncated = rows.length > EXPORT_ROW_CEILING;
+    const pageRows = truncated ? rows.slice(0, EXPORT_ROW_CEILING) : rows;
 
     const csvLines = [
       'Account Code,Account Name,Type,Normal Balance,Opening Debit,Opening Credit',
-      ...rows.map((r: Record<string, unknown>) => [
+      ...pageRows.map((r: Record<string, unknown>) => [
         csvCell(String(r.account_code)),
         csvCell(String(r.account_name)),
         csvCell(String(r.account_type)),
@@ -46,6 +53,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         Number(r.opening_credit || 0).toFixed(2),
       ].join(',')),
     ];
+    if (truncated) {
+      csvLines.push([
+        csvCell(`TRUNCATED — export capped at ${EXPORT_ROW_CEILING} rows; narrow the date range`),
+        ...Array(5).fill(csvCell(undefined)),
+      ].join(','));
+    }
 
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="opening-balances-${new Date().toISOString().split('T')[0]}.csv"`);
