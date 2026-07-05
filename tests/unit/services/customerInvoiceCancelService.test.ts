@@ -152,4 +152,24 @@ describe('cancelCustomerInvoice (P1.1 / audit C1)', () => {
     expect(selectText).toMatch(/company_id/i);
     expect(selectCall.slice(1)).toContain(COMPANY_ID);
   });
+
+  it('locks the invoice row (FOR UPDATE) so concurrent cancels serialise', async () => {
+    mockSql.mockResolvedValueOnce([]);
+    await cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID);
+
+    const selectText = (mockSql.mock.calls[0]![0] as string[]).join('?');
+    expect(selectText).toMatch(/FOR UPDATE/i);
+  });
+
+  it('guards the status flip and throws if a concurrent cancel won the race', async () => {
+    mockSql
+      .mockResolvedValueOnce([invoiceRow({ status: 'draft', gl_journal_entry_id: null })])
+      .mockResolvedValueOnce([]); // UPDATE matched 0 rows — lost the race
+
+    await expect(cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID)).rejects.toThrow(
+      /concurrent/i,
+    );
+    const updateText = (mockSql.mock.calls[1]![0] as string[]).join('?');
+    expect(updateText).toMatch(/status != 'cancelled'/i);
+  });
 });

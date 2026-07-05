@@ -39,10 +39,14 @@ export async function cancelCustomerInvoice(
   invoiceId: string,
   userId: string,
 ): Promise<CancelCustomerInvoiceResult | null> {
+  // FOR UPDATE: two concurrent cancels would otherwise both pass the guards
+  // and both reverse the same journal, understating the books by one invoice.
+  // The loser blocks here until the winner commits, then sees 'cancelled'.
   const rows = (await sql`
     SELECT id, status, amount_paid, gl_journal_entry_id
     FROM customer_invoices
     WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
+    FOR UPDATE
   `) as Row[];
   if (rows.length === 0) return null;
   const inv = rows[0]!;
@@ -69,12 +73,16 @@ export async function cancelCustomerInvoice(
     reversalJournalEntryId = reversal.id;
   }
 
-  await sql`
+  const flipped = (await sql`
     UPDATE customer_invoices
     SET status = 'cancelled', updated_at = NOW()
     WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
+      AND status != 'cancelled'
     RETURNING id
-  `;
+  `) as Row[];
+  if (flipped.length !== 1) {
+    throw new Error('Invoice state changed concurrently — cancel aborted');
+  }
 
   log.info(
     'Customer invoice cancelled',

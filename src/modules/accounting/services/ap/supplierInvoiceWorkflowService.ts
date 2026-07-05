@@ -192,26 +192,38 @@ export async function cancelSupplierInvoice(
   userId: string,
 ): Promise<SupplierInvoice> {
   try {
-    const invoice = await getSupplierInvoiceById(companyId, id);
-    if (!invoice) throw new Error(`Supplier invoice ${id} not found`);
-    if (invoice.status === 'paid' || invoice.status === 'partially_paid') {
+    // FOR UPDATE: serialise concurrent cancels — both passing the guards
+    // would double-reverse the same approval journal.
+    const lockRows = (await sql`
+      SELECT id, status, gl_journal_entry_id FROM supplier_invoices
+      WHERE id = ${id} AND company_id = ${companyId}::UUID
+      FOR UPDATE
+    `) as Row[];
+    if (lockRows.length === 0) throw new Error(`Supplier invoice ${id} not found`);
+    const locked = lockRows[0]!;
+    const status = String(locked.status);
+    if (status === 'paid' || status === 'partially_paid') {
       throw new Error('Cannot cancel invoice with payments');
     }
-    if (invoice.status === 'cancelled') {
+    if (status === 'cancelled') {
       throw new Error('Supplier invoice is already cancelled');
     }
 
     // P1.1 (audit C1, systemic): approve posts GL — cancel must reverse it.
     // Reverse BEFORE the flip so a blocked reversal (locked period) aborts
     // the cancel; the caller's request transaction keeps this atomic.
-    if (invoice.glJournalEntryId) {
-      await reverseJournalEntry(companyId, String(invoice.glJournalEntryId), userId);
+    if (locked.gl_journal_entry_id) {
+      await reverseJournalEntry(companyId, String(locked.gl_journal_entry_id), userId);
     }
 
     const rows = (await sql`
       UPDATE supplier_invoices SET status = 'cancelled'
-      WHERE id = ${id} AND company_id = ${companyId}::UUID RETURNING *
+      WHERE id = ${id} AND company_id = ${companyId}::UUID AND status != 'cancelled'
+      RETURNING *
     `) as Row[];
+    if (rows.length !== 1) {
+      throw new Error('Supplier invoice state changed concurrently — cancel aborted');
+    }
     return mapInvoiceRow(rows[0]!);
   } catch (err) {
     log.error('Failed to cancel supplier invoice', { id, error: err }, 'accounting');

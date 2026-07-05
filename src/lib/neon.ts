@@ -185,6 +185,26 @@ function createSql(client?: pg.PoolClient): SqlFunction {
     queries: LazyQuery<unknown>[] | ((tx: SqlFunction) => LazyQuery<unknown>[]),
     options: TransactionOptions = {}
   ): Promise<T[][]> => {
+    // Inside a withAuth/withPlatformAdmin request transaction, run the batch
+    // on the ALS-bound client so it JOINS that transaction: atomic with the
+    // handler's other writes (a later request failure rolls the batch back)
+    // and the RLS GUCs (request.jwt.claims) stay visible. The previous
+    // behavior — a fresh pool connection with its own BEGIN/COMMIT — silently
+    // committed batch writes even when the surrounding request failed, and
+    // ran them without the request's RLS claims. Isolation options are
+    // ignored on this path: the outer request transaction owns them.
+    const ctxClient = (client ? undefined : (await import('@/lib/als')).als.getStore()?.client);
+    if (ctxClient) {
+      const list =
+        typeof queries === 'function' ? queries(createSql(ctxClient)) : queries;
+      const results: T[][] = [];
+      for (const q of list) {
+        const res = await ctxClient.query(q.text, q.values);
+        results.push(res.rows as T[]);
+      }
+      return results;
+    }
+
     const pool = getPool();
     const txClient = await pool.connect();
     try {
