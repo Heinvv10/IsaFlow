@@ -1,4 +1,4 @@
-import { sql, withTransaction } from '@/lib/neon';
+import { sql, fmtDate, withTransaction } from '@/lib/neon';
 /**
  * Bank Transfers API
  * POST /api/accounting/bank-transfers - Transfer between bank accounts
@@ -57,17 +57,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const fromAcct = accounts.find(a => a.id === fromAccountId);
     const toAcct = accounts.find(a => a.id === toAccountId);
 
-    // Get current fiscal period
-    const [period] = await sql`
-      SELECT id FROM fiscal_periods
-      WHERE status = 'open' AND company_id = ${companyId}
-      ORDER BY start_date DESC
-      LIMIT 1
-    `;
-
     // Create journal entry + lines atomically
     const entryRef = reference || `Transfer: ${fromAcct?.account_name} → ${toAcct?.account_name}`;
-    const txDate = transferDate || new Date().toISOString().split('T')[0];
+    const txDate = transferDate || fmtDate(new Date());
+
+    // Period must COVER the transfer date (P2.2): "most recent open period"
+    // misfiled back/post-dated transfers into the wrong period.
+    const [period] = await sql`
+      SELECT id FROM fiscal_periods
+      WHERE company_id = ${companyId}
+        AND ${txDate}::DATE BETWEEN start_date AND end_date
+      ORDER BY start_date
+      LIMIT 1
+    `;
 
     const entry = await withTransaction(async (tx) => {  
 
