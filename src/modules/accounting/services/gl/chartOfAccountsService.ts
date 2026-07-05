@@ -340,8 +340,11 @@ export async function updateAccount(companyId: string, id: string, input: Update
 export async function deleteAccount(companyId: string, id: string): Promise<void> {
   try {
     // 1. Child accounts always block deletion, regardless of type.
+    // company_id scope: without it this count is a cross-tenant existence
+    // oracle AND runs before the ownership check below (audit W6).
     const children = await sql`
-      SELECT COUNT(*) AS cnt FROM gl_accounts WHERE parent_account_id = ${id} AND is_active = true
+      SELECT COUNT(*) AS cnt FROM gl_accounts
+      WHERE parent_account_id = ${id} AND is_active = true AND company_id = ${companyId}
     ` as { cnt: string }[];
     if (Number(children[0]!.cnt) > 0) {
       throw new Error('Cannot delete account with active child accounts');
@@ -396,6 +399,7 @@ export async function deleteAccount(companyId: string, id: string): Promise<void
       const pendingRows = await sql`
         SELECT COUNT(*) AS cnt FROM bank_transactions
         WHERE bank_account_id = ${id}
+          AND company_id = ${companyId}
           AND status NOT IN ('reconciled', 'excluded')
       ` as { cnt: string }[];
       const pendingCount = Number(pendingRows[0]!.cnt);
