@@ -47,6 +47,16 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     try {
       let subtotal = 0;
       if (lineItems) {
+        // W1 family (P2.1): an edited template with negative lines re-mints a
+        // negative APPROVED invoice every period — same guard as create.
+        for (const l of lineItems) {
+          if (!(Number(l.quantity ?? 1) > 0)) {
+            return apiResponse.badRequest(res, 'Line quantities must be positive');
+          }
+          if (!(Number(l.unitPrice ?? 0) >= 0)) {
+            return apiResponse.badRequest(res, 'Line unit prices cannot be negative');
+          }
+        }
         for (const l of lineItems) subtotal += (l.quantity || 1) * (l.unitPrice || 0);
       }
       const taxRate = req.body.taxRate ?? 15;

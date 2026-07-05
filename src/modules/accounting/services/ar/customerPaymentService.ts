@@ -103,16 +103,32 @@ export async function createCustomerPayment(companyId: string,
   userId: string
 ): Promise<CustomerPayment> {
   try {
-    // Validate allocations against invoice balances
+    // Validate allocations against invoice balances. W3 (P2.1): amount_paid
+    // only reflects CONFIRMED payments — without counting other DRAFT
+    // payments' pending allocations, two drafts could each claim the full
+    // balance and both confirm into an over-payment.
     for (const alloc of input.allocations) {
       const invRows = (await sql`
         SELECT total_amount, amount_paid FROM customer_invoices
         WHERE id = ${alloc.invoiceId}::UUID AND company_id = ${companyId}::UUID
       `) as Row[];
       if (invRows.length === 0) throw new Error(`Invoice ${alloc.invoiceId} not found`);
-      const balance = Number(invRows[0]!.total_amount) - Number(invRows[0]!.amount_paid);
+      const pendingRows = (await sql`
+        SELECT COALESCE(SUM(cpa.amount_allocated), 0) AS pending
+        FROM customer_payment_allocations cpa
+        JOIN customer_payments cp ON cp.id = cpa.payment_id
+        WHERE cpa.invoice_id = ${alloc.invoiceId}::UUID
+          AND cp.company_id = ${companyId}::UUID
+          AND cp.status = 'draft'
+      `) as Row[];
+      const pending = Number(pendingRows[0]?.pending ?? 0);
+      const balance =
+        Number(invRows[0]!.total_amount) - Number(invRows[0]!.amount_paid) - pending;
       if (alloc.amount > balance + 0.01) {
-        throw new Error(`Allocation R${alloc.amount.toFixed(2)} exceeds invoice balance R${balance.toFixed(2)}`);
+        throw new Error(
+          `Allocation R${alloc.amount.toFixed(2)} exceeds invoice balance R${balance.toFixed(2)}` +
+            (pending > 0 ? ` (R${pending.toFixed(2)} already pending on draft payments)` : ''),
+        );
       }
     }
 

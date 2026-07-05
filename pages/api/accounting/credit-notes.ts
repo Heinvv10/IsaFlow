@@ -49,6 +49,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       if (!type || !creditDate || subtotal === undefined) {
         return apiResponse.badRequest(res, 'type, creditDate, and subtotal are required');
       }
+      // W1 family (P2.1): a negative subtotal posts inverted GL at approve.
+      if (!(Number(subtotal) > 0)) {
+        return apiResponse.badRequest(res, 'subtotal must be a positive amount');
+      }
 
       // User identity comes from JWT (req.user), never from client request body
       const userId = req.user.id;

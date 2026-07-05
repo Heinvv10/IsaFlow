@@ -67,6 +67,15 @@ export async function createSupplierInvoice(
   userId: string,
 ): Promise<SupplierInvoice> {
   try {
+    // W1 (P2.1): negative quantities/prices produce negative documents.
+    for (const item of input.items || []) {
+      if (!(Number(item.quantity) > 0)) {
+        throw new Error(`Line "${item.description}": quantity must be positive`);
+      }
+      if (Number(item.unitPrice) < 0) {
+        throw new Error(`Line "${item.description}": unit price cannot be negative`);
+      }
+    }
     const invoiceTaxRate = input.taxRate ?? 15;
     let subtotal = 0;
     let totalTax = 0;

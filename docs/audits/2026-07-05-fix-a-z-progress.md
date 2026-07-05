@@ -47,7 +47,7 @@ State: **merged** (#202, master 0cccfba5; 2-round blind review incl. a reversed-
 
 | Task | State | Branch | PR | Deployed | Evidence |
 |------|-------|--------|----|----------|----------|
-| P2.1 Input validation cluster | todo | | | | |
+| P2.1 Input validation cluster | pr-open | fix/p2-1-input-validation | | | W1: positive-qty/nonneg-price guards on customer-invoice create, quote create/update (400-mapped), supplier-invoice create — E2E spec l proves the audit's exact −R115 POST now 400s; W2: softDelete blocks customers/suppliers with open invoices or unconfirmed payments; W3: draft-payment allocations count other drafts' pending allocations; W4: voidSupplierPayment (action 'void') — reverses GL (metadata semantics), un-applies allocations, guarded flip to 'cancelled', savepoint-wrapped; N6: LINKED credit-note approve lands 'applied' (double-apply impossible). 14 new unit tests + E2E spec l (suite now 12 specs) |
 | P2.2 fiscal_period_id invariant + Britech 5-row repair (HUMAN-GATED) | todo | | | | |
 | P2.3 Demo bank seed + residue cleanup | todo | | | | |
 | P2.4 W7 impersonation cookie | todo | | | | |

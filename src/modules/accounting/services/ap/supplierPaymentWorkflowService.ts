@@ -3,10 +3,10 @@
  * Approve and process payment operations — split from supplierPaymentService.ts.
  */
 
-import { sql, fmtDate } from '@/lib/neon';
+import { sql, fmtDate, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
+import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl/journalEntryService';
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { getSupplierPaymentById } from './supplierPaymentService';
 import type { SupplierPayment } from '../../types/ap.types';
@@ -108,6 +108,95 @@ export async function processSupplierPayment(
     return mapPaymentRow(updated);
   } catch (err) {
     log.error('Failed to process supplier payment', { id, error: err }, 'accounting');
+    throw err;
+  }
+}
+
+/**
+ * Void a PROCESSED supplier payment (P2.1 / audit W4): reverse its GL journal
+ * (metadata semantics — contra entry, reversed_at on the original), un-apply
+ * its allocations, and set the payment to 'cancelled'. Reconciled payments
+ * are anchored to a bank reconciliation and must be un-reconciled first.
+ */
+export async function voidSupplierPayment(
+  companyId: string,
+  id: string,
+  userId: string,
+): Promise<SupplierPayment> {
+  // SAVEPOINT: callers map errors to 400 and withAuth commits on <5xx — a
+  // failure after the reversal's draft INSERTs must roll them back.
+  return withSavepoint('void_supplier_payment', () =>
+    voidSupplierPaymentInner(companyId, id, userId),
+  );
+}
+
+async function voidSupplierPaymentInner(
+  companyId: string,
+  id: string,
+  userId: string,
+): Promise<SupplierPayment> {
+  try {
+    const payment = await getSupplierPaymentById(companyId, id);
+    if (!payment) throw new Error(`Payment ${id} not found`);
+    if (payment.status === 'reconciled') {
+      throw new Error('Cannot void a reconciled payment — remove it from the bank reconciliation first');
+    }
+    if (payment.status !== 'processed') {
+      throw new Error(`Only processed payments can be voided (status: ${payment.status})`);
+    }
+
+    // Reverse the payment journal (skip if already reversed — reversed_at is
+    // the marker; the original keeps status='posted' under metadata semantics).
+    if (payment.glJournalEntryId) {
+      const jeRows = (await sql`
+        SELECT status, reversed_at FROM gl_journal_entries
+        WHERE id = ${payment.glJournalEntryId}::UUID AND company_id = ${companyId}::UUID
+        FOR UPDATE
+      `) as Row[];
+      if (
+        jeRows.length > 0 &&
+        String(jeRows[0]!.status) === 'posted' &&
+        jeRows[0]!.reversed_at == null
+      ) {
+        await reverseJournalEntry(companyId, payment.glJournalEntryId, userId);
+      }
+    }
+
+    // Un-apply allocations: roll amount_paid back and recompute status.
+    // A voided payment returns the invoice to its pre-payment state
+    // ('approved' when nothing else is paid, 'partially_paid' otherwise).
+    for (const alloc of payment.allocations) {
+      // Mirrors processSupplierPayment's CASE: compare the REMAINING paid
+      // amount against total_amount so an invoice still fully covered by
+      // OTHER payments keeps status 'paid' (PR #203 review MEDIUM).
+      await sql`
+        UPDATE supplier_invoices
+        SET amount_paid = GREATEST(amount_paid - ${alloc.amountAllocated}, 0),
+            status = CASE
+              WHEN (total_amount - GREATEST(amount_paid - ${alloc.amountAllocated}, 0)) <= 0.01 THEN 'paid'
+              WHEN GREATEST(amount_paid - ${alloc.amountAllocated}, 0) > 0.01 THEN 'partially_paid'
+              ELSE 'approved'
+            END
+        WHERE id = ${alloc.invoiceId}::UUID AND company_id = ${companyId}::UUID
+      `;
+    }
+
+    // Guarded flip: only a still-processed payment can be voided (concurrent
+    // void/reconcile loses the race cleanly).
+    const rows = (await sql`
+      UPDATE supplier_payments
+      SET status = 'cancelled'
+      WHERE id = ${id} AND company_id = ${companyId}::UUID AND status = 'processed'
+      RETURNING *
+    `) as Row[];
+    if (rows.length !== 1) {
+      throw new Error('Payment state changed concurrently — void aborted');
+    }
+
+    log.info('Voided supplier payment', { id, journalEntryId: payment.glJournalEntryId }, 'accounting');
+    return mapPaymentRow(rows[0]!);
+  } catch (err) {
+    log.error('Failed to void supplier payment', { id, error: err }, 'accounting');
     throw err;
   }
 }

@@ -69,6 +69,16 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       if (!creditDate) return apiResponse.badRequest(res, 'creditDate is required');
       if (!lineItems || lineItems.length === 0) return apiResponse.badRequest(res, 'At least one line item is required');
 
+      // W1 family (P2.1): negative/zero lines invert the CN's GL at approve.
+      for (const li of lineItems) {
+        if (!(Number(li.quantity) > 0)) {
+          return apiResponse.badRequest(res, 'Line quantities must be positive');
+        }
+        if (Number(li.unitPrice) < 0) {
+          return apiResponse.badRequest(res, 'Line unit prices cannot be negative');
+        }
+      }
+
       // Calculate totals from line items
       const subtotal = lineItems.reduce((sum, li) => {
         return sum + li.quantity * li.unitPrice;

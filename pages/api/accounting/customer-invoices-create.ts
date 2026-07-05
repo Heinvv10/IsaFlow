@@ -27,6 +27,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   } = req.body;
   if (!clientId) return apiResponse.badRequest(res, 'clientId is required');
   if (!items || !Array.isArray(items) || items.length === 0) return apiResponse.badRequest(res, 'items required');
+  // W1 (P2.1): server-side line validation — the July-4 audit created a
+  // -R115.00 invoice through this handler (no client OR server guard).
+  for (const item of items) {
+    const qty = Number(item?.quantity ?? 1);
+    const price = Number(item?.unitPrice);
+    if (!(qty > 0)) return apiResponse.badRequest(res, 'Line quantities must be positive');
+    if (!(price >= 0)) return apiResponse.badRequest(res, 'Line unit prices cannot be negative');
+  }
 
   // Currency defaults
   const invCurrencyCode = (typeof currencyCode === 'string' && currencyCode.trim())

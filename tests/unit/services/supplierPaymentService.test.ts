@@ -123,6 +123,8 @@ describe('createSupplierPayment — cross-tenant invoice guard', () => {
     mockSql.mockResolvedValueOnce([
       { id: INVOICE_ID, invoice_number: 'SI-001', total_amount: '2500.00', amount_paid: '0', balance: '2500.00' },
     ]);
+    // W3-AP: pending-allocation aggregate for unprocessed payments
+    mockSql.mockResolvedValueOnce([]);
 
     mockWithTransaction.mockImplementation(async (fn) => {
       const fakeTx = vi.fn().mockResolvedValue([samplePaymentRow]) as unknown as typeof sql;

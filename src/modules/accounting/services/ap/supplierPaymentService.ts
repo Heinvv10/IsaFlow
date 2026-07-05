@@ -145,13 +145,34 @@ export async function createSupplierPayment(companyId: string,
       throw new Error('One or more invoice IDs not found or belong to a different company');
     }
 
-    const invoices: InvoiceForAllocation[] = invoiceRows.map((r: Row) => ({
-      id: String(r.id),
-      invoiceNumber: String(r.invoice_number),
-      totalAmount: Number(r.total_amount),
-      amountPaid: Number(r.amount_paid),
-      balance: Number(r.balance),
-    }));
+    // W3-AP (P2.1): amount_paid only moves at PROCESS time — without counting
+    // unprocessed (draft/approved) payments' pending allocations, two drafts
+    // could each claim the full balance and both process into an over-payment
+    // (same bug class as the customer-side W3 fix).
+    // payment_allocations is the LIVE table (mig 201's supplier_payment_
+    // allocations has 0 rows in dev AND prod — every writer in this file,
+    // batchPaymentService, and the process/void readers use payment_allocations).
+    const pendingRows = (await sql`
+      SELECT pa.invoice_id, COALESCE(SUM(pa.amount_allocated), 0) AS pending
+      FROM payment_allocations pa
+      JOIN supplier_payments sp ON sp.id = pa.payment_id
+      WHERE pa.invoice_id = ANY(${invoiceIds}::UUID[])
+        AND sp.company_id = ${companyId}::UUID
+        AND sp.status IN ('draft', 'approved')
+      GROUP BY pa.invoice_id
+    `) as Row[];
+    const pendingByInvoice = new Map(pendingRows.map((r) => [String(r.invoice_id), Number(r.pending)]));
+
+    const invoices: InvoiceForAllocation[] = invoiceRows.map((r: Row) => {
+      const pending = pendingByInvoice.get(String(r.id)) ?? 0;
+      return {
+        id: String(r.id),
+        invoiceNumber: String(r.invoice_number),
+        totalAmount: Number(r.total_amount),
+        amountPaid: Number(r.amount_paid) + pending,
+        balance: Number(r.balance) - pending,
+      };
+    });
 
     const validation = validatePaymentAllocations(input.totalAmount, input.allocations, invoices);
     if (!validation.valid) {
