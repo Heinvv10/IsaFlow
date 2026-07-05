@@ -11,7 +11,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { getQuotes, getQuote, createQuote, updateQuote, deleteQuote } from '@/modules/accounting/services/ar/quoteService';
+import { getQuotes, getQuote, createQuote, updateQuote, deleteQuote, LineValidationError } from '@/modules/accounting/services/ar/quoteService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -39,8 +39,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.created(res, quote);
     } catch (err) {
       // Line-validation failures (W1) are client errors, not 500s.
-      const msg = err instanceof Error ? err.message : '';
-      if (/quantity|unit price/i.test(msg)) return apiResponse.badRequest(res, msg);
+      if (err instanceof LineValidationError) return apiResponse.badRequest(res, err.message);
       throw err;
     }
   }
@@ -48,9 +47,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method === 'PUT') {
     const { id, ...input } = req.body;
     if (!id) return apiResponse.badRequest(res, 'id is required');
-    const quote = await updateQuote(companyId, id, input);
-    if (!quote) return apiResponse.badRequest(res, 'Quote not found or not in draft status');
-    return apiResponse.success(res, quote);
+    try {
+      const quote = await updateQuote(companyId, id, input);
+      if (!quote) return apiResponse.badRequest(res, 'Quote not found or not in draft status');
+      return apiResponse.success(res, quote);
+    } catch (err) {
+      if (err instanceof LineValidationError) return apiResponse.badRequest(res, err.message);
+      throw err;
+    }
   }
 
   if (req.method === 'DELETE') {

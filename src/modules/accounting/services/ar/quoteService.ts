@@ -91,6 +91,14 @@ async function nextQuoteNumber(): Promise<string> {
   return `QUO-${String(num + 1).padStart(5, '0')}`;
 }
 
+/** Thrown for W1 line-validation failures — handlers map it to HTTP 400. */
+export class LineValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'LineValidationError';
+  }
+}
+
 /**
  * W1 (P2.1): negative quantities/prices produced negative documents server-side
  * (the July-4 audit created a -R115 invoice live). Zero-quantity lines are
@@ -99,10 +107,10 @@ async function nextQuoteNumber(): Promise<string> {
 export function assertValidLines(lines: QuoteInput['lines']): void {
   for (const l of lines || []) {
     if (!(Number(l.quantity) > 0)) {
-      throw new Error(`Line "${l.description}": quantity must be positive`);
+      throw new LineValidationError(`Line "${l.description}": quantity must be positive`);
     }
     if (Number(l.unitPrice) < 0) {
-      throw new Error(`Line "${l.description}": unit price cannot be negative`);
+      throw new LineValidationError(`Line "${l.description}": unit price cannot be negative`);
     }
   }
 }

@@ -166,12 +166,16 @@ async function voidSupplierPaymentInner(
     // A voided payment returns the invoice to its pre-payment state
     // ('approved' when nothing else is paid, 'partially_paid' otherwise).
     for (const alloc of payment.allocations) {
+      // Mirrors processSupplierPayment's CASE: compare the REMAINING paid
+      // amount against total_amount so an invoice still fully covered by
+      // OTHER payments keeps status 'paid' (PR #203 review MEDIUM).
       await sql`
         UPDATE supplier_invoices
         SET amount_paid = GREATEST(amount_paid - ${alloc.amountAllocated}, 0),
             status = CASE
-              WHEN (amount_paid - ${alloc.amountAllocated}) <= 0.01 THEN 'approved'
-              ELSE 'partially_paid'
+              WHEN (total_amount - GREATEST(amount_paid - ${alloc.amountAllocated}, 0)) <= 0.01 THEN 'paid'
+              WHEN GREATEST(amount_paid - ${alloc.amountAllocated}, 0) > 0.01 THEN 'partially_paid'
+              ELSE 'approved'
             END
         WHERE id = ${alloc.invoiceId}::UUID AND company_id = ${companyId}::UUID
       `;

@@ -222,7 +222,11 @@ export async function cancelCreditNote(companyId: string,
     const cnRows = (await sql`SELECT * FROM credit_notes WHERE id = ${id} AND company_id = ${companyId}`) as Record<string, unknown>[];
     if (cnRows.length === 0) throw new Error(`Credit note ${id} not found`);
     const cn = cnRows[0]!;
-    if (String(cn.status) !== 'approved') {
+    // 'applied' is cancellable too (PR #203 review HIGH): linked notes land
+    // 'applied' at approve (N6), and the un-apply + GL-reversal below already
+    // handles the applied state — restricting to 'approved' made every
+    // linked/applied note permanently uncancellable.
+    if (String(cn.status) !== 'approved' && String(cn.status) !== 'applied') {
       throw new Error(`Cannot cancel credit note with status: ${cn.status}`);
     }
 
