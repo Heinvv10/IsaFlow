@@ -19,6 +19,18 @@ const EMPTY_TOTALS = {
   taxCost: 0, taxAccDep: 0, taxCA: 0, deferredTax: 0,
 };
 
+/**
+ * Postgres "undefined_table" SQLSTATE — the only failure mode that should
+ * resolve to an empty 200 + setupRequired hint (a table this report depends
+ * on hasn't been created yet in this environment). Any other error,
+ * including undefined_column (42703), is a real bug and must not be masked.
+ */
+function isUndefinedTableError(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  const code = (err as { code?: unknown }).code;
+  return code === '42P01';
+}
+
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
 
@@ -94,20 +106,28 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       apl.deferred_tax
     FROM asset_period_ledger apl
     JOIN assets a ON a.id = apl.asset_id AND a.company_id = ${companyId}::UUID
-    LEFT JOIN asset_categories c ON c.id = a.category_id AND c.company_id = ${companyId}::UUID
+    LEFT JOIN asset_categories c ON c.id = a.category_id
     WHERE apl.company_id = ${companyId}::UUID
       AND apl.yyyymm <= ${asAtYYYYMM}
     ORDER BY apl.asset_id, apl.yyyymm DESC
   `) as Row[];
   } catch (err) {
+    if (isUndefinedTableError(err)) {
+      log.warn('FAR report: required table missing — returning empty', { error: err, companyId }, 'farReport');
+      return apiResponse.success(res, {
+        asAt: asAtDate,
+        asAtYYYYMM,
+        assets: [],
+        totals: EMPTY_TOTALS,
+        setupRequired: 'Fixed asset register tables are not fully provisioned for this company. Please run pending migrations.',
+      });
+    }
+    // Anything else (undefined column, permission error, connection failure,
+    // etc.) is a genuine bug or infrastructure failure, not a "not set up
+    // yet" state — it must surface as a real 500 so monitoring catches it,
+    // not a silent empty report.
     log.error('FAR report query failed', { error: err, companyId, asAt: asAtDate }, 'farReport');
-    return apiResponse.success(res, {
-      asAt: asAtDate,
-      asAtYYYYMM,
-      assets: [],
-      totals: EMPTY_TOTALS,
-      setupRequired: 'Fixed asset register tables are not fully provisioned for this company. Please run pending migrations.',
-    });
+    throw err;
   }
 
   const toNum = (v: unknown) => Number(v ?? 0);
