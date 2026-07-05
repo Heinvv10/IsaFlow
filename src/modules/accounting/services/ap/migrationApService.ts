@@ -98,14 +98,25 @@ export async function importAPInvoices(
         journalLines.push({ glAccountId: vatInputId, debit: inv.taxAmount, credit: 0, description: `VAT Input — ${inv.invoiceNumber}` });
       }
 
+      // No sourceDocumentId: gl_journal_entries.source_document_id has an FK
+      // to captured_documents(id) only (migration 409); the invoice's own id
+      // would violate it. The invoice <-> journal entry link is instead
+      // persisted below via supplier_invoices.gl_journal_entry_id — same
+      // column supplierInvoiceWorkflowService/sageMigrationCommitService use
+      // for a supplier invoice's own posting entry; safe here because a
+      // migrated invoice is inserted pre-approved and never goes through
+      // that flow afterward.
       const entry = await createJournalEntry(companyId, {
         entryDate: inv.invoiceDate,
         description: `Migrated AP invoice ${inv.invoiceNumber}`,
         source: 'auto_migration',
-        sourceDocumentId: invoiceId,
         lines: journalLines,
       }, userId);
       await postJournalEntry(companyId, entry.id, userId);
+      await sql`
+        UPDATE supplier_invoices SET gl_journal_entry_id = ${entry.id}::UUID
+        WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
+      `;
       imported++;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

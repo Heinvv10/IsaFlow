@@ -35,14 +35,11 @@ export async function generateQuotePdf(companyId: string, quoteId: string): Prom
   if (quoteRows.length === 0) throw new Error(`Quote not found: ${quoteId}`);
   const q = quoteRows[0]!;
 
-  let lines: DbRow[] = [];
-  try {
-    lines = (await sql`
-      SELECT * FROM customer_quote_lines
-      WHERE quote_id = ${quoteId}::UUID
-      ORDER BY line_number, created_at
-    `) as DbRow[];
-  } catch { /* graceful fallback if table name differs */ }
+  const lines = (await sql`
+    SELECT * FROM customer_quote_lines
+    WHERE quote_id = ${quoteId}::UUID
+    ORDER BY sort_order, created_at
+  `) as DbRow[];
 
   log.info('Generating premium quote PDF', {
     quoteId, quoteNumber: q.quote_number, lineCount: lines.length,
@@ -135,7 +132,7 @@ export async function generateQuotePdf(companyId: string, quoteId: string): Prom
         Number(line.quantity || 0).toFixed(2),
         fmtZAR(Number(line.unit_price || 0)),
         `${Number(line.tax_rate || 15).toFixed(0)}%`,
-        fmtZAR(Number(line.line_total || 0)),
+        fmtZAR(Number(line.amount || 0)),
       ]),
       styles: {
         fontSize: 8,

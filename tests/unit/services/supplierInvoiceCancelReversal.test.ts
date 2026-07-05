@@ -88,7 +88,10 @@ describe('cancelSupplierInvoice GL reversal (P1.1 sweep / audit C1)', () => {
   });
 
   it('locks the row FOR UPDATE and reverses the approval journal before flipping', async () => {
-    mockSql.mockResolvedValueOnce([lockRow()]).mockResolvedValueOnce([updatedRow]);
+    mockSql
+      .mockResolvedValueOnce([lockRow()]) // invoice lock
+      .mockResolvedValueOnce([{ status: 'posted', reversed_at: null }]) // journal lock
+      .mockResolvedValueOnce([updatedRow]); // UPDATE
     mockReverse.mockResolvedValueOnce({ id: REVERSAL_ID });
 
     await cancelSupplierInvoice(COMPANY_ID, INVOICE_ID, USER_ID);
@@ -97,25 +100,42 @@ describe('cancelSupplierInvoice GL reversal (P1.1 sweep / audit C1)', () => {
     expect(lockText).toMatch(/FOR UPDATE/i);
     expect(lockText).toMatch(/company_id/i);
     expect(mockReverse).toHaveBeenCalledWith(COMPANY_ID, JOURNAL_ID, USER_ID);
-    // reversal happens between the lock SELECT and the UPDATE
+    // reversal happens after the journal-state check, before the UPDATE
     expect(mockReverse.mock.invocationCallOrder[0]!).toBeGreaterThan(
-      mockSql.mock.invocationCallOrder[0]!,
-    );
-    expect(mockReverse.mock.invocationCallOrder[0]!).toBeLessThan(
       mockSql.mock.invocationCallOrder[1]!,
     );
-    const updateText = (mockSql.mock.calls[1]![0] as string[]).join('?');
+    expect(mockReverse.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockSql.mock.invocationCallOrder[2]!,
+    );
+    const updateText = (mockSql.mock.calls[2]![0] as string[]).join('?');
     expect(updateText).toMatch(/status != 'cancelled'/i);
+    expect(updateText, 'cancel must clear the journal link').toMatch(
+      /gl_journal_entry_id = NULL/i,
+    );
+  });
+
+  it('skips the reversal when the journal is already reversed (reversed_at set)', async () => {
+    mockSql
+      .mockResolvedValueOnce([lockRow()])
+      .mockResolvedValueOnce([{ status: 'posted', reversed_at: '2026-07-01T00:00:00Z' }])
+      .mockResolvedValueOnce([updatedRow]);
+
+    await cancelSupplierInvoice(COMPANY_ID, INVOICE_ID, USER_ID);
+
+    expect(mockReverse).not.toHaveBeenCalled();
+    expect(mockSql).toHaveBeenCalledTimes(3);
   });
 
   it('propagates reversal failure and never flips status', async () => {
-    mockSql.mockResolvedValueOnce([lockRow()]);
+    mockSql
+      .mockResolvedValueOnce([lockRow()])
+      .mockResolvedValueOnce([{ status: 'posted', reversed_at: null }]);
     mockReverse.mockRejectedValueOnce(new Error('Fiscal period is closed'));
 
     await expect(cancelSupplierInvoice(COMPANY_ID, INVOICE_ID, USER_ID)).rejects.toThrow(
       /period/i,
     );
-    expect(mockSql).toHaveBeenCalledTimes(1); // lock SELECT only, no UPDATE
+    expect(mockSql).toHaveBeenCalledTimes(2); // locks only, no UPDATE
   });
 
   it('still blocks cancelling invoices with payments', async () => {

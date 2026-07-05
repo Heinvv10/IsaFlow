@@ -12,7 +12,7 @@ import type { ExtractedDocument } from '@/modules/accounting/types/documentCaptu
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
 
-interface Supplier { id: number; name: string }
+interface Supplier { id: string; name: string }
 interface OutstandingInvoice { id: string; invoiceNumber: string; totalAmount: number; balance: number }
 interface Allocation { key: string; invoiceId: string; amount: number }
 
@@ -42,7 +42,7 @@ export default function NewSupplierPaymentPage() {
     apiFetch('/api/accounting/suppliers-list').then(r => r.json()).then(res => {
       const data = res.data || res;
       setSuppliers(Array.isArray(data) ? data : data.suppliers || []);
-    });
+    }).catch(() => setError('Failed to load suppliers'));
   }, []);
 
   useEffect(() => {
@@ -51,7 +51,7 @@ export default function NewSupplierPaymentPage() {
       const payload = res.data || res;
       const all = payload.invoices || [];
       setInvoices(all.filter((inv: OutstandingInvoice) => inv.balance > 0));
-    });
+    }).catch(() => setInvoices([]));
   }, [form.supplierId]);
 
   const addAllocation = () => setAllocations(prev => [...prev, { key: crypto.randomUUID(), invoiceId: '', amount: 0 }]);
@@ -85,7 +85,7 @@ export default function NewSupplierPaymentPage() {
       const res = await apiFetch('/api/accounting/supplier-payments', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          supplierId: Number(form.supplierId), paymentDate: form.paymentDate, totalAmount,
+          supplierId: form.supplierId, paymentDate: form.paymentDate, totalAmount,
           paymentMethod: form.paymentMethod, reference: form.reference || undefined,
           description: form.description || undefined,
           allocations: allocations.filter(a => a.invoiceId && a.amount > 0).map(a => ({ invoiceId: a.invoiceId, amount: a.amount })),

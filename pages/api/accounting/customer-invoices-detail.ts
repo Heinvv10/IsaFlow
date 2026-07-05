@@ -5,7 +5,6 @@
  * POST { id, action } — status actions (approve, send, cancel)
  */
 
-import { z } from 'zod';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
@@ -13,42 +12,25 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql, withTransaction } from '@/lib/neon';
-import { UUID, ISODate } from '@/lib/schemas/common';
-import { cancelCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceCancelService';
 import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerPaymentService';
 import { snapshotInvoicePdf } from '@/modules/accounting/services/ar/invoicePdfSnapshotService';
+import {
+  cancelCustomerInvoice,
+  InvoiceNotFoundError,
+  InvoiceHasPaymentsError,
+} from '@/modules/accounting/services/ar/customerInvoiceCancelService';
+import { ClosedFiscalPeriodError } from '@/modules/accounting/services/gl/journalEntryService';
+import {
+  GetQuerySchema,
+  PutBodySchema,
+  PostBodySchema,
+} from '@/lib/schemas/customerInvoiceDetail';
 type Row = Record<string, unknown>;
 
-const GetQuerySchema = z.object({ id: UUID });
-
-const PutItemSchema = z.object({
-  description: z.string().min(1).max(500),
-  quantity: z.number().positive(),
-  unitPrice: z.number().nonnegative(),
-  taxRate: z.number().min(0).max(100).optional(),
-  discount: z.number().min(0).max(100).optional(),
-});
-
-const PutBodySchema = z.object({
-  id: UUID,
-  notes: z.string().max(2000).optional(),
-  internalNotes: z.string().max(2000).optional(),
-  dueDate: ISODate.optional(),
-  // Full draft-edit fields (all optional — partial PUT supported for back-compat).
-  clientId: UUID.optional(),
-  invoiceDate: ISODate.optional(),
-  billingPeriodStart: ISODate.optional(),
-  billingPeriodEnd: ISODate.optional(),
-  taxRate: z.number().min(0).max(100).optional(),
-  currencyCode: z.string().min(1).max(8).optional(),
-  exchangeRate: z.number().positive().optional(),
-  items: z.array(PutItemSchema).min(1).optional(),
-});
-
-const PostBodySchema = z.object({
-  id: UUID,
-  action: z.enum(['approve', 'send', 'cancel']),
-});
+// Only pre-approval invoices may be approved. Re-approving a later-state invoice
+// (e.g. one already cancelled) would put it back in AR while its journal is the
+// reversed net-zero pair (AR != GL) — see the approve guard in the POST handler.
+const APPROVABLE_STATUSES = ['draft', 'pending_approval'];
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -231,42 +213,64 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.validationError(res, postParsed.error.flatten().fieldErrors as Record<string, string[]>);
     }
     const { id, action } = postParsed.data;
-    const actionUserId = (req as CompanyAuthedRequest).user?.id || 'system';
+    const userId = (req as CompanyAuthedRequest).user?.id || 'system';
 
-    // P1.1 (audit C1): cancel must reverse the approval journal, not just
-    // flip status. The service throws on guard violations (payments applied,
-    // already cancelled, locked period) — nothing flips in that case.
+    // Cancel reverses the approval GL journal and zeroes the outstanding
+    // balance (see customerInvoiceCancelService). Handled in the service layer
+    // so a plain status flip can never orphan a posted journal.
     if (action === 'cancel') {
       try {
-        const cancelled = await cancelCustomerInvoice(companyId, id, actionUserId);
-        if (!cancelled) return apiResponse.notFound(res, 'Invoice', id);
-        log.info('Customer invoice cancelled', { id, reversalJournalEntryId: cancelled.reversalJournalEntryId });
-        return apiResponse.success(res, { id, status: 'cancelled', reversalJournalEntryId: cancelled.reversalJournalEntryId });
-      } catch (cancelErr) {
-        return apiResponse.badRequest(res, cancelErr instanceof Error ? cancelErr.message : 'Failed to cancel invoice');
+        const { reversedJournalEntryId } = await cancelCustomerInvoice(companyId, id, userId);
+        log.info('Customer invoice action', { id, action, newStatus: 'cancelled', reversedJournalEntryId });
+        return apiResponse.success(res, {
+          id, status: 'cancelled', glJournalEntryId: null,
+          evidenceDocumentId: null, reversedJournalEntryId,
+        });
+      } catch (err) {
+        if (err instanceof InvoiceNotFoundError) return apiResponse.notFound(res, 'Invoice', id);
+        if (err instanceof InvoiceHasPaymentsError) return apiResponse.badRequest(res, err.message);
+        // The GL reversal cannot post into a closed/locked fiscal period; surface
+        // that as a 400 instead of a 500 so the caller knows to reopen the period.
+        if (err instanceof ClosedFiscalPeriodError) {
+          return apiResponse.badRequest(res, `Cannot cancel: the invoice's journal is in a ${err.periodStatus} fiscal period. Reopen the period, then retry.`);
+        }
+        throw err;
       }
     }
 
     const newStatus = action === 'approve' ? 'approved' : 'sent';
-    // Cancel is terminal: approving/sending a cancelled invoice would resurrect
-    // a document whose journal has been reversed.
-    const actionResult = await sql`
-      UPDATE customer_invoices
-      SET status = ${newStatus}, updated_at = NOW()
-      WHERE id = ${id}::UUID AND company_id = ${companyId} AND status != 'cancelled'
-      RETURNING id
-    `;
-    if (actionResult.length === 0) {
-      const exists = await sql`SELECT id FROM customer_invoices WHERE id = ${id}::UUID AND company_id = ${companyId}`;
-      if (exists.length === 0) return apiResponse.notFound(res, 'Invoice', id);
-      return apiResponse.badRequest(res, `Cannot ${action} a cancelled invoice`);
+
+    if (action === 'approve') {
+      // Guard the transition in the UPDATE: only draft/pending_approval invoices
+      // may be approved. Re-approving a cancelled invoice would re-add it to AR
+      // while its journal is already reversed to net zero (AR != GL).
+      const approved = (await sql`
+        UPDATE customer_invoices
+        SET status = 'approved', updated_at = NOW()
+        WHERE id = ${id}::UUID AND company_id = ${companyId}
+          AND status = ANY(${APPROVABLE_STATUSES}::text[])
+        RETURNING id
+      `) as Row[];
+      if (approved.length === 0) {
+        const cur = (await sql`SELECT status FROM customer_invoices WHERE id = ${id}::UUID AND company_id = ${companyId}`) as Row[];
+        if (cur.length === 0) return apiResponse.notFound(res, 'Invoice', id);
+        return apiResponse.badRequest(res, `Cannot approve an invoice with status '${String(cur[0]!.status)}'`);
+      }
+    } else {
+      const sent = (await sql`
+        UPDATE customer_invoices
+        SET status = 'sent', updated_at = NOW()
+        WHERE id = ${id}::UUID AND company_id = ${companyId}
+        RETURNING id
+      `) as Row[];
+      if (sent.length === 0) return apiResponse.notFound(res, 'Invoice', id);
     }
 
     // Post to GL on approve (accrual accounting: DR AR, CR Revenue, CR VAT Output)
     let glJournalEntryId: string | null = null;
     if (action === 'approve') {
       try {
-        glJournalEntryId = await postCustomerInvoiceToGL(companyId, id, actionUserId);
+        glJournalEntryId = await postCustomerInvoiceToGL(companyId, id, userId);
         log.info('Customer invoice GL posted on approve', { id, glJournalEntryId });
       } catch (glErr) {
         log.error('GL posting failed on invoice approve (invoice still approved)', { id, error: glErr });
@@ -296,5 +300,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'PUT', 'POST']);
 }
 
- 
 export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

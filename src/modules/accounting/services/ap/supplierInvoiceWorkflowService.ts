@@ -224,13 +224,27 @@ async function cancelSupplierInvoiceInner(
 
     // P1.1 (audit C1, systemic): approve posts GL — cancel must reverse it.
     // Reverse BEFORE the flip so a blocked reversal (locked period) aborts
-    // the cancel; the caller's request transaction keeps this atomic.
+    // the cancel. Post-#197 semantics: the original keeps status='posted';
+    // "already reversed" is signalled by reversed_at, so guard on that.
     if (locked.gl_journal_entry_id) {
-      await reverseJournalEntry(companyId, String(locked.gl_journal_entry_id), userId);
+      const jeRows = (await sql`
+        SELECT status, reversed_at FROM gl_journal_entries
+        WHERE id = ${String(locked.gl_journal_entry_id)}::UUID AND company_id = ${companyId}::UUID
+        FOR UPDATE
+      `) as Row[];
+      if (
+        jeRows.length > 0 &&
+        String(jeRows[0]!.status) === 'posted' &&
+        jeRows[0]!.reversed_at == null
+      ) {
+        await reverseJournalEntry(companyId, String(locked.gl_journal_entry_id), userId);
+      }
     }
 
+    // Null the journal link (mirrors customerInvoiceCancelService): a future
+    // legitimate re-post must create a fresh journal, not reuse the reversed pair.
     const rows = (await sql`
-      UPDATE supplier_invoices SET status = 'cancelled'
+      UPDATE supplier_invoices SET status = 'cancelled', gl_journal_entry_id = NULL
       WHERE id = ${id} AND company_id = ${companyId}::UUID AND status != 'cancelled'
       RETURNING *
     `) as Row[];

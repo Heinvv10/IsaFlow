@@ -142,11 +142,14 @@ export async function approveWriteOff(companyId: string, id: string, userId: str
     });
   }
 
+  // No sourceDocumentId: gl_journal_entries.source_document_id has an FK to
+  // captured_documents(id) only (migration 409); a write-off's own id would
+  // violate it. The write-off <-> journal entry link is instead persisted
+  // below via customer_write_offs.gl_journal_entry_id.
   const je = await createJournalEntry(companyId, {
     entryDate: fmtDate(wo.write_off_date),
     description: `Write-off ${wo.write_off_number} — ${wo.invoice_number}`,
     source: 'auto_write_off',
-    sourceDocumentId: id,
     lines,
   }, userId);
   await postJournalEntry(companyId, je.id, userId);
