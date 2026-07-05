@@ -13,6 +13,7 @@
     "test:unit": "node scripts/check-runtime.mjs && bun run check:routes && vitest run",
     "test:unit:watch": "node scripts/check-runtime.mjs && vitest",
     "test:e2e": "playwright test --config playwright-test.config.ts",
+    "test:e2e:golden": "playwright test --config playwright-golden.config.ts",
     "test:integration": "node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts",
     "test:coverage": "node scripts/check-runtime.mjs && vitest run --coverage",
     "test": "node scripts/check-runtime.mjs && vitest run && playwright test --config playwright-test.config.ts",
