@@ -23,6 +23,9 @@ vi.mock('@/lib/neon', () => {
   return {
     sql: sqlMock,
     withTransaction: vi.fn((cb: (tx: typeof sqlMock) => unknown) => cb(sqlMock)),
+    // Pass-through savepoint: the services wrap their bodies in withSavepoint
+    // so a 400-path failure can't orphan-commit partial writes (PR #198 R2).
+    withSavepoint: vi.fn((_name: string, fn: () => unknown) => fn()),
     fmtDate: (d: unknown) => (d instanceof Date ? d.toISOString().split('T')[0] : String(d)),
   };
 });
@@ -51,7 +54,7 @@ vi.mock('@/modules/accounting/services/ap/supplierInvoiceService', () => ({
 
 // ── Imports ───────────────────────────────────────────────────────────────────
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { cancelSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 
@@ -152,5 +155,12 @@ describe('cancelSupplierInvoice GL reversal (P1.1 sweep / audit C1)', () => {
     await expect(cancelSupplierInvoice(COMPANY_ID, INVOICE_ID, USER_ID)).rejects.toThrow(
       /concurrent/i,
     );
+  });
+
+  it('runs inside a savepoint so 400-path failures cannot orphan-commit partial writes', async () => {
+    mockSql.mockResolvedValueOnce([lockRow({ status: 'cancelled', gl_journal_entry_id: null })]);
+    await cancelSupplierInvoice(COMPANY_ID, INVOICE_ID, USER_ID).catch(() => undefined);
+
+    expect(withSavepoint).toHaveBeenCalledWith('cancel_supplier_invoice', expect.any(Function));
   });
 });

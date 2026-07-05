@@ -18,7 +18,7 @@
  */
 
 import { log } from '@/lib/logger';
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 
 type Row = Record<string, unknown>;
@@ -35,6 +35,20 @@ export interface CancelCustomerInvoiceResult {
  * reversal failure (e.g. locked fiscal period) — in which case nothing flips.
  */
 export async function cancelCustomerInvoice(
+  companyId: string,
+  invoiceId: string,
+  userId: string,
+): Promise<CancelCustomerInvoiceResult | null> {
+  // SAVEPOINT: the handler maps guard/reversal errors to 400, and withAuth
+  // COMMITs the request tx on any <5xx response — without the savepoint a
+  // failure AFTER the reversal's draft-entry INSERTs (e.g. today's period
+  // closed at post time) would orphan-commit those rows at request COMMIT.
+  return withSavepoint('cancel_customer_invoice', () =>
+    cancelCustomerInvoiceInner(companyId, invoiceId, userId),
+  );
+}
+
+async function cancelCustomerInvoiceInner(
   companyId: string,
   invoiceId: string,
   userId: string,

@@ -4,7 +4,7 @@
  * Extracted from supplierInvoiceService.ts for file-size compliance.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl/journalEntryService';
@@ -187,6 +187,19 @@ export async function postSupplierInvoiceToGL(
 }
 
 export async function cancelSupplierInvoice(
+  companyId: string,
+  id: string,
+  userId: string,
+): Promise<SupplierInvoice> {
+  // SAVEPOINT: callers map errors to 400 and withAuth commits on <5xx —
+  // a failure after the reversal's draft INSERTs must roll them back
+  // instead of orphan-committing (see customerInvoiceCancelService).
+  return withSavepoint('cancel_supplier_invoice', () =>
+    cancelSupplierInvoiceInner(companyId, id, userId),
+  );
+}
+
+async function cancelSupplierInvoiceInner(
   companyId: string,
   id: string,
   userId: string,
