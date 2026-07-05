@@ -1,0 +1,15 @@
+[Unit]
+Description=IsaFlow uptime/alerting probe (A-Z P3.2)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=hein
+ExecStart=/bin/bash /home/hein/Workspace/IsaFlow/scripts/ops/uptime-probe.sh
+# Worst case (everything down) the probe runs ~6 sequential curls at
+# --max-time 15 each; the systemd default (often 90s) could SIGTERM it
+# mid-run exactly when the alert matters most.
+TimeoutStartSec=300
+# State dir + cookie jar are secrets-adjacent on a shared box.
+UMask=0077
