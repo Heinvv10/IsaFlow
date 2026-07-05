@@ -24,7 +24,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       rows = await sql`
         SELECT ci.invoice_number, c.name AS client_name,
           ci.total_amount, ci.amount_paid, ci.status,
-          ci.invoice_date, ci.due_date, NULL as project_name
+          to_char(ci.invoice_date, 'YYYY-MM-DD') AS invoice_date,
+          to_char(ci.due_date, 'YYYY-MM-DD') AS due_date, NULL as project_name
         FROM customer_invoices ci
         LEFT JOIN customers c ON c.id = ci.client_id
         WHERE ci.company_id = ${companyId}
@@ -35,7 +36,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       rows = await sql`
         SELECT ci.invoice_number, c.name AS client_name,
           ci.total_amount, ci.amount_paid, ci.status,
-          ci.invoice_date, ci.due_date, NULL as project_name
+          to_char(ci.invoice_date, 'YYYY-MM-DD') AS invoice_date,
+          to_char(ci.due_date, 'YYYY-MM-DD') AS due_date, NULL as project_name
         FROM customer_invoices ci
         LEFT JOIN customers c ON c.id = ci.client_id
         WHERE ci.company_id = ${companyId}
@@ -52,7 +54,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           csvCell(String(r.invoice_number)),
           csvCell(String(r.client_name || '')),
           csvCell(String(r.project_name || '')),
-          csvCell(String(r.invoice_date)),
+          // DATE columns arrive pre-serialized via to_char — String(pg Date)
+          // would emit "Sat Jul 04 2026 … GMT+0200 …" into the CSV (PR #194 LOW).
+          csvCell(String(r.invoice_date || '')),
           csvCell(String(r.due_date || '')),
           total.toFixed(2),
           paid.toFixed(2),

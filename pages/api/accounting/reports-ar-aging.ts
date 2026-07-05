@@ -13,7 +13,7 @@ import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withFlowMeter } from '@/lib/billing/withFlowMeter';
 import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
-import { sql } from '@/lib/neon';
+import { sql, fmtDate } from '@/lib/neon';
 
 type Bucket = 'current' | '1-30' | '31-60' | '61-90' | '90+';
 
@@ -58,7 +58,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     const asAtRaw = req.query.as_at_date ? String(req.query.as_at_date) : null;
     const asAt = asAtRaw ? new Date(asAtRaw) : new Date();
-    const asAtStr = asAt.toISOString().split('T')[0] as string;
+    // Local date — toISOString() rolls back a day between 00:00–02:00 SAST,
+    // shifting invoices across aging buckets (P1.4 sweep).
+    const asAtStr = fmtDate(asAt);
 
     const rows = (await sql`
       SELECT

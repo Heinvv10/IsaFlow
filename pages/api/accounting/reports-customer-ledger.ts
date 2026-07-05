@@ -6,7 +6,7 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { sql } from '@/lib/neon';
+import { sql, fmtDate } from '@/lib/neon';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
@@ -41,8 +41,9 @@ type DbRow = {
 };
 
 function toDateStr(d: Date | string): string {
-  const raw = d instanceof Date ? d.toISOString() : String(d);
-  return raw.split('T')[0] ?? raw;
+  // P1.4 sweep: toISOString() on a pg DATE (local midnight, UTC+2) rolls the
+  // date back a day — fmtDate uses local getters.
+  return fmtDate(d) || String(d);
 }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {

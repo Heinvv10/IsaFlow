@@ -11,7 +11,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { withFlowMeter } from '@/lib/billing/withFlowMeter';
 import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
-import { sql, withSavepoint } from '@/lib/neon';
+import { sql, withSavepoint, fmtDate } from '@/lib/neon';
 import { reserveNextDocumentNumber } from '@/modules/accounting/services/core/companyService';
 type Row = Record<string, unknown>;
 
@@ -48,7 +48,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // functional_total = total in ZAR (functional currency)
     const functionalTotal = Math.round(totalAmount * invExchangeRate * 100) / 100;
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = fmtDate(new Date()); // local date — toISOString rolls back a day before 02:00 SAST
     const invDate = invoiceDate || today;
     const bpStart = billingPeriodStart || null;
     const bpEnd = billingPeriodEnd || null;
@@ -108,8 +108,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         });
         break;
       } catch (insertErr) {
-        const msg = insertErr instanceof Error ? insertErr.message : String(insertErr);
-        if (msg.includes('unique') && attempt < 4) {
+        // Detect unique-violation by SQLSTATE, not message text (pg localises
+        // and rewords messages; err.code survives the driver untouched).
+        const code = (insertErr as { code?: string }).code;
+        if (code === '23505' && attempt < 4) {
           invoiceNumber = await reserveNextDocumentNumber(companyId, 'customer_invoice');
           continue;
         }
