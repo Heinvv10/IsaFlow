@@ -91,6 +91,30 @@ async function nextQuoteNumber(): Promise<string> {
   return `QUO-${String(num + 1).padStart(5, '0')}`;
 }
 
+/** Thrown for W1 line-validation failures — handlers map it to HTTP 400. */
+export class LineValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'LineValidationError';
+  }
+}
+
+/**
+ * W1 (P2.1): negative quantities/prices produced negative documents server-side
+ * (the July-4 audit created a -R115 invoice live). Zero-quantity lines are
+ * also meaningless on a quote. Throws before any SQL runs.
+ */
+export function assertValidLines(lines: QuoteInput['lines']): void {
+  for (const l of lines || []) {
+    if (!(Number(l.quantity) > 0)) {
+      throw new LineValidationError(`Line "${l.description}": quantity must be positive`);
+    }
+    if (Number(l.unitPrice) < 0) {
+      throw new LineValidationError(`Line "${l.description}": unit price cannot be negative`);
+    }
+  }
+}
+
 function calcTotals(lines: QuoteInput['lines']) {
   let subtotal = 0;
   let taxAmount = 0;
@@ -153,6 +177,7 @@ export async function getQuote(companyId: string, id: string): Promise<Quote | n
 }
 
 export async function createQuote(companyId: string, input: QuoteInput, userId?: string): Promise<Quote> {
+  assertValidLines(input.lines);
   const quoteNumber = await nextQuoteNumber();
   const { subtotal, taxAmount, total } = calcTotals(input.lines);
   const qd = input.quoteDate || fmtDate(new Date()); // local date — toISOString rolls back a day before 02:00 SAST
@@ -183,6 +208,7 @@ export async function createQuote(companyId: string, input: QuoteInput, userId?:
 export async function updateQuote(companyId: string, id: string, input: QuoteInput): Promise<Quote | null> {
   const existing = await getQuote(companyId, id);
   if (!existing || existing.status !== 'draft') return null;
+  assertValidLines(input.lines);
   const { subtotal, taxAmount, total } = calcTotals(input.lines);
 
   await sql`

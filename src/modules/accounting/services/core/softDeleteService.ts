@@ -6,6 +6,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { assertNoOpenDocuments } from './masterDeleteGuards';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 
@@ -197,6 +198,12 @@ export async function softDelete(
       if (status === 'posted') {
         throw new Error(`Cannot delete a posted ${entityType}`);
       }
+    }
+
+    // W2 (P2.1): open-document guard (extracted to masterDeleteGuards for
+    // the 300-line cap).
+    if (entityType === 'customer' || entityType === 'supplier') {
+      await assertNoOpenDocuments(companyId, entityType, entityId);
     }
 
     const deleted = await softDeleteRow(entityType, entityId, companyId);

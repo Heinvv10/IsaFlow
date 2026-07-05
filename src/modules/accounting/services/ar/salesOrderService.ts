@@ -6,6 +6,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { LineValidationError } from './quoteService';
 
 // Re-export workflow functions for backward compatibility
 export { confirmSalesOrder, convertSalesOrderToInvoice } from './salesOrderWorkflowService';
@@ -110,6 +111,13 @@ async function nextOrderNumber(companyId: string): Promise<string> {
 function calcTotals(items: SalesOrderInput['items']) {
   let subtotal = 0;
   let taxAmount = 0;
+  // W1 family (P2.1): SO lines convert into invoice lines untouched, so the
+  // same positive-quantity / non-negative-price rule applies here. calcTotals
+  // runs on every create AND update path, making it the single choke point.
+  for (const item of items || []) {
+    if (!(Number(item.quantity) > 0)) throw new LineValidationError(`Line "${item.description}": quantity must be positive`);
+    if (Number(item.unit_price) < 0) throw new LineValidationError(`Line "${item.description}": unit price cannot be negative`);
+  }
   for (const item of items) {
     const lt = Math.round(item.quantity * item.unit_price * 100) / 100;
     const lineTax = Math.round(lt * ((item.tax_rate ?? 15) / 100) * 100) / 100;

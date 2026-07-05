@@ -183,7 +183,8 @@ describe('createCustomerPayment — allocation validation', () => {
 
   it('rejects when allocation exceeds invoice balance', async () => {
     // Invoice has total_amount=1000, amount_paid=900 → balance=100
-    mockSql.mockResolvedValueOnce([{ total_amount: '1000.00', amount_paid: '900.00' }]);
+    mockSql.mockResolvedValueOnce([{ total_amount: '1000.00', amount_paid: '900.00' }])
+    mockSql.mockResolvedValueOnce([{ pending: '0' }]); // W3: draft-pending check
 
     const input: CustomerPaymentCreateInput = {
       ...validInput,
@@ -197,7 +198,8 @@ describe('createCustomerPayment — allocation validation', () => {
 
   it('rejects when allocation total does not match payment total', async () => {
     // Invoice has enough balance (1000 unpaid)
-    mockSql.mockResolvedValueOnce([{ total_amount: '1000.00', amount_paid: '0' }]);
+    mockSql.mockResolvedValueOnce([{ total_amount: '1000.00', amount_paid: '0' }])
+    mockSql.mockResolvedValueOnce([{ pending: '0' }]); // W3: draft-pending check
 
     const input: CustomerPaymentCreateInput = {
       ...validInput,
@@ -228,7 +230,8 @@ describe('createCustomerPayment — allocation validation', () => {
 
   it('creates payment and allocations when validation passes', async () => {
     // Invoice balance check: fully unpaid
-    mockSql.mockResolvedValueOnce([{ total_amount: '1150.00', amount_paid: '0' }]);
+    mockSql.mockResolvedValueOnce([{ total_amount: '1150.00', amount_paid: '0' }])
+    mockSql.mockResolvedValueOnce([{ pending: '0' }]); // W3: draft-pending check
 
     // withTransaction resolves with inserted payment row
     mockWithTransaction.mockImplementation(async (fn) => {
@@ -248,7 +251,8 @@ describe('createCustomerPayment — allocation validation', () => {
 
   it('allows allocation within tolerance (≤ 0.01 over balance)', async () => {
     // Balance = 1150.00, allocation = 1150.005 — within 0.01 tolerance
-    mockSql.mockResolvedValueOnce([{ total_amount: '1150.00', amount_paid: '0' }]);
+    mockSql.mockResolvedValueOnce([{ total_amount: '1150.00', amount_paid: '0' }])
+    mockSql.mockResolvedValueOnce([{ pending: '0' }]); // W3: draft-pending check
 
     mockWithTransaction.mockImplementation(async (fn) => {
       const fakeTx = vi.fn().mockResolvedValue([samplePaymentRow]) as unknown as typeof sql;
@@ -273,7 +277,8 @@ describe('createCustomerPayment — edge cases', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('rejects a payment of zero amount (allocations sum to 0)', async () => {
-    mockSql.mockResolvedValueOnce([{ total_amount: '1000.00', amount_paid: '0' }]);
+    mockSql.mockResolvedValueOnce([{ total_amount: '1000.00', amount_paid: '0' }])
+    mockSql.mockResolvedValueOnce([{ pending: '0' }]); // W3: draft-pending check
 
     const input: CustomerPaymentCreateInput = {
       ...validInput,
@@ -300,7 +305,9 @@ describe('createCustomerPayment — edge cases', () => {
     // Two balance checks, one per allocation
     mockSql
       .mockResolvedValueOnce([{ total_amount: '600.00', amount_paid: '0' }])
-      .mockResolvedValueOnce([{ total_amount: '550.00', amount_paid: '0' }]);
+      .mockResolvedValueOnce([{ pending: '0' }]) // W3: draft-pending check per allocation
+      .mockResolvedValueOnce([{ total_amount: '550.00', amount_paid: '0' }])
+      .mockResolvedValueOnce([{ pending: '0' }]);
 
     mockWithTransaction.mockImplementation(async (fn) => {
       const multiRow = { ...samplePaymentRow, total_amount: '1150.00' };
@@ -323,7 +330,8 @@ describe('createCustomerPayment — edge cases', () => {
   });
 
   it('defaults paymentMethod to eft when not supplied', async () => {
-    mockSql.mockResolvedValueOnce([{ total_amount: '1150.00', amount_paid: '0' }]);
+    mockSql.mockResolvedValueOnce([{ total_amount: '1150.00', amount_paid: '0' }])
+    mockSql.mockResolvedValueOnce([{ pending: '0' }]); // W3: draft-pending check
 
     mockWithTransaction.mockImplementation(async (fn) => {
       const fakeTx = vi.fn().mockResolvedValue([samplePaymentRow]) as unknown as typeof sql;
