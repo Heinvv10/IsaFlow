@@ -40,7 +40,7 @@ export async function generateQuotePdf(companyId: string, quoteId: string): Prom
     lines = (await sql`
       SELECT * FROM customer_quote_lines
       WHERE quote_id = ${quoteId}::UUID
-      ORDER BY line_number, created_at
+      ORDER BY sort_order, created_at
     `) as DbRow[];
   } catch { /* graceful fallback if table name differs */ }
 
@@ -135,7 +135,7 @@ export async function generateQuotePdf(companyId: string, quoteId: string): Prom
         Number(line.quantity || 0).toFixed(2),
         fmtZAR(Number(line.unit_price || 0)),
         `${Number(line.tax_rate || 15).toFixed(0)}%`,
-        fmtZAR(Number(line.line_total || 0)),
+        fmtZAR(Number(line.amount || 0)),
       ]),
       styles: {
         fontSize: 8,

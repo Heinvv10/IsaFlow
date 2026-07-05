@@ -71,10 +71,10 @@ function mapQuote(r: Row): Quote {
 
 function mapLine(r: Row): QuoteLine {
   return {
-    id: String(r.id), quoteId: String(r.quote_id), lineNumber: Number(r.line_number),
+    id: String(r.id), quoteId: String(r.quote_id), lineNumber: Number(r.sort_order),
     description: String(r.description), quantity: Number(r.quantity),
     unitPrice: Number(r.unit_price), taxRate: Number(r.tax_rate),
-    lineTotal: Number(r.line_total), accountId: r.account_id != null ? String(r.account_id) : null,
+    lineTotal: Number(r.amount), accountId: r.gl_account_id != null ? String(r.gl_account_id) : null,
   };
 }
 
@@ -143,7 +143,7 @@ export async function getQuote(companyId: string, id: string): Promise<Quote | n
   if (rows.length === 0) return null;
   const quote = mapQuote(rows[0]!);
   const lineRows = (await sql`
-    SELECT * FROM customer_quote_lines WHERE quote_id = ${id}::UUID ORDER BY line_number
+    SELECT * FROM customer_quote_lines WHERE quote_id = ${id}::UUID ORDER BY sort_order
   `) as Row[];
   quote.lines = lineRows.map(mapLine);
   return quote;
@@ -167,10 +167,10 @@ export async function createQuote(companyId: string, input: QuoteInput, userId?:
   for (let i = 0; i < input.lines.length; i++) {
     const l = input.lines[i];
     if (!l) continue;
-    const lineTotal = Math.round(l.quantity * l.unitPrice * 100) / 100;
+    const amount = Math.round(l.quantity * l.unitPrice * 100) / 100;
     await sql`
-      INSERT INTO customer_quote_lines (quote_id, line_number, description, quantity, unit_price, tax_rate, line_total, account_id)
-      VALUES (${quote.id}::UUID, ${i + 1}, ${l.description}, ${l.quantity}, ${l.unitPrice}, ${l.taxRate ?? 15}, ${lineTotal}, ${l.accountId || null})
+      INSERT INTO customer_quote_lines (quote_id, sort_order, description, quantity, unit_price, tax_rate, amount, gl_account_id)
+      VALUES (${quote.id}::UUID, ${i + 1}, ${l.description}, ${l.quantity}, ${l.unitPrice}, ${l.taxRate ?? 15}, ${amount}, ${l.accountId || null})
     `;
   }
   log.info('Quote created', { quoteNumber, total });
@@ -194,10 +194,10 @@ export async function updateQuote(companyId: string, id: string, input: QuoteInp
   for (let i = 0; i < input.lines.length; i++) {
     const l = input.lines[i];
     if (!l) continue;
-    const lineTotal = Math.round(l.quantity * l.unitPrice * 100) / 100;
+    const amount = Math.round(l.quantity * l.unitPrice * 100) / 100;
     await sql`
-      INSERT INTO customer_quote_lines (quote_id, line_number, description, quantity, unit_price, tax_rate, line_total, account_id)
-      VALUES (${id}::UUID, ${i + 1}, ${l.description}, ${l.quantity}, ${l.unitPrice}, ${l.taxRate ?? 15}, ${lineTotal}, ${l.accountId || null})
+      INSERT INTO customer_quote_lines (quote_id, sort_order, description, quantity, unit_price, tax_rate, amount, gl_account_id)
+      VALUES (${id}::UUID, ${i + 1}, ${l.description}, ${l.quantity}, ${l.unitPrice}, ${l.taxRate ?? 15}, ${amount}, ${l.accountId || null})
     `;
   }
   log.info('Quote updated', { id });
