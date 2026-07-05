@@ -62,7 +62,11 @@ export default function AccountingPage() {
         if (!res.ok || !json.data) throw new Error('Exchange failed');
         const { company_id, company_name } = json.data;
         localStorage.setItem('isaflow_active_company', JSON.stringify({ id: company_id, name: company_name }));
-        void router.replace('/accounting', undefined, { shallow: false });
+        // Hard navigation (not router.replace): the exchange rotated the
+        // active_company cookie, and CompanyContext hydrates once per mount —
+        // a soft replace leaves the header on the OLD company while data
+        // panels already show the new one (W7 residual).
+        window.location.assign('/accounting');
       })
       .catch(err => {
         log.error('Impersonation exchange failed', { error: err }, 'accounting-page');
