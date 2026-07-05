@@ -3,7 +3,7 @@
  * Convert operations split to quoteConvertService.ts
  */
 
-import { sql } from '@/lib/neon';
+import { sql, fmtDate } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
@@ -60,8 +60,11 @@ interface QuoteInput {
 function mapQuote(r: Row): Quote {
   return {
     id: String(r.id), quoteNumber: String(r.quote_number), clientId: r.client_id != null ? String(r.client_id) : null,
-    customerName: String(r.customer_name), quoteDate: String(r.quote_date),
-    expiryDate: r.expiry_date != null ? String(r.expiry_date) : null, status: String(r.status),
+    // pg returns DATE columns as JS Date objects; String(Date) yields
+    // "Sun Jul 05 2026 … GMT+0200 …" which Postgres rejects when the value is
+    // fed back into conversion INSERTs (H3 family). fmtDate → YYYY-MM-DD.
+    customerName: String(r.customer_name), quoteDate: fmtDate(r.quote_date),
+    expiryDate: r.expiry_date != null ? fmtDate(r.expiry_date) : null, status: String(r.status),
     subtotal: Number(r.subtotal), taxAmount: Number(r.tax_amount),
     total: Number(r.total), notes: r.notes != null ? String(r.notes) : null, terms: r.terms != null ? String(r.terms) : null,
     convertedInvoiceId: r.converted_invoice_id != null ? String(r.converted_invoice_id) : null,
