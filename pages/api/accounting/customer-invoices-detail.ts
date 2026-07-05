@@ -16,6 +16,11 @@ import { sql, withTransaction } from '@/lib/neon';
 import { UUID, ISODate } from '@/lib/schemas/common';
 import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerPaymentService';
 import { snapshotInvoicePdf } from '@/modules/accounting/services/ar/invoicePdfSnapshotService';
+import {
+  cancelCustomerInvoice,
+  InvoiceNotFoundError,
+  InvoiceHasPaymentsError,
+} from '@/modules/accounting/services/ar/customerInvoiceCancelService';
 type Row = Record<string, unknown>;
 
 const GetQuerySchema = z.object({ id: UUID });
@@ -227,9 +232,28 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.validationError(res, postParsed.error.flatten().fieldErrors as Record<string, string[]>);
     }
     const { id, action } = postParsed.data;
+    const userId = (req as CompanyAuthedRequest).user?.id || 'system';
+
+    // Cancel reverses the approval GL journal and zeroes the outstanding
+    // balance (see customerInvoiceCancelService). Handled in the service layer
+    // so a plain status flip can never orphan a posted journal.
+    if (action === 'cancel') {
+      try {
+        const { reversedJournalEntryId } = await cancelCustomerInvoice(companyId, id, userId);
+        log.info('Customer invoice action', { id, action, newStatus: 'cancelled', reversedJournalEntryId });
+        return apiResponse.success(res, {
+          id, status: 'cancelled', glJournalEntryId: null,
+          evidenceDocumentId: null, reversedJournalEntryId,
+        });
+      } catch (err) {
+        if (err instanceof InvoiceNotFoundError) return apiResponse.notFound(res, 'Invoice', id);
+        if (err instanceof InvoiceHasPaymentsError) return apiResponse.badRequest(res, err.message);
+        throw err;
+      }
+    }
 
     const validActions: Record<string, string> = {
-      approve: 'approved', send: 'sent', cancel: 'cancelled',
+      approve: 'approved', send: 'sent',
     };
     const newStatus = validActions[action];
 
@@ -247,7 +271,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     let glJournalEntryId: string | null = null;
     if (action === 'approve') {
       try {
-        const userId = (req as CompanyAuthedRequest).user?.id || 'system';
         glJournalEntryId = await postCustomerInvoiceToGL(companyId, id, userId);
         log.info('Customer invoice GL posted on approve', { id, glJournalEntryId });
       } catch (glErr) {
