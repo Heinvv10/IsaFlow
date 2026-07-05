@@ -3,7 +3,7 @@
  * Phase 1 Sage Alignment: Manual VAT corrections with GL posting
  */
 
-import { sql } from '@/lib/neon';
+import { sql, fmtDate } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
@@ -97,11 +97,22 @@ export async function approveVATAdjustment(companyId: string,
           description: `VAT output adjustment ${va.adjustment_number}` },
       ];
 
+  // adjustment_date comes back from pg as a Date object; String(Date) yields a
+  // locale-formatted string Postgres rejects when inserted into entry_date.
+  // fmtDate uses local getters matching how pg constructs DATE columns (a
+  // UTC-based slice would silently roll the date back a day on this UTC+2
+  // server) and also handles the string shape.
+  const entryDate = fmtDate(va.adjustment_date);
+  if (!entryDate) throw new Error(`VAT adjustment ${id} has an invalid adjustment_date value`);
+
+  // No sourceDocumentId: gl_journal_entries.source_document_id has an FK to
+  // captured_documents(id) only (migration 409); a VAT adjustment's own id
+  // would violate it. The adjustment <-> journal entry link is instead
+  // persisted below via vat_adjustments.gl_journal_entry_id.
   const je = await createJournalEntry(companyId, {
-    entryDate: String(va.adjustment_date),
+    entryDate,
     description: `VAT adjustment ${va.adjustment_number}`,
     source: 'auto_vat_adjustment',
-    sourceDocumentId: id,
     lines,
   }, safeUserId);
   await postJournalEntry(companyId, je.id, safeUserId);
