@@ -21,6 +21,7 @@ import { coreChecks } from './lib/integrityChecks';
 import { tenantChecks } from './lib/integrityChecksTenant';
 import {
   applyBaseline,
+  parseBaselineJson,
   renderResult,
   summarize,
   type BaselineEntry,
@@ -44,6 +45,8 @@ if (!process.env.DATABASE_URL) {
 }
 
 // ── Baseline loading (--baseline <file>) ────────────────────────────────────
+// Parsing/validation lives in parseBaselineJson (integrityTypes.ts) so it is
+// unit-tested; this wrapper only handles argv + file IO.
 function loadBaseline(): BaselineEntry[] {
   const idx = process.argv.indexOf('--baseline');
   if (idx === -1) return [];
@@ -53,27 +56,12 @@ function loadBaseline(): BaselineEntry[] {
     process.exit(1);
   }
   const resolved = path.resolve(file);
-  let parsed: unknown;
   try {
-    parsed = JSON.parse(fs.readFileSync(resolved, 'utf-8'));
+    return parseBaselineJson(fs.readFileSync(resolved, 'utf-8'));
   } catch (err) {
-    console.error(`ERROR: cannot read baseline ${resolved}: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`ERROR: invalid baseline ${resolved}: ${err instanceof Error ? err.message : String(err)}`);
     process.exit(1);
   }
-  if (
-    !Array.isArray(parsed) ||
-    !parsed.every(
-      (e: unknown): e is BaselineEntry =>
-        typeof e === 'object' && e !== null &&
-        typeof (e as BaselineEntry).label === 'string' &&
-        typeof (e as BaselineEntry).reason === 'string' &&
-        ((e as BaselineEntry).maxOffending === undefined || typeof (e as BaselineEntry).maxOffending === 'number'),
-    )
-  ) {
-    console.error(`ERROR: ${resolved} must be a JSON array of {label, reason, maxOffending?}`);
-    process.exit(1);
-  }
-  return parsed;
 }
 
 const baseline = loadBaseline();
@@ -88,14 +76,14 @@ async function main(): Promise<void> {
   const checks = [...coreChecks, ...tenantChecks];
   const results: CheckResult[] = [];
   for (const check of checks) {
-    const result = await check(sql);
+    // Apply the baseline per result and render immediately: operators watch
+    // this live during post-deploy verification — don't buffer 15+ checks.
+    const [result] = applyBaseline([await check(sql)], baseline) as [CheckResult];
     results.push(result);
+    renderResult(result, (s) => console.log(s));
   }
 
-  const finalResults = applyBaseline(results, baseline);
-  for (const result of finalResults) renderResult(result, (s) => console.log(s));
-
-  const { passed, total, failed, waived } = summarize(finalResults);
+  const { passed, total, failed, waived } = summarize(results);
   console.log('');
   console.log(
     `=== SUMMARY: ${passed}/${total} checks passed${waived > 0 ? ` (${waived} WAIVED via baseline — see [WAIVED] rows)` : ''} ===`,

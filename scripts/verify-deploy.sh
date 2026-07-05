@@ -48,8 +48,12 @@ echo "OK: health endpoint responding"
 echo "[2/3] Golden-paths E2E suite..."
 if [ -z "$E2E_ADMIN_EMAIL" ] || [ -z "$E2E_ADMIN_PASSWORD" ]; then
   if [ -f "$CREDS_FILE" ]; then
-    # shellcheck disable=SC1090
-    set -a; . "$CREDS_FILE"; set +a
+    # Read only the two expected keys, literally — never `.`/source, which
+    # shell-parses values ($, backticks, quotes) and would silently mangle a
+    # generated password (same hazard deploy.sh documents for .env.local).
+    while IFS= read -r line; do
+      [ -n "$line" ] && export "$line"
+    done < <(grep -E '^E2E_ADMIN_(EMAIL|PASSWORD)=' "$CREDS_FILE" || true)
   fi
 fi
 if [ -z "$E2E_ADMIN_EMAIL" ] || [ -z "$E2E_ADMIN_PASSWORD" ]; then

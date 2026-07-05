@@ -7,6 +7,17 @@ REPO_DIR="/home/hein/Workspace/IsaFlow"
 SERVICE_NAME="isaflow"
 BUN="/home/hein/.bun/bin/bun"
 
+# Concurrent-deploy lock (P3.1): two overlapping deploys would race on the
+# rollback snapshot AND interleave golden-suite money flows on the prod Demo.
+# flock releases automatically when this process exits, so a killed deploy
+# never leaves a stale lock behind.
+LOCK_FILE="/tmp/isaflow-deploy.lock"
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+  echo "ERROR: another deploy is already running (lock: $LOCK_FILE). Wait for it to finish."
+  exit 1
+fi
+
 echo "=== Deploying IsaFlow ==="
 
 # Capture git SHA for Sentry release tagging
@@ -219,11 +230,23 @@ if [ "${SKIP_VERIFY:-0}" != "1" ]; then
   else
     echo ""
     echo "!!! POST-DEPLOY VERIFICATION FAILED — rolling back to the pre-deploy snapshot !!!"
-    bash "$REPO_DIR/scripts/rollback-deploy.sh"
+    # `|| rc=$?` keeps set -e from killing the script here: the compound
+    # failure (bad deploy AND failed/unavailable rollback) is exactly when
+    # the operator needs the framing below, not a mid-script death.
+    ROLLBACK_RC=0
+    bash "$REPO_DIR/scripts/rollback-deploy.sh" || ROLLBACK_RC=$?
     echo ""
-    echo "Deploy of $GIT_SHA was ROLLED BACK (code only — DB migrations are"
-    echo "additive by project rule and were NOT reverted). Fix the regression,"
-    echo "re-run the battery, then redeploy."
+    if [ "$ROLLBACK_RC" -eq 0 ]; then
+      echo "Deploy of $GIT_SHA was ROLLED BACK (code only — DB migrations are"
+      echo "additive by project rule and were NOT reverted). Fix the regression,"
+      echo "re-run the battery, then redeploy."
+    else
+      echo "!!! ROLLBACK ALSO FAILED (exit $ROLLBACK_RC) after deploying $GIT_SHA —"
+      echo "service state is UNKNOWN. Recover manually:"
+      echo "  1. sudo journalctl -u $SERVICE_NAME -n 100 --no-pager"
+      echo "  2. If no snapshot existed: git checkout <last-good SHA> && SKIP_VERIFY=1 bash scripts/deploy.sh"
+      echo "  3. Verify by hand: bash scripts/verify-deploy.sh https://app.isaflow.co.za"
+    fi
     exit 1
   fi
 else

@@ -11,6 +11,7 @@ import {
   summarize,
   renderResult,
   applyBaseline,
+  parseBaselineJson,
   fmt,
   plural,
   type CheckResult,
@@ -109,10 +110,12 @@ describe('applyBaseline', () => {
     expect(summarize(out).failed).toBe(1);
   });
 
-  it('waives a capless entry regardless of offending count', () => {
-    const capless: BaselineEntry[] = [{ label: 'X', reason: 'known' }];
-    const out = applyBaseline([{ label: 'X', status: 'fail', detail: 'bad' }], capless);
-    expect(out[0]!.status).toBe('waived');
+  it('does NOT waive when a (malformed, cap-missing) entry reaches it at runtime — fail-safe', () => {
+    // parseBaselineJson rejects capless entries, but applyBaseline must not
+    // waive unboundedly even if one sneaks through an untyped call site.
+    const capless = [{ label: 'X', reason: 'known' }] as unknown as BaselineEntry[];
+    const out = applyBaseline([{ label: 'X', status: 'fail', detail: 'bad', offending: 1 }], capless);
+    expect(out[0]!.status).toBe('fail');
   });
 
   it('leaves pass and info results untouched even when their label is listed', () => {
@@ -128,6 +131,44 @@ describe('applyBaseline', () => {
   it('returns results unchanged for an empty baseline', () => {
     const results: CheckResult[] = [{ label: 'a', status: 'fail', detail: 'bad' }];
     expect(applyBaseline(results, [])).toEqual(results);
+  });
+});
+
+// parseBaselineJson gates every production deploy via verify-deploy.sh — a
+// shape-validation regression here must be caught by CI, not by a red deploy.
+describe('parseBaselineJson', () => {
+  const valid = JSON.stringify([{ label: 'X', maxOffending: 10, reason: 'why' }]);
+
+  it('parses a valid baseline array', () => {
+    expect(parseBaselineJson(valid)).toEqual([{ label: 'X', maxOffending: 10, reason: 'why' }]);
+  });
+
+  it('parses an empty array', () => {
+    expect(parseBaselineJson('[]')).toEqual([]);
+  });
+
+  it('throws on malformed JSON', () => {
+    expect(() => parseBaselineJson('{nope')).toThrow();
+  });
+
+  it('throws when the root is not an array', () => {
+    expect(() => parseBaselineJson('{"label":"X"}')).toThrow(/array/i);
+  });
+
+  it('throws on an entry missing label', () => {
+    expect(() => parseBaselineJson('[{"maxOffending":1,"reason":"r"}]')).toThrow(/label/i);
+  });
+
+  it('throws on an entry missing reason', () => {
+    expect(() => parseBaselineJson('[{"label":"X","maxOffending":1}]')).toThrow(/reason/i);
+  });
+
+  it('throws on an entry missing maxOffending — unbounded waivers are not allowed', () => {
+    expect(() => parseBaselineJson('[{"label":"X","reason":"r"}]')).toThrow(/maxOffending/i);
+  });
+
+  it('throws on a non-numeric maxOffending', () => {
+    expect(() => parseBaselineJson('[{"label":"X","maxOffending":"10","reason":"r"}]')).toThrow(/maxOffending/i);
   });
 });
 

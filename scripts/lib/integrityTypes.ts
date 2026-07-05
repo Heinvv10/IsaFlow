@@ -28,18 +28,20 @@ export interface BaselineEntry {
   /** Exact label of the check allowed to fail. */
   label: string;
   /**
-   * Cap on the offending-row count still covered by the waiver. A result
-   * over the cap — or one that carries no offending count at all — stays a
-   * fail: a cap that can't be enforced must never waive blindly.
+   * REQUIRED cap on the offending-row count still covered by the waiver.
+   * A result over the cap — or one that carries no offending count at all —
+   * stays a fail: an unbounded or unenforceable waiver must never exist.
    */
-  maxOffending?: number;
+  maxOffending: number;
   /** Why the failure is accepted; echoed in the waived output. */
   reason: string;
 }
 
 /**
  * Downgrade baselined failures to 'waived'. Only 'fail' results are eligible;
- * everything else passes through untouched.
+ * everything else passes through untouched. Fail-safe: a result without an
+ * offending count, over the cap, or matched by a (malformed) capless entry
+ * stays a fail.
  */
 export function applyBaseline(results: CheckResult[], baseline: BaselineEntry[]): CheckResult[] {
   if (baseline.length === 0) return results;
@@ -47,11 +49,38 @@ export function applyBaseline(results: CheckResult[], baseline: BaselineEntry[])
     if (r.status !== 'fail') return r;
     const entry = baseline.find((b) => b.label === r.label);
     if (!entry) return r;
-    if (entry.maxOffending !== undefined && (r.offending === undefined || r.offending > entry.maxOffending)) {
+    if (typeof entry.maxOffending !== 'number' || r.offending === undefined || r.offending > entry.maxOffending) {
       return r;
     }
     return { ...r, status: 'waived', detail: `${r.detail ?? ''} — waived: ${entry.reason}` };
   });
+}
+
+/**
+ * Parse + shape-validate the JSON text of a --baseline file. Throws with a
+ * specific message on any deviation — this function gates production deploys
+ * (verify-deploy.sh → integrity-check --baseline), so it must be strict and
+ * unit-tested rather than best-effort.
+ */
+export function parseBaselineJson(text: string): BaselineEntry[] {
+  const parsed: unknown = JSON.parse(text);
+  if (!Array.isArray(parsed)) {
+    throw new Error('baseline must be a JSON array of {label, maxOffending, reason}');
+  }
+  for (const [i, e] of parsed.entries()) {
+    if (typeof e !== 'object' || e === null) throw new Error(`baseline[${i}] is not an object`);
+    const entry = e as Record<string, unknown>;
+    if (typeof entry.label !== 'string' || entry.label.length === 0) {
+      throw new Error(`baseline[${i}].label must be a non-empty string`);
+    }
+    if (typeof entry.reason !== 'string' || entry.reason.length === 0) {
+      throw new Error(`baseline[${i}].reason must be a non-empty string`);
+    }
+    if (typeof entry.maxOffending !== 'number' || !Number.isFinite(entry.maxOffending)) {
+      throw new Error(`baseline[${i}].maxOffending must be a finite number (unbounded waivers are not allowed)`);
+    }
+  }
+  return parsed as BaselineEntry[];
 }
 
 /** Tagged-template sql fn shape (matches createSql() from ./_pg). */
