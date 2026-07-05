@@ -9,7 +9,7 @@
  *        bun scripts/integrity-check.ts --baseline scripts/integrity-baseline-prod.json
  *
  * --baseline <file>: JSON array of known-and-accepted failures (label +
- * optional maxOffending cap + reason). Listed failures within their cap are
+ * required maxOffending cap + reason). Listed failures within their cap are
  * reported as [WAIVED] and do not fail the run; anything new or worse still
  * exits 1. Used by the post-deploy prod gate while HUMAN-GATED repairs wait
  * on Hein — never as a way to hide a regression.
