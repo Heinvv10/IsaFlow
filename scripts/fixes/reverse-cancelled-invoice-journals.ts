@@ -16,6 +16,14 @@
  * SAFE BY DEFAULT: dry-run unless --apply is passed. Idempotent — once a
  * journal is reversed it no longer matches (je.status becomes 'reversed').
  *
+ * Linkage: the authoritative invoice->journal link is
+ * customer_invoices.gl_journal_entry_id (postCustomerInvoiceToGL persists it on
+ * approve). gl_journal_entries.source_document_id is NULL in prod and FK-bound to
+ * captured_documents, so it is NEVER used here. As a REPORT-ONLY fallback, the
+ * script also lists cancelled invoices whose gl_journal_entry_id is NULL but that
+ * have a description-matched posted auto_invoice journal — these are surfaced for
+ * manual review and are NEVER auto-reversed (the match is a heuristic, not the FK).
+ *
  * Usage (operator, against prod):
  *   # Dry-run — prints what WOULD be reversed, mutates nothing:
  *   bunx tsx scripts/fixes/reverse-cancelled-invoice-journals.ts
@@ -123,6 +131,46 @@ async function findOrphanedJournals(): Promise<Row[]> {
   `) as Row[];
 }
 
+/**
+ * Fallback: cancelled invoices with gl_journal_entry_id IS NULL that still have
+ * a candidate posted 'auto_invoice' journal, matched by the exact description
+ * postCustomerInvoiceToGL writes ("Customer invoice <number>"). This catches
+ * legacy rows where the approve-time link-back never persisted (e.g. the
+ * nested-transaction path). These are REPORT-ONLY — the description match is a
+ * heuristic, not the authoritative FK link, so the operator must verify each
+ * before reversing manually. Reversal entries are excluded because their
+ * description is "Reversal of JE-...".
+ */
+async function findNullLinkOrphanCandidates(): Promise<Row[]> {
+  if (companyFilter) {
+    return (await sql`
+      SELECT ci.id AS invoice_id, ci.company_id, ci.invoice_number, ci.total_amount,
+             je.id AS je_id, je.entry_number, je.status AS je_status
+      FROM customer_invoices ci
+      JOIN gl_journal_entries je
+        ON je.company_id = ci.company_id
+       AND je.source = 'auto_invoice'
+       AND je.status = 'posted'
+       AND je.description = ('Customer invoice ' || ci.invoice_number)
+      WHERE ci.status = 'cancelled' AND ci.gl_journal_entry_id IS NULL
+        AND ci.company_id = ${companyFilter}::UUID
+      ORDER BY ci.company_id, ci.invoice_number
+    `) as Row[];
+  }
+  return (await sql`
+    SELECT ci.id AS invoice_id, ci.company_id, ci.invoice_number, ci.total_amount,
+           je.id AS je_id, je.entry_number, je.status AS je_status
+    FROM customer_invoices ci
+    JOIN gl_journal_entries je
+      ON je.company_id = ci.company_id
+     AND je.source = 'auto_invoice'
+     AND je.status = 'posted'
+     AND je.description = ('Customer invoice ' || ci.invoice_number)
+    WHERE ci.status = 'cancelled' AND ci.gl_journal_entry_id IS NULL
+    ORDER BY ci.company_id, ci.invoice_number
+  `) as Row[];
+}
+
 /** Resolve the reversed_by user id: --user override, else the first users row. */
 async function resolveReversingUser(): Promise<string> {
   if (userOverride) return userOverride;
@@ -139,8 +187,9 @@ async function resolveReversingUser(): Promise<string> {
 (async () => {
   try {
     const rows = await findOrphanedJournals();
+    const candidates = await findNullLinkOrphanCandidates();
 
-    if (rows.length === 0) {
+    if (rows.length === 0 && candidates.length === 0) {
       console.log('No cancelled invoices with still-posted journals found. Nothing to do.');
       process.exit(0);
     }
@@ -154,7 +203,7 @@ async function resolveReversingUser(): Promise<string> {
       byCompany.set(cid, list);
     }
 
-    console.log(`Found ${rows.length} orphaned journal(s) across ${byCompany.size} company(ies):\n`);
+    console.log(`[Linked] ${rows.length} orphaned journal(s) across ${byCompany.size} company(ies) — reversible:\n`);
     for (const [cid, list] of byCompany) {
       const total = list.reduce((s, r) => s + Number(r.total_amount ?? 0), 0);
       console.log(`  Company ${cid} — ${list.length} invoice(s), overstated by R${total.toFixed(2)}:`);
@@ -166,8 +215,35 @@ async function resolveReversingUser(): Promise<string> {
       }
     }
 
+    // Report-only fallback: NULL-link cancelled invoices with a description-matched
+    // posted journal. NEVER auto-reversed — the operator must verify and act.
+    if (candidates.length > 0) {
+      console.log(
+        `\n[NULL-link candidates] ${candidates.length} cancelled invoice(s) have NO gl_journal_entry_id ` +
+          'but a description-matched posted auto_invoice journal. REVIEW MANUALLY — NOT auto-reversed:',
+      );
+      for (const c of candidates) {
+        console.log(
+          `    company ${String(c.company_id)}  ${String(c.invoice_number)}  ` +
+            `candidate JE ${String(c.entry_number)} (${String(c.je_id)})  R${Number(c.total_amount ?? 0).toFixed(2)}`,
+        );
+      }
+      console.log(
+        '    -> These are matched by description, not the FK link. Confirm each is the correct journal, then\n' +
+          '       either backfill customer_invoices.gl_journal_entry_id and re-run, or reverse manually.',
+      );
+    }
+
     if (!apply) {
-      console.log('\nDRY-RUN — nothing was changed. Re-run with --apply to reverse these journals.');
+      console.log(
+        `\nDRY-RUN — nothing was changed. Re-run with --apply to reverse the ${rows.length} linked journal(s)` +
+          `${candidates.length > 0 ? ' (NULL-link candidates are never auto-reversed)' : ''}.`,
+      );
+      process.exit(0);
+    }
+
+    if (rows.length === 0) {
+      console.log('\nNo linked journals to reverse. NULL-link candidates (if any) require manual review.');
       process.exit(0);
     }
 
