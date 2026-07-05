@@ -15,10 +15,10 @@ States: `todo` · `in-progress` · `pr-open` · `merged` · `deployed` · `block
 
 | Task | State | Branch | PR | Deployed | Evidence |
 |------|-------|--------|----|----------|----------|
-| P0.1 Baseline snapshot | pr-open | test/golden-paths-baseline | — | — | docs/audits/2026-07-05-baseline.md; prod integrity 13/13, dev 11/13 (2 dev-data artifacts); 5 new findings N1–N5 recorded |
-| P0.2 Golden-paths E2E suite (a–k) | pr-open | test/golden-paths-baseline | — | — | tests/e2e/golden-paths/ — 11 specs, HTTP-only + one UI spec, suite green on dev Demo (11/11, expected-fails counted as pass) |
-| P0.3 Expected-fail encoding (a,c,d,e,j) | pr-open | test/golden-paths-baseline | — | — | test.fail() with audit finding refs C1/H1/H2/H3/H5 |
-| P0.4 test:e2e:golden script + advisory CI | pr-open | test/golden-paths-baseline | — | — | package.json script + .github/workflows/ci.yml golden-paths job (continue-on-error) |
+| P0.1 Baseline snapshot | **merged** | test/golden-paths-baseline | #196 | — | docs/audits/2026-07-05-baseline.md; prod integrity 13/13, dev 11/13 (2 dev-data artifacts); 5 new findings N1–N5 recorded |
+| P0.2 Golden-paths E2E suite (a–k) | **merged** | test/golden-paths-baseline | #196 | — | tests/e2e/golden-paths/ — 11 specs, HTTP-only + one UI spec, suite green on dev Demo (11/11, expected-fails counted as pass) |
+| P0.3 Expected-fail encoding (a,c,d,e,j) | **merged** | test/golden-paths-baseline | #196 | — | test.fail() with audit finding refs C1/H1/H2/H3/H5 |
+| P0.4 test:e2e:golden script + advisory CI | **merged** | test/golden-paths-baseline | #196 | — | package.json script + .github/workflows/ci.yml golden-paths job (continue-on-error) |
 
 ## Phase 1 — The broken five
 
