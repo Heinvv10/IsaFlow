@@ -57,7 +57,7 @@ export default function StatementRunPage() {
   }, [asAtDate]);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   function toggleAll() {
@@ -143,7 +143,12 @@ export default function StatementRunPage() {
                     const confirmed = confirm(
                       `Send statements to ${emailCount} customer${emailCount !== 1 ? 's' : ''}? This cannot be undone.`
                     );
-                    if (confirmed) sendEmails(selected);
+                    if (confirmed) {
+                      sendEmails(selected).catch((error) => {
+                        log.error('Failed to send statements', { data: error }, 'StatementRun');
+                        setError('Failed to generate statements');
+                      });
+                    }
                   }}
                   disabled={selected.size === 0 || isSending || isGenerating}
                   title={

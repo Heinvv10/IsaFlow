@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { History, Loader2 } from 'lucide-react';
 
 interface HistoryEntry {
@@ -41,11 +42,13 @@ export function EmployeeHistoryCard({ employeeId }: Props) {
         const json = await res.json();
         setEntries(((json.data ?? json) as HistoryEntry[]) ?? []);
       }
+    } catch (err) {
+      log.error('Failed to load employee history', { error: err }, 'payroll-ui');
     } finally {
       setLoading(false);
     }
   }, [employeeId]);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   return (
     <div className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-5">

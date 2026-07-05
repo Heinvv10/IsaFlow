@@ -46,7 +46,7 @@ export default function YearEndPage() {
     }
   }, []);
 
-  useEffect(() => { loadYears(); }, [loadYears]);
+  useEffect(() => { void loadYears(); }, [loadYears]);
 
   const processYearEnd = async (yearLabel: string) => {
     setIsProcessing(true);
@@ -60,7 +60,7 @@ export default function YearEndPage() {
       const json = await res.json();
       if (res.ok) {
         setMessage({ type: 'success', text: `Year ${yearLabel} closed. Closing journal created.` });
-        loadYears();
+        void loadYears();
       } else {
         setMessage({ type: 'error', text: json.message || 'Year-end processing failed' });
       }

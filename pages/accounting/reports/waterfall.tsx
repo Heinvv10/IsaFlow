@@ -7,6 +7,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, BarChart3, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { WaterfallChart } from '@/components/shared/WaterfallChart';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 
@@ -31,7 +32,12 @@ export default function WaterfallPage() {
     finally { setLoading(false); }
   }, [tab]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => {
+    loadData().catch((error) => {
+      setLoading(false);
+      log.error('Failed to load waterfall data', { error }, 'WaterfallPage');
+    });
+  }, [loadData]);
 
   return (
     <AppLayout>

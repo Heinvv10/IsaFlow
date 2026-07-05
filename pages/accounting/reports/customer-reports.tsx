@@ -48,7 +48,7 @@ export default function CustomerReportsPage() {
     finally { setLoading(false); }
   }, [periodStart, periodEnd]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   function handleExport() {
     const params = new URLSearchParams();

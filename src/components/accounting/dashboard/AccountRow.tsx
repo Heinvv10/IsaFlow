@@ -112,7 +112,7 @@ export function AccountRow({
                   type="text"
                   value={editCode}
                   onChange={e => setEditCode(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') handleSaveCode(); if (e.key === 'Escape') handleCancelCode(); }}
+                  onKeyDown={e => { if (e.key === 'Enter') void handleSaveCode(); if (e.key === 'Escape') handleCancelCode(); }}
                   className="ff-input w-24 text-sm font-mono"
                   autoFocus
                 />

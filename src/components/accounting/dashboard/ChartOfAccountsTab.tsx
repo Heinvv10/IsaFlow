@@ -64,7 +64,7 @@ export function ChartOfAccountsTab() {
   const [suggestedCode, setSuggestedCode] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
 
-  useEffect(() => { loadAccounts(); }, [viewMode, showInactive]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void loadAccounts(); }, [viewMode, showInactive]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!showAddForm) return;
@@ -72,7 +72,7 @@ export function ChartOfAccountsTab() {
     if (addForm.accountCode && addForm.accountCode !== suggestedCode) return;
 
     let cancelled = false;
-    (async () => {
+    void (async () => {
       try {
         const qs = new URLSearchParams({ accountType: addForm.accountType });
         if (addForm.accountSubtype) qs.set('accountSubtype', addForm.accountSubtype);
@@ -84,8 +84,9 @@ export function ChartOfAccountsTab() {
           setAddForm(f => ({ ...f, accountCode: String(code) }));
           setSuggestedCode(String(code));
         }
-      } catch {
-        // Suggestion is a convenience — silent on failure.
+      } catch (err) {
+        // Suggestion is a convenience — log only, never blocks the form.
+        log.error('Failed to load suggested account code', { error: err }, 'accounting-ui');
       }
     })();
     return () => { cancelled = true; };

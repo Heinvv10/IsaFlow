@@ -42,7 +42,7 @@ export default function NewReconciliationPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error?.message || 'Failed to start reconciliation');
       const data = json.data || json;
-      router.push(`/accounting/bank-reconciliation/${data.id}`);
+      void router.push(`/accounting/bank-reconciliation/${data.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start reconciliation');
     } finally {

@@ -25,11 +25,13 @@ export function OccupationalLevelCard({ employeeId, currentLevelId, onChange }: 
         const json = await res.json();
         setLevels(((json.data ?? json) as Level[]) ?? []);
       }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load occupational levels');
     } finally {
       setLoading(false);
     }
   }, []);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
   useEffect(() => { setSelected(currentLevelId ?? ''); }, [currentLevelId]);
 
   async function save(): Promise<void> {

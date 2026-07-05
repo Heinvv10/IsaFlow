@@ -63,7 +63,7 @@ export default function AdminAnnouncementsPage() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const handleSave = async (form: AnnouncementFormState) => {
     setSaving(true);

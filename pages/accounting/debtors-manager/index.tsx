@@ -137,7 +137,7 @@ export default function DebtorsManagerPage() {
     }
   }, []);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { void loadData(); }, [loadData]);
 
   const filtered = summary.filter(d =>
     d.clientName.toLowerCase().includes(search.toLowerCase())

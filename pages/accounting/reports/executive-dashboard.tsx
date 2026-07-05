@@ -88,7 +88,7 @@ export default function ExecutiveDashboardPage() {
     finally { setLoading(false); }
   }, [from, to]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { void loadData(); }, [loadData]);
 
   const cashChartData = summary ? [
     { name: 'Cash', value: summary.cashPosition.cashBalance },

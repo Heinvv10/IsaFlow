@@ -45,7 +45,7 @@ export default function SupplierStatementsPage() {
     }
   }, [asAtDate]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   function handleExportAll() {
     if (suppliers.length === 0) return;

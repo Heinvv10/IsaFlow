@@ -86,7 +86,7 @@ export default function CustomerStatementsPage() {
     }
   }, [asAtDate]);
 
-  useEffect(() => { loadStatements(); }, [loadStatements]);
+  useEffect(() => { void loadStatements(); }, [loadStatements]);
 
   return (
     <AppLayout>

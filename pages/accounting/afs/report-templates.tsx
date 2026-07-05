@@ -71,7 +71,7 @@ export default function ReportTemplatesPage() {
   }, [reportType, entityType, framework]);
 
   useEffect(() => {
-    fetchTemplates();
+    void fetchTemplates();
   }, [fetchTemplates]);
 
   const copyToClipboard = async (text: string, key: string) => {

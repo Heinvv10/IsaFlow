@@ -49,7 +49,7 @@ export default function CustomerAllocationsPage() {
     }
   }, []);
 
-  useEffect(() => { loadPayments(); }, [loadPayments]);
+  useEffect(() => { void loadPayments(); }, [loadPayments]);
 
   const selectPayment = async (p: Payment) => {
     setSelected(p); setAllocs({}); setMsg(''); setLoadingInv(true);

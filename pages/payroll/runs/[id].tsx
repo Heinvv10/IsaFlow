@@ -87,7 +87,7 @@ export default function PayrollRunDetailPage() {
     }
   }, [runId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const calculate = async () => {
     if (!runId) return;

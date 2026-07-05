@@ -96,7 +96,7 @@ export default function CostCentresPage() {
     }
   }
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   async function create(): Promise<void> {
     if (!newCode.trim() || !newName.trim()) {

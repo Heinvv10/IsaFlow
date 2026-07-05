@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Layers, Plus, Check, Zap, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 
 interface Batch {
   id: string; batchNumber: string; batchDate: string; totalAmount: number;
@@ -35,7 +36,12 @@ export default function BatchPaymentsPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load().catch((err) => {
+      setLoading(false);
+      log.error('Failed to load batch payments', { error: err }, 'batch-payments-page');
+    });
+  }, [load]);
 
   const doAction = async (action: string, id: string) => {
     setBusy(id);

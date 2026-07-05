@@ -96,7 +96,7 @@ export function ScanAndFillButton({ onExtracted, className = '', label = 'Scan &
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0];
-          if (file) handleFile(file);
+          if (file) void handleFile(file);
         }}
       />
 

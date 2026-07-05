@@ -56,7 +56,7 @@ export default function ParallelRunPage() {
     }
   }, []);
 
-  useEffect(() => { loadImports(); }, [loadImports]);
+  useEffect(() => { void loadImports(); }, [loadImports]);
 
   const loadComparison = useCallback(async (importId: string) => {
     setIsComparing(true);
@@ -75,13 +75,13 @@ export default function ParallelRunPage() {
   }, []);
 
   useEffect(() => {
-    if (selectedId) loadComparison(selectedId);
+    if (selectedId) void loadComparison(selectedId);
   }, [selectedId, loadComparison]);
 
   const handleImported = (importId: string, errors: Array<{ line: number; message: string }>) => {
     setRowWarnings(errors);
     setSelectedId(importId);
-    loadImports();
+    void loadImports();
   };
 
   const handleDelete = async (importId: string) => {
@@ -91,7 +91,7 @@ export default function ParallelRunPage() {
     const res = await apiFetch(`/api/payroll/parallel-run/imports/${importId}`, { method: 'DELETE' });
     if (res.ok) {
       if (selectedId === importId) { setSelectedId(null); setReport(null); }
-      loadImports();
+      void loadImports();
     } else {
       setError('Failed to delete import');
     }
@@ -182,14 +182,14 @@ export default function ParallelRunPage() {
                   <td className="px-4 py-2 text-right tabular-nums">{imp.payslipCount}</td>
                   <td className="px-4 py-2 text-right">
                     <button
-                      onClick={(e) => { e.stopPropagation(); handleExport(imp.id); }}
+                      onClick={(e) => { e.stopPropagation(); handleExport(imp.id).catch((err) => setError(err instanceof Error ? err.message : 'Export failed')); }}
                       title="Export comparison CSV"
                       className="p-1.5 rounded-lg text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-primary)]"
                     >
                       <Download className="h-4 w-4" />
                     </button>
                     <button
-                      onClick={(e) => { e.stopPropagation(); handleDelete(imp.id); }}
+                      onClick={(e) => { e.stopPropagation(); handleDelete(imp.id).catch((err) => setError(err instanceof Error ? err.message : 'Failed to delete import')); }}
                       title="Delete import"
                       className="p-1.5 rounded-lg text-[var(--ff-text-tertiary)] hover:text-red-400 hover:bg-[var(--ff-bg-primary)]"
                     >

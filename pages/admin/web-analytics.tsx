@@ -121,15 +121,20 @@ export default function AdminWebAnalytics() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    (async () => {
+    void (async () => {
       try {
         const res = await apiFetch('/api/admin/analytics/web/websites');
         const json = await res.json();
         const ws: Website[] = json?.data?.websites ?? [];
         setWebsites(ws);
+        // No websites (or a failed load, below) means loadSummary's
+        // `if (!websiteId) return` guard never fires — clear `loading`
+        // here or the initial spinner runs forever.
         if (ws.length > 0) setWebsiteId(prev => prev || ws[0]!.id);
+        else setLoading(false);
       } catch (_e) {
         setError('Failed to load websites');
+        setLoading(false);
       }
     })();
   }, []);

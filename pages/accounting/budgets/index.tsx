@@ -36,7 +36,12 @@ export default function BudgetManagementPage() {
     setLoading(false);
   }, [fiscalYear]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load().catch((err) => {
+      setLoading(false);
+      setError(err instanceof Error ? err.message : 'Failed to load budgets');
+    });
+  }, [load]);
 
   useEffect(() => {
     apiFetch('/api/accounting/chart-of-accounts', { credentials: 'include' }).then(r => r.json()).then(res => {
@@ -53,6 +58,8 @@ export default function BudgetManagementPage() {
           accountName: String(a.accountName || a.account_name || ''),
         }))
       );
+    }).catch(() => {
+      setError('Failed to load GL accounts');
     });
   }, []);
 

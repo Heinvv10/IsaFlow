@@ -44,7 +44,9 @@ export default function RecurringJournalsPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load().catch(err => { setLoading(false); setError(err instanceof Error ? err.message : 'Failed to load recurring journals'); });
+  }, [load]);
   useEffect(() => {
     apiFetch('/api/accounting/chart-of-accounts', { credentials: 'include' }).then(r => r.json()).then(res => {
       const d = res.data || res;
@@ -53,7 +55,7 @@ export default function RecurringJournalsPage() {
         id: String(a.id), accountCode: String(a.accountCode || a.account_code || ''),
         accountName: String(a.accountName || a.account_name || ''),
       })));
-    });
+    }).catch(err => setError(err instanceof Error ? err.message : 'Failed to load accounts'));
   }, []);
 
   const totalDebit = formLines.reduce((s, l) => s + (l.debit || 0), 0);

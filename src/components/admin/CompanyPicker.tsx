@@ -13,6 +13,7 @@ import {
 } from 'react';
 import { Search, X, CheckCircle2, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 
 interface CompanyOption {
   id: string;
@@ -73,8 +74,9 @@ export function CompanyPicker({ value, onChange }: Props) {
       setResults(json.data?.items ?? []);
       setOpen(true);
       setActiveIdx(-1);
-    } catch {
+    } catch (err) {
       setResults([]);
+      log.error('Company search failed', { error: err }, 'admin-ui');
     } finally {
       setLoading(false);
     }
@@ -83,7 +85,7 @@ export function CompanyPicker({ value, onChange }: Props) {
   const handleQueryChange = (q: string) => {
     setQuery(q);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => { search(q); }, 300);
+    debounceRef.current = setTimeout(() => { void search(q); }, 300);
   };
 
   const select = useCallback((company: CompanyOption) => {

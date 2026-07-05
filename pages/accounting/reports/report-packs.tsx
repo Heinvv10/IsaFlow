@@ -125,7 +125,7 @@ export default function ReportPacksPage() {
     finally { setLoading(false); }
   }, [selectedType, from, to]);
 
-  useEffect(() => { loadPack(); }, [loadPack]);
+  useEffect(() => { void loadPack(); }, [loadPack]);
 
   const downloadPdf = async () => {
     setPdfLoading(true);

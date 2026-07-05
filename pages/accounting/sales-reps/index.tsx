@@ -68,7 +68,7 @@ export default function SalesRepsPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { loadReps(); }, [loadReps]);
+  useEffect(() => { void loadReps(); }, [loadReps]);
 
   const openAdd = () => {
     setEditRep(null);

@@ -71,7 +71,7 @@ export default function CashMovementPage() {
     }
   }, [from, to]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { void loadData(); }, [loadData]);
 
   const netColor = (n: number) =>
     n >= 0 ? 'text-teal-400' : 'text-red-400';

@@ -58,8 +58,13 @@ export default function ValidatePage() {
 
   useEffect(() => {
     loadSession().then(sid => {
-      if (sid) runValidation(sid);
+      if (sid) void runValidation(sid);
       else setIsLoading(false);
+    }).catch(() => {
+      // loadSession/runValidation self-handle today; this is the defensive
+      // backstop so a future edit can never leave the spinner stuck.
+      setError('Failed to load session');
+      setIsLoading(false);
     });
   }, [loadSession, runValidation]);
 

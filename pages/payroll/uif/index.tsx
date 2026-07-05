@@ -142,7 +142,7 @@ export default function UifDeclarationPage() {
     }
   }, [yearFilter]);
 
-  useEffect(() => { loadDeclarations(); }, [loadDeclarations]);
+  useEffect(() => { void loadDeclarations(); }, [loadDeclarations]);
 
   async function handleMarkSubmitted(id: string) {
     setSubmittingId(id);

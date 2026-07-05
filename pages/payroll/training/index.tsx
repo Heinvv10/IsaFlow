@@ -85,7 +85,11 @@ export default function TrainingPage() {
       setLoading(false);
     }
   }, [year]);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load().catch((err) => {
+      setError(err instanceof Error ? err.message : 'Failed to load training events');
+    });
+  }, [load]);
 
   async function handleCreate(): Promise<void> {
     setSaving(true);

@@ -74,7 +74,7 @@ export default function CustomerPaymentDetailPage() {
     }
   }, [paymentId]);
 
-  useEffect(() => { loadPayment(); }, [loadPayment]);
+  useEffect(() => { void loadPayment(); }, [loadPayment]);
 
   async function handleAction(action: 'confirm' | 'cancel') {
     if (!payment) return;
@@ -93,7 +93,7 @@ export default function CustomerPaymentDetailPage() {
         const json = await res.json();
         if (!res.ok) throw new Error(json?.error?.message || 'Cancel failed');
         notify.success('Payment cancelled');
-        loadPayment();
+        void loadPayment();
       } catch (err) {
         notify.error(err instanceof Error ? err.message : 'Failed to cancel');
       } finally {
@@ -111,7 +111,7 @@ export default function CustomerPaymentDetailPage() {
         const json = await res.json();
         if (!res.ok) throw new Error(json?.error?.message || 'Confirm failed');
         notify.success('Payment confirmed and GL posted');
-        loadPayment();
+        void loadPayment();
       } catch (err) {
         notify.error(err instanceof Error ? err.message : 'Failed to confirm');
       } finally {

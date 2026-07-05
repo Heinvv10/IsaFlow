@@ -75,7 +75,11 @@ export default function BulkUpdatePage() {
       setLoading(false);
     }
   }, []);
-  useEffect(() => { loadCentres(); }, [loadCentres]);
+  useEffect(() => {
+    loadCentres().catch((err) => {
+      setError(err instanceof Error ? err.message : 'Failed to load cost centres');
+    });
+  }, [loadCentres]);
 
   function buildPayload(): { filter: Record<string, unknown>; update: Record<string, unknown> } {
     const filter: Record<string, unknown> = {};

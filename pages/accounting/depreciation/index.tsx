@@ -8,6 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { TrendingDown, Play, Loader2 } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { apiFetch } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 
 interface DepResult {
   assetNumber: string;
@@ -59,14 +60,15 @@ export default function DepreciationPage() {
             Number(a.useful_life_years) > 0
         )
       );
-    } catch {
+    } catch (err) {
+      log.error('Failed to load depreciable assets', { error: err }, 'depreciation-page');
       setAssets([]);
     }
     setLoading(false);
   }, []);
 
   useEffect(() => {
-    loadAssets();
+    void loadAssets();
   }, [loadAssets]);
 
   const categories = [...new Set(assets.map(a => a.category || 'Uncategorized'))].sort();

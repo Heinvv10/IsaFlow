@@ -57,7 +57,7 @@ export default function PayComponentsPage() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const create = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();

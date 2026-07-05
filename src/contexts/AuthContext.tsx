@@ -9,6 +9,7 @@ import {
 } from 'react';
 import type { AuthRole } from '@/lib/auth/types';
 import { clearTenantClientState } from '@/lib/auth/clearTenantClientState';
+import { log } from '@/lib/logger';
 
 /**
  * Authenticated user shape returned from /api/auth/me
@@ -114,15 +115,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else {
         setUser(null);
       }
-    } catch {
+    } catch (err) {
       setUser(null);
+      log.error('Failed to check auth session', { error: err }, 'auth-context');
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    checkAuth();
+    void checkAuth();
 
     // Re-fetch user when tab regains focus (picks up RBAC changes)
     const onFocus = () => checkAuth();

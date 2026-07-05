@@ -65,7 +65,12 @@ export default function LoanPeriodClosePage() {
     setLoading(false);
   }, [month, year]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load().catch((err) => {
+      setLoading(false);
+      setFlash({ type: 'error', msg: err instanceof Error ? err.message : 'Failed to load period data' });
+    });
+  }, [load]);
 
   async function postLoans(loanIds: string[]): Promise<PostResult> {
     const res = await apiFetch('/api/accounting/loans/period-close', {

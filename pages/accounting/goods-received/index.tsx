@@ -47,7 +47,7 @@ export default function GoodsReceivedPage() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const filtered = search
     ? grns.filter(

@@ -8,6 +8,7 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { ArrowLeft, TrendingUp, Loader2, AlertTriangle } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import type { TrendAnalysis as TrendData } from '@/modules/accounting/services/reports/trendAnalysisService';
 
 const LineChart = dynamic(() => import('recharts').then(m => m.LineChart), { ssr: false });
@@ -35,11 +36,11 @@ export default function TrendAnalysisPage() {
       const res = await apiFetch(`/api/accounting/reports-trend-analysis?metric=${metric}&months=${months}`);
       const json = await res.json();
       if (json.data?.analysis) setAnalysis(json.data.analysis);
-    } catch { /* empty */ }
+    } catch (err) { log.error('Failed to load trend analysis', { error: err instanceof Error ? err.message : String(err) }, 'TrendAnalysisPage'); }
     finally { setLoading(false); }
   }, [metric, months]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { void loadData(); }, [loadData]);
 
   // Build chart data with MA overlay
   const chartData = analysis?.dataPoints.map((dp, i) => ({

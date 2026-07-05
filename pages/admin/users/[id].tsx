@@ -93,7 +93,7 @@ export default function AdminUserDetailPage() {
   useEffect(() => { void load(); }, [load]);
 
   useEffect(() => {
-    (async () => {
+    void (async () => {
       try {
         const res  = await apiFetch('/api/admin/companies?limit=100');
         const json = await res.json();

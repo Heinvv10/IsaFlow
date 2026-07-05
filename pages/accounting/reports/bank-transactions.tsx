@@ -91,7 +91,7 @@ export default function BankTransactionsPage() {
     finally { setLoading(false); }
   }, [periodStart, periodEnd, accountCode]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   function handleExport() {
     const params = new URLSearchParams();

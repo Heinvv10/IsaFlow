@@ -54,7 +54,7 @@ export default function SageMigrationPage() {
     }
   }, []);
 
-  useEffect(() => { loadStatus(); }, [loadStatus]);
+  useEffect(() => { void loadStatus(); }, [loadStatus]);
 
   const runAction = async (action: string, extra?: Record<string, string>) => {
     setActionLoading(action);

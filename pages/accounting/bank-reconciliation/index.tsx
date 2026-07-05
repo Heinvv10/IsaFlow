@@ -46,7 +46,7 @@ export default function BankReconciliationListPage() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const grouped = useMemo(() => {
     const primaries: BankReconciliation[] = [];

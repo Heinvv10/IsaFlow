@@ -62,7 +62,7 @@ export default function PisScorePage() {
     }
   }, []);
 
-  useEffect(() => { fetchPis(); }, [fetchPis]);
+  useEffect(() => { void fetchPis(); }, [fetchPis]);
 
   const saveInputs = async () => {
     setSaving(true);

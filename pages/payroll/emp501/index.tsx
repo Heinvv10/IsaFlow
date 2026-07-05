@@ -64,7 +64,7 @@ export default function Emp501Page() {
     }
   }, [taxYear]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const handleExport = async () => {
     setIsExporting(true);

@@ -68,7 +68,7 @@ export default function NewSupplierReturnPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error?.message ?? 'Failed to create return');
       notify.success('Supplier return created');
-      router.push('/accounting/supplier-returns');
+      void router.push('/accounting/supplier-returns');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create return');
     } finally {

@@ -32,7 +32,7 @@ export default function ItemCategoriesPage() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const save = async () => {
     if (!form.name.trim()) return;

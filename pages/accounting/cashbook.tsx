@@ -83,7 +83,7 @@ export default function CashbookPage() {
     }
   }, [selectedBank, from, to]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   let runningBalance = 0;
   const rows = transactions

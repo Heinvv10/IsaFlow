@@ -78,7 +78,10 @@ export default function IntercompanyReconciliationPage() {
         if (list.length > 0 && !selectedGroupId && list[0]) setSelectedGroupId(list[0].id);
       }
       setLoading(false);
-    })();
+    })().catch(() => {
+      setLoading(false);
+      setMsg({ type: 'error', text: 'Failed to load company groups' });
+    });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadData = useCallback(async () => {
@@ -109,7 +112,12 @@ export default function IntercompanyReconciliationPage() {
     setLoadingTx(false);
   }, [selectedGroupId, periodStart, periodEnd, activeTab]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => {
+    loadData().catch(() => {
+      setLoadingTx(false);
+      setMsg({ type: 'error', text: 'Failed to load intercompany data' });
+    });
+  }, [loadData]);
 
   const handleCreate = async () => {
     if (!form.sourceCompanyId || !form.targetCompanyId || !form.amount) return;

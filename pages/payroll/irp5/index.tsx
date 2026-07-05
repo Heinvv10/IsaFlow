@@ -106,7 +106,7 @@ export default function Irp5Page() {
     }
   }, [taxYear]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const handleExport = () => {
     if (!summary) return;

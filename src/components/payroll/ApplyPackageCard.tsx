@@ -30,11 +30,13 @@ export function ApplyPackageCard({ employeeId }: Props) {
         const json = await res.json();
         setPackages(((json.data ?? json) as Pkg[]) ?? []);
       }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load packages');
     } finally {
       setLoading(false);
     }
   }, []);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   async function apply(): Promise<void> {
     if (!selected) return;

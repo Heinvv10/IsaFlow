@@ -47,7 +47,7 @@ export default function BankAccountsPage() {
     }
   }, []);
 
-  useEffect(() => { loadAccounts(); }, [loadAccounts]);
+  useEffect(() => { void loadAccounts(); }, [loadAccounts]);
 
   const openAddModal = useCallback(async () => {
     setForm(EMPTY_ADD);
@@ -102,7 +102,7 @@ export default function BankAccountsPage() {
       notify.success('Bank account created');
       setShowAddModal(false);
       setForm(EMPTY_ADD);
-      loadAccounts();
+      void loadAccounts();
     } catch {
       notify.error('Failed to create bank account');
     } finally {
@@ -162,7 +162,7 @@ export default function BankAccountsPage() {
       }
       notify.success('Bank account updated');
       setEditingAccount(null);
-      loadAccounts();
+      void loadAccounts();
     } catch {
       notify.error('Failed to update bank account');
     } finally {

@@ -56,7 +56,11 @@ export default function WspAtrPage() {
       setLoading(false);
     }
   }, [year]);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load().catch((err) => {
+      setError(err instanceof Error ? err.message : 'Failed to load WSP/ATR report');
+    });
+  }, [load]);
 
   return (
     <AppLayout>

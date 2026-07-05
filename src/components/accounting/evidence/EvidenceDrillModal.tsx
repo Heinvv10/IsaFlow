@@ -145,7 +145,7 @@ export function EvidenceDrillModal({ accountId, accountName, periodStart, period
       .finally(() => setLoading(false));
   }, [accountId, periodStart, periodEnd]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={e => e.target === e.currentTarget && onClose()}>

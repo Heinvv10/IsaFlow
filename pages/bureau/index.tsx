@@ -81,7 +81,7 @@ export default function BureauDashboardPage() {
   // Redirect direct users away — they have no bureau memberships.
   useEffect(() => {
     if (data && data.bureaus.length === 0 && !loading) {
-      router.replace('/accounting');
+      void router.replace('/accounting');
     }
   }, [data, loading, router]);
 

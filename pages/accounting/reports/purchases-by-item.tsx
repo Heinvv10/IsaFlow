@@ -34,7 +34,7 @@ export default function PurchasesByItemReport() {
     }
   }, [from, to]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const totals = rows.reduce((a, r) => ({
     qtyOrdered: a.qtyOrdered + r.qtyOrdered, totalCost: a.totalCost + r.totalCost,

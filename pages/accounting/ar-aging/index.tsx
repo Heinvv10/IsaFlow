@@ -34,7 +34,7 @@ export default function ARAgingPage() {
     }
   }, [asAtDate]);
 
-  useEffect(() => { loadAging(); }, [loadAging]);
+  useEffect(() => { void loadAging(); }, [loadAging]);
 
   function handleExport() {
     const params = new URLSearchParams();

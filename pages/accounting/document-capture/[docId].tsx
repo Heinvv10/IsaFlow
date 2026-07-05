@@ -99,7 +99,7 @@ export default function DocumentCaptureDetailPage() {
     }
   }, [docId]);
 
-  useEffect(() => { loadDocument(); }, [loadDocument]);
+  useEffect(() => { void loadDocument(); }, [loadDocument]);
 
   async function handleConfirm() {
     if (!doc) return;
@@ -125,7 +125,7 @@ export default function DocumentCaptureDetailPage() {
       const json = await res.json();
       if (!json.success) throw new Error(json.error?.message || 'Confirm failed');
       notify.success('Document confirmed');
-      loadDocument();
+      void loadDocument();
     } catch (err) {
       notify.error(err instanceof Error ? err.message : 'Confirm failed');
     } finally {
@@ -149,7 +149,7 @@ export default function DocumentCaptureDetailPage() {
       const json = await res.json();
       if (!json.success) throw new Error(json.error?.message || 'Reject failed');
       notify.success('Document rejected');
-      loadDocument();
+      void loadDocument();
     } catch (err) {
       notify.error(err instanceof Error ? err.message : 'Reject failed');
     } finally {
@@ -177,7 +177,7 @@ export default function DocumentCaptureDetailPage() {
       if (!json.success) throw new Error(json.error?.message || 'Match failed');
       notify.success('Matched to bank transaction');
       setBankTxId('');
-      loadDocument();
+      void loadDocument();
     } catch (err) {
       notify.error(err instanceof Error ? err.message : 'Match failed');
     } finally {

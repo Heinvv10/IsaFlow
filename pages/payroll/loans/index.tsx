@@ -76,7 +76,7 @@ export default function LoansListPage() {
     }
   }
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   return (
     <AppLayout>

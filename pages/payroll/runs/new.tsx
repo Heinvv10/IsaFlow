@@ -41,7 +41,7 @@ export default function NewPayrollRunPage() {
       }
       const json = await res.json();
       const created = json.data ?? json;
-      router.push(`/payroll/runs/${created.id}`);
+      void router.push(`/payroll/runs/${created.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Create failed');
     } finally {

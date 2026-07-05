@@ -61,7 +61,7 @@ export default function NewLeaveRequestPage() {
     }
   }, []);
 
-  useEffect(() => { loadOptions(); }, [loadOptions]);
+  useEffect(() => { void loadOptions(); }, [loadOptions]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

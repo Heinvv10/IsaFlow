@@ -85,7 +85,7 @@ export default function MigrationHubPage() {
     }
   }, []);
 
-  useEffect(() => { loadSession(); }, [loadSession]);
+  useEffect(() => { void loadSession(); }, [loadSession]);
 
   const selectSource = async (sourceSystem: string) => {
     setSelecting(true);

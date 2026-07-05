@@ -94,7 +94,7 @@ export default function NewSupplierPaymentPage() {
       if (!res.ok) { const err = await res.json(); throw new Error(err.error?.message || 'Failed to create payment'); }
       const json = await res.json();
       const payment = json.data || json;
-      router.push(`/accounting/supplier-payments/${payment.id}`);
+      void router.push(`/accounting/supplier-payments/${payment.id}`);
     } catch (err) { setError(err instanceof Error ? err.message : 'Failed to create payment'); }
     finally { setIsSubmitting(false); }
   };

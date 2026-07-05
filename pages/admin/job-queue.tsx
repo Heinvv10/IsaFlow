@@ -9,6 +9,7 @@ import { AdminLayout } from '@/components/admin/AdminLayout';
 import { JobBulkActionsBar } from '@/components/admin/job-queue/JobBulkActionsBar';
 import { JobTable } from '@/components/admin/job-queue/JobTable';
 import { apiFetch } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { Loader2, RefreshCw, Zap, Trash2 } from 'lucide-react';
 import type { BackgroundJob } from '@/modules/accounting/services/core/jobQueueService';
 
@@ -49,7 +50,8 @@ export default function JobQueuePage() {
       setTotal(json.data?.total ?? 0);
       setLastRefresh(new Date());
       setSelectedIds(new Set());
-    } catch {
+    } catch (err) {
+      log.error('Failed to load job queue', { error: err }, 'admin-ui');
       setJobs([]);
     } finally {
       setLoading(false);
@@ -57,7 +59,7 @@ export default function JobQueuePage() {
   }, [activeTab]);
 
   useEffect(() => {
-    load();
+    void load();
     intervalRef.current = setInterval(load, 10_000);
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, [load]);

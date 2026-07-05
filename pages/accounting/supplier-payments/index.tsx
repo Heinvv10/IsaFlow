@@ -44,7 +44,7 @@ export default function SupplierPaymentsPage() {
     }
   }, [tab]);
 
-  useEffect(() => { loadPayments(); }, [loadPayments]);
+  useEffect(() => { void loadPayments(); }, [loadPayments]);
 
   return (
     <AppLayout>

@@ -99,7 +99,7 @@ export default function SARSDashboard() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   // Filter upcoming events (next 90 days + overdue)
   const upcomingEvents = events.filter((e) => {

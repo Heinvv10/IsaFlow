@@ -28,7 +28,7 @@ export function ReportsTab() {
   const [totals, setTotals] = useState({ debit: 0, credit: 0 });
   const [isLoading, setIsLoading] = useState(false);
 
-  useEffect(() => { loadPeriods(); }, []);
+  useEffect(() => { void loadPeriods(); }, []);
 
   const loadPeriods = async () => {
     try {
@@ -59,8 +59,8 @@ export function ReportsTab() {
   };
 
   useEffect(() => {
-    if (selectedPeriod) loadTrialBalance(selectedPeriod);
-   
+    if (selectedPeriod) void loadTrialBalance(selectedPeriod);
+
   }, [selectedPeriod]);
 
   return (

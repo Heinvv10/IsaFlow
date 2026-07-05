@@ -35,7 +35,11 @@ export default function PayPackagesPage() {
       setLoading(false);
     }
   }, []);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load().catch((err) => {
+      setError(err instanceof Error ? err.message : 'Failed to load packages');
+    });
+  }, [load]);
 
   async function handleCreate(): Promise<void> {
     setCreating(true);

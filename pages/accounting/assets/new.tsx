@@ -89,7 +89,7 @@ export default function NewAssetPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error?.message || 'Failed to create asset');
-      router.push('/accounting/assets');
+      void router.push('/accounting/assets');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed');
     } finally {

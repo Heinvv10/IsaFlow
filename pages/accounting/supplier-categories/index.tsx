@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Tags, Plus, Pencil, Trash2, Loader2, X, Check } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 
 interface Category { id: string; name: string; description: string; supplierCount: number; }
 
@@ -25,7 +26,12 @@ export default function SupplierCategoriesPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load().catch((error) => {
+      setLoading(false);
+      log.error('Failed to load supplier categories', { error }, 'SupplierCategoriesPage');
+    });
+  }, [load]);
 
   const save = async () => {
     if (!form.name.trim()) return;

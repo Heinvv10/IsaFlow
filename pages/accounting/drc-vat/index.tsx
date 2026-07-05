@@ -42,7 +42,12 @@ export default function DRCVatPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load().catch((err) => {
+      setLoading(false);
+      setError(err instanceof Error ? err.message : 'Failed to load DRC VAT data');
+    });
+  }, [load]);
 
   const applyDRC = async (invoiceId: string) => {
     setBusy(invoiceId); setError(''); setSuccess('');

@@ -32,7 +32,7 @@ export function JournalEntriesTab() {
   const { displayMode, setDisplayMode } = useDisplayMode();
 
   useEffect(() => {
-    loadEntries();
+    void loadEntries();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter]);
 

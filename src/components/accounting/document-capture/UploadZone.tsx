@@ -54,7 +54,7 @@ export function UploadZone({
     e.preventDefault();
     onDraggingChange(false);
     const file = e.dataTransfer.files[0];
-    if (file) handleUpload(file);
+    if (file) void handleUpload(file);
   }
 
   return (
@@ -76,7 +76,7 @@ export function UploadZone({
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0];
-          if (file) handleUpload(file);
+          if (file) void handleUpload(file);
         }}
       />
       {isUploading ? (

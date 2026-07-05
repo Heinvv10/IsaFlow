@@ -149,7 +149,7 @@ export default function IncomeStatementPage() {
     }
   }, [periodStart, periodEnd, costCentreId, showComparative, periodResolved]);
 
-  useEffect(() => { loadReport(); }, [loadReport]);
+  useEffect(() => { void loadReport(); }, [loadReport]);
 
   return (
     <AppLayout>

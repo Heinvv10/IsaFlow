@@ -64,7 +64,7 @@ export default function PayrollBatchesListPage() {
     }
   }, [statusFilter]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   return (
     <AppLayout>

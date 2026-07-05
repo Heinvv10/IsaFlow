@@ -109,7 +109,9 @@ export default function NewLoanPage() {
         const json = await res.json();
         setEmployees((json.data ?? json) as Employee[]);
       }
-    })();
+    })().catch((err) => {
+      setError(err instanceof Error ? err.message : 'Failed to load employees');
+    });
   }, []);
 
   const schedule = useMemo(() => {

@@ -41,7 +41,12 @@ export default function CostCentresPage() {
     setLoading(false);
   }, [activeTab]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load().catch((err) => {
+      setLoading(false);
+      setError(err instanceof Error ? err.message : 'Failed to load cost centres');
+    });
+  }, [load]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();

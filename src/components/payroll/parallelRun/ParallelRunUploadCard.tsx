@@ -103,7 +103,7 @@ export function ParallelRunUploadCard({ onImported }: Props) {
           type="file"
           accept=".csv,text/csv"
           className="hidden"
-          onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleFile(f); }}
         />
         <button
           onClick={() => fileRef.current?.click()}

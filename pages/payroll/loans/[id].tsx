@@ -83,7 +83,7 @@ export default function LoanDetailPage() {
     }
   }, [id]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   async function close(status: 'settled' | 'written_off' | 'cancelled'): Promise<void> {
     const label = status === 'settled' ? 'settle' : status === 'written_off' ? 'write off' : 'cancel';

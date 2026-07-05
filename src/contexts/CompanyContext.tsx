@@ -225,7 +225,7 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
   }, [authLoading, isAuthenticated, userRole, loadCompanyDetails]);
 
   useEffect(() => {
-    loadUserCompanies();
+    void loadUserCompanies();
   }, [loadUserCompanies]);
 
   // Cross-tenant safety: when the authenticated user identity changes inside

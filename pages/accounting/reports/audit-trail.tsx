@@ -75,7 +75,7 @@ export default function AuditTrailPage() {
     finally { setLoading(false); }
   }, [periodStart, periodEnd]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const filteredRows = rows.filter(r => {
     if (sourceFilter && r.source !== sourceFilter) return false;

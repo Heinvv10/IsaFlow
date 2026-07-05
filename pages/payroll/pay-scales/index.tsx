@@ -44,7 +44,7 @@ export default function PayScalesPage() {
       setLoading(false);
     }
   }, []);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   async function handleCreate(): Promise<void> {
     setCreating(true);

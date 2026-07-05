@@ -118,7 +118,7 @@ export default function GeneralLedgerPage() {
   }, [periodStart, periodEnd, accounts]);
 
   useEffect(() => {
-    if (accounts.length > 0) load();
+    if (accounts.length > 0) void load();
   }, [accounts, load]);
 
   const toggleExpand = (code: string) => {

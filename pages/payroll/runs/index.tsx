@@ -58,7 +58,7 @@ export default function PayrollRunsListPage() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   return (
     <AppLayout>

@@ -95,7 +95,7 @@ export default function SupplierStatementDetailPage() {
     }
   }, [supplierId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const filteredTransactions = useMemo(() => {
     let filtered = transactions;

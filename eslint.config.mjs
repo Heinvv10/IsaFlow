@@ -40,6 +40,11 @@ export default [
         ecmaVersion: 'latest',
         sourceType: 'module',
         ecmaFeatures: { jsx: true },
+        // Type-aware linting for no-floating-promises (A–Z P3.3 — the June
+        // audit's single highest-leverage guardrail: an unawaited promise in
+        // an API route or effect fails silently in production).
+        projectService: true,
+        tsconfigRootDir: __dirname,
       },
     },
     settings: {
@@ -56,6 +61,10 @@ export default [
       }],
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/no-unused-expressions': ['error', { allowTernary: true }],
+      // A–Z P3.3: unawaited promises fail silently in production (the June
+      // audit's top guardrail). `void promise` is the explicit opt-out for
+      // genuine fire-and-forget — it must be a visible, deliberate choice.
+      '@typescript-eslint/no-floating-promises': ['error', { ignoreVoid: true }],
       'no-console': 'error',
       // These hooks rules surface false positives in Next.js patterns.
       'react-hooks/set-state-in-effect': 'off',

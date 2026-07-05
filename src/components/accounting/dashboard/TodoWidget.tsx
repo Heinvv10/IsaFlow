@@ -111,7 +111,7 @@ export function TodoWidget() {
   }, []);
 
   useEffect(() => {
-    loadData();
+    void loadData();
   }, [loadData]);
 
   const isAllClear =

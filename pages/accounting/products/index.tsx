@@ -8,6 +8,7 @@ import { Box, Loader2, Plus, Search, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
 import { apiFetch } from '@/lib/apiFetch';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
+import { log } from '@/lib/logger';
 
 interface Product {
   id: string; code: string; name: string; category: string; category_name: string;
@@ -34,7 +35,7 @@ export default function ProductsListPage() {
     setLoading(false);
   }, [search, typeFilter]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load().catch(err => log.error('Failed to load products', { error: err }, 'products')); }, [load]);
 
   const totalValue = products.reduce((s, p) => s + Number(p.current_stock || 0) * Number(p.avg_cost || p.cost_price || 0), 0);
   const belowReorder = products.filter(p => p.product_type === 'inventory' && Number(p.current_stock) <= Number(p.reorder_level) && Number(p.reorder_level) > 0);

@@ -64,7 +64,7 @@ export default function BatchPaymentDetailPage() {
     }
   }, [batchId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   async function doAction(action: string) {
     if (!batch) return;
@@ -79,7 +79,7 @@ export default function BatchPaymentDetailPage() {
         const json = await res.json();
         setError(json.error || `Failed to ${action}`);
       } else {
-        load();
+        void load();
       }
     } catch {
       setError(`Failed to ${action} batch`);

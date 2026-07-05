@@ -51,7 +51,7 @@ export default function CostCentreSummaryPage() {
     }
   }, [id]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   return (
     <AppLayout>

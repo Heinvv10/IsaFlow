@@ -92,7 +92,7 @@ export default function NewBankTransactionPage() {
         setCustomers(list.map(c => ({ id: String(c.id), name: c.company_name ?? c.companyName ?? c.name ?? '' })));
       }),
     ];
-    Promise.allSettled(promises).finally(() => { if (mounted) setIsLoadingRef(false); });
+    void Promise.allSettled(promises).finally(() => { if (mounted) setIsLoadingRef(false); });
     return () => { mounted = false; };
   }, []);
 

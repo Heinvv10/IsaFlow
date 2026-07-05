@@ -50,7 +50,11 @@ export default function EEA2Page() {
       setLoading(false);
     }
   }, [asOf]);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load().catch((err) => {
+      setError(err instanceof Error ? err.message : 'Failed to load EEA2 report');
+    });
+  }, [load]);
 
   function getCell(level: Level, race: string, gender: string): number {
     return level.cells.find(c => c.race === race && c.gender === gender)?.count ?? 0;

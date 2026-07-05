@@ -77,7 +77,11 @@ export default function PayPackageEditPage() {
       setLoading(false);
     }
   }, [packageId]);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load().catch((err) => {
+      setError(err instanceof Error ? err.message : 'Failed to load package');
+    });
+  }, [load]);
 
   function addRow(): void {
     const taken = new Set(rows.map(r => r.componentId));

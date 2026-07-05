@@ -63,7 +63,7 @@ export default function EmployeeDetailPage() {
     }
   }, [employeeId]);
 
-  useEffect(() => { loadAll(); }, [loadAll]);
+  useEffect(() => { void loadAll(); }, [loadAll]);
 
   const saveProfile = async () => {
     if (!employee) return;
