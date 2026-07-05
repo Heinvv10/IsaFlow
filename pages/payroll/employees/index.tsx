@@ -55,7 +55,7 @@ export default function EmployeesListPage() {
   }, []);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   const filtered = employees.filter(e => {

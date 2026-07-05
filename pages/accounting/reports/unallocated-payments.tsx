@@ -36,7 +36,7 @@ export default function UnallocatedPaymentsReport() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const totalUnalloc = items.reduce((s, p) => s + (Number(p.amount) - Number(p.allocatedAmount)), 0);
 

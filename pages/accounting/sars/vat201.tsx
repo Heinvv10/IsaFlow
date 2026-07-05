@@ -62,7 +62,7 @@ export default function VAT201Page() {
     // company's full record (?id=) instead, same as the settings page.
     if (!activeCompany?.id) return;
     let cancelled = false;
-    (async () => {
+    void (async () => {
       try {
         const res = await apiFetch(`/api/accounting/companies?id=${activeCompany.id}`, { credentials: 'include' });
         const json = await res.json();

@@ -38,7 +38,7 @@ export default function CurrenciesPage() {
     }
   }, []);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { void loadData(); }, [loadData]);
 
   return (
     <AppLayout>

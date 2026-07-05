@@ -43,7 +43,12 @@ export default function AdjustmentsPage() {
     setLoading(false);
   }, [entityType]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load().catch((err) => {
+      setLoading(false);
+      setError(err instanceof Error ? err.message : 'Failed to load adjustments');
+    });
+  }, [load]);
   useEffect(() => {
     const url = entityType === 'supplier'
       ? '/api/accounting/suppliers-list'
@@ -55,6 +60,8 @@ export default function AdjustmentsPage() {
           ? d
           : d.clients || d.customers || d.suppliers || d.items || [],
       );
+    }).catch(() => {
+      setError(entityType === 'supplier' ? 'Failed to load suppliers' : 'Failed to load customers');
     });
   }, [entityType]);
 

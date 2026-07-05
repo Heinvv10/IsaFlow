@@ -73,7 +73,7 @@ export default function NewEmployeePage() {
       }
       const json = await res.json();
       const created = json.data ?? json;
-      router.push(`/payroll/employees/${created.id}`);
+      void router.push(`/payroll/employees/${created.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Create failed');
     } finally {

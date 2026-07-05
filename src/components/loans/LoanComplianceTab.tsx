@@ -46,12 +46,15 @@ export function LoanComplianceTab({ loanId }: Props) {
       const res = await apiFetch(`/api/accounting/loans/${loanId}/compliance`, { credentials: 'include' });
       const json = await res.json();
       setHistory(json.data ?? []);
-    } catch { setHistory([]); }
+    } catch (err) {
+      setHistory([]);
+      setError(err instanceof Error ? err.message : 'Failed to load compliance history');
+    }
     setLoading(false);
   }, [loanId]);
 
-   
-  useEffect(() => { load(); }, [load]);
+
+  useEffect(() => { void load(); }, [load]);
 
   const runAssessment = async () => {
     setRunning(true);

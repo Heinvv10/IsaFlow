@@ -101,7 +101,7 @@ export default function CustomerStatementPage() {
   const handleSearchChange = (val: string) => {
     setCustomerSearch(val);
     if (selectedCustomer) { setSelectedCustomer(null); setStatement(null); }
-    searchCustomers(val);
+    void searchCustomers(val);
   };
 
   const selectCustomer = (c: Customer) => {

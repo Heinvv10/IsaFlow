@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { KpiStrip } from '@/components/ui';
 import { apiFetch } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
+import { log } from '@/lib/logger';
 
 interface ItemCategory {
   id: string;
@@ -52,7 +53,8 @@ export default function ItemsListPage() {
       const res = await apiFetch(`/api/accounting/items?${params}`, { credentials: 'include' });
       const json = await res.json();
       setItems(json.data || []);
-    } catch {
+    } catch (err) {
+      log.error('Failed to load items', { error: err }, 'items-list-page');
       setItems([]);
     }
     setLoading(false);
@@ -63,17 +65,18 @@ export default function ItemsListPage() {
       const res = await apiFetch('/api/accounting/item-categories', { credentials: 'include' });
       const json = await res.json();
       setCategories(json.data || []);
-    } catch {
+    } catch (err) {
+      log.error('Failed to load item categories', { error: err }, 'items-list-page');
       setCategories([]);
     }
   }, []);
 
   useEffect(() => {
-    loadCategories();
+    void loadCategories();
   }, [loadCategories]);
 
   useEffect(() => {
-    loadItems();
+    void loadItems();
   }, [loadItems]);
 
   const physicalCount = items.filter(i => i.item_type === 'physical').length;

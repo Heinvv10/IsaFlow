@@ -58,7 +58,7 @@ export default function DuplicatesPage() {
     }
   }, [includeTerminated]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const groups = data ? data[activeTab] : [];
 

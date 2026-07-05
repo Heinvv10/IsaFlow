@@ -75,8 +75,8 @@ export function OverviewTab() {
   );
 
   useEffect(() => {
-    loadKPIData();
-    loadQuickActions();
+    void loadKPIData();
+    void loadQuickActions();
     apiFetch('/api/accounting/provisional/outstanding')
       .then(r => r.json())
       .then((json: { data?: unknown[] }) => setProvisionalCount((json.data ?? []).length))
@@ -116,8 +116,9 @@ export function OverviewTab() {
           .filter((p): p is PageMeta => !!p);
         setQuickActions([...tracked, ...fill].slice(0, 6));
       }
-    } catch {
+    } catch (err) {
       // keep defaults
+      log.error('Failed to load quick actions', { error: err }, 'accounting-ui');
     }
   };
 

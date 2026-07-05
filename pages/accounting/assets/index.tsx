@@ -11,6 +11,7 @@ import Link from 'next/link';
 import { KpiStrip } from '@/components/ui';
 import { apiFetch } from '@/lib/apiFetch';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
+import { log } from '@/lib/logger';
 
 interface Asset {
   id: string;
@@ -60,13 +61,14 @@ export default function AssetsListPage() {
       const res = await apiFetch(`/api/accounting/assets?${params}`, { credentials: 'include' });
       const json = await res.json();
       setAssets(json.data || []);
-    } catch {
+    } catch (err) {
+      log.error('Failed to load assets', { error: err }, 'assets-list-page');
       setAssets([]);
     }
     setLoading(false);
   }, [statusFilter, categoryFilter, search]);
 
-  useEffect(() => { loadAssets(); }, [loadAssets]);
+  useEffect(() => { void loadAssets(); }, [loadAssets]);
 
   const categories = [...new Set(assets.map(a => a.category_name || a.category || 'Uncategorized'))].sort();
 

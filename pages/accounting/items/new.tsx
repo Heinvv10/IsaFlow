@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { apiFetch } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
+import { log } from '@/lib/logger';
 import {
   ItemDetailsSection,
   PricingSection,
@@ -68,7 +69,10 @@ export default function NewItemPage() {
       const res = await apiFetch('/api/accounting/item-categories', { credentials: 'include' });
       const json = await res.json();
       setCategories(json.data || []);
-    } catch { setCategories([]); }
+    } catch (err) {
+      log.error('Failed to load item categories', { error: err }, 'new-item-page');
+      setCategories([]);
+    }
   }, []);
 
   const loadAccounts = useCallback(async () => {
@@ -76,10 +80,13 @@ export default function NewItemPage() {
       const res = await apiFetch('/api/accounting/chart-of-accounts', { credentials: 'include' });
       const json = await res.json();
       setAccounts(json.data || []);
-    } catch { setAccounts([]); }
+    } catch (err) {
+      log.error('Failed to load chart of accounts', { error: err }, 'new-item-page');
+      setAccounts([]);
+    }
   }, []);
 
-  useEffect(() => { loadCategories(); loadAccounts(); }, [loadCategories, loadAccounts]);
+  useEffect(() => { void loadCategories(); void loadAccounts(); }, [loadCategories, loadAccounts]);
 
   const update = (field: string, value: string | boolean) => {
     setForm(prev => {
@@ -143,7 +150,7 @@ export default function NewItemPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error?.message || 'Failed to create item');
-      router.push('/accounting/items');
+      void router.push('/accounting/items');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create item');
     } finally { setSaving(false); }

@@ -6,7 +6,7 @@ import { Loader2 } from 'lucide-react';
 export default function JournalEntriesPage() {
   const router = useRouter();
   useEffect(() => {
-    router.replace('/accounting?tab=journal-entries');
+    void router.replace('/accounting?tab=journal-entries');
   }, [router]);
 
   return (

@@ -78,7 +78,7 @@ export default function TrialBalancePage() {
     finally { setLoading(false); }
   }, [selectedPeriod, costCentreId, comparePeriodId]);
 
-  useEffect(() => { loadTB(); }, [loadTB]);
+  useEffect(() => { void loadTB(); }, [loadTB]);
 
   const handleExport = () => {
     if (selectedPeriod) window.open(`/api/accounting/trial-balance-export?fiscal_period_id=${selectedPeriod}`, '_blank');

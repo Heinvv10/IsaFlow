@@ -40,10 +40,14 @@ export default function NewCreditNotePage() {
     apiFetch('/api/accounting/customers').then(r => r.json()).then(res => {
       const data = res.data || res;
       setClients(Array.isArray(data) ? data : data.clients || []);
+    }).catch(() => {
+      setError('Failed to load clients');
     });
     apiFetch('/api/accounting/suppliers-list').then(r => r.json()).then(res => {
       const data = res.data || res;
       setSuppliers(Array.isArray(data) ? data : data.suppliers || []);
+    }).catch(() => {
+      setError('Failed to load suppliers');
     });
   }, []);
 
@@ -67,7 +71,7 @@ export default function NewCreditNotePage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error?.message || 'Failed to create credit note');
-      router.push('/accounting/credit-notes');
+      void router.push('/accounting/credit-notes');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create credit note');
     } finally { setIsSubmitting(false); }

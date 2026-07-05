@@ -120,7 +120,7 @@ export default function VatReconciliationPage() {
     }
   }, [mode, from, to]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => { void fetchData(); }, [fetchData]);
 
   return (
     <AppLayout>

@@ -103,7 +103,7 @@ export default function AccountingPage() {
       return;
     }
     setActiveTab(tab as AccountingTab);
-    router.push({ pathname: '/accounting', query: { tab } }, undefined, { shallow: true });
+    void router.push({ pathname: '/accounting', query: { tab } }, undefined, { shallow: true });
   }, [router]);
 
   // Load hero KPI stats

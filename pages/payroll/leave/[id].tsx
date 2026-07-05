@@ -70,7 +70,7 @@ export default function LeaveDetailPage() {
     }
   }, [id, router]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const handleAction = async (status: 'approved' | 'rejected' | 'cancelled') => {
     setActionLoading(status);

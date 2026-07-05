@@ -51,7 +51,7 @@ export default function DocumentCapturePage() {
     } finally { setIsLoading(false); }
   }, [statusFilter]);
 
-  useEffect(() => { loadDocuments(); }, [loadDocuments]);
+  useEffect(() => { void loadDocuments(); }, [loadDocuments]);
 
   // Populate review form when upload completes
   useEffect(() => {

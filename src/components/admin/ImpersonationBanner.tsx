@@ -79,7 +79,7 @@ export function ImpersonationBanner() {
     setSession(null);
     // Redirect back to admin panel
     const adminUrl = process.env.NEXT_PUBLIC_ADMIN_URL ?? '';
-    router.push(adminUrl ? `${adminUrl}/companies` : '/admin/companies');
+    void router.push(adminUrl ? `${adminUrl}/companies` : '/admin/companies');
   };
 
   const expiresAt = new Date(session.expires_at);

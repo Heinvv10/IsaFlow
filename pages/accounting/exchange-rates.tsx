@@ -35,7 +35,7 @@ export default function ExchangeRatesPage() {
     }
   }, []);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { void loadData(); }, [loadData]);
 
   return (
     <AppLayout>

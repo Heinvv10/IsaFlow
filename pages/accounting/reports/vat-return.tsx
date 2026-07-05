@@ -141,7 +141,7 @@ export default function VATReturnPage() {
     }
   }, [periodStart, periodEnd]);
 
-  useEffect(() => { loadReport(); }, [loadReport]);
+  useEffect(() => { void loadReport(); }, [loadReport]);
 
   const outputWithActivity = report?.outputBoxes.filter(b => Math.abs(b.amount) > 0.01) || [];
   const inputWithActivity = report?.inputBoxes.filter(b => Math.abs(b.amount) > 0.01) || [];

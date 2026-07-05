@@ -21,21 +21,33 @@ export default function AcceptInvitePage() {
       if (!body.success) { setError(body.error?.message ?? 'Invalid invitation'); setLoading(false); return; }
       setInvite(body.data);
       setLoading(false);
-    })();
+    })().catch(() => {
+      // Audit N-class defect: a rejected fetch left `loading` true forever —
+      // the invitee stared at the spinner with no feedback (P3.3 flagship).
+      setError('Network error — could not load the invitation. Check your connection and refresh.');
+      setLoading(false);
+    });
   }, [token]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (password.length < 10) { setError('Password must be at least 10 characters'); return; }
     setSubmitting(true); setError(null);
-    const r = await fetch(`/api/invitations/${token}/accept`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ password, firstName, lastName }),
-    });
-    const body = await r.json();
-    if (!body.success) { setError(body.error?.message ?? 'Failed to accept'); setSubmitting(false); return; }
-    router.push('/accounting/dashboard');
+    try {
+      const r = await fetch(`/api/invitations/${token}/accept`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ password, firstName, lastName }),
+      });
+      const body = await r.json();
+      if (!body.success) { setError(body.error?.message ?? 'Failed to accept'); setSubmitting(false); return; }
+      // Not awaited: a router abort would land in the catch below and show
+      // "could not submit" for an accept that already succeeded server-side.
+      void router.push('/accounting/dashboard');
+    } catch {
+      setError('Network error — could not submit. Check your connection and try again.');
+      setSubmitting(false);
+    }
   }
 
   if (loading) return <div className="p-8">Loading invitation…</div>;

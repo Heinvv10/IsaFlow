@@ -37,7 +37,9 @@ export default function NewBatchPage() {
         const json = await res.json();
         setComponents((json.data ?? json) as Component[]);
       }
-    })();
+    })().catch((err) => {
+      setError(err instanceof Error ? err.message : 'Failed to load components');
+    });
   }, []);
 
   async function submit(e: React.FormEvent): Promise<void> {

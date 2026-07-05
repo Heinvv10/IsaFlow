@@ -48,14 +48,14 @@ export default function SupplierPurchaseOrdersPage() {
     finally { setLoading(false); }
   }, [tab, search]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const handleDelete = async (id: string, orderNumber: string) => {
     if (!window.confirm(`Delete draft purchase order ${orderNumber}?`)) return;
     setDeleting(id);
     try {
       const res = await apiFetch('/api/accounting/supplier-purchase-orders', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
-      if (res.ok) { load(); }
+      if (res.ok) { void load(); }
       else { const json = await res.json(); setError(json.error?.message || json.message || 'Failed to delete purchase order'); }
     } catch { setError('Failed to delete purchase order'); }
     finally { setDeleting(null); }

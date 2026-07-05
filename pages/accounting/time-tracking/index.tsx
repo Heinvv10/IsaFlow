@@ -101,7 +101,7 @@ export default function TimeTrackingPage() {
     setLoading(false);
   }, [filterDateFrom, filterDateTo]);
 
-  useEffect(() => { if (tab === 'summary') loadSummary(); else loadEntries(); }, [tab, loadEntries, loadSummary]);
+  useEffect(() => { if (tab === 'summary') void loadSummary(); else void loadEntries(); }, [tab, loadEntries, loadSummary]);
   useEffect(() => { if (success) { const t = setTimeout(() => setSuccess(''), 3000); return () => clearTimeout(t); } }, [success]);
 
   const resetForm = () => { setForm({ ...BLANK_FORM }); setEditId(null); };

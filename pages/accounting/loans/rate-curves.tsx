@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, Plus, ChevronDown, ChevronRight, Upload } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import type { RateCurve, RatePoint } from '@/components/loans/types';
 import { fmtDate } from '@/components/loans/types';
 
@@ -27,11 +28,14 @@ export default function RateCurvesPage() {
       const res = await apiFetch('/api/accounting/loan-rate-curves', { credentials: 'include' });
       const json = await res.json();
       setCurves(json.data || []);
-    } catch { setCurves([]); }
+    } catch (err) {
+      log.error('Failed to load rate curves', { error: err }, 'rate-curves-page');
+      setCurves([]);
+    }
     setLoading(false);
   }, []);
 
-  useEffect(() => { loadCurves(); }, [loadCurves]);
+  useEffect(() => { void loadCurves(); }, [loadCurves]);
 
   const loadPoints = async (curveId: string) => {
     if (points[curveId]) return;
@@ -190,7 +194,11 @@ export default function RateCurvesPage() {
                         className="hidden"
                         onChange={e => {
                           const f = e.target.files?.[0];
-                          if (f) handleCsvUpload(curve.id, f);
+                          if (f) {
+                            handleCsvUpload(curve.id, f).catch(() => {
+                              setUploadStatus(prev => ({ ...prev, [curve.id]: 'Upload error' }));
+                            });
+                          }
                           e.target.value = '';
                         }}
                       />

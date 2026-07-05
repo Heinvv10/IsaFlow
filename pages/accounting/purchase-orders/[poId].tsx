@@ -121,7 +121,7 @@ export default function PurchaseOrderDetailPage() {
     }
   }, [poId]);
 
-  useEffect(() => { loadPO(); }, [loadPO]);
+  useEffect(() => { void loadPO(); }, [loadPO]);
 
   useEffect(() => {
     if (!editing) return;
@@ -220,7 +220,7 @@ export default function PurchaseOrderDetailPage() {
         method: 'DELETE', credentials: 'include',
       });
       if (!res.ok) throw new Error('Delete failed');
-      router.push('/accounting/purchase-orders');
+      void router.push('/accounting/purchase-orders');
     } catch {
       setDeleting(false);
     }

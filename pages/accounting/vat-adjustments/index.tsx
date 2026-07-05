@@ -42,7 +42,9 @@ export default function VATAdjustmentsPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load().catch(() => { setLoading(false); setError('Failed to load VAT adjustments'); });
+  }, [load]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();

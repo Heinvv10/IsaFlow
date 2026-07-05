@@ -41,12 +41,14 @@ export default function WriteOffsPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load().catch(() => { setLoading(false); setError('Failed to load write-offs'); });
+  }, [load]);
   useEffect(() => {
     apiFetch('/api/accounting/customers', { credentials: 'include' }).then(r => r.json()).then(res => {
       const d = res.data || res;
       setClients(Array.isArray(d) ? d : d.clients || []);
-    });
+    }).catch(() => setError('Failed to load clients'));
   }, []);
 
   useEffect(() => {
@@ -56,7 +58,7 @@ export default function WriteOffsPage() {
         const d = res.data || res;
         const list = Array.isArray(d) ? d : d.invoices || [];
         setInvoices(list.filter((inv: Invoice) => Number(inv.total_amount) - Number(inv.amount_paid) > 0.01));
-      });
+      }).catch(() => setError('Failed to load invoices'));
   }, [form.clientId]);
 
   const selectedInv = invoices.find(i => i.id === form.invoiceId);

@@ -79,7 +79,7 @@ export default function SuppliersPage() {
   }, [debouncedSearch, page]);
 
   useEffect(() => {
-    loadSuppliers();
+    void loadSuppliers();
   }, [loadSuppliers]);
 
   return (

@@ -106,7 +106,7 @@ export default function PracticeClientsPage() {
   }, [debouncedSearch, statusFilter]);
 
   useEffect(() => {
-    loadClients();
+    void loadClients();
   }, [loadClients]);
 
   function handleRowClick(id: string) {
@@ -155,7 +155,7 @@ export default function PracticeClientsPage() {
       }
       const payload = json.data ?? json;
       setImportResult(payload);
-      if (payload.created > 0) loadClients();
+      if (payload.created > 0) void loadClients();
     } catch (err) {
       setImportError(err instanceof Error ? err.message : 'Import failed');
     } finally {

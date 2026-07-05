@@ -42,7 +42,7 @@ export default function PaystackReturnPage() {
     }
 
     let cancelled = false;
-    (async () => {
+    void (async () => {
       try {
         const res = await apiFetch(
           `/api/portal/payments/paystack/verify?ref=${encodeURIComponent(r)}`,

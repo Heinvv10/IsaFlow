@@ -62,7 +62,7 @@ export default function AccountTransactionsPage() {
         accountCode: String(a.accountCode || a.account_code || ''),
         accountName: String(a.accountName || a.account_name || ''),
       })));
-    });
+    }).catch(() => setError('Failed to load chart of accounts'));
   }, []);
 
   const load = useCallback(async () => {
@@ -82,7 +82,7 @@ export default function AccountTransactionsPage() {
     finally { setLoading(false); }
   }, [periodStart, periodEnd, accountCode, costCentreFilter]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   function handleExport() {
     const params = new URLSearchParams();

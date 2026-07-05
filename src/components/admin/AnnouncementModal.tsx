@@ -60,7 +60,7 @@ export function AnnouncementModal({ initial, onClose, onSave, saving }: Props) {
         ? companyIds.join(', ')
         : form.target_ids,
     };
-    onSave(merged);
+    void onSave(merged);
   };
 
   return (

@@ -47,7 +47,7 @@ export default function ProjectProfitabilityPage() {
     }
   }, [periodStart, periodEnd]);
 
-  useEffect(() => { loadReport(); }, [loadReport]);
+  useEffect(() => { void loadReport(); }, [loadReport]);
 
   const totals = reports.reduce(
     (acc, r) => ({ revenue: acc.revenue + r.revenue, costs: acc.costs + r.costs, profit: acc.profit + r.profit }),

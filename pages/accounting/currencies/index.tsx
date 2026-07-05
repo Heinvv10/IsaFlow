@@ -55,7 +55,7 @@ export default function CurrenciesPage() {
     }
   }, []);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { void loadData(); }, [loadData]);
 
   const TABS: { id: ActiveTab; label: string }[] = [
     { id: 'currencies', label: 'Currencies' },

@@ -138,7 +138,7 @@ export default function BankTransactionsPage() {
     finally { setIsLoading(false); }
   }, [selectedBank, tab, page, fromDate, toDate, fromAmount, toAmount, debouncedSearch, sortOrder, allocationFilter, txType, allocType, hasSuggestion]);
 
-  useEffect(() => { loadTransactions(); }, [loadTransactions]);
+  useEffect(() => { void loadTransactions(); }, [loadTransactions]);
 
   // AI background poll — picks up late-arriving LLM suggestions after smart-categorize
   const [aiPolling, setAiPolling] = useState(0);
@@ -370,11 +370,11 @@ export default function BankTransactionsPage() {
         excludingTxId={excludingTxId} findMatchTxId={findMatchTxId} attachmentsTxId={attachmentsTxId}
         createRuleTx={createRuleTx} createEntityTxId={createEntityTxId} createEntityType={createEntityType}
         queryTx={queryTx}
-        onSplitClose={() => setSplitTxId(null)} onSplitDone={() => { setSplitTxId(null); loadTransactions(); }}
+        onSplitClose={() => setSplitTxId(null)} onSplitDone={() => { setSplitTxId(null); void loadTransactions(); }}
         onExcludeClose={() => setExcludingTxId(null)} onExcludeConfirm={actions.handleExcludeConfirm}
-        onFindMatchClose={() => setFindMatchTxId(null)} onFindMatchDone={() => { setFindMatchTxId(null); loadTransactions(); }}
+        onFindMatchClose={() => setFindMatchTxId(null)} onFindMatchDone={() => { setFindMatchTxId(null); void loadTransactions(); }}
         onAttachmentsClose={() => setAttachmentsTxId(null)} onCreateRuleClose={() => setCreateRuleTx(null)}
-        onCreateRuleDone={() => { setCreateRuleTx(null); setRowSelections(() => ({})); loadTransactions(); refreshBankAccounts(); }}
+        onCreateRuleDone={() => { setCreateRuleTx(null); setRowSelections(() => ({})); void loadTransactions(); refreshBankAccounts(); }}
         onCreateEntityClose={() => { setCreateEntityTxId(null); setCreateEntityType(null); }}
         onCreateEntityDone={(entity, type) => { actions.handleCreateEntityDone(entity, type, setGlAccounts, setSuppliers, setCustomers); setCreateEntityTxId(null); setCreateEntityType(null); }}
         onQueryClose={() => setQueryTx(null)}

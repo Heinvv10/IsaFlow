@@ -67,7 +67,7 @@ export default function CustomersPage() {
   }, [debouncedSearch]);
 
   useEffect(() => {
-    loadCustomers();
+    void loadCustomers();
   }, [loadCustomers]);
 
   return (

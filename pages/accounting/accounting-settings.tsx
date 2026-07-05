@@ -74,7 +74,7 @@ export default function AccountingSettingsPage() {
         setLoading(false);
       }
     }
-    loadSettings();
+    void loadSettings();
   }, []);
 
   useEffect(() => {
