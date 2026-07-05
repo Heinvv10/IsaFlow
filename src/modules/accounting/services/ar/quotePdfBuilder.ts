@@ -35,14 +35,11 @@ export async function generateQuotePdf(companyId: string, quoteId: string): Prom
   if (quoteRows.length === 0) throw new Error(`Quote not found: ${quoteId}`);
   const q = quoteRows[0]!;
 
-  let lines: DbRow[] = [];
-  try {
-    lines = (await sql`
-      SELECT * FROM customer_quote_lines
-      WHERE quote_id = ${quoteId}::UUID
-      ORDER BY sort_order, created_at
-    `) as DbRow[];
-  } catch { /* graceful fallback if table name differs */ }
+  const lines = (await sql`
+    SELECT * FROM customer_quote_lines
+    WHERE quote_id = ${quoteId}::UUID
+    ORDER BY sort_order, created_at
+  `) as DbRow[];
 
   log.info('Generating premium quote PDF', {
     quoteId, quoteNumber: q.quote_number, lineCount: lines.length,
