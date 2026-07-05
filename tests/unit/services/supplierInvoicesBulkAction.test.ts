@@ -161,7 +161,7 @@ describe('supplier-invoices-bulk-action', () => {
       res(),
     );
     expect(cancelMock).toHaveBeenCalledTimes(1);
-    expect(cancelMock).toHaveBeenCalledWith(COMPANY_ID, ID_A);
+    expect(cancelMock).toHaveBeenCalledWith(COMPANY_ID, ID_A, USER_ID);
     expect(approveMock).not.toHaveBeenCalled();
     expect(postGlMock).not.toHaveBeenCalled();
   });

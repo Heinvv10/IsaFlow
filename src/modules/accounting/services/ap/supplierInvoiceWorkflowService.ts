@@ -4,10 +4,10 @@
  * Extracted from supplierInvoiceService.ts for file-size compliance.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
+import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl/journalEntryService';
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { validateThreeWayMatch } from '../../utils/threeWayMatch';
 import { getSupplierInvoiceById } from './supplierInvoiceService';
@@ -140,6 +140,13 @@ export async function postSupplierInvoiceToGL(
   const invoice = await getSupplierInvoiceById(companyId, id);
   if (!invoice) throw new Error(`Supplier invoice ${id} not found`);
 
+  // Cancel NULLs gl_journal_entry_id after reversing the journal — without
+  // this status guard the backfill would re-post a fresh Expense/VAT/AP
+  // journal for a cancelled document (the inverse of audit C1).
+  if (invoice.status === 'cancelled') {
+    throw new Error('Cannot post a cancelled supplier invoice to GL');
+  }
+
   if (invoice.glJournalEntryId) {
     return { journalEntryId: invoice.glJournalEntryId, alreadyPosted: true };
   }
@@ -189,17 +196,68 @@ export async function postSupplierInvoiceToGL(
 export async function cancelSupplierInvoice(
   companyId: string,
   id: string,
+  userId: string,
+): Promise<SupplierInvoice> {
+  // SAVEPOINT: callers map errors to 400 and withAuth commits on <5xx —
+  // a failure after the reversal's draft INSERTs must roll them back
+  // instead of orphan-committing (see customerInvoiceCancelService).
+  return withSavepoint('cancel_supplier_invoice', () =>
+    cancelSupplierInvoiceInner(companyId, id, userId),
+  );
+}
+
+async function cancelSupplierInvoiceInner(
+  companyId: string,
+  id: string,
+  userId: string,
 ): Promise<SupplierInvoice> {
   try {
-    const invoice = await getSupplierInvoiceById(companyId, id);
-    if (!invoice) throw new Error(`Supplier invoice ${id} not found`);
-    if (invoice.status === 'paid' || invoice.status === 'partially_paid') {
+    // FOR UPDATE: serialise concurrent cancels — both passing the guards
+    // would double-reverse the same approval journal.
+    const lockRows = (await sql`
+      SELECT id, status, gl_journal_entry_id FROM supplier_invoices
+      WHERE id = ${id} AND company_id = ${companyId}::UUID
+      FOR UPDATE
+    `) as Row[];
+    if (lockRows.length === 0) throw new Error(`Supplier invoice ${id} not found`);
+    const locked = lockRows[0]!;
+    const status = String(locked.status);
+    if (status === 'paid' || status === 'partially_paid') {
       throw new Error('Cannot cancel invoice with payments');
     }
+    if (status === 'cancelled') {
+      throw new Error('Supplier invoice is already cancelled');
+    }
+
+    // P1.1 (audit C1, systemic): approve posts GL — cancel must reverse it.
+    // Reverse BEFORE the flip so a blocked reversal (locked period) aborts
+    // the cancel. Post-#197 semantics: the original keeps status='posted';
+    // "already reversed" is signalled by reversed_at, so guard on that.
+    if (locked.gl_journal_entry_id) {
+      const jeRows = (await sql`
+        SELECT status, reversed_at FROM gl_journal_entries
+        WHERE id = ${String(locked.gl_journal_entry_id)}::UUID AND company_id = ${companyId}::UUID
+        FOR UPDATE
+      `) as Row[];
+      if (
+        jeRows.length > 0 &&
+        String(jeRows[0]!.status) === 'posted' &&
+        jeRows[0]!.reversed_at == null
+      ) {
+        await reverseJournalEntry(companyId, String(locked.gl_journal_entry_id), userId);
+      }
+    }
+
+    // Null the journal link (mirrors customerInvoiceCancelService): a future
+    // legitimate re-post must create a fresh journal, not reuse the reversed pair.
     const rows = (await sql`
-      UPDATE supplier_invoices SET status = 'cancelled'
-      WHERE id = ${id} AND company_id = ${companyId}::UUID RETURNING *
+      UPDATE supplier_invoices SET status = 'cancelled', gl_journal_entry_id = NULL
+      WHERE id = ${id} AND company_id = ${companyId}::UUID AND status != 'cancelled'
+      RETURNING *
     `) as Row[];
+    if (rows.length !== 1) {
+      throw new Error('Supplier invoice state changed concurrently — cancel aborted');
+    }
     return mapInvoiceRow(rows[0]!);
   } catch (err) {
     log.error('Failed to cancel supplier invoice', { id, error: err }, 'accounting');

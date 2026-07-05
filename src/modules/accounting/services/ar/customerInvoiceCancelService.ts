@@ -17,14 +17,18 @@
  *
  * Atomicity: all queries run on the ALS-bound `sql` client so they participate
  * in the outer withAuth request transaction (same pattern as
- * cancelCustomerPayment). The gl_account_balances cache is maintained
+ * cancelCustomerPayment), and the whole body runs inside a SAVEPOINT: the
+ * handler maps application errors (e.g. ClosedFiscalPeriodError) to 400, and
+ * withAuth COMMITs the request tx on any <5xx response — without the savepoint
+ * a failure AFTER the reversal's draft-entry INSERTs would orphan-commit those
+ * rows at request COMMIT. The gl_account_balances cache is maintained
  * automatically by the trg_gl_je_status_balance trigger (migration 499): the
  * reversal contra entry's draft->posted transition fires a full recompute of the
  * affected accounts from posted lines, which now includes both the (still-posted)
  * original and the contra, netting them to zero — no explicit cache work here.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { reverseJournalEntry } from '../gl/journalEntryService';
@@ -63,6 +67,16 @@ export interface CancelCustomerInvoiceResult {
  * invoice is a no-op, and an already-reversed journal is never reversed twice.
  */
 export async function cancelCustomerInvoice(
+  companyId: string,
+  invoiceId: string,
+  userId: string,
+): Promise<CancelCustomerInvoiceResult> {
+  return withSavepoint('cancel_customer_invoice', () =>
+    cancelCustomerInvoiceInner(companyId, invoiceId, userId),
+  );
+}
+
+async function cancelCustomerInvoiceInner(
   companyId: string,
   invoiceId: string,
   userId: string,

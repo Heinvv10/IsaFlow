@@ -94,11 +94,16 @@ export async function reverseJournalEntry(companyId: string, id: string, userId:
       costCenterId: l.costCenterId,
     }));
 
+    // The reversal is dated today, so its fiscal period must be derived from
+    // TODAY (createJournalEntry looks it up from entryDate when omitted) —
+    // never inherited from the original. Inheriting meant: original period
+    // closed → postJournalEntry throws ClosedFiscalPeriodError and old
+    // documents become permanently un-cancellable; original period still
+    // open → the reversal lands in a past period its entry_date isn't in.
     const reversalEntry = await createJournalEntry(companyId, {
       entryDate: new Date().toISOString().split('T')[0]!,
       description: `Reversal of ${entry.entryNumber}`,
       source: entry.source,
-      fiscalPeriodId: entry.fiscalPeriodId,
       lines: reversalLines,
     }, userId, defaultHumanMeta(userId));
 
