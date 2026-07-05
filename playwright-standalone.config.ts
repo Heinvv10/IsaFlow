@@ -5,6 +5,10 @@
  * scoped to the 12 money paths.
  *
  *   BASE_URL=http://localhost:3200 bunx playwright test tests/e2e/<spec> --config playwright-standalone.config.ts
+ *
+ * ALWAYS pass an explicit spec path: with no argument this config collects
+ * every legacy ad-hoc spec under tests/e2e/ (~90 files), most of which need
+ * a login/storageState this config deliberately does not provide.
  */
 import { defineConfig } from '@playwright/test';
 

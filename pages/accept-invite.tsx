@@ -41,7 +41,9 @@ export default function AcceptInvitePage() {
       });
       const body = await r.json();
       if (!body.success) { setError(body.error?.message ?? 'Failed to accept'); setSubmitting(false); return; }
-      await router.push('/accounting/dashboard');
+      // Not awaited: a router abort would land in the catch below and show
+      // "could not submit" for an accept that already succeeded server-side.
+      void router.push('/accounting/dashboard');
     } catch {
       setError('Network error — could not submit. Check your connection and try again.');
       setSubmitting(false);
