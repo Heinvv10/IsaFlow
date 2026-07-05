@@ -7,6 +7,9 @@ After=network-online.target
 Type=oneshot
 User=hein
 ExecStart=/bin/bash /home/hein/Workspace/IsaFlow/scripts/ops/uptime-probe.sh
-# Alerting is the signal; the unit itself stays green so systemd doesn't
-# spam failure state for an outage the probe already telegrammed about.
-SuccessExitStatus=0
+# Worst case (everything down) the probe runs ~6 sequential curls at
+# --max-time 15 each; the systemd default (often 90s) could SIGTERM it
+# mid-run exactly when the alert matters most.
+TimeoutStartSec=300
+# State dir + cookie jar are secrets-adjacent on a shared box.
+UMask=0077

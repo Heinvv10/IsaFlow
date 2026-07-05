@@ -44,6 +44,36 @@ describe('logger Error serialization (N3)', () => {
     expect(parsed.data.error.stack).toContain('boom');
   });
 
+  it('keeps custom own-enumerable fields on Error subclasses (periodStatus-style)', () => {
+    class ClosedPeriodStyleError extends Error {
+      periodStatus: string;
+      constructor(message: string, periodStatus: string) {
+        super(message);
+        this.name = 'ClosedPeriodStyleError';
+        this.periodStatus = periodStatus;
+      }
+    }
+    log.error('post failed', { error: new ClosedPeriodStyleError('period closed', 'locked') }, 'test');
+    const line = stderr.lines.find((l) => l.includes('post failed'));
+    const parsed = JSON.parse(line!) as {
+      data: { error: { name: string; message: string; stack?: string; periodStatus: string } };
+    };
+    expect(parsed.data.error.name).toBe('ClosedPeriodStyleError');
+    expect(parsed.data.error.message).toBe('period closed');
+    expect(parsed.data.error.periodStatus).toBe('locked');
+    expect(parsed.data.error.stack).toBeTruthy();
+  });
+
+  it('keeps requestId-free fallback shape valid but retains other payload fields on circular data', () => {
+    const circular: Record<string, unknown> = { note: 'ring' };
+    circular.self = circular;
+    log.error('circ2', circular, 'mycomponent');
+    const line = stderr.lines.find((l) => l.includes('circ2'));
+    const parsed = JSON.parse(line!) as { component: string; level: string };
+    expect(parsed.component).toBe('mycomponent');
+    expect(parsed.level).toBe('error');
+  });
+
   it('serializes a nested Error (inside an object inside data)', () => {
     log.error('outer', { ctx: { cause: new TypeError('deep failure') } }, 'test');
     const line = stderr.lines.find((l) => l.includes('outer'));

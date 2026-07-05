@@ -8,10 +8,14 @@
 #      (logs in only when the saved session expires — the login endpoint is
 #      rate-limited to 10/15min per email and the golden suite shares it)
 #   4. Bugsink new-issue count (fail-soft: SKIPPED unless BUGSINK_TOKEN set;
-#      real-time push already exists via the bugsink-telegram-relay worker)
+#      real-time push already exists via the bugsink-telegram-relay worker).
+#      A FAILING poll (bad token, 5xx) alerts as its own probe failure —
+#      never a silent "all clear".
 #
 # Alerting: Telegram bot API. State-change deduped — one [ALERT] on OK→FAIL,
 # one [RESOLVED] on FAIL→OK, re-alert only every REALERT_HOURS while red.
+# Delivery is CONFIRMED against Telegram's response; a failed send is logged
+# loudly to stdout/journald (the operator's last-resort signal).
 #
 # Config: /home/hein/isaflow-ops.env (0600), see isaflow-ops-env.example.
 # Install (HEIN-gated): see scripts/ops/README.md.
@@ -19,6 +23,10 @@
 # Test/drill overrides (documented in README): PROBE_APP_URL PROBE_ADMIN_URL
 # TELEGRAM_API_BASE PROBE_STATE_DIR OPS_ENV_FILE
 set -u
+
+# Secrets hygiene: every file this probe creates (state, cookie jar, login
+# body) is owner-only; velo-server is a shared multi-stack box.
+umask 077
 
 OPS_ENV_FILE="${OPS_ENV_FILE:-/home/hein/isaflow-ops.env}"
 PROBE_APP_URL="${PROBE_APP_URL:-https://app.isaflow.co.za}"
@@ -29,7 +37,18 @@ REALERT_HOURS="${REALERT_HOURS:-6}"
 # (000 from -w on failure) is the signal, not curl's stderr.
 CURL="curl -s --max-time 15"
 
-mkdir -p "$PROBE_STATE_DIR"
+# An unusable state dir must be a LOUD failure (journald), never a silent
+# skip — the probe would otherwise die quietly forever.
+mkdir -p "$PROBE_STATE_DIR" || { echo "ERROR: cannot create state dir $PROBE_STATE_DIR"; exit 1; }
+chmod 700 "$PROBE_STATE_DIR" || { echo "ERROR: cannot chmod state dir $PROBE_STATE_DIR"; exit 1; }
+
+# One probe at a time: a hung run must not race the next timer tick on the
+# state files / cookie jar. flock releases on process exit.
+exec 8>"$PROBE_STATE_DIR/.lock" || { echo "ERROR: cannot open lock file in $PROBE_STATE_DIR"; exit 1; }
+if ! flock -n 8; then
+  echo "another probe run is still active — skipping this tick"
+  exit 0
+fi
 
 # Read config literally, allowlisted keys only — never source (shell-parses
 # $/backticks in values; same rule as verify-deploy.sh).
@@ -40,14 +59,23 @@ if [ -f "$OPS_ENV_FILE" ]; then
 fi
 TELEGRAM_API_BASE="${TELEGRAM_API_BASE:-https://api.telegram.org}"
 
-send_telegram() { # $1 = text
+send_telegram() { # $1 = text. Confirms delivery; loud journald error if not.
   if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
-    echo "WARN: TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID not set — alert NOT sent: $1"
+    echo "ERROR: TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID not set — alert NOT sent: $1"
     return 1
   fi
-  $CURL -X POST "$TELEGRAM_API_BASE/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+  local resp_file="$PROBE_STATE_DIR/.tg-resp.json"
+  local http
+  http=$($CURL -o "$resp_file" -w '%{http_code}' -X POST \
+    "$TELEGRAM_API_BASE/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
     --data-urlencode "chat_id=$TELEGRAM_CHAT_ID" \
-    --data-urlencode "text=$1" >/dev/null
+    --data-urlencode "text=$1" || true)
+  http=${http:-000}
+  if [ "$http" != "200" ] || ! grep -q '"ok":\s*true' "$resp_file" 2>/dev/null; then
+    echo "ERROR: telegram send FAILED (http $http) — alerting channel itself is broken. Response: $(head -c 200 "$resp_file" 2>/dev/null)"
+    return 1
+  fi
+  return 0
 }
 
 # State-change dedup. $1=check-id $2=0|1 (0=ok) $3=human description
@@ -102,11 +130,15 @@ if [ -n "${E2E_ADMIN_EMAIL:-}" ] && [ -n "${E2E_ADMIN_PASSWORD:-}" ]; then
   if [ "$CODE" != "200" ]; then
     # Session missing/expired — one fresh login, then retry. Never loop:
     # /api/auth/login is rate-limited (10/15min/email) and shared with the
-    # golden suite.
+    # golden suite. The body is JSON-built by python (correct escaping) and
+    # passed via a 0600 file so the password never appears in process argv.
+    LOGIN_BODY="$PROBE_STATE_DIR/.login-body.json"
+    python3 -c 'import json,os; print(json.dumps({"email": os.environ["E2E_ADMIN_EMAIL"], "password": os.environ["E2E_ADMIN_PASSWORD"]}))' > "$LOGIN_BODY"
     LOGIN_CODE=$($CURL -c "$JAR" -o /dev/null -w '%{http_code}' \
       -X POST -H 'Content-Type: application/json' \
-      --data "{\"email\":\"$E2E_ADMIN_EMAIL\",\"password\":\"$E2E_ADMIN_PASSWORD\"}" \
+      --data @"$LOGIN_BODY" \
       "$PROBE_APP_URL/api/auth/login" || true); LOGIN_CODE=${LOGIN_CODE:-000}
+    rm -f "$LOGIN_BODY"
     CODE=$($CURL -b "$JAR" -o /dev/null -w '%{http_code}' "$PROBE_APP_URL/api/auth/me" || true); CODE=${CODE:-000}
     if [ "$LOGIN_CODE" != "200" ] || [ "$CODE" != "200" ]; then OK=1; fi
   fi
@@ -115,22 +147,33 @@ else
   echo "[SKIP] app authed check — E2E_ADMIN_EMAIL/PASSWORD not in $OPS_ENV_FILE"
 fi
 
-# ── 4. Bugsink new-issue check (fail-soft) ───────────────────────────────────
+# ── 4. Bugsink new-issue check (fail-soft skip, but NEVER silent-OK on error) ─
 # Real-time new-issue alerts already flow Bugsink → bugsink-telegram-relay →
 # Telegram; this poll is belt-and-braces and only runs when a token exists.
 if [ -n "${BUGSINK_TOKEN:-}" ]; then
   BURL="${BUGSINK_URL:-https://errors.isaflow.co.za}"
   MARK="$PROBE_STATE_DIR/bugsink.last-check"
-  SINCE=$( [ -f "$MARK" ] && cat "$MARK" || date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:%S )
-  NEW=$($CURL -H "Authorization: Bearer $BUGSINK_TOKEN" \
-    "$BURL/api/canonical/0/projects/1/issues/?query=is:unresolved&last_seen__gte=$SINCE" 2>/dev/null \
-    | python3 -c 'import json,sys; d=json.load(sys.stdin); print(len(d if isinstance(d,list) else d.get("results",[])))' 2>/dev/null || echo "?")
-  date -u +%Y-%m-%dT%H:%M:%S > "$MARK"
-  if [ "$NEW" != "?" ] && [ "$NEW" -gt 0 ] 2>/dev/null; then
-    send_telegram "⚠️ IsaFlow probe: $NEW Bugsink issue(s) active since $SINCE — https://errors.isaflow.co.za" || true
-    echo "[WARN] bugsink: $NEW active issue(s) since $SINCE"
+  SINCE=$(cat "$MARK" 2>/dev/null || true)
+  [ -n "$SINCE" ] || SINCE=$(date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:%S)
+  BODY="$PROBE_STATE_DIR/.bugsink-body.json"
+  HTTP=$($CURL -o "$BODY" -w '%{http_code}' -H "Authorization: Bearer $BUGSINK_TOKEN" \
+    "$BURL/api/canonical/0/projects/1/issues/?query=is:unresolved&last_seen__gte=$SINCE" || true)
+  HTTP=${HTTP:-000}
+  NEW="?"
+  if [ "$HTTP" = "200" ]; then
+    NEW=$(python3 -c 'import json,sys; d=json.load(sys.stdin); print(len(d if isinstance(d,list) else d.get("results",[])))' < "$BODY" 2>/dev/null || echo "?")
+  fi
+  if [ "$NEW" = "?" ]; then
+    # Poll itself broken (auth, 5xx, parse) — that IS a failure, and the
+    # since-mark does NOT advance so no window is ever silently skipped.
+    check "bugsink-poll" 1 "Bugsink poll ($BURL, got $HTTP)"
   else
-    echo "[OK]   bugsink check ($NEW new)"
+    check "bugsink-poll" 0 "Bugsink poll ($BURL, got $HTTP)"
+    date -u +%Y-%m-%dT%H:%M:%S > "$MARK"
+    if [ "$NEW" -gt 0 ] 2>/dev/null; then
+      send_telegram "⚠️ IsaFlow probe: $NEW Bugsink issue(s) active since $SINCE — https://errors.isaflow.co.za" || true
+      echo "[WARN] bugsink: $NEW active issue(s) since $SINCE"
+    fi
   fi
 else
   echo "[SKIP] bugsink poll — BUGSINK_TOKEN not set (real-time relay covers new issues)"

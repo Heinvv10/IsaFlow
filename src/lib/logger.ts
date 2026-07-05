@@ -146,14 +146,15 @@ class Logger {
       };
       // N3: JSON.stringify drops Error message/stack (non-enumerable) — every
       // `{ error: err }` call site was landing in journald as `"error":{}`.
-      // The replacer expands Errors at ANY depth; the catch keeps the logger
-      // from ever throwing on unserializable data (circular refs) while still
-      // emitting the message.
+      // The replacer expands Errors at ANY depth, keeping custom enumerable
+      // subclass fields (e.g. ClosedFiscalPeriodError.periodStatus) via the
+      // spread; the catch keeps the logger from ever throwing on
+      // unserializable data (circular refs) while still emitting the message.
       let jsonLine: string;
       try {
         jsonLine = JSON.stringify(payload, (_key, value: unknown) =>
           value instanceof Error
-            ? { name: value.name, message: value.message, stack: value.stack }
+            ? { ...value, name: value.name, message: value.message, stack: value.stack }
             : value,
         ) + '\n';
       } catch {
@@ -162,6 +163,7 @@ class Logger {
           message,
           timestamp,
           component,
+          ...(requestId !== undefined ? { requestId } : {}),
           data: '[unserializable data dropped by logger]',
         }) + '\n';
       }
