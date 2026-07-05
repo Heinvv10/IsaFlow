@@ -53,6 +53,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   let processed = 0;
   let skipped = 0;
+  let glFailed = 0;
   const results: {
     assetNumber: string;
     policyDep: number;
@@ -77,7 +78,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
           : asset.disposal_date)
       : undefined;
 
-    const { policyDep, taxDep, entryId } = await postDualDepreciationToLedger(
+    const { policyDep, taxDep, entryId, glFailed: assetGlFailed } = await postDualDepreciationToLedger(
       companyId,
       String(asset.id),
       {
@@ -96,17 +97,26 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       userId
     );
 
+    if (assetGlFailed) {
+      // The whole period rolled back for this asset (ledger row + GL entry
+      // are atomic). Count it loudly — a silent partial run understates
+      // accumulated depreciation until someone notices.
+      glFailed++;
+      results.push({ assetNumber: String(asset.asset_number), policyDep, taxDep, entryId: null });
+      continue;
+    }
     if (policyDep < 0.01 && taxDep < 0.01) { skipped++; continue; }
 
     results.push({ assetNumber: String(asset.asset_number), policyDep, taxDep, entryId });
     processed++;
   }
 
-  log.info('Dual depreciation run completed', { processed, skipped, total: assets.length, periodDate }, 'accounting');
+  log.info('Dual depreciation run completed', { processed, skipped, glFailed, total: assets.length, periodDate }, 'accounting');
 
   return apiResponse.success(res, {
     processed,
     skipped,
+    glFailed,
     total: assets.length,
     periodDate,
     yyyymm,

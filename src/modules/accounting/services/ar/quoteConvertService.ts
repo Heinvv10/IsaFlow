@@ -12,9 +12,10 @@
  * non-request caller (cron/script) must provide its own transaction.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { reserveNextDocumentNumber } from '../core/companySettingsService';
 import { getQuote } from './quoteService';
 import type { Quote } from './quoteService';
 
@@ -82,32 +83,41 @@ export async function convertToInvoice(
   const quote = await getQuote(companyId, id);
   if (!quote || quote.status !== 'accepted') return null;
 
-  // BL-55: generate invoice_number via company_document_numbers (atomic, unique)
-  const invNumRows = (await sql`
-    INSERT INTO company_document_numbers (company_id, document_type, prefix, next_number)
-    VALUES (${companyId}::UUID, 'invoice', 'INV-', 1)
-    ON CONFLICT (company_id, document_type)
-    DO UPDATE SET next_number = company_document_numbers.next_number + 1
-    RETURNING next_number - 1 AS current_number, prefix
-  `) as Row[];
-  const invNum = Number(invNumRows[0]!.current_number);
-  const invPrefix = String(invNumRows[0]!.prefix || 'INV-');
-  const invoiceNumber = `${invPrefix}${String(invNum).padStart(5, '0')}`;
-
-  // BL-55: use total_amount (correct column name); populate invoice_number and customer_id
-  const invRows = (await sql`
-    INSERT INTO customer_invoices (
-      company_id, invoice_number, client_id, customer_id,
-      invoice_date, due_date, subtotal, tax_amount, total_amount,
-      notes, status, created_by
-    ) VALUES (
-      ${companyId}::UUID, ${invoiceNumber}, ${quote.clientId || null}, ${quote.clientId || null},
-      ${quote.quoteDate}, ${quote.expiryDate || quote.quoteDate},
-      ${quote.subtotal}, ${quote.taxAmount}, ${quote.total},
-      ${'Converted from ' + quote.quoteNumber}, 'draft', ${userId || null}
-    ) RETURNING id
-  `) as Row[];
-  const invoiceId = String(invRows[0]!.id);
+  // Use the SAME sequence as customer-invoices-create ('customer_invoice').
+  // The old inline counter used a SEPARATE document_type ('invoice', 'INV-'
+  // 5-pad) — two generators for one uniqueness domain — and its fresh counter
+  // walked straight into historical INV-xxxxx rows (uq violation, found live
+  // 2026-07-05). Same savepoint-isolated retry as the create path: a clash
+  // with a legacy number must not poison the request transaction.
+  let invoiceId = '';
+  let invoiceNumber = await reserveNextDocumentNumber(companyId, 'customer_invoice');
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      invoiceId = await withSavepoint(`quote_conv_inv_${attempt}`, async () => {
+        const invRows = (await sql`
+          INSERT INTO customer_invoices (
+            company_id, invoice_number, client_id, customer_id,
+            invoice_date, due_date, subtotal, tax_amount, total_amount,
+            notes, status, created_by
+          ) VALUES (
+            ${companyId}::UUID, ${invoiceNumber}, ${quote.clientId || null}, ${quote.clientId || null},
+            ${quote.quoteDate}, ${quote.expiryDate || quote.quoteDate},
+            ${quote.subtotal}, ${quote.taxAmount}, ${quote.total},
+            ${'Converted from ' + quote.quoteNumber}, 'draft', ${userId || null}
+          ) RETURNING id
+        `) as Row[];
+        return String(invRows[0]!.id);
+      });
+      break;
+    } catch (err) {
+      const code = (err as { code?: string }).code;
+      if (code === '23505' && attempt < 4) {
+        invoiceNumber = await reserveNextDocumentNumber(companyId, 'customer_invoice');
+        continue;
+      }
+      throw err;
+    }
+  }
 
   for (const line of quote.lines || []) {
     await sql`

@@ -36,8 +36,14 @@ vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
 
+vi.mock('@/modules/accounting/services/core/companySettingsService', () => ({
+  // convert now shares the create path's 'customer_invoice' sequence
+  reserveNextDocumentNumber: vi.fn().mockResolvedValue('INV0000099'),
+}));
+
 import { getQuote } from '@/modules/accounting/services/ar/quoteService';
 import { convertToInvoice } from '@/modules/accounting/services/ar/quoteConvertService';
+import { reserveNextDocumentNumber } from '@/modules/accounting/services/core/companySettingsService';
 
 const COMPANY_ID = 'cccccccc-0000-4000-8000-cccccccccccc';
 const QUOTE_ID = 'aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa';
@@ -101,8 +107,7 @@ describe('quote date serialization + convert column names (P1.2 residual)', () =
     sqlResults.push(
       [quoteRow()],
       [lineRow],
-      [{ current_number: 7, prefix: 'INV-' }],
-      [{ id: 'eeeeeeee-0000-4000-8000-eeeeeeeeeeee' }],
+      [{ id: 'eeeeeeee-0000-4000-8000-eeeeeeeeeeee' }], // invoice insert
       [], // item insert
       [], // quote update
       [quoteRow({ status: 'converted', converted_invoice_id: 'eeeeeeee-0000-4000-8000-eeeeeeeeeeee' })],
@@ -118,5 +123,39 @@ describe('quote date serialization + convert column names (P1.2 residual)', () =
     expect(itemInsert!).toMatch(/\bgl_account_id\b/);
     expect(itemInsert!).not.toMatch(/\bline_total\b/);
     expect(itemInsert!).not.toMatch(/(?<!gl_)\baccount_id\b/);
+
+    // Pin the SHARED sequence: reverting to the old 'invoice'/'INV-' counter
+    // (which collided with historical numbers) must fail this test.
+    expect(reserveNextDocumentNumber).toHaveBeenCalledWith(COMPANY_ID, 'customer_invoice');
+  });
+
+  it('retries with a fresh number when the INSERT hits a legacy-number collision (23505)', async () => {
+    const dupe = Object.assign(new Error('duplicate key value violates unique constraint'), {
+      code: '23505',
+    });
+    sqlResults.push(
+      [quoteRow()],
+      [lineRow],
+      // first invoice INSERT → 23505; wired via mockImplementation below
+    );
+    const mockSqlFn = (await import('@/lib/neon')).sql as unknown as ReturnType<typeof vi.fn>;
+    let invoiceInsertCalls = 0;
+    mockSqlFn.mockImplementation((strings: TemplateStringsArray) => {
+      const text = strings.join('?');
+      sqlTexts.push(text);
+      if (/INSERT INTO customer_invoices/i.test(text)) {
+        invoiceInsertCalls += 1;
+        if (invoiceInsertCalls === 1) return Promise.reject(dupe);
+        return Promise.resolve([{ id: 'eeeeeeee-0000-4000-8000-eeeeeeeeeeee' }]);
+      }
+      return Promise.resolve(sqlResults.shift() ?? []);
+    });
+
+    const result = await convertToInvoice(COMPANY_ID, QUOTE_ID, 'ffffffff-0000-4000-8000-ffffffffffff');
+
+    expect(result).toBeTruthy();
+    expect(invoiceInsertCalls).toBe(2);
+    // a fresh number was reserved for the retry
+    expect(reserveNextDocumentNumber).toHaveBeenCalledTimes(2);
   });
 });

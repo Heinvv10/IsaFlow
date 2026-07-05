@@ -2,17 +2,20 @@
  * Golden path (j): fixed assets — register → depreciation run → FAR report
  * returns rows.
  *
- * EXPECTED FAIL at baseline — July-4 audit H5: far-report joins
- * c.company_id on asset_categories (column doesn't exist → 42703), swallows
- * the error and answers "run pending migrations" with an empty register.
- * P1.5 fixes the join and makes the error honest.
+ * Was EXPECTED FAIL at baseline — July-4 audit H5: far-report joined
+ * c.company_id on asset_categories (42703) and masked every failure as
+ * "run pending migrations". Flipped to a plain test by P1.5: the parallel
+ * session fixed the join + made the catch honest; this branch fixed the
+ * three remaining root causes — entry_number VARCHAR(20) overflow (every
+ * depreciation GL post 22001'd on 'DEP-ASST-00NN-YYYY-MM', mig 500 widens
+ * to 50), the unsavepointed per-asset loop (one bad asset poisoned the
+ * request tx → 500), and a stray a.tax_life_years reference in the FAR
+ * SELECT (column exists only on asset_categories).
  */
 import { test, expect } from '@playwright/test';
 import { Api, gpRef, today } from './_api';
 
 test('fixed assets: register → depreciation run → FAR report has rows', async ({ baseURL }) => {
-  test.fail(true, 'AUDIT H5 (2026-07-04): far-report 42703 masked as "run pending migrations" — fixed by P1.5');
-
   const api = await Api.login(baseURL!);
   try {
     // Register an asset.
