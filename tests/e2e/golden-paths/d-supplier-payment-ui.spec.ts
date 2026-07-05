@@ -16,17 +16,11 @@ test('supplier payment created through the /new form allocates to the invoice', 
 }) => {
   const api = await Api.login(baseURL!);
   try {
-    // Fresh supplier so the form's invoice table contains exactly our invoice.
-    // Name starts with '0' so it sorts into the dropdown's FIRST page — the
-    // form loads suppliers-list without a limit param (default 25) and a
-    // later-sorting name silently falls off the list (found live 2026-07-05).
-    const ref = `0${gpRef('SUPP')}`;
-    const supplier = await api.post<any>('/api/accounting/suppliers-list', {
-      name: ref,
-      email: `${gpRef('supp')}@example.test`,
-      payment_terms: 30,
-    });
-    const supplierId = supplier.id;
+    // Fixture supplier (find-or-create '0GP-Golden-Supplier'): the name's
+    // '0' prefix keeps it on the dropdown's FIRST page (the form loads
+    // suppliers-list default limit 25 — later-sorting names silently fall
+    // off, found live 2026-07-05), and reuse bounds master-data growth.
+    const supplierId = await api.fixtureSupplier();
     expect(supplierId).toBeTruthy();
 
     const inv = await api.post<any>('/api/accounting/supplier-invoices', {

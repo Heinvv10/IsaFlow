@@ -14,6 +14,7 @@ test('bank import: CSV and MT940 statements create transactions and rules can ma
   baseURL,
 }) => {
   const api = await Api.login(baseURL!);
+  const importedTxnIds: string[] = [];
   try {
     const accounts = await api.get<any[]>('/api/accounting/bank-accounts');
     expect(accounts.length, 'company must have a bank account (prod Demo gap = P2.3)').toBeGreaterThan(0);
@@ -84,6 +85,9 @@ test('bank import: CSV and MT940 statements create transactions and rules can ma
     const txns = await api.get<any>(
       `/api/accounting/bank-transactions?bankAccountId=${bankAccountId}&status=imported&search=${encodeURIComponent(ref)}`,
     );
+    for (const t of txns?.transactions ?? (Array.isArray(txns) ? txns : [])) {
+      if (t?.id) importedTxnIds.push(String(t.id));
+    }
     const txnText = JSON.stringify(txns);
     expect(txnText).toContain(`${ref} coffee supplies`);
     expect(txnText).toContain(`${ref} client deposit`);
@@ -98,6 +102,19 @@ test('bank import: CSV and MT940 statements create transactions and rules can ma
     const count = Number(rulePreview.matchCount ?? 0);
     expect(count, 'rule preview must match the imported CSV transaction').toBeGreaterThan(0);
   } finally {
+    // Cleanup: delete THIS run's imported statement lines so the shared bank
+    // account (dev AND prod Demo post-deploy) doesn't grow a fake-txn tail
+    // (late #196 review HIGH). Unallocated imports carry no GL impact.
+    try {
+      if (importedTxnIds.length > 0) {
+        await api.post('/api/accounting/bank-transactions-action', {
+          action: 'delete',
+          bankTransactionIds: importedTxnIds,
+        });
+      }
+    } catch (cleanupErr) {
+      test.info().annotations.push({ type: 'cleanup-failed', description: String(cleanupErr) });
+    }
     await api.dispose();
   }
 });

@@ -75,12 +75,19 @@ jobs:
           fi
           cp /home/hein/isaflow-ci.env .env.local
           bunx playwright install chromium
-          bunx next dev -p 3210 > golden-dev.log 2>&1 &
+          # Ephemeral port: avoids collisions with stale servers from earlier
+          # cancelled runs on this long-lived runner (a stale next dev on a
+          # fixed port would pass the health check and test OLD code).
+          GOLDEN_PORT=$((3300 + RANDOM % 500))
+          bunx next dev -p "$GOLDEN_PORT" > golden-dev.log 2>&1 &
           DEVPID=$!
           trap 'kill $DEVPID 2>/dev/null || true' EXIT
           for i in $(seq 1 90); do
-            curl -sf http://localhost:3210/api/health >/dev/null && break
+            curl -sf "http://localhost:$GOLDEN_PORT/api/health" >/dev/null && break
             sleep 2
           done
-          curl -sf http://localhost:3210/api/health >/dev/null || { echo "dev server failed to boot"; tail -50 golden-dev.log; exit 1; }
-          BASE_URL=http://localhost:3210 bun run test:e2e:golden
+          # Do NOT cat/tail golden-dev.log here: the boot log can echo values
+          # from .env.local, and GitHub only redacts registered secrets —
+          # runner-local env values would land in the public job log.
+          curl -sf "http://localhost:$GOLDEN_PORT/api/health" >/dev/null || { echo "dev server failed to boot — see golden-dev.log in the runner workdir (not printed: may contain env values)"; exit 1; }
+          BASE_URL="http://localhost:$GOLDEN_PORT" bun run test:e2e:golden

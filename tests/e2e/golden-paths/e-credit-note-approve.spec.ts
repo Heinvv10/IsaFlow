@@ -12,8 +12,7 @@ import { Api, gpRef, today } from './_api';
 test('credit note: create → approve → apply to invoice', async ({ baseURL }) => {
   const api = await Api.login(baseURL!);
   try {
-    const customers = await api.get<any[]>('/api/accounting/customers?limit=1');
-    const clientId = customers[0].id;
+    const clientId = await api.fixtureCustomer();
 
     // Target invoice for the credit (create + approve so it carries a balance).
     const ref = gpRef('CNI');
@@ -51,6 +50,20 @@ test('credit note: create → approve → apply to invoice', async ({ baseURL })
       action: 'approve',
       creditNoteId,
     });
+
+    // Double-entry assertion (blind-review MEDIUM): approval must post a
+    // BALANCED credit journal, not merely flip the CN status.
+    const approvedCn = await api.get<any>(`/api/accounting/credit-notes?id=${creditNoteId}`);
+    const cnJournalId = approvedCn.glJournalEntryId ?? approvedCn.gl_journal_entry_id;
+    expect(cnJournalId, 'CN approval must post a GL journal').toBeTruthy();
+    const cnJournal = await api.get<any>(
+      `/api/accounting/journal-entries-detail?id=${cnJournalId}`,
+    );
+    expect(cnJournal.status).toBe('posted');
+    const cnDr = cnJournal.lines.reduce((t: number, l: any) => t + Number(l.debit), 0);
+    const cnCr = cnJournal.lines.reduce((t: number, l: any) => t + Number(l.credit), 0);
+    expect(cnDr).toBeCloseTo(115, 2);
+    expect(cnCr).toBeCloseTo(115, 2);
 
     // Apply to the invoice.
     await api.post('/api/accounting/credit-notes-action', {

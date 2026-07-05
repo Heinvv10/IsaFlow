@@ -18,19 +18,35 @@ import { Api, gpRef, today } from './_api';
 test('fixed assets: register → depreciation run → FAR report has rows', async ({ baseURL }) => {
   const api = await Api.login(baseURL!);
   try {
-    // Register an asset.
-    const ref = gpRef('AST');
-    const asset = await api.post<any>('/api/accounting/assets', {
-      name: ref,
-      cost: 12000,
-      usefulLifeYears: 3,
-      purchaseDate: today(),
-      depreciationMethod: 'straight_line',
-    });
-    expect(asset.id).toBeTruthy();
+    // Fixture asset (find-or-create): one asset total, one depreciation
+    // journal per month — bounded residue that is CORRECT bookkeeping for a
+    // demo company. Registering a fresh asset per run grew the register and
+    // its GL tail unboundedly (late #196 review HIGH).
+    const ref = '0GP-Golden-Asset';
+    const foundAssets = await api.get<any>(`/api/accounting/assets?search=${encodeURIComponent(ref)}`);
+    const assetList = foundAssets?.assets ?? (Array.isArray(foundAssets) ? foundAssets : []);
+    let assetId: string;
+    if (assetList.length > 0) {
+      assetId = assetList[0].id;
+    } else {
+      const asset = await api.post<any>('/api/accounting/assets', {
+        name: ref,
+        cost: 12000,
+        usefulLifeYears: 3,
+        purchaseDate: today(),
+        depreciationMethod: 'straight_line',
+      });
+      assetId = asset.id;
+    }
+    expect(assetId).toBeTruthy();
 
     // Run depreciation (dual policy+tax engine; posts policy dep to GL).
-    await api.post('/api/accounting/run-depreciation', {});
+    // Idempotent per asset+month: re-runs return the existing journal
+    // (alreadyPosted) instead of failing or re-posting — so repeated suite
+    // runs (incl. prod Demo post-deploy) post at most one depreciation
+    // journal per asset per month, which is correct bookkeeping.
+    const run = await api.post<any>('/api/accounting/run-depreciation', {});
+    expect(Number(run?.glFailed ?? 0), 'no per-asset GL failures').toBe(0);
 
     // FAR report must return rows — never the misleading setup message.
     const far = await api.get<any>(`/api/accounting/assets/far-report?asAt=${today()}`);

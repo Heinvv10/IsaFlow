@@ -31,7 +31,7 @@ States: `todo` · `in-progress` · `pr-open` · `merged` · `deployed` · `block
 | b/e specs don't assert journal line balance (DR AR/CR Rev/CR VAT) | MEDIUM | add journal-balance assertions via gl_journal_entry_id |
 | self-hosted runner exposed to pull_request events (pre-existing pattern) | INFO | flag to Hein — private single-owner repo, low risk today |
 
-State: **todo — next PR after P1.1 merges** (branch test/golden-paths-hardening).
+State: **pr-open** (branch test/golden-paths-hardening). Fixes: spec j → fixture asset + IDEMPOTENT depreciation GL (product fix: existing DEP-<asset>-<month> entry returned as already-posted instead of silent 23505 — re-runs post at most one journal/asset/month); spec f → imported txns deleted in finally; specs b/c/d/e → fixture masters (0GP-Golden-Customer/Supplier, bounded growth); spec h cleanup in finally; b/e journal-balance assertions; CI: no log tail (secret leak), ephemeral port (stale-server); _api dispose-on-login-fail + 401 hint.
 
 ## Phase 1 — The broken five
 
