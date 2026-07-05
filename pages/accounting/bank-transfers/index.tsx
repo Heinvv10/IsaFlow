@@ -40,7 +40,7 @@ export default function BankTransfersPage() {
     }
   }, []);
 
-  useEffect(() => { loadBankAccounts(); }, [loadBankAccounts]);
+  useEffect(() => { void loadBankAccounts(); }, [loadBankAccounts]);
 
   const handleTransfer = async () => {
     if (!fromAccount || !toAccount || !amount || fromAccount === toAccount) {

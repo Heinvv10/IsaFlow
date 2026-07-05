@@ -55,7 +55,7 @@ export default function UserAccessPage() {
     } finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { void loadData(); }, [loadData]);
 
   const showFeedback = (msg: string) => {
     setFeedback(msg);
@@ -95,7 +95,7 @@ export default function UserAccessPage() {
       })).json();
       if (j.data?.autoAdded) {
         showFeedback(`${inviteEmail} was found and added directly.`);
-        loadData();
+        void loadData();
       } else {
         showFeedback(`Invitation sent to ${inviteEmail}.`);
         const ir = await (await apiFetch('/api/accounting/company-invitations')).json();

@@ -32,7 +32,7 @@ export default function ItemMovementReport() {
     }
   }, [from, to]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   return (
     <AppLayout>

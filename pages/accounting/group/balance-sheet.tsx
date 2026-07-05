@@ -113,7 +113,7 @@ export default function ConsolidatedBalanceSheetPage() {
   }, [selectedGroupId, asAtDate]);
 
   useEffect(() => {
-    loadData();
+    void loadData();
   }, [loadData]);
 
   /* ---------- Derived values ---------- */

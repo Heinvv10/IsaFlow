@@ -71,7 +71,7 @@ export default function EliminationsPage() {
     finally { setLoading(false); }
   }, [selectedGroupId, periodStart, periodEnd]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { void loadData(); }, [loadData]);
 
   /* Shared action helper — avoids triple-duplicating fetch + error handling */
   const postAction = useCallback(async (loadingKey: string, body: object, errMsg: string) => {

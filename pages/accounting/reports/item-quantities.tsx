@@ -31,7 +31,7 @@ export default function ItemQuantitiesReport() {
     }
   }, [showLowOnly]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const lowCount = rows.filter(r => r.lowStock).length;
 

@@ -62,7 +62,7 @@ export default function LeaveIndexPage() {
     }
   }, [filterStatus, filterMonth]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   return (
     <AppLayout>

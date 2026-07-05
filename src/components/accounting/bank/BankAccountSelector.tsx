@@ -30,7 +30,7 @@ export function BankAccountSelector(props: BankAccountSelectorProps) {
 
   useEffect(() => {
     let alive = true;
-    (async () => {
+    void (async () => {
       try {
         const res = await apiFetch('/api/accounting/chart-of-accounts?subtype=bank');
         const json = await res.json();

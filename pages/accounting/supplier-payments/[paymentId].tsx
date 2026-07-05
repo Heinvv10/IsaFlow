@@ -74,7 +74,7 @@ export default function SupplierPaymentDetailPage() {
     }
   }, [paymentId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   async function handleAction(action: string) {
     if (!payment) return;
@@ -89,7 +89,7 @@ export default function SupplierPaymentDetailPage() {
         const json = await res.json();
         setError(json.error || `Failed to ${action}`);
       } else {
-        load();
+        void load();
       }
     } catch {
       setError(`Failed to ${action} payment`);

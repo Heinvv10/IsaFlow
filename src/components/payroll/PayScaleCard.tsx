@@ -34,11 +34,13 @@ export function PayScaleCard({ employeeId, currentPayScaleId, onChange }: Props)
         const json = await res.json();
         setScales(((json.data ?? json) as PayScale[]) ?? []);
       }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load pay scales');
     } finally {
       setLoading(false);
     }
   }, []);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
   useEffect(() => { setSelected(currentPayScaleId ?? ''); }, [currentPayScaleId]);
 
   async function save(): Promise<void> {

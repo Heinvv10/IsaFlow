@@ -37,7 +37,7 @@ export default function NewProductPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error?.message || 'Failed');
-      router.push('/accounting/products');
+      void router.push('/accounting/products');
     } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
     finally { setSaving(false); }
   };

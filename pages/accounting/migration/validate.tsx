@@ -57,8 +57,8 @@ export default function ValidatePage() {
   }, []);
 
   useEffect(() => {
-    loadSession().then(sid => {
-      if (sid) runValidation(sid);
+    void loadSession().then(sid => {
+      if (sid) void runValidation(sid);
       else setIsLoading(false);
     });
   }, [loadSession, runValidation]);

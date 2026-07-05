@@ -107,7 +107,7 @@ export default function ReconciliationDetailPage() {
     }
   }, [reconId]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { void loadData(); }, [loadData]);
 
   const handleAutoMatch = async () => {
     if (!recon) return;
@@ -379,7 +379,7 @@ export default function ReconciliationDetailPage() {
                             </span>
                             {!isCompleted && (
                               <button
-                                onClick={e => { e.stopPropagation(); handleExclude(tx.id); }}
+                                onClick={e => { e.stopPropagation(); void handleExclude(tx.id); }}
                                 className="p-1 text-[var(--ff-text-tertiary)] hover:text-red-400"
                                 title="Exclude"
                               >

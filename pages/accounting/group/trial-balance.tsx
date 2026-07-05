@@ -74,7 +74,7 @@ export default function ConsolidatedTrialBalancePage() {
     finally { setLoading(false); }
   }, [selectedGroupId, periodStart, periodEnd]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { void loadData(); }, [loadData]);
 
   const entityIds = useMemo(() => {
     if (!data) return [];

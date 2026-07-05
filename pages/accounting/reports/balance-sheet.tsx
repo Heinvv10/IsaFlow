@@ -93,7 +93,7 @@ export default function BalanceSheetPage() {
     } finally { setIsLoading(false); }
   }, [asAtDate, costCentreId, showComparative, periodResolved]);
 
-  useEffect(() => { loadReport(); }, [loadReport]);
+  useEffect(() => { void loadReport(); }, [loadReport]);
 
   function makeExportParams() {
     const p = new URLSearchParams({ as_at_date: asAtDate });

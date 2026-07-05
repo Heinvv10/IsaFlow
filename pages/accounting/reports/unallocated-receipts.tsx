@@ -38,7 +38,7 @@ export default function UnallocatedReceiptsReport() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const totalUnalloc = items.reduce((s, r) => s + (Number(r.amount) - Number(r.allocatedAmount)), 0);
 

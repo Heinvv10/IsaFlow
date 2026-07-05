@@ -46,7 +46,7 @@ export default function ExchangeRatesSettingsPage() {
     }
   }, []);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { void loadData(); }, [loadData]);
 
   const handleDelete = useCallback(async (id: string) => {
     setDeleting(id);

@@ -108,7 +108,7 @@ export default function BatchGridPage() {
     }
   }, [id]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const usedEmployeeIds = new Set(lines.map(l => l.employeeId));
   const availableEmployees = employees.filter(e => !usedEmployeeIds.has(e.id));

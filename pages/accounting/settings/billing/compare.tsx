@@ -54,7 +54,7 @@ export default function ComparePlansPage() {
   const [notPayg, setNotPayg] = useState(false);
 
   useEffect(() => {
-    (async () => {
+    void (async () => {
       setLoading(true);
       setError('');
       try {

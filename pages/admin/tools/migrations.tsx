@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { apiFetch } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { Upload, CheckCircle2, AlertCircle, Loader2, Database, Play } from 'lucide-react';
 
 type Source   = 'xero' | 'quickbooks' | 'pastel';
@@ -73,10 +74,12 @@ export default function AdminMigrationsPage() {
         ({ id: c.id, name: c.name, trading_name: c.trading_name }));
       setCompanies(items);
       if (items.length > 0 && items[0]) setCompanyId(items[0].id);
-    } catch { /* error state handled by empty list */ } finally { setLoadingCo(false); }
+    } catch (err) {
+      log.error('Failed to load companies for migration tool', { error: err }, 'admin-ui');
+    } finally { setLoadingCo(false); }
   }, []);
 
-  useEffect(() => { loadCompanies(); }, [loadCompanies]);
+  useEffect(() => { void loadCompanies(); }, [loadCompanies]);
 
   // Reset zones when source changes
   useEffect(() => {
@@ -181,7 +184,7 @@ export default function AdminMigrationsPage() {
               return (
                 <div key={type}>
                   <input ref={refs[type]} type="file" accept=".csv,.xlsx" className="hidden"
-                    onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f, type); e.target.value = ''; }} />
+                    onChange={e => { const f = e.target.files?.[0]; if (f) void handleFile(f, type); e.target.value = ''; }} />
                   <button type="button" disabled={!companyId || z.status === 'uploading'}
                     onClick={() => refs[type].current?.click()}
                     className={`w-full flex flex-col items-center gap-2 p-4 border-2 border-dashed rounded-xl transition-colors text-center disabled:opacity-50 disabled:cursor-not-allowed ${zoneCls(z.status)}`}>

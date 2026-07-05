@@ -50,7 +50,7 @@ export function ComplianceTab() {
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    void (async () => {
       try {
         const res = await apiFetch('/api/accounting/compliance-obligations');
         const json = await res.json();

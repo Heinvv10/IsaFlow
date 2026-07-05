@@ -34,7 +34,7 @@ export default function CustomerCreditNotesPage() {
     finally { setIsLoading(false); }
   }, [tab]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const exportCSV = () => {
     const headers = ['CN #', 'Customer', 'Invoice', 'Date', 'Amount', 'Status'];

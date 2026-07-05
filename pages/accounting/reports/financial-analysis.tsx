@@ -9,6 +9,7 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { ArrowLeft, BarChart3, TrendingUp, TrendingDown, Minus, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 
 const LineChart = dynamic(() => import('recharts').then(m => m.LineChart), { ssr: false });
 const Line = dynamic(() => import('recharts').then(m => m.Line), { ssr: false });
@@ -76,11 +77,11 @@ export default function FinancialAnalysisPage() {
       }
       const ratioRes = await apiFetch(`/api/accounting/reports-extended-ratios?from=${from}&to=${to}`).then(r => r.json());
       if (ratioRes.data?.ratios) setRatios(ratioRes.data.ratios);
-    } catch { /* handled by empty states */ }
+    } catch (err) { log.error('Failed to load financial analysis data', { error: err }, 'FinancialAnalysisPage'); }
     finally { setLoading(false); }
   }, [months]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { void loadData(); }, [loadData]);
 
   return (
     <AppLayout>

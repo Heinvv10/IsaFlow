@@ -96,7 +96,7 @@ export default function CustomerInvoicesPage() {
     }
   }, [statusFilter, debouncedSearch, page, agingFilters]);
 
-  useEffect(() => { loadInvoices(); }, [loadInvoices]);
+  useEffect(() => { void loadInvoices(); }, [loadInvoices]);
 
   function handleAgingChange(next: AgingFilterId[]) {
     setAgingFilters(next);

@@ -34,7 +34,7 @@ export default function SalesByItemReport() {
     }
   }, [from, to]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const totals = rows.reduce((a, r) => ({
     qtySold: a.qtySold + r.qtySold, totalRevenue: a.totalRevenue + r.totalRevenue,

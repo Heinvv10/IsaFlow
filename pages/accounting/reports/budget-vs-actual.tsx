@@ -66,7 +66,7 @@ export default function BudgetVsActualPage() {
     }
   }, [fiscalPeriod]);
 
-  useEffect(() => { loadReport(); }, [loadReport]);
+  useEffect(() => { void loadReport(); }, [loadReport]);
 
   return (
     <AppLayout>

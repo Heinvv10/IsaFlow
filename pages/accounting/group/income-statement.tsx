@@ -118,7 +118,7 @@ export default function ConsolidatedIncomeStatementPage() {
   }, [selectedGroupId, periodStart, periodEnd]);
 
   useEffect(() => {
-    loadData();
+    void loadData();
   }, [loadData]);
 
   /* ---------- Derived values ---------- */

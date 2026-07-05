@@ -41,7 +41,7 @@ export default function OpeningBalancesPage() {
     }
   }, []);
 
-  useEffect(() => { loadAccounts(); }, [loadAccounts]);
+  useEffect(() => { void loadAccounts(); }, [loadAccounts]);
 
   const updateBalance = (id: string, field: 'opening_debit' | 'opening_credit', value: string) => {
     setAccounts(prev => prev.map(a =>

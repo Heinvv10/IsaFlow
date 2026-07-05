@@ -42,7 +42,7 @@ export default function CreditNotesPage() {
     finally { setIsLoading(false); }
   }, [tab, typeFilter]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const exportCSV = () => {
     const headers = ['CN #', 'Type', 'Client/Supplier', 'Invoice', 'Date', 'Amount', 'Status'];

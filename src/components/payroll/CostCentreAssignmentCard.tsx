@@ -52,12 +52,14 @@ export function CostCentreAssignmentCard({ employeeId, currentCostCentreId, onCh
         setBaseline(list);
         if (list.length > 0) setMode('split');
       }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load cost centres');
     } finally {
       setLoading(false);
     }
   }, [employeeId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
   useEffect(() => { setSelected(currentCostCentreId ?? ''); }, [currentCostCentreId]);
 
   const sum = useMemo(

@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { List, Loader2, Download, Search } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
@@ -26,7 +27,12 @@ export default function ItemListingReport() {
     setLoading(false);
   }, [search]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load().catch(err => {
+      setLoading(false);
+      log.error('Failed to load item listing', { error: err }, 'ItemListingReport');
+    });
+  }, [load]);
 
   return (
     <AppLayout>

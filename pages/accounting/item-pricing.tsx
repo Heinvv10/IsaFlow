@@ -29,7 +29,12 @@ export default function ItemPricingPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load().catch(() => {
+      setLoading(false);
+      setMsg('Failed to load items');
+    });
+  }, [load]);
 
   const filtered = useMemo(() => {
     if (!search) return items;

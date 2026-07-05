@@ -45,7 +45,7 @@ export function useAccountingDocuments(
   }, [entityType, entityId]);
 
   useEffect(() => {
-    fetchDocuments();
+    void fetchDocuments();
   }, [fetchDocuments]);
 
   const uploadDocument = useCallback(

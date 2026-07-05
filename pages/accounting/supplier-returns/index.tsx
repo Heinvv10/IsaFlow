@@ -42,7 +42,7 @@ export default function SupplierReturnsPage() {
     finally { setIsLoading(false); }
   }, []);
 
-  useEffect(() => { loadReturns(); }, [loadReturns]);
+  useEffect(() => { void loadReturns(); }, [loadReturns]);
 
   useEffect(() => {
     apiFetch('/api/accounting/suppliers-list').then(r => r.json()).then(json => {

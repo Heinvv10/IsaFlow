@@ -33,7 +33,12 @@ export default function ItemAdjustmentsPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load().catch(() => {
+      setLoading(false);
+      setMsg('Failed to load items');
+    });
+  }, [load]);
 
   const submit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();

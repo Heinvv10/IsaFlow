@@ -95,7 +95,7 @@ export default function CustomerStatementDetailPage() {
     }
   }, [clientId]);
 
-  useEffect(() => { loadStatement(); }, [loadStatement]);
+  useEffect(() => { void loadStatement(); }, [loadStatement]);
 
   const filteredTransactions = useMemo(() => {
     let filtered = transactions;

@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { Landmark, ArrowLeft, Loader2, RefreshCw } from 'lucide-react';
+import { log } from '@/lib/logger';
 import { Loan, ScheduleRow, LoanEvent, RateCurve, RatePoint, PRODUCT_LABELS } from '@/components/loans/types';
 import { LoanStatusBadge } from '@/components/loans/LoanStatusBadge';
 import { LoanOverviewTab } from '@/components/loans/LoanOverviewTab';
@@ -84,17 +85,35 @@ export default function LoanDetailPage() {
     setLoadingCurve(false);
   }, []);
 
-   
-  useEffect(() => { loadLoan(); }, [loadLoan]);
+
+  useEffect(() => {
+    loadLoan().catch((err) => {
+      setLoadingLoan(false);
+      setError(err instanceof Error ? err.message : 'Failed to load loan');
+    });
+  }, [loadLoan]);
 
   useEffect(() => {
     if (!loan) return;
-     
-    if (tab === 'schedule' && scheduleRows.length === 0) loadSchedule();
-    if (tab === 'events') loadEvents();
+
+    if (tab === 'schedule' && scheduleRows.length === 0) {
+      loadSchedule().catch((err) => {
+        setLoadingSchedule(false);
+        log.error('Failed to load loan schedule', { error: err }, 'loan-detail-page');
+      });
+    }
+    if (tab === 'events') {
+      loadEvents().catch((err) => {
+        log.error('Failed to load loan events', { error: err }, 'loan-detail-page');
+      });
+    }
     if (tab === 'curve') {
-      if (loan.curveId) loadCurve(loan.curveId);
-      else { setCurve(null); setCurvePoints([]); }
+      if (loan.curveId) {
+        loadCurve(loan.curveId).catch((err) => {
+          setLoadingCurve(false);
+          log.error('Failed to load rate curve', { error: err }, 'loan-detail-page');
+        });
+      } else { setCurve(null); setCurvePoints([]); }
     }
   }, [tab, loan, scheduleRows.length, loadSchedule, loadEvents, loadCurve]);
 

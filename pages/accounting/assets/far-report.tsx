@@ -73,7 +73,12 @@ export default function FarReportPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { load(asAt); }, [asAt, load]);
+  useEffect(() => {
+    load(asAt).catch((err) => {
+      setLoading(false);
+      setError(err instanceof Error ? err.message : 'Failed to load report');
+    });
+  }, [asAt, load]);
 
   const statusBadge = (status: string, belowThreshold: boolean) => (
     <span className="flex items-center gap-1">

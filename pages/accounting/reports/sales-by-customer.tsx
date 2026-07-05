@@ -34,7 +34,7 @@ export default function SalesByCustomerReport() {
     }
   }, [from, to]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const totals = rows.reduce((a, r) => ({
     invoiceCount: a.invoiceCount + r.invoiceCount,

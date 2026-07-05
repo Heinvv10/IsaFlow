@@ -69,7 +69,7 @@ export default function CashFlowPage() {
     }
   }, [startDate, endDate, costCentreFilter]);
 
-  useEffect(() => { loadReport(); }, [loadReport]);
+  useEffect(() => { void loadReport(); }, [loadReport]);
 
   return (
     <AppLayout>

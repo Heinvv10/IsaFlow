@@ -31,7 +31,7 @@ export default function ItemValuationReport() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const totalValue = rows.reduce((s, r) => s + r.stockValue, 0);
 

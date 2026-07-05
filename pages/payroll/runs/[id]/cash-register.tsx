@@ -59,7 +59,11 @@ export default function CashRegisterPage() {
       setLoading(false);
     }
   }, [runId]);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load().catch((err) => {
+      setError(err instanceof Error ? err.message : 'Failed to load cash register');
+    });
+  }, [load]);
 
   return (
     <AppLayout>

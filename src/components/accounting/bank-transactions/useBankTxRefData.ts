@@ -6,6 +6,7 @@
 
 import { useEffect, useCallback } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import type { SelectOption } from '@/components/accounting/BankTxTable';
 import type { BankAcct } from './BankTxBankCards';
 
@@ -97,6 +98,8 @@ export function useBankTxRefData(setters: Setters): { refreshBankAccounts: () =>
       setBuOptions(deptList
         .filter((d: { is_active?: boolean; isActive?: boolean }) => d.is_active !== false && d.isActive !== false)
         .map((d: { id: string; name: string; code?: string }) => ({ id: d.id, name: d.name, code: d.code })));
+    }).catch((err) => {
+      log.error('Failed to load bank transaction reference data', { error: err }, 'accounting-ui');
     }).finally(() => { setRefDataLoaded?.(true); });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

@@ -71,7 +71,7 @@ export function VAT201ExceptionsPanel({ from, to, reloadKey }: Props) {
   useEffect(() => {
     if (!from || !to || reloadKey === 0) return;
     let cancelled = false;
-    (async () => {
+    void (async () => {
       setLoading(true); setError('');
       try {
         const res = await apiFetch(`/api/accounting/sars/vat-exceptions?from=${from}&to=${to}`, { credentials: 'include' });

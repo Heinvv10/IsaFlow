@@ -70,7 +70,7 @@ export default function DefaultAccountsPage() {
     }
   }, []);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { void loadData(); }, [loadData]);
 
   const handleSave = async () => {
     setIsSaving(true);

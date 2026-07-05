@@ -13,6 +13,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import { Landmark, Plus, Search, TrendingUp, Calendar, Percent, Loader2 } from 'lucide-react';
 import { Loan, PortfolioSummary, fmt, fmtDate, PRODUCT_LABELS } from '@/components/loans/types';
 import { LoanStatusBadge } from '@/components/loans/LoanStatusBadge';
+import { log } from '@/lib/logger';
 
 const LoanMaturityChart = dynamic(() => import('@/components/loans/LoanMaturityChart'), { ssr: false });
 
@@ -54,8 +55,13 @@ export default function LoansIndexPage() {
     setLoading(false);
   }, []);
 
-   
-  useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    load().catch((err) => {
+      setLoading(false);
+      log.error('Failed to load loan portfolio', { error: err }, 'loans-index-page');
+    });
+  }, [load]);
 
   const filtered = loans.filter(l => {
     if (statusFilter && l.status !== statusFilter) return false;

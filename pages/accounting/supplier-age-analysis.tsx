@@ -34,7 +34,7 @@ export default function SupplierAgeAnalysisPage() {
     }
   }, [asAtDate]);
 
-  useEffect(() => { loadAging(); }, [loadAging]);
+  useEffect(() => { void loadAging(); }, [loadAging]);
 
   const totals = buckets.reduce(
     (acc, b) => ({
