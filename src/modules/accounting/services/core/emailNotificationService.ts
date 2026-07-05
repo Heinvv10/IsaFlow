@@ -100,7 +100,7 @@ export async function sendInvoiceEmail(
           email_sent_to = ${recipientEmail},
           email_message_id = ${result.messageId || null},
           updated_at = NOW()
-      WHERE id = ${invoiceId}::UUID
+      WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
     `;
 
     log.info('Invoice email sent and tracked', {

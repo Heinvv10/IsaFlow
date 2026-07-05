@@ -332,7 +332,7 @@ export async function confirmReceiptMatch(
   const afterRows = (await sql`
     SELECT status, total_amount, amount_paid
     FROM customer_invoices
-    WHERE id = ${customerInvoiceId}::UUID
+    WHERE id = ${customerInvoiceId}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
   const afterRow = afterRows[0]!;
   const invoiceStatus = String(afterRow.status);
