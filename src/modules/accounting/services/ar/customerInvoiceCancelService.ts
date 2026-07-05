@@ -85,7 +85,7 @@ async function cancelCustomerInvoiceInner(
     // FOR UPDATE locks the invoice row for this request tx so two concurrent
     // cancels can't both pass the guards and double-reverse the journal.
     const invRows = (await sql`
-      SELECT id, status, amount_paid, gl_journal_entry_id
+      SELECT id, status, amount_paid, gl_journal_entry_idx
       FROM customer_invoices
       WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
       FOR UPDATE
