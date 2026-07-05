@@ -56,7 +56,11 @@ vi.mock('@/modules/accounting/services/ap/supplierInvoiceService', () => ({
 
 import { sql, withSavepoint } from '@/lib/neon';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
-import { cancelSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
+import { getSupplierInvoiceById } from '@/modules/accounting/services/ap/supplierInvoiceService';
+import {
+  cancelSupplierInvoice,
+  postSupplierInvoiceToGL,
+} from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 
 const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
 const mockReverse = reverseJournalEntry as unknown as MockedFunction<
@@ -182,5 +186,18 @@ describe('cancelSupplierInvoice GL reversal (P1.1 sweep / audit C1)', () => {
     await cancelSupplierInvoice(COMPANY_ID, INVOICE_ID, USER_ID).catch(() => undefined);
 
     expect(withSavepoint).toHaveBeenCalledWith('cancel_supplier_invoice', expect.any(Function));
+  });
+
+  it('postSupplierInvoiceToGL refuses cancelled invoices (link is NULL after cancel)', async () => {
+    (getSupplierInvoiceById as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: INVOICE_ID,
+      status: 'cancelled',
+      glJournalEntryId: undefined,
+    });
+
+    await expect(postSupplierInvoiceToGL(COMPANY_ID, INVOICE_ID, USER_ID)).rejects.toThrow(
+      /cancelled/i,
+    );
+    expect(mockSql).not.toHaveBeenCalled();
   });
 });

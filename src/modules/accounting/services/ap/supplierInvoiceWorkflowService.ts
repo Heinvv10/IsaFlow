@@ -140,6 +140,13 @@ export async function postSupplierInvoiceToGL(
   const invoice = await getSupplierInvoiceById(companyId, id);
   if (!invoice) throw new Error(`Supplier invoice ${id} not found`);
 
+  // Cancel NULLs gl_journal_entry_id after reversing the journal — without
+  // this status guard the backfill would re-post a fresh Expense/VAT/AP
+  // journal for a cancelled document (the inverse of audit C1).
+  if (invoice.status === 'cancelled') {
+    throw new Error('Cannot post a cancelled supplier invoice to GL');
+  }
+
   if (invoice.glJournalEntryId) {
     return { journalEntryId: invoice.glJournalEntryId, alreadyPosted: true };
   }

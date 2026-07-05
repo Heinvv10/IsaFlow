@@ -148,6 +148,13 @@ export async function postCustomerInvoiceToGL(
     if (invRows.length === 0) throw new Error(`Invoice ${invoiceId} not found`);
     const inv = invRows[0]!;
 
+    // Cancel NULLs gl_journal_entry_id after reversing the journal — without
+    // this status guard the backfill would re-post a fresh AR/Revenue/VAT
+    // journal for a cancelled document (the inverse of audit C1).
+    if (String(inv.status) === 'cancelled') {
+      throw new Error('Cannot post a cancelled invoice to GL');
+    }
+
     if (inv.gl_journal_entry_id) return String(inv.gl_journal_entry_id);
 
     const arAccount = await getSystemAccount('receivable', companyId);

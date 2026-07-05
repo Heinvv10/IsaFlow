@@ -106,6 +106,19 @@ describe('customer-invoices-detail POST action guards', () => {
     expect(postGlMock).not.toHaveBeenCalled();
   });
 
+  it('rejects send for a cancelled invoice with a 400 (cancel is terminal)', async () => {
+    sqlMock
+      .mockResolvedValueOnce([]) // guarded UPDATE matches no row (status = cancelled)
+      .mockResolvedValueOnce([{ status: 'cancelled' }]); // existence/status probe
+
+    const result = await call({ id: INV_ID, action: 'send' });
+
+    const updateText = (sqlMock.mock.calls[0]![0] as readonly string[]).join(' ');
+    expect(updateText).toMatch(/status != 'cancelled'/i);
+    expect(result.kind).toBe('badRequest');
+    expect(result.error).toMatch(/cannot send a cancelled invoice/i);
+  });
+
   it('returns 404 when approving a non-existent invoice', async () => {
     sqlMock
       .mockResolvedValueOnce([]) // UPDATE matches nothing
