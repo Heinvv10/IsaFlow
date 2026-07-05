@@ -47,7 +47,7 @@ State: **merged** (#202, master 0cccfba5; 2-round blind review incl. a reversed-
 
 | Task | State | Branch | PR | Deployed | Evidence |
 |------|-------|--------|----|----------|----------|
-| P2.1 Input validation cluster | pr-open | fix/p2-1-input-validation | | | W1: positive-qty/nonneg-price guards on customer-invoice create, quote create/update (400-mapped), supplier-invoice create — E2E spec l proves the audit's exact −R115 POST now 400s; W2: softDelete blocks customers/suppliers with open invoices or unconfirmed payments; W3: draft-payment allocations count other drafts' pending allocations; W4: voidSupplierPayment (action 'void') — reverses GL (metadata semantics), un-applies allocations, guarded flip to 'cancelled', savepoint-wrapped; N6: LINKED credit-note approve lands 'applied' (double-apply impossible). 14 new unit tests + E2E spec l (suite now 12 specs) |
+| P2.1 Input validation cluster | **merged** | fix/p2-1-input-validation | #203 | — | W1 (invoice/quote/supplier-invoice/CN/recurring incl. PUT/sales-order lines; Sage import exempt for migration fidelity; E2E spec l proves the audit's exact −R115 POST 400s), W2 (masterDeleteGuards), W3 unified AR+AP (AP re-pointed at LIVE payment_allocations — mig-201 table dead, 0 rows dev+prod), W4 voidSupplierPayment (action 'void'), N6 (linked CN approve→'applied' + cancel accepts 'applied'). 3-round blind review. BACKLOG (reviewer, pre-existing): supplier-allocations.ts writes to the dead zero-row table; batchPaymentService creation-time validation |
 | P2.2 fiscal_period_id invariant + Britech 5-row repair (HUMAN-GATED) | todo | | | | |
 | P2.3 Demo bank seed + residue cleanup | todo | | | | |
 | P2.4 W7 impersonation cookie | todo | | | | |
