@@ -50,7 +50,6 @@ export default function NewCustomerPage() {
           ...form,
           payment_terms: form.payment_terms ? Number(form.payment_terms) : 30,
           credit_limit: form.credit_limit ? Number(form.credit_limit) : null,
-          sales_rep_id: form.sales_rep_id || null,
           default_price_list: form.default_price_list || null,
         }),
       });

@@ -21,6 +21,7 @@ export default function CompliancePage() {
   const [alerts, setAlerts] = useState<AfsComplianceAlert[]>([]);
   const [loading, setLoading] = useState(true);
   const [runningCheck, setRunningCheck] = useState(false);
+  const [togglingCipc, setTogglingCipc] = useState(false);
   const [error, setError] = useState('');
 
   const loadData = useCallback(async () => {
@@ -72,6 +73,24 @@ export default function CompliancePage() {
       setError(err instanceof Error ? err.message : 'Compliance check failed');
     } finally {
       setRunningCheck(false);
+    }
+  }
+
+  async function handleToggleCipcSubmitted(submitted: boolean) {
+    setTogglingCipc(true);
+    try {
+      const res = await apiFetch('/api/accounting/cipc-annual-return', {
+        method: 'PATCH', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ submitted }),
+      });
+      if (!res.ok) throw new Error(`Update failed: ${res.status}`);
+      await loadData();
+    } catch (err) {
+      log.warn('CIPC submission toggle failed', { error: err }, 'compliance-page');
+      setError(err instanceof Error ? err.message : 'Failed to update CIPC annual return status');
+    } finally {
+      setTogglingCipc(false);
     }
   }
 
@@ -205,7 +224,13 @@ export default function CompliancePage() {
               )}
             </section>
 
-            {cipcGuide && <CipcGuideSection guide={cipcGuide} />}
+            {cipcGuide && (
+              <CipcGuideSection
+                guide={cipcGuide}
+                onToggleSubmitted={(v: boolean) => { void handleToggleCipcSubmitted(v); }}
+                togglingSubmitted={togglingCipc}
+              />
+            )}
             <AlertsSection alerts={alerts} onDismiss={(id: string) => { void handleDismissAlert(id); }} />
           </div>
         )}

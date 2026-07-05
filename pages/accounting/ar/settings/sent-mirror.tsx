@@ -3,8 +3,7 @@
  *
  * Connect an outbound mailbox so invoice PDFs you email from Gmail/Outlook
  * get linked back to their existing snapshots (via sha256) instead of
- * creating a duplicate captured_documents row. MVP ships IMAP; OAuth stubs
- * for Gmail + M365 mirror the inbound page.
+ * creating a duplicate captured_documents row. Ships generic IMAP.
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -12,7 +11,7 @@ import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import {
-  Mail, Server, Plus, RefreshCw, AlertCircle, Loader2, Trash2,
+  Server, Plus, RefreshCw, AlertCircle, Loader2, Trash2,
   ChevronLeft, ListChecks, CheckCircle2, XCircle, Link2,
 } from 'lucide-react';
 
@@ -217,35 +216,6 @@ export default function SentMirrorSettingsPage() {
         )}
 
         <div className="px-6 py-6 space-y-6">
-          <div className="bg-[var(--ff-canvas-mid)] border border-[rgba(255,255,255,0.08)] rounded-xl p-6">
-            <h2 className="text-base font-semibold text-[var(--ff-text-primary)] mb-3">One-click providers</h2>
-            <p className="text-sm text-slate-400 mb-4">
-              OAuth flows for Gmail and Microsoft 365 share the inbound provider registration — shipping alongside that work. Until then, use IMAP with an app password.
-            </p>
-            <div className="grid md:grid-cols-2 gap-3">
-              <div className="p-4 rounded-lg bg-white/5 border border-[rgba(255,255,255,0.06)] opacity-60">
-                <div className="flex items-center gap-3 mb-2">
-                  <Mail className="h-5 w-5 text-slate-400" />
-                  <div>
-                    <p className="text-sm font-medium text-slate-200">Gmail</p>
-                    <p className="text-xs text-slate-500">OAuth — coming soon</p>
-                  </div>
-                </div>
-                <button disabled className="w-full mt-2 py-2 rounded bg-white/5 text-slate-500 text-sm cursor-not-allowed">Connect</button>
-              </div>
-              <div className="p-4 rounded-lg bg-white/5 border border-[rgba(255,255,255,0.06)] opacity-60">
-                <div className="flex items-center gap-3 mb-2">
-                  <Mail className="h-5 w-5 text-slate-400" />
-                  <div>
-                    <p className="text-sm font-medium text-slate-200">Microsoft 365</p>
-                    <p className="text-xs text-slate-500">OAuth — coming soon</p>
-                  </div>
-                </div>
-                <button disabled className="w-full mt-2 py-2 rounded bg-white/5 text-slate-500 text-sm cursor-not-allowed">Connect</button>
-              </div>
-            </div>
-          </div>
-
           <div className="bg-[var(--ff-canvas-mid)] border border-[rgba(255,255,255,0.08)] rounded-xl overflow-hidden">
             <div className="px-6 py-4 border-b border-[rgba(255,255,255,0.06)]">
               <h2 className="text-base font-semibold text-[var(--ff-text-primary)]">Configured sent mailboxes</h2>

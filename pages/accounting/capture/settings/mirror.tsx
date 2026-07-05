@@ -2,9 +2,7 @@
  * Mirror Inbox Settings — PRD-05 Phase 9
  *
  * Connect external mailboxes so invoices appear in the capture inbox
- * without manual forwarding. MVP ships generic IMAP (host/port/user/pass);
- * Gmail + M365 OAuth buttons are stubbed pending Google/Microsoft app
- * registration.
+ * without manual forwarding. Ships generic IMAP (host/port/user/pass).
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -12,7 +10,7 @@ import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import {
-  Mail, Server, Plus, RefreshCw, AlertCircle, Loader2, Trash2,
+  Server, Plus, RefreshCw, AlertCircle, Loader2, Trash2,
   PowerOff, ChevronLeft, ListChecks, CheckCircle2, XCircle,
 } from 'lucide-react';
 
@@ -220,36 +218,6 @@ export default function MirrorSettingsPage() {
         )}
 
         <div className="px-6 py-6 space-y-6">
-          {/* OAuth providers — stubs */}
-          <div className="bg-[var(--ff-canvas-mid)] border border-[rgba(255,255,255,0.08)] rounded-xl p-6">
-            <h2 className="text-base font-semibold text-[var(--ff-text-primary)] mb-3">One-click providers</h2>
-            <p className="text-sm text-slate-400 mb-4">
-              OAuth flows for Gmail and Microsoft 365 are on the way — until then, connect them via IMAP using an app password.
-            </p>
-            <div className="grid md:grid-cols-2 gap-3">
-              <div className="p-4 rounded-lg bg-white/5 border border-[rgba(255,255,255,0.06)] opacity-60">
-                <div className="flex items-center gap-3 mb-2">
-                  <Mail className="h-5 w-5 text-slate-400" />
-                  <div>
-                    <p className="text-sm font-medium text-slate-200">Gmail</p>
-                    <p className="text-xs text-slate-500">OAuth — coming soon</p>
-                  </div>
-                </div>
-                <button disabled className="w-full mt-2 py-2 rounded bg-white/5 text-slate-500 text-sm cursor-not-allowed">Connect</button>
-              </div>
-              <div className="p-4 rounded-lg bg-white/5 border border-[rgba(255,255,255,0.06)] opacity-60">
-                <div className="flex items-center gap-3 mb-2">
-                  <Mail className="h-5 w-5 text-slate-400" />
-                  <div>
-                    <p className="text-sm font-medium text-slate-200">Microsoft 365</p>
-                    <p className="text-xs text-slate-500">OAuth — coming soon</p>
-                  </div>
-                </div>
-                <button disabled className="w-full mt-2 py-2 rounded bg-white/5 text-slate-500 text-sm cursor-not-allowed">Connect</button>
-              </div>
-            </div>
-          </div>
-
           {/* Connections list */}
           <div className="bg-[var(--ff-canvas-mid)] border border-[rgba(255,255,255,0.08)] rounded-xl overflow-hidden">
             <div className="px-6 py-4 border-b border-[rgba(255,255,255,0.06)]">

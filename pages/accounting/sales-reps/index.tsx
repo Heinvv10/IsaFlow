@@ -23,7 +23,6 @@ interface FormState {
   last_name: string;
   email: string;
   phone: string;
-  commission_percent: string;
 }
 
 const EMPTY_FORM: FormState = {
@@ -31,7 +30,6 @@ const EMPTY_FORM: FormState = {
   last_name: '',
   email: '',
   phone: '',
-  commission_percent: '',
 };
 
 export default function SalesRepsPage() {
@@ -87,7 +85,6 @@ export default function SalesRepsPage() {
       last_name: last,
       email: rep.email ?? '',
       phone: rep.phone ?? '',
-      commission_percent: '',
     });
     setFormError(null);
     setModalOpen(true);
@@ -392,24 +389,6 @@ export default function SalesRepsPage() {
                   placeholder="+27 82 000 0000"
                   className="ff-input w-full text-sm"
                 />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">
-                  Commission %
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="0.1"
-                  value={form.commission_percent}
-                  onChange={e => setForm(f => ({ ...f, commission_percent: e.target.value }))}
-                  placeholder="0.0"
-                  className="ff-input w-full text-sm"
-                />
-                <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">
-                  Stored for reference — not yet applied to transactions.
-                </p>
               </div>
             </div>
 
