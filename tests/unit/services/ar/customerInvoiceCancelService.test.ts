@@ -91,6 +91,23 @@ describe('cancelCustomerInvoice', () => {
     // balance is GENERATED ALWAYS AS (total_amount - amount_paid); writing it
     // raises pg 428C9, so the UPDATE must never touch it.
     expect(text).not.toMatch(/\bbalance\b/i);
+    // The journal link is nulled so a future legitimate re-post creates a fresh
+    // journal instead of re-using the reversed net-zero pair.
+    expect(text).toMatch(/gl_journal_entry_id\s*=\s*NULL/i);
+  });
+
+  it('propagates a reversal failure (e.g. closed period) and mutates nothing', async () => {
+    mockSql
+      .mockResolvedValueOnce([invoiceRow()])
+      .mockResolvedValueOnce([{ allocated: '0' }])
+      .mockResolvedValueOnce([{ status: 'posted', reversed_at: null }]);
+    mockReverse.mockRejectedValue(new Error('Cannot post to closed fiscal period') as never);
+
+    await expect(cancelCustomerInvoice(COMPANY_ID, INVOICE_ID, USER_ID)).rejects.toThrow(
+      /closed fiscal period/i,
+    );
+    // Status is never flipped when the reversal fails — the route/outer tx rolls back.
+    expect(updateInvoiceCalls()).toHaveLength(0);
   });
 
   it('rejects cancellation when amount_paid > 0 and mutates nothing', async () => {

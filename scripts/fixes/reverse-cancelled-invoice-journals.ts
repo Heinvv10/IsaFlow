@@ -97,6 +97,13 @@ if (userOverride && !UUID_PATTERN.test(userOverride)) {
   console.error(`--user must be a UUID, got: ${userOverride}`);
   process.exit(1);
 }
+// reversed_by must belong to the invoice's company. A single --user can only be
+// attributed safely when the run is scoped to one company; otherwise it would
+// stamp a possibly cross-tenant user across companies.
+if (userOverride && !companyFilter) {
+  console.error('--user requires --company: a single user cannot be attributed across multiple companies. Omit --user to resolve reversed_by per company from company_users.');
+  process.exit(1);
+}
 
 console.log(
   `\nReverse cancelled-invoice journals — mode=${apply ? 'APPLY (mutating)' : 'DRY-RUN'}` +
@@ -174,14 +181,44 @@ async function findNullLinkOrphanCandidates(): Promise<Row[]> {
   `) as Row[];
 }
 
-/** Resolve the reversed_by user id: --user override, else the first users row. */
-async function resolveReversingUser(): Promise<string> {
-  if (userOverride) return userOverride;
-  const rows = (await sql`SELECT id FROM users ORDER BY created_at LIMIT 1`) as Row[];
-  if (rows.length === 0) {
-    throw new Error('No users found to attribute the reversal to. Pass --user <uuid>.');
+/**
+ * Resolve the reversed_by user id for a specific company. --user (validated to
+ * be a member of --company below) wins; otherwise pick a member of THAT company
+ * from company_users (owner/admin first). Never falls back to a global,
+ * possibly cross-tenant user. Returns null when the company has no member — the
+ * caller then skips + reports that invoice rather than mis-attributing it.
+ */
+const reversingUserCache = new Map<string, string | null>();
+async function resolveReversingUser(companyId: string): Promise<string | null> {
+  if (reversingUserCache.has(companyId)) return reversingUserCache.get(companyId)!;
+  let resolved: string | null;
+  if (userOverride) {
+    resolved = userOverride; // already verified to belong to companyFilter at startup
+  } else {
+    const rows = (await sql`
+      SELECT user_id FROM company_users
+      WHERE company_id = ${companyId}::UUID
+      ORDER BY (role = 'owner') DESC, (role = 'admin') DESC, created_at
+      LIMIT 1
+    `) as Row[];
+    resolved = rows.length > 0 ? String(rows[0]!.user_id) : null;
   }
-  return String(rows[0]!.id);
+  reversingUserCache.set(companyId, resolved);
+  return resolved;
+}
+
+/** Verify --user is actually a member of --company before mutating anything. */
+async function assertUserOverrideMembership(): Promise<void> {
+  if (!userOverride || !companyFilter) return;
+  const rows = (await sql`
+    SELECT 1 FROM company_users
+    WHERE user_id = ${userOverride} AND company_id = ${companyFilter}::UUID
+    LIMIT 1
+  `) as Row[];
+  if (rows.length === 0) {
+    console.error(`--user ${userOverride} is not a member of company ${companyFilter} (company_users). Refusing to stamp reversed_by.`);
+    process.exit(1);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -250,34 +287,44 @@ async function resolveReversingUser(): Promise<string> {
       process.exit(0);
     }
 
-    const userId = await resolveReversingUser();
-    console.log(`\nAPPLY — reversing as user ${userId}\n`);
+    await assertUserOverrideMembership();
+    console.log('\nAPPLY — reversed_by resolved per company from company_users' +
+      `${userOverride ? ` (override --user ${userOverride})` : ''}\n`);
 
     let ok = 0;
     let failed = 0;
+    let skipped = 0;
     for (const r of rows) {
       const companyId = String(r.company_id);
       const jeId = String(r.gl_journal_entry_id);
       const invoiceNumber = String(r.invoice_number);
+      const userId = await resolveReversingUser(companyId);
+      if (!userId) {
+        skipped++;
+        console.error(`  SKIP ${invoiceNumber}: company ${companyId} has no company_users member to attribute reversed_by — pass --company ${companyId} --user <uuid>.`);
+        continue;
+      }
       try {
         const reversal = await reverseJournalEntry(companyId, jeId, userId);
         ok++;
-        console.log(`  OK   ${invoiceNumber}: reversed ${String(r.entry_number)} -> ${reversal.id}`);
+        console.log(`  OK   ${invoiceNumber}: reversed ${String(r.entry_number)} -> ${reversal.id} (reversed_by ${userId})`);
       } catch (e) {
         failed++;
         console.error(`  FAIL ${invoiceNumber}:`, e instanceof Error ? e.message : e);
       }
     }
 
-    console.log(`\nDone. Reversed ${ok}, failed ${failed}.`);
+    console.log(`\nDone. Reversed ${ok}, failed ${failed}, skipped ${skipped}.`);
     if (failed > 0) {
       console.error(
         'Some reversals failed — a common cause is a CLOSED fiscal period for the ' +
           "original entry's date. Re-open the period (or handle those manually) and re-run.",
       );
-      process.exit(1);
     }
-    process.exit(0);
+    if (skipped > 0) {
+      console.error(`${skipped} invoice(s) skipped for want of a company member to attribute reversed_by — re-run those companies with --company <id> --user <uuid>.`);
+    }
+    process.exit(failed > 0 || skipped > 0 ? 1 : 0);
   } catch (err) {
     console.error('reverse-cancelled-invoice-journals failed:', err);
     process.exit(1);

@@ -68,10 +68,13 @@ export async function cancelCustomerInvoice(
   userId: string,
 ): Promise<CancelCustomerInvoiceResult> {
   try {
+    // FOR UPDATE locks the invoice row for this request tx so two concurrent
+    // cancels can't both pass the guards and double-reverse the journal.
     const invRows = (await sql`
       SELECT id, status, amount_paid, gl_journal_entry_id
       FROM customer_invoices
       WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
+      FOR UPDATE
     `) as Row[];
     if (invRows.length === 0) throw new InvoiceNotFoundError(invoiceId);
     const inv = invRows[0]!;
@@ -112,6 +115,7 @@ export async function cancelCustomerInvoice(
       const jeRows = (await sql`
         SELECT status, reversed_at FROM gl_journal_entries
         WHERE id = ${journalEntryId}::UUID AND company_id = ${companyId}::UUID
+        FOR UPDATE
       `) as Row[];
       if (jeRows.length > 0 && String(jeRows[0]!.status) === 'posted' && jeRows[0]!.reversed_at == null) {
         const reversal = await reverseJournalEntry(companyId, journalEntryId, userId);
@@ -124,9 +128,14 @@ export async function cancelCustomerInvoice(
     // column is GENERATED (total_amount - amount_paid) and derives itself;
     // total_amount / subtotal / tax_amount / amount_paid are historical facts
     // and are deliberately left untouched.
+    //
+    // Null the journal link: after reversal it points at the now-reversed
+    // original (a net-zero pair). Clearing it means a future legitimate re-post
+    // (postCustomerInvoiceToGL, which early-returns when the link is set) would
+    // create a FRESH journal rather than silently re-using the reversed one.
     await sql`
       UPDATE customer_invoices
-      SET status = 'cancelled', updated_at = NOW()
+      SET status = 'cancelled', gl_journal_entry_id = NULL, updated_at = NOW()
       WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
     `;
 
