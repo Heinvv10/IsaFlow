@@ -56,7 +56,7 @@ State: **merged** (#202, master 0cccfba5; 2-round blind review incl. a reversed-
 
 | Task | State | Branch | PR | Deployed | Evidence |
 |------|-------|--------|----|----------|----------|
-| P3.1 Golden paths blocking in CI + deploy | todo | | | | |
+| P3.1 Golden paths blocking in CI + deploy | pr-open | feat/p3-1-golden-blocking | | | CI golden job blocking (no continue-on-error; missing runner env = FAIL not skip). deploy.sh: pre-deploy snapshot → /home/velo/isaflow-rollback + RELEASE_SHA stamp + post-deploy gate (scripts/verify-deploy.sh: health + golden vs prod Demo + integrity w/ scripts/integrity-baseline-prod.json waiving ONLY the HUMAN-GATED 436-row fiscal-period FAIL, cap=436) + auto-rollback (scripts/rollback-deploy.sh, --checksum after drill caught rsync mtime skip). Integrity: new [WAIVED] status + applyBaseline (TDD, 17 unit). Drills: (A) C1 sabotage on dev caught by gate exit 1, spec c red, residue repaired via reverse-cancelled-invoice-journals (12 reversed incl. 11 pre-existing dev artifacts); (B) rollback byte-exact restore, env preserved, refuses w/o snapshot; (C) CI RED→GREEN on this PR. Creds: /home/hein/isaflow-deploy.env (0600). Battery: tc/lint/4531 unit/dev integrity 12/15 (3 documented artifacts)/golden 12/12; prod integrity via baseline = 15/15 (1 WAIVED) exit 0 |
 | P3.2 Uptime/alerting probe (HEIN-gated cron install) | todo | | | | |
 | P3.3 no-floating-promises + useEffect catch sweep | todo | | | | |
 | P3.4 Pagination caps | todo | | | | |

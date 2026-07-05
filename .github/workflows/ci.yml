@@ -41,14 +41,14 @@ jobs:
           JWT_SECRET: test-secret-for-ci-only
           NODE_ENV: test
 
-  # Golden-paths money-flow E2E (A–Z programme Phase 0). ADVISORY for now —
-  # becomes blocking in Phase 3 (P3.1). Boots a dev server against isaflow_dev
-  # using the runner-local env file and runs tests/e2e/golden-paths/ over HTTP.
+  # Golden-paths money-flow E2E (A–Z programme). BLOCKING since Phase 3
+  # (P3.1): a red money path fails the whole run — no continue-on-error, no
+  # silent skip. Boots a dev server against isaflow_dev using the runner-local
+  # env file and runs tests/e2e/golden-paths/ over HTTP.
   golden-paths:
-    name: Golden Paths E2E (advisory)
+    name: Golden Paths E2E (blocking)
     runs-on: [self-hosted, linux, velo]
     timeout-minutes: 30
-    continue-on-error: true
     # The suite writes to the SHARED isaflow_dev Demo company; the workflow's
     # ci-${{ github.ref }} group only serialises same-ref runs, so two branches
     # could otherwise interleave money flows (e.g. both claiming the same
@@ -69,9 +69,11 @@ jobs:
           E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
         run: |
           set -e
+          # A missing env file must FAIL, not skip: a blocking gate that
+          # silently no-ops is exactly the "quiet 45/100" this job prevents.
           if [ ! -f /home/hein/isaflow-ci.env ]; then
-            echo "::warning::/home/hein/isaflow-ci.env missing on runner — golden paths skipped"
-            exit 0
+            echo "::error::/home/hein/isaflow-ci.env missing on runner — golden paths cannot run (blocking gate, refusing to pass silently)"
+            exit 1
           fi
           cp /home/hein/isaflow-ci.env .env.local
           bunx playwright install chromium

@@ -6,13 +6,26 @@
  * file stays a thin orchestrator. Exits 1 if any hard check fails.
  *
  * Usage: bun scripts/integrity-check.ts   (reads DATABASE_URL / .env.local)
+ *        bun scripts/integrity-check.ts --baseline scripts/integrity-baseline-prod.json
+ *
+ * --baseline <file>: JSON array of known-and-accepted failures (label +
+ * optional maxOffending cap + reason). Listed failures within their cap are
+ * reported as [WAIVED] and do not fail the run; anything new or worse still
+ * exits 1. Used by the post-deploy prod gate while HUMAN-GATED repairs wait
+ * on Hein — never as a way to hide a regression.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { createSql } from './_pg';
 import { coreChecks } from './lib/integrityChecks';
 import { tenantChecks } from './lib/integrityChecksTenant';
-import { renderResult, summarize, type CheckResult } from './lib/integrityTypes';
+import {
+  applyBaseline,
+  renderResult,
+  summarize,
+  type BaselineEntry,
+  type CheckResult,
+} from './lib/integrityTypes';
 
 // ── Env loading ─────────────────────────────────────────────────────────────
 const envPath = path.resolve(__dirname, '..', '.env.local');
@@ -30,22 +43,63 @@ if (!process.env.DATABASE_URL) {
   process.exit(1);
 }
 
+// ── Baseline loading (--baseline <file>) ────────────────────────────────────
+function loadBaseline(): BaselineEntry[] {
+  const idx = process.argv.indexOf('--baseline');
+  if (idx === -1) return [];
+  const file = process.argv[idx + 1];
+  if (!file) {
+    console.error('ERROR: --baseline requires a file path');
+    process.exit(1);
+  }
+  const resolved = path.resolve(file);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(fs.readFileSync(resolved, 'utf-8'));
+  } catch (err) {
+    console.error(`ERROR: cannot read baseline ${resolved}: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  }
+  if (
+    !Array.isArray(parsed) ||
+    !parsed.every(
+      (e: unknown): e is BaselineEntry =>
+        typeof e === 'object' && e !== null &&
+        typeof (e as BaselineEntry).label === 'string' &&
+        typeof (e as BaselineEntry).reason === 'string' &&
+        ((e as BaselineEntry).maxOffending === undefined || typeof (e as BaselineEntry).maxOffending === 'number'),
+    )
+  ) {
+    console.error(`ERROR: ${resolved} must be a JSON array of {label, reason, maxOffending?}`);
+    process.exit(1);
+  }
+  return parsed;
+}
+
+const baseline = loadBaseline();
 const sql = createSql();
 
 async function main(): Promise<void> {
   console.log('=== ISAFlow Accounting Integrity Check ===\n');
+  if (baseline.length > 0) {
+    console.log(`Baseline active: ${baseline.length} known failure(s) may be waived (never new ones)\n`);
+  }
 
   const checks = [...coreChecks, ...tenantChecks];
   const results: CheckResult[] = [];
   for (const check of checks) {
     const result = await check(sql);
     results.push(result);
-    renderResult(result, (s) => console.log(s));
   }
 
-  const { passed, total, failed } = summarize(results);
+  const finalResults = applyBaseline(results, baseline);
+  for (const result of finalResults) renderResult(result, (s) => console.log(s));
+
+  const { passed, total, failed, waived } = summarize(finalResults);
   console.log('');
-  console.log(`=== SUMMARY: ${passed}/${total} checks passed ===`);
+  console.log(
+    `=== SUMMARY: ${passed}/${total} checks passed${waived > 0 ? ` (${waived} WAIVED via baseline — see [WAIVED] rows)` : ''} ===`,
+  );
   if (failed > 0) process.exit(1);
 }
 

@@ -171,6 +171,7 @@ export const coreChecks: IntegrityCheck[] = [
     `) as Array<Record<string, string>>;
     return {
       label: 'Posted JE fiscal period matches entry date', status: 'fail',
+      offending: total,
       detail: `${total} posted ${plural(total, 'entry', 'entries')} with NULL or mismatched fiscal period (invisible to / misfiled in period reports)${total > rows.length ? ` — showing first ${rows.length}` : ''}`,
       lines: rows.map((r) => `entry=${r.entry_number ?? r.id}  company=${String(r.company_id).slice(0, 8)}  date=${r.entry_date}  period=${r.period_name ?? 'NULL'}${r.start_date ? `  range=${r.start_date}..${r.end_date}` : ''}  source=${r.source}`),
     };
