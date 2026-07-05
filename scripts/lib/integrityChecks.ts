@@ -135,7 +135,62 @@ export const coreChecks: IntegrityCheck[] = [
       : { label: 'GL account parent refs', status: 'fail', detail: `${cnt} ${plural(cnt, 'account', 'accounts')} point to a non-existent parent` };
   },
 
-  // 9 — Company-level summary stats (informational)
+  // 9 — Posted journals' fiscal period matches entry date (P2.2, audit W5)
+  async (sql: IntegritySql): Promise<CheckResult> => {
+    // The gl_account_balances cache and every period report are keyed on
+    // fiscal_period_id. A posted journal whose period is NULL or whose
+    // entry_date falls outside its period's range is INVISIBLE to (or
+    // misfiled in) period reports while still in the TB — the exact blind
+    // spot that hid Britech's R267,109.70 salary understatement (5 journals
+    // with NULL fiscal_period_id slipped past the period-joined cache check).
+    const [countRow] = (await sql`
+      SELECT COUNT(*)::int AS cnt
+      FROM gl_journal_entries je
+      LEFT JOIN fiscal_periods fp ON fp.id = je.fiscal_period_id
+      WHERE je.status = 'posted'
+        AND (je.fiscal_period_id IS NULL
+             OR je.entry_date < fp.start_date OR je.entry_date > fp.end_date)
+    `) as Array<{ cnt: number }>;
+    const total = countRow?.cnt ?? 0;
+    if (total === 0) {
+      return { label: 'Posted JE fiscal period matches entry date', status: 'pass', detail: '0 posted entries with NULL or mismatched period' };
+    }
+    const rows = (await sql`
+      SELECT je.id, je.entry_number, je.company_id, je.source,
+             to_char(je.entry_date, 'YYYY-MM-DD') AS entry_date,
+             fp.period_name,
+             to_char(fp.start_date, 'YYYY-MM-DD') AS start_date,
+             to_char(fp.end_date, 'YYYY-MM-DD') AS end_date
+      FROM gl_journal_entries je
+      LEFT JOIN fiscal_periods fp ON fp.id = je.fiscal_period_id
+      WHERE je.status = 'posted'
+        AND (je.fiscal_period_id IS NULL
+             OR je.entry_date < fp.start_date OR je.entry_date > fp.end_date)
+      ORDER BY je.company_id, je.entry_date
+      LIMIT 50
+    `) as Array<Record<string, string>>;
+    return {
+      label: 'Posted JE fiscal period matches entry date', status: 'fail',
+      detail: `${total} posted ${plural(total, 'entry', 'entries')} with NULL or mismatched fiscal period (invisible to / misfiled in period reports)${total > rows.length ? ` — showing first ${rows.length}` : ''}`,
+      lines: rows.map((r) => `entry=${r.entry_number ?? r.id}  company=${String(r.company_id).slice(0, 8)}  date=${r.entry_date}  period=${r.period_name ?? 'NULL'}${r.start_date ? `  range=${r.start_date}..${r.end_date}` : ''}  source=${r.source}`),
+    };
+  },
+
+  // 10 — Orphaned fiscal_period_id references (P2.2)
+  async (sql: IntegritySql): Promise<CheckResult> => {
+    const [row] = (await sql`
+      SELECT COUNT(*)::int AS cnt
+      FROM gl_journal_entries je
+      WHERE je.fiscal_period_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM fiscal_periods fp WHERE fp.id = je.fiscal_period_id)
+    `) as Array<{ cnt: number }>;
+    const cnt = row?.cnt ?? 0;
+    return cnt === 0
+      ? { label: 'Fiscal period references resolve', status: 'pass', detail: '0 entries pointing at a missing fiscal_periods row' }
+      : { label: 'Fiscal period references resolve', status: 'fail', detail: `${cnt} ${plural(cnt, 'entry', 'entries')} reference a nonexistent fiscal period` };
+  },
+
+  // 11 — Company-level summary stats (informational)
   async (sql: IntegritySql): Promise<CheckResult> => {
     const companies = (await sql`
       SELECT id, name FROM companies WHERE is_active = true ORDER BY name
