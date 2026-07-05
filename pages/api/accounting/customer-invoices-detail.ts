@@ -14,6 +14,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql, withTransaction } from '@/lib/neon';
 import { UUID, ISODate } from '@/lib/schemas/common';
+import { cancelCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceCancelService';
 import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerPaymentService';
 import { snapshotInvoicePdf } from '@/modules/accounting/services/ar/invoicePdfSnapshotService';
 type Row = Record<string, unknown>;
@@ -230,28 +231,42 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.validationError(res, postParsed.error.flatten().fieldErrors as Record<string, string[]>);
     }
     const { id, action } = postParsed.data;
+    const actionUserId = (req as CompanyAuthedRequest).user?.id || 'system';
 
-    const validActions: Record<string, string> = {
-      approve: 'approved', send: 'sent', cancel: 'cancelled',
-    };
-    const newStatus = validActions[action];
+    // P1.1 (audit C1): cancel must reverse the approval journal, not just
+    // flip status. The service throws on guard violations (payments applied,
+    // already cancelled, locked period) — nothing flips in that case.
+    if (action === 'cancel') {
+      try {
+        const cancelled = await cancelCustomerInvoice(companyId, id, actionUserId);
+        if (!cancelled) return apiResponse.notFound(res, 'Invoice', id);
+        log.info('Customer invoice cancelled', { id, reversalJournalEntryId: cancelled.reversalJournalEntryId });
+        return apiResponse.success(res, { id, status: 'cancelled', reversalJournalEntryId: cancelled.reversalJournalEntryId });
+      } catch (cancelErr) {
+        return apiResponse.badRequest(res, cancelErr instanceof Error ? cancelErr.message : 'Failed to cancel invoice');
+      }
+    }
 
+    const newStatus = action === 'approve' ? 'approved' : 'sent';
+    // Cancel is terminal: approving/sending a cancelled invoice would resurrect
+    // a document whose journal has been reversed.
     const actionResult = await sql`
       UPDATE customer_invoices
       SET status = ${newStatus}, updated_at = NOW()
-      WHERE id = ${id}::UUID AND company_id = ${companyId}
+      WHERE id = ${id}::UUID AND company_id = ${companyId} AND status != 'cancelled'
       RETURNING id
     `;
     if (actionResult.length === 0) {
-      return apiResponse.notFound(res, 'Invoice', id);
+      const exists = await sql`SELECT id FROM customer_invoices WHERE id = ${id}::UUID AND company_id = ${companyId}`;
+      if (exists.length === 0) return apiResponse.notFound(res, 'Invoice', id);
+      return apiResponse.badRequest(res, `Cannot ${action} a cancelled invoice`);
     }
 
     // Post to GL on approve (accrual accounting: DR AR, CR Revenue, CR VAT Output)
     let glJournalEntryId: string | null = null;
     if (action === 'approve') {
       try {
-        const userId = (req as CompanyAuthedRequest).user?.id || 'system';
-        glJournalEntryId = await postCustomerInvoiceToGL(companyId, id, userId);
+        glJournalEntryId = await postCustomerInvoiceToGL(companyId, id, actionUserId);
         log.info('Customer invoice GL posted on approve', { id, glJournalEntryId });
       } catch (glErr) {
         log.error('GL posting failed on invoice approve (invoice still approved)', { id, error: glErr });

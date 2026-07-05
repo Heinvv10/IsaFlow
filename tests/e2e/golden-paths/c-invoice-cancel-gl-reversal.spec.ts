@@ -1,17 +1,14 @@
 /**
  * Golden path (c): invoice → cancel → GL reversal exists.
  *
- * EXPECTED FAIL at baseline — July-4 audit C1: cancel is a status flip only;
- * the approval journal is never reversed, permanently overstating
- * AR/Revenue/VAT (Britech INV0000134 / R28,750; Demo JE-2026-00927 / R1,725).
- * The P1.1 fix must flip this spec to a plain passing test in the same PR.
+ * Was EXPECTED FAIL at baseline (July-4 audit C1: cancel was a status flip
+ * only — Britech INV0000134 / R28,750; Demo JE-2026-00927 / R1,725).
+ * Flipped to a plain test by the P1.1 fix (customerInvoiceCancelService).
  */
 import { test, expect } from '@playwright/test';
 import { Api, gpRef, today } from './_api';
 
 test('cancelling a posted invoice reverses its GL journal', async ({ baseURL }) => {
-  test.fail(true, 'AUDIT C1 (2026-07-04): cancel posts no GL reversal — fixed by P1.1');
-
   const api = await Api.login(baseURL!);
   try {
     const customers = await api.get<any[]>('/api/accounting/customers?limit=1');

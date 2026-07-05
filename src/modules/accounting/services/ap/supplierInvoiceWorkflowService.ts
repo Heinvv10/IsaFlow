@@ -7,7 +7,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
+import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl/journalEntryService';
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { validateThreeWayMatch } from '../../utils/threeWayMatch';
 import { getSupplierInvoiceById } from './supplierInvoiceService';
@@ -189,6 +189,7 @@ export async function postSupplierInvoiceToGL(
 export async function cancelSupplierInvoice(
   companyId: string,
   id: string,
+  userId: string,
 ): Promise<SupplierInvoice> {
   try {
     const invoice = await getSupplierInvoiceById(companyId, id);
@@ -196,6 +197,17 @@ export async function cancelSupplierInvoice(
     if (invoice.status === 'paid' || invoice.status === 'partially_paid') {
       throw new Error('Cannot cancel invoice with payments');
     }
+    if (invoice.status === 'cancelled') {
+      throw new Error('Supplier invoice is already cancelled');
+    }
+
+    // P1.1 (audit C1, systemic): approve posts GL — cancel must reverse it.
+    // Reverse BEFORE the flip so a blocked reversal (locked period) aborts
+    // the cancel; the caller's request transaction keeps this atomic.
+    if (invoice.glJournalEntryId) {
+      await reverseJournalEntry(companyId, String(invoice.glJournalEntryId), userId);
+    }
+
     const rows = (await sql`
       UPDATE supplier_invoices SET status = 'cancelled'
       WHERE id = ${id} AND company_id = ${companyId}::UUID RETURNING *

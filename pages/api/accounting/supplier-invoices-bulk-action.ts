@@ -70,7 +70,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
           await approveSupplierInvoice(companyId, invoiceId, userId);
           break;
         case 'cancel':
-          await cancelSupplierInvoice(companyId, invoiceId);
+          await cancelSupplierInvoice(companyId, invoiceId, userId);
           break;
         case 'post_gl':
           await postSupplierInvoiceToGL(companyId, invoiceId, userId);

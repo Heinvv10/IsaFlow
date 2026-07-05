@@ -24,7 +24,7 @@ States: `todo` · `in-progress` · `pr-open` · `merged` · `deployed` · `block
 
 | Task | State | Branch | PR | Deployed | Evidence |
 |------|-------|--------|----|----------|----------|
-| P1.1 Cancel → GL reversal (+ Demo JE-2026-00927 repair; Britech JE-2026-00507 HUMAN-GATED) | todo | | | | |
+| P1.1 Cancel → GL reversal (+ Demo JE-2026-00927 repair; Britech JE-2026-00507 HUMAN-GATED) | pr-open | fix/p1-1-cancel-gl-reversal | | | customerInvoiceCancelService (7 unit tests) + supplier cancel reversal (5 tests); cancel-terminal guard; golden spec c FLIPPED to plain test, green on dev; prod Demo JE-2026-00927 reversed (reversal be740a1f) via scripts/repairs/2026-07-05-p1-1-reverse-je-2026-00927.ts, prod integrity 13/13 after |
 | P1.2 Quotes service/schema mismatch — fix ALL sites: INSERTs (quoteService.ts:172,199) AND the read path getQuote SELECT `ORDER BY line_number` (:146) + mapLine (:74,77); createQuote/convertToInvoice both re-read via getQuote, so INSERT-only fix still 500s (blind-review finding on PR #196) | todo | | | | |
 | P1.3 Supplier-payment UI 422 + error surfacing | todo | | | | |
 | P1.4 Credit-note approve date + repo date sweep (incl. PR #194 review LOWs: customer-invoices-export.ts String(date) CSV; reports-customer-ledger, reports-ar-aging, sales-by-customer, sales-by-item, dashboard-todos, continuous-close; PLUS baseline N4: customerPaymentAllocationService postCustomerInvoiceToGL toISOString rollback — auto_invoice journals dated a day early) | todo | | | | |
@@ -75,7 +75,7 @@ States: `todo` · `in-progress` · `pr-open` · `merged` · `deployed` · `block
 
 | Item | Status | Prepared artifact |
 |------|--------|-------------------|
-| Britech JE-2026-00507 reversal sign-off | waiting — prepare in P1.1 | |
+| Britech JE-2026-00507 reversal sign-off | **READY — waiting for Hein/Dotbiz sign-off on date + memo** | Proposed correcting journal for Brightsphere (d27bac33-cdc0-4e58-bf6b-709c1597d41c): reverse JE-2026-00507 (INV0000134, posted 2026-05-31): DR 4001 Product Sales 25,000.00 · DR 2101 VAT Output 3,750.00 · CR 1101 Trade Debtors Control 28,750.00. Memo: "Reversal of JE-2026-00507 — INV0000134 cancelled but journal never reversed (audit C1)". Recommended entry date: current open period (2026-07-05); alternative 2026-05-31 if May still open and VAT201 for May not yet filed. Invoice side needs no change (already cancelled). After posting: AR control 1101 = subledger exactly. Mechanism: same pattern as scripts/repairs/2026-07-05-p1-1-reverse-je-2026-00927.ts, parameterised for Britech on approval |
 | Prod platform_admin password fix + restart (after hours) | waiting | audit H4; workspace .env.local has correct value |
 | Prod deploys per phase | as phases complete | |
 | SARS ISV registration (Phase 4) | not reached | |
