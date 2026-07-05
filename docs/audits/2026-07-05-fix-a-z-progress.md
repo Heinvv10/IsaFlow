@@ -62,6 +62,18 @@ State: **merged** (#202, master 0cccfba5; 2-round blind review incl. a reversed-
 | P3.4 Pagination caps | **merged** | feat/p3-4-pagination-caps | #210 | — (next deploy) | master 91db1b45; 2-round blind review (R1: 1 HIGH silent CSV truncation + 3 MED + 4 LOW → all fixed incl. UI hasMore banners/markers, ap-aging fmtDate, tenant-scoped payments subquery, ORDER BY tiebreakers; R2 SHIP w/ independent re-verification). BACKLOG: UI pagination surfacing beyond the 3 bite-points. src/lib/pagination.ts (clampLimit/parsePagination, 12 TDD unit tests) + 14 endpoints: worst-3 (customer-statements incl. COALESCE client_id fix, assets-register w/ SQL-aggregate summary, documents) + aging×2 (SQL-aggregate buckets) + statement-details×3 (per-source 2000 ceiling + truncated meta — running-balance correctness forbids naive offset paging; headline totals from FULL-population SQL aggregates) + exports×4 (EXPORT_ROW_CEILING 10k + CSV marker row) + recurring-run batch cap 200 + assets-disposals. Skipped w/ justification: bank-rules-preview (COUNT-only since Audit-F4), bank-tx-attachments/adjacent/month-end-close/smart-categorize (bounded), reports-* aggregates×7 (verified). Live-verified on dev: clamp 999999→2000, hasMore, summary totals full-population under limit=1. Battery: lint 0, unit 4558, golden 12/12 |
 | P3.5 Orphans + broken promises | **merged** | feat/p3-5-orphans-broken-promises | #211 | — (next deploy; mig 503) | 2-round blind review R2=SHIP. ORPHAN PAGES (8): wired 4 into nav (cashbook→Banking, stock-levels→Inventory, customer/supplier-ledger→Reports); deleted 4 shadow-duplicates (customer/supplier-age-analysis dup ar/ap-aging, customer-credit-notes dup credit-notes, supplier-returns/new dup index modal). ORPHAN APIs (7): deleted widget-layout+permission-modules+contract-to-recurring (zero callers, grep-proven); KEEP-DEFER month-end-close/continuous-close/doc-auto-invoice (P5 Close Agent composes) + nl-query (tested+rate-limited dormant; ask-bar candidate). BROKEN PROMISES (7): BUILT provisional dismiss (reverses JE + resets bank txn — service+4 TDD tests+route+UI, replaces the 'not yet implemented' toast); BUILT CIPC flag (mig 503, service reads real column, PATCH endpoint, working checkbox, 2 TDD tests); BUILT annotation email (mirrors notifyDocumentSignedOff, internal audience); REMOVED OAuth-coming-soon cards ×2, WidgetGrid coming-soon system, Commission % field (was never stored!), sales_rep_id write-only dropdown (column/data kept); DISABLED auto-topup control honestly (no payment method on file). Battery: lint 0, tc clean, unit 4564 (6 new TDD), golden 12/12, CIPC endpoint live-verified, deleted routes 404. BACKLOG (reviewer LOW, pre-existing pattern): HTML-escape interpolated names in ALL 4 portalNotificationService email builders (annotation fn matches 3 existing siblings — fix together) |
 
+## Phase 3 exit gate — ✅ CODE GATE PASSED 2026-07-05 22:05 SAST (final prod confirmation rides the deploy)
+
+All five P3 items + exit sweep merged (#207–#212, master 1cc0ce31). Gate items:
+CI blocks on golden paths ✅ (sabotage RED→GREEN on PR #207) · broken deploy
+candidate caught + auto-rollback drilled ✅ · alert fired in drill (real
+Telegram msg 19) ✅ · lint clean with no-floating-promises ON ✅ · honest
+re-score: **code/dev 88 · prod-tonight 84** — full mapping in
+docs/audits/2026-07-05-phase3-exit-rescore.md. The ≥85-in-prod crossing is
+exactly the three staged HEIN actions (deploy ≥1cc0ce31 + probe-timer install;
+platform_admin pw fix; C2/W5 data-repair sign-offs). Phase 4 (SARS ISV dossier
+P4.1) may start — P4.2 build stays behind the env gate regardless.
+
 ## Phase 4 — SARS ISV VAT201 e-filing
 
 | Task | State | Branch | PR | Deployed | Evidence |
