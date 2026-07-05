@@ -74,6 +74,7 @@ const BUCKETS: Bucket[] = ['current', '1-30', '31-60', '61-90', '90+'];
 
 export default function ARAgingPage() {
   const [asAtDate, setAsAtDate] = useState(() => new Date().toISOString().split('T')[0] as string);
+  const [hasMore, setHasMore] = useState(false);
   const [data, setData] = useState<ARAgingData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -85,9 +86,10 @@ export default function ARAgingPage() {
     try {
       const params = new URLSearchParams({ as_at_date: asAtDate });
       const res = await apiFetch(`/api/accounting/reports-ar-aging?${params}`, { credentials: 'include' });
-      const json = await res.json() as { data?: ARAgingData; message?: string };
+      const json = await res.json() as { data?: ARAgingData; message?: string; meta?: { hasMore?: boolean } };
       if (!res.ok) throw new Error(json.message ?? 'Failed to load AR aging');
       setData(json.data ?? null);
+      setHasMore(Boolean((json as { meta?: { hasMore?: boolean } }).meta?.hasMore));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load');
     } finally {
@@ -113,6 +115,11 @@ export default function ARAgingPage() {
         `"${BUCKET_LABELS[r.bucket]}"`,
       ].join(',')
     );
+    if (hasMore) {
+      // P3.4: rows are capped server-side; never let an export silently
+      // pretend to be complete when the on-screen totals cover everything.
+      csvRows.push('"TRUNCATED — row list capped; on-screen summary totals include ALL records. Narrow the date range.",,,,,,,,');
+    }
     const csv = [header, ...csvRows].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -174,6 +181,11 @@ export default function ARAgingPage() {
         </div>
 
         <div className="p-6 max-w-7xl space-y-6">
+          {hasMore && (
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-500/10 text-amber-500 text-sm">
+              <AlertCircle className="h-4 w-4" /> Showing the first rows only (server cap) — summary totals below include ALL records. Exports carry a TRUNCATED marker.
+            </div>
+          )}
           {error && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
               <AlertCircle className="h-4 w-4" /> {error}

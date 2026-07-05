@@ -13,7 +13,8 @@ import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withFlowMeter } from '@/lib/billing/withFlowMeter';
 import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
-import { sql } from '@/lib/neon';
+import { sql, fmtDate } from '@/lib/neon';
+import { parsePagination } from '@/lib/pagination';
 
 type Bucket = 'current' | '1-30' | '31-60' | '61-90' | '90+';
 
@@ -54,11 +55,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const { companyId } = req as CompanyAuthedRequest;
+  // P3.4: was unbounded across every open supplier invoice. One row per open
+  // invoice, so a generous cap; bucket totals below come from a SQL aggregate
+  // over the FULL population so a capped row list can never skew them.
+  const { limit, offset } = parsePagination(req.query, 1000, 2000);
 
   try {
     const asAtRaw = req.query.as_at_date ? String(req.query.as_at_date) : null;
     const asAt = asAtRaw ? new Date(asAtRaw) : new Date();
-    const asAtStr = asAt.toISOString().split('T')[0] as string;
+    // Local date — toISOString() rolls back a day between 00:00–02:00 SAST
+    // (UTC+2 server); same fix as reports-ar-aging (P1.4 date family).
+    const asAtStr = fmtDate(asAt);
 
     const rows = (await sql`
       SELECT
@@ -77,10 +84,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         AND si.status NOT IN ('paid', 'cancelled', 'draft')
         AND si.balance > 0
         AND si.due_date IS NOT NULL
-      ORDER BY si.due_date
+      ORDER BY si.due_date, si.id
+      LIMIT ${limit + 1} OFFSET ${offset}
     `) as Row[];
 
-    const invoiceRows: APAgingRow[] = rows.map((r: Row) => {
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+
+    const invoiceRows: APAgingRow[] = page.map((r: Row) => {
       const daysOverdue = Number(r.days_overdue);
       return {
         id: String(r.id),
@@ -96,19 +107,46 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       };
     });
 
-    // Build summary
+    // Bucket summary is aggregated in SQL over the FULL open-invoice
+    // population (not `page`) so it stays correct regardless of the cap above.
+    const bucketRows = (await sql`
+      SELECT
+        CASE
+          WHEN GREATEST(0, (${asAtStr}::date - si.due_date)) <= 0 THEN 'current'
+          WHEN GREATEST(0, (${asAtStr}::date - si.due_date)) <= 30 THEN '1-30'
+          WHEN GREATEST(0, (${asAtStr}::date - si.due_date)) <= 60 THEN '31-60'
+          WHEN GREATEST(0, (${asAtStr}::date - si.due_date)) <= 90 THEN '61-90'
+          ELSE '90+'
+        END AS bucket,
+        COUNT(*)::int AS count,
+        SUM(si.balance)::numeric AS total
+      FROM supplier_invoices si
+      WHERE si.company_id = ${companyId}::UUID
+        AND si.status NOT IN ('paid', 'cancelled', 'draft')
+        AND si.balance > 0
+        AND si.due_date IS NOT NULL
+      GROUP BY bucket
+    `) as Row[];
+
     const summaryMap = new Map<Bucket, BucketSummary>();
     for (const b of BUCKET_ORDER) {
       summaryMap.set(b, { bucket: b, count: 0, total: 0 });
     }
-    for (const row of invoiceRows) {
-      const s = summaryMap.get(row.bucket)!;
-      s.count += 1;
-      s.total += row.balance_due;
+    for (const r of bucketRows) {
+      const bucket = String(r.bucket) as Bucket;
+      const s = summaryMap.get(bucket);
+      if (s) {
+        s.count = Number(r.count);
+        s.total = Number(r.total);
+      }
     }
     const summary = BUCKET_ORDER.map(b => summaryMap.get(b)!);
 
-    return apiResponse.success(res, { rows: invoiceRows, summary, as_at_date: asAtStr });
+    return apiResponse.success(
+      res,
+      { rows: invoiceRows, summary, as_at_date: asAtStr },
+      undefined, 200, { limit, offset, hasMore },
+    );
   } catch (err) {
     log.error('Failed to get AP aging report', { error: err }, 'accounting-api');
     return apiResponse.badRequestFromError(res, err, 'Failed to get AP aging report');
