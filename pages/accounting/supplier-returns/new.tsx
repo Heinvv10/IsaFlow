@@ -12,7 +12,7 @@ import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
 import { notify } from '@/utils/toast';
 
-interface Supplier { id: number; name: string }
+interface Supplier { id: string; name: string }
 
 const inp = 'w-full px-3 py-2 bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-lg text-sm text-[var(--ff-text-primary)] focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500 transition-colors';
 const lbl = 'block text-[11px] font-semibold text-[var(--ff-text-tertiary)] uppercase tracking-wider mb-1.5';
@@ -39,7 +39,7 @@ export default function NewSupplierReturnPage() {
       .then(res => {
         const data = res.data || res;
         const list: Array<Record<string, unknown>> = Array.isArray(data) ? data : (data.suppliers ?? []);
-        setSuppliers(list.map(s => ({ id: s.id as number, name: (s.company_name ?? s.name) as string })));
+        setSuppliers(list.map(s => ({ id: s.id as string, name: (s.company_name ?? s.name) as string })));
       })
       .catch(() => setError('Failed to load suppliers'));
   }, []);
@@ -59,7 +59,7 @@ export default function NewSupplierReturnPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          supplierId: Number(form.supplierId),
+          supplierId: form.supplierId,
           originalInvoiceNumber: form.originalInvoiceNumber || undefined,
           amount,
           reason: form.reason || undefined,

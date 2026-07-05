@@ -14,7 +14,7 @@ interface SupplierReturn {
   original_invoice_number?: string; amount: number;
   status: string; return_date: string; reason: string;
 }
-interface Supplier { id: number; name: string }
+interface Supplier { id: string; name: string }
 interface Form { supplierId: string; originalInvoiceNumber: string; amount: string; reason: string }
 
 const EMPTY: Form = { supplierId: '', originalInvoiceNumber: '', amount: '', reason: '' };
@@ -47,7 +47,7 @@ export default function SupplierReturnsPage() {
   useEffect(() => {
     apiFetch('/api/accounting/suppliers-list').then(r => r.json()).then(json => {
       const data = json.data || json;
-      setSuppliers((data.suppliers || []).map((s: Record<string, unknown>) => ({ id: s.id as number, name: (s.company_name || s.name) as string })));
+      setSuppliers((data.suppliers || []).map((s: Record<string, unknown>) => ({ id: s.id as string, name: (s.company_name || s.name) as string })));
     }).catch(() => { /* non-critical */ });
   }, []);
 
@@ -61,7 +61,7 @@ export default function SupplierReturnsPage() {
     try {
       const res = await apiFetch('/api/accounting/supplier-returns', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ supplierId: Number(form.supplierId), originalInvoiceNumber: form.originalInvoiceNumber || undefined, amount: Number(form.amount), reason: form.reason || undefined }),
+        body: JSON.stringify({ supplierId: form.supplierId, originalInvoiceNumber: form.originalInvoiceNumber || undefined, amount: Number(form.amount), reason: form.reason || undefined }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error?.message || 'Failed to create return');
