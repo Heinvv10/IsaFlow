@@ -31,7 +31,7 @@ States: `todo` · `in-progress` · `pr-open` · `merged` · `deployed` · `block
 | b/e specs don't assert journal line balance (DR AR/CR Rev/CR VAT) | MEDIUM | add journal-balance assertions via gl_journal_entry_id |
 | self-hosted runner exposed to pull_request events (pre-existing pattern) | INFO | flag to Hein — private single-owner repo, low risk today |
 
-State: **pr-open** (branch test/golden-paths-hardening). Fixes: spec j → fixture asset + IDEMPOTENT depreciation GL (product fix: existing DEP-<asset>-<month> entry returned as already-posted instead of silent 23505 — re-runs post at most one journal/asset/month); spec f → imported txns deleted in finally; specs b/c/d/e → fixture masters (0GP-Golden-Customer/Supplier, bounded growth); spec h cleanup in finally; b/e journal-balance assertions; CI: no log tail (secret leak), ephemeral port (stale-server); _api dispose-on-login-fail + 401 hint.
+State: **merged** (#202, master 0cccfba5; 2-round blind review incl. a reversed-entry idempotency HIGH fixed with reversed_at IS NULL). Fixes: spec j → fixture asset + IDEMPOTENT depreciation GL (product fix: existing DEP-<asset>-<month> entry returned as already-posted instead of silent 23505 — re-runs post at most one journal/asset/month); spec f → imported txns deleted in finally; specs b/c/d/e → fixture masters (0GP-Golden-Customer/Supplier, bounded growth); spec h cleanup in finally; b/e journal-balance assertions; CI: no log tail (secret leak), ephemeral port (stale-server); _api dispose-on-login-fail + 401 hint.
 
 ## Phase 1 — The broken five
 
@@ -83,6 +83,26 @@ State: **pr-open** (branch test/golden-paths-hardening). Fixes: spec j → fixtu
 | Task | State | Branch | PR | Deployed | Evidence |
 |------|-------|--------|----|----------|----------|
 | Pricing SKUs / price-lock page / bank-feed BD pack / SAIPA one-pager | todo | | | | |
+
+## Phase 1 exit gate — REMAINING: Hein's deploy (everything else done)
+
+**Code state:** ALL P1 items merged (PRs #191–#202). All 11 golden paths are
+plain passes on dev Demo; zero test.fail() in the suite. Prod integrity 13/13.
+
+**Deploy runbook (after 17:00 SAST, Hein's approval):**
+1. `bash scripts/deploy.sh` from master ≥ 0cccfba5 (deploy runs `db:migrate`
+   — migration **500** widens gl_journal_entries.entry_number to 50; it
+   drops/recreates trg_gl_je_entry_number inside the migration transaction).
+2. Post-deploy verification (the new gate):
+   `E2E_ADMIN_EMAIL=admin@isaflow.co.za E2E_ADMIN_PASSWORD=<pw> BASE_URL=https://app.isaflow.co.za bun run test:e2e:golden`
+   → must be 11/11. Suite is prod-Demo-safe (#202): fixture masters,
+   idempotent depreciation, statement-line cleanup, one login per run.
+3. `DATABASE_URL=<prod> bun scripts/integrity-check.ts` → 13/13.
+4. Data repairs ALREADY EXECUTED on prod (no action): JE-2026-00927 reversed +
+   all 7 legacy reversed-status Demo pairs healed (2026-07-05 morning).
+5. Optional after deploy: dry-run `scripts/fixes/reverse-cancelled-invoice-journals.ts`
+   to enumerate remaining cancelled-invoice orphans — **Britech JE-2026-00507
+   stays HUMAN-GATED** (see queue below).
 
 ## HUMAN-GATED queue (waiting on Hein)
 
