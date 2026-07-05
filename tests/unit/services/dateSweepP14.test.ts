@@ -9,6 +9,12 @@
 
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
+// These tests discriminate fmtDate (local getters) from the buggy
+// toISOString path ONLY when the process runs ahead of UTC. Pin the zone and
+// fail loudly if the runner ignores it — a UTC runner would make the old
+// buggy code pass these tests silently.
+process.env.TZ = 'Africa/Johannesburg';
+
 vi.mock('@/lib/neon', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/lib/neon')>();
   const sqlMock = Object.assign(vi.fn().mockResolvedValue([]), {
@@ -54,6 +60,10 @@ const USER_ID = 'ffffffff-0000-4000-8000-ffffffffffff';
 describe('P1.4 date sweep (UTC+2 rollback family)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('runner timezone is ahead of UTC (guard — see header comment)', () => {
+    expect(new Date(2026, 0, 1).getTimezoneOffset()).toBeLessThan(0);
   });
 
   it('N4: postCustomerInvoiceToGL dates the journal on the INVOICE date, not the previous UTC day', async () => {

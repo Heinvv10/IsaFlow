@@ -30,18 +30,14 @@
 import { describe, it, expect, vi } from 'vitest';
 
 // Stub @/lib/neon before any service module is imported.
-vi.mock('@/lib/neon', () => {
+vi.mock('@/lib/neon', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/lib/neon')>();
   const noopTag = () => Promise.resolve([]);
   (noopTag as unknown as Record<string, unknown>).unsafe = (s: string) => s;
   return {
+    ...original, // real fmtDate — archiveQueryService.toISODate routes through it
     sql: noopTag,
     withTransaction: (_cb: unknown) => Promise.resolve(),
-    // Real-shaped fmtDate: archiveQueryService.toISODate routes pg Dates
-    // through it (P1.4 sweep) — local getters, no toISOString rollback.
-    fmtDate: (d: unknown) =>
-      d instanceof Date
-        ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-        : String(d ?? ''),
   };
 });
 
