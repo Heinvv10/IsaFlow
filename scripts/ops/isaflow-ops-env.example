@@ -1,0 +1,16 @@
+# IsaFlow ops probe config — copy to /home/hein/isaflow-ops.env, chmod 600.
+# Values are read LITERALLY (allowlisted keys, no shell parsing).
+
+# Telegram bot that receives probe alerts (BotFather token + target chat).
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_CHAT_ID=
+
+# Demo-company login for the authed-API check (same account the golden
+# suite uses; the probe reuses a cookie jar and logs in only on expiry).
+E2E_ADMIN_EMAIL=
+E2E_ADMIN_PASSWORD=
+
+# Optional: Bugsink API poll (belt-and-braces — the bugsink-telegram-relay
+# worker already pushes new issues in real time). Leave empty to skip.
+BUGSINK_TOKEN=
+BUGSINK_URL=https://errors.isaflow.co.za

@@ -136,14 +136,37 @@ class Logger {
     } else {
       // Node.js environment — always write to stdout/stderr for systemd/journald visibility
       const requestId = getRequestId();
-      const jsonLine = JSON.stringify({
+      const payload = {
         level,
         message,
         timestamp,
         component,
         ...(requestId !== undefined ? { requestId } : {}),
         ...(data !== undefined ? { data } : {}),
-      }) + '\n';
+      };
+      // N3: JSON.stringify drops Error message/stack (non-enumerable) — every
+      // `{ error: err }` call site was landing in journald as `"error":{}`.
+      // The replacer expands Errors at ANY depth, keeping custom enumerable
+      // subclass fields (e.g. ClosedFiscalPeriodError.periodStatus) via the
+      // spread; the catch keeps the logger from ever throwing on
+      // unserializable data (circular refs) while still emitting the message.
+      let jsonLine: string;
+      try {
+        jsonLine = JSON.stringify(payload, (_key, value: unknown) =>
+          value instanceof Error
+            ? { ...value, name: value.name, message: value.message, stack: value.stack }
+            : value,
+        ) + '\n';
+      } catch {
+        jsonLine = JSON.stringify({
+          level,
+          message,
+          timestamp,
+          component,
+          ...(requestId !== undefined ? { requestId } : {}),
+          data: '[unserializable data dropped by logger]',
+        }) + '\n';
+      }
 
       if (level === 'error' || level === 'warn') {
         process.stderr.write(jsonLine);
