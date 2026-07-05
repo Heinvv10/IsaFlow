@@ -4,7 +4,7 @@
  * HTML template is in statementEmailTemplate.ts (kept separate for size).
  */
 
-import { sql } from '@/lib/neon';
+import { sql, fmtDate as fmtDbDate } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { sendEmail } from '../core/emailService';
@@ -41,12 +41,14 @@ interface StatementPayload {
 // ─── Date helper ─────────────────────────────────────────────────────────────
 
 function toISODate(val: unknown): string {
+  // P1.4 sweep: toISOString() on a pg DATE (local midnight, UTC+2) rolls the
+  // date back a day — fmtDate uses local getters.
   if (!val) return '1970-01-01';
-  if (val instanceof Date) return val.toISOString().split('T')[0] ?? '1970-01-01';
+  if (val instanceof Date) return fmtDbDate(val) || '1970-01-01';
   const s = String(val);
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.split('T')[0] ?? '1970-01-01';
   const d = new Date(s);
-  return isNaN(d.getTime()) ? '1970-01-01' : (d.toISOString().split('T')[0] ?? '1970-01-01');
+  return isNaN(d.getTime()) ? '1970-01-01' : (fmtDbDate(d) || '1970-01-01');
 }
 
 const fmtDate = (d: string): string => {

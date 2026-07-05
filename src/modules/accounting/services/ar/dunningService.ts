@@ -14,7 +14,7 @@
 
 import crypto from 'node:crypto';
 
-import { sql } from '@/lib/neon';
+import { sql, fmtDate } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { sendEmail } from '../core/emailService';
@@ -95,8 +95,10 @@ export const fmtZar = (n: number): string =>
   `R${n.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export const toISODate = (d: unknown): string => {
+  // P1.4 sweep: toISOString() on a pg DATE (local midnight, UTC+2) rolls the
+  // date back a day — fmtDate uses local getters.
   if (!d) return '';
-  if (d instanceof Date) return d.toISOString().split('T')[0] ?? '';
+  if (d instanceof Date) return fmtDate(d);
   const s = String(d);
   return /^\d{4}-\d{2}-\d{2}/.test(s) ? (s.split('T')[0] ?? '') : s;
 };

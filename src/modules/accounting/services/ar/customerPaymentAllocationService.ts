@@ -175,12 +175,11 @@ export async function postCustomerInvoiceToGL(
       });
     }
 
-    // Neon returns DATE columns as JS Date objects. Naive String(date) produces
-    // "Fri Mar 24 2023 00:00:00 GMT+0200" which postgres rejects. Normalise to
-    // ISO YYYY-MM-DD regardless of shape.
-    const entryDate = inv.invoice_date instanceof Date
-      ? inv.invoice_date.toISOString().slice(0, 10)
-      : String(inv.invoice_date).slice(0, 10);
+    // pg returns DATE columns as JS Date objects at LOCAL midnight — on this
+    // UTC+2 server toISOString() rolls the date back a day, so every
+    // auto_invoice journal was dated one day before its invoice (baseline
+    // finding N4). fmtDate uses local getters and handles both shapes.
+    const entryDate = fmtDate(inv.invoice_date);
     // sourceDocumentId FKs to captured_documents(id) — not customer_invoices.
     // The invoice↔JE link is maintained via customer_invoices.gl_journal_entry_id
     // below.

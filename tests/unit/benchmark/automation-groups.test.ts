@@ -30,10 +30,12 @@
 import { describe, it, expect, vi } from 'vitest';
 
 // Stub @/lib/neon before any service module is imported.
-vi.mock('@/lib/neon', () => {
+vi.mock('@/lib/neon', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/lib/neon')>();
   const noopTag = () => Promise.resolve([]);
   (noopTag as unknown as Record<string, unknown>).unsafe = (s: string) => s;
   return {
+    ...original, // real fmtDate — archiveQueryService.toISODate routes through it
     sql: noopTag,
     withTransaction: (_cb: unknown) => Promise.resolve(),
   };
