@@ -8,6 +8,7 @@
 export * from './arAgingService';
 export * from './creditNotePdfBuilder';
 export * from './creditNoteService';
+export * from './customerInvoiceCancelService';
 export * from './customerPaymentAllocationService';
 export * from './debtorsManagerService';
 export * from './deliveryNoteService';
