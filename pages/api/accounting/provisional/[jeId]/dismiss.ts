@@ -31,6 +31,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     const msg = err instanceof Error ? err.message : 'Failed to dismiss provisional entry';
     if (/not found/i.test(msg)) return apiResponse.notFound(res, 'Journal entry', jeId);
     if (/not provisional/i.test(msg)) return apiResponse.badRequest(res, msg);
+    // Double-dismiss race (second tab / rapid retry): reverseJournalEntry's
+    // own guard throws — a friendly 400 beats an opaque 500.
+    if (/already reversed/i.test(msg)) return apiResponse.badRequest(res, 'Journal entry already reversed');
     throw err;
   }
 }
