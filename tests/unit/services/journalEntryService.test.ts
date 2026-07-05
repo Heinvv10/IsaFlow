@@ -301,6 +301,32 @@ describe('getJournalEntries', () => {
     vi.mocked(sql).mockRejectedValueOnce(new Error('DB connection failed') as never);
     await expect(getJournalEntries(COMPANY_ID)).rejects.toThrow('DB connection failed');
   });
+
+  it('maps a status=reversed filter to a reversed_at IS NOT NULL predicate', async () => {
+    // Post reversal-semantics fix, reversed entries keep status='posted' with
+    // reversed_at set, so the "Reversed" filter must query reversed_at, not
+    // status. This test FAILS if reverted to `AND je.status = ${filters.status}`.
+    vi.mocked(sql).mockResolvedValueOnce([makeEntryRow({ reversed_at: '2026-03-02T09:00:00Z' })] as never);
+    vi.mocked(sql).mockResolvedValueOnce([{ cnt: '1' }] as never);
+
+    await getJournalEntries(COMPANY_ID, { status: 'reversed' });
+
+    const rowsText = (vi.mocked(sql).mock.calls[0]![0] as readonly string[]).join(' ');
+    const countText = (vi.mocked(sql).mock.calls[1]![0] as readonly string[]).join(' ');
+    expect(rowsText).toMatch(/reversed_at IS NOT NULL/i);
+    expect(countText).toMatch(/reversed_at IS NOT NULL/i);
+    // the 'reversed' filter value is still bound as a parameter
+    expect(vi.mocked(sql).mock.calls[0]!.slice(1)).toContain('reversed');
+  });
+
+  it('keeps an exact status match for non-reversed filters (e.g. posted)', async () => {
+    vi.mocked(sql).mockResolvedValueOnce([makeEntryRow({ status: 'posted' })] as never);
+    vi.mocked(sql).mockResolvedValueOnce([{ cnt: '1' }] as never);
+
+    const result = await getJournalEntries(COMPANY_ID, { status: 'posted' });
+    expect(result.entries[0]!.status).toBe('posted');
+    expect(vi.mocked(sql).mock.calls[0]!.slice(1)).toContain('posted');
+  });
 });
 
 // ── createJournalEntry (mocked sql) ──────────────────────────────────────────

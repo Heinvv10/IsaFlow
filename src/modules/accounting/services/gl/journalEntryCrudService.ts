@@ -80,13 +80,20 @@ export async function getJournalEntries(companyId: string, filters?: JournalEntr
     let rows: Row[];
     let countRows: Row[];
 
+    // A 'reversed' status filter maps to reversed_at IS NOT NULL: after the
+    // reversal-semantics fix the original entry keeps status='posted' and
+    // "reversed" lives in reversed_at, so filtering on status='reversed' would
+    // otherwise match nothing. Any other status is an exact status match.
     if (filters?.status && filters?.fiscalPeriodId) {
       rows = (await sql`
         SELECT je.*, fp.period_name AS fiscal_period_name
         FROM gl_journal_entries je
         LEFT JOIN fiscal_periods fp ON fp.id = je.fiscal_period_id
         WHERE je.company_id = ${companyId}
-          AND je.status = ${filters.status}
+          AND (
+            (${filters.status} = 'reversed' AND je.reversed_at IS NOT NULL)
+            OR (${filters.status} <> 'reversed' AND je.status = ${filters.status})
+          )
           AND je.fiscal_period_id = ${filters.fiscalPeriodId}
           AND je.source NOT LIKE 'auto_%'
         ORDER BY je.entry_date DESC, je.created_at DESC
@@ -94,7 +101,12 @@ export async function getJournalEntries(companyId: string, filters?: JournalEntr
       `) as Row[];
       countRows = (await sql`
         SELECT COUNT(*) AS cnt FROM gl_journal_entries
-        WHERE company_id = ${companyId} AND status = ${filters.status} AND fiscal_period_id = ${filters.fiscalPeriodId}
+        WHERE company_id = ${companyId}
+          AND (
+            (${filters.status} = 'reversed' AND reversed_at IS NOT NULL)
+            OR (${filters.status} <> 'reversed' AND status = ${filters.status})
+          )
+          AND fiscal_period_id = ${filters.fiscalPeriodId}
           AND source NOT LIKE 'auto_%'
       `) as Row[];
     } else if (filters?.status) {
@@ -103,14 +115,22 @@ export async function getJournalEntries(companyId: string, filters?: JournalEntr
         FROM gl_journal_entries je
         LEFT JOIN fiscal_periods fp ON fp.id = je.fiscal_period_id
         WHERE je.company_id = ${companyId}
-          AND je.status = ${filters.status}
+          AND (
+            (${filters.status} = 'reversed' AND je.reversed_at IS NOT NULL)
+            OR (${filters.status} <> 'reversed' AND je.status = ${filters.status})
+          )
           AND je.source NOT LIKE 'auto_%'
         ORDER BY je.entry_date DESC, je.created_at DESC
         LIMIT ${limit} OFFSET ${offset}
       `) as Row[];
       countRows = (await sql`
         SELECT COUNT(*) AS cnt FROM gl_journal_entries
-        WHERE company_id = ${companyId} AND status = ${filters.status} AND source NOT LIKE 'auto_%'
+        WHERE company_id = ${companyId}
+          AND (
+            (${filters.status} = 'reversed' AND reversed_at IS NOT NULL)
+            OR (${filters.status} <> 'reversed' AND status = ${filters.status})
+          )
+          AND source NOT LIKE 'auto_%'
       `) as Row[];
     } else if (filters?.fiscalPeriodId) {
       rows = (await sql`

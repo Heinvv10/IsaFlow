@@ -79,6 +79,10 @@ export async function reverseJournalEntry(companyId: string, id: string, userId:
     const entry = await getJournalEntryById(companyId, id);
     if (!entry) throw new Error(`Journal entry ${id} not found`);
     if (entry.status !== 'posted') throw new Error('Can only reverse posted entries');
+    // Double-reversal guard. The original KEEPS status='posted' after reversal
+    // (see below), so status alone can no longer signal "already reversed";
+    // reversed_at is the marker instead.
+    if (entry.reversedAt) throw new Error('Journal entry already reversed');
     if (!entry.lines || entry.lines.length === 0) throw new Error('Entry has no lines');
 
     const reversalLines: JournalLineInput[] = entry.lines.map(l => ({
@@ -100,6 +104,14 @@ export async function reverseJournalEntry(companyId: string, id: string, userId:
 
     await postJournalEntry(companyId, reversalEntry.id, userId);
 
+    // Standard-accounting reversal: the original stays status='posted' and the
+    // posted contra entry offsets it, so the pair nets to zero in every
+    // posted-only report and in the gl_account_balances cache. "Reversed" is now
+    // METADATA (reversed_at / reversed_by / reversal_of_id), NOT a status flip —
+    // flipping the original out of 'posted' used to drop it from posted-only
+    // reports while the contra stayed, driving accounts to the NEGATIVE of the
+    // original instead of zero.
+    //
     // Both link-back UPDATEs must succeed together. We use the request-scoped
     // sql client (auto-routed via AsyncLocalStorage) instead of withTransaction
     // here — withTransaction would acquire a separate pool client and deadlock
@@ -107,7 +119,7 @@ export async function reverseJournalEntry(companyId: string, id: string, userId:
     // reversal JE we just inserted/posted in this same request).
     await sql`
       UPDATE gl_journal_entries
-      SET status = 'reversed', reversed_by = ${userId}::UUID, reversed_at = NOW()
+      SET reversed_by = ${userId}::UUID, reversed_at = NOW()
       WHERE id = ${id} AND company_id = ${companyId}
     `;
     await sql`
