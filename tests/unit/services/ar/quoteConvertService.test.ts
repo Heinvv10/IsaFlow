@@ -92,6 +92,13 @@ describe('convertToInvoice — writes real customer_invoice_items columns', () =
 
     await convertToInvoice(COMPANY_ID, QUOTE_ID);
 
+    // Pin the shared sequence — reverting to the old 'invoice'/'INV-' counter
+    // (collides with historical numbers) must fail here.
+    const { reserveNextDocumentNumber } = await import(
+      '@/modules/accounting/services/core/companySettingsService'
+    );
+    expect(reserveNextDocumentNumber).toHaveBeenCalledWith(COMPANY_ID, 'customer_invoice');
+
     const insertItemCall = mockSql.mock.calls.find((call) =>
       sqlTextOf(call).includes('INSERT INTO customer_invoice_items'),
     )!;
