@@ -20,6 +20,15 @@
  * Scope note: Demo-company repair is explicitly in-scope per the goal's P1.1.
  * The equivalent Britech repair (JE-2026-00507) is HUMAN-GATED — separate
  * proposal, not this script.
+ *
+ * POSTSCRIPT (2026-07-05, same day): executed on prod Demo at ~08:30 SAST
+ * under the then-current reversal semantics (original → status='reversed').
+ * PR #197 later established that reversed originals must KEEP status='posted'
+ * (reversal = metadata) or posted-only readers net the pair to −X. The pair
+ * this script created (JE-2026-00927 ↔ JE-2026-00940) was healed the same
+ * morning by scripts/fixes/repair-reversed-journal-status.ts --apply
+ * (7 Demo pairs total, prod integrity 13/13 after). Kept for the audit trail;
+ * do NOT reuse this script — use scripts/fixes/reverse-cancelled-invoice-journals.ts.
  */
 
 import { randomUUID } from 'node:crypto';
