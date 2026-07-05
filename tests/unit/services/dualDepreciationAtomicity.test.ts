@@ -57,21 +57,30 @@ const input = {
   deferredTaxRate: 27,
 };
 
+/** Text-keyed sql mock — robust to query insertions between versions. */
+function mockByText(overrides: Record<string, unknown[] | Error> = {}) {
+  mockSql.mockImplementation((strings: TemplateStringsArray) => {
+    const text = (strings as unknown as string[]).join('?');
+    for (const [pattern, result] of Object.entries(overrides)) {
+      if (new RegExp(pattern, 'i').test(text)) {
+        return result instanceof Error ? Promise.reject(result) : Promise.resolve(result);
+      }
+    }
+    if (/SELECT id, asset_number/i.test(text)) {
+      return Promise.resolve([{ id: ASSET_ID, asset_number: 'ASST-0001', name: 'X' }]);
+    }
+    return Promise.resolve([]); // apl upsert, existing-check (no hit), lines, updates
+  });
+}
+
 describe('postDualDepreciationToLedger atomicity (PR #200)', () => {
   beforeEach(() => {
     savepointCalls.length = 0;
-    vi.clearAllMocks();
+    vi.resetAllMocks(); // reset, not clear: once-queues must not leak across tests
   });
 
   it('runs ledger upsert + GL post inside ONE savepoint and reports success', async () => {
-    // upsert → [], asset SELECT → row, entry INSERT → id, 2 line INSERTs, asset UPDATE
-    mockSql
-      .mockResolvedValueOnce([]) // apl upsert
-      .mockResolvedValueOnce([{ id: ASSET_ID, asset_number: 'ASST-0001', name: 'X' }])
-      .mockResolvedValueOnce([{ id: 'je-1' }])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([]);
+    mockByText({ 'INSERT INTO gl_journal_entries': [{ id: 'je-1' }] });
 
     const result = await postDualDepreciationToLedger(
       COMPANY_ID, ASSET_ID, input, '202607', USER_ID,
@@ -87,10 +96,10 @@ describe('postDualDepreciationToLedger atomicity (PR #200)', () => {
   });
 
   it('reports glFailed=true when the GL post throws — nothing silently persists', async () => {
-    mockSql
-      .mockResolvedValueOnce([]) // apl upsert (rolled back by the savepoint in prod)
-      .mockResolvedValueOnce([{ id: ASSET_ID, asset_number: 'ASST-0001', name: 'X' }])
-      .mockRejectedValueOnce(Object.assign(new Error('value too long'), { code: '22001' }));
+    mockByText({
+      'INSERT INTO gl_journal_entries': Object.assign(new Error('value too long'), { code: '22001' }),
+    });
+
 
     const result = await postDualDepreciationToLedger(
       COMPANY_ID, ASSET_ID, input, '202607', USER_ID,
@@ -99,5 +108,19 @@ describe('postDualDepreciationToLedger atomicity (PR #200)', () => {
     expect(result.glFailed).toBe(true);
     expect(result.entryId).toBeNull();
     expect(savepointCalls).toContain('asset_dep_period');
+  });
+
+  it('returns the existing journal as already-posted on a same-month re-run (idempotent)', async () => {
+    mockByText({
+      'SELECT id FROM gl_journal_entries': [{ id: 'je-existing' }],
+      'INSERT INTO gl_journal_entries': new Error('must not re-insert when already posted'),
+    });
+
+    const result = await postDualDepreciationToLedger(
+      COMPANY_ID, ASSET_ID, input, '202607', USER_ID,
+    );
+
+    expect(result.glFailed).toBe(false);
+    expect(result.entryId).toBe('je-existing');
   });
 });

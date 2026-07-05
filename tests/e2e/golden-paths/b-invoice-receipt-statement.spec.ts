@@ -9,14 +9,10 @@ import { Api, gpRef, today } from './_api';
 test('customer invoice: create → approve → receipt allocation → statement', async ({ baseURL }) => {
   const api = await Api.login(baseURL!);
   try {
-    // Fresh customer: seeded Demo masters carry non-RFC UUIDs (c1000000-…)
-    // that zod-strict endpoints reject with 422 — tracked for repair in P2.3.
-    // The golden path pins the money flow itself, on a well-formed customer.
-    const customer = await api.post<any>('/api/accounting/customers', {
-      name: gpRef('CUST'),
-      email: 'gp-customer@example.test',
-    });
-    const clientId = customer.id;
+    // Fixture customer (find-or-create '0GP-Golden-Customer'): seeded Demo
+    // masters carry non-RFC UUIDs that zod-strict endpoints 422 on (N1), and
+    // creating a fresh master per run grew the shared books unboundedly.
+    const clientId = await api.fixtureCustomer();
     expect(clientId).toBeTruthy();
 
     // Create draft invoice (100.00 + 15% VAT = 115.00).
@@ -43,6 +39,17 @@ test('customer invoice: create → approve → receipt allocation → statement'
     expect(['approved', 'sent']).toContain(approved.status);
     expect(approved.gl_journal_entry_id, 'approval must post a GL journal').toBeTruthy();
     expect(Number(approved.total_amount)).toBeCloseTo(115, 2);
+
+    // Double-entry assertion (blind-review MEDIUM): the approval journal must
+    // actually carry DR 115 / CR 115 across its lines — not merely exist.
+    const journal = await api.get<any>(
+      `/api/accounting/journal-entries-detail?id=${approved.gl_journal_entry_id}`,
+    );
+    expect(journal.status).toBe('posted');
+    const drTotal = journal.lines.reduce((t: number, l: any) => t + Number(l.debit), 0);
+    const crTotal = journal.lines.reduce((t: number, l: any) => t + Number(l.credit), 0);
+    expect(drTotal).toBeCloseTo(115, 2);
+    expect(crTotal).toBeCloseTo(115, 2);
 
     // Receipt allocated to the invoice.
     const payment = await api.post<any>('/api/accounting/customer-payments', {

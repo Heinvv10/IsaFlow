@@ -60,6 +60,23 @@ async function postAssetDepreciationToGLThrows(
   const assetNumber = String(assetRow.asset_number ?? '');
   const assetName = String(assetRow.name ?? '');
 
+  // Idempotency: entry numbers are deterministic per asset+month
+  // (DEP-<asset>-YYYY-MM, unique per company). A re-run within the month
+  // previously hit 23505 for every already-posted asset — swallowed silently
+  // before P1.5 made failures loud. Treat an existing entry as already
+  // posted and return it instead of failing the asset.
+  const entryNumber = `DEP-${assetNumber}-${new Date().toISOString().slice(0, 7)}`;
+  const existing = (await sql`
+    SELECT id FROM gl_journal_entries
+    WHERE company_id = ${companyId} AND entry_number = ${entryNumber}
+  `) as DbRow[];
+  if (existing[0]) {
+    log.info('Asset depreciation already posted this month — skipping', {
+      assetId, entryId: String(existing[0].id),
+    }, 'accounting');
+    return String(existing[0].id);
+  }
+
   const depExpenseId = await getSystemAccountId('depreciation_expense', companyId);
   const accumDepId = await getSystemAccountId('accumulated_depreciation', companyId);
 
@@ -68,7 +85,7 @@ async function postAssetDepreciationToGLThrows(
       company_id, entry_number, entry_date, description, source, status, created_by,
       posting_agent
     ) VALUES (
-      ${companyId}, ${`DEP-${assetNumber}-${new Date().toISOString().slice(0, 7)}`}, CURRENT_DATE,
+      ${companyId}, ${entryNumber}, CURRENT_DATE,
       ${`Depreciation: ${assetName} (${assetNumber})`},
       'auto_depreciation', 'posted', ${userId},
       'system:asset-depreciation:v1'

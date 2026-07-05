@@ -52,18 +52,23 @@ export class Api {
 
     const { email, password } = getE2ECredentials();
     const ctx = await pwRequest.newContext({ baseURL });
-    const res = await ctx.post('/api/auth/login', { data: { email, password } });
-    if (res.status() !== 200) {
-      throw new Error(`login failed: ${res.status()} ${await res.text()}`);
+    try {
+      const res = await ctx.post('/api/auth/login', { data: { email, password } });
+      if (res.status() !== 200) {
+        throw new Error(`login failed: ${res.status()} ${await res.text()}`);
+      }
+      let csrf = await Api.readCsrf(ctx);
+      if (!csrf) {
+        // middleware issues the cookie on any routed request
+        await ctx.get('/accounting');
+        csrf = await Api.readCsrf(ctx);
+      }
+      if (!csrf) throw new Error('no isaflow_csrf cookie after login');
+      return new Api(ctx, csrf);
+    } catch (err) {
+      await ctx.dispose(); // don't leak the context on lockout/bad-cred paths
+      throw err;
     }
-    let csrf = await Api.readCsrf(ctx);
-    if (!csrf) {
-      // middleware issues the cookie on any routed request
-      await ctx.get('/accounting');
-      csrf = await Api.readCsrf(ctx);
-    }
-    if (!csrf) throw new Error('no isaflow_csrf cookie after login');
-    return new Api(ctx, csrf);
   }
 
   private static async readCsrf(ctx: APIRequestContext): Promise<string> {
@@ -147,11 +152,53 @@ export class Api {
   ): Promise<T> {
     const status = res.status();
     const body = await res.json().catch(async () => ({ nonJson: await res.text() }));
+    if (status === 401) {
+      throw new ApiError(
+        status,
+        { ...body, hint: 'session expired mid-suite — re-run (global setup logs in once per run)' },
+        method,
+        path,
+      );
+    }
     if (status < 200 || status >= 300 || body?.success === false) {
       throw new ApiError(status, body, method, path);
     }
     // apiResponse.success wraps payloads as {success:true, data}
     return (body?.data ?? body) as T;
+  }
+
+  /**
+   * Find-or-create the suite's fixture customer/supplier. Specs previously
+   * created a fresh master per run — unbounded growth in the shared Demo
+   * company (and the prod Demo post-deploy runs). One fixture row each,
+   * reused forever. Names start '0GP' so UI dropdowns (first-page-only, see
+   * spec d) always include them. Seeded Demo masters can't be used instead:
+   * their non-RFC UUIDs fail zod-strict endpoints (baseline finding N1).
+   */
+  async fixtureCustomer(): Promise<string> {
+    const found = await this.get<any[]>(
+      `/api/accounting/customers?q=${encodeURIComponent('0GP-Golden-Customer')}`,
+    );
+    if (Array.isArray(found) && found.length > 0) return found[0].id;
+    const created = await this.post<any>('/api/accounting/customers', {
+      name: '0GP-Golden-Customer',
+      email: 'gp-golden-customer@example.test',
+    });
+    return created.id;
+  }
+
+  async fixtureSupplier(): Promise<string> {
+    const found = await this.get<any>(
+      `/api/accounting/suppliers-list?q=${encodeURIComponent('0GP-Golden-Supplier')}`,
+    );
+    const list = found?.suppliers ?? [];
+    if (list.length > 0) return list[0].id;
+    const created = await this.post<any>('/api/accounting/suppliers-list', {
+      name: '0GP-Golden-Supplier',
+      email: 'gp-golden-supplier@example.test',
+      payment_terms: 30,
+    });
+    return created.id;
   }
 }
 
