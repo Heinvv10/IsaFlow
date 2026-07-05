@@ -3,7 +3,7 @@
  * Credit Note Service (Customer & Supplier)
  */
 
-import { sql } from '@/lib/neon';
+import { sql, fmtDate } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl/journalEntryService';
 import { getSystemAccount } from '../gl/systemAccountResolver';
@@ -155,8 +155,19 @@ export async function approveCreditNote(companyId: string, id: string, userId: s
         description: `Expense credit: ${cn.credit_note_number}` });
     }
 
+    // credit_date comes back from pg as a Date object (or a string on some
+    // paths); String(Date) yields "Fri Jul 04 2026 ... GMT+0200 (...)" which
+    // Postgres rejects as an invalid time zone when inserted into entry_date.
+    // fmtDate (not toISODate) is required here: node-postgres constructs DATE
+    // columns at LOCAL midnight, so toISODate's UTC-based slicing rolls the
+    // date back a day on this server's UTC+2 timezone — fmtDate reads the
+    // same local getters pg used to build the Date, and also handles the
+    // string shape (already 'YYYY-MM-DD' or an ISO timestamp).
+    const entryDate = fmtDate(cn.credit_date);
+    if (!entryDate) throw new Error(`Credit note ${id} has an invalid credit_date value`);
+
     const je = await createJournalEntry(companyId, {
-      entryDate: String(cn.credit_date),
+      entryDate,
       description: `Credit note ${cn.credit_note_number}`,
       source: 'auto_credit_note',
       sourceDocumentId: id,

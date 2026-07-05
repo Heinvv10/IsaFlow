@@ -3,7 +3,7 @@
  * Phase 1 Sage Alignment: Customer & supplier balance adjustments
  */
 
-import { sql, withTransaction } from '@/lib/neon';
+import { sql, withTransaction, fmtDate } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
@@ -119,8 +119,16 @@ export async function approveAdjustment(companyId: string, id: string, userId: s
           description: `Adjustment ${adj.adjustment_number}` },
       ];
 
+  // adjustment_date comes back from pg as a Date object; String(Date) yields a
+  // locale-formatted string Postgres rejects when inserted into entry_date.
+  // fmtDate uses local getters matching how pg constructs DATE columns (a
+  // UTC-based slice would silently roll the date back a day on this UTC+2
+  // server) and also handles the string shape.
+  const entryDate = fmtDate(adj.adjustment_date);
+  if (!entryDate) throw new Error(`Adjustment ${id} has an invalid adjustment_date value`);
+
   const je = await createJournalEntry(companyId, {
-    entryDate: String(adj.adjustment_date),
+    entryDate,
     description: `${isCustomer ? 'Customer' : 'Supplier'} adjustment ${adj.adjustment_number}`,
     source: 'auto_adjustment',
     sourceDocumentId: id,
