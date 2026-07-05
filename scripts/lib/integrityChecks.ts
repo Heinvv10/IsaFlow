@@ -143,26 +143,35 @@ export const coreChecks: IntegrityCheck[] = [
     // misfiled in) period reports while still in the TB — the exact blind
     // spot that hid Britech's R267,109.70 salary understatement (5 journals
     // with NULL fiscal_period_id slipped past the period-joined cache check).
-    const rows = (await sql`
-      SELECT je.id, je.entry_number, je.company_id, je.entry_date, je.source,
-             fp.period_name, fp.start_date, fp.end_date
+    const [countRow] = (await sql`
+      SELECT COUNT(*)::int AS cnt
       FROM gl_journal_entries je
       LEFT JOIN fiscal_periods fp ON fp.id = je.fiscal_period_id
       WHERE je.status = 'posted'
-        AND (
-          je.fiscal_period_id IS NULL
-          OR je.entry_date < fp.start_date
-          OR je.entry_date > fp.end_date
-        )
+        AND (je.fiscal_period_id IS NULL
+             OR je.entry_date < fp.start_date OR je.entry_date > fp.end_date)
+    `) as Array<{ cnt: number }>;
+    const total = countRow?.cnt ?? 0;
+    if (total === 0) {
+      return { label: 'Posted JE fiscal period matches entry date', status: 'pass', detail: '0 posted entries with NULL or mismatched period' };
+    }
+    const rows = (await sql`
+      SELECT je.id, je.entry_number, je.company_id, je.source,
+             to_char(je.entry_date, 'YYYY-MM-DD') AS entry_date,
+             fp.period_name,
+             to_char(fp.start_date, 'YYYY-MM-DD') AS start_date,
+             to_char(fp.end_date, 'YYYY-MM-DD') AS end_date
+      FROM gl_journal_entries je
+      LEFT JOIN fiscal_periods fp ON fp.id = je.fiscal_period_id
+      WHERE je.status = 'posted'
+        AND (je.fiscal_period_id IS NULL
+             OR je.entry_date < fp.start_date OR je.entry_date > fp.end_date)
       ORDER BY je.company_id, je.entry_date
       LIMIT 50
     `) as Array<Record<string, string>>;
-    if (rows.length === 0) {
-      return { label: 'Posted JE fiscal period matches entry date', status: 'pass', detail: '0 posted entries with NULL or mismatched period' };
-    }
     return {
       label: 'Posted JE fiscal period matches entry date', status: 'fail',
-      detail: `${rows.length} posted ${plural(rows.length, 'entry', 'entries')} with NULL or mismatched fiscal period (invisible to / misfiled in period reports)`,
+      detail: `${total} posted ${plural(total, 'entry', 'entries')} with NULL or mismatched fiscal period (invisible to / misfiled in period reports)${total > rows.length ? ` — showing first ${rows.length}` : ''}`,
       lines: rows.map((r) => `entry=${r.entry_number ?? r.id}  company=${String(r.company_id).slice(0, 8)}  date=${r.entry_date}  period=${r.period_name ?? 'NULL'}${r.start_date ? `  range=${r.start_date}..${r.end_date}` : ''}  source=${r.source}`),
     };
   },

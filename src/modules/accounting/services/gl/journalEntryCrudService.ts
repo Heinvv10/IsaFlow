@@ -212,9 +212,24 @@ export async function createJournalEntry(
         SELECT id FROM fiscal_periods
         WHERE company_id = ${companyId}::UUID
           AND start_date <= ${input.entryDate}::DATE AND end_date >= ${input.entryDate}::DATE
+        ORDER BY start_date
         LIMIT 1
       `) as Row[];
       if (periodRows.length > 0) fiscalPeriodId = String(periodRows[0]!.id);
+    } else {
+      // P2.2: a caller-supplied period must actually COVER the entry date —
+      // the API passes client-supplied fiscalPeriodId through, and a
+      // mismatched value misfiles the entry in period reports forever.
+      const ok = (await sql`
+        SELECT 1 FROM fiscal_periods
+        WHERE id = ${fiscalPeriodId} AND company_id = ${companyId}::UUID
+          AND start_date <= ${input.entryDate}::DATE AND end_date >= ${input.entryDate}::DATE
+      `) as Row[];
+      if (ok.length === 0) {
+        throw new Error(
+          `fiscalPeriodId does not cover entryDate ${input.entryDate} (or belongs to another company)`,
+        );
+      }
     }
 
     const safeUserId = await resolveUserUuid(userId);

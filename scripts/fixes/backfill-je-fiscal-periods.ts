@@ -22,12 +22,26 @@
 import pg from 'pg';
 
 const apply = process.argv.includes('--apply');
+const allCompanies = process.argv.includes('--all-companies');
 const companyFlag = process.argv.indexOf('--company');
 const companyId = companyFlag > -1 ? process.argv[companyFlag + 1] : null;
 if (companyFlag > -1 && !/^[0-9a-f-]{36}$/i.test(companyId ?? '')) {
   console.error('--company requires a UUID');
   process.exit(1);
 }
+// Real-books safety: --apply must be explicitly scoped. A missing --company
+// would otherwise silently turn a one-company repair into a cross-tenant
+// write holding gl_account_balances locks for the whole run.
+if (apply && !companyId && !allCompanies) {
+  console.error('--apply requires --company <uuid> (or the explicit --all-companies for dev copies)');
+  process.exit(1);
+}
+
+/** pg returns DATE as a JS Date at local midnight — String() drops the year when sliced. */
+const dstr = (v: unknown): string =>
+  v instanceof Date
+    ? `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`
+    : String(v ?? '').slice(0, 10);
 
 type Row = Record<string, unknown>;
 
@@ -44,9 +58,14 @@ async function main(): Promise<void> {
     const scope = companyId ? 'AND je.company_id = $1::UUID' : '';
     const params = companyId ? [companyId] : [];
 
+    // DISTINCT ON (je.id): with (hypothetical) overlapping periods the JOIN
+    // would fan out one row per candidate period while UPDATE...FROM applies
+    // once per target row — the planned-vs-touched assert must count TARGETS.
+    // (Mig 502 forbids overlaps; this keeps the plan correct regardless.)
     const fixable = (
       await client.query(
-        `SELECT je.id, je.entry_number, je.company_id, je.entry_date, je.status,
+        `SELECT DISTINCT ON (je.id)
+                je.id, je.entry_number, je.company_id, je.entry_date, je.status,
                 je.fiscal_period_id AS old_period, fp.id AS new_period, fp.period_name
          FROM gl_journal_entries je
          JOIN fiscal_periods fp
@@ -56,7 +75,7 @@ async function main(): Promise<void> {
          WHERE (je.fiscal_period_id IS NULL
                 OR je.entry_date < cur.start_date OR je.entry_date > cur.end_date)
            ${scope}
-         ORDER BY je.company_id, je.entry_date`,
+         ORDER BY je.id, fp.start_date`,
         params,
       )
     ).rows as Row[];
@@ -80,13 +99,13 @@ async function main(): Promise<void> {
     console.log(`Backfill JE fiscal periods — mode=${apply ? 'APPLY' : 'DRY-RUN'} scope=${companyId ?? 'all companies'}`);
     console.log(`\n[Fixable] ${fixable.length} entries (covering period exists):`);
     for (const r of fixable.slice(0, 30)) {
-      console.log(`  ${String(r.entry_number).padEnd(22)} co=${String(r.company_id).slice(0, 8)} date=${String(r.entry_date).slice(0, 10)} ${r.old_period ? 'MISMATCH' : 'NULL'} -> ${r.period_name}`);
+      console.log(`  ${String(r.entry_number).padEnd(22)} co=${String(r.company_id).slice(0, 8)} date=${dstr(r.entry_date)} ${r.old_period ? 'MISMATCH' : 'NULL'} -> ${r.period_name}`);
     }
     if (fixable.length > 30) console.log(`  … and ${fixable.length - 30} more`);
 
     console.log(`\n[Uncoverable] ${uncoverable.length} entries (no fiscal period covers entry_date — create periods first):`);
     for (const r of uncoverable.slice(0, 20)) {
-      console.log(`  ${String(r.entry_number).padEnd(22)} co=${String(r.company_id).slice(0, 8)} date=${String(r.entry_date).slice(0, 10)} source=${r.source} status=${r.status}`);
+      console.log(`  ${String(r.entry_number).padEnd(22)} co=${String(r.company_id).slice(0, 8)} date=${dstr(r.entry_date)} source=${r.source} status=${r.status}`);
     }
 
     if (!apply) {

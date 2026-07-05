@@ -9,8 +9,9 @@
 -- 200+ more such rows (mostly Demo: auto_expense_claim, auto_depreciation).
 --
 -- Fix at the choke point: a BEFORE INSERT trigger fills a NULL
--- fiscal_period_id from the period covering entry_date, mirroring what
--- createJournalEntry already does in app code (journalEntryCrudService).
+-- fiscal_period_id from the period covering entry_date, mirroring createJournalEntry's
+-- app-side lookup (with a deterministic ORDER BY the app code lacked until
+-- this PR added it).
 -- Rows with no covering period stay NULL — the integrity-check invariant
 -- ("Posted JE fiscal period matches entry date") reports them for operator
 -- action instead of silently misfiling them.
