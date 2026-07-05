@@ -1,0 +1,12 @@
+[Unit]
+Description=IsaFlow uptime/alerting probe (A-Z P3.2)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=hein
+ExecStart=/bin/bash /home/hein/Workspace/IsaFlow/scripts/ops/uptime-probe.sh
+# Alerting is the signal; the unit itself stays green so systemd doesn't
+# spam failure state for an outage the probe already telegrammed about.
+SuccessExitStatus=0
