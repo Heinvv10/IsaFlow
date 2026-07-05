@@ -7,6 +7,17 @@ REPO_DIR="/home/hein/Workspace/IsaFlow"
 SERVICE_NAME="isaflow"
 BUN="/home/hein/.bun/bin/bun"
 
+# Concurrent-deploy lock (P3.1): two overlapping deploys would race on the
+# rollback snapshot AND interleave golden-suite money flows on the prod Demo.
+# flock releases automatically when this process exits, so a killed deploy
+# never leaves a stale lock behind.
+LOCK_FILE="/tmp/isaflow-deploy.lock"
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+  echo "ERROR: another deploy is already running (lock: $LOCK_FILE). Wait for it to finish."
+  exit 1
+fi
+
 echo "=== Deploying IsaFlow ==="
 
 # Capture git SHA for Sentry release tagging
@@ -120,6 +131,23 @@ fi
 echo "Syncing standalone build..."
 sudo -u velo bash -c "mkdir -p $DEPLOY_DIR"
 
+# 3a. Pre-deploy snapshot for rollback (P3.1). Taken after the build +
+# migration gates, immediately before the overwrite. If the post-deploy
+# verification gate fails, scripts/rollback-deploy.sh restores this snapshot.
+BACKUP_DIR="/home/velo/isaflow-rollback"
+if sudo test -f "$DEPLOY_DIR/server.js"; then
+  PREV_SHA=$(sudo cat "$DEPLOY_DIR/RELEASE_SHA" 2>/dev/null || echo 'unknown')
+  echo "Snapshotting current release ($PREV_SHA) to $BACKUP_DIR..."
+  sudo rsync -a --delete \
+    --exclude=.env.local \
+    --exclude='.env.*.bak' \
+    --exclude='.env.pre-*' \
+    --exclude='.env.backup-*' \
+    "$DEPLOY_DIR/" "$BACKUP_DIR/"
+else
+  echo "WARNING: no existing deployment at $DEPLOY_DIR — no rollback snapshot taken"
+fi
+
 # Standalone server + bundled node_modules
 # Preserve .env.local plus any .env.*.bak / .env.pre-* rollback backups that
 # ops created for cutover safety. rsync --delete wipes everything else in
@@ -154,6 +182,10 @@ fi
 BUILD_ID=$(cat "$REPO_DIR/.next/BUILD_ID")
 sudo sed -i "s/__BUILD_ID__/$BUILD_ID/g" "$DEPLOY_DIR/public/sw.js"
 
+# Record the deployed SHA so the next deploy's snapshot (and any rollback)
+# can name the release it restores.
+echo "$GIT_SHA" | sudo tee "$DEPLOY_DIR/RELEASE_SHA" >/dev/null
+
 # Fix ownership
 sudo chown -R velo:velo "$DEPLOY_DIR"
 
@@ -184,6 +216,42 @@ sudo systemctl restart $SERVICE_NAME
 # 7b. Check status
 sleep 2
 sudo systemctl status $SERVICE_NAME --no-pager | head -15
+
+# 7c. Post-deploy verification gate (P3.1): health + golden-paths suite vs
+# prod Demo + integrity check (committed baseline waives ONLY the known
+# HUMAN-GATED failure). Failure = automatic rollback to the 3a snapshot.
+# SKIP_VERIFY=1 is for genuine emergencies only and leaves the deploy
+# UNVERIFIED — say so out loud in the deploy report.
+if [ "${SKIP_VERIFY:-0}" != "1" ]; then
+  echo ""
+  echo "Running post-deploy verification gate..."
+  if DATABASE_URL="$PROD_DB" bash "$REPO_DIR/scripts/verify-deploy.sh" "https://app.isaflow.co.za"; then
+    echo "Post-deploy verification PASSED"
+  else
+    echo ""
+    echo "!!! POST-DEPLOY VERIFICATION FAILED — rolling back to the pre-deploy snapshot !!!"
+    # `|| rc=$?` keeps set -e from killing the script here: the compound
+    # failure (bad deploy AND failed/unavailable rollback) is exactly when
+    # the operator needs the framing below, not a mid-script death.
+    ROLLBACK_RC=0
+    bash "$REPO_DIR/scripts/rollback-deploy.sh" || ROLLBACK_RC=$?
+    echo ""
+    if [ "$ROLLBACK_RC" -eq 0 ]; then
+      echo "Deploy of $GIT_SHA was ROLLED BACK (code only — DB migrations are"
+      echo "additive by project rule and were NOT reverted). Fix the regression,"
+      echo "re-run the battery, then redeploy."
+    else
+      echo "!!! ROLLBACK ALSO FAILED (exit $ROLLBACK_RC) after deploying $GIT_SHA —"
+      echo "service state is UNKNOWN. Recover manually:"
+      echo "  1. sudo journalctl -u $SERVICE_NAME -n 100 --no-pager"
+      echo "  2. If no snapshot existed: git checkout <last-good SHA> && SKIP_VERIFY=1 bash scripts/deploy.sh"
+      echo "  3. Verify by hand: bash scripts/verify-deploy.sh https://app.isaflow.co.za"
+    fi
+    exit 1
+  fi
+else
+  echo "WARNING: SKIP_VERIFY=1 — post-deploy verification gate bypassed (deploy is UNVERIFIED)"
+fi
 
 echo ""
 echo "=== Deploy complete ==="
