@@ -101,8 +101,36 @@ Full steps: `docs/sars/2026-07-VAT201-isv-dossier.md` §8.
 | Task | State | Branch | PR | Deployed | Evidence |
 |------|-------|--------|----|----------|----------|
 | P5.1 Close-run engine | **merged** | feat/p5-1-close-run-engine | #217 | master d7ac23aa | mig 505 (close_runs + close_run_proposals, RLS ENABLE+FORCE+tenant_isolation); `gl/closeRun/` (types, PURE builder, repo, service) composes getCloseReadiness + postJournalEntry + logAuditOrThrow; routes `close-run/{index,decide,complete,accuracy}`. TDD RED-first: 32 unit + 1 HTTP integration spec (savepoint rollback proven live). **3 rounds blind review (opus) — R1 REQUEST_CHANGES (predicate coherence, 500→409 mapping, claim-first concurrency), R2 REQUEST_CHANGES (BLOCKER: failed-approve orphan → withSavepoint compensation), R3 SHIP + LOW polish.** Battery: tc 0, lint 0, unit 4631, dev integrity 12/15 (baseline; RLS-coverage PASS), golden 12/12, engine integration PASS. Honesty: only approve posts, only auto_post (post_draft_journal), advisory=dismiss-only; every post writes audit w/ metadata.reasoning + source=close-agent:v1 in the request tx (savepoint atomicity); completeCloseRun refuses undecided + non-open; one open run/period; accuracy=posted/(posted+rejected). NOT deployed (Hein-gated). |
-| P5.2 Month-End surface + bureau rollup | **pr-open** | feat/p5-2-close-agent-surface | | | CloseAgentPanel on /accounting/month-end-workbench (start run, per-proposal Approve/Reject on auto_post + Dismiss on advisory, expandable evidence per item, accuracy panel, Complete-close gated on all-decided); resolves fiscal-period UUID from YYYY-MM via existing endpoint (zero backend change); Month-End page honours ?period= deep-link. Bureau cockpit "N of M clients closable today" on /accounting/portfolio-workbench. Pure view helpers src/lib/closeAgentView.ts (9 TDD unit). Battery: tc 0, lint 0, unit (view 9 + close-run 32). **Exit-gate E2E (browser) PASS on merged stack.** |
-| P5.3 Honesty rule | **shipped** | (P5.1 engine + P5.2 surface) | #217 + P5.2 | | In-product: nothing posts without explicit per-proposal approval (service-enforced + UI Approve buttons); every suggestion shows its evidence (evidence JSONB → expandable panel); accuracy (proposed vs accepted) visible in the panel; honesty banner "Nothing is posted until you approve it." No autonomous posting. |
+| P5.2 Month-End surface + bureau rollup | **merged** | feat/p5-2-close-agent-surface | #218 | master fefaebd2 | CloseAgentPanel on /accounting/month-end-workbench (start run, per-proposal Approve/Reject on auto_post + Dismiss on advisory, expandable evidence per item, accuracy panel, Complete-close gated on all-decided); resolves fiscal-period UUID from YYYY-MM via existing endpoint (zero backend change); Month-End page honours ?period= deep-link. Bureau cockpit "N of M clients closable today" on /accounting/portfolio-workbench (workbench heuristic; exceptions card now counts draft journals). Pure view helpers src/lib/closeAgentView.ts (13 TDD unit). **3 rounds blind review (opus) — R1 BLOCKER (isClientClosable overstated readiness), R2 (draft-journal signal + real E2E assert), R3 SHIP + polish.** Battery: tc 0, lint 0, unit 4644, golden 12/12. NOT deployed (Hein-gated). |
+| P5.3 Honesty rule | **shipped** | (P5.1 engine + P5.2 surface) | #217 + #218 | master fefaebd2 | In-product: nothing posts without explicit per-proposal approval (service-enforced + UI Approve buttons); every suggestion shows its evidence (evidence JSONB → expandable panel); accuracy (proposed vs accepted) visible in the panel; honesty banner "Nothing is posted until you approve it." No autonomous posting. |
+
+## Phase 5 exit gate — ✅ PASSED 2026-07-06 (code merged; NOT deployed — Hein-gated)
+
+Close Agent v1 (month-end close flagship) shipped to master: **#217** P5.1 engine
+(d7ac23aa) + **#218** P5.2 surface (fefaebd2). Master **fefaebd2**.
+
+- **Exit-gate E2E (browser) PASS on merged master**: a seeded MESSY Demo month
+  (draft journals + failing readiness checks) closed via the Close Agent in the
+  browser end-to-end — Start close run → Approve each proposed posting → dismiss
+  advisories → Complete close (`tests/e2e/close-agent/close-agent-messy-month.spec.ts`).
+- **Audit-trail carries reasoning (verified in DB)**: every close_run-posted
+  journal (e.g. JE-2027-00026/27) has an `audit_log` `post` row with
+  `changes.metadata.reasoning` + `source='close-agent:v1'`; the close_run row is
+  `completed`.
+- **P5.3 honesty in-product**: nothing posts without an explicit per-proposal
+  Approve; advisory items are Dismiss-only; evidence expandable per item; accuracy
+  (proposed vs accepted, all-time) shown; "Nothing is posted until you approve it"
+  banner. No autonomous posting.
+- **Battery**: tc 0, lint 0, unit 4644, golden 12/12 vs dev, dev integrity 12/15
+  (documented baseline; RLS-coverage PASS incl. mig-505 tables), engine HTTP
+  integration + exit-gate browser E2E green.
+- **Review discipline**: each PR = TDD RED first → full battery → **3 rounds** of
+  blind opus review (each round found real defects incl. a BLOCKER honesty bug per
+  PR) → SHIP → squash-merge. Both PRs merged; **NOT deployed to prod (Hein-gated,
+  after-hours + approval; deploy.sh self-verifies + auto-rollback).**
+- Backlog (non-blocking, documented in gl/closeRun/.claude.md): readiness
+  poisoned-tx cascade (per-check savepoint in periodCloseReadinessService);
+  reserved-but-unwritten 'failed' proposal status.
 
 ## Phase 6 — Commercial wedge
 
