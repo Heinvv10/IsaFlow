@@ -76,7 +76,7 @@ export async function fetchDraftJournals(
            COALESCE(SUM(gjl.credit), 0) AS total_credit,
            COUNT(gjl.id) AS line_count
     FROM gl_journal_entries gje
-    LEFT JOIN gl_journal_lines gjl ON gjl.journal_entry_id = gje.id
+    LEFT JOIN gl_journal_lines gjl ON gjl.journal_entry_id = gje.id AND gjl.company_id = ${companyId}::UUID
     WHERE gje.company_id = ${companyId}::UUID
       AND gje.status = 'draft'
       AND gje.fiscal_period_id = ${fiscalPeriodId}::UUID
@@ -95,9 +95,8 @@ export async function fetchDraftJournals(
 }
 
 /**
- * The readiness unpostedJournalsCheck's own tally — journal entries in the
- * period that are not yet posted (draft, pending, …). The builder uses this to
- * decide whether every unposted entry was drilled into a postable proposal.
+ * The readiness unpostedJournalsCheck's own tally (status != 'posted') — the
+ * builder uses it to decide whether every unposted entry was drilled.
  */
 export async function countUnpostedInPeriod(
   companyId: string,
@@ -209,12 +208,13 @@ export async function updateCloseRunStatus(
   runId: string,
   status: CloseRunStatus,
 ): Promise<void> {
-  // completed_at is stamped only on completion; other transitions leave it untouched.
+  // `status = 'open'` guard makes concurrent completes idempotent (second is a
+  // no-op — no re-stamped completed_at). completed_at stamped only on completion.
   await sql`
     UPDATE close_runs
     SET status = ${status},
         completed_at = CASE WHEN ${status} = 'completed' THEN NOW() ELSE completed_at END
-    WHERE id = ${runId}::UUID AND company_id = ${companyId}::UUID
+    WHERE id = ${runId}::UUID AND company_id = ${companyId}::UUID AND status = 'open'
   `;
 }
 

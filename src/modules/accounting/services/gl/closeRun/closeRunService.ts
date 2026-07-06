@@ -145,8 +145,9 @@ function asDecisionError(err: unknown, title: string): never {
     throw new ProposalDecisionError(`Cannot post ${title}: the fiscal period is ${err.periodStatus}, not open.`);
   }
   const msg = err instanceof Error ? err.message : '';
-  // Anchored to postJournalEntry's own thrown messages so a genuine server
-  // fault whose text merely contains "not found" isn't mis-classed as a 409.
+  // Matched against postJournalEntry's own specific thrown messages ("Journal
+  // entry <id> not found", not a bare "not found") so a genuine server fault
+  // isn't mis-classed as a client-actionable 409.
   if (/Cannot post entry with status|Entry not balanced|Journal entry .+ not found/i.test(msg)) {
     throw new ProposalDecisionError(`Cannot post ${title}: ${msg}. Reload the close run.`);
   }
@@ -237,7 +238,12 @@ export async function completeCloseRun(
     throw new ProposalDecisionError(`Close run is already ${existing.run.status}.`);
   }
 
-  const undecided = existing.proposals.filter(p => p.status === 'proposed').length;
+  // Any non-terminal proposal blocks completion. 'proposed' is the normal case;
+  // 'approved'/'failed' are defence-in-depth for a hypothetical non-request
+  // caller where withSavepoint degrades to a plain call (no claim rollback).
+  const undecided = existing.proposals.filter(
+    p => p.status === 'proposed' || p.status === 'approved' || p.status === 'failed',
+  ).length;
   if (undecided > 0) {
     throw new ProposalDecisionError(`${undecided} proposal(s) still undecided — decide every item before completing the close.`);
   }

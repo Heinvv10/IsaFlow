@@ -55,5 +55,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST']);
 }
 
-// GET is read-only (plain withAuth); POST mutates (CSRF + write access).
+// withCsrf + withWriteAccess pass GET/HEAD/OPTIONS through unchanged and only
+// gate the mutating POST (CSRF token + owner/admin/manager role).
 export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
