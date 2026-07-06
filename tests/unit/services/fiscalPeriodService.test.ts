@@ -10,7 +10,15 @@
 
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
-vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
+vi.mock('@/lib/neon', () => ({
+  sql: vi.fn(),
+  // fiscalPeriodService now formats pg DATE via fmtDate (was toISODate) — the
+  // mock must provide it or mapRow throws. Real-behaving (local components).
+  fmtDate: (d: unknown) =>
+    d instanceof Date
+      ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      : String(d ?? ''),
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
