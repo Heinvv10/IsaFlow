@@ -10,6 +10,7 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { countClosable } from '@/lib/closeAgentView';
 import type {
   PortfolioWorkbench,
   PortfolioRow,
@@ -182,8 +183,16 @@ export default function PortfolioWorkbenchPage() {
 
         {data && (
           <div className="mb-4 rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 flex items-center justify-between flex-wrap gap-3">
-            <div className="text-sm text-zinc-300">
-              <span className="font-medium text-zinc-100">{data.summary.clientsAtRisk}</span> of <span className="font-medium">{data.summary.totalClients}</span> clients need attention this period
+            <div className="flex items-center gap-4 text-sm text-zinc-300">
+              <div className="flex items-center gap-1.5" title="Workbench heuristic — clients with no prep flags: bank reconciled, no exceptions (incl. draft journals), nothing needing attention or blocked, TB balanced. Run the Close Agent on a client to confirm and post remaining items.">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" aria-hidden="true" />
+                <span className="font-medium text-emerald-300 tabular-nums">{countClosable(data.rows)}</span>
+                <span>of <span className="font-medium">{data.summary.totalClients}</span> clients closable today</span>
+              </div>
+              <span className="text-zinc-600">·</span>
+              <div>
+                <span className="font-medium text-zinc-100">{data.summary.clientsAtRisk}</span> need attention
+              </div>
             </div>
             <StatusLegend />
           </div>
