@@ -5,7 +5,7 @@
  * period. Informational only — never blocks generation or submission.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Loader2, ShieldAlert } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import type { VatExceptionsReport } from '@/modules/accounting/services/reports/vatExceptionsTypes';
@@ -17,6 +17,10 @@ interface Props {
   from: string;
   to: string;
   reloadKey: number;
+  /** Surfaces the loaded report (or null while unknown/errored) to the parent
+   *  so the eFiling submit gate can read cleanliness. Called from the fetch
+   *  effect only, so it never triggers a refetch loop. */
+  onLoaded?: (report: VatExceptionsReport | null) => void;
 }
 
 function Section({ title, count, listed, children }: {
@@ -63,10 +67,12 @@ function VarianceCell({ value }: { value: number }) {
   );
 }
 
-export function VAT201ExceptionsPanel({ from, to, reloadKey }: Props) {
+export function VAT201ExceptionsPanel({ from, to, reloadKey, onLoaded }: Props) {
   const [report, setReport] = useState<VatExceptionsReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const onLoadedRef = useRef(onLoaded);
+  onLoadedRef.current = onLoaded;
 
   useEffect(() => {
     if (!from || !to || reloadKey === 0) return;
@@ -77,9 +83,9 @@ export function VAT201ExceptionsPanel({ from, to, reloadKey }: Props) {
         const res = await apiFetch(`/api/accounting/sars/vat-exceptions?from=${from}&to=${to}`, { credentials: 'include' });
         const json = await res.json();
         if (!res.ok) throw new Error(json.error?.message || json.message || 'Failed');
-        if (!cancelled) setReport(json.data);
+        if (!cancelled) { setReport(json.data); onLoadedRef.current?.(json.data); }
       } catch (err) {
-        if (!cancelled) { setReport(null); setError(err instanceof Error ? err.message : 'Failed to load exceptions'); }
+        if (!cancelled) { setReport(null); onLoadedRef.current?.(null); setError(err instanceof Error ? err.message : 'Failed to load exceptions'); }
       } finally {
         if (!cancelled) setLoading(false);
       }

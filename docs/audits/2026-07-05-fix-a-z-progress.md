@@ -78,9 +78,9 @@ P4.1) may start — P4.2 build stays behind the env gate regardless.
 
 | Task | State | Branch | PR | Deployed | Evidence |
 |------|-------|--------|----|----------|----------|
-| P4.1 Technical dossier (Hein signs registration) | todo | | | | |
-| P4.2 sarsEfilingService behind env gate | todo | | | | |
-| P4.3 Central Tax Hub readiness spike (doc) | todo | | | | |
+| P4.1 Technical dossier (Hein signs registration) | in-progress | feat/p4-1-sars-isv-dossier | | | docs/sars/2026-07-VAT201-isv-dossier.md — research complete (SARS ISV two-tier model, activation-key mechanism still live 2026, VAT201 Fields 1–20, Konsise/Sage/Xero direct-submit vs Zoho prepare-only, registration checklist). PR next |
+| P4.2 sarsEfilingService behind env gate | pr-open | feat/p4-2-sars-efiling-service | | | Mig 504 (`sars_efiling_events` audit log + eFiling cols on sars_submissions). `sarsEfilingConfig` (env gate, dark by default), `sarsEfilingClient` (ISV auth→submit→poll, PROVISIONAL wire, injected config), `sarsEfilingSubmissionService` (`evaluateEfilingGate` + orchestration — server-side exceptions gate REFUSES + audits when not clean/degraded), `sarsEfilingRepo` (company-scoped). Routes `efiling-status` + `efiling-submit`. UI: `VAT201SarsSubmit` self-gates on efiling-status + exceptions-clean, "do not file" banner blocks. TDD: 26 unit (config 6, mock-server contract 8, submission 12) + exceptions-gate E2E 2/2. Battery: tc 0, lint 0, unit 4590, dev integrity 12/15 (baseline), golden 12/12 vs dev. Live submission Hein-gated on ISV key |
+| P4.3 Central Tax Hub readiness spike (doc) | in-progress | feat/p4-3-central-tax-hub-spike | | | docs/sars/2026-07-central-tax-hub-peppol-spike.md — research complete (Peppol 5-corner/DCTCE, no SA CIUS/ICD scheme yet, capability checklist [standard] vs [SARS-specific]). NOTE: fresh research CONTRADICTS the "TALAA 2026 effective 1 Apr 2026" memory claim — present as unresolved, Hein to verify vs Gazette. PR next |
 
 ## Phase 5 — Close Agent v1
 
