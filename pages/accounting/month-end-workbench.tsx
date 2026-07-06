@@ -7,11 +7,13 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, AlertCircle, CheckCircle2, Clock, AlertTriangle, Circle, ChevronRight } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { STATUS_TONE_CLASSES, type StatusTone } from '@/lib/statusVocabulary';
+import { CloseAgentPanel } from '@/components/accounting/close-agent/CloseAgentPanel';
 import type {
   MonthEndWorkbench,
   WorkbenchCard,
@@ -74,10 +76,19 @@ function CardTile({ card }: CardProps) {
 interface ApiEnvelope<T> { success: boolean; data: T; error?: { message?: string } }
 
 export default function MonthEndWorkbenchPage() {
+  const router = useRouter();
   const [period, setPeriod] = useState<string>(defaultPeriod());
   const [data, setData] = useState<MonthEndWorkbench | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Honour a ?period=YYYY-MM deep link (e.g. the bureau cockpit's "open client"
+  // navigation passes the period it was viewing). Only a well-formed month wins.
+  useEffect(() => {
+    if (!router.isReady) return;
+    const q = router.query.period;
+    if (typeof q === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(q)) setPeriod(q);
+  }, [router.isReady, router.query.period]);
 
   const load = useCallback(async (p: string) => {
     setLoading(true);
@@ -145,6 +156,10 @@ export default function MonthEndWorkbenchPage() {
             </div>
           </div>
         )}
+
+        <div className="mb-6">
+          <CloseAgentPanel period={period} />
+        </div>
 
         {loading && (
           <div className="flex items-center justify-center py-20 text-zinc-400">
