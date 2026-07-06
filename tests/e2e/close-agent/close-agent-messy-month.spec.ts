@@ -92,10 +92,12 @@ test('messy Demo month closes via the Close Agent in the browser, with audit rea
       await expect(page.getByRole('link', { name: /Open the underlying data/i }).first()).toBeVisible();
 
       // Approve every proposed posting (always click the first remaining one).
+      // Assert on the EXACT 'posted' status badge count (not getByText('posted'),
+      // which also matches the "Nothing is posted…" banner) — this both verifies
+      // the transition and serialises the clicks against the run refresh.
       for (let i = 0; i < approveCount; i++) {
         await page.getByRole('button', { name: /Approve & post/i }).first().click();
-        await expect(page.getByText('posted').first()).toBeVisible({ timeout: 15_000 });
-        await page.waitForTimeout(400); // allow the run to refresh between clicks
+        await expect(page.getByText('posted', { exact: true })).toHaveCount(i + 1, { timeout: 15_000 });
       }
 
       // Dismiss any advisory items so the run can complete.

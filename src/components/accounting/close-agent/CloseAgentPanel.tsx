@@ -153,12 +153,17 @@ export function CloseAgentPanel({ period }: { period: string }) {
   useEffect(() => { void load(period); }, [period, load]);
 
   const refresh = useCallback(async (periodId: string) => {
+    // Same stale guard as load: if the period changed mid-refresh, don't clobber
+    // the newly-loaded period's data with this one's.
+    const reqId = reqRef.current;
+    const stale = () => reqRef.current !== reqId;
     const [runRes, accRes] = await Promise.all([
       apiFetch(`/api/accounting/close-run?periodId=${periodId}`),
       apiFetch('/api/accounting/close-run/accuracy'),
     ]);
-    if (runRes.ok) { const rj = await runRes.json() as Envelope<CloseRunWithProposals>; if (rj.success) setRun(rj.data); }
-    const aj = await accRes.json() as Envelope<AccuracyStats>; if (accRes.ok && aj.success) setAccuracy(aj.data);
+    if (stale()) return;
+    if (runRes.ok) { const rj = await runRes.json() as Envelope<CloseRunWithProposals>; if (!stale() && rj.success) setRun(rj.data); }
+    const aj = await accRes.json() as Envelope<AccuracyStats>; if (!stale() && accRes.ok && aj.success) setAccuracy(aj.data);
   }, []);
 
   const doPost = useCallback(async (url: string, body: object, onOk: () => Promise<void>) => {

@@ -64,12 +64,14 @@ export function formatAcceptance(acc: AccuracyStats): string {
 const CLOSE_BLOCKER_CARDS = ['banking', 'exceptions'];
 
 /**
- * A client is "closable today" only when there is nothing left to do that blocks
- * the close: no card needs attention, nothing is blocked, the trial balance
- * balances, and every close-blocking prep card (bank reconciled, no exceptions)
- * is fully 'ready' — an 'in_progress' or 'not_started' blocker (a partial bank
- * rec, draft transactions) is NOT closable. Deliberately conservative so the
- * bureau headline can never overstate readiness.
+ * A fast, conservative "ready to close" heuristic over the month-end WORKBENCH
+ * signals: no card needs attention, nothing is blocked, the trial balance
+ * balances, and every close-blocking prep card is fully 'ready' — bank
+ * reconciled and the exceptions card clear (draft invoices/bills, unclassified
+ * bank txns AND unposted draft journals; see buildExceptionsCard). An
+ * 'in_progress'/'not_started' blocker is NOT counted. This is a portfolio
+ * heuristic, NOT the authoritative check — the per-client close run
+ * (getCloseReadiness's six checks + proposals) is what actually gates a close.
  */
 export function isClientClosable(row: PortfolioRow): boolean {
   if (row.failed || !row.trialBalanceBalanced) return false;

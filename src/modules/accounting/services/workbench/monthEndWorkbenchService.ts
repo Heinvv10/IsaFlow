@@ -236,20 +236,24 @@ async function buildExceptionsCard(companyId: string, periodEnd: string): Promis
     SELECT
       (SELECT COUNT(*) FROM customer_invoices WHERE company_id = ${companyId}::uuid AND status = 'draft') AS draft_invoices,
       (SELECT COUNT(*) FROM supplier_invoices WHERE company_id = ${companyId}::uuid AND status = 'draft') AS draft_bills,
-      (SELECT COUNT(*) FROM bank_transactions WHERE company_id = ${companyId}::uuid AND status = 'imported' AND transaction_date <= ${periodEnd}::date AND suggested_gl_account_id IS NULL) AS unsuggested
+      (SELECT COUNT(*) FROM bank_transactions WHERE company_id = ${companyId}::uuid AND status = 'imported' AND transaction_date <= ${periodEnd}::date AND suggested_gl_account_id IS NULL) AS unsuggested,
+      (SELECT COUNT(*) FROM gl_journal_entries WHERE company_id = ${companyId}::uuid AND status = 'draft' AND entry_date <= ${periodEnd}::date) AS draft_journals
   `) as DbRow[];
   const r = rows[0]!;
   const draftInv = Number(r.draft_invoices) || 0;
   const draftBills = Number(r.draft_bills) || 0;
   const unsugg = Number(r.unsuggested) || 0;
-  const totalExceptions = draftInv + draftBills + unsugg;
+  // Unposted draft journals are close-blocking exceptions too — the close agent
+  // raises an unposted_journals check for them, so the workbench must reflect them.
+  const draftJournals = Number(r.draft_journals) || 0;
+  const totalExceptions = draftInv + draftBills + unsugg + draftJournals;
   const status: CardStatus = totalExceptions === 0 ? 'ready' : totalExceptions < 10 ? 'in_progress' : 'attention';
   return {
     id: 'exceptions',
     title: 'Exceptions',
     status,
     primary: `${totalExceptions} items`,
-    secondary: `${draftInv} draft invoices · ${draftBills} draft bills · ${unsugg} unclassified bank txns`,
+    secondary: `${draftInv} draft invoices · ${draftBills} draft bills · ${unsugg} unclassified bank txns · ${draftJournals} draft journals`,
     count: totalExceptions,
   };
 }
