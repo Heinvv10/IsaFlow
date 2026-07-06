@@ -1,4 +1,22 @@
-# Phase 3 Exit-Gate Re-Score — 2026-07-05 (evening)
+# Phase 3 Exit-Gate Re-Score — 2026-07-05 (evening), FINALIZED 2026-07-06 morning
+
+**FINAL 2026-07-06 (all three staged actions executed on Hein's instruction):**
+deploy of master 61a65d7c LIVE (first real run of the self-verifying gate:
+golden 12/12 vs prod Demo, integrity gate, snapshot+rollback armed, mig 503);
+H4 platform_admin credential fixed (admin API returns clean 401s, 0 auth
+failures in journal); C2 confirmed corrected (JE-2026-00507 reversed via
+contra JE-2026-00510 — AR control 1101 = subledger = R11,893,297.60 exactly);
+W5 fully repaired (Britech 5 + VF 430 via new 2025 periods + Demo sandbox 1
+backfilled; caches rebuilt). **Prod integrity 15/15 UNWAIVED**; baseline
+waiver emptied (PR #213). Uptime probe timer INSTALLED and green on first
+tick. **FINAL PROD SCORE: 90/100** — remaining deductions: W8 standing items
+(super_admin weak pw accepted, BUGSINK_TOKEN absent), no GitHub branch
+protection (plan limit), pre-existing >300-line file debt + tracked backlogs,
+newly-confirmed fiscalPeriodService toISODate display bug (dates stored
+correctly; API response shifts a day — backlogged).
+Timing note: executed ~08:20–08:50 SAST Monday on Hein's explicit morning
+instruction — inside the usual no-deploy window, with the gate green and
+auto-rollback armed; recorded for transparency.
 
 Re-scores the July-4 pre-market audit (45/100, CRITICAL band) after Phases
 0–3 of the A–Z programme. Method: every July-4 finding mapped to its current
