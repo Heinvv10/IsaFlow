@@ -100,9 +100,9 @@ Full steps: `docs/sars/2026-07-VAT201-isv-dossier.md` §8.
 
 | Task | State | Branch | PR | Deployed | Evidence |
 |------|-------|--------|----|----------|----------|
-| P5.1 Close-run engine | todo | | | | |
-| P5.2 Month-End surface + bureau rollup | todo | | | | |
-| P5.3 Honesty rule | todo | | | | |
+| P5.1 Close-run engine | **pr-open** | feat/p5-1-close-run-engine | | | mig 505 (close_runs + close_run_proposals, RLS ENABLE+FORCE+tenant_isolation) applied dev; `gl/closeRun/` (closeRunTypes, PURE closeRunProposalBuilder, closeRunRepo, closeRunService) composes getCloseReadiness + postJournalEntry + logAuditOrThrow; routes `close-run/{index,decide,complete,accuracy}`. TDD RED-first: 25 unit (builder 14 + service 11). Battery: tc 0, lint 0, unit 4624, dev integrity 12/15 (3 documented dev-data artifacts, RLS-coverage PASS incl. new tables). Honesty: only approve posts, only auto_post (post_draft_journal) executes, advisory=dismiss-only, every post writes audit w/ metadata.reasoning + source=close-agent:v1 in the request tx; completeCloseRun refuses undecided; accuracy=posted/(posted+rejected) |
+| P5.2 Month-End surface + bureau rollup | todo | | | | Month-End tab becomes agent home (proposals list, approve/reject/dismiss, evidence per item, accuracy panel); bureau cockpit "N of M closable today" via portfolioWorkbenchService |
+| P5.3 Honesty rule | **in P5.1** | feat/p5-1-close-run-engine | | | Enforced in service layer (see P5.1 evidence): nothing posts without explicit approval; every suggestion carries evidence (evidence JSONB); accuracy visible (accuracy route). Surface exposes it in P5.2 |
 
 ## Phase 6 — Commercial wedge
 
