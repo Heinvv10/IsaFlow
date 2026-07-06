@@ -3,10 +3,9 @@
  * Fiscal Period Service
  */
 
-import { sql, withTransaction } from '@/lib/neon';
+import { sql, withTransaction, fmtDate } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { toISODate } from '@/lib/dateUtils';
 import type { FiscalPeriod, FiscalPeriodStatus } from '../../types/gl.types';
 
 type Row = DbRow;
@@ -112,7 +111,10 @@ export async function getFiscalPeriodIdForDate(
   entryDate: string | Date,
 ): Promise<string | null> {
   try {
-    const date = typeof entryDate === 'string' ? entryDate : toISODate(entryDate);
+    // fmtDate (local components) — toISODate rolled a Date at local midnight
+    // back a day on this UTC+2 server, resolving the WRONG period at month
+    // boundaries. fmtDate passes strings through unchanged.
+    const date = fmtDate(entryDate);
     const rows = (await sql`
       SELECT id FROM fiscal_periods
       WHERE company_id = ${companyId}
@@ -286,8 +288,8 @@ function mapRow(row: Row): FiscalPeriod {
     periodName: String(row.period_name),
     periodNumber: Number(row.period_number),
     fiscalYear: Number(row.fiscal_year),
-    startDate: toISODate(row.start_date as Date | string) ?? String(row.start_date),
-    endDate: toISODate(row.end_date as Date | string) ?? String(row.end_date),
+    startDate: fmtDate(row.start_date),
+    endDate: fmtDate(row.end_date),
     status: String(row.status) as FiscalPeriodStatus,
     closedBy: row.closed_by ? String(row.closed_by) : undefined,
     closedAt: row.closed_at ? String(row.closed_at) : undefined,
