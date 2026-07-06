@@ -7,7 +7,7 @@
  * endpoint in response to a click.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import {
   Loader2, ShieldCheck, CheckCircle2, XCircle, EyeOff, ChevronDown, ChevronRight, Sparkles, Info,
@@ -75,7 +75,7 @@ function ProposalRow({ p, busy, onDecide }: {
             <span className={`text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded border ${STATUS_BADGE[p.status] ?? 'border-zinc-700 text-zinc-400'}`}>{p.status}</span>
           </div>
           <p className="text-xs text-zinc-400 mt-1">{p.reasoning}</p>
-          <button onClick={() => setOpen(o => !o)} className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-zinc-500 hover:text-zinc-300">
+          <button onClick={() => setOpen(o => !o)} aria-expanded={open} className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-zinc-500 hover:text-zinc-300">
             {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />} Evidence
           </button>
           {open && <EvidenceBlock p={p} />}
@@ -114,12 +114,19 @@ export function CloseAgentPanel({ period }: { period: string }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // Sequence token: a slower earlier load for a previous period must never
+  // overwrite a faster later one after a rapid period switch (deep-link + picker).
+  const reqRef = useRef(0);
+
   const load = useCallback(async (p: string) => {
+    const reqId = ++reqRef.current;
+    const stale = () => reqRef.current !== reqId;
     setLoading(true); setError(null); setRun(null); setPeriodInfo(null);
     try {
       const year = p.slice(0, 4);
       const perRes = await apiFetch(`/api/accounting/fiscal-periods?year=${year}`);
       const perJson = await perRes.json() as Envelope<SlimPeriod[]>;
+      if (stale()) return;
       if (!perRes.ok || !perJson.success) throw new Error(perJson.error?.message ?? 'Could not load fiscal periods');
       const resolved = resolvePeriodId(perJson.data ?? [], p);
       setPeriodInfo(resolved);
@@ -128,17 +135,18 @@ export function CloseAgentPanel({ period }: { period: string }) {
           apiFetch(`/api/accounting/close-run?periodId=${resolved.id}`),
           apiFetch('/api/accounting/close-run/accuracy'),
         ]);
+        if (stale()) return;
         if (runRes.ok) {
           const rj = await runRes.json() as Envelope<CloseRunWithProposals>;
-          if (rj.success) setRun(rj.data);
+          if (!stale() && rj.success) setRun(rj.data);
         } // 404 = no run yet — leave null
         const aj = await accRes.json() as Envelope<AccuracyStats>;
-        if (accRes.ok && aj.success) setAccuracy(aj.data);
+        if (!stale() && accRes.ok && aj.success) setAccuracy(aj.data);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load the close agent');
+      if (!stale()) setError(e instanceof Error ? e.message : 'Failed to load the close agent');
     } finally {
-      setLoading(false);
+      if (!stale()) setLoading(false);
     }
   }, []);
 

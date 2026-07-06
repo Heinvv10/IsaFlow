@@ -184,7 +184,7 @@ export default function PortfolioWorkbenchPage() {
         {data && (
           <div className="mb-4 rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-center gap-4 text-sm text-zinc-300">
-              <div className="flex items-center gap-1.5" title="Clients with no items needing attention, nothing blocked, and a balanced trial balance">
+              <div className="flex items-center gap-1.5" title="Clients ready to close: bank reconciled, no exceptions, nothing needing attention or blocked, and a balanced trial balance">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" aria-hidden="true" />
                 <span className="font-medium text-emerald-300 tabular-nums">{countClosable(data.rows)}</span>
                 <span>of <span className="font-medium">{data.summary.totalClients}</span> clients closable today</span>

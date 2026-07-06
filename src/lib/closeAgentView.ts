@@ -32,38 +32,52 @@ export function resolvePeriodId(
 export interface GroupedProposals {
   autoPost: CloseProposal[];
   advisory: CloseProposal[];
-  /** proposals of either kind still awaiting a decision. */
+  /** proposals not yet in a terminal state — mirrors the engine's undecided set. */
   pendingCount: number;
 }
+
+// Terminal proposal states — matches the server's completeCloseRun guard
+// (anything else — proposed/approved/failed — blocks completion).
+const TERMINAL_STATUSES = new Set(['posted', 'rejected', 'dismissed']);
 
 /** Split proposals into the agent-executable set and the advisory (dismiss-only) set. */
 export function groupProposals(proposals: CloseProposal[]): GroupedProposals {
   const autoPost = proposals.filter(p => p.actionType === 'auto_post');
   const advisory = proposals.filter(p => p.actionType === 'advisory');
-  const pendingCount = proposals.filter(p => p.status === 'proposed').length;
+  const pendingCount = proposals.filter(p => !TERMINAL_STATUSES.has(p.status)).length;
   return { autoPost, advisory, pendingCount };
 }
 
-/** Honest one-line phrasing of the accuracy panel. */
+/** Honest one-line phrasing of the (company-wide, all-time) accuracy panel. */
 export function formatAcceptance(acc: AccuracyStats): string {
   if (acc.acceptanceRate === null) {
-    return `The agent proposed ${acc.proposed} posting${acc.proposed === 1 ? '' : 's'} — no decisions yet.`;
+    return `The agent has proposed ${acc.proposed} posting${acc.proposed === 1 ? '' : 's'} — no decisions yet.`;
   }
   const pct = Math.round(acc.acceptanceRate * 100);
-  return `You accepted ${acc.posted} of ${acc.decided} proposed postings (${pct}%).`;
+  return `Across all close runs, you accepted ${acc.posted} of ${acc.decided} proposed postings (${pct}%).`;
 }
 
+// The workbench cards that genuinely gate a month-end close. Excluded on purpose:
+// sales/purchases (overdue AR/AP is not a close blocker), afs (year-end, not
+// monthly), and review (the close action itself — only 'ready' once already
+// closed, so requiring it would make "closable today" ≈ "already closed").
+const CLOSE_BLOCKER_CARDS = ['banking', 'exceptions'];
+
 /**
- * A client is "closable today" when the month-end workbench shows no red flags:
- * nothing needs attention, nothing is blocked, the trial balance is balanced,
- * and the client's data loaded at all. Deliberately strict — the headline must
- * not overstate readiness.
+ * A client is "closable today" only when there is nothing left to do that blocks
+ * the close: no card needs attention, nothing is blocked, the trial balance
+ * balances, and every close-blocking prep card (bank reconciled, no exceptions)
+ * is fully 'ready' — an 'in_progress' or 'not_started' blocker (a partial bank
+ * rec, draft transactions) is NOT closable. Deliberately conservative so the
+ * bureau headline can never overstate readiness.
  */
 export function isClientClosable(row: PortfolioRow): boolean {
-  return !row.failed
-    && row.attentionCount === 0
-    && row.blockedCount === 0
-    && row.trialBalanceBalanced;
+  if (row.failed || !row.trialBalanceBalanced) return false;
+  if (row.attentionCount > 0 || row.blockedCount > 0) return false;
+  return CLOSE_BLOCKER_CARDS.every(id => {
+    const card = row.cards.find(c => c.id === id);
+    return card != null && card.status === 'ready';
+  });
 }
 
 export function countClosable(rows: PortfolioRow[]): number {

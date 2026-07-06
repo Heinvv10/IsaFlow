@@ -48,13 +48,15 @@ describe('groupProposals', () => {
     expect(g.autoPost.map(p => p.id)).toEqual(['1', '3']);
     expect(g.advisory.map(p => p.id)).toEqual(['2']);
   });
-  it('reports how many auto_post proposals still await a decision', () => {
+  it('counts every non-terminal proposal as pending (mirrors the engine undecided set)', () => {
     const g = groupProposals([
       P({ id: '1', actionType: 'auto_post', status: 'proposed' }),
-      P({ id: '2', actionType: 'auto_post', status: 'posted' }),
+      P({ id: '2', actionType: 'auto_post', status: 'posted' }),     // terminal
       P({ id: '3', actionType: 'advisory', status: 'proposed' }),
+      P({ id: '4', actionType: 'auto_post', status: 'failed' }),     // non-terminal → pending
+      P({ id: '5', actionType: 'advisory', status: 'dismissed' }),   // terminal
     ] as never);
-    expect(g.pendingCount).toBe(2); // proposals still 'proposed' (both types)
+    expect(g.pendingCount).toBe(3); // proposed + proposed + failed
   });
 });
 
@@ -71,21 +73,35 @@ describe('formatAcceptance (honest phrasing)', () => {
   });
 });
 
-describe('isClientClosable / countClosable (bureau rollup)', () => {
+describe('isClientClosable / countClosable (bureau rollup — must not overstate)', () => {
+  const card = (id: string, status: string) => ({ id, title: id, status, primary: '' });
+  // Default: the two close-blocking cards are ready (a closable client).
+  const readyCards = () => [card('banking', 'ready'), card('exceptions', 'ready'), card('sales', 'attention')];
   const row = (over: Record<string, unknown>) => ({
     companyId: 'c', companyName: 'X', isDefault: false, role: 'admin',
-    trialBalanceBalanced: true, cards: [], readyCount: 8, attentionCount: 0, blockedCount: 0,
+    trialBalanceBalanced: true, cards: readyCards(), readyCount: 2, attentionCount: 0, blockedCount: 0,
     failed: false, ...over,
   });
-  it('is closable only with no attention, no blocked, TB balanced, not failed', () => {
+  it('is closable when banking + exceptions are ready, TB balanced, nothing flagged', () => {
     expect(isClientClosable(row({}) as never)).toBe(true);
+  });
+  it('is NOT closable when a close-blocking card is still in_progress (partial bank rec)', () => {
+    expect(isClientClosable(row({ cards: [card('banking', 'in_progress'), card('exceptions', 'ready')] }) as never)).toBe(false);
+  });
+  it('is NOT closable when a close-blocking card is not_started (draft transactions)', () => {
+    expect(isClientClosable(row({ cards: [card('banking', 'ready'), card('exceptions', 'not_started')] }) as never)).toBe(false);
+  });
+  it('is NOT closable on attention/blocked/unbalanced/failed', () => {
     expect(isClientClosable(row({ attentionCount: 1 }) as never)).toBe(false);
     expect(isClientClosable(row({ blockedCount: 1 }) as never)).toBe(false);
     expect(isClientClosable(row({ trialBalanceBalanced: false }) as never)).toBe(false);
     expect(isClientClosable(row({ failed: true }) as never)).toBe(false);
   });
+  it('is NOT closable when the blocker cards are missing entirely (failed load)', () => {
+    expect(isClientClosable(row({ cards: [] }) as never)).toBe(false);
+  });
   it('counts closable clients', () => {
-    const rows = [row({}), row({ attentionCount: 2 }), row({})];
+    const rows = [row({}), row({ cards: [card('banking', 'in_progress'), card('exceptions', 'ready')] }), row({})];
     expect(countClosable(rows as never)).toBe(2);
   });
 });

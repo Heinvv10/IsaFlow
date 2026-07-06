@@ -85,9 +85,11 @@ test('messy Demo month closes via the Close Agent in the browser, with audit rea
       const approveCount = await approveButtons.count();
       expect(approveCount, 'both seeded drafts should be proposed for posting').toBeGreaterThanOrEqual(2);
 
-      // Evidence is visible on demand (the honesty rule).
+      // Evidence is visible on demand (the honesty rule). Assert on the EXPANDED
+      // content (the underlying-data link only renders inside the evidence block),
+      // not the always-present toggle button.
       await page.getByRole('button', { name: /^Evidence$/i }).first().click();
-      await expect(page.getByText(/Evidence/i).first()).toBeVisible();
+      await expect(page.getByRole('link', { name: /Open the underlying data/i }).first()).toBeVisible();
 
       // Approve every proposed posting (always click the first remaining one).
       for (let i = 0; i < approveCount; i++) {
