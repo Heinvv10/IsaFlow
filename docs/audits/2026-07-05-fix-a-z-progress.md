@@ -136,8 +136,28 @@ Close Agent v1 (month-end close flagship) shipped to master: **#217** P5.1 engin
 
 | Task | State | Branch | PR | Deployed | Evidence |
 |------|-------|--------|----|----------|----------|
-| L1 dismiss guard (honesty) | **merged** | feat/p5-followups-l1-dismiss-guard | #219 | — | `validateDecision` now rejects `dismiss` on `auto_post` proposals (auto_post = approve\|reject only; advisory = dismiss\|reject). A dismissed auto_post is excluded from the acceptance denominator (posted+rejected), so permitting dismiss let a decliner silently mask a rejection and inflate reported accuracy. Server-side hardening only — `CloseAgentPanel` already renders Dismiss for advisory items only (no UI change). TDD RED-first (1 unit test) + doc-comment. Battery: tc 0, lint 0, unit 4645, dev integrity 12/15 (baseline), golden 12/12 vs dev. Blind review (fresh agent, raw diff + CLAUDE.md) → SHIP. |
-| Readiness poisoned-tx cascade | **merged** | feat/p5-followups-readiness-savepoint | #220 | — | `getCloseReadiness` now runs its 6 checks **sequentially, each inside its own `withSavepoint('close_check_N')`** (was `Promise.allSettled` with no savepoint). It executes inside `startCloseRun`'s request tx, which then WRITES (abandon/insert) — a DB-level error (e.g. schema drift) in any check aborted the shared tx and 500-ed those writes. Now an errored check rolls back to its savepoint (tx recovers) and degrades to a single `warn` row. **Sequential, not concurrent**: savepoints on the single request connection must nest LIFO — concurrent SAVEPOINT/RELEASE pairs interleave and a RELEASE of an earlier savepoint destroys the later ones, re-poisoning the tx (so the naive "wrap each check but keep allSettled" is itself broken — verified). On one connection the per-check queries already serialize at the wire, so sequencing costs nothing. TDD RED-first: +2 unit tests (per-check-savepoint wrapping; strict-sequential/no-overlap guard, proven to fail under a concurrent variant), existing orchestrator mocks reordered to the sequential call order. Battery: tc 0, lint 0, unit 4647, dev integrity 12/15 (baseline), golden 12/12 vs dev (incl. spec k month-end-close). Blind review (fresh agent, raw diff + CLAUDE.md) → SHIP. |
+| L1 dismiss guard (honesty) | **deployed** | feat/p5-followups-l1-dismiss-guard | #219 | f6c9aa7c | `validateDecision` now rejects `dismiss` on `auto_post` proposals (auto_post = approve\|reject only; advisory = dismiss\|reject). A dismissed auto_post is excluded from the acceptance denominator (posted+rejected), so permitting dismiss let a decliner silently mask a rejection and inflate reported accuracy. Server-side hardening only — `CloseAgentPanel` already renders Dismiss for advisory items only (no UI change). TDD RED-first (1 unit test) + doc-comment. Battery: tc 0, lint 0, unit 4645, dev integrity 12/15 (baseline), golden 12/12 vs dev. Blind review (fresh agent, raw diff + CLAUDE.md) → SHIP. |
+| Readiness poisoned-tx cascade | **deployed** | feat/p5-followups-readiness-savepoint | #220 | f6c9aa7c | `getCloseReadiness` now runs its 6 checks **sequentially, each inside its own `withSavepoint('close_check_N')`** (was `Promise.allSettled` with no savepoint). It executes inside `startCloseRun`'s request tx, which then WRITES (abandon/insert) — a DB-level error (e.g. schema drift) in any check aborted the shared tx and 500-ed those writes. Now an errored check rolls back to its savepoint (tx recovers) and degrades to a single `warn` row. **Sequential, not concurrent**: savepoints on the single request connection must nest LIFO — concurrent SAVEPOINT/RELEASE pairs interleave and a RELEASE of an earlier savepoint destroys the later ones, re-poisoning the tx (so the naive "wrap each check but keep allSettled" is itself broken — verified). On one connection the per-check queries already serialize at the wire, so sequencing costs nothing. TDD RED-first: +2 unit tests (per-check-savepoint wrapping; strict-sequential/no-overlap guard, proven to fail under a concurrent variant), existing orchestrator mocks reordered to the sequential call order. Battery: tc 0, lint 0, unit 4647, dev integrity 12/15 (baseline), golden 12/12 vs dev (incl. spec k month-end-close). Blind review (fresh agent, raw diff + CLAUDE.md) → SHIP. |
+
+## Phase 4 + Phase 5 deploy — ✅ DEPLOYED 2026-07-06 18:36 SAST
+
+Hein-approved ("deploy now", after-hours). `bash scripts/deploy.sh` on master
+**`f6c9aa7c`** (Phase 4 SARS ISV [env-DARK] + Phase 5 Close Agent v1 + both P5
+follow-ups #219/#220). CI gate → build (integrity OK, 1127 manifest entries) →
+**mig 505 `close_runs` applied** (504 `sars_efiling_events` was already tracked
+on prod) → schema-drift OK (280 tables) → pre-deploy snapshot → restart →
+**post-deploy verification PASSED**: health ok · **golden 12/12 vs prod Demo** ·
+**integrity 15/15 UNWAIVED** · no rollback. Telegram to Hein = msg 24.
+- **P4 stays DARK**: no `SARS_EFILING_*` env set → the ISV channel is deployed
+  but inert (zero prod behaviour change). HEIN to arm it (sign ISV T&Cs → set env).
+- **P5 Close Agent v1 is now LIVE**: `/accounting/month-end-workbench` Close panel +
+  `/accounting/portfolio-workbench` bureau rollup; `close_runs`/`close_run_proposals`
+  tables (RLS enable+force) created by mig 505.
+- **Rollback point note**: deploy.sh snapshotted the pre-deploy release as
+  `1b9db292` — prod had already advanced past `61a65d7c` (Phase 3) via a
+  prior/parallel deploy, so `1b9db292` (not `61a65d7c`) was the (unused) rollback target.
+
+**NEXT: Phase 6 (commercial wedge) — Hein leads.**
 
 ## Phase 6 — Commercial wedge
 
