@@ -12,6 +12,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, AlertCircle, CheckCircle2, Clock, AlertTriangle, Circle, ChevronRight } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { STATUS_TONE_CLASSES, type StatusTone } from '@/lib/statusVocabulary';
+import { CloseAgentPanel } from '@/components/accounting/close-agent/CloseAgentPanel';
 import type {
   MonthEndWorkbench,
   WorkbenchCard,
@@ -145,6 +146,10 @@ export default function MonthEndWorkbenchPage() {
             </div>
           </div>
         )}
+
+        <div className="mb-6">
+          <CloseAgentPanel period={period} />
+        </div>
 
         {loading && (
           <div className="flex items-center justify-center py-20 text-zinc-400">
