@@ -41,6 +41,7 @@ const draftJe = (over: Partial<DraftJournalRow> = {}): DraftJournalRow => ({
   entryDate: '2026-07-15',
   description: 'Accrual — July electricity',
   totalDebit: 1500,
+  totalCredit: 1500,
   lineCount: 2,
   ...over,
 });
@@ -61,12 +62,12 @@ const readiness = (items: ChecklistItem[]): CloseReadiness => ({
   overallStatus: items.some(i => i.status === 'fail') ? 'fail' : items.some(i => i.status === 'warn') ? 'warn' : 'pass',
 });
 
-const emptyActionable = (): ActionableCloseState => ({ draftJournals: [] });
+const emptyActionable = (): ActionableCloseState => ({ draftJournals: [], unpostedCount: 0 });
 
 describe('buildProposals', () => {
   it('emits one auto_post proposal per draft journal, targeting the je', () => {
     const r = readiness([item({ key: 'unposted_journals', label: 'Unposted journals', reason: '1 draft journal.' })]);
-    const props = buildProposals(r, { draftJournals: [draftJe()] });
+    const props = buildProposals(r, { draftJournals: [draftJe()], unpostedCount: 1 });
     const autoPosts = props.filter(p => p.actionType === 'auto_post');
     expect(autoPosts).toHaveLength(1);
     const p = autoPosts[0]!;
@@ -80,12 +81,33 @@ describe('buildProposals', () => {
       item({ key: 'bank_reconciled', status: 'fail' }),
       item({ key: 'vat_reviewed', label: 'VAT reviewed', status: 'warn', reason: 'No VAT return drafted.', fixHref: '/accounting/reports/vat-return' }),
     ]);
-    const props = buildProposals(r, { draftJournals: [draftJe()] });
+    const props = buildProposals(r, { draftJournals: [draftJe()], unpostedCount: 1 });
     expect(props.length).toBeGreaterThan(0);
     for (const p of props) {
       expect(p.reasoning.trim().length).toBeGreaterThan(0);
       expect(p.evidence.summary.trim().length).toBeGreaterThan(0);
     }
+  });
+
+  it('does NOT propose an unbalanced draft for posting, and keeps the unposted advisory', () => {
+    const r = readiness([item({ key: 'unposted_journals', label: 'Unposted journals', status: 'fail', reason: '1 draft journal.' })]);
+    const props = buildProposals(r, { draftJournals: [draftJe({ totalDebit: 1500, totalCredit: 1000 })], unpostedCount: 1 });
+    expect(props.filter(p => p.actionType === 'auto_post')).toHaveLength(0);
+    expect(props.filter(p => p.kind === 'unposted_journals')).toHaveLength(1); // still visible
+  });
+
+  it('does NOT propose a lineless draft for posting', () => {
+    const r = readiness([item({ key: 'unposted_journals', label: 'Unposted journals', status: 'fail', reason: '1 draft.' })]);
+    const props = buildProposals(r, { draftJournals: [draftJe({ lineCount: 0, totalDebit: 0, totalCredit: 0 })], unpostedCount: 1 });
+    expect(props.filter(p => p.actionType === 'auto_post')).toHaveLength(0);
+  });
+
+  it('keeps the unposted advisory when the check counts more than we could drill (a pending entry)', () => {
+    // 1 balanced draft drilled, but readiness counted 2 unposted (1 draft + 1 pending).
+    const r = readiness([item({ key: 'unposted_journals', label: 'Unposted journals', status: 'fail', reason: '2 unposted journal entries in this period.' })]);
+    const props = buildProposals(r, { draftJournals: [draftJe()], unpostedCount: 2 });
+    expect(props.filter(p => p.kind === 'post_draft_journal')).toHaveLength(1);
+    expect(props.filter(p => p.kind === 'unposted_journals')).toHaveLength(1); // pending entry stays visible
   });
 
   it('maps failing/warning readiness items to advisory proposals', () => {
@@ -101,16 +123,19 @@ describe('buildProposals', () => {
     expect(bank.evidence.fixHref).toBe('/accounting/bank-transactions');
   });
 
-  it('suppresses the unposted_journals advisory once drilled into auto_post proposals', () => {
+  it('suppresses the unposted_journals advisory once every unposted entry is drilled', () => {
     const r = readiness([item({ key: 'unposted_journals', label: 'Unposted journals', status: 'fail', reason: '2 draft journals.' })]);
-    const props = buildProposals(r, { draftJournals: [draftJe(), draftJe({ id: '22222222-2222-2222-2222-222222222222', entryNumber: 'JE-2026-00043' })] });
+    const props = buildProposals(r, {
+      draftJournals: [draftJe(), draftJe({ id: '22222222-2222-2222-2222-222222222222', entryNumber: 'JE-2026-00043' })],
+      unpostedCount: 2,
+    });
     expect(props.filter(p => p.kind === 'unposted_journals')).toHaveLength(0);
     expect(props.filter(p => p.kind === 'post_draft_journal')).toHaveLength(2);
   });
 
   it('keeps the unposted_journals advisory when the check fails but no drafts were fetched', () => {
     const r = readiness([item({ key: 'unposted_journals', label: 'Unposted journals', status: 'fail', reason: 'Could not compute.' })]);
-    const props = buildProposals(r, emptyActionable());
+    const props = buildProposals(r, { draftJournals: [], unpostedCount: 1 });
     expect(props.filter(p => p.kind === 'unposted_journals')).toHaveLength(1);
   });
 
@@ -128,7 +153,7 @@ describe('buildProposals', () => {
       item({ key: 'vat_reviewed', label: 'VAT reviewed', status: 'warn', reason: 'No return.', fixHref: '/x' }),
       item({ key: 'bank_reconciled', status: 'fail' }),
     ]);
-    const props = buildProposals(r, { draftJournals: [draftJe()] });
+    const props = buildProposals(r, { draftJournals: [draftJe()], unpostedCount: 1 });
     expect(props[0]!.actionType).toBe('auto_post');
     const advisory = props.filter(p => p.actionType === 'advisory');
     expect(advisory[0]!.kind).toBe('bank_unreconciled'); // fail before warn

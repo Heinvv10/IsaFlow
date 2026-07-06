@@ -94,12 +94,20 @@ export interface DraftJournalRow {
   entryDate: string;
   description: string;
   totalDebit: number;
+  totalCredit: number;
   lineCount: number;
 }
 
-/** The concrete, actionable rows the builder drills into (no DB inside builder). */
+/**
+ * The concrete, actionable rows the builder drills into (no DB inside builder).
+ * `unpostedCount` is the readiness check's own tally (fiscal_period_id, status
+ * != 'posted') — the builder suppresses the aggregate advisory ONLY when every
+ * unposted entry was drilled into a postable proposal, so a pending/unbalanced
+ * entry the agent cannot post never becomes invisible.
+ */
 export interface ActionableCloseState {
   draftJournals: DraftJournalRow[];
+  unpostedCount: number;
 }
 
 /** Raw proposal-outcome tallies used to compute accuracy stats. */

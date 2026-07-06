@@ -38,6 +38,16 @@ function moneyZa(n: number): string {
   return `R${n.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+/**
+ * A draft is a candidate for one-click posting only when it is well-formed:
+ * it has lines and it balances. postJournalEntry would reject anything else, so
+ * proposing it as auto_post would be dishonest ("balanced") and would 500-ladder
+ * on approval. Malformed drafts stay counted in the unposted advisory instead.
+ */
+export function isPostableDraft(je: DraftJournalRow): boolean {
+  return je.lineCount > 0 && Math.abs(je.totalDebit - je.totalCredit) < 0.01;
+}
+
 function draftJournalProposal(je: DraftJournalRow): ProposalDraft {
   return {
     kind: 'post_draft_journal',
@@ -49,7 +59,7 @@ function draftJournalProposal(je: DraftJournalRow): ProposalDraft {
       `the period can close — approve to post it through the general ledger.`,
     evidence: {
       summary: `Draft journal ${je.entryNumber} — ${je.description || 'no description'} — ${moneyZa(je.totalDebit)}.`,
-      query: 'gl_journal_entries WHERE status = \'draft\' in this period',
+      query: 'gl_journal_entries WHERE status = \'draft\' AND fiscal_period_id = <period>',
       count: je.lineCount,
       rows: [
         { entryNumber: je.entryNumber, entryDate: je.entryDate, amount: je.totalDebit, lines: je.lineCount },
@@ -93,14 +103,20 @@ export function buildProposals(
   readiness: CloseReadiness,
   actionable: ActionableCloseState,
 ): ProposalDraft[] {
-  const autoPosts = actionable.draftJournals.map(draftJournalProposal);
-  const drilledUnposted = autoPosts.length > 0;
+  // Only well-formed drafts become one-click postings; the rest stay counted in
+  // the unposted advisory so nothing readiness flagged goes missing.
+  const postable = actionable.draftJournals.filter(isPostableDraft);
+  const autoPosts = postable.map(draftJournalProposal);
+
+  // Suppress the aggregate unposted advisory ONLY when every unposted entry the
+  // readiness check counted was drilled into a postable proposal. If there are
+  // pending/unbalanced/out-of-period unposted entries the agent cannot post,
+  // the advisory stays so the reviewer still sees them (honesty over tidiness).
+  const fullyDrilled = actionable.unpostedCount > 0 && postable.length >= actionable.unpostedCount;
 
   const advisories = readiness.items
     .filter(it => it.status === 'fail' || it.status === 'warn')
-    // unposted_journals is drilled into per-journal auto_post proposals; keep
-    // the aggregate advisory only when we could not fetch the underlying drafts.
-    .filter(it => !(it.key === 'unposted_journals' && drilledUnposted))
+    .filter(it => !(it.key === 'unposted_journals' && fullyDrilled))
     .sort((a, b) => severityRank(a.status) - severityRank(b.status))
     .map(advisoryProposal);
 

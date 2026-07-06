@@ -22,6 +22,11 @@ type Row = DbRow;
 
 // ── Mappers ──────────────────────────────────────────────────────────────────
 
+/** pg timestamptz comes back as Date OR string — normalise to ISO (or null). */
+const iso = (v: unknown): string => (v instanceof Date ? v.toISOString() : String(v));
+const isoOrNull = (v: unknown): string | null => (v == null ? null : iso(v));
+const strOrNull = (v: unknown): string | null => (v == null ? null : String(v));
+
 function mapRun(r: Row): CloseRun {
   return {
     id: String(r.id),
@@ -29,12 +34,10 @@ function mapRun(r: Row): CloseRun {
     fiscalPeriodId: String(r.fiscal_period_id),
     periodLabel: String(r.period_label),
     status: String(r.status) as CloseRunStatus,
-    overallReadiness: r.overall_readiness == null ? null : String(r.overall_readiness),
+    overallReadiness: strOrNull(r.overall_readiness),
     createdBy: String(r.created_by),
-    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
-    completedAt: r.completed_at == null
-      ? null
-      : (r.completed_at instanceof Date ? r.completed_at.toISOString() : String(r.completed_at)),
+    createdAt: iso(r.created_at),
+    completedAt: isoOrNull(r.completed_at),
   };
 }
 
@@ -48,36 +51,36 @@ function mapProposal(r: Row): CloseProposal {
     title: String(r.title),
     reasoning: String(r.reasoning),
     evidence: typeof ev === 'object' && ev !== null ? ev : { summary: '' },
-    targetEntityType: r.target_entity_type == null ? null : String(r.target_entity_type),
-    targetEntityId: r.target_entity_id == null ? null : String(r.target_entity_id),
+    targetEntityType: strOrNull(r.target_entity_type),
+    targetEntityId: strOrNull(r.target_entity_id),
     status: String(r.status) as ProposalStatus,
-    decidedBy: r.decided_by == null ? null : String(r.decided_by),
-    decidedAt: r.decided_at == null
-      ? null
-      : (r.decided_at instanceof Date ? r.decided_at.toISOString() : String(r.decided_at)),
+    decidedBy: strOrNull(r.decided_by),
+    decidedAt: isoOrNull(r.decided_at),
     result: (r.result ?? null) as Record<string, unknown> | null,
-    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+    createdAt: iso(r.created_at),
   };
 }
 
 // ── Actionable state ─────────────────────────────────────────────────────────
 
-/** Draft journals dated inside the period — the drill-down for auto_post proposals. */
+/**
+ * Draft journals in the period — the drill-down for auto_post proposals. Keyed on
+ * fiscal_period_id (NOT entry_date) to match the readiness unpostedJournalsCheck.
+ */
 export async function fetchDraftJournals(
   companyId: string,
-  startDate: string,
-  endDate: string,
+  fiscalPeriodId: string,
 ): Promise<DraftJournalRow[]> {
   const rows = (await sql`
     SELECT gje.id, gje.entry_number, gje.entry_date, gje.description,
            COALESCE(SUM(gjl.debit), 0) AS total_debit,
+           COALESCE(SUM(gjl.credit), 0) AS total_credit,
            COUNT(gjl.id) AS line_count
     FROM gl_journal_entries gje
     LEFT JOIN gl_journal_lines gjl ON gjl.journal_entry_id = gje.id
     WHERE gje.company_id = ${companyId}::UUID
       AND gje.status = 'draft'
-      AND gje.entry_date >= ${startDate}::DATE
-      AND gje.entry_date <= ${endDate}::DATE
+      AND gje.fiscal_period_id = ${fiscalPeriodId}::UUID
     GROUP BY gje.id, gje.entry_number, gje.entry_date, gje.description
     ORDER BY gje.entry_date, gje.entry_number
   `) as Row[];
@@ -87,8 +90,28 @@ export async function fetchDraftJournals(
     entryDate: fmtDate(r.entry_date),
     description: r.description == null ? '' : String(r.description),
     totalDebit: Number(r.total_debit) || 0,
+    totalCredit: Number(r.total_credit) || 0,
     lineCount: Number(r.line_count) || 0,
   }));
+}
+
+/**
+ * The readiness unpostedJournalsCheck's own tally — journal entries in the
+ * period that are not yet posted (draft, pending, …). The builder uses this to
+ * decide whether every unposted entry was drilled into a postable proposal.
+ */
+export async function countUnpostedInPeriod(
+  companyId: string,
+  fiscalPeriodId: string,
+): Promise<number> {
+  const rows = (await sql`
+    SELECT COUNT(*) AS cnt
+    FROM gl_journal_entries
+    WHERE company_id = ${companyId}::UUID
+      AND fiscal_period_id = ${fiscalPeriodId}::UUID
+      AND status != 'posted'
+  `) as Row[];
+  return Number(rows[0]?.cnt) || 0;
 }
 
 // ── Writes ───────────────────────────────────────────────────────────────────
@@ -132,10 +155,8 @@ export async function insertProposals(
 }
 
 /**
- * Move a proposal from 'proposed' to a terminal state, but ONLY if it is still
- * 'proposed' — the WHERE guard makes concurrent double-decisions a no-op
- * (returns 0 rows) rather than a double-post. Returns the updated proposal, or
- * null if it was already decided.
+ * Move a proposal out of 'proposed' — the `status='proposed'` WHERE guard makes
+ * concurrent double-decisions a no-op (null), not a double-post.
  */
 export async function updateProposalOutcome(
   companyId: string,
@@ -152,6 +173,36 @@ export async function updateProposalOutcome(
     RETURNING *
   `) as Row[];
   return rows.length === 0 ? null : mapProposal(rows[0]!);
+}
+
+/** Advance a proposal this request CLAIMED (status='approved') to its terminal state. */
+export async function finalizeClaimedProposal(
+  companyId: string,
+  proposalId: string,
+  status: ProposalStatus,
+  result: Record<string, unknown> | null,
+): Promise<CloseProposal | null> {
+  const rows = (await sql`
+    UPDATE close_run_proposals
+    SET status = ${status},
+        result = ${result == null ? null : JSON.stringify(result)}::JSONB
+    WHERE id = ${proposalId}::UUID AND company_id = ${companyId}::UUID AND status = 'approved'
+    RETURNING *
+  `) as Row[];
+  return rows.length === 0 ? null : mapProposal(rows[0]!);
+}
+
+/** Abandon any still-open run for a period — one open run per period at a time. */
+export async function abandonOpenRunsForPeriod(
+  companyId: string,
+  fiscalPeriodId: string,
+): Promise<void> {
+  await sql`
+    UPDATE close_runs SET status = 'abandoned'
+    WHERE company_id = ${companyId}::UUID
+      AND fiscal_period_id = ${fiscalPeriodId}::UUID
+      AND status = 'open'
+  `;
 }
 
 export async function updateCloseRunStatus(

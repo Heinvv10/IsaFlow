@@ -19,7 +19,7 @@
 import { log } from '@/lib/logger';
 import { getCloseReadiness } from '../periodCloseReadinessService';
 import { getFiscalPeriodById } from '../fiscalPeriodService';
-import { postJournalEntry } from '../journalEntryPostingService';
+import { postJournalEntry, ClosedFiscalPeriodError } from '../journalEntryPostingService';
 import { logAuditOrThrow } from '../../core/auditTrailService';
 import { buildProposals, validateDecision, computeAccuracy } from './closeRunProposalBuilder';
 import * as repo from './closeRunRepo';
@@ -57,8 +57,15 @@ export async function startCloseRun(
   const readiness = await getCloseReadiness(companyId, periodId);
   if (!readiness) throw new CloseRunNotFoundError(`Fiscal period ${periodId} not found`);
 
-  const draftJournals = await repo.fetchDraftJournals(companyId, period.startDate, period.endDate);
-  const drafts = buildProposals(readiness, { draftJournals });
+  const [draftJournals, unpostedCount] = await Promise.all([
+    repo.fetchDraftJournals(companyId, periodId),
+    repo.countUnpostedInPeriod(companyId, periodId),
+  ]);
+  const drafts = buildProposals(readiness, { draftJournals, unpostedCount });
+
+  // One open run per period — supersede any earlier open run so two runs can
+  // never hold auto_post proposals for the same draft journal.
+  await repo.abandonOpenRunsForPeriod(companyId, periodId);
 
   const run = await repo.insertCloseRun(
     companyId, periodId, readiness.periodLabel, readiness.overallStatus, userId,
@@ -122,6 +129,22 @@ export async function decideProposal(
   return approveAutoPost(companyId, proposal, userId);
 }
 
+/**
+ * Translate the posting service's expected, client-actionable failures into a
+ * ProposalDecisionError (→ 409) so they never ladder into a generic 500. A
+ * genuinely unexpected error (DB down, etc.) is re-thrown untouched.
+ */
+function asDecisionError(err: unknown, title: string): never {
+  if (err instanceof ClosedFiscalPeriodError) {
+    throw new ProposalDecisionError(`Cannot post ${title}: the fiscal period is ${err.periodStatus}, not open.`);
+  }
+  const msg = err instanceof Error ? err.message : '';
+  if (/Cannot post entry with status|Entry not balanced|not found/i.test(msg)) {
+    throw new ProposalDecisionError(`Cannot post ${title}: ${msg}. Reload the close run.`);
+  }
+  throw err;
+}
+
 async function approveAutoPost(
   companyId: string,
   proposal: CloseProposal,
@@ -131,12 +154,21 @@ async function approveAutoPost(
     throw new ProposalDecisionError(`Unsupported auto_post proposal: ${proposal.kind}`);
   }
 
-  // 1. Post through the existing service — validates draft/period-open/balance
-  //    and prevents double-posting (the JE row itself serialises concurrent
-  //    approvals; the second sees status='posted' and throws).
-  const entry = await postJournalEntry(companyId, proposal.targetEntityId, userId);
+  // 1. CLAIM the proposal atomically (proposed → approved). Concurrent losers
+  //    get null here and bail BEFORE any post — so a double-approve can never
+  //    commit a redundant post + duplicate audit row.
+  const claimed = await repo.updateProposalOutcome(companyId, proposal.id, 'approved', userId, null);
+  if (!claimed) {
+    throw new ProposalDecisionError('Proposal was already decided — reload the close run.');
+  }
 
-  // 2. Audit with the proposal's reasoning — SAME request tx as the post, so a
+  // 2. Post through the existing service (validates draft/period-open/balance).
+  //    Any failure rolls back the whole request tx, including the claim above;
+  //    expected posting failures become a 409 rather than a generic 500.
+  const entry = await postJournalEntry(companyId, proposal.targetEntityId, userId)
+    .catch(err => asDecisionError(err, proposal.title));
+
+  // 3. Audit with the proposal's reasoning — SAME request tx as the post, so a
   //    posted journal ALWAYS carries its audit row (or both roll back).
   await logAuditOrThrow({
     companyId,
@@ -156,14 +188,12 @@ async function approveAutoPost(
     },
   });
 
-  // 3. Record the outcome on the proposal ledger.
-  const updated = await repo.updateProposalOutcome(
-    companyId, proposal.id, 'posted', userId,
+  // 4. Finalize the claimed proposal (approved → posted).
+  const updated = await repo.finalizeClaimedProposal(
+    companyId, proposal.id, 'posted',
     { entryNumber: entry.entryNumber, journalEntryId: entry.id },
   );
   if (!updated) {
-    // Would require the proposal to change state mid-request. Surface loudly
-    // rather than return a stale row — the post+audit already committed here.
     throw new ProposalDecisionError('Close proposal changed state during approval — reload the close run.');
   }
 
@@ -186,6 +216,12 @@ export async function completeCloseRun(
 ): Promise<CloseRunWithProposals> {
   const existing = await repo.getCloseRunById(companyId, runId);
   if (!existing) throw new CloseRunNotFoundError(`Close run ${runId} not found`);
+
+  // Idempotency: only an open run can be completed. Re-completing must not
+  // re-stamp completed_at or write a second close audit row.
+  if (existing.run.status !== 'open') {
+    throw new ProposalDecisionError(`Close run is already ${existing.run.status}.`);
+  }
 
   const undecided = existing.proposals.filter(p => p.status === 'proposed').length;
   if (undecided > 0) {
