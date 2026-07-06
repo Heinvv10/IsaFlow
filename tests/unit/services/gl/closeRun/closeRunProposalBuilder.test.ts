@@ -183,6 +183,14 @@ describe('validateDecision (honesty guard — nothing posts without explicit app
     expect(validateDecision(autoPost, 'approve').ok).toBe(true);
     expect(validateDecision(autoPost, 'reject').ok).toBe(true);
   });
+
+  it('rejects dismiss on an auto_post proposal (dismissing would mask a rejection in the acceptance rate)', () => {
+    // dismissed auto_posts are excluded from the accuracy denominator
+    // (posted + rejected), so allowing dismiss lets a decliner hide a rejection.
+    // auto_post is approve|reject only; dismiss is reserved for advisory items.
+    const res = validateDecision(autoPost, 'dismiss');
+    expect(res.ok).toBe(false);
+  });
 });
 
 describe('computeAccuracy (proposed vs accepted, shown honestly)', () => {

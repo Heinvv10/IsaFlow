@@ -128,8 +128,12 @@ export function buildProposals(
 /**
  * The single source of truth for which decisions are legal on a proposal.
  *  - only 'proposed' proposals are decidable (idempotency — no double-posting);
- *  - 'approve' is legal ONLY on auto_post proposals (advisory items never post);
- *  - advisory proposals accept 'dismiss' (acknowledged) or 'reject'.
+ *  - auto_post proposals accept 'approve' (post) or 'reject' (decline) ONLY —
+ *    never 'dismiss': a dismissed auto_post is excluded from the acceptance
+ *    denominator (posted + rejected), so allowing dismiss would let a decliner
+ *    silently mask a rejection and inflate the reported accuracy (honesty rule);
+ *  - advisory proposals accept 'dismiss' (acknowledged) or 'reject' ONLY —
+ *    never 'approve' (the agent never posts an advisory item).
  */
 export function validateDecision(
   proposal: { actionType: ProposalActionType; status: ProposalStatus | string },
@@ -140,6 +144,9 @@ export function validateDecision(
   }
   if (decision === 'approve' && proposal.actionType !== 'auto_post') {
     return { ok: false, reason: 'Advisory items cannot be approved — the agent never posts them; dismiss once handled.' };
+  }
+  if (decision === 'dismiss' && proposal.actionType !== 'advisory') {
+    return { ok: false, reason: 'This auto-post proposal cannot be dismissed — approve to post it, or reject to decline; dismissing would hide it from the acceptance rate.' };
   }
   return { ok: true };
 }
