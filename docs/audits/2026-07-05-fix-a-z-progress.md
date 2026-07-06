@@ -132,6 +132,13 @@ Close Agent v1 (month-end close flagship) shipped to master: **#217** P5.1 engin
   poisoned-tx cascade (per-check savepoint in periodCloseReadinessService);
   reserved-but-unwritten 'failed' proposal status.
 
+## Phase 5 follow-ups (blind-review defects surfaced post-merge)
+
+| Task | State | Branch | PR | Deployed | Evidence |
+|------|-------|--------|----|----------|----------|
+| L1 dismiss guard (honesty) | **merged** | feat/p5-followups-l1-dismiss-guard | #219 | — | `validateDecision` now rejects `dismiss` on `auto_post` proposals (auto_post = approve\|reject only; advisory = dismiss\|reject). A dismissed auto_post is excluded from the acceptance denominator (posted+rejected), so permitting dismiss let a decliner silently mask a rejection and inflate reported accuracy. Server-side hardening only — `CloseAgentPanel` already renders Dismiss for advisory items only (no UI change). TDD RED-first (1 unit test) + doc-comment. Battery: tc 0, lint 0, unit 4645, dev integrity 12/15 (baseline), golden 12/12 vs dev. Blind review (fresh agent, raw diff + CLAUDE.md) → SHIP. |
+| Readiness poisoned-tx cascade | todo | | | | per-check `withSavepoint` in `periodCloseReadinessService` |
+
 ## Phase 6 — Commercial wedge
 
 | Task | State | Branch | PR | Deployed | Evidence |
