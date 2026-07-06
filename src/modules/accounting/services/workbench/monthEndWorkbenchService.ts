@@ -243,8 +243,10 @@ async function buildExceptionsCard(companyId: string, periodEnd: string): Promis
   const draftInv = Number(r.draft_invoices) || 0;
   const draftBills = Number(r.draft_bills) || 0;
   const unsugg = Number(r.unsuggested) || 0;
-  // Unposted draft journals are close-blocking exceptions too — the close agent
-  // raises an unposted_journals check for them, so the workbench must reflect them.
+  // Unposted draft journals are close-blocking exceptions too, so the workbench
+  // surfaces them. This is a workbench heuristic (draft, dated up to period end) —
+  // NOT byte-for-byte the close run's unpostedJournalsCheck (which keys on
+  // fiscal_period_id and status != 'posted'); the per-client close run is authoritative.
   const draftJournals = Number(r.draft_journals) || 0;
   const totalExceptions = draftInv + draftBills + unsugg + draftJournals;
   const status: CardStatus = totalExceptions === 0 ? 'ready' : totalExceptions < 10 ? 'in_progress' : 'attention';

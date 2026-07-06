@@ -140,8 +140,10 @@ export function CloseAgentPanel({ period }: { period: string }) {
           const rj = await runRes.json() as Envelope<CloseRunWithProposals>;
           if (!stale() && rj.success) setRun(rj.data);
         } // 404 = no run yet — leave null
-        const aj = await accRes.json() as Envelope<AccuracyStats>;
-        if (!stale() && accRes.ok && aj.success) setAccuracy(aj.data);
+        if (accRes.ok) {
+          const aj = await accRes.json() as Envelope<AccuracyStats>;
+          if (!stale() && aj.success) setAccuracy(aj.data);
+        }
       }
     } catch (e) {
       if (!stale()) setError(e instanceof Error ? e.message : 'Failed to load the close agent');
@@ -152,10 +154,10 @@ export function CloseAgentPanel({ period }: { period: string }) {
 
   useEffect(() => { void load(period); }, [period, load]);
 
-  const refresh = useCallback(async (periodId: string) => {
-    // Same stale guard as load: if the period changed mid-refresh, don't clobber
-    // the newly-loaded period's data with this one's.
-    const reqId = reqRef.current;
+  // reqId is captured at the START of the mutation (in doPost) so a period switch
+  // whose load() completes even BEFORE this refresh begins is still detected —
+  // load() bumps reqRef, so the captured id no longer matches and we bail.
+  const refresh = useCallback(async (periodId: string, reqId: number) => {
     const stale = () => reqRef.current !== reqId;
     const [runRes, accRes] = await Promise.all([
       apiFetch(`/api/accounting/close-run?periodId=${periodId}`),
@@ -163,16 +165,17 @@ export function CloseAgentPanel({ period }: { period: string }) {
     ]);
     if (stale()) return;
     if (runRes.ok) { const rj = await runRes.json() as Envelope<CloseRunWithProposals>; if (!stale() && rj.success) setRun(rj.data); }
-    const aj = await accRes.json() as Envelope<AccuracyStats>; if (!stale() && accRes.ok && aj.success) setAccuracy(aj.data);
+    if (accRes.ok) { const aj = await accRes.json() as Envelope<AccuracyStats>; if (!stale() && aj.success) setAccuracy(aj.data); }
   }, []);
 
-  const doPost = useCallback(async (url: string, body: object, onOk: () => Promise<void>) => {
+  const doPost = useCallback(async (url: string, body: object, onOk: (reqId: number) => Promise<void>) => {
+    const reqId = reqRef.current; // the load generation this action belongs to
     setBusy(true); setError(null);
     try {
       const res = await apiFetch(url, { method: 'POST', body: JSON.stringify(body) });
       const json = await res.json() as Envelope<unknown>;
       if (!res.ok || !json.success) throw new Error(json.error?.message ?? 'Action failed');
-      await onOk();
+      await onOk(reqId);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Action failed');
     } finally { setBusy(false); }
@@ -180,17 +183,17 @@ export function CloseAgentPanel({ period }: { period: string }) {
 
   const start = useCallback(() => {
     if (!periodInfo) return;
-    void doPost('/api/accounting/close-run', { periodId: periodInfo.id }, () => refresh(periodInfo.id));
+    void doPost('/api/accounting/close-run', { periodId: periodInfo.id }, reqId => refresh(periodInfo.id, reqId));
   }, [periodInfo, doPost, refresh]);
 
   const decide = useCallback((proposalId: string, decision: Decision) => {
     if (!run || !periodInfo) return;
-    void doPost('/api/accounting/close-run/decide', { runId: run.run.id, proposalId, decision }, () => refresh(periodInfo.id));
+    void doPost('/api/accounting/close-run/decide', { runId: run.run.id, proposalId, decision }, reqId => refresh(periodInfo.id, reqId));
   }, [run, periodInfo, doPost, refresh]);
 
   const complete = useCallback(() => {
     if (!run || !periodInfo) return;
-    void doPost('/api/accounting/close-run/complete', { runId: run.run.id }, () => refresh(periodInfo.id));
+    void doPost('/api/accounting/close-run/complete', { runId: run.run.id }, reqId => refresh(periodInfo.id, reqId));
   }, [run, periodInfo, doPost, refresh]);
 
   const grouped = run ? groupProposals(run.proposals) : null;
