@@ -6,17 +6,17 @@
 
 ---
 
-## 1. Legal & timeline (2026) — and an unresolved conflict
+## 1. Legal & timeline (2026) — which Act actually carries e-invoicing
 
 - SARS's VAT Modernisation programme (from the Sept 2023 consultation paper) confirmed, in a Feb 2026 position paper, a **Peppol-based five-corner architecture anchored by a SARS "Central Tax Hub"** ([KPMG, 2026-02-11](https://kpmg.com/us/en/taxnewsflash/news/2026/02/south-africa-tax-authority-confirms-multi-year-e-invoicing-digital-reporting-reform.html); [peppol.nu, 2025-12-08](https://www.peppol.nu/blog-items/south-africa-einvoicing-mandate-2028/)).
 - Rollout: **pilots / voluntary onboarding from 2026**, largest VAT contributors (Category C filers) + major B2G + high-risk sectors first; **Central Tax Hub "full operational capability" targeted for 2028**; medium enterprises later. No hard 2029/30 commencement dates are attested.
 - **Current state (mid-2026): nobody is under a mandatory e-invoicing obligation.** Ordinary VAT Act invoice rules still apply.
 
-> **⚠ Unresolved legal-timing conflict (NLNH — do not assert either way).** IsaFlow's memory records "Tax Administration Laws Amendment Act 2026, effective 1 Apr 2026" as a verified fact. Two fresh, independent research passes on 2026-07-06 **contradict each other**:
-> - One line (VATupdate, 17/18/28 Apr 2026) says **Act 4 of 2026 (GG 54447) was promulgated 1 Apr 2026**, defining e-invoice/e-reporting terms but leaving *participation voluntary* and mandatory detail to future Ministerial Regulations.
-> - Another (RTC Suite, 2026-06-02) states **"no April 2026 effective date exists"** and the enabling instrument (2025 Draft TALAB) is still in the parliamentary pipeline.
+> **✔ Legal-timing clarified — corrects the memory's claim.** IsaFlow's memory records "Tax Administration Laws Amendment Act 2026, effective 1 Apr 2026" as a verified *e-invoicing* fact. That conflates two different instruments:
+> - The enacted **Tax Administration Laws Amendment Act 4 of 2026** (assented 31 Mar 2026, gazetted GG 54447, 1 Apr 2026) is real — but it covers **dispute resolution / collections (estimated assessments, s164 payment-suspension, penalty relief) and contains NO e-invoicing or VAT digital-reporting provisions** ([businesstech.co.za, 2026-04](https://businesstech.co.za/news/finance/855948/ramaphosa-signs-big-tax-changes-for-south-africa-into-law/)).
+> - The e-invoicing legal vehicle is the **separate 2025 Draft Tax Administration Laws Amendment Bill (TALAB)** (published for comment 16 Aug 2025, closed 12 Sept 2025), which as of the 3 Feb 2026 SARS/Treasury position paper was **still in the parliamentary pipeline — not yet law, no enacted effective date** ([KPMG, 2026-02](https://kpmg.com/us/en/taxnewsflash/news/2026/02/south-africa-tax-authority-confirms-multi-year-e-invoicing-digital-reporting-reform.html)).
 >
-> **Action for Hein:** verify against the actual Government Gazette before quoting a commencement date in any commercial/legal filing. Either way, the operative point is the same — **there is no mandatory e-invoicing obligation on anyone yet**, and the wire format is unpublished.
+> **Bottom line for Hein:** do NOT cite "1 April 2026" as an e-invoicing effective date — it belongs to an unrelated Act. There is **no mandatory e-invoicing obligation on anyone yet**, the reporting cadence is **near-real-time** (not strict real-time), and the wire format is unpublished. Confirm the draft TALAB's current parliamentary status before quoting any mandate date.
 
 - **Model flavour:** SARS is reported to adopt a **non-blocking, parallel 5-corner (DCTCE)** model — invoice exchange and reporting to SARS happen in parallel, explicitly contrasted with Italy's pre-clearance SdI — though one minority source claims pre-delivery clearance. Treat "non-blocking parallel" as the working assumption, **UNVERIFIED** until SARS publishes the transaction flow.
 
