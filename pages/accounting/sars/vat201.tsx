@@ -12,11 +12,13 @@ import { TransactionTable } from '@/components/accounting/sars/VAT201FormSection
 import { VAT201SummaryForm } from '@/components/accounting/sars/VAT201SummaryForm';
 import { VAT201SubmitModal } from '@/components/accounting/sars/VAT201SubmitModal';
 import { VAT201ExceptionsPanel } from '@/components/accounting/sars/VAT201ExceptionsPanel';
+import { VAT201SarsSubmit } from '@/components/accounting/sars/VAT201SarsSubmit';
 import {
   vatQuickPeriods, defaultVatQuickPeriod, normalizeVatAlignment, normalizeVatCadence,
   type VatQuickPeriod,
 } from '@/modules/bureau/services/vatPeriodHelper';
 import { useCompany } from '@/contexts/CompanyContext';
+import type { VatExceptionsReport } from '@/modules/accounting/services/reports/vatExceptionsTypes';
 
 interface VAT201Invoice {
   id: string; invoiceNumber: string; counterpartyName: string;
@@ -54,6 +56,9 @@ export default function VAT201Page() {
   const [savedId, setSavedId] = useState('');
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [exceptionsKey, setExceptionsKey] = useState(0);
+  const [exceptionsReport, setExceptionsReport] = useState<VatExceptionsReport | null>(null);
+  const exceptionsReady = exceptionsReport !== null;
+  const exceptionsClean = exceptionsReady && exceptionsReport.totalExceptions === 0 && !exceptionsReport.degradedData;
 
   useEffect(() => {
     // The list endpoint (/api/accounting/companies) returns slim
@@ -84,7 +89,7 @@ export default function VAT201Page() {
 
   const generate = useCallback(async () => {
     if (!from || !to) return;
-    setLoading(true); setError(''); setSuccess(''); setData(null); setSavedId('');
+    setLoading(true); setError(''); setSuccess(''); setData(null); setSavedId(''); setExceptionsReport(null);
     try {
       const res = await apiFetch(`/api/accounting/sars/sars-vat201?from=${from}&to=${to}`, { credentials: 'include' });
       const json = await res.json();
@@ -220,7 +225,7 @@ export default function VAT201Page() {
                 </div>
               )}
 
-              <VAT201ExceptionsPanel from={data.periodStart} to={data.periodEnd} reloadKey={exceptionsKey} />
+              <VAT201ExceptionsPanel from={data.periodStart} to={data.periodEnd} reloadKey={exceptionsKey} onLoaded={setExceptionsReport} />
 
               <div className="flex items-center gap-3">
                 <button onClick={saveDraft} disabled={saving}
@@ -229,11 +234,13 @@ export default function VAT201Page() {
                 </button>
                 {savedId && (
                   <button onClick={() => setShowSubmitModal(true)}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700">
-                    <Send className="h-4 w-4" /> Mark as Submitted
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-[var(--ff-border-light)] text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]">
+                    <Send className="h-4 w-4" /> Mark as Submitted (manual)
                   </button>
                 )}
               </div>
+
+              <VAT201SarsSubmit submissionId={savedId} exceptionsReady={exceptionsReady} exceptionsClean={exceptionsClean} />
             </>
           )}
         </div>
