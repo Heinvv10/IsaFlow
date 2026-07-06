@@ -20,9 +20,8 @@ import type {
 
 type Row = DbRow;
 
-// ── Mappers ──────────────────────────────────────────────────────────────────
+// ── Mappers (pg timestamptz comes back as Date OR string — normalise to ISO) ──
 
-/** pg timestamptz comes back as Date OR string — normalise to ISO (or null). */
 const iso = (v: unknown): string => (v instanceof Date ? v.toISOString() : String(v));
 const isoOrNull = (v: unknown): string | null => (v == null ? null : iso(v));
 const strOrNull = (v: unknown): string | null => (v == null ? null : String(v));
@@ -211,17 +210,12 @@ export async function updateCloseRunStatus(
   status: CloseRunStatus,
 ): Promise<void> {
   // completed_at is stamped only on completion; other transitions leave it untouched.
-  if (status === 'completed') {
-    await sql`
-      UPDATE close_runs SET status = ${status}, completed_at = NOW()
-      WHERE id = ${runId}::UUID AND company_id = ${companyId}::UUID
-    `;
-  } else {
-    await sql`
-      UPDATE close_runs SET status = ${status}
-      WHERE id = ${runId}::UUID AND company_id = ${companyId}::UUID
-    `;
-  }
+  await sql`
+    UPDATE close_runs
+    SET status = ${status},
+        completed_at = CASE WHEN ${status} = 'completed' THEN NOW() ELSE completed_at END
+    WHERE id = ${runId}::UUID AND company_id = ${companyId}::UUID
+  `;
 }
 
 // ── Reads ────────────────────────────────────────────────────────────────────
@@ -230,38 +224,36 @@ async function loadProposals(companyId: string, runId: string): Promise<ClosePro
   const rows = (await sql`
     SELECT * FROM close_run_proposals
     WHERE close_run_id = ${runId}::UUID AND company_id = ${companyId}::UUID
-    ORDER BY
-      CASE action_type WHEN 'auto_post' THEN 0 ELSE 1 END,
-      created_at
+    ORDER BY CASE action_type WHEN 'auto_post' THEN 0 ELSE 1 END, created_at
   `) as Row[];
   return rows.map(mapProposal);
+}
+
+async function hydrate(companyId: string, runRows: Row[]): Promise<CloseRunWithProposals | null> {
+  if (runRows.length === 0) return null;
+  const run = mapRun(runRows[0]!);
+  return { run, proposals: await loadProposals(companyId, run.id) };
 }
 
 export async function getCloseRunById(
   companyId: string,
   runId: string,
 ): Promise<CloseRunWithProposals | null> {
-  const rows = (await sql`
+  return hydrate(companyId, (await sql`
     SELECT * FROM close_runs WHERE id = ${runId}::UUID AND company_id = ${companyId}::UUID
-  `) as Row[];
-  if (rows.length === 0) return null;
-  const run = mapRun(rows[0]!);
-  return { run, proposals: await loadProposals(companyId, run.id) };
+  `) as Row[]);
 }
 
 export async function getLatestCloseRunForPeriod(
   companyId: string,
   fiscalPeriodId: string,
 ): Promise<CloseRunWithProposals | null> {
-  const rows = (await sql`
+  return hydrate(companyId, (await sql`
     SELECT * FROM close_runs
     WHERE company_id = ${companyId}::UUID AND fiscal_period_id = ${fiscalPeriodId}::UUID
     ORDER BY created_at DESC
     LIMIT 1
-  `) as Row[];
-  if (rows.length === 0) return null;
-  const run = mapRun(rows[0]!);
-  return { run, proposals: await loadProposals(companyId, run.id) };
+  `) as Row[]);
 }
 
 export async function getProposalById(
@@ -275,7 +267,15 @@ export async function getProposalById(
   return rows.length === 0 ? null : mapProposal(rows[0]!);
 }
 
-/** Company-wide proposal outcome tallies for the accuracy panel. */
+/** Lightweight run status read (decisions are only valid on an 'open' run). */
+export async function getCloseRunStatus(companyId: string, runId: string): Promise<string | null> {
+  const rows = (await sql`
+    SELECT status FROM close_runs WHERE id = ${runId}::UUID AND company_id = ${companyId}::UUID
+  `) as Row[];
+  return rows.length === 0 ? null : String(rows[0]!.status);
+}
+
+/** Company-wide auto_post proposal outcome tallies for the accuracy panel. */
 export async function getOutcomeCounts(companyId: string): Promise<ProposalOutcomeCounts> {
   const rows = (await sql`
     SELECT
@@ -284,7 +284,7 @@ export async function getOutcomeCounts(companyId: string): Promise<ProposalOutco
       COUNT(*) FILTER (WHERE action_type = 'auto_post' AND status = 'posted')   AS posted,
       COUNT(*) FILTER (WHERE action_type = 'auto_post' AND status = 'rejected') AS rejected,
       COUNT(*) FILTER (WHERE action_type = 'auto_post' AND status = 'failed')   AS failed,
-      COUNT(*) FILTER (WHERE status = 'dismissed') AS dismissed
+      COUNT(*) FILTER (WHERE action_type = 'auto_post' AND status = 'dismissed') AS dismissed
     FROM close_run_proposals
     WHERE company_id = ${companyId}::UUID
   `) as Row[];

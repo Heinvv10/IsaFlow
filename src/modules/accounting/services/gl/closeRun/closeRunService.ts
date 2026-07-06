@@ -17,8 +17,8 @@
  */
 
 import { log } from '@/lib/logger';
+import { withSavepoint } from '@/lib/neon';
 import { getCloseReadiness } from '../periodCloseReadinessService';
-import { getFiscalPeriodById } from '../fiscalPeriodService';
 import { postJournalEntry, ClosedFiscalPeriodError } from '../journalEntryPostingService';
 import { logAuditOrThrow } from '../../core/auditTrailService';
 import { buildProposals, validateDecision, computeAccuracy } from './closeRunProposalBuilder';
@@ -51,9 +51,8 @@ export async function startCloseRun(
   periodId: string,
   userId: string,
 ): Promise<CloseRunWithProposals> {
-  const period = await getFiscalPeriodById(companyId, periodId);
-  if (!period) throw new CloseRunNotFoundError(`Fiscal period ${periodId} not found`);
-
+  // getCloseReadiness returns null for a missing/foreign period (it resolves the
+  // period internally), so it doubles as the existence + tenant check.
   const readiness = await getCloseReadiness(companyId, periodId);
   if (!readiness) throw new CloseRunNotFoundError(`Fiscal period ${periodId} not found`);
 
@@ -115,6 +114,13 @@ export async function decideProposal(
     throw new CloseRunNotFoundError(`Proposal ${proposalId} not found in close run ${runId}`);
   }
 
+  // Decisions are only valid on a still-open run — a superseded (abandoned) or
+  // completed run must never post a journal or record a decision.
+  const runStatus = await repo.getCloseRunStatus(companyId, runId);
+  if (runStatus !== 'open') {
+    throw new ProposalDecisionError(`This close run is ${runStatus ?? 'gone'}, not open — reload the Month-End tab.`);
+  }
+
   const check = validateDecision(proposal, decision);
   if (!check.ok) throw new ProposalDecisionError(check.reason);
 
@@ -139,7 +145,9 @@ function asDecisionError(err: unknown, title: string): never {
     throw new ProposalDecisionError(`Cannot post ${title}: the fiscal period is ${err.periodStatus}, not open.`);
   }
   const msg = err instanceof Error ? err.message : '';
-  if (/Cannot post entry with status|Entry not balanced|not found/i.test(msg)) {
+  // Anchored to postJournalEntry's own thrown messages so a genuine server
+  // fault whose text merely contains "not found" isn't mis-classed as a 409.
+  if (/Cannot post entry with status|Entry not balanced|Journal entry .+ not found/i.test(msg)) {
     throw new ProposalDecisionError(`Cannot post ${title}: ${msg}. Reload the close run.`);
   }
   throw err;
@@ -153,54 +161,60 @@ async function approveAutoPost(
   if (proposal.kind !== 'post_draft_journal' || !proposal.targetEntityId) {
     throw new ProposalDecisionError(`Unsupported auto_post proposal: ${proposal.kind}`);
   }
+  const targetId = proposal.targetEntityId;
 
-  // 1. CLAIM the proposal atomically (proposed → approved). Concurrent losers
-  //    get null here and bail BEFORE any post — so a double-approve can never
-  //    commit a redundant post + duplicate audit row.
-  const claimed = await repo.updateProposalOutcome(companyId, proposal.id, 'approved', userId, null);
-  if (!claimed) {
-    throw new ProposalDecisionError('Proposal was already decided — reload the close run.');
-  }
+  // The claim + post + audit + finalize run inside a SAVEPOINT. On ANY failure
+  // (incl. a translated 409), the savepoint rolls back the claim so the proposal
+  // returns to 'proposed' (retryable) — a failed approve can never leave it
+  // orphaned in 'approved' and let completeCloseRun close over an unposted JE.
+  // On success the savepoint releases into the request tx, which commits post +
+  // audit + finalize together.
+  return withSavepoint('close_run_approve', async () => {
+    // 1. CLAIM atomically (proposed → approved). Concurrent losers get null and
+    //    bail BEFORE any post — no redundant post / duplicate audit row.
+    const claimed = await repo.updateProposalOutcome(companyId, proposal.id, 'approved', userId, null);
+    if (!claimed) {
+      throw new ProposalDecisionError('Proposal was already decided — reload the close run.');
+    }
 
-  // 2. Post through the existing service (validates draft/period-open/balance).
-  //    Any failure rolls back the whole request tx, including the claim above;
-  //    expected posting failures become a 409 rather than a generic 500.
-  const entry = await postJournalEntry(companyId, proposal.targetEntityId, userId)
-    .catch(err => asDecisionError(err, proposal.title));
+    // 2. Post through the existing service (validates draft/period-open/balance).
+    //    Expected posting failures become a 409 (savepoint rolls the claim back).
+    const entry = await postJournalEntry(companyId, targetId, userId)
+      .catch(err => asDecisionError(err, proposal.title));
 
-  // 3. Audit with the proposal's reasoning — SAME request tx as the post, so a
-  //    posted journal ALWAYS carries its audit row (or both roll back).
-  await logAuditOrThrow({
-    companyId,
-    userId,
-    action: 'post',
-    entityType: 'gl_journal_entry',
-    entityId: proposal.targetEntityId,
-    entityRef: entry.entryNumber,
-    changes: {
-      fields: [{ field: 'status', old: 'draft', new: 'posted', label: 'Status' }],
-      metadata: {
-        source: CLOSE_AGENT,
-        closeRunId: proposal.closeRunId,
-        proposalId: proposal.id,
-        reasoning: proposal.reasoning,
+    // 3. Audit with the proposal's reasoning — SAME tx as the post.
+    await logAuditOrThrow({
+      companyId,
+      userId,
+      action: 'post',
+      entityType: 'gl_journal_entry',
+      entityId: targetId,
+      entityRef: entry.entryNumber,
+      changes: {
+        fields: [{ field: 'status', old: 'draft', new: 'posted', label: 'Status' }],
+        metadata: {
+          source: CLOSE_AGENT,
+          closeRunId: proposal.closeRunId,
+          proposalId: proposal.id,
+          reasoning: proposal.reasoning,
+        },
       },
-    },
+    });
+
+    // 4. Finalize the claimed proposal (approved → posted).
+    const updated = await repo.finalizeClaimedProposal(
+      companyId, proposal.id, 'posted',
+      { entryNumber: entry.entryNumber, journalEntryId: entry.id },
+    );
+    if (!updated) {
+      throw new ProposalDecisionError('Close proposal changed state during approval — reload the close run.');
+    }
+
+    log.info('Close agent posted a proposed journal', {
+      companyId, proposalId: proposal.id, entryNumber: entry.entryNumber,
+    }, 'close-agent');
+    return updated;
   });
-
-  // 4. Finalize the claimed proposal (approved → posted).
-  const updated = await repo.finalizeClaimedProposal(
-    companyId, proposal.id, 'posted',
-    { entryNumber: entry.entryNumber, journalEntryId: entry.id },
-  );
-  if (!updated) {
-    throw new ProposalDecisionError('Close proposal changed state during approval — reload the close run.');
-  }
-
-  log.info('Close agent posted a proposed journal', {
-    companyId, proposalId: proposal.id, entryNumber: entry.entryNumber,
-  }, 'close-agent');
-  return updated;
 }
 
 // ── Complete ─────────────────────────────────────────────────────────────────

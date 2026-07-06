@@ -13,8 +13,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+// withSavepoint degrades to a plain fn() call with no request tx (as in prod
+// cron paths); the service test exercises the logic inside it directly.
+vi.mock('@/lib/neon', () => ({ withSavepoint: (_name: string, fn: () => unknown) => fn() }));
 vi.mock('@/modules/accounting/services/gl/periodCloseReadinessService', () => ({ getCloseReadiness: vi.fn() }));
-vi.mock('@/modules/accounting/services/gl/fiscalPeriodService', () => ({ getFiscalPeriodById: vi.fn() }));
 vi.mock('@/modules/accounting/services/gl/journalEntryPostingService', () => ({
   postJournalEntry: vi.fn(),
   ClosedFiscalPeriodError: class ClosedFiscalPeriodError extends Error {
@@ -34,6 +36,7 @@ vi.mock('@/modules/accounting/services/gl/closeRun/closeRunRepo', () => ({
   insertCloseRun: vi.fn(),
   insertProposals: vi.fn(),
   getProposalById: vi.fn(),
+  getCloseRunStatus: vi.fn(),
   updateProposalOutcome: vi.fn(),
   finalizeClaimedProposal: vi.fn(),
   getCloseRunById: vi.fn(),
@@ -52,7 +55,6 @@ import {
   CloseRunNotFoundError,
 } from '@/modules/accounting/services/gl/closeRun/closeRunService';
 import { getCloseReadiness } from '@/modules/accounting/services/gl/periodCloseReadinessService';
-import { getFiscalPeriodById } from '@/modules/accounting/services/gl/fiscalPeriodService';
 import { postJournalEntry, ClosedFiscalPeriodError } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
 import * as repo from '@/modules/accounting/services/gl/closeRun/closeRunRepo';
@@ -79,11 +81,13 @@ const proposal = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  (repo.getCloseRunStatus as ReturnType<typeof vi.fn>).mockResolvedValue('open');
+});
 
 describe('startCloseRun', () => {
   it('composes readiness + drafts into a persisted run with proposals', async () => {
-    (getFiscalPeriodById as ReturnType<typeof vi.fn>).mockResolvedValue({ id: PERIOD_ID, startDate: '2026-07-01', endDate: '2026-07-31', periodName: 'July 2026' });
     (getCloseReadiness as ReturnType<typeof vi.fn>).mockResolvedValue({
       periodId: PERIOD_ID, periodLabel: 'July 2026', overallStatus: 'fail',
       items: [{ key: 'unposted_journals', label: 'Unposted journals', status: 'fail', reason: '1 draft.', fixHref: '/x' }],
@@ -108,7 +112,7 @@ describe('startCloseRun', () => {
   });
 
   it('throws CloseRunNotFoundError when the period does not exist', async () => {
-    (getFiscalPeriodById as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (getCloseReadiness as ReturnType<typeof vi.fn>).mockResolvedValue(null);
     await expect(startCloseRun(CO, PERIOD_ID, USER)).rejects.toBeInstanceOf(CloseRunNotFoundError);
   });
 });
@@ -183,6 +187,14 @@ describe('decideProposal — approve posts AND audits with reasoning', () => {
   it('throws when the proposal does not belong to the run', async () => {
     (repo.getProposalById as ReturnType<typeof vi.fn>).mockResolvedValue(proposal({ closeRunId: 'other-run' }));
     await expect(decideProposal(CO, 'run-1', 'prop-1', 'approve', USER)).rejects.toBeInstanceOf(CloseRunNotFoundError);
+  });
+
+  it('refuses any decision on a superseded (non-open) run — no post', async () => {
+    (repo.getProposalById as ReturnType<typeof vi.fn>).mockResolvedValue(proposal());
+    (repo.getCloseRunStatus as ReturnType<typeof vi.fn>).mockResolvedValue('abandoned');
+    await expect(decideProposal(CO, 'run-1', 'prop-1', 'approve', USER)).rejects.toBeInstanceOf(ProposalDecisionError);
+    expect(postJournalEntry).not.toHaveBeenCalled();
+    expect(repo.updateProposalOutcome).not.toHaveBeenCalled();
   });
 
   it('surfaces an already-decided proposal instead of silently re-posting', async () => {
