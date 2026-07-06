@@ -21,6 +21,7 @@ import {
   EfilingNotConfiguredError,
   EfilingBlockedError,
   EfilingSubmissionNotFoundError,
+  EfilingAlreadyFiledError,
 } from '@/modules/accounting/services/reports/sarsEfilingSubmissionService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -38,7 +39,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   try {
     const result = op === 'poll'
-      ? await pollVAT201Status(companyId, submissionId)
+      ? await pollVAT201Status(companyId, submissionId, userId)
       : await submitVAT201ToSars(companyId, submissionId, userId);
     return apiResponse.success(res, result);
   } catch (err) {
@@ -48,12 +49,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (err instanceof EfilingNotConfiguredError) {
       return apiResponse.badRequest(res, 'SARS eFiling is not configured on this server');
     }
+    if (err instanceof EfilingAlreadyFiledError) {
+      // Idempotency: this return was already filed — refuse a duplicate.
+      return apiResponse.conflict(res, 'This VAT201 has already been filed to SARS', {
+        correlationId: err.correlationId,
+      });
+    }
     if (err instanceof EfilingBlockedError) {
       // "Do not file" — the differentiator. Surface the reason to the user.
       return apiResponse.badRequest(res, err.reason, { blocked: true });
     }
     // Transport / unexpected — audited inside the service; do not leak upstream detail.
-    log.error('SARS eFiling operation failed', { error: err, op, submissionId }, 'sars-api');
+    log.error('SARS eFiling operation failed', { error: err instanceof Error ? err.message : String(err), op, submissionId }, 'sars-api');
     return apiResponse.badRequestFromError(res, err, `SARS eFiling ${op} failed — see the submission audit log`);
   }
 }

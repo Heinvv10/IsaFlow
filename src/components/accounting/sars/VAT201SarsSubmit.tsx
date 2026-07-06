@@ -49,6 +49,10 @@ export function VAT201SarsSubmit({ submissionId, exceptionsReady, exceptionsClea
     return () => { cancelled.current = true; };
   }, []);
 
+  // A new draft (or regenerated period) resets any prior submit result so the
+  // gate + button reflect the current return, not the last one.
+  useEffect(() => { setResult(null); setError(''); }, [submissionId]);
+
   // Dark unless the server has the ISV channel armed.
   if (configured !== true) return null;
 
@@ -114,7 +118,7 @@ export function VAT201SarsSubmit({ submissionId, exceptionsReady, exceptionsClea
         <button
           data-testid="sars-submit-btn"
           onClick={() => void call('submit')}
-          disabled={busy || blocked || !submissionId || !exceptionsReady}
+          disabled={busy || blocked || !submissionId || !exceptionsReady || !!result}
           className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Submit to SARS

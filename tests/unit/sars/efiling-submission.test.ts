@@ -48,6 +48,7 @@ import {
   EfilingNotConfiguredError,
   EfilingBlockedError,
   EfilingSubmissionNotFoundError,
+  EfilingAlreadyFiledError,
 } from '@/modules/accounting/services/reports/sarsEfilingSubmissionService';
 
 const CID = '11111111-1111-1111-1111-111111111111';
@@ -103,6 +104,27 @@ describe('submitVAT201ToSars', () => {
   it('throws when the submission does not exist', async () => {
     m.getEfilingSubmission.mockResolvedValue(null);
     await expect(submitVAT201ToSars(CID, SID, UID)).rejects.toBeInstanceOf(EfilingSubmissionNotFoundError);
+    expect(m.submitVAT201).not.toHaveBeenCalled();
+  });
+
+  it('refuses to re-file a submission already sent to SARS (idempotency — no double filing)', async () => {
+    m.getEfilingSubmission.mockResolvedValue({
+      id: SID, companyId: CID, formType: 'VAT201',
+      periodStart: '2026-03-01', periodEnd: '2026-03-31', status: 'submitted',
+      efilingCorrelationId: 'CORR-EXISTING', efilingLastStatus: 'received',
+    });
+    await expect(submitVAT201ToSars(CID, SID, UID)).rejects.toBeInstanceOf(EfilingAlreadyFiledError);
+    expect(m.submitVAT201).not.toHaveBeenCalled();
+    expect(m.markSubmissionSubmitted).not.toHaveBeenCalled();
+  });
+
+  it('refuses to re-file an already-accepted submission', async () => {
+    m.getEfilingSubmission.mockResolvedValue({
+      id: SID, companyId: CID, formType: 'VAT201',
+      periodStart: '2026-03-01', periodEnd: '2026-03-31', status: 'accepted',
+      efilingCorrelationId: null, efilingLastStatus: 'accepted',
+    });
+    await expect(submitVAT201ToSars(CID, SID, UID)).rejects.toBeInstanceOf(EfilingAlreadyFiledError);
     expect(m.submitVAT201).not.toHaveBeenCalled();
   });
 

@@ -46,6 +46,16 @@ export class EfilingBlockedError extends Error {
     this.reason = reason;
   }
 }
+/** The VAT201 was already filed to SARS — refuse to file it twice (a double
+ *  statutory submission). Carries the existing correlation id for reference. */
+export class EfilingAlreadyFiledError extends Error {
+  readonly correlationId: string;
+  constructor(correlationId: string) {
+    super('This VAT201 has already been filed to SARS');
+    this.name = 'EfilingAlreadyFiledError';
+    this.correlationId = correlationId;
+  }
+}
 
 /**
  * Pure decision: may this exceptions report be filed? Clean = zero exceptions
@@ -86,6 +96,12 @@ export async function submitVAT201ToSars(
   if (!submission) throw new EfilingSubmissionNotFoundError(submissionId);
   if (submission.formType !== 'VAT201') {
     throw new EfilingBlockedError(`Only VAT201 returns can be filed via the ISV channel (got ${submission.formType})`);
+  }
+
+  // Idempotency: never re-file a return already sent to / accepted by SARS —
+  // a second submit is a duplicate statutory filing.
+  if (submission.efilingCorrelationId || submission.status === 'submitted' || submission.status === 'accepted') {
+    throw new EfilingAlreadyFiledError(submission.efilingCorrelationId ?? '');
   }
 
   // Server-side exceptions gate — the enforcement point.
@@ -151,7 +167,7 @@ function mapSubmissionStatus(efilingStatus: string): string {
   return 'submitted'; // processing / unknown — stay submitted
 }
 
-export async function pollVAT201Status(companyId: string, submissionId: string): Promise<PollOutcome> {
+export async function pollVAT201Status(companyId: string, submissionId: string, userId?: string): Promise<PollOutcome> {
   const config = getEfilingConfig();
   if (!config) throw new EfilingNotConfiguredError();
 
@@ -172,6 +188,7 @@ export async function pollVAT201Status(companyId: string, submissionId: string):
       companyId, submissionId, eventType: 'poll',
       efilingStatus: result.status, httpStatus: result.httpStatus, correlationId: submission.efilingCorrelationId,
       message: result.errors.length ? result.errors.join('; ') : null,
+      createdBy: userId ?? null,
     });
     return { status: result.status, submissionStatus, sarsReference: result.sarsReference, errors: result.errors };
   } catch (err) {
@@ -179,6 +196,7 @@ export async function pollVAT201Status(companyId: string, submissionId: string):
     await insertEfilingEvent({
       companyId, submissionId, eventType: 'error', httpStatus,
       message: err instanceof Error ? err.message : 'SARS eFiling transport error',
+      createdBy: userId ?? null,
     });
     throw err;
   }
