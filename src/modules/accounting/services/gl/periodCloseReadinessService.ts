@@ -1,9 +1,11 @@
 /**
  * Period Close Readiness Service — orchestrator
  *
- * Runs 6 parallel advisory checks to determine whether a fiscal period is
- * ready to close.  Each check is isolated: one failing check cannot blank the
- * whole panel (Promise.allSettled).
+ * Runs 6 advisory checks to determine whether a fiscal period is ready to
+ * close.  Each check runs inside its OWN savepoint, SEQUENTIALLY, so a
+ * DB-level error in one check rolls back to that savepoint instead of poisoning
+ * the shared request transaction — and one failing check still cannot blank the
+ * whole panel (it degrades to a single 'warn' row).
  *
  *   1. bank_reconciled   — all bank txns in period are reconciled or excluded
  *   2. unposted_journals — all journal entries in period are posted
@@ -17,6 +19,7 @@
  */
 
 import { log } from '@/lib/logger';
+import { withSavepoint } from '@/lib/neon';
 import { getFiscalPeriodById } from './fiscalPeriodService';
 import { bankReconciledCheck } from './closeReadinessChecks/bankReconciledCheck';
 import { unpostedJournalsCheck } from './closeReadinessChecks/unpostedJournalsCheck';
@@ -102,27 +105,43 @@ export async function getCloseReadiness(
 
   log.info('Running close-readiness checks', { companyId, periodId }, 'accounting');
 
-  // Promise.allSettled: one broken check emits warn instead of blankings the panel.
-  const results = await Promise.allSettled([
-    bankReconciledCheck(companyId, { startDate, endDate }),
-    unpostedJournalsCheck(companyId, { id: periodId }),
-    arSubLedgerCheck(companyId, { endDate }),
-    apSubLedgerCheck(companyId, { endDate }),
-    vatReviewedCheck(companyId, { startDate, endDate }),
-    tbBalancedCheck(companyId, { id: periodId }),
-  ]);
+  // getCloseReadiness runs inside startCloseRun's request transaction, which
+  // then WRITES (abandonOpenRunsForPeriod / insertCloseRun / insertProposals).
+  // A DB-level error in any check (e.g. schema drift) aborts a plain request tx
+  // — "current transaction is aborted" — and every later write 500s. Each check
+  // therefore runs inside its OWN savepoint: an errored check rolls back to the
+  // savepoint (recovering the tx) and degrades to a single 'warn' row while the
+  // remaining checks and the caller's writes proceed on a healthy tx.
+  //
+  // SEQUENTIAL, not Promise.allSettled: savepoints on the single request
+  // connection must nest LIFO. Run concurrently and their SAVEPOINT/RELEASE
+  // pairs interleave — releasing an earlier savepoint destroys the later ones,
+  // so the next RELEASE errors and re-poisons the tx. On one connection the
+  // per-check queries already serialize at the wire, so sequencing costs nothing.
+  const runners: Array<() => Promise<ChecklistItem>> = [
+    () => bankReconciledCheck(companyId, { startDate, endDate }),
+    () => unpostedJournalsCheck(companyId, { id: periodId }),
+    () => arSubLedgerCheck(companyId, { endDate }),
+    () => apSubLedgerCheck(companyId, { endDate }),
+    () => vatReviewedCheck(companyId, { startDate, endDate }),
+    () => tbBalancedCheck(companyId, { id: periodId }),
+  ];
 
-  const items: ChecklistItem[] = results.map((r, idx) => {
-    if (r.status === 'fulfilled') return r.value;
-    log.error('close-readiness check failed', { error: r.reason, checkIndex: idx }, 'accounting');
-    return {
-      key: CHECK_KEYS[idx]!,
-      label: CHECK_LABELS[idx]!,
-      status: 'warn' as ChecklistItemStatus,
-      reason: 'Could not compute — check the relevant module.',
-      fixHref: CHECK_FALLBACK_HREFS[idx]!,
-    };
-  });
+  const items: ChecklistItem[] = [];
+  for (let idx = 0; idx < runners.length; idx++) {
+    try {
+      items.push(await withSavepoint(`close_check_${idx}`, runners[idx]!));
+    } catch (err) {
+      log.error('close-readiness check failed', { error: err, checkIndex: idx }, 'accounting');
+      items.push({
+        key: CHECK_KEYS[idx]!,
+        label: CHECK_LABELS[idx]!,
+        status: 'warn' as ChecklistItemStatus,
+        reason: 'Could not compute — check the relevant module.',
+        fixHref: CHECK_FALLBACK_HREFS[idx]!,
+      });
+    }
+  }
 
   return {
     periodId,

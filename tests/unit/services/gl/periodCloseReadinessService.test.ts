@@ -27,7 +27,12 @@
 
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
-vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
+vi.mock('@/lib/neon', () => ({
+  sql: vi.fn(),
+  // withSavepoint degrades to a plain fn() call when there is no request tx
+  // (as in these unit tests and prod cron paths) — it just runs the check.
+  withSavepoint: vi.fn((_name: string, fn: () => Promise<unknown>) => fn()),
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
@@ -35,7 +40,7 @@ vi.mock('@/modules/accounting/services/gl/fiscalPeriodService', () => ({
   getFiscalPeriodById: vi.fn(),
 }));
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getFiscalPeriodById } from '@/modules/accounting/services/gl/fiscalPeriodService';
 import { getCloseReadiness } from '@/modules/accounting/services/gl/periodCloseReadinessService';
@@ -73,27 +78,29 @@ function makePeriod(overrides: Partial<FiscalPeriod> = {}): FiscalPeriod {
 }
 
 /**
- * Sets up mocks for all 6 SQL checks in Promise.allSettled execution order.
- * Because checks run in parallel, the SQL call order is:
+ * Sets up mocks for all 6 SQL checks in SEQUENTIAL execution order. The checks
+ * now run one-at-a-time (each inside its own savepoint), and the ar/ap checks
+ * issue two queries in sequence (invoice sum then GL balance), so the SQL call
+ * order is:
  *  Call 1: bank       (1 query)
  *  Call 2: journals   (1 query)
- *  Call 3: ar invoice sum   (first await)
- *  Call 4: ap invoice sum   (first await)
- *  Call 5: vat        (1 query)
- *  Call 6: tb         (1 query)
- *  Call 7: ar GL balance    (second await)
- *  Call 8: ap GL balance    (second await)
+ *  Call 3: ar invoice sum
+ *  Call 4: ar GL balance
+ *  Call 5: ap invoice sum
+ *  Call 6: ap GL balance
+ *  Call 7: vat        (1 query)
+ *  Call 8: tb         (1 query)
  */
 function mockAllChecksPass(): void {
   mockSql
-    .mockResolvedValueOnce([{ unreconciled_count: '0' }])
-    .mockResolvedValueOnce([{ draft_count: '0' }])
-    .mockResolvedValueOnce([{ ar_total: '1000.00' }])
-    .mockResolvedValueOnce([{ ap_total: '500.00' }])
-    .mockResolvedValueOnce([{ vat_count: '1' }])
-    .mockResolvedValueOnce([{ total_debit: '10000.00', total_credit: '10000.00' }])
-    .mockResolvedValueOnce([{ gl_balance: '1000.00' }])
-    .mockResolvedValueOnce([{ gl_balance: '500.00' }]);
+    .mockResolvedValueOnce([{ unreconciled_count: '0' }])  // bank
+    .mockResolvedValueOnce([{ draft_count: '0' }])         // journals
+    .mockResolvedValueOnce([{ ar_total: '1000.00' }])      // ar invoice sum
+    .mockResolvedValueOnce([{ gl_balance: '1000.00' }])    // ar GL balance
+    .mockResolvedValueOnce([{ ap_total: '500.00' }])       // ap invoice sum
+    .mockResolvedValueOnce([{ gl_balance: '500.00' }])     // ap GL balance
+    .mockResolvedValueOnce([{ vat_count: '1' }])           // vat
+    .mockResolvedValueOnce([{ total_debit: '10000.00', total_credit: '10000.00' }]); // tb
 }
 
 describe('getCloseReadiness — orchestrator', () => {
@@ -136,11 +143,11 @@ describe('getCloseReadiness — orchestrator', () => {
       .mockResolvedValueOnce([{ unreconciled_count: '0' }])
       .mockResolvedValueOnce([{ draft_count: '0' }])
       .mockResolvedValueOnce([{ ar_total: '1000.00' }])
-      .mockResolvedValueOnce([{ ap_total: '500.00' }])
-      .mockResolvedValueOnce([{ vat_count: '0' }])         // VAT: WARN
-      .mockResolvedValueOnce([{ total_debit: '10000.00', total_credit: '10000.00' }])
       .mockResolvedValueOnce([{ gl_balance: '1000.00' }])
-      .mockResolvedValueOnce([{ gl_balance: '500.00' }]);
+      .mockResolvedValueOnce([{ ap_total: '500.00' }])
+      .mockResolvedValueOnce([{ gl_balance: '500.00' }])
+      .mockResolvedValueOnce([{ vat_count: '0' }])         // VAT: WARN
+      .mockResolvedValueOnce([{ total_debit: '10000.00', total_credit: '10000.00' }]);
 
     const result = await getCloseReadiness(COMPANY_A, PERIOD_ID);
 
@@ -155,11 +162,11 @@ describe('getCloseReadiness — orchestrator', () => {
       .mockResolvedValueOnce([{ unreconciled_count: '3' }])  // bank: FAIL
       .mockResolvedValueOnce([{ draft_count: '0' }])
       .mockResolvedValueOnce([{ ar_total: '1000.00' }])
-      .mockResolvedValueOnce([{ ap_total: '500.00' }])
-      .mockResolvedValueOnce([{ vat_count: '1' }])
-      .mockResolvedValueOnce([{ total_debit: '10000.00', total_credit: '10000.00' }])
       .mockResolvedValueOnce([{ gl_balance: '1000.00' }])
-      .mockResolvedValueOnce([{ gl_balance: '500.00' }]);
+      .mockResolvedValueOnce([{ ap_total: '500.00' }])
+      .mockResolvedValueOnce([{ gl_balance: '500.00' }])
+      .mockResolvedValueOnce([{ vat_count: '1' }])
+      .mockResolvedValueOnce([{ total_debit: '10000.00', total_credit: '10000.00' }]);
 
     const result = await getCloseReadiness(COMPANY_A, PERIOD_ID);
 
@@ -236,7 +243,65 @@ describe('getCloseReadiness — orchestrator', () => {
     expect(secondRunFirstArg).toBe(COMPANY_B);
   });
 
-  // ── Promise.allSettled isolation ─────────────────────────────────────────
+  // ── Per-check savepoint isolation (poisoned-tx protection) ────────────────
+
+  it('runs each readiness check inside its own savepoint so an errored check cannot poison the caller tx', async () => {
+    // getCloseReadiness is called inside startCloseRun's request tx, which then
+    // WRITES (abandon/insert). A DB-level error in any check must roll back to a
+    // savepoint instead of poisoning the shared tx and 500-ing those writes.
+    mockGetPeriodById.mockResolvedValueOnce(makePeriod());
+    mockAllChecksPass();
+
+    await getCloseReadiness(COMPANY_A, PERIOD_ID);
+
+    const mockWithSavepoint = withSavepoint as unknown as MockedFunction<
+      (name: string, fn: () => Promise<unknown>) => Promise<unknown>
+    >;
+    // one savepoint per check — six checks
+    expect(mockWithSavepoint).toHaveBeenCalledTimes(6);
+    // every savepoint name is a valid identifier (withSavepoint rejects bad names at runtime)
+    for (const call of mockWithSavepoint.mock.calls) {
+      expect(String(call[0])).toMatch(/^[a-zA-Z_][a-zA-Z0-9_]{0,30}$/);
+    }
+  });
+
+  it('runs the checks strictly sequentially — never two savepoints open at once (LIFO-safe on one connection)', async () => {
+    // The fix depends on SEQUENCING: concurrent savepoints on the single request
+    // connection corrupt the savepoint stack (releasing an earlier savepoint
+    // destroys later ones). Guard against a regression back to Promise.allSettled
+    // by proving at most one check's savepoint is open at any instant.
+    mockGetPeriodById.mockResolvedValueOnce(makePeriod());
+
+    let openDepth = 0;
+    let maxDepth = 0;
+    const mockWithSavepoint = withSavepoint as unknown as MockedFunction<
+      (name: string, fn: () => Promise<unknown>) => Promise<unknown>
+    >;
+    mockWithSavepoint.mockImplementation(async (_name, fn) => {
+      openDepth++;
+      maxDepth = Math.max(maxDepth, openDepth);
+      try {
+        return await fn();
+      } finally {
+        openDepth--;
+      }
+    });
+    // Real async work per query so a concurrent orchestrator WOULD overlap here.
+    mockSql.mockImplementation(() => new Promise(resolve => setTimeout(() => resolve([{}]), 0)));
+
+    try {
+      await getCloseReadiness(COMPANY_A, PERIOD_ID);
+      expect(maxDepth).toBe(1);
+    } finally {
+      // Restore the pass-through default in a finally so a failed assertion can't
+      // leak the async savepoint impl into later tests (beforeEach's
+      // vi.clearAllMocks clears call history, NOT implementations).
+      mockWithSavepoint.mockImplementation((_name, fn) => fn());
+      mockSql.mockReset();
+    }
+  });
+
+  // ── One-check-failure isolation ──────────────────────────────────────────
 
   it('one check throwing → others still report normally; failing check shows warn', async () => {
     mockGetPeriodById.mockResolvedValueOnce(makePeriod());
@@ -246,11 +311,11 @@ describe('getCloseReadiness — orchestrator', () => {
       .mockRejectedValueOnce(new Error('DB timeout'))  // bank check: THROWS
       .mockResolvedValueOnce([{ draft_count: '0' }])
       .mockResolvedValueOnce([{ ar_total: '1000.00' }])
-      .mockResolvedValueOnce([{ ap_total: '500.00' }])
-      .mockResolvedValueOnce([{ vat_count: '1' }])
-      .mockResolvedValueOnce([{ total_debit: '10000.00', total_credit: '10000.00' }])
       .mockResolvedValueOnce([{ gl_balance: '1000.00' }])
-      .mockResolvedValueOnce([{ gl_balance: '500.00' }]);
+      .mockResolvedValueOnce([{ ap_total: '500.00' }])
+      .mockResolvedValueOnce([{ gl_balance: '500.00' }])
+      .mockResolvedValueOnce([{ vat_count: '1' }])
+      .mockResolvedValueOnce([{ total_debit: '10000.00', total_credit: '10000.00' }]);
 
     const result = await getCloseReadiness(COMPANY_A, PERIOD_ID);
 
@@ -281,10 +346,10 @@ describe('getCloseReadiness — orchestrator', () => {
       .mockResolvedValueOnce([{ unreconciled_count: '0' }])  // bank: pass
       .mockResolvedValueOnce([{ draft_count: '0' }])           // journals: pass
       .mockResolvedValueOnce([{ ar_total: '1000.00' }])        // ar invoice sum
-      .mockRejectedValueOnce(new Error('AP table unavailable')) // ap check: THROWS
+      .mockResolvedValueOnce([{ gl_balance: '1000.00' }])      // ar GL balance
+      .mockRejectedValueOnce(new Error('AP table unavailable')) // ap invoice sum: THROWS (ap GL never runs)
       .mockResolvedValueOnce([{ vat_count: '1' }])             // vat: pass
-      .mockResolvedValueOnce([{ total_debit: '1000.00', total_credit: '1000.00' }]) // tb: pass
-      .mockResolvedValueOnce([{ gl_balance: '1000.00' }]);     // ar GL balance
+      .mockResolvedValueOnce([{ total_debit: '1000.00', total_credit: '1000.00' }]); // tb: pass
 
     const result = await getCloseReadiness(COMPANY_A, PERIOD_ID);
 
@@ -303,14 +368,14 @@ describe('getCloseReadiness — orchestrator', () => {
   it('returns correct fix-link hrefs for each check when not passing', async () => {
     mockGetPeriodById.mockResolvedValueOnce(makePeriod());
     mockSql
-      .mockResolvedValueOnce([{ unreconciled_count: '1' }])
-      .mockResolvedValueOnce([{ draft_count: '1' }])
-      .mockResolvedValueOnce([{ ar_total: '1000' }])
-      .mockResolvedValueOnce([{ ap_total: '1000' }])
-      .mockResolvedValueOnce([{ vat_count: '0' }])
-      .mockResolvedValueOnce([{ total_debit: '10200', total_credit: '10000' }])
-      .mockResolvedValueOnce([{ gl_balance: '500' }])
-      .mockResolvedValueOnce([{ gl_balance: '500' }]);
+      .mockResolvedValueOnce([{ unreconciled_count: '1' }])   // bank
+      .mockResolvedValueOnce([{ draft_count: '1' }])          // journals
+      .mockResolvedValueOnce([{ ar_total: '1000' }])          // ar invoice sum
+      .mockResolvedValueOnce([{ gl_balance: '500' }])         // ar GL balance
+      .mockResolvedValueOnce([{ ap_total: '1000' }])          // ap invoice sum
+      .mockResolvedValueOnce([{ gl_balance: '500' }])         // ap GL balance
+      .mockResolvedValueOnce([{ vat_count: '0' }])            // vat
+      .mockResolvedValueOnce([{ total_debit: '10200', total_credit: '10000' }]); // tb
 
     const result = await getCloseReadiness(COMPANY_A, PERIOD_ID);
     const byKey = Object.fromEntries(result!.items.map(i => [i.key, i]));
