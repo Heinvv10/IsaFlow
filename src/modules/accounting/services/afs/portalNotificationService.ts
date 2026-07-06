@@ -8,6 +8,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { sendEmail } from '@/modules/accounting/services/core/emailService';
 import { emailLayout, ctaButton } from '@/lib/email-templates-shared';
+import { escapeHtml } from './afsHtmlTableRenderer';
 import type { PortalContact } from './afsTypes';
 
 const APP_URL = 'https://app.isaflow.co.za';
@@ -19,7 +20,7 @@ export async function notifyMagicLinkRequested(
   try {
     const html = emailLayout(`
       <h2>ISaFlow Portal — Sign-in Link</h2>
-      <p>Hi ${contact.name},</p>
+      <p>Hi ${escapeHtml(contact.name)},</p>
       <p>Click the button below to access your financial documents. This link expires in 30 minutes.</p>
       ${ctaButton('Sign In to Portal', magicLinkUrl)}
       <p style="font-size:12px;color:#94a3b8;">If you did not request this link, you can safely ignore this email.</p>
@@ -48,7 +49,7 @@ export async function notifySigningRequested(
   try {
     const html = emailLayout(`
       <h2>Annual Financial Statements — Signature Required</h2>
-      <p>Hi ${contact.name},</p>
+      <p>Hi ${escapeHtml(contact.name)},</p>
       <p>The annual financial statements for your company are ready for your signature.</p>
       ${ctaButton('Review & Sign', signingUrl)}
       <p style="font-size:12px;color:#94a3b8;">This signing link expires in ${process.env.SIGNUM_EXPIRES_IN_DAYS ?? 14} days.</p>
@@ -85,7 +86,7 @@ export async function notifyDocumentSignedOff(
     for (const row of contacts) {
       const html = emailLayout(`
         <h2>Annual Financial Statements — Signed Off</h2>
-        <p>Hi ${row.name},</p>
+        <p>Hi ${escapeHtml(row.name)},</p>
         <p>All signatures have been collected. The signed document is now available in your portal.</p>
         ${ctaButton('View in Portal', `${APP_URL}/accounting/afs/portal/dashboard`)}
       `);
@@ -127,8 +128,8 @@ export async function notifyAnnotationReceived(
     for (const row of recipients) {
       const html = emailLayout(`
         <h2>New Client Annotation — AFS Review</h2>
-        <p>Hi ${row.first_name ?? 'there'},</p>
-        <p><strong>${authorName}</strong> left a comment on a section of the annual financial statements.</p>
+        <p>Hi ${escapeHtml(row.first_name ?? 'there')},</p>
+        <p><strong>${escapeHtml(authorName)}</strong> left a comment on a section of the annual financial statements.</p>
         ${ctaButton('Review Annotations', `${APP_URL}/accounting/afs`)}
       `);
       await sendEmail({
