@@ -161,9 +161,17 @@ on prod) → schema-drift OK (280 tables) → pre-deploy snapshot → restart �
 
 ## Phase 6 — Commercial wedge
 
+Phase 6 is Hein-led: agent PREPARES artifacts; Hein signs all commercial terms.
+Branch `feat/phase6-commercial-wedge`. Strategic frame signed by Hein 2026-07-06:
+hybrid GTM (practice + direct) · Close Agent = paid add-on · CPI-capped price-lock ·
+Sage anchor · Scenario C (Premium-locked) prices · 30-day trial entry.
+
 | Task | State | Branch | PR | Deployed | Evidence |
 |------|-------|--------|----|----------|----------|
-| Pricing SKUs / price-lock page / bank-feed BD pack / SAIPA one-pager | todo | | | | |
+| 6.1 Pricing SKUs | **in-progress** | feat/phase6-commercial-wedge | | — | `docs/commercial/pricing-skus.md` — Scenario C numbers (Direct R299/R549/R899, Bureau R79/R249, Close Agent +R299/entity, CPI-lock), Sage R1,140 wedge math, feature matrix grounded in shipped modules, §9 open items list for Hein. Numbers presented + chosen via AskUserQuestion (2 rounds). |
+| 6.2 Price-lock landing page (/pricing) | todo | | | | Placeholder copy until Hein signs pricing |
+| 6.3 Bank-feed BD pack | todo | | | | |
+| 6.4 SAIPA one-pager | todo | | | | |
 
 ## Phase 1 exit gate — ✅ PASSED 2026-07-05 14:25 SAST
 
