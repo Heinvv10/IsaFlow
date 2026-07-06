@@ -9,6 +9,15 @@ interface Props {
   onCloseMobile: () => void;
 }
 
+// Pricing has its own page; the rest are anchors on the landing page, prefixed
+// with '/' so they resolve from any route (including /pricing itself).
+const NAV_LINKS = [
+  { label: 'Features', href: '/#features' },
+  { label: 'Pricing', href: '/pricing' },
+  { label: 'Testimonials', href: '/#testimonials' },
+  { label: 'FAQ', href: '/#faq' },
+];
+
 export function LandingNavbar({ scrolled, mobileMenuOpen, onToggleMobile, onCloseMobile }: Props) {
   const navBg = scrolled
     ? 'bg-[rgba(5,10,15,0.92)] border-b border-white/10'
@@ -23,14 +32,14 @@ export function LandingNavbar({ scrolled, mobileMenuOpen, onToggleMobile, onClos
           </Link>
 
           <div className="hidden lg:flex items-center gap-8">
-            {['Features', 'Pricing', 'Testimonials', 'FAQ'].map((item) => (
-              <a
-                key={item}
-                href={`#${item.toLowerCase()}`}
+            {NAV_LINKS.map(({ label, href }) => (
+              <Link
+                key={label}
+                href={href}
                 className="text-sm font-medium text-white/65 hover:text-white transition-colors duration-200"
               >
-                {item}
-              </a>
+                {label}
+              </Link>
             ))}
           </div>
 
@@ -58,15 +67,15 @@ export function LandingNavbar({ scrolled, mobileMenuOpen, onToggleMobile, onClos
       {mobileMenuOpen && (
         <div className="lg:hidden bg-[rgba(5,10,15,0.97)] border-t border-white/10">
           <div className="px-4 py-4 space-y-1">
-            {['features', 'pricing', 'testimonials', 'faq'].map((item) => (
-              <a
-                key={item}
-                href={`#${item}`}
+            {NAV_LINKS.map(({ label, href }) => (
+              <Link
+                key={label}
+                href={href}
                 onClick={onCloseMobile}
-                className="block px-3 py-2.5 text-sm font-medium text-white/70 rounded-lg hover:text-white hover:bg-white/5 capitalize"
+                className="block px-3 py-2.5 text-sm font-medium text-white/70 rounded-lg hover:text-white hover:bg-white/5"
               >
-                {item}
-              </a>
+                {label}
+              </Link>
             ))}
             <hr className="my-2 border-white/10" />
             <a href={`${APP_URL}/login`} className="block px-3 py-2.5 text-sm font-medium text-white/70 rounded-lg hover:text-white hover:bg-white/5">Sign In</a>

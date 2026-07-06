@@ -161,9 +161,17 @@ on prod) → schema-drift OK (280 tables) → pre-deploy snapshot → restart �
 
 ## Phase 6 — Commercial wedge
 
+Phase 6 is Hein-led: agent PREPARES artifacts; Hein signs all commercial terms.
+Branch `feat/phase6-commercial-wedge`. Strategic frame signed by Hein 2026-07-06:
+hybrid GTM (practice + direct) · Close Agent = paid add-on · CPI-capped price-lock ·
+Sage anchor · Scenario C (Premium-locked) prices · 30-day trial entry.
+
 | Task | State | Branch | PR | Deployed | Evidence |
 |------|-------|--------|----|----------|----------|
-| Pricing SKUs / price-lock page / bank-feed BD pack / SAIPA one-pager | todo | | | | |
+| 6.1 Pricing SKUs | **in-progress** | feat/phase6-commercial-wedge | | — | `docs/commercial/pricing-skus.md` — Scenario C numbers (Direct R299/R549/R899, Bureau R79/R249, Close Agent +R299/entity, CPI-lock), Sage R1,140 wedge math, feature matrix grounded in shipped modules, §9 open items list for Hein. Numbers presented + chosen via AskUserQuestion (2 rounds). |
+| 6.2 Price-lock landing page (/pricing) | **pr-open** | feat/phase6-commercial-wedge | | — | Public `pages/pricing.tsx` (PricingHero + Sage R1,140-vs-R549 wedge + Close Agent add-on + bureau SKUs + CPI price-lock signature band + reused LandingPricing/FAQ/CTA/Footer). Aligned landing to Scenario C: `PRICING_TIERS` R299/R549/R899, trial 14→30 across all landing copy, navbar Pricing→/pricing. TDD RED-first (`tests/unit/landing/pricing-data.test.ts`, 10 assertions). Battery: tc 0, lint 0 (source), unit 4657, integrity 12/15 (dev baseline), golden 12/12 vs dev; /pricing + / render-verified. Blind review (fresh opus, raw diff + CLAUDE.md) → SHIP; MED dead-tier-conditional fixed. **Numbers Hein-signed; marketing prose = draft pending Hein copy review; deploy Hein-gated.** |
+| 6.3 Bank-feed BD pack | **in-progress** | feat/phase6-commercial-wedge | | — | `docs/commercial/bank-feed-bd-pack.md` — 1-pager: the ask (automated big-5 feeds), IsaFlow baseline (OFX/CSV/QIF/PDF/MT940 covers all big-5 + provider-abstracted feed layer), SA landscape (FNB/Standard Bank direct programmes; Nedbank OAuth; Salt Edge/Mono aggregators; Stitch out; truID deferred), hard gates (coverage-by-name + POPIA operator agreement), written-questions list, Hein-vs-agent split, integration shape (~3–4 days additive). Grounded in `docs/wsf-bank-feeds/aggregator-spike.md` + verified bank services. |
+| 6.4 SAIPA one-pager | **in-progress** | feat/phase6-commercial-wedge | | — | `docs/commercial/saipa-one-pager.md` — bureau/accountant pitch leaning on Close Agent v1 (propose→approve→post) + honesty/audit-trail differentiator (`source=close-agent:v1` + reasoning on every journal; verbatim honesty banner). Practice terms (free firm portal, per-active-client, CPI-lock, Close Agent add-on). VAT201 today / SARS e-filing flagged in-progress (env-DARK, not live). Claims verified against shipped closeRun engine + bureau surfaces. |
 
 ## Phase 1 exit gate — ✅ PASSED 2026-07-05 14:25 SAST
 
