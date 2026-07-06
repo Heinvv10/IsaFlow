@@ -125,7 +125,7 @@ export function LandingHero() {
 
           {/* Trust line */}
           <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-white/45">
-            <span>✓ 14-day free trial</span>
+            <span>✓ 30-day free trial</span>
             <span>✓ No credit card required</span>
             <span>✓ Full tax compliance</span>
           </div>

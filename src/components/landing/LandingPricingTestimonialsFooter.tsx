@@ -42,7 +42,7 @@ export function LandingPricing() {
             Plans that grow with your business
           </h2>
           <p className="text-lg text-gray-500">
-            Start with a 14-day free trial on any plan. No credit card required.
+            Start with a 30-day free trial on any plan. No credit card required.
           </p>
         </div>
 
@@ -82,7 +82,7 @@ export function LandingPricing() {
                 ))}
               </ul>
               <a
-                href={tier.name === 'Enterprise' ? '#contact' : `${APP_URL}/register`}
+                href={tier.cta === 'Contact Sales' ? '#contact' : `${APP_URL}/register`}
                 className={`block w-full text-center py-3 rounded-xl text-sm font-semibold transition-all ${ tier.popular ? 'bg-gradient-to-r from-teal-500 to-cyan-500 text-slate-900 dark:text-white hover:from-teal-600 hover:to-cyan-600 shadow-lg shadow-teal-500/25' : 'bg-gray-900 text-slate-900 dark:text-white hover:bg-gray-800' }`}
               >
                 {tier.cta}
@@ -205,7 +205,7 @@ export function LandingCTA() {
           Ready to take control<br />of your finances?
         </h2>
         <p className="text-lg text-gray-600 dark:text-gray-400 mb-10">
-          Start your free 14-day trial today. No credit card required.
+          Start your free 30-day trial today. No credit card required.
         </p>
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
           <a
