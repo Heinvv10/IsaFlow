@@ -175,11 +175,22 @@ Sage anchor · Scenario C (Premium-locked) prices · 30-day trial entry.
 | 6.3 Bank-feed BD pack | **deployed** | feat/phase6-commercial-wedge | #221 | 4456a9bb (2026-07-06 21:43) | `docs/commercial/bank-feed-bd-pack.md` — 1-pager: the ask (automated big-5 feeds), IsaFlow baseline (OFX/CSV/QIF/PDF/MT940 covers all big-5 + provider-abstracted feed layer), SA landscape (FNB/Standard Bank direct programmes; Nedbank OAuth; Salt Edge/Mono aggregators; Stitch out; truID deferred), hard gates (coverage-by-name + POPIA operator agreement), written-questions list, Hein-vs-agent split, integration shape (~3–4 days additive). Grounded in `docs/wsf-bank-feeds/aggregator-spike.md` + verified bank services. |
 | 6.4 SAIPA one-pager | **deployed** | feat/phase6-commercial-wedge | #221 | 4456a9bb (2026-07-06 21:43) | `docs/commercial/saipa-one-pager.md` — bureau/accountant pitch leaning on Close Agent v1 (propose→approve→post) + honesty/audit-trail differentiator (`source=close-agent:v1` + reasoning on every journal; verbatim honesty banner). Practice terms (free firm portal, per-active-client, CPI-lock, Close Agent add-on). VAT201 today / SARS e-filing flagged in-progress (env-DARK, not live). Claims verified against shipped closeRun engine + bureau surfaces. |
 
+### Phase 6 §9 commercial decisions — ✅ SIGNED + IMPLEMENTED 2026-07-07 (PR #222, master `342b91ce`; NOT yet deployed)
+All 7 §9 items decided by Hein via AskUserQuestion and written into
+`pricing-skus.md` §9. Page-affecting ones shipped in **PR #222** (squash `342b91ce`,
+blind opus review REQUEST_CHANGES→SHIP, CI green): **VAT-INCLUSIVE display**
+(R299/R549/R899 = all-in; ex-VAT net R260/R477/R782; Sage verified incl-VAT so
+parity is like-for-like; "Prices ex-VAT" → "All prices include 15% VAT"), **payroll
+add-on ~R20/employee**, **annual 2-months-free note**. Spec-only: active-client
+=≥1 posted txn/mo · bureau Close Agent per-client R299 · CPI-lock headline/
+anniversary/survives-upgrades · trial no-card. **⚠ Prod (`4456a9bb`) still shows
+"ex-VAT" — a deploy is needed to make the live page VAT-incl. Deploy Hein-gated.**
+
 ### Phase 6 open items for Hein (before any public launch / deploy)
-- ~~Sign off marketing prose~~ — **DONE: Hein approved the live copy as-is 2026-07-07** (incl. named competitors Sage/Xero/QuickBooks + cited figures).
-- **7 commercial decisions** in `pricing-skus.md` §9: payroll SKU packaging, annual-billing discount, "active client" definition, CPI-lock mechanics, trial terms (card up-front?), bureau Close-Agent bundle, VAT display (ex/incl).
-- **Pre-existing dead link:** `#contact` "Book a Demo" anchor (landing CTA, now also `/pricing`) — decide target.
-- **Deploy** `/pricing` + aligned landing prices to prod (after-hours + explicit approval; prod currently `f6c9aa7c`, master `48d104d4`).
+- ~~Sign off marketing prose~~ — **DONE 2026-07-07** (Hein approved live copy as-is, incl. named competitors + cited figures).
+- ~~7 §9 commercial decisions~~ — **DONE 2026-07-07** (all signed; implemented in PR #222, master `342b91ce`).
+- **Deploy PR #222** — makes the live page VAT-inclusive + adds payroll/annual. Prod (`4456a9bb`) still shows "ex-VAT". After-hours + explicit approval.
+- **Pre-existing dead link:** `#contact` "Book a Demo" anchor (landing CTA + `/pricing`) — decide target (mailto / booking link / `/contact` page).
 - **BD execution:** create Salt Edge/Mono sandboxes (or approach FNB/Standard Bank direct) per `bank-feed-bd-pack.md`; take the SAIPA one-pager to members.
 
 ## Phase 1 exit gate — ✅ PASSED 2026-07-05 14:25 SAST
