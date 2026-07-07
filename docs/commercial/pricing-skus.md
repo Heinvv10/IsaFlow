@@ -1,10 +1,9 @@
 # IsaFlow — Pricing SKUs (Phase 6 commercial wedge)
 
-> **Status:** DRAFT for Hein's sign-off. Numbers below were selected by Hein on
-> 2026-07-06 (Scenario C — "Premium-locked"). This is an **internal** pricing
-> spec — it is not published anywhere and no external copy quotes these figures
-> until Hein signs off. The `/pricing` page ships with **placeholder** copy until
-> then.
+> **Status:** Numbers selected by Hein 2026-07-06 (Scenario C — "Premium-locked");
+> **public copy APPROVED by Hein 2026-07-07** and LIVE on `/pricing` +
+> `isaflow.co.za`. The 7 items in §9 remain open for Hein's decision. Deployed to
+> prod 2026-07-06 21:43 SAST (master `4456a9bb`).
 >
 > **Owner:** Hein (all commercial terms). **Prepared by:** agent (Phase 6).
 > **Source anchors:** `memory/project_competitive_analysis_2026_07_05` +
@@ -183,10 +182,10 @@ change or applies per-plan.
 
 ---
 
-## 8. Positioning lines (for the landing page + sales; final wording = Hein)
+## 8. Positioning lines (for the landing page + sales)
 
-Draft narrative hooks — **not final copy**. The `/pricing` page uses placeholders
-until Hein signs these.
+**APPROVED by Hein 2026-07-07 (as-is, incl. named competitors + cited figures).**
+Live on `/pricing` + `isaflow.co.za`.
 
 - **Hero:** "Everything Sage charges extra for — included."
 - **Price-lock:** "Your price won't jump. Ever. Capped at inflation, guaranteed."
