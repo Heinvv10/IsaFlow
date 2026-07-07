@@ -1,11 +1,14 @@
-import { ArrowRight, Building2, Check, Lock, Sparkles, TrendingDown } from 'lucide-react';
+import { ArrowRight, Building2, Check, Lock, Sparkles, TrendingDown, Users } from 'lucide-react';
 import { APP_URL } from './landingData';
 import {
+  ANNUAL_BILLING,
   BUREAU_FIRM_PORTAL_FREE,
   BUREAU_SKUS,
   CLOSE_AGENT_ADDON,
+  PAYROLL_ADDON,
   PRICE_LOCK,
   SAGE_COMPARISON,
+  VAT_NOTE,
 } from './pricingData';
 
 // ── Hero ─────────────────────────────────────────────────────────────────────
@@ -132,7 +135,7 @@ export function SageComparison() {
           </table>
         </div>
         <p className="flex items-center justify-center gap-2 text-sm text-gray-500 mt-6">
-          <TrendingDown className="w-4 h-4 text-teal-500" /> Prices ex-VAT. Sage add-on prices amortised monthly.
+          <TrendingDown className="w-4 h-4 text-teal-500" /> All prices include 15% VAT. Sage add-on prices amortised monthly.
         </p>
       </div>
     </section>
@@ -190,11 +193,12 @@ export function BureauSection() {
   );
 }
 
-// ── Close Agent add-on ───────────────────────────────────────────────────────
+// ── Add-ons (Close Agent + Payroll) ──────────────────────────────────────────
 export function CloseAgentAddOn() {
   return (
     <section className="py-20 lg:py-28 bg-white">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+        {/* Close Agent — the flagship add-on */}
         <div className="rounded-3xl bg-gradient-to-br from-gray-900 to-slate-800 text-white p-8 lg:p-12">
           <div className="flex flex-col lg:flex-row lg:items-center gap-8">
             <div className="lg:flex-1">
@@ -220,6 +224,36 @@ export function CloseAgentAddOn() {
             </div>
           </div>
         </div>
+
+        {/* Payroll — per-employee add-on */}
+        <div className="mt-6 rounded-2xl border border-gray-200 bg-white shadow-sm p-6 lg:p-8">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-6">
+            <div className="sm:flex-1">
+              <div className="flex items-center gap-2 mb-1">
+                <Users className="w-5 h-5 text-teal-500" />
+                <h3 className="text-lg font-semibold text-gray-900">{PAYROLL_ADDON.name}</h3>
+              </div>
+              <p className="text-sm text-gray-500 mb-4">{PAYROLL_ADDON.desc}</p>
+              <ul className="flex flex-wrap gap-x-5 gap-y-2">
+                {PAYROLL_ADDON.bullets.map((b) => (
+                  <li key={b} className="flex items-center gap-1.5">
+                    <Check className="w-4 h-4 flex-shrink-0 text-teal-500" />
+                    <span className="text-sm text-gray-600">{b}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="sm:w-44 flex-shrink-0 text-center sm:border-l sm:border-gray-100 sm:pl-6">
+              <div className="text-3xl font-extrabold text-gray-900">{PAYROLL_ADDON.price}</div>
+              <div className="text-sm text-gray-500 mt-1">{PAYROLL_ADDON.unit}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* VAT + annual billing note */}
+        <p className="text-center text-sm text-gray-500 mt-8">
+          {VAT_NOTE} {ANNUAL_BILLING.label} (~17% off).
+        </p>
       </div>
     </section>
   );

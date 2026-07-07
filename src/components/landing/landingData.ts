@@ -153,7 +153,8 @@ export const DETAILED_FEATURES: DetailedFeature[] = [
 ];
 
 // Scenario C ("Premium-locked"), signed by Hein 2026-07-06.
-// Canonical spec: docs/commercial/pricing-skus.md. Prices ex-VAT, ZAR/month.
+// Canonical spec: docs/commercial/pricing-skus.md. Prices VAT-inclusive (15%),
+// ZAR/month — the displayed number is the all-in price (Hein 2026-07-07, §9).
 export const PRICING_TIERS: PricingTier[] = [
   {
     name: 'Starter',
