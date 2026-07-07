@@ -194,7 +194,7 @@ VAT", payroll add-on (R20/emp), annual 2-months-free; "ex-VAT" gone.
 - ~~Sign off marketing prose~~ — **DONE 2026-07-07** (Hein approved live copy as-is, incl. named competitors + cited figures).
 - ~~7 §9 commercial decisions~~ — **DONE 2026-07-07** (all signed; implemented in PR #222, master `342b91ce`).
 - ~~Deploy PR #222~~ — **DONE 2026-07-07 08:12 SAST** (prod `69dcc1a8`; VAT-incl live; Hein's explicit business-hours override; golden 12/12, integrity 15/15).
-- **Pre-existing dead link:** `#contact` "Book a Demo" anchor (landing CTA + `/pricing`) — decide target (mailto / booking link / `/contact` page).
+- ~~`#contact` dead "Book a Demo" anchor~~ — **DONE 2026-07-07** (PR #223, master `862eaf46`): real `/contact` page + rate-limited public `/api/contact` → emails `accounts@isaflow.co.za`; "Book a Demo" + Contact-Sales branch now route to `/contact`. Blind opus review (security focus) → SHIP; CI green. **NOT deployed — prod `69dcc1a8`; deploy Hein-gated.**
 - **BD execution:** create Salt Edge/Mono sandboxes (or approach FNB/Standard Bank direct) per `bank-feed-bd-pack.md`; take the SAIPA one-pager to members.
 
 ## Phase 1 exit gate — ✅ PASSED 2026-07-05 14:25 SAST
