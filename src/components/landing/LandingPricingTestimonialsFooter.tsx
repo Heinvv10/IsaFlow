@@ -44,6 +44,7 @@ export function LandingPricing() {
           <p className="text-lg text-gray-500">
             Start with a 30-day free trial on any plan. No credit card required.
           </p>
+          <p className="text-sm text-gray-400 mt-2">All prices include 15% VAT.</p>
         </div>
 
         <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">

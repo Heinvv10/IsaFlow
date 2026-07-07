@@ -22,6 +22,14 @@ export interface BureauSku {
 /** The firm cockpit is free — bureaus pay only per active client. */
 export const BUREAU_FIRM_PORTAL_FREE = true;
 
+/**
+ * VAT display (Hein 2026-07-07, §9 item 7): all displayed prices are the all-in,
+ * VAT-inclusive amount the customer pays (ex-VAT net = incl ÷ 1.15). Competitor
+ * figures are compared on the same incl-VAT basis (Sage advertises incl-VAT).
+ */
+export const VAT_INCLUSIVE = true;
+export const VAT_NOTE = 'All prices include 15% VAT.';
+
 export const BUREAU_SKUS: BureauSku[] = [
   {
     name: 'Ledger',
@@ -70,6 +78,30 @@ export const CLOSE_AGENT_ADDON: AddOn = {
     'Full audit trail: reasoning stored on every journal',
     'Add to any direct plan or bureau client',
   ],
+};
+
+/** Payroll add-on (Hein 2026-07-07, §9 item 1): per active employee / month. */
+export const PAYROLL_ADDON: AddOn = {
+  name: 'Payroll',
+  price: 'R 20',
+  unit: 'per employee / month',
+  desc: 'Full VIP-parity payroll — PAYE, UIF, SDL, payslips and IRP5s.',
+  bullets: [
+    'PAYE / UIF / SDL calculated and posted',
+    'Payslips + IRP5 / EMP201-ready data',
+    'Only pay for active employees each month',
+  ],
+};
+
+/** Annual billing (Hein 2026-07-07, §9 item 2): pay for 10 months, get 12. */
+export interface AnnualBilling {
+  monthsFree: number;
+  label: string;
+}
+
+export const ANNUAL_BILLING: AnnualBilling = {
+  monthsFree: 2,
+  label: 'Pay annually and get 2 months free',
 };
 
 export interface PriceLock {

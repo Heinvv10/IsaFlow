@@ -2,8 +2,10 @@
 
 > **Status:** Numbers selected by Hein 2026-07-06 (Scenario C — "Premium-locked");
 > **public copy APPROVED by Hein 2026-07-07** and LIVE on `/pricing` +
-> `isaflow.co.za`. The 7 items in §9 remain open for Hein's decision. Deployed to
-> prod 2026-07-06 21:43 SAST (master `4456a9bb`).
+> `isaflow.co.za`. **All 7 items in §9 RESOLVED by Hein 2026-07-07** (incl.
+> VAT-inclusive display). Scenario-C page deployed to prod 2026-07-06 21:43 SAST
+> (master `4456a9bb`); the §9 VAT-incl + add-on changes are a follow-up PR (not
+> yet deployed at time of writing).
 >
 > **Owner:** Hein (all commercial terms). **Prepared by:** agent (Phase 6).
 > **Source anchors:** `memory/project_competitive_analysis_2026_07_05` +
@@ -22,7 +24,9 @@
 | **Price level** | **Scenario C — Premium-locked** | Priced at value, above the aggressive-undercut option; still well under a fully-added-up Sage stack. |
 | **Direct free entry** | **30-day free trial**, then paid | No perpetual free tier on the direct side. Bureau **firm portal is free** (you pay per active client). |
 
-All prices below are **ex-VAT (15%)**, in ZAR, per month unless stated otherwise.
+All prices below are **VAT-inclusive (15%)** — the displayed number is the all-in
+price the customer pays — in ZAR, per month unless stated otherwise. (Signed by
+Hein 2026-07-07; see §9 item 7. Ex-VAT net for the direct tiers = R260/R477/R782.)
 
 ---
 
@@ -50,16 +54,23 @@ calendar) is **free** — the firm only pays per active client. "Active" = a cli
 with at least one posted transaction in the billing month (Hein to confirm the
 active-client definition — see §9).*
 
-### 2c. Add-on — Close Agent (month-end AI)
+### 2c. Add-ons (incl VAT)
 
 | Add-on | Price | Unit |
 |--------|------:|------|
-| **Close Agent** | **R299** | per entity / month |
+| **Close Agent** (month-end AI) | **R299** | per entity / month |
+| **Payroll** (VIP-parity) | **~R20** | per active employee / month |
 
-Applies to both channels: a direct company or a bureau client. Bureaus can enable
-it per client. See §5 for what it does and the honesty guarantee.
+Close Agent applies to both channels (direct company or bureau client — per
+client). Payroll is per active employee/month. See §5 for the Close Agent honesty
+guarantee.
 
-### 2d. Guarantee — CPI-capped price-lock
+### 2d. Annual billing
+
+Pay annually and get **2 months free** (~17% off) on any tier — pay for 10
+months, get 12.
+
+### 2e. Guarantee — CPI-capped price-lock
 
 Your monthly rate will **never rise by more than SA headline CPI** — for as long
 as you stay on the plan. No surprise double-digit hikes. See §6.
@@ -86,13 +97,13 @@ Multi-currency and Inventory **on top of** its R435/mo Accounting tier. IsaFlow'
 | Purchases / supplier invoices (AP) | — | ✅ | ✅ |
 | Inventory (products, stock levels) | — | ✅ | ✅ |
 | Multi-currency (`currencyService`) | — | ✅ | ✅ |
-| Payroll (VIP-parity) | add-on¹ | add-on¹ | add-on¹ |
+| Payroll (VIP-parity) | +~R20/emp¹ | +~R20/emp¹ | +~R20/emp¹ |
 | Annual Financial Statements (AFS engine) | — | — | ✅ |
 | Multi-entity / group | — | — | ✅ |
 | Users included | 1 | 5 | Unlimited |
 | Close Agent (month-end AI) | +R299 | +R299 | +R299 |
 
-¹ Payroll packaging (bundled vs per-employee add-on) is **not yet decided** — see §9.
+¹ Payroll = per-employee add-on at ~R20/active employee/month (incl VAT). Signed §9.
 The VIP-parity payroll module exists (Phases 1–4 shipped) but its commercial SKU
 needs Hein's call before it appears on the page.
 
@@ -162,9 +173,9 @@ Stats SA) in any 12-month period.
 - Reads as a values statement, not a discount gimmick — aligns with the
   "we won't nickel-and-dime you" narrative that the everything-included tiers set up.
 
-**Mechanics to confirm with Hein (§9):** the reference CPI series (headline vs
-core), the measurement/anniversary date, and whether the cap survives a tier
-change or applies per-plan.
+**Mechanics (SIGNED by Hein 2026-07-07, §9 item 4):** reference series = **Stats
+SA headline CPI**; measured on the **customer's signup anniversary**; the lock
+**survives tier upgrades** (carries the customer's protection through an upgrade).
 
 ---
 
@@ -195,17 +206,28 @@ Live on `/pricing` + `isaflow.co.za`.
 
 ---
 
-## 9. Open items requiring Hein's sign-off (do NOT publish without these)
+## 9. Commercial decisions — SIGNED by Hein 2026-07-07
 
-| # | Item | Why it's blocking |
-|---|------|-------------------|
-| 1 | **Payroll SKU** — bundled in a tier, per-employee add-on, or flat add-on? | Payroll module exists (VIP parity) but has no commercial packaging decided. Currently shown as "add-on¹" placeholder. |
-| 2 | **Annual billing discount** — e.g. "2 months free on annual (~17%)"? | Standard SaaS lever; not yet chosen. Affects both price sheets. |
-| 3 | **"Active client" definition** for bureau billing | Drives the bureau invoice; suggested = "≥1 posted transaction in the month". |
-| 4 | **CPI-lock mechanics** — reference series, anniversary date, survives tier change? | Needed before the guarantee is externally worded. |
-| 5 | **Trial terms** — card required up-front? auto-convert to paid? | Affects conversion + the `/pricing` CTA. |
-| 6 | **Close Agent for bureau** — per-client R299 or a firm-wide bundle? | Bureaus may balk at R299 × many clients; a portfolio price may be needed. |
-| 7 | **VAT display** — show ex-VAT or incl-VAT on the public page? | SA SMB pages vary; a positioning call. |
+All seven prior open items resolved (via AskUserQuestion). These are now the
+commercial policy.
+
+| # | Item | **Decision** |
+|---|------|-------------|
+| 1 | Payroll SKU | **Per-employee add-on — ~R20 / active employee / month (incl VAT).** Scales with the client (SA norm). |
+| 2 | Annual billing | **2 months free on annual (~17%)** — pay for 10, get 12. |
+| 3 | "Active client" (bureau billing) | **≥1 posted transaction in the billing month.** Dormant clients are not billed. |
+| 4 | CPI-lock mechanics | **Stats SA headline CPI · measured on the signup anniversary · lock survives tier upgrades.** |
+| 5 | Trial terms | **30-day, no card up-front, no auto-charge.** Trial ends → reminder emails → user chooses to subscribe. Matches the live "no credit card required" copy. |
+| 6 | Close Agent for bureau | **Per-client R299 (incl VAT), same as direct.** Volume bundle deferred (revisit if large bureaus push back). |
+| 7 | VAT display | **VAT-INCLUSIVE.** The displayed R299/R549/R899 (+ bureau R79/R249, Close Agent R299, payroll ~R20/emp) ARE the all-in prices the customer pays. Ex-VAT net = R260/R477/R782. Competitor parity is on an incl-VAT basis (Sage advertises incl-VAT — R240/R435/mo incl — **verified** 2026-07-07, so the R1,140 stack is already incl-VAT; no gross-up needed). |
+
+**Revenue note (VAT-incl):** because R299/R549/R899 are now all-in, ex-VAT net
+revenue is ~13% lower than if they were ex-VAT (R260/R477/R782 net; the rest is
+VAT remitted to SARS). Hein made this call knowingly for SMB price transparency.
+
+**Still deferred (not blocking launch):** annual-billing UI on the page (note
+only for now); per-company Close-Agent feature-flag gating; the payroll
+per-employee billing meter.
 
 ---
 
@@ -218,9 +240,10 @@ Live on `/pricing` + `isaflow.co.za`.
   `direct_premium`, `bureau_ledger`, `bureau_active`, `addon_close_agent`.
 - The Close Agent add-on gates the existing `/accounting/month-end-workbench`
   Close panel (mig 505 `close_runs` tables) behind a feature flag.
-- Prices are ex-VAT; the billing layer applies 15% VAT at invoice time.
+- Displayed prices are **VAT-inclusive**; the billing layer must back out the
+  15% VAT component from the all-in price for the tax line (net = incl ÷ 1.15).
 
 ---
 
-*Last updated 2026-07-06 (Phase 6, master `f6c9aa7c` on prod). Change log lives in
+*Last updated 2026-07-07 (Phase 6 §9 decisions; Scenario-C page on prod `4456a9bb`, §9 VAT-incl follow-up pending). Change log lives in
 this file's git history.*
