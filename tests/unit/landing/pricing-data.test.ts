@@ -6,6 +6,10 @@ import {
   CLOSE_AGENT_ADDON,
   PRICE_LOCK,
   SAGE_COMPARISON,
+  PAYROLL_ADDON,
+  ANNUAL_BILLING,
+  VAT_INCLUSIVE,
+  VAT_NOTE,
 } from '@/components/landing/pricingData';
 
 /**
@@ -74,6 +78,31 @@ describe('Phase 6 pricing data — Scenario C (Hein-signed 2026-07-06)', () => {
       const blob = JSON.stringify(SAGE_COMPARISON);
       expect(blob).toMatch(/1[ ,]?140/);
       expect(blob).toMatch(/549/);
+    });
+  });
+
+  // ── §9 commercial decisions signed by Hein 2026-07-07 ──────────────────────
+  describe('VAT-inclusive display (§9 item 7)', () => {
+    it('flags prices as VAT-inclusive', () => {
+      expect(VAT_INCLUSIVE).toBe(true);
+    });
+
+    it('states the all-in / includes-15%-VAT note', () => {
+      expect(VAT_NOTE).toMatch(/includ.*15%\s*VAT/i);
+    });
+  });
+
+  describe('Payroll add-on (§9 item 1)', () => {
+    it('prices payroll as a ~R20 per-employee add-on', () => {
+      expect(PAYROLL_ADDON.price).toContain('20');
+      expect(PAYROLL_ADDON.unit).toMatch(/employee/i);
+    });
+  });
+
+  describe('Annual billing (§9 item 2)', () => {
+    it('gives 2 months free on annual', () => {
+      expect(ANNUAL_BILLING.monthsFree).toBe(2);
+      expect(ANNUAL_BILLING.label).toMatch(/2 months free/i);
     });
   });
 });
