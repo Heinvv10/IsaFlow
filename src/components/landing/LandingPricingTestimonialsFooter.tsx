@@ -83,7 +83,7 @@ export function LandingPricing() {
                 ))}
               </ul>
               <a
-                href={tier.cta === 'Contact Sales' ? '#contact' : `${APP_URL}/register`}
+                href={tier.cta === 'Contact Sales' ? '/contact' : `${APP_URL}/register`}
                 className={`block w-full text-center py-3 rounded-xl text-sm font-semibold transition-all ${ tier.popular ? 'bg-gradient-to-r from-teal-500 to-cyan-500 text-slate-900 dark:text-white hover:from-teal-600 hover:to-cyan-600 shadow-lg shadow-teal-500/25' : 'bg-gray-900 text-slate-900 dark:text-white hover:bg-gray-800' }`}
               >
                 {tier.cta}
@@ -216,7 +216,7 @@ export function LandingCTA() {
             Start Free Trial <ArrowRight className="w-4 h-4" />
           </a>
           <a
-            href="#contact"
+            href="/contact"
             className="inline-flex items-center gap-2 px-8 py-4 text-base font-semibold text-slate-900 dark:text-white border border-white/30 rounded-xl hover:bg-white/5 transition-all"
           >
             Book a Demo
