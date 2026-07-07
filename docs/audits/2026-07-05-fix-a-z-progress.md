@@ -183,13 +183,17 @@ blind opus review REQUEST_CHANGES→SHIP, CI green): **VAT-INCLUSIVE display**
 parity is like-for-like; "Prices ex-VAT" → "All prices include 15% VAT"), **payroll
 add-on ~R20/employee**, **annual 2-months-free note**. Spec-only: active-client
 =≥1 posted txn/mo · bureau Close Agent per-client R299 · CPI-lock headline/
-anniversary/survives-upgrades · trial no-card. **⚠ Prod (`4456a9bb`) still shows
-"ex-VAT" — a deploy is needed to make the live page VAT-incl. Deploy Hein-gated.**
+anniversary/survives-upgrades · trial no-card. **✅ DEPLOYED to prod 2026-07-07
+08:12 SAST (master `69dcc1a8`, Hein's explicit business-hours override).**
+`bash scripts/deploy.sh`: CI PASS → build → 0 migrations → snapshot rollback pt
+`4456a9bb` → restart → post-deploy PASS (golden 12/12 vs prod Demo · integrity
+15/15 · no rollback). `isaflow.co.za/pricing` now shows "All prices include 15%
+VAT", payroll add-on (R20/emp), annual 2-months-free; "ex-VAT" gone.
 
 ### Phase 6 open items for Hein (before any public launch / deploy)
 - ~~Sign off marketing prose~~ — **DONE 2026-07-07** (Hein approved live copy as-is, incl. named competitors + cited figures).
 - ~~7 §9 commercial decisions~~ — **DONE 2026-07-07** (all signed; implemented in PR #222, master `342b91ce`).
-- **Deploy PR #222** — makes the live page VAT-inclusive + adds payroll/annual. Prod (`4456a9bb`) still shows "ex-VAT". After-hours + explicit approval.
+- ~~Deploy PR #222~~ — **DONE 2026-07-07 08:12 SAST** (prod `69dcc1a8`; VAT-incl live; Hein's explicit business-hours override; golden 12/12, integrity 15/15).
 - **Pre-existing dead link:** `#contact` "Book a Demo" anchor (landing CTA + `/pricing`) — decide target (mailto / booking link / `/contact` page).
 - **BD execution:** create Salt Edge/Mono sandboxes (or approach FNB/Standard Bank direct) per `bank-feed-bd-pack.md`; take the SAIPA one-pager to members.
 
