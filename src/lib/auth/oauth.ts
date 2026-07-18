@@ -54,18 +54,23 @@ function generateToken(prefix: string, len = 32): { raw: string; hash: string; p
 // ── App registration ────────────────────────────────────────────────────────
 
 export interface RegisterAppInput {
-  ownerUserId: string;
+  /** null only for dynamic (RFC 7591) registrations — no authenticated owner. */
+  ownerUserId: string | null;
   name: string;
   description?: string | null;
   logoUrl?: string | null;
   homepageUrl?: string | null;
   redirectUris: string[];
+  /** RFC 7591 dynamic registration: PUBLIC client — no secret is ever minted,
+   *  token_endpoint_auth_method 'none', PKCE enforced at consent + token time. */
+  dynamic?: boolean;
 }
 
 export interface RegisteredApp {
   id: string;
   clientId: string;
-  clientSecret: string;
+  /** null for dynamic public clients (no secret exists). */
+  clientSecret: string | null;
 }
 
 export async function registerOauthApp(input: RegisterAppInput): Promise<RegisteredApp> {
@@ -75,14 +80,19 @@ export async function registerOauthApp(input: RegisterAppInput): Promise<Registe
   for (const uri of input.redirectUris) {
     try { new URL(uri); } catch { throw new Error(`registerOauthApp: invalid redirect URI: ${uri}`); }
   }
+  const isDynamic = input.dynamic === true;
+  if (!isDynamic && !input.ownerUserId) {
+    throw new Error('registerOauthApp: ownerUserId required for non-dynamic apps');
+  }
 
   const clientId = `client_${base62(24)}`;
-  const { raw: clientSecret, hash: secretHash, prefix12: secretPrefix } = generateToken('cls_', 32);
+  const secret = isDynamic ? null : generateToken('cls_', 32);
 
   const rows = (await sql`
     INSERT INTO oauth_apps (
       name, description, logo_url, homepage_url, redirect_uris,
-      client_id, client_secret_hash, client_secret_prefix, owner_user_id
+      client_id, client_secret_hash, client_secret_prefix, owner_user_id,
+      is_dynamic, token_endpoint_auth_method
     )
     VALUES (
       ${input.name},
@@ -91,17 +101,23 @@ export async function registerOauthApp(input: RegisterAppInput): Promise<Registe
       ${input.homepageUrl ?? null},
       ${input.redirectUris},
       ${clientId},
-      ${secretHash},
-      ${secretPrefix},
-      ${input.ownerUserId}
+      ${secret?.hash ?? null},
+      ${secret?.prefix12 ?? null},
+      ${input.ownerUserId},
+      ${isDynamic},
+      ${isDynamic ? 'none' : 'client_secret_post'}
     )
     RETURNING id
   `) as Row[];
 
   if (!rows[0]) throw new Error('registerOauthApp: insert returned no row');
 
-  log.info('OAuth app registered', { appId: rows[0].id, ownerUserId: input.ownerUserId, name: input.name }, 'oauth');
-  return { id: rows[0].id as string, clientId, clientSecret };
+  log.info(
+    'OAuth app registered',
+    { appId: rows[0].id, ownerUserId: input.ownerUserId, name: input.name, isDynamic },
+    'oauth',
+  );
+  return { id: rows[0].id as string, clientId, clientSecret: secret?.raw ?? null };
 }
 
 export interface OauthAppListItem {
