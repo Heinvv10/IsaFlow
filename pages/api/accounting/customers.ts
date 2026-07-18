@@ -13,6 +13,7 @@ import { log } from '@/lib/logger';
 import { cacheThrough, cache } from '@/lib/cache';
 import { CACHE_KEYS, CACHE_TTL } from '@/lib/cache-keys';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { listCustomers } from '@/modules/accounting/services/core/contactDirectoryService';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -76,43 +77,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         return apiResponse.success(res, activity);
       }
 
-      const searchTerm = typeof q === 'string' && q.trim() ? `%${q.trim()}%` : null;
+      const searchQuery = typeof q === 'string' ? q : null;
 
       let rows: Row[];
 
-      if (searchTerm) {
+      if (searchQuery && searchQuery.trim()) {
         // Search queries are not cached — results change with every keystroke
-        rows = (await sql`
-          SELECT
-            id, name, email, phone, contact_person,
-            payment_terms, credit_limit, is_active,
-            vat_number, registration_number,
-            created_at
-          FROM customers
-          WHERE company_id = ${companyId}
-            AND deleted_at IS NULL
-            AND (name ILIKE ${searchTerm}
-            OR email ILIKE ${searchTerm}
-            OR vat_number ILIKE ${searchTerm}
-            OR contact_person ILIKE ${searchTerm})
-          ORDER BY name ASC
-          LIMIT 200
-        `) as Row[];
+        rows = await listCustomers(companyId, searchQuery);
       } else {
         rows = await cacheThrough(
           CACHE_KEYS.customers(companyId),
-          async () => (await sql`
-            SELECT
-              id, name, email, phone, contact_person,
-              payment_terms, credit_limit, is_active,
-              vat_number, registration_number,
-              created_at
-            FROM customers
-            WHERE company_id = ${companyId}
-              AND deleted_at IS NULL
-            ORDER BY name ASC
-            LIMIT 200
-          `) as Row[],
+          async () => listCustomers(companyId, null),
           CACHE_TTL.REFERENCE_DATA,
         );
       }

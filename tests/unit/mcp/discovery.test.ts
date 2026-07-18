@@ -40,6 +40,13 @@ afterEach(() => {
   else process.env.NEXT_PUBLIC_APP_URL = ORIGINAL_APP_URL;
 });
 
+describe('OAUTH_SCOPES vocabulary', () => {
+  it('includes the MCP read scopes (contacts, vat) — scopes_supported auto-tracks', () => {
+    expect(OAUTH_SCOPES).toContain('read:contacts');
+    expect(OAUTH_SCOPES).toContain('read:vat');
+  });
+});
+
 describe('GET /.well-known/oauth-authorization-server (metadata)', () => {
   it('serves the RFC 8414 document with all endpoints on the app origin', async () => {
     delete process.env.NEXT_PUBLIC_APP_URL;

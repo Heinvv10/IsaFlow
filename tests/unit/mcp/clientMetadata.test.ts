@@ -1,0 +1,32 @@
+/**
+ * Drift guard — CLIENT_MCP_TOOL_NAMES (zero-import, client-bundle safe) must
+ * exactly match the registered tool set in toolIndex.ts. MCP Phase 2, Task 2.6.
+ */
+import { describe, it, expect, vi } from 'vitest';
+
+vi.mock('@/lib/neon', () => {
+  const sqlFn = Object.assign(vi.fn().mockResolvedValue([]), { transaction: vi.fn() });
+  return {
+    sql: sqlFn,
+    fmtDate: vi.fn(() => '2026-07-19'),
+    withTransaction: vi.fn((cb: (tx: typeof sqlFn) => unknown) => cb(sqlFn)),
+  };
+});
+
+vi.mock('@/lib/logger', () => ({
+  log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
+}));
+
+import { CLIENT_MCP_TOOL_NAMES, MCP_PATH, MCP_PROD_ENDPOINT } from '@/lib/mcp/clientMetadata';
+import { mcpRegistry } from '@/lib/mcp/toolIndex';
+
+describe('clientMetadata drift guard', () => {
+  it('CLIENT_MCP_TOOL_NAMES exactly matches the registered tools', () => {
+    const registered = mcpRegistry.getManifest().map((t) => t.name).sort();
+    expect([...CLIENT_MCP_TOOL_NAMES].sort()).toEqual(registered);
+  });
+
+  it('endpoint constants are consistent', () => {
+    expect(MCP_PROD_ENDPOINT.endsWith(MCP_PATH)).toBe(true);
+  });
+});

@@ -25,6 +25,7 @@ import {
   PutBodySchema,
   PostBodySchema,
 } from '@/lib/schemas/customerInvoiceDetail';
+import { getCustomerInvoiceDetail } from '@/modules/accounting/services/ar/customerInvoiceReadService';
 type Row = Record<string, unknown>;
 
 // Only pre-approval invoices may be approved. Re-approving a later-state invoice
@@ -43,32 +44,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const { id } = queryParsed.data;
 
     try {
-      const rows = (await sql`
-        SELECT ci.id, ci.invoice_number, ci.customer_id, ci.client_id,
-               ci.subtotal, ci.tax_rate, ci.tax_amount, ci.total_amount,
-               ci.amount_paid, ci.status,
-               to_char(ci.invoice_date, 'YYYY-MM-DD') AS invoice_date,
-               to_char(ci.due_date, 'YYYY-MM-DD') AS due_date,
-               ci.sent_at, ci.paid_at, ci.notes, ci.internal_notes,
-               ci.project_id, ci.gl_journal_entry_id,
-               ci.email_sent_at, ci.email_sent_to,
-               ci.online_payment_enabled, ci.payment_url,
-               ci.currency_code, ci.exchange_rate, ci.functional_total,
-               to_char(ci.billing_period_start, 'YYYY-MM-DD') AS billing_period_start,
-               to_char(ci.billing_period_end, 'YYYY-MM-DD') AS billing_period_end,
-               ci.created_at, ci.updated_at,
-               c.name AS client_name, c.email AS client_email
-        FROM customer_invoices ci
-        LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
-        WHERE ci.id = ${id}::UUID AND ci.company_id = ${companyId}
-      `) as Row[];
-      if (rows.length === 0) return apiResponse.notFound(res, 'Invoice', id);
+      const detail = await getCustomerInvoiceDetail(companyId, id);
+      if (!detail) return apiResponse.notFound(res, 'Invoice', id);
 
-      const items = (await sql`
-        SELECT cii.* FROM customer_invoice_items cii JOIN customer_invoices ci ON ci.id = cii.invoice_id WHERE cii.invoice_id = ${id}::UUID AND ci.company_id = ${companyId} ORDER BY cii.created_at
-      `) as Row[];
-
-      return apiResponse.success(res, { ...rows[0], items });
+      return apiResponse.success(res, detail);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       log.error('Customer invoice detail GET error', { error: msg }, 'customer-invoice-detail');

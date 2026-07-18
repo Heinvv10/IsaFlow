@@ -15,6 +15,7 @@ import { log } from '@/lib/logger';
 import { cacheThrough, cache } from '@/lib/cache';
 import { CACHE_KEYS, CACHE_TTL } from '@/lib/cache-keys';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { listSuppliers } from '@/modules/accounting/services/core/contactDirectoryService';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -43,82 +44,29 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 200) : 25;
       const page = Number.isFinite(pageRaw) && pageRaw >= 1 ? Math.floor(pageRaw) : 1;
       const offset = (page - 1) * limit;
-      const searchTerm = typeof q === 'string' && q.trim() ? `%${q.trim()}%` : null;
+      const searchQuery = typeof q === 'string' && q.trim() ? q : null;
 
       let rows: Row[];
       let total: number;
 
-      if (searchTerm) {
+      if (searchQuery) {
         // Search queries are not cached — results change with every keystroke
-        const [dataRows, countResult] = await Promise.all([
-          sql`
-            SELECT
-              id, name, company_name, email, phone,
-              contact_person, is_active,
-              vat_number, payment_terms,
-              created_at
-            FROM suppliers
-            WHERE company_id = ${companyId}
-              AND deleted_at IS NULL
-              AND (name ILIKE ${searchTerm}
-              OR email ILIKE ${searchTerm}
-              OR company_name ILIKE ${searchTerm}
-              OR contact_person ILIKE ${searchTerm})
-            ORDER BY name ASC
-            LIMIT ${limit} OFFSET ${offset}
-          `,
-          sql`
-            SELECT COUNT(*) as total FROM suppliers
-            WHERE company_id = ${companyId}
-              AND deleted_at IS NULL
-              AND (name ILIKE ${searchTerm}
-              OR email ILIKE ${searchTerm}
-              OR company_name ILIKE ${searchTerm}
-              OR contact_person ILIKE ${searchTerm})
-          `,
-        ]);
-        rows = dataRows as Row[];
-        total = Number(countResult[0]?.total ?? 0);
-      } else {
+        const result = await listSuppliers(companyId, { search: searchQuery, limit, offset });
+        rows = result.suppliers as Row[];
+        total = result.total;
+      } else if (page === 1) {
         // Only cache the first page of unfiltered results
-        const [dataRows, countResult] = await Promise.all([
-          page === 1
-            ? cacheThrough(
-                CACHE_KEYS.suppliers(companyId),
-                async () => (await sql`
-                  SELECT
-                    id, name, company_name, email, phone,
-                    contact_person, is_active,
-                    vat_number, payment_terms,
-                    created_at
-                  FROM suppliers
-                  WHERE company_id = ${companyId}
-                    AND deleted_at IS NULL
-                  ORDER BY name ASC
-                  LIMIT ${limit} OFFSET ${offset}
-                `) as Row[],
-                CACHE_TTL.REFERENCE_DATA,
-              )
-            : (await sql`
-                SELECT
-                  id, name, company_name, email, phone,
-                  contact_person, is_active,
-                  vat_number, payment_terms,
-                  created_at
-                FROM suppliers
-                WHERE company_id = ${companyId}
-                  AND deleted_at IS NULL
-                ORDER BY name ASC
-                LIMIT ${limit} OFFSET ${offset}
-              `) as Row[],
-          sql`
-            SELECT COUNT(*) as total FROM suppliers
-            WHERE company_id = ${companyId}
-              AND deleted_at IS NULL
-          `,
-        ]);
-        rows = dataRows;
-        total = Number(countResult[0]?.total ?? 0);
+        const result = await cacheThrough(
+          CACHE_KEYS.suppliers(companyId),
+          async () => listSuppliers(companyId, { limit, offset }),
+          CACHE_TTL.REFERENCE_DATA,
+        );
+        rows = result.suppliers as Row[];
+        total = result.total;
+      } else {
+        const result = await listSuppliers(companyId, { limit, offset });
+        rows = result.suppliers as Row[];
+        total = result.total;
       }
 
       return apiResponse.success(res, { suppliers: rows, total });
