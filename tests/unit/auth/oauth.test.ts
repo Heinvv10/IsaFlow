@@ -82,10 +82,17 @@ describe('exchangeCode (auth-code grant)', () => {
     expect(result.accessTokenExpiresIn).toBe(3600);
     expect(result.scopes).toEqual(['read:reports', 'offline_access']);
 
-    // The consume query is keyed on the code HASH and the S256(verifier) challenge.
+    // The consume query is keyed on the code HASH, the S256(verifier) challenge,
+    // AND the requesting app (client B must never exchange client A's code).
     const consumeValues = sqlCallValues(0);
     expect(consumeValues).toContain(sha256Hex(CODE));
     expect(consumeValues).toContain(s256Challenge(VERIFIER));
+    expect(consumeValues).toContain(APP_ID);
+
+    // Re-consent semantics: one authorisation per (app,user,company), un-revoked on upsert.
+    const insertText = sqlCallText(1);
+    expect(insertText).toContain('ON CONFLICT');
+    expect(insertText).toContain('revoked_at = NULL');
 
     // Only hashes are persisted — raw tokens never appear in any SQL value.
     const persisted = allSqlValues();
@@ -105,6 +112,7 @@ describe('exchangeCode (auth-code grant)', () => {
     expect(text).toContain('expires_at > NOW()');
     expect(text).toContain('code_challenge =');
     expect(text).toContain('redirect_uri =');
+    expect(text).toContain('oauth_app_id =');
   });
 
   it('rejects a PKCE S256 verifier mismatch without minting tokens', async () => {
@@ -127,10 +135,15 @@ describe('exchangeCode (auth-code grant)', () => {
     });
     expect(first.accessToken).toMatch(/^oat_/);
 
-    // second consume: used_at is now set → guard filters the row → 0 rows
+    // second consume: used_at is now set → guard filters the row → 0 rows.
+    // The rejecting statement itself must carry the single-use guard — the
+    // invariant lives in the SQL, so pin it on the exact call that rejected.
     await expect(
       exchangeCode({ code: CODE, redirectUri: REDIRECT, codeVerifier: VERIFIER, oauthAppId: APP_ID }),
     ).rejects.toThrowError(expect.objectContaining({ code: 'invalid_grant' }));
+    const secondConsume = sqlCallText(2); // calls: 0=first consume, 1=token insert, 2=second consume
+    expect(secondConsume).toContain('used_at IS NULL');
+    expect(secondConsume).toContain('SET used_at = NOW()');
   });
 
   it('scopes on the minted oat_ come from the stored consent row, never caller input', async () => {
@@ -174,6 +187,9 @@ describe('refreshAccessToken (rotation + replay defence)', () => {
     const rotationValues = sqlCallValues(1);
     expect(rotationValues).toContain(sha256Hex(OLD_REFRESH));
     expect(rotationValues).toContain(sha256Hex(result.refreshToken));
+    // app binding: client B can never rotate client A's refresh token
+    expect(rotationText).toContain('oauth_app_id =');
+    expect(rotationValues).toContain(APP_ID);
     expect(allSqlValues()).not.toContain(OLD_REFRESH);
     expect(allSqlValues()).not.toContain(result.refreshToken);
   });
@@ -216,10 +232,31 @@ describe('refreshAccessToken (rotation + replay defence)', () => {
     expect(sqlMock.mock.calls.length).toBe(1);
   });
 
-  it('OauthExchangeError carries a machine code and no token material', () => {
-    const err = new OauthExchangeError('invalid_grant', 'generic message');
-    expect(err.name).toBe('OauthExchangeError');
-    expect(err.code).toBe('invalid_grant');
-    expect(err.message).not.toMatch(/oat_|ort_|oac_/);
+  it('errors actually thrown by exchange and refresh carry no token material', async () => {
+    // exchange failure path
+    mockSqlOnce([]);
+    const exchangeErr = await exchangeCode({
+      code: CODE, redirectUri: REDIRECT, codeVerifier: VERIFIER, oauthAppId: APP_ID,
+    }).then(
+      () => { throw new Error('expected rejection'); },
+      (e: unknown) => e as OauthExchangeError,
+    );
+    expect(exchangeErr.name).toBe('OauthExchangeError');
+    expect(exchangeErr.code).toBe('invalid_grant');
+    expect(exchangeErr.message).not.toMatch(/oat_|ort_|oac_/);
+    expect(exchangeErr.message).not.toContain(CODE);
+
+    // refresh failure path
+    resetSqlMock();
+    mockSqlOnce([{ id: APP_ID }]);
+    const refreshErr = await refreshAccessToken({
+      refreshToken: OLD_REFRESH, clientId: CLIENT_ID,
+    }).then(
+      () => { throw new Error('expected rejection'); },
+      (e: unknown) => e as OauthExchangeError,
+    );
+    expect(refreshErr.code).toBe('invalid_grant');
+    expect(refreshErr.message).not.toMatch(/oat_|ort_|oac_/);
+    expect(refreshErr.message).not.toContain(OLD_REFRESH);
   });
 });
