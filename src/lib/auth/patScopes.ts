@@ -13,6 +13,7 @@ export const PAT_SCOPES = [
   'read:reports',
   'read:contacts',
   'read:vat',
+  'write:post',
 ] as const;
 
 export type PatScope = (typeof PAT_SCOPES)[number];
