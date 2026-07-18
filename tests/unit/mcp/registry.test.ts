@@ -1,0 +1,188 @@
+/**
+ * McpRegistry security proofs — MCP Phase 2, Task 2.2.
+ * (Plan located this at src/lib/mcp/__tests__/; vitest only includes
+ * tests/unit/**, so it lives here.)
+ *
+ * The fence is IN the registry, provably BEFORE the handler:
+ *  - unknown tool / missing scope / missing write:post / missing
+ *    idempotency_key → rejected, handler NEVER invoked, audited 'rejected'
+ *  - replay with a stored key returns the stored result without re-running
+ *  - handler errors are audited 'error' and surfaced as a GENERIC message
+ */
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+vi.mock('@/lib/neon', () => {
+  const sqlFn = Object.assign(vi.fn(), { transaction: vi.fn() });
+  return {
+    sql: sqlFn,
+    withTransaction: vi.fn((cb: (tx: typeof sqlFn) => unknown) => cb(sqlFn)),
+  };
+});
+
+vi.mock('@/lib/logger', () => ({
+  log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
+}));
+
+import { McpRegistry } from '@/lib/mcp/registry';
+import { hashArgs } from '@/lib/mcp/audit';
+import type { McpTool, McpToolContext } from '@/lib/mcp/types';
+import { resetSqlMock, mockSqlOnce, sqlCallText, sqlCallValues, sqlMock } from '../auth/helpers';
+
+const COMPANY_ID = '22222222-2222-2222-2222-222222222222';
+
+function ctxWithScopes(scopes: string[]): McpToolContext {
+  return {
+    userId: 'user-1',
+    companyId: COMPANY_ID,
+    scopes,
+    tokenJti: 'pat-33333333',
+    oauthAppId: null,
+  };
+}
+
+function makeTool(overrides: Partial<McpTool> = {}): McpTool {
+  return {
+    name: 't',
+    description: 'test tool',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    scope: 'read:reports',
+    write: false,
+    handler: vi.fn(async () => ({ content: [{ type: 'text' as const, text: '"ok"' }] })),
+    ...overrides,
+  };
+}
+
+/** SQL text of audit INSERTs issued so far (filters out replay SELECTs). */
+function auditInserts(): Array<{ text: string; values: unknown[] }> {
+  return sqlMock.mock.calls
+    .map((_, i) => ({ text: sqlCallText(i), values: sqlCallValues(i) }))
+    .filter((c) => c.text.includes('INSERT INTO mcp_tool_calls'));
+}
+
+let registry: McpRegistry;
+
+beforeEach(() => {
+  resetSqlMock();
+  registry = new McpRegistry();
+});
+
+describe('McpRegistry — fence order', () => {
+  it('unknown tool → isError result (not a throw), audited as rejected', async () => {
+    const r = await registry.call('ghost', {}, ctxWithScopes(['read:reports']));
+    expect(r.isError).toBe(true);
+    const inserts = auditInserts();
+    expect(inserts.length).toBe(1);
+    expect(inserts[0]!.values).toContain('rejected');
+    expect(inserts[0]!.values).toContain('ghost');
+  });
+
+  it('missing scope → rejected BEFORE handler runs', async () => {
+    const handler = vi.fn();
+    registry.register(makeTool({ scope: 'read:reports', handler }));
+    const r = await registry.call('t', {}, ctxWithScopes(['read:invoices']));
+    expect(r.isError).toBe(true);
+    expect(handler).not.toHaveBeenCalled();
+    expect(auditInserts()[0]!.values).toContain('rejected');
+  });
+
+  it('null scope → any authenticated token may call', async () => {
+    const handler = vi.fn(async () => ({ content: [{ type: 'text' as const, text: '"co"' }] }));
+    registry.register(makeTool({ name: 'company_profile', scope: null, handler }));
+    const r = await registry.call('company_profile', {}, ctxWithScopes([]));
+    expect(r.isError).toBeUndefined();
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it('write tool without idempotency_key → rejected before handler', async () => {
+    const handler = vi.fn();
+    registry.register(makeTool({ write: true, scope: 'write:invoices', handler }));
+    const r = await registry.call('t', {}, ctxWithScopes(['write:invoices']));
+    expect(r.isError).toBe(true);
+    expect(String(r.content[0]!.text)).toContain('idempotency_key');
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('requiresPost without write:post → rejected pre-handler; error names no other scopes', async () => {
+    const handler = vi.fn();
+    registry.register(makeTool({
+      name: 'post_journal', write: true, scope: 'write:journals', requiresPost: true, handler,
+    }));
+    const r = await registry.call(
+      'post_journal',
+      { idempotency_key: 'k1' },
+      ctxWithScopes(['write:journals', 'read:reports', 'read:invoices']),
+    );
+    expect(r.isError).toBe(true);
+    expect(handler).not.toHaveBeenCalled();
+    const text = r.content[0]!.text;
+    expect(text).toContain('write:post');
+    for (const other of ['write:journals', 'read:reports', 'read:invoices', 'write:invoices']) {
+      expect(text).not.toContain(other);
+    }
+  });
+
+  it('write replay with same idempotency_key → stored result, handler NOT called again', async () => {
+    const stored = { content: [{ type: 'text' as const, text: '"already-done"' }] };
+    const handler = vi.fn();
+    registry.register(makeTool({ write: true, scope: 'write:invoices', handler }));
+    mockSqlOnce([{ result: stored }]); // replay SELECT finds the original call
+    const r = await registry.call(
+      't', { idempotency_key: 'k1' }, ctxWithScopes(['write:invoices']),
+    );
+    expect(r).toEqual(stored);
+    expect(handler).not.toHaveBeenCalled();
+    // replay lookup was tenant-scoped
+    expect(sqlCallText(0)).toContain('idempotency_key =');
+    expect(sqlCallValues(0)).toEqual(expect.arrayContaining([COMPANY_ID, 't', 'k1']));
+  });
+
+  it('happy path → handler called with ctx, audited status ok with tenant + jti', async () => {
+    const handler = vi.fn(async (_args: unknown, ctx: McpToolContext) => ({
+      content: [{ type: 'text' as const, text: JSON.stringify({ co: ctx.companyId }) }],
+    }));
+    registry.register(makeTool({ handler }));
+    const ctx = ctxWithScopes(['read:reports']);
+    const r = await registry.call('t', { a: 1 }, ctx);
+    expect(r.isError).toBeUndefined();
+    expect(handler).toHaveBeenCalledWith({ a: 1 }, ctx);
+    const insert = auditInserts()[0]!;
+    expect(insert.values).toEqual(
+      expect.arrayContaining(['ok', 't', COMPANY_ID, 'user-1', 'pat-33333333', hashArgs({ a: 1 })]),
+    );
+  });
+
+  it('handler throw → generic isError, audited status error, nothing internal leaked', async () => {
+    const handler = vi.fn(async () => {
+      throw new Error('duplicate key value violates unique constraint "gl_journal_lines_pkey"');
+    });
+    registry.register(makeTool({ handler }));
+    const r = await registry.call('t', {}, ctxWithScopes(['read:reports']));
+    expect(r.isError).toBe(true);
+    const text = r.content[0]!.text;
+    expect(text).not.toContain('unique constraint');
+    expect(text).not.toContain('gl_journal_lines');
+    expect(text).not.toContain('Error');
+    expect(auditInserts()[0]!.values).toContain('error');
+  });
+
+  it('register throws on a duplicate tool name', () => {
+    registry.register(makeTool());
+    expect(() => registry.register(makeTool())).toThrow(/duplicate/);
+  });
+
+  it('getManifest exposes name/description/inputSchema only', () => {
+    registry.register(makeTool());
+    const manifest = registry.getManifest();
+    expect(manifest).toEqual([
+      { name: 't', description: 'test tool', inputSchema: expect.any(Object) },
+    ]);
+    expect(Object.keys(manifest[0]!)).toEqual(['name', 'description', 'inputSchema']);
+  });
+});
+
+describe('hashArgs', () => {
+  it('is key-order insensitive and value sensitive', () => {
+    expect(hashArgs({ a: 1, b: { d: 2, c: 3 } })).toBe(hashArgs({ b: { c: 3, d: 2 }, a: 1 }));
+    expect(hashArgs({ a: 1 })).not.toBe(hashArgs({ a: 2 }));
+  });
+});
