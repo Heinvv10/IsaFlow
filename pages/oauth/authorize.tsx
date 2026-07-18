@@ -61,6 +61,9 @@ const SCOPE_LABELS: Record<OAuthScope, string> = {
 export default function AuthorizePage(props: Props | ErrorProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Opt-in checkbox state (write:post). Declared before the early return so
+  // hook order stays stable regardless of the error/ok branch.
+  const [optInChecked, setOptInChecked] = useState<Record<string, boolean>>({});
 
   if (!props.ok) {
     return (
@@ -86,7 +89,6 @@ export default function AuthorizePage(props: Props | ErrorProps) {
   // Posting scopes (write:post) are opt-in: shown UNCHECKED even when the
   // client requested them, and granted only if the user actively ticks them.
   const { autoGranted, optIn } = partitionRequestedScopes(scopes);
-  const [optInChecked, setOptInChecked] = useState<Record<string, boolean>>({});
 
   const onSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
