@@ -19,8 +19,19 @@ import { apiResponse } from '@/lib/apiResponse';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { log } from '@/lib/logger';
 import { registerOauthApp } from '@/lib/auth/oauth';
+import { pruneStaleDynamicApps } from '@/lib/auth/oauthDynamicClients';
+
+// Anonymous endpoint — cap the body like /api/oauth/token does.
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '8kb',
+    },
+  },
+};
 
 const MAX_REDIRECT_URIS = 5;
+const MAX_REDIRECT_URI_LEN = 512;
 const MAX_NAME_LEN = 80;
 const SUPPORTED_GRANT_TYPES = ['authorization_code', 'refresh_token'];
 const SUPPORTED_RESPONSE_TYPES = ['code'];
@@ -34,7 +45,10 @@ function isAcceptableRedirect(raw: string): boolean {
   let url: URL;
   try { url = new URL(raw); } catch { return false; }
   if (url.protocol === 'https:') return true;
-  if (url.protocol === 'http:' && (url.hostname === 'localhost' || url.hostname === '127.0.0.1')) {
+  if (
+    url.protocol === 'http:' &&
+    ['localhost', '127.0.0.1', '[::1]', '::1'].includes(url.hostname)
+  ) {
     return true;
   }
   return false;
@@ -43,6 +57,14 @@ function isAcceptableRedirect(raw: string): boolean {
 const handler: NextApiHandler = async (req, res) => {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method ?? '', ['POST']);
+  }
+
+  // Kill switch — dark by default, armed per environment (SARS-ISV pattern;
+  // the mcp_connector flag is per-company and this endpoint has no tenant).
+  if (process.env.MCP_DCR_ENABLED !== 'true') {
+    return res.status(503).json(
+      rfcError('temporarily_unavailable', 'Dynamic client registration is not enabled'),
+    );
   }
 
   const ip = getClientIp(req);
@@ -62,6 +84,11 @@ const handler: NextApiHandler = async (req, res) => {
     return res.status(400).json(rfcError('invalid_redirect_uri', `At most ${MAX_REDIRECT_URIS} redirect URIs allowed`));
   }
   for (const u of redirectUris) {
+    if (typeof u === 'string' && u.length > MAX_REDIRECT_URI_LEN) {
+      return res.status(400).json(
+        rfcError('invalid_redirect_uri', `Each redirect URI must be ≤ ${MAX_REDIRECT_URI_LEN} characters`),
+      );
+    }
     if (typeof u !== 'string' || !isAcceptableRedirect(u)) {
       return res.status(400).json(
         rfcError('invalid_redirect_uri', 'redirect_uris must be https URLs (http allowed for localhost/127.0.0.1 loopback only)'),
@@ -96,6 +123,12 @@ const handler: NextApiHandler = async (req, res) => {
   });
 
   log.info('DCR: public client registered', { appId: app.id, clientName, ip }, 'oauth');
+
+  // Opportunistic cleanup of stale never-authorised dynamic rows — keeps the
+  // table bounded without a cron. Fire-and-forget; never blocks the response.
+  void pruneStaleDynamicApps().catch((err: unknown) =>
+    log.warn('DCR: prune failed', { err: err instanceof Error ? err.message : String(err) }, 'oauth'),
+  );
 
   return res.status(201).json({
     client_id: app.clientId,

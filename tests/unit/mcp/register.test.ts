@@ -23,9 +23,14 @@ vi.mock('@/lib/logger', () => ({
   apiLogger: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
 
+vi.mock('@/lib/auth/oauthDynamicClients', () => ({
+  pruneStaleDynamicApps: vi.fn(async () => 0),
+}));
+
 import { registerOauthApp } from '@/lib/auth/oauth';
 import { checkRateLimit } from '@/lib/rateLimit';
-import handler from '../../../pages/api/oauth/register';
+import { pruneStaleDynamicApps } from '@/lib/auth/oauthDynamicClients';
+import handler, { config as registerConfig } from '../../../pages/api/oauth/register';
 
 const APP_ID = '44444444-4444-4444-4444-444444444444';
 
@@ -56,6 +61,7 @@ function makeReq(body: unknown, method = 'POST'): NextApiRequest {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  process.env.MCP_DCR_ENABLED = 'true';
   vi.mocked(checkRateLimit).mockResolvedValue(true);
   vi.mocked(registerOauthApp).mockResolvedValue({
     id: APP_ID,
@@ -153,5 +159,40 @@ describe('POST /api/oauth/register', () => {
     const res = makeRes();
     await handler(makeReq(undefined, 'GET'), res);
     expect(res.statusCode).toBe(405);
+  });
+
+  it('dark by default: 503 unless MCP_DCR_ENABLED=true (kill switch)', async () => {
+    delete process.env.MCP_DCR_ENABLED;
+    const res = makeRes();
+    await handler(makeReq({ redirect_uris: ['https://client.example/cb'] }), res);
+    expect(res.statusCode).toBe(503);
+    expect(registerOauthApp).not.toHaveBeenCalled();
+  });
+
+  it('accepts the IPv6 loopback [::1] per RFC 8252', async () => {
+    const res = makeRes();
+    await handler(makeReq({ redirect_uris: ['http://[::1]:9099/cb'] }), res);
+    expect(res.statusCode).toBe(201);
+  });
+
+  it('rejects an individual redirect URI longer than 512 chars', async () => {
+    const res = makeRes();
+    await handler(
+      makeReq({ redirect_uris: [`https://client.example/${'a'.repeat(600)}`] }),
+      res,
+    );
+    expect(res.statusCode).toBe(400);
+    expect(res.body!.error).toBe('invalid_redirect_uri');
+  });
+
+  it('caps the request body via the exported bodyParser config', () => {
+    expect(registerConfig).toEqual({ api: { bodyParser: { sizeLimit: '8kb' } } });
+  });
+
+  it('opportunistically prunes stale dynamic apps after a successful registration', async () => {
+    const res = makeRes();
+    await handler(makeReq({ redirect_uris: ['https://client.example/cb'] }), res);
+    expect(res.statusCode).toBe(201);
+    expect(pruneStaleDynamicApps).toHaveBeenCalledTimes(1);
   });
 });

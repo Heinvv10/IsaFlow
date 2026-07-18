@@ -10,6 +10,7 @@
  * Raw RFC document shape, not the apiResponse envelope (client-parsed).
  */
 import type { NextApiHandler } from 'next';
+import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { OAUTH_SCOPES } from '@/lib/auth/oauth';
 
@@ -32,4 +33,4 @@ const handler: NextApiHandler = (req, res) => {
   });
 };
 
-export default handler;
+export default withErrorHandler(handler);

@@ -22,7 +22,8 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 import { registerOauthApp } from '@/lib/auth/oauth';
-import { sqlMock, resetSqlMock, mockSqlOnce, sqlCallValues, allSqlValues } from './helpers';
+import { pruneStaleDynamicApps } from '@/lib/auth/oauthDynamicClients';
+import { sqlMock, resetSqlMock, mockSqlOnce, sqlCallText, sqlCallValues, allSqlValues } from './helpers';
 
 const APP_ID = '44444444-4444-4444-4444-444444444444';
 
@@ -82,5 +83,24 @@ describe('registerOauthApp — dynamic public clients', () => {
     await expect(
       registerOauthApp({ ownerUserId: null, name: 'x', redirectUris: ['not a url'], dynamic: true }),
     ).rejects.toThrow(/invalid redirect URI/);
+  });
+});
+
+describe('pruneStaleDynamicApps', () => {
+  it('deletes ONLY stale, never-authorised dynamic rows (guards in one statement)', async () => {
+    mockSqlOnce([{ id: 'a' }, { id: 'b' }]);
+    await expect(pruneStaleDynamicApps()).resolves.toBe(2);
+    const text = sqlCallText(0);
+    expect(text).toContain('DELETE FROM oauth_apps');
+    expect(text).toContain('is_dynamic');
+    expect(text).toContain('created_at <');
+    expect(text).toContain('NOT EXISTS');
+    expect(text).toContain('oauth_authorisations');
+    expect(sqlCallValues(0)).toContain(30); // 30-day staleness window
+  });
+
+  it('returns 0 quietly when nothing is stale', async () => {
+    mockSqlOnce([]);
+    await expect(pruneStaleDynamicApps()).resolves.toBe(0);
   });
 });

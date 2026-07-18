@@ -34,9 +34,27 @@ BEGIN
 END $$;
 
 -- Registration flooding cleanup / admin listing hot path — tiny partial index.
+-- Used by pruneStaleDynamicApps (src/lib/auth/oauthDynamicClients.ts), which
+-- deletes stale never-authorised dynamic rows opportunistically on register.
 CREATE INDEX IF NOT EXISTS oauth_apps_is_dynamic_idx
   ON oauth_apps (is_dynamic, created_at DESC)
   WHERE is_dynamic;
+
+-- RLS: mig 469's owner policy (owner_user_id = auth.uid()) yields ZERO rows
+-- for ownerless dynamic apps under app_user — which silently 404s the consent
+-- POST (withAuth runs handlers as app_user inside ALS). Dynamic apps are
+-- public discovery data: allow SELECT only, never write, to app_user.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE tablename = 'oauth_apps' AND policyname = 'oauth_apps_dynamic_read'
+  ) THEN
+    CREATE POLICY oauth_apps_dynamic_read ON oauth_apps
+      FOR SELECT TO app_user
+      USING (is_dynamic AND revoked_at IS NULL);
+  END IF;
+END $$;
 
 -- ── mcp_connector feature flag (dark: override-only enablement) ─────────────
 INSERT INTO feature_flags (code, name, description, is_global)
