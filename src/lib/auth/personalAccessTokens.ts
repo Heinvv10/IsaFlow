@@ -14,16 +14,11 @@ import { log } from '@/lib/logger';
 
 type Row = Record<string, unknown>;
 
-/** Initial scope vocabulary for PRD-10 Layer 3. Layer 2 (OAuth) extends this. */
-export const PAT_SCOPES = [
-  'read:invoices',
-  'write:invoices',
-  'read:bank-tx',
-  'write:bank-tx',
-  'write:journals',
-  'read:reports',
-] as const;
-export type PatScope = (typeof PAT_SCOPES)[number];
+/** Scope vocabulary for PRD-10 Layer 3. Canonical list lives in the
+ *  zero-import patScopes.ts (client-bundle safe); re-exported here for
+ *  server-side consumers. Layer 2 (OAuth) extends this. */
+export { PAT_SCOPES, type PatScope } from './patScopes';
+import { PAT_SCOPES } from './patScopes';
 
 export interface PatContext {
   patId: string;

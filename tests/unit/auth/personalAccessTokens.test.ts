@@ -53,6 +53,13 @@ beforeEach(() => {
   resetSqlMock();
 });
 
+describe('PAT_SCOPES vocabulary', () => {
+  it('includes the MCP read scopes (contacts, vat)', () => {
+    expect(PAT_SCOPES).toContain('read:contacts');
+    expect(PAT_SCOPES).toContain('read:vat');
+  });
+});
+
 describe('generatePat', () => {
   it('produces unique pat_-prefixed tokens with matching hash and display prefix', () => {
     const a = generatePat();

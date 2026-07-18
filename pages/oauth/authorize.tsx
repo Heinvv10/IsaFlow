@@ -13,7 +13,7 @@ import { useState, type FormEvent } from 'react';
 import Image from 'next/image';
 import type { GetServerSideProps } from 'next';
 import { ShieldCheck, AlertTriangle, Loader2, Check } from 'lucide-react';
-import { getOauthAppByClientId, OAUTH_SCOPES } from '@/lib/auth/oauth';
+import { getOauthAppByClientId, OAUTH_SCOPES, type OAuthScope } from '@/lib/auth/oauth';
 import { apiFetch } from '@/lib/apiFetch';
 import { parseCookies, ACCESS_COOKIE } from '@/lib/auth/cookies';
 import { verifyToken } from '@/lib/auth/gotrue';
@@ -42,13 +42,17 @@ interface ErrorProps {
   error: string;
 }
 
-const SCOPE_LABELS: Record<string, string> = {
+// Typed against the OAuth vocabulary: adding a scope to OAUTH_SCOPES without
+// a consent-screen label fails tsc. (Type-only import — erased from bundle.)
+const SCOPE_LABELS: Record<OAuthScope, string> = {
   'read:invoices': 'Read your invoices',
   'write:invoices': 'Create and edit invoices',
   'read:bank-tx': 'Read your bank transactions',
   'write:bank-tx': 'Allocate and post bank transactions',
   'write:journals': 'Post General Ledger journals',
   'read:reports': 'Read your financial reports',
+  'read:contacts': 'Read your customers and suppliers',
+  'read:vat': 'Read your VAT status',
   'offline_access': 'Stay connected (refresh access in the background)',
 };
 
@@ -162,7 +166,7 @@ export default function AuthorizePage(props: Props | ErrorProps) {
               {scopes.map((s) => (
                 <li key={s} className="flex items-start gap-2 text-sm text-slate-300">
                   <Check className="h-4 w-4 text-teal-400 mt-0.5 shrink-0" />
-                  <span>{SCOPE_LABELS[s] ?? s}</span>
+                  <span>{SCOPE_LABELS[s as OAuthScope] ?? s}</span>
                 </li>
               ))}
             </ul>

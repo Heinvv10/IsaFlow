@@ -7,6 +7,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
+import { PAT_SCOPES } from '@/lib/auth/patScopes';
+import { PAT_SCOPE_META } from '@/lib/auth/patScopeMeta';
 import {
   AlertCircle,
   Check,
@@ -36,14 +38,10 @@ interface NewPat {
   token: string;
 }
 
-const ALL_SCOPES = [
-  { key: 'read:reports', label: 'Read reports', desc: 'Trial balance, income statement, balance sheet, etc.' },
-  { key: 'read:invoices', label: 'Read invoices', desc: 'List and view customer/supplier invoices' },
-  { key: 'write:invoices', label: 'Write invoices', desc: 'Create, edit, and post invoices' },
-  { key: 'read:bank-tx', label: 'Read bank transactions', desc: 'View imported bank statements and allocations' },
-  { key: 'write:bank-tx', label: 'Write bank transactions', desc: 'Allocate, edit, and post bank transactions' },
-  { key: 'write:journals', label: 'Write journals', desc: 'Post General Ledger journal entries' },
-] as const;
+// Built from the canonical vocabulary (patScopes.ts is zero-import, so this
+// stays client-bundle safe) — PAT_SCOPE_META is Record<PatScope, …> so a new
+// scope cannot ship without UI metadata (tsc + drift-guard test).
+const ALL_SCOPES = PAT_SCOPES.map((key) => ({ key, ...PAT_SCOPE_META[key] }));
 
 const EXPIRY_OPTIONS = [
   { value: 30, label: '30 days' },
