@@ -88,9 +88,12 @@ export class McpRegistry {
 
     try {
       const result = await tool.handler(args, ctx);
+      // Data minimisation: only write tools need the stored result (for
+      // idempotent replay). Reads never replay, so persisting their payload
+      // would be a second at-rest copy of financial data with no use.
       await recordToolCall({
         ctx, tool: name, argsHash, idempotencyKey,
-        status: 'ok', result, durationMs: Date.now() - started,
+        status: 'ok', result: tool.write ? result : null, durationMs: Date.now() - started,
       });
       return result;
     } catch (err) {

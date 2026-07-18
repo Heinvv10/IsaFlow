@@ -68,6 +68,7 @@ import { getBankTransactions } from '@/modules/accounting/services/bank/bankTran
 import { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';
 
 import { MCP_TOOLS } from '@/lib/mcp/toolIndex';
+import { CLIENT_MCP_TOOL_NAMES } from '@/lib/mcp/clientMetadata';
 import type { McpTool, McpToolContext } from '@/lib/mcp/types';
 
 const COMPANY_ID = '22222222-2222-2222-2222-222222222222';
@@ -219,8 +220,11 @@ describe('contact + bank + vat tools', () => {
 });
 
 describe('suite-wide invariants', () => {
-  it('manifest: 15 read tools, all write:false, additionalProperties:false everywhere', () => {
-    expect(MCP_TOOLS).toHaveLength(15);
+  it('manifest: read tools, all write:false, additionalProperties:false everywhere', () => {
+    // Count is drift-guarded against CLIENT_MCP_TOOL_NAMES rather than a magic
+    // number, so adding a tool updates one place (clientMetadata.test.ts checks
+    // that list matches the registry).
+    expect(MCP_TOOLS).toHaveLength(CLIENT_MCP_TOOL_NAMES.length);
     for (const t of MCP_TOOLS) {
       expect(t.write).toBe(false);
       expect(t.requiresPost).toBeUndefined();

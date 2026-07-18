@@ -136,6 +136,28 @@ describe('McpRegistry — fence order', () => {
     expect(sqlCallValues(0)).toEqual(expect.arrayContaining([COMPANY_ID, 't', 'k1']));
   });
 
+  it('data minimisation: read-tool audit stores NULL result; write-tool stores it', async () => {
+    // read tool (write:false) → result column is JSON null
+    registry.register(makeTool({
+      name: 'r', scope: 'read:reports',
+      handler: async () => ({ content: [{ type: 'text' as const, text: '"secret financials"' }] }),
+    }));
+    await registry.call('r', {}, ctxWithScopes(['read:reports']));
+    const readInsert = auditInserts()[0]!;
+    expect(readInsert.values).toContain('null'); // JSON.stringify(null)
+    expect(readInsert.values.some((v) => String(v).includes('secret financials'))).toBe(false);
+
+    // write tool (write:true) → result IS stored (needed for replay)
+    resetSqlMock();
+    registry.register(makeTool({
+      name: 'w', scope: 'write:invoices', write: true,
+      handler: async () => ({ content: [{ type: 'text' as const, text: '"created inv-1"' }] }),
+    }));
+    await registry.call('w', { idempotency_key: 'k1' }, ctxWithScopes(['write:invoices']));
+    const writeInsert = auditInserts()[0]!;
+    expect(writeInsert.values.some((v) => String(v).includes('created inv-1'))).toBe(true);
+  });
+
   it('happy path → handler called with ctx, audited status ok with tenant + jti', async () => {
     const handler = vi.fn(async (_args: unknown, ctx: McpToolContext) => ({
       content: [{ type: 'text' as const, text: JSON.stringify({ co: ctx.companyId }) }],

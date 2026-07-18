@@ -16,6 +16,12 @@
  * companyId/userId/scopes/jti never come from JSON-RPC params.
  * Gating: per-company mcp_connector feature flag (dark by default) and a
  * 120 req/min per-company rate limit.
+ *
+ * Responses are raw JSON-RPC 2.0 envelopes ({jsonrpc,id,result|error}), NOT
+ * the app's apiResponse {success,data} shape — MCP clients parse the RPC
+ * envelope verbatim, so apiResponse would break them. This is a deliberate,
+ * documented exception to the CLAUDE.md "responses via apiResponse.*" rule
+ * (same precedent as /api/oauth/token and the discovery endpoints).
  */
 import type { NextApiHandler, NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';

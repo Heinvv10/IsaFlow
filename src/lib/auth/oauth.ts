@@ -19,18 +19,9 @@ import { log } from '@/lib/logger';
 
 type Row = Record<string, unknown>;
 
-export const OAUTH_SCOPES = [
-  'read:invoices',
-  'write:invoices',
-  'read:bank-tx',
-  'write:bank-tx',
-  'write:journals',
-  'read:reports',
-  'read:contacts',
-  'read:vat',
-  'offline_access',
-] as const;
-export type OAuthScope = (typeof OAUTH_SCOPES)[number];
+// Canonical list lives in the zero-import oauthScopes.ts (client-bundle safe);
+// re-exported here for server-side consumers.
+export { OAUTH_SCOPES, type OAuthScope } from './oauthScopes';
 
 const ACCESS_TOKEN_TTL_SECS = 60 * 60;
 const REFRESH_TOKEN_TTL_SECS = 60 * 60 * 24 * 30;
