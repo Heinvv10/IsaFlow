@@ -55,6 +55,11 @@ const nextConfig = {
         source: '/auth/v1/:path*',
         destination: 'http://localhost:7770/auth/v1/:path*',
       },
+      // OAuth discovery (RFC 8414 / 9728) for the MCP connector — clients
+      // resolve these before starting the browser OAuth flow.
+      { source: '/.well-known/oauth-authorization-server', destination: '/api/oauth/metadata' },
+      { source: '/.well-known/oauth-protected-resource', destination: '/api/oauth/resource-metadata' },
+      { source: '/.well-known/oauth-protected-resource/api/mcp', destination: '/api/oauth/resource-metadata' },
     ];
   },
 
