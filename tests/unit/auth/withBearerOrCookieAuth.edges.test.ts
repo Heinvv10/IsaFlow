@@ -95,9 +95,15 @@ function makeRes(): FakeRes {
   const res = {
     statusCode: 200,
     headers: {} as Record<string, unknown>,
+    headersSent: false,
     setHeader(k: string, v: unknown) { res.headers[k] = v; return res; },
     status(c: number) { res.statusCode = c; return res; },
     json(b: unknown) { (res as { body?: unknown }).body = b; return res; },
+    end(...args: unknown[]) {
+      if (args.length && typeof args[0] === 'string') { (res as { body?: unknown }).body = args[0]; }
+      (res as { ended?: boolean }).ended = true;
+      return res;
+    },
   };
   return res as unknown as FakeRes;
 }
@@ -191,6 +197,31 @@ describe('handler failure', () => {
 
     expect(issuedStatements()).toContain('ROLLBACK');
     expect(issuedStatements()).not.toContain('COMMIT');
+    expect(h.client.release).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('commit-before-flush (Gate A P1)', () => {
+  it('a 200 handler response becomes an honest 500 when COMMIT fails (no lying success)', async () => {
+    // Handler "succeeds" (sets a 200 body), but COMMIT then fails.
+    const handler = vi.fn(async (_req: unknown, res: FakeRes) => {
+      res.status(200).json({ success: true, data: { id: 'new-invoice-1' } } as never);
+    });
+    h.clientQuery.mockImplementation(async (text: unknown) => {
+      if (typeof text === 'string' && text.includes('company_users')) return membershipImpl();
+      if (text === 'COMMIT') throw Object.assign(new Error('deadlock detected'), { code: '40P01' });
+      return { rows: [] };
+    });
+
+    const res = makeRes();
+    await withBearerOrCookieAuth(handler)(makeReq('/api/mcp') as never, res);
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(500);
+    expect(String(res.body)).toContain('COMMIT_FAILED');
+    // the client must NOT be told the write succeeded
+    expect(String(res.body)).not.toContain('new-invoice-1');
+    expect(issuedStatements()).toContain('ROLLBACK');
     expect(h.client.release).toHaveBeenCalledTimes(1);
   });
 });

@@ -201,6 +201,25 @@ export async function runBearerRequest(
       }
     }
 
+    // ── Defer the response flush until AFTER the transaction is finalised ──
+    // Mirrors withAuth (PR #169): the handler calls res.json/res.end INSIDE the
+    // open tx. If the response flushes before COMMIT, a write tool can report
+    // success to an autonomous agent for a transaction that then fails to commit
+    // (deadlock, timeout, a poisoned audit insert) — a silent financial lie.
+    // Next's res.json funnels through res.end, so buffering the single final
+    // end() captures every response; we COMMIT/ROLLBACK on the resolved status,
+    // then replay (or replace a 2xx with an honest 500 on a failed COMMIT).
+    let bufferedEndArgs: unknown[] | null = null;
+    let handlerEnded = false;
+    const realEnd = res.end.bind(res) as (...a: unknown[]) => unknown;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (res as any).end = (...args: unknown[]) => {
+      if (handlerEnded) return res; // flush exactly once
+      handlerEnded = true;
+      bufferedEndArgs = args;
+      return res;
+    };
+
     const runHandler = async () =>
       als.run({ client, userId: ctx.userId, companyId: ctx.companyId, claims }, async () => {
         await handler(authedReq, res);
@@ -218,7 +237,39 @@ export async function runBearerRequest(
       await runHandler();
     }
 
-    await client.query('COMMIT');
+    // A 5xx means the request failed (withErrorHandler sits inside and may have
+    // caught+responded 500) — never COMMIT its partial writes.
+    const handlerFailed = res.statusCode >= 500;
+    try {
+      await client.query(handlerFailed ? 'ROLLBACK' : 'COMMIT');
+    } catch (finalizeErr) {
+      try { await client.query('ROLLBACK'); } catch { /* secondary */ }
+      log.error('bearerPipeline: transaction finalize failed after handler responded', {
+        url: req.url,
+        status: res.statusCode,
+        handlerFailed,
+        message: finalizeErr instanceof Error ? finalizeErr.message : String(finalizeErr),
+      }, 'Auth');
+      if (process.env.SENTRY_ENABLED === 'true' && finalizeErr instanceof Error) {
+        Sentry.captureException(finalizeErr);
+      }
+      if (res.headersSent) {
+        realEnd(...(bufferedEndArgs ?? []));
+      } else {
+        // Replace the buffered 2xx with an honest 500 — the write did NOT land.
+        const body = JSON.stringify({
+          success: false, data: null, message: 'An unexpected error occurred', code: 'COMMIT_FAILED',
+        });
+        res.statusCode = 500;
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Content-Length', Buffer.byteLength(body));
+        realEnd(body);
+      }
+      return; // finally still runs (release + slow-request log)
+    }
+
+    // Transaction durable — replay the buffered flush.
+    if (handlerEnded) realEnd(...(bufferedEndArgs ?? []));
   } catch (err) {
     try { await client.query('ROLLBACK'); } catch { /* secondary */ }
     throw err;

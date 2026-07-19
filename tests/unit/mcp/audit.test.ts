@@ -66,17 +66,39 @@ describe('recordToolCall', () => {
 });
 
 describe('findIdempotentReplay', () => {
-  it('returns the stored result for a matching ok row, scoped by tenant+tool+key', async () => {
+  it('returns match with the stored result when the args_hash agrees', async () => {
     const stored = { content: [{ type: 'text', text: '"done"' }] };
-    mockSqlOnce([{ result: stored }]);
-    await expect(findIdempotentReplay(COMPANY_ID, 't', 'k1')).resolves.toEqual(stored);
+    mockSqlOnce([{ result: stored, args_hash: 'h1' }]);
+    await expect(findIdempotentReplay(COMPANY_ID, 't', 'k1', 'h1')).resolves.toEqual({
+      status: 'match', result: stored,
+    });
     expect(sqlCallText(0)).toContain("status = 'ok'");
     expect(sqlCallValues(0)).toEqual(expect.arrayContaining([COMPANY_ID, 't', 'k1']));
   });
 
-  it('returns null when there is no prior successful call', async () => {
+  it('returns conflict when the SAME key was used with DIFFERENT args', async () => {
+    const stored = { content: [{ type: 'text', text: '"done"' }] };
+    mockSqlOnce([{ result: stored, args_hash: 'ORIGINAL' }]);
+    await expect(findIdempotentReplay(COMPANY_ID, 't', 'k1', 'DIFFERENT')).resolves.toEqual({
+      status: 'conflict',
+    });
+  });
+
+  it('returns none when there is no prior successful call', async () => {
     mockSqlOnce([]);
-    await expect(findIdempotentReplay(COMPANY_ID, 't', 'k1')).resolves.toBeNull();
+    await expect(findIdempotentReplay(COMPANY_ID, 't', 'k1', 'h1')).resolves.toEqual({ status: 'none' });
+  });
+});
+
+describe('recordToolCall — concurrency safety', () => {
+  it('uses ON CONFLICT DO NOTHING on the idempotency index (no tx-poisoning throw)', async () => {
+    await recordToolCall({
+      ctx: ctx(), tool: 't', argsHash: 'h1', idempotencyKey: 'k1',
+      status: 'ok', result: null, durationMs: 5,
+    });
+    const text = sqlCallText(0);
+    expect(text).toContain('ON CONFLICT');
+    expect(text).toContain('DO NOTHING');
   });
 });
 

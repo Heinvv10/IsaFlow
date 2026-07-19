@@ -248,6 +248,32 @@ describe('/api/mcp transport', () => {
     expect((res.body as { error: { code: number } }).error.code).toBe(-32000);
   });
 
+  it('a batch charges the rate limiter PER call (no batch bypass)', async () => {
+    const res = makeRes();
+    await route(makeReq('POST', [rpc('ping', undefined, 1), rpc('ping', undefined, 2), rpc('ping', undefined, 3)]) as never, res);
+    expect(checkRateLimit).toHaveBeenCalledTimes(3); // one unit per RPC, not one per HTTP request
+  });
+
+  it('an over-large batch (>20) → 400 invalid request, nothing dispatched', async () => {
+    const big = Array.from({ length: 21 }, (_, i) => rpc('ping', undefined, i));
+    const res = makeRes();
+    await route(makeReq('POST', big) as never, res);
+    expect(res.statusCode).toBe(400);
+    expect((res.body as { error: { code: number } }).error.code).toBe(-32600);
+    expect(seenContexts).toHaveLength(0);
+  });
+
+  it('batch RPCs run sequentially (single shared pg connection safety)', async () => {
+    // With sequential dispatch, both tools/call entries resolve and return in order.
+    const res = makeRes();
+    await route(makeReq('POST', [
+      rpc('tools/call', { name: 'echo_ctx', arguments: {} }, 1),
+      rpc('tools/call', { name: 'echo_ctx', arguments: {} }, 2),
+    ]) as never, res);
+    expect(seenContexts).toHaveLength(2);
+    expect((res.body as Array<{ id: number }>).map((b) => b.id)).toEqual([1, 2]);
+  });
+
   it('non-GET/POST/OPTIONS → 405', async () => {
     const res = makeRes();
     await route(makeReq('PUT', {}) as never, res);

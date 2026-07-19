@@ -11,10 +11,15 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+const savepointMock = vi.hoisted(() => vi.fn(async (_name: string, cb: () => unknown) => cb()));
+
 vi.mock('@/lib/neon', () => {
   const sqlFn = Object.assign(vi.fn(), { transaction: vi.fn() });
   return {
     sql: sqlFn,
+    // Real withSavepoint runs cb in a SAVEPOINT and rolls back + re-throws on
+    // error; the mock just runs cb (propagating throws), and records the call.
+    withSavepoint: savepointMock,
     withTransaction: vi.fn((cb: (tx: typeof sqlFn) => unknown) => cb(sqlFn)),
   };
 });
@@ -63,6 +68,7 @@ let registry: McpRegistry;
 
 beforeEach(() => {
   resetSqlMock();
+  savepointMock.mockClear();
   registry = new McpRegistry();
 });
 
@@ -121,19 +127,33 @@ describe('McpRegistry — fence order', () => {
     }
   });
 
-  it('write replay with same idempotency_key → stored result, handler NOT called again', async () => {
+  it('write replay with same idempotency_key AND same args → stored result, handler NOT called again', async () => {
     const stored = { content: [{ type: 'text' as const, text: '"already-done"' }] };
     const handler = vi.fn();
     registry.register(makeTool({ write: true, scope: 'write:invoices', handler }));
-    mockSqlOnce([{ result: stored }]); // replay SELECT finds the original call
-    const r = await registry.call(
-      't', { idempotency_key: 'k1' }, ctxWithScopes(['write:invoices']),
-    );
+    const args = { idempotency_key: 'k1' };
+    mockSqlOnce([{ result: stored, args_hash: hashArgs(args) }]); // replay SELECT, args agree
+    const r = await registry.call('t', args, ctxWithScopes(['write:invoices']));
     expect(r).toEqual(stored);
     expect(handler).not.toHaveBeenCalled();
-    // replay lookup was tenant-scoped
     expect(sqlCallText(0)).toContain('idempotency_key =');
     expect(sqlCallValues(0)).toEqual(expect.arrayContaining([COMPANY_ID, 't', 'k1']));
+  });
+
+  it('same idempotency_key with DIFFERENT args → rejected, handler NOT called, no stale result', async () => {
+    const stored = { content: [{ type: 'text' as const, text: '"first-call"' }] };
+    const handler = vi.fn();
+    registry.register(makeTool({ write: true, scope: 'write:invoices', handler }));
+    // stored row was for a different args payload → args_hash won't match
+    mockSqlOnce([{ result: stored, args_hash: 'HASH-OF-THE-ORIGINAL-DIFFERENT-ARGS' }]);
+    const r = await registry.call(
+      't', { idempotency_key: 'k1', amount: 999 }, ctxWithScopes(['write:invoices']),
+    );
+    expect(r.isError).toBe(true);
+    expect(r.content[0]!.text).toContain('already used');
+    expect(handler).not.toHaveBeenCalled();
+    // did NOT return the stored result
+    expect(r.content[0]!.text).not.toContain('first-call');
   });
 
   it('data minimisation: read-tool audit stores NULL result; write-tool stores it', async () => {
@@ -185,6 +205,23 @@ describe('McpRegistry — fence order', () => {
     expect(text).not.toContain('gl_journal_lines');
     expect(text).not.toContain('Error');
     expect(auditInserts()[0]!.values).toContain('error');
+  });
+
+  it('WRITE tool runs inside a savepoint so a mid-write throw rolls back partial writes', async () => {
+    const handler = vi.fn(async () => { throw new Error('constraint violation mid-write'); });
+    registry.register(makeTool({ name: 'w', write: true, scope: 'write:invoices', handler }));
+    const r = await registry.call('w', { idempotency_key: 'k1' }, ctxWithScopes(['write:invoices']));
+    expect(r.isError).toBe(true);
+    // the handler ran inside withSavepoint (which rolls back to the savepoint on throw)
+    expect(savepointMock).toHaveBeenCalledWith('mcp_w', expect.any(Function));
+    // the error audit runs OUTSIDE the rolled-back savepoint
+    expect(auditInserts().some((c) => c.values.includes('error'))).toBe(true);
+  });
+
+  it('READ tools are NOT savepoint-wrapped (no writes to roll back)', async () => {
+    registry.register(makeTool({ handler: vi.fn(async () => ({ content: [{ type: 'text' as const, text: '"ok"' }] })) }));
+    await registry.call('t', {}, ctxWithScopes(['read:reports']));
+    expect(savepointMock).not.toHaveBeenCalled();
   });
 
   it('register throws on a duplicate tool name', () => {
