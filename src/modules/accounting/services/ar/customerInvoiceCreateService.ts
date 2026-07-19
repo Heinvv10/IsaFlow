@@ -1,0 +1,167 @@
+/**
+ * Customer Invoice Create Service
+ *
+ * Draft-invoice creation for standalone (not project-linked) customer
+ * invoices. Extracted verbatim from pages/api/accounting/customer-invoices-create.ts
+ * so the MCP write-tool layer calls the SAME code the HTTP route uses — no
+ * parallel duplicate of the totals math, number-reservation retry, or the
+ * savepointed INSERT.
+ */
+
+import { sql, withSavepoint, fmtDate } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
+import { log } from '@/lib/logger';
+import { reserveNextDocumentNumber } from '@/modules/accounting/services/core/companyService';
+
+type Row = DbRow;
+
+export interface DraftInvoiceLineInput {
+  description: string;
+  unitPrice: number;
+  quantity?: number;
+}
+
+export interface DraftInvoiceInput {
+  clientId: string;
+  invoiceDate?: string;
+  dueDate?: string;
+  billingPeriodStart?: string;
+  billingPeriodEnd?: string;
+  taxRate?: number;
+  notes?: string;
+  items: DraftInvoiceLineInput[];
+  currencyCode?: string;
+  exchangeRate?: number;
+}
+
+/** Thrown for invalid line quantities/prices — maps to a 400 at the route. */
+export class InvoiceLineValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvoiceLineValidationError';
+  }
+}
+
+export async function createDraftCustomerInvoice(
+  companyId: string,
+  userId: string,
+  input: DraftInvoiceInput,
+): Promise<{ id: string; invoiceNumber: string }> {
+  const {
+    clientId, invoiceDate, dueDate, billingPeriodStart, billingPeriodEnd,
+    taxRate, notes, items, currencyCode, exchangeRate,
+  } = input;
+
+  // W1 (P2.1): server-side line validation — the July-4 audit created a
+  // -R115.00 invoice through this handler (no client OR server guard).
+  for (const item of items) {
+    const qty = Number(item?.quantity ?? 1);
+    const price = Number(item?.unitPrice);
+    if (!(qty > 0)) throw new InvoiceLineValidationError('Line quantities must be positive');
+    if (!(price >= 0)) throw new InvoiceLineValidationError('Line unit prices cannot be negative');
+  }
+
+  // Currency defaults
+  const invCurrencyCode = (typeof currencyCode === 'string' && currencyCode.trim())
+    ? currencyCode.trim().toUpperCase() : 'ZAR';
+  const invExchangeRate = (typeof exchangeRate === 'number' && exchangeRate > 0) ? exchangeRate : 1.0;
+
+  // Calculate totals (in foreign currency)
+  const rate = taxRate ?? 15;
+  let subtotal = 0;
+  for (const item of items) {
+    subtotal += (item.quantity || 1) * item.unitPrice;
+  }
+  subtotal = Math.round(subtotal * 100) / 100;
+  const taxAmount = Math.round(subtotal * (rate / 100) * 100) / 100;
+  const totalAmount = subtotal + taxAmount;
+  // functional_total = total in ZAR (functional currency)
+  const functionalTotal = Math.round(totalAmount * invExchangeRate * 100) / 100;
+
+  const today = fmtDate(new Date()); // local date — toISOString rolls back a day before 02:00 SAST
+  const invDate = invoiceDate || today;
+  const bpStart = billingPeriodStart || null;
+  const bpEnd = billingPeriodEnd || null;
+
+  // Find project from client (optional). Wrap in a SAVEPOINT — without it,
+  // a failed read here poisons the request-scoped tx (set up by withAuth for
+  // RLS) and every subsequent statement in this handler returns "current
+  // transaction is aborted, commands ignored until end of transaction block".
+  const projectId: string | null = await withSavepoint('lookup_project', async () => {
+    const projRows = (await sql`
+      SELECT id FROM projects
+       WHERE client_id = ${clientId}::UUID AND company_id = ${companyId}
+       LIMIT 1
+    `) as Row[];
+    return (projRows[0]?.['id'] as string | undefined) ?? null;
+  }).catch(() => null);
+
+  // Reserve invoice number from the company's configured sequence.
+  // The reservation is atomic — the only collision that can occur is with
+  // a pre-existing invoice_number from before sequence-based generation
+  // (e.g. legacy rows or a Sage import). On that residual clash, re-reserve.
+  //
+  // Trade-off: the reservation happens BEFORE the INSERT and is not rolled
+  // back if the INSERT fails for any reason (FK violation, unique clash,
+  // anything). Each failed attempt permanently burns one sequence slot.
+  // Gaps are acceptable for accountancy purposes here — a user can resync
+  // next_number from Settings → Document Numbers if they ever need to.
+  // We accept this over wrapping in a transaction because a transactional
+  // counter would serialize all invoice creates company-wide.
+  // The INSERT must run in a SAVEPOINT — without it, a unique-violation on
+  // invoice_number poisons the outer request tx (set up by withAuth for RLS),
+  // and the very next statement (the retry's reserveNextDocumentNumber UPDATE)
+  // returns "current transaction is aborted, commands ignored until end of
+  // transaction block". The savepoint isolates each INSERT attempt so the
+  // outer tx survives a clash and the retry can reserve a fresh number.
+  let invoiceId = '';
+  let invoiceNumber = await reserveNextDocumentNumber(companyId, 'customer_invoice');
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      invoiceId = await withSavepoint(`inv_insert_${attempt}`, async () => {
+        const invRows = (await sql`
+          INSERT INTO customer_invoices (
+            company_id, invoice_number, project_id, customer_id, client_id,
+            billing_period_start, billing_period_end,
+            subtotal, tax_rate, tax_amount, total_amount, invoice_date, due_date,
+            notes, status, created_by,
+            currency_code, exchange_rate, functional_total
+          ) VALUES (
+            ${companyId}, ${invoiceNumber}, ${projectId}, ${clientId}::UUID, ${clientId}::UUID,
+            ${bpStart}, ${bpEnd},
+            ${subtotal}, ${rate}, ${taxAmount}, ${totalAmount}, ${invDate},
+            ${dueDate || null}, ${notes || null}, 'draft', ${userId},
+            ${invCurrencyCode}, ${invExchangeRate}, ${functionalTotal}
+          ) RETURNING id
+        `) as Row[];
+        return String(invRows[0]!.id);
+      });
+      break;
+    } catch (insertErr) {
+      // Detect unique-violation by SQLSTATE, not message text (pg localises
+      // and rewords messages; err.code survives the driver untouched).
+      const code = (insertErr as { code?: string }).code;
+      if (code === '23505' && attempt < 4) {
+        invoiceNumber = await reserveNextDocumentNumber(companyId, 'customer_invoice');
+        continue;
+      }
+      throw insertErr;
+    }
+  }
+
+  for (const item of items) {
+    const qty = item.quantity || 1;
+    const lineAmount = Math.round(qty * item.unitPrice * 100) / 100;
+    await sql`
+      INSERT INTO customer_invoice_items (
+        invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code
+      ) VALUES (
+        ${invoiceId}::UUID, ${item.description}, ${item.unitPrice},
+        ${qty}, ${lineAmount}, ${rate}, ${invCurrencyCode}
+      )
+    `;
+  }
+
+  log.info('Customer invoice created', { invoiceNumber, totalAmount, currencyCode: invCurrencyCode, exchangeRate: invExchangeRate });
+  return { id: invoiceId, invoiceNumber };
+}

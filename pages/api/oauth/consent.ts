@@ -21,6 +21,7 @@ import {
   getOauthAppByClientId,
   OAUTH_SCOPES,
 } from '@/lib/auth/oauth';
+import { partitionRequestedScopes, buildGrantedScopes } from '@/lib/auth/consentScopes';
 
 const VALID_SCOPES = new Set<string>(OAUTH_SCOPES);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -62,6 +63,19 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
   if (scopes.length === 0) return apiResponse.badRequest(res, 'At least one scope must be requested');
 
+  // Server-authoritative opt-in gate for posting scopes (the Hein decision):
+  // write:post is NOT granted merely because it appears in the requested set —
+  // it requires an explicit, per-scope confirmation in optInConfirmed. This
+  // makes the "granted only when actively ticked" invariant hold regardless of
+  // the front-end (a UI regression or a hand-crafted POST cannot smuggle it in).
+  const optInConfirmed = Array.isArray(body.optInConfirmed)
+    ? body.optInConfirmed.filter((s): s is string => typeof s === 'string')
+    : [];
+  const { autoGranted, optIn } = partitionRequestedScopes(scopes);
+  const checked: Record<string, boolean> = {};
+  for (const s of optInConfirmed) checked[s] = true;
+  const grantedScopes = buildGrantedScopes(autoGranted, optIn, checked);
+
   // Membership gate: never mint a code for a company the consenting user does
   // not belong to. body.companyId is client-supplied; withAuth only validated
   // req.companyId. (Defence-in-depth — the Bearer wrapper re-checks at use.)
@@ -85,12 +99,12 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     userId: req.user.id,
     companyId: targetCompanyId,
     redirectUri,
-    scopes,
+    scopes: grantedScopes,
     codeChallenge,
   });
 
   log.info('OAuth consent granted', {
-    appId: app.id, clientId, userId: req.user.id, companyId: targetCompanyId, scopes,
+    appId: app.id, clientId, userId: req.user.id, companyId: targetCompanyId, scopes: grantedScopes,
   }, 'oauth');
 
   // Build redirect URL with code + state (state is opaque to us; the client

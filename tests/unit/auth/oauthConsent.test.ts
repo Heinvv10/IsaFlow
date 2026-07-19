@@ -29,7 +29,7 @@ vi.mock('@/lib/auth', () => ({
 }));
 
 vi.mock('@/lib/auth/oauth', () => ({
-  OAUTH_SCOPES: ['read:invoices', 'read:reports', 'offline_access'],
+  OAUTH_SCOPES: ['read:invoices', 'read:reports', 'write:post', 'offline_access'],
   getOauthAppByClientId: vi.fn(),
   createAuthorisationCode: vi.fn(),
 }));
@@ -85,6 +85,38 @@ beforeEach(() => {
     isVerified: false, isFirstParty: false, isConfidential: false,
   });
   vi.mocked(createAuthorisationCode).mockResolvedValue(`oac_${'C'.repeat(32)}`);
+});
+
+describe('POST /api/oauth/consent — write:post server-side opt-in gate', () => {
+  it('does NOT grant write:post when it is requested but not in optInConfirmed', async () => {
+    const res = makeRes();
+    await (handler as (req: unknown, res: unknown) => Promise<void>)(
+      makeReq({ scopes: ['read:reports', 'write:post'] }), res,
+    );
+    expect(res.statusCode).toBe(200);
+    const grantedScopes = vi.mocked(createAuthorisationCode).mock.calls[0]![0].scopes;
+    expect(grantedScopes).toEqual(['read:reports']); // write:post stripped server-side
+  });
+
+  it('grants write:post only when explicitly confirmed via optInConfirmed', async () => {
+    const res = makeRes();
+    await (handler as (req: unknown, res: unknown) => Promise<void>)(
+      makeReq({ scopes: ['read:reports', 'write:post'], optInConfirmed: ['write:post'] }), res,
+    );
+    expect(res.statusCode).toBe(200);
+    const grantedScopes = vi.mocked(createAuthorisationCode).mock.calls[0]![0].scopes;
+    expect(grantedScopes).toEqual(['read:reports', 'write:post']);
+  });
+
+  it('ignores an optInConfirmed scope the client never requested', async () => {
+    const res = makeRes();
+    await (handler as (req: unknown, res: unknown) => Promise<void>)(
+      makeReq({ scopes: ['read:reports'], optInConfirmed: ['write:post'] }), res,
+    );
+    expect(res.statusCode).toBe(200);
+    const grantedScopes = vi.mocked(createAuthorisationCode).mock.calls[0]![0].scopes;
+    expect(grantedScopes).toEqual(['read:reports']); // not requested → not granted
+  });
 });
 
 describe('POST /api/oauth/consent — company membership gate', () => {

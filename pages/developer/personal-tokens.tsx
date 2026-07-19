@@ -9,6 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { PAT_SCOPES } from '@/lib/auth/patScopes';
 import { PAT_SCOPE_META } from '@/lib/auth/patScopeMeta';
+import { isOptInScope } from '@/lib/auth/consentScopes';
 import {
   AlertCircle,
   Check,
@@ -263,24 +264,42 @@ export default function PersonalTokensPage() {
           <div>
             <span className="block text-xs font-medium text-slate-400 mb-2">Scopes</span>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              {ALL_SCOPES.map((s) => (
-                <label
-                  key={s.key}
-                  className="flex items-start gap-2 p-2 rounded border border-[rgba(255,255,255,0.06)] hover:border-teal-500/40 cursor-pointer"
-                >
-                  <input
-                    type="checkbox"
-                    checked={scopeSet.has(s.key)}
-                    onChange={() => toggleScope(s.key)}
-                    className="mt-0.5 h-4 w-4 rounded border-slate-600 bg-slate-800 text-teal-500 focus:ring-teal-500"
-                  />
-                  <span className="text-xs">
-                    <span className="block text-slate-200 font-medium">{s.label}</span>
-                    <span className="block text-slate-500 mt-0.5">{s.desc}</span>
-                    <span className="block font-mono text-[10px] text-slate-600 mt-0.5">{s.key}</span>
-                  </span>
-                </label>
-              ))}
+              {ALL_SCOPES.map((s) => {
+                const optIn = isOptInScope(s.key);
+                return (
+                  <label
+                    key={s.key}
+                    className={`flex items-start gap-2 p-2 rounded border cursor-pointer ${
+                      optIn
+                        ? 'border-amber-800/50 bg-amber-900/20 hover:border-amber-500/60'
+                        : 'border-[rgba(255,255,255,0.06)] hover:border-teal-500/40'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={scopeSet.has(s.key)}
+                      onChange={() => toggleScope(s.key)}
+                      className={`mt-0.5 h-4 w-4 rounded border-slate-600 bg-slate-800 focus:ring-teal-500 ${
+                        optIn ? 'accent-amber-500 text-amber-500' : 'text-teal-500'
+                      }`}
+                    />
+                    <span className="text-xs">
+                      <span
+                        className={`block font-medium ${optIn ? 'text-amber-200' : 'text-slate-200'}`}
+                      >
+                        {optIn && '⚠ '}
+                        {s.label}
+                      </span>
+                      <span
+                        className={`block mt-0.5 ${optIn ? 'text-amber-300/80' : 'text-slate-500'}`}
+                      >
+                        {s.desc}
+                      </span>
+                      <span className="block font-mono text-[10px] text-slate-600 mt-0.5">{s.key}</span>
+                    </span>
+                  </label>
+                );
+              })}
             </div>
           </div>
 
