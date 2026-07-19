@@ -8,7 +8,7 @@ import type { McpTool } from '../types';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
-import { ok, strArg, toolError } from './toolHelpers';
+import { ok, safeErrorText, strArg, toolError } from './toolHelpers';
 
 function parseLines(raw: unknown): JournalLineInput[] | null {
   if (!Array.isArray(raw) || raw.length === 0) return null;
@@ -74,8 +74,9 @@ export const createDraftJournalTool: McpTool = {
       );
       return ok(entry);
     } catch (err) {
-      // Balance/period validation errors are safe to surface (no internals).
-      return toolError(err instanceof Error ? err.message : 'Failed to create journal');
+      // Balance/period validation errors (plain Errors) are safe to surface;
+      // pg errors (with a SQLSTATE code) are generic-ified to avoid leaking schema.
+      return toolError(safeErrorText(err, 'Failed to create journal (check it balances and the date is in an open period).'));
     }
   },
 };
@@ -103,7 +104,7 @@ export const postJournalTool: McpTool = {
       const entry = await postJournalEntry(ctx.companyId, journalId, ctx.userId);
       return ok(entry);
     } catch (err) {
-      return toolError(err instanceof Error ? err.message : 'Failed to post journal');
+      return toolError(safeErrorText(err, 'Failed to post journal.'));
     }
   },
 };

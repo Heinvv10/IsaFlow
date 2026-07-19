@@ -184,6 +184,52 @@ describe('post_journal / finalize_invoice (post tools)', () => {
   });
 });
 
+describe('write-tool failure paths', () => {
+  it('create_draft_quote: service rejection → safe tool error', async () => {
+    vi.mocked(createQuote).mockRejectedValue(new Error('Line quantities must be positive'));
+    const r = await tool('create_draft_quote').handler(
+      { customer_name: 'A', items: [{ description: 'x', unit_price: 1 }], ...KEY }, ctx(),
+    );
+    expect(r.isError).toBe(true);
+    expect(r.content[0]!.text).toContain('positive'); // plain Error → surfaced
+  });
+
+  it('suggest_bank_allocation: service rejection → safe tool error', async () => {
+    vi.mocked(bulkCategorize).mockRejectedValue(new Error('no accounts configured'));
+    const r = await tool('suggest_bank_allocation').handler({ transaction_ids: ['t1'], ...KEY }, ctx());
+    expect(r.isError).toBe(true);
+  });
+
+  it('post_journal: service rejection → safe tool error', async () => {
+    vi.mocked(postJournalEntry).mockRejectedValue(new Error('Cannot post entry with status: posted'));
+    const r = await tool('post_journal').handler({ journal_id: 'je-1', ...KEY }, ctx());
+    expect(r.isError).toBe(true);
+    expect(r.content[0]!.text).toContain('status'); // application error surfaced
+  });
+
+  it('finalize_invoice: already-cancelled → safe tool error', async () => {
+    vi.mocked(approveCustomerInvoice).mockRejectedValue(new Error('Invoice is not in an approvable state'));
+    const r = await tool('finalize_invoice').handler({ invoice_id: 'inv-1', ...KEY }, ctx());
+    expect(r.isError).toBe(true);
+    expect(r.content[0]!.text).toContain('approvable');
+  });
+
+  it('generic-ifies pg driver errors (with a SQLSTATE code) — no schema leak', async () => {
+    vi.mocked(createJournalEntry).mockRejectedValue(
+      Object.assign(new Error('column "gl_account_idx" does not exist'), { code: '42703' }),
+    );
+    const r = await tool('create_draft_journal').handler({
+      date: '2026-06-30',
+      lines: [{ account_id: 'a', debit: 1, credit: 0 }, { account_id: 'b', debit: 0, credit: 1 }],
+      ...KEY,
+    }, ctx());
+    expect(r.isError).toBe(true);
+    expect(r.content[0]!.text).not.toContain('gl_account_idx');
+    expect(r.content[0]!.text).not.toContain('column');
+    expect(r.content[0]!.text).toContain('balances'); // generic fallback
+  });
+});
+
 describe('write-tool manifest invariants', () => {
   const WRITE_NAMES = [
     'create_draft_invoice', 'create_draft_quote', 'create_draft_journal',

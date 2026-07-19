@@ -11,7 +11,7 @@ import {
 } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
 import { approveCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
 import { createQuote } from '@/modules/accounting/services/ar/quoteService';
-import { ok, strArg, toolError } from './toolHelpers';
+import { ok, safeErrorText, strArg, toolError } from './toolHelpers';
 
 interface LineIn {
   description: string;
@@ -135,8 +135,8 @@ export const createDraftQuoteTool: McpTool = {
       );
       return ok(quote);
     } catch (err) {
-      // LineValidationError carries a safe, user-facing message.
-      return toolError(err instanceof Error ? err.message : 'Failed to create quote');
+      // LineValidationError (plain Error) carries a safe message; pg errors are generic.
+      return toolError(safeErrorText(err, 'Failed to create quote.'));
     }
   },
 };
@@ -164,7 +164,7 @@ export const finalizeInvoiceTool: McpTool = {
       const result = await approveCustomerInvoice(ctx.companyId, invoiceId, ctx.userId);
       return ok(result);
     } catch (err) {
-      return toolError(err instanceof Error ? err.message : 'Failed to finalize invoice');
+      return toolError(safeErrorText(err, 'Failed to finalize invoice.'));
     }
   },
 };

@@ -6,7 +6,7 @@
  */
 import type { McpTool } from '../types';
 import { bulkCategorize } from '@/modules/accounting/services/core/smartCategorizationService';
-import { ok, toolError } from './toolHelpers';
+import { ok, safeErrorText, toolError } from './toolHelpers';
 
 const MAX_TX = 200;
 
@@ -42,7 +42,7 @@ export const suggestBankAllocationTool: McpTool = {
       const result = await bulkCategorize(ctx.companyId, ids); // companyId from ctx ONLY
       return ok(result);
     } catch (err) {
-      return toolError(err instanceof Error ? err.message : 'Failed to suggest allocations');
+      return toolError(safeErrorText(err, 'Failed to suggest allocations.'));
     }
   },
 };

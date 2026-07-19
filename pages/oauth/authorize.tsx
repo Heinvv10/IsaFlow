@@ -14,7 +14,7 @@ import Image from 'next/image';
 import type { GetServerSideProps } from 'next';
 import { ShieldCheck, AlertTriangle, Loader2, Check } from 'lucide-react';
 import { getOauthAppByClientId, OAUTH_SCOPES, type OAuthScope } from '@/lib/auth/oauth';
-import { partitionRequestedScopes, buildGrantedScopes } from '@/lib/auth/consentScopes';
+import { partitionRequestedScopes } from '@/lib/auth/consentScopes';
 import { apiFetch } from '@/lib/apiFetch';
 import { parseCookies, ACCESS_COOKIE } from '@/lib/auth/cookies';
 import { verifyToken } from '@/lib/auth/gotrue';
@@ -95,13 +95,17 @@ export default function AuthorizePage(props: Props | ErrorProps) {
     setSubmitting(true);
     setError(null);
     try {
-      const grantedScopes = buildGrantedScopes(autoGranted, optIn, optInChecked);
+      // Submit the full requested set + the explicitly-ticked opt-in scopes.
+      // The server (consent.ts) re-derives the grant — it will NOT grant an
+      // opt-in scope (write:post) unless it is confirmed here.
+      const optInConfirmed = optIn.filter((s) => optInChecked[s]);
       const res = await apiFetch('/api/oauth/consent', {
         method: 'POST',
         body: JSON.stringify({
           clientId,
           redirectUri,
-          scopes: grantedScopes,
+          scopes,
+          optInConfirmed,
           state,
           codeChallenge,
           codeChallengeMethod,
