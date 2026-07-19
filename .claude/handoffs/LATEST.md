@@ -5,9 +5,11 @@
 **Plan:** `docs/superpowers/plans/2026-07-18-mcp-connector.md` (all Phase 0–4 + Gate A/B/D-automated boxes ticked)
 **Session goal:** Autonomously execute the MCP Connector plan phase-by-phase (branch per phase, TDD, blind review per PR, Phase-5 verification gates). Ship the dark hosted MCP server so Claude/Codex can operate IsaFlow accounting via OAuth/PAT under the tenant/RLS model.
 
-## Status: SUCCESS (build complete) — the only open item (Gate C live E2E) is Hein-owned by design
+## Status: SUCCESS — build complete + **Gate C validated live** (Hein-authorised 2026-07-19). Only the browser-OAuth click-through remains.
 
-The entire buildable programme is **merged to master and dark** behind the per-company `mcp_connector` flag (+ `MCP_DCR_ENABLED` for dynamic registration). Six PRs merged, all blind-reviewed; two verification gates (A programme-review, B pentest) run and their findings fixed; Gate D automated checks green. **Gate C (live dev OAuth E2E) was NOT run — it requires flipping a feature flag and an interactive browser login, both outside an autonomous run** (the loop guardrail forbids flag-flips; the plan's Exit designates this Hein-owned). Nothing is blocking; prod is untouched.
+The entire buildable programme is **merged to master and dark** behind the per-company `mcp_connector` flag (+ `MCP_DCR_ENABLED` for dynamic registration). Seven PRs merged, all blind-reviewed; Gate A (programme review) + Gate B (pentest) findings fixed; Gate C **run live on dev and passed**; Gate D automated checks green. Nothing is blocking; prod is untouched.
+
+**Gate C live validation (2026-07-19, dev only):** ran a fresh dev server (isolated git worktree at master `0dca5e36`, port 3210, `MCP_DCR_ENABLED=true`) against the real `isaflow_dev` DB with `mcp_connector` armed for the Demo company, driven by two minted PATs (with/without `write:post`). PASSED: `scripts/mcp-smoke.sh` = `MCP smoke OK`; 21 tools; `trial_balance` 18 rows; `create_draft_journal` → draft `a7150db3`; **`post_journal` rejected without `write:post`, posted with it** (DB: posted, balanced 100=100); audit rows carry the correct PAT jti (rejection audited `rejected`); cross-tenant `get_invoice` → generic "Not found"; FK-ownership rejects foreign account/customer; idempotency replay returns the stored result (no double-post); DCR → 201 public client. **Teardown clean** — server stopped, worktree/DCR-client removed, PATs revoked, Demo flag returned to dark. The only piece a PAT can't exercise is the **browser OAuth consent UI** (a real `claude mcp add` login) — everything it gates is proven via PAT scopes.
 
 ## What shipped (all merged to master)
 
@@ -36,11 +38,7 @@ The entire buildable programme is **merged to master and dark** behind the per-c
 
 ## HEIN-OWNED next steps (in priority order)
 
-1. **Gate C — live E2E on DEV (not prod):**
-   - Deploy the branch to dev; set `MCP_DCR_ENABLED=true` and enable `mcp_connector` for the Demo company on dev only.
-   - `ISAFLOW_MCP_TOKEN=pat_… bash scripts/mcp-smoke.sh <dev-url>` → expect `MCP smoke OK`.
-   - Real Claude Code: `claude mcp add --transport http isaflow <dev-url>/api/mcp` → browser OAuth (Demo: admin@isaflow.co.za) → `tools/list` shows 21 → `trial_balance` matches UI → `create_draft_journal`+`post_journal` WITHOUT `write:post` → rejected → re-consent WITH `write:post` ticked → posts → visible in UI → `mcp_tool_calls` rows carry the token jti. Cross-tenant proof: company-A token + company-B invoice id → generic not-found.
-   - Then Gate D live: golden E2E 12/12 vs Demo; Bugsink no new issues from dev traffic.
+1. **Gate C browser-OAuth click-through (the one piece not yet exercised):** on a dev server with `MCP_DCR_ENABLED=true` and `mcp_connector` armed for a test company, run `claude mcp add --transport http isaflow <dev-url>/api/mcp` → browser login (Demo: admin@isaflow.co.za) → tick `write:post` on the consent screen → confirm `tools/list`=21 and a `post_journal` succeeds. (The PAT run already proved the scope enforcement this produces; this just exercises the consent UI + `oat_` token path.) Then Gate D live: fresh golden E2E 12/12 vs Demo (delete the stale `tests/e2e/.auth/golden-session.json` first); Bugsink no new issues from dev traffic.
 2. **Before arming DCR / wider rollout (pentest MEDIUM/LOW residuals):** DCR global flood cap (per-IP-only today); reserved brand-name filter for `client_name`; scope the shared `customers`/`gl_accounts` read joins by `company_id`; pre-auth IP throttle on `/api/mcp`. (All documented in the pentest report; all behind the dark flag.)
 3. **Prod deploy:** after-hours, Hein-approved, via `bash scripts/deploy.sh`, then flip `mcp_connector` per pilot. Prod is at 505; this adds migs **506+507** (both `IF NOT EXISTS`, apply fresh).
 
