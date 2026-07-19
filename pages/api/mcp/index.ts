@@ -51,8 +51,9 @@ import {
 
 const MAX_BATCH_SIZE = 20;
 
-// Bound the request body (a batch of ≤20 small JSON-RPC calls) — matches the
-// /api/oauth/token + /api/oauth/register 8kb cap instead of Next's 1MB default.
+// Bound the request body to 32kb (a batch of ≤20 small JSON-RPC calls) instead
+// of Next's 1MB default — same spirit as the /api/oauth/* 8kb caps, sized up
+// for batches.
 export const config = {
   api: { bodyParser: { sizeLimit: '32kb' } },
 };
