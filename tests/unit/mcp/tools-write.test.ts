@@ -36,6 +36,8 @@ vi.mock('@/modules/accounting/services/ar/quoteService', () => ({ createQuote: v
 vi.mock('@/modules/accounting/services/gl/journalEntryCrudService', () => ({ createJournalEntry: vi.fn() }));
 vi.mock('@/modules/accounting/services/gl/journalEntryPostingService', () => ({ postJournalEntry: vi.fn() }));
 vi.mock('@/modules/accounting/services/core/smartCategorizationService', () => ({ bulkCategorize: vi.fn() }));
+vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({ customerBelongsToCompany: vi.fn() }));
+vi.mock('@/modules/accounting/services/gl/chartOfAccountsService', () => ({ accountsBelongToCompany: vi.fn() }));
 
 import {
   createDraftCustomerInvoice,
@@ -46,6 +48,8 @@ import { createQuote } from '@/modules/accounting/services/ar/quoteService';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { bulkCategorize } from '@/modules/accounting/services/core/smartCategorizationService';
+import { customerBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
+import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
 
 import { MCP_TOOLS } from '@/lib/mcp/toolIndex';
 import type { McpTool, McpToolContext } from '@/lib/mcp/types';
@@ -78,6 +82,9 @@ const KEY = { idempotency_key: 'k1' };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Default: FK ownership checks pass (customer/accounts belong to the company).
+  vi.mocked(customerBelongsToCompany).mockResolvedValue(true);
+  vi.mocked(accountsBelongToCompany).mockResolvedValue(true);
 });
 
 describe('create_draft_invoice', () => {
@@ -91,6 +98,17 @@ describe('create_draft_invoice', () => {
       expect.objectContaining({ clientId: 'cust-1', items: [{ description: 'Work', unitPrice: 100, quantity: 2 }] }),
     );
     expect(data.invoiceNumber).toBe('INV-0001');
+  });
+
+  it('rejects a customer_id that belongs to another company (generic not-found, no create)', async () => {
+    vi.mocked(customerBelongsToCompany).mockResolvedValue(false);
+    const r = await tool('create_draft_invoice').handler(
+      { customer_id: 'company-B-customer', items: [{ description: 'x', unit_price: 1 }], ...KEY }, ctx(),
+    );
+    expect(r.isError).toBe(true);
+    expect(r.content[0]!.text).toBe('Not found');
+    expect(customerBelongsToCompany).toHaveBeenCalledWith(COMPANY_ID, 'company-B-customer');
+    expect(createDraftCustomerInvoice).not.toHaveBeenCalled();
   });
 
   it('maps InvoiceLineValidationError to a safe tool error', async () => {
@@ -142,6 +160,22 @@ describe('create_draft_journal', () => {
       }),
       USER_ID,
     );
+  });
+
+  it('rejects a line whose account_id belongs to another company (no create)', async () => {
+    vi.mocked(accountsBelongToCompany).mockResolvedValue(false);
+    const r = await tool('create_draft_journal').handler({
+      date: '2026-06-30',
+      lines: [
+        { account_id: 'company-B-account', debit: 100, credit: 0 },
+        { account_id: 'acc-2', debit: 0, credit: 100 },
+      ],
+      ...KEY,
+    }, ctx());
+    expect(r.isError).toBe(true);
+    expect(r.content[0]!.text).toContain('not GL accounts in your company');
+    expect(accountsBelongToCompany).toHaveBeenCalledWith(COMPANY_ID, ['company-B-account', 'acc-2']);
+    expect(createJournalEntry).not.toHaveBeenCalled();
   });
 
   it('surfaces the balance-validation error message from the service', async () => {

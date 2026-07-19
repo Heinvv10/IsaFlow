@@ -127,17 +127,38 @@ describe('McpRegistry — fence order', () => {
     }
   });
 
+  it('acquires an advisory lock BEFORE the replay-check for write tools (serialises concurrent same-key calls)', async () => {
+    const handler = vi.fn(async () => ({ content: [{ type: 'text' as const, text: '"ok"' }] }));
+    registry.register(makeTool({ name: 'w', write: true, scope: 'write:invoices', handler }));
+    await registry.call('w', { idempotency_key: 'k1' }, ctxWithScopes(['write:invoices']));
+    // first sql call is the advisory lock, before the replay SELECT
+    expect(sqlCallText(0)).toContain('pg_advisory_xact_lock');
+    expect(sqlCallText(0)).toContain('hashtext');
+    // the replay SELECT comes AFTER the lock
+    const replayIdx = sqlMock.mock.calls.findIndex((_, i) => sqlCallText(i).includes('idempotency_key ='));
+    expect(replayIdx).toBeGreaterThan(0);
+  });
+
+  it('does NOT lock read tools (no idempotency, no write)', async () => {
+    registry.register(makeTool({ handler: vi.fn(async () => ({ content: [{ type: 'text' as const, text: '"ok"' }] })) }));
+    await registry.call('t', {}, ctxWithScopes(['read:reports']));
+    const lockCalls = sqlMock.mock.calls.filter((_, i) => sqlCallText(i).includes('pg_advisory_xact_lock'));
+    expect(lockCalls).toHaveLength(0);
+  });
+
   it('write replay with same idempotency_key AND same args → stored result, handler NOT called again', async () => {
     const stored = { content: [{ type: 'text' as const, text: '"already-done"' }] };
     const handler = vi.fn();
     registry.register(makeTool({ write: true, scope: 'write:invoices', handler }));
     const args = { idempotency_key: 'k1' };
-    mockSqlOnce([{ result: stored, args_hash: hashArgs(args) }]); // replay SELECT, args agree
+    mockSqlOnce([]); // advisory lock (call 0)
+    mockSqlOnce([{ result: stored, args_hash: hashArgs(args) }]); // replay SELECT (call 1), args agree
     const r = await registry.call('t', args, ctxWithScopes(['write:invoices']));
     expect(r).toEqual(stored);
     expect(handler).not.toHaveBeenCalled();
-    expect(sqlCallText(0)).toContain('idempotency_key =');
-    expect(sqlCallValues(0)).toEqual(expect.arrayContaining([COMPANY_ID, 't', 'k1']));
+    const replayIdx = sqlMock.mock.calls.findIndex((_, i) => sqlCallText(i).includes('idempotency_key ='));
+    expect(replayIdx).toBeGreaterThanOrEqual(1);
+    expect(sqlCallValues(replayIdx)).toEqual(expect.arrayContaining([COMPANY_ID, 't', 'k1']));
   });
 
   it('same idempotency_key with DIFFERENT args → rejected, handler NOT called, no stale result', async () => {
@@ -145,7 +166,8 @@ describe('McpRegistry — fence order', () => {
     const handler = vi.fn();
     registry.register(makeTool({ write: true, scope: 'write:invoices', handler }));
     // stored row was for a different args payload → args_hash won't match
-    mockSqlOnce([{ result: stored, args_hash: 'HASH-OF-THE-ORIGINAL-DIFFERENT-ARGS' }]);
+    mockSqlOnce([]); // advisory lock (call 0)
+    mockSqlOnce([{ result: stored, args_hash: 'HASH-OF-THE-ORIGINAL-DIFFERENT-ARGS' }]); // replay (call 1)
     const r = await registry.call(
       't', { idempotency_key: 'k1', amount: 999 }, ctxWithScopes(['write:invoices']),
     );

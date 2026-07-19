@@ -28,6 +28,24 @@ export function hashArgs(args: Record<string, unknown>): string {
   return createHash('sha256').update(JSON.stringify(canonicalize(args))).digest('hex');
 }
 
+/**
+ * Serialise concurrent same-key write calls. The idempotency replay-check is
+ * check-then-act: without a lock, two concurrent calls with the same key both
+ * see "no prior call" (neither has committed) and both execute the write — a
+ * double-post that ON CONFLICT DO NOTHING then hides in the audit trail. A
+ * transaction-scoped advisory lock (auto-released on COMMIT/ROLLBACK) makes the
+ * second caller block until the first commits, so its replay-check then finds
+ * the committed row. Runs on the request's ALS-bound app_user tx.
+ */
+export async function acquireIdempotencyLock(
+  companyId: string,
+  tool: string,
+  key: string,
+): Promise<void> {
+  const lockKey = `mcp:${companyId}:${tool}:${key}`;
+  await sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey})::bigint)`;
+}
+
 export async function recordToolCall(row: {
   ctx: McpToolContext;
   tool: string;

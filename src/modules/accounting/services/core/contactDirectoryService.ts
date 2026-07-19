@@ -13,6 +13,21 @@ import { sql } from '@/lib/neon';
 
 type Row = Record<string, unknown>;
 
+/**
+ * True only if the customer belongs to companyId. Used to reject an invoice
+ * that references another company's customer (a plain FK on customer_id
+ * bypasses RLS and would otherwise let a cross-company customer be booked into
+ * this company's invoice, then read back via the joined client_name/email).
+ */
+export async function customerBelongsToCompany(companyId: string, customerId: string): Promise<boolean> {
+  const rows = (await sql`
+    SELECT 1 FROM customers
+    WHERE id = ${customerId}::uuid AND company_id = ${companyId} AND deleted_at IS NULL
+    LIMIT 1
+  `) as Row[];
+  return rows.length > 0;
+}
+
 export async function listCustomers(companyId: string, search?: string | null): Promise<Row[]> {
   const searchTerm = search && search.trim() ? `%${search.trim()}%` : null;
 
