@@ -90,7 +90,7 @@ export async function listCustomerInvoices(
           ELSE '90+'
         END AS aging_bucket
       FROM customer_invoices ci
-      LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
+      LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
       LEFT JOIN customer_invoice_view_summary vs
         ON vs.customer_invoice_id = ci.id AND vs.company_id = ci.company_id
       WHERE ci.company_id = ${companyId}::UUID
@@ -123,7 +123,7 @@ export async function listCustomerInvoices(
     sql`
       SELECT COUNT(*) AS total
       FROM customer_invoices ci
-      LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
+      LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
       LEFT JOIN customer_invoice_view_summary vs
         ON vs.customer_invoice_id = ci.id AND vs.company_id = ci.company_id
       WHERE ci.company_id = ${companyId}::UUID
@@ -174,7 +174,7 @@ export async function getCustomerInvoiceDetail(companyId: string, invoiceId: str
            ci.created_at, ci.updated_at,
            c.name AS client_name, c.email AS client_email
     FROM customer_invoices ci
-    LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
+    LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
     WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}
   `) as Row[];
   if (rows.length === 0) return null;
