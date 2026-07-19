@@ -49,6 +49,8 @@ import {
   type JsonRpcResponse,
 } from '@/lib/mcp/jsonrpc';
 
+const MAX_BATCH_SIZE = 20;
+
 function appOrigin(): string {
   return process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.isaflow.co.za';
 }
@@ -122,18 +124,30 @@ const postHandler = async (req: BearerAuthedRequest, res: NextApiResponse): Prom
     return;
   }
 
-  const allowed = await checkRateLimit(`mcp:${req.companyId}`, { max: 120, windowSecs: 60 });
-  if (!allowed) {
-    res.status(200).json(
-      rpcError(null, RPC_CODES.SERVER_ERROR, 'Rate limit exceeded. Slow down and retry.'),
-    );
-    return;
-  }
-
   const body = req.body as unknown;
   if (body === null || body === undefined || typeof body !== 'object') {
     res.status(400).json(rpcError(null, RPC_CODES.PARSE_ERROR, 'Parse error — invalid JSON'));
     return;
+  }
+
+  // A batch packs N JSON-RPC calls into one HTTP request. Cap the batch and
+  // charge the per-company limiter PER CALL so a batch can't bypass the
+  // 120/min budget (one request could otherwise pack hundreds of writes).
+  const rpcCount = Array.isArray(body) ? body.length : 1;
+  if (rpcCount > MAX_BATCH_SIZE) {
+    res.status(400).json(
+      rpcError(null, RPC_CODES.INVALID_REQUEST, `Batch too large (max ${MAX_BATCH_SIZE})`),
+    );
+    return;
+  }
+  for (let i = 0; i < rpcCount; i++) {
+    const allowed = await checkRateLimit(`mcp:${req.companyId}`, { max: 120, windowSecs: 60 });
+    if (!allowed) {
+      res.status(200).json(
+        rpcError(null, RPC_CODES.SERVER_ERROR, 'Rate limit exceeded. Slow down and retry.'),
+      );
+      return;
+    }
   }
 
   const ctx: McpToolContext = {
@@ -145,9 +159,14 @@ const postHandler = async (req: BearerAuthedRequest, res: NextApiResponse): Prom
   };
 
   if (Array.isArray(body)) {
-    const responses = (
-      await Promise.all((body as JsonRpcRequest[]).map((r) => handleRpc(r, ctx)))
-    ).filter((r): r is JsonRpcResponse => r !== null);
+    // Sequential, NOT Promise.all — every RPC shares one pg connection (the
+    // request's ALS-bound client); concurrent queries/savepoints on a single
+    // connection corrupt each other (postgresql-gotchas §36).
+    const responses: JsonRpcResponse[] = [];
+    for (const r of body as JsonRpcRequest[]) {
+      const resp = await handleRpc(r, ctx);
+      if (resp !== null) responses.push(resp);
+    }
     if (responses.length === 0) {
       res.status(202).end();
       return;

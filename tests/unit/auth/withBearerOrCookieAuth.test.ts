@@ -103,9 +103,15 @@ function makeRes(): FakeRes {
   const res = {
     statusCode: 200,
     headers: {} as Record<string, unknown>,
+    headersSent: false,
     setHeader(k: string, v: unknown) { res.headers[k] = v; return res; },
     status(c: number) { res.statusCode = c; return res; },
     json(b: unknown) { (res as { body?: unknown }).body = b; return res; },
+    end(...args: unknown[]) {
+      if (args.length && typeof args[0] === 'string') { (res as { body?: unknown }).body = args[0]; }
+      (res as { ended?: boolean }).ended = true;
+      return res;
+    },
   };
   return res as unknown as FakeRes;
 }

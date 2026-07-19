@@ -12,8 +12,9 @@
 import { useState, type FormEvent } from 'react';
 import Image from 'next/image';
 import type { GetServerSideProps } from 'next';
-import { ShieldCheck, AlertTriangle, Loader2, Check } from 'lucide-react';
-import { getOauthAppByClientId, OAUTH_SCOPES, type OAuthScope } from '@/lib/auth/oauth';
+import { ShieldCheck, AlertTriangle, Loader2 } from 'lucide-react';
+import { getOauthAppByClientId, OAUTH_SCOPES } from '@/lib/auth/oauth';
+import { ConsentScopeList } from '@/components/oauth/ConsentScopeList';
 import { partitionRequestedScopes } from '@/lib/auth/consentScopes';
 import { apiFetch } from '@/lib/apiFetch';
 import { parseCookies, ACCESS_COOKIE } from '@/lib/auth/cookies';
@@ -43,20 +44,6 @@ interface ErrorProps {
   error: string;
 }
 
-// Typed against the OAuth vocabulary: adding a scope to OAUTH_SCOPES without
-// a consent-screen label fails tsc. (Type-only import — erased from bundle.)
-const SCOPE_LABELS: Record<OAuthScope, string> = {
-  'read:invoices': 'Read your invoices',
-  'write:invoices': 'Create and edit invoices',
-  'read:bank-tx': 'Read your bank transactions',
-  'write:bank-tx': 'Allocate and post bank transactions',
-  'write:journals': 'Post General Ledger journals',
-  'read:reports': 'Read your financial reports',
-  'read:contacts': 'Read your customers and suppliers',
-  'read:vat': 'Read your VAT status',
-  'write:post': 'Post journals and finalize documents (irreversible)',
-  'offline_access': 'Stay connected (refresh access in the background)',
-};
 
 export default function AuthorizePage(props: Props | ErrorProps) {
   const [submitting, setSubmitting] = useState(false);
@@ -175,40 +162,13 @@ export default function AuthorizePage(props: Props | ErrorProps) {
 
         <form onSubmit={(e) => void onSubmit(e)} className="p-6 space-y-4">
           <div>
-            <h2 className="text-sm font-medium text-slate-300 mb-2">This app would like to:</h2>
-            <ul className="space-y-2">
-              {autoGranted.map((s) => (
-                <li key={s} className="flex items-start gap-2 text-sm text-slate-300">
-                  <Check className="h-4 w-4 text-teal-400 mt-0.5 shrink-0" />
-                  <span>{SCOPE_LABELS[s as OAuthScope] ?? s}</span>
-                </li>
-              ))}
-            </ul>
+            <ConsentScopeList
+              autoGranted={autoGranted}
+              optIn={optIn}
+              optInChecked={optInChecked}
+              onToggle={(s, checked) => setOptInChecked((prev) => ({ ...prev, [s]: checked }))}
+            />
           </div>
-
-          {optIn.length > 0 && (
-            <div className="space-y-2">
-              {optIn.map((s) => (
-                <label
-                  key={s}
-                  className="flex items-start gap-3 text-sm rounded-lg border border-amber-800/50 bg-amber-900/20 px-3 py-2.5 cursor-pointer"
-                >
-                  <input
-                    type="checkbox"
-                    checked={optInChecked[s] ?? false}
-                    onChange={(e) =>
-                      setOptInChecked((prev) => ({ ...prev, [s]: e.target.checked }))
-                    }
-                    className="mt-0.5 h-4 w-4 shrink-0 accent-amber-500"
-                  />
-                  <span className="flex items-start gap-2 text-amber-200">
-                    <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-                    <span>{SCOPE_LABELS[s as OAuthScope] ?? s}</span>
-                  </span>
-                </label>
-              ))}
-            </div>
-          )}
 
           {!app.isVerified && (
             <div className="text-xs text-amber-400 bg-amber-900/20 border border-amber-800/40 rounded-lg px-3 py-2 flex items-start gap-2">
