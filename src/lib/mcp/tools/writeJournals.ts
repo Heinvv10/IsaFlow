@@ -7,6 +7,7 @@
 import type { McpTool } from '../types';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
+import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
 import { ok, safeErrorText, strArg, toolError } from './toolHelpers';
 
@@ -66,6 +67,12 @@ export const createDraftJournalTool: McpTool = {
     if (!entryDate) return toolError('date is required (YYYY-MM-DD)');
     const lines = parseLines(args.lines);
     if (!lines) return toolError('lines must be a non-empty array of {account_id, debit, credit}');
+    // Ownership: every line's GL account must belong to the token's company —
+    // a foreign account_id would book cross-company (and silently unbalance
+    // this company's own trial balance via the RLS-hidden joined row).
+    if (!(await accountsBelongToCompany(ctx.companyId, lines.map((l) => l.glAccountId)))) {
+      return toolError('One or more account_id values are not GL accounts in your company.');
+    }
     try {
       const entry = await createJournalEntry(
         ctx.companyId,

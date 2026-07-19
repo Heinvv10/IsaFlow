@@ -51,6 +51,12 @@ import {
 
 const MAX_BATCH_SIZE = 20;
 
+// Bound the request body (a batch of ≤20 small JSON-RPC calls) — matches the
+// /api/oauth/token + /api/oauth/register 8kb cap instead of Next's 1MB default.
+export const config = {
+  api: { bodyParser: { sizeLimit: '32kb' } },
+};
+
 function appOrigin(): string {
   return process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.isaflow.co.za';
 }
