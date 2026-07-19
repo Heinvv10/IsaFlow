@@ -7,6 +7,7 @@
  * Rejections happen BEFORE the handler runs and are audited as 'rejected'.
  * Handler errors return a GENERIC message — never stack traces or SQL.
  */
+import { withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { McpTool, McpToolContext, McpToolResult } from './types';
 import { findIdempotentReplay, hashArgs, recordToolCall } from './audit';
@@ -93,16 +94,26 @@ export class McpRegistry {
       }
     }
 
-    try {
+    // Data minimisation: only write tools need the stored result (for
+    // idempotent replay). Reads never replay, so persisting their payload
+    // would be a second at-rest copy of financial data with no use.
+    const runAndAudit = async (): Promise<McpToolResult> => {
       const result = await tool.handler(args, ctx);
-      // Data minimisation: only write tools need the stored result (for
-      // idempotent replay). Reads never replay, so persisting their payload
-      // would be a second at-rest copy of financial data with no use.
       await recordToolCall({
         ctx, tool: name, argsHash, idempotencyKey,
         status: 'ok', result: tool.write ? result : null, durationMs: Date.now() - started,
       });
       return result;
+    };
+
+    try {
+      // Write tools run inside a SAVEPOINT: the registry catches a handler
+      // throw and returns a 200 isError envelope (MCP protocol), so the
+      // transport's pipeline never sees a 5xx and would otherwise COMMIT any
+      // partial write the service made before throwing. The savepoint rolls
+      // that partial write back — matching the REST route's rollback-on-throw
+      // (the audit 'error' below runs OUTSIDE it, on the surviving request tx).
+      return tool.write ? await withSavepoint(`mcp_${name}`, runAndAudit) : await runAndAudit();
     } catch (err) {
       log.error(
         'MCP tool handler failed',

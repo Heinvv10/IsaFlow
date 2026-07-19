@@ -11,10 +11,15 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+const savepointMock = vi.hoisted(() => vi.fn(async (_name: string, cb: () => unknown) => cb()));
+
 vi.mock('@/lib/neon', () => {
   const sqlFn = Object.assign(vi.fn(), { transaction: vi.fn() });
   return {
     sql: sqlFn,
+    // Real withSavepoint runs cb in a SAVEPOINT and rolls back + re-throws on
+    // error; the mock just runs cb (propagating throws), and records the call.
+    withSavepoint: savepointMock,
     withTransaction: vi.fn((cb: (tx: typeof sqlFn) => unknown) => cb(sqlFn)),
   };
 });
@@ -63,6 +68,7 @@ let registry: McpRegistry;
 
 beforeEach(() => {
   resetSqlMock();
+  savepointMock.mockClear();
   registry = new McpRegistry();
 });
 
@@ -199,6 +205,23 @@ describe('McpRegistry — fence order', () => {
     expect(text).not.toContain('gl_journal_lines');
     expect(text).not.toContain('Error');
     expect(auditInserts()[0]!.values).toContain('error');
+  });
+
+  it('WRITE tool runs inside a savepoint so a mid-write throw rolls back partial writes', async () => {
+    const handler = vi.fn(async () => { throw new Error('constraint violation mid-write'); });
+    registry.register(makeTool({ name: 'w', write: true, scope: 'write:invoices', handler }));
+    const r = await registry.call('w', { idempotency_key: 'k1' }, ctxWithScopes(['write:invoices']));
+    expect(r.isError).toBe(true);
+    // the handler ran inside withSavepoint (which rolls back to the savepoint on throw)
+    expect(savepointMock).toHaveBeenCalledWith('mcp_w', expect.any(Function));
+    // the error audit runs OUTSIDE the rolled-back savepoint
+    expect(auditInserts().some((c) => c.values.includes('error'))).toBe(true);
+  });
+
+  it('READ tools are NOT savepoint-wrapped (no writes to roll back)', async () => {
+    registry.register(makeTool({ handler: vi.fn(async () => ({ content: [{ type: 'text' as const, text: '"ok"' }] })) }));
+    await registry.call('t', {}, ctxWithScopes(['read:reports']));
+    expect(savepointMock).not.toHaveBeenCalled();
   });
 
   it('register throws on a duplicate tool name', () => {
