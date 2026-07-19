@@ -1,7 +1,7 @@
-# Handoff — 2026-07-19 ~03:40 SAST — MCP Connector programme COMPLETE (Phases 0–5), Gate C Hein-gated
+# Handoff — 2026-07-19 ~11:45 SAST — MCP Connector COMPLETE + Gate C browser-OAuth VALIDATED LIVE (found+fixed mig-508 bug)
 
 **Project:** IsaFlow
-**Branch:** master (clean, in sync with origin @ `34091636`)
+**Branch:** master (clean, in sync with origin @ `02896ade`)
 **Plan:** `docs/superpowers/plans/2026-07-18-mcp-connector.md` (all Phase 0–4 + Gate A/B/D-automated boxes ticked)
 **Session goal:** Autonomously execute the MCP Connector plan phase-by-phase (branch per phase, TDD, blind review per PR, Phase-5 verification gates). Ship the dark hosted MCP server so Claude/Codex can operate IsaFlow accounting via OAuth/PAT under the tenant/RLS model.
 
@@ -36,10 +36,17 @@ The entire buildable programme is **merged to master and dark** behind the per-c
 - **Gate D (regression+integrity, automated):** CI green; local integrity **12/15** — the 3 fails (530 reconciled-txn mismatches, 6 fiscal-period, 1 cross-tenant GL line created 2026-04-13 via `auto_supplier_invoice`) are **pre-existing test-company data artifacts**, none from the dark schema-only MCP work (prod Demo is 15/15 per deployment history).
 - **Smoke:** `scripts/mcp-smoke.sh` written + syntax-checked (not yet run live — needs dev + a PAT).
 
-## What's left — all Hein-only (everything code-fixable is DONE, incl. the pentest hardening residuals, closed in PR #231)
+## Gate C browser-OAuth click-through — DONE ✅ (2026-07-19) + found & fixed a real bug (mig 508, PR #232)
 
-1. **Gate C browser-OAuth click-through (the one piece not yet exercised):** on a dev server with `MCP_DCR_ENABLED=true` and `mcp_connector` armed for a test company, run `claude mcp add --transport http isaflow <dev-url>/api/mcp` → browser login (Demo: admin@isaflow.co.za) → tick `write:post` on the consent screen → confirm `tools/list`=21 and a `post_journal` succeeds. (The PAT run already proved the scope enforcement this produces; this just exercises the consent UI + `oat_` token path.) Then Gate D live: fresh golden E2E 12/12 vs Demo (delete the stale `tests/e2e/.auth/golden-session.json` first); Bugsink no new issues from dev traffic.
-2. **Prod deploy:** after-hours, Hein-approved, via `bash scripts/deploy.sh`, then flip `mcp_connector` per pilot (and set `MCP_DCR_ENABLED=true` if you want dynamic registration). Prod is at 505; this adds migs **506+507** (both `IF NOT EXISTS`, apply fresh).
+Ran the full browser OAuth consent flow live on dev (`isaflow_dev`, isolated worktree at master, `MCP_DCR_ENABLED=true`, `mcp_connector` armed for Demo, DCR public client via PKCE). Drove it via playwriter against a real Chrome: login (Demo user) → `/oauth/authorize` → **consent screen renders with `write:post` opt-in checkbox UNCHECKED by default** → ticked it → Authorise → captured `code` → PKCE token exchange → `oat_` token with `scope=read:reports write:journals write:post` (proving the browser tick flows write:post server-side) → MCP `initialize`, `tools/list`=21, `trial_balance`, `create_draft_journal` (JE-2026-01666), **`post_journal` succeeded, DB posted + balanced 150.00=150.00**; audit rows carry `token_jti` + `oauth_app_id`.
+
+**The browser flow surfaced a REAL BUG that PAT-based Gate C could never hit:** every OAuth auth-code exchange WITHOUT `offline_access` 500'd on `null value in column "refresh_token_prefix" ... violates not-null constraint` (issueTokens inserts NULL refresh columns when offline_access absent; mig 469 made the col NOT NULL, mig 470 nulled the two SIBLING refresh cols but MISSED prefix). The atomic consume UPDATE burned the code before the throw. PATs bypass issueTokens; unit tests mock the INSERT — invisible until a real exchange. **Fixed: migration 508 (`DROP NOT NULL`) + integration regression test, PR #232 (`02896ade`), blind-review APPROVED, merged to master.** CI: type-check/lint/unit/security-guards/migration-naming/build all PASS (the 9 integration-suite failures under local `bun run ci` are pre-existing HTTP-route tests needing a live server — skipped in the deploy gate when `DATABASE_URL` unset; this branch touches none of them; the new OAuth test passes 2/2).
+
+**Full Gate C teardown done:** dev servers (3301/3210) killed by PID, worktree removed, DCR client + oauth_authorisations + codes deleted (cascade), test journal + lines removed, 5 audit rows removed, throwaway app-user (+company_users) deleted, throwaway GoTrue user deleted via admin API, Demo `mcp_connector` override removed → **feature fully dark again** (is_global=false, 0 overrides).
+
+## What's left — all Hein-only
+
+1. **Prod deploy:** after-hours, Hein-approved, via `bash scripts/deploy.sh`, then flip `mcp_connector` per pilot (and set `MCP_DCR_ENABLED=true` if you want dynamic registration). Prod is at 505; this now adds migs **506+507+508** (all idempotent/`IF NOT EXISTS`/`DROP NOT NULL`, apply fresh). **508 is required for the browser OAuth flow to work in prod** — without it, non-offline_access `claude mcp add` logins will 500. Then Gate D live: fresh golden E2E 12/12 vs Demo (delete the stale `tests/e2e/.auth/golden-session.json` first); Bugsink no new issues.
 
 **Closed in code (nothing left for you here):** the 4 pentest MEDIUM/LOW hardening residuals — DCR global flood cap, reserved brand-name filter, company-scoped shared read joins, pre-auth IP throttle on `/api/mcp` — all merged in **PR #231 (`8072f6e0`)**, blind-review APPROVED. Data-cleanup note (not code): the join-scoping now correctly excludes the pre-existing corrupt Britech cross-tenant GL line (created 2026-04-13) from Britech's own reports — that one row should be reversed/remediated in the data whenever convenient.
 
