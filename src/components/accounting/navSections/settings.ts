@@ -50,6 +50,7 @@ export const settingsTab: Tab = {
         { label: 'Personal Access Tokens', href: '/developer/personal-tokens' },
         { label: 'OAuth Apps', href: '/developer/oauth-apps' },
         { label: 'Connected Apps', href: '/accounting/settings/connected-apps' },
+        { label: 'MCP Connector (AI agents)', href: '/accounting/settings/integrations-mcp' },
       ],
     },
     {
