@@ -33,6 +33,12 @@ export const config = {
 const MAX_REDIRECT_URIS = 5;
 const MAX_REDIRECT_URI_LEN = 512;
 const MAX_NAME_LEN = 80;
+
+// Reserved terms a dynamic client_name may not contain (case-insensitive) —
+// stops a public DCR client registering as "IsaFlow Official" / "IsaFlow
+// Support" etc. to phish consent. First-party apps get is_first_party via a
+// separate authenticated path, not DCR.
+const RESERVED_NAME_RE = /\b(isaflow|official|support|admin|administrator|system|security|billing|verified|helpdesk)\b/i;
 const SUPPORTED_GRANT_TYPES = ['authorization_code', 'refresh_token'];
 const SUPPORTED_RESPONSE_TYPES = ['code'];
 
@@ -73,6 +79,13 @@ const handler: NextApiHandler = async (req, res) => {
     log.warn('DCR: registration rate limit exceeded', { ip }, 'oauth');
     return res.status(429).json(rfcError('invalid_client_metadata', 'Too many registrations. Try again later.'));
   }
+  // Global cap — bounds total registrations/hour across ALL IPs so IP rotation
+  // can't grow oauth_apps unbounded within the 30-day prune window.
+  const globalAllowed = await checkRateLimit('oauth-register-global', { max: 100, windowSecs: 3600 });
+  if (!globalAllowed) {
+    log.warn('DCR: global registration cap reached', { ip }, 'oauth');
+    return res.status(429).json(rfcError('invalid_client_metadata', 'Registration is temporarily throttled. Try again later.'));
+  }
 
   const body = (req.body ?? {}) as Record<string, unknown>;
 
@@ -101,6 +114,11 @@ const handler: NextApiHandler = async (req, res) => {
     typeof body.client_name === 'string' && body.client_name.trim()
       ? body.client_name.trim().slice(0, MAX_NAME_LEN)
       : 'MCP Client';
+  if (RESERVED_NAME_RE.test(clientName)) {
+    return res.status(400).json(
+      rfcError('invalid_client_metadata', 'client_name may not impersonate IsaFlow or use a reserved term'),
+    );
+  }
   const grantTypes = Array.isArray(body.grant_types) ? body.grant_types : SUPPORTED_GRANT_TYPES;
   if (grantTypes.some((g) => !SUPPORTED_GRANT_TYPES.includes(String(g)))) {
     return res.status(400).json(rfcError('invalid_client_metadata', 'Only authorization_code and refresh_token grants are supported'));

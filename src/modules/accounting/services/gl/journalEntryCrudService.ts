@@ -184,7 +184,7 @@ export async function getJournalEntryById(companyId: string,
     const lineRows = (await sql`
       SELECT jl.*, a.account_code, a.account_name
       FROM gl_journal_lines jl
-      JOIN gl_accounts a ON a.id = jl.gl_account_id
+      JOIN gl_accounts a ON a.id = jl.gl_account_id AND a.company_id = jl.company_id
       WHERE jl.journal_entry_id = ${id} AND jl.company_id = ${companyId}::UUID
       ORDER BY jl.created_at
     `) as Row[];
