@@ -12,8 +12,13 @@
 set -euo pipefail
 
 BASE="${1:?usage: ISAFLOW_MCP_TOKEN=pat_xxx bash scripts/mcp-smoke.sh <base-url>}"
+BASE="${BASE%/}" # tolerate a trailing slash in the host argument
 AUTH="Authorization: Bearer ${ISAFLOW_MCP_TOKEN:?ISAFLOW_MCP_TOKEN env var required}"
 CT='Content-Type: application/json'
+
+# Steps 2-3 fail (via pipefail) if the token's company lacks the mcp_connector
+# flag — the endpoint returns a JSON-RPC error envelope, not result. If those
+# steps fail, first check the flag is enabled for the smoke company.
 
 echo "1/4 OAuth discovery…"
 curl -sf "$BASE/.well-known/oauth-authorization-server" | grep -q authorization_endpoint
