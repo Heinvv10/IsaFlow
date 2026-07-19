@@ -14,6 +14,7 @@ import Image from 'next/image';
 import type { GetServerSideProps } from 'next';
 import { ShieldCheck, AlertTriangle, Loader2, Check } from 'lucide-react';
 import { getOauthAppByClientId, OAUTH_SCOPES, type OAuthScope } from '@/lib/auth/oauth';
+import { partitionRequestedScopes } from '@/lib/auth/consentScopes';
 import { apiFetch } from '@/lib/apiFetch';
 import { parseCookies, ACCESS_COOKIE } from '@/lib/auth/cookies';
 import { verifyToken } from '@/lib/auth/gotrue';
@@ -53,12 +54,16 @@ const SCOPE_LABELS: Record<OAuthScope, string> = {
   'read:reports': 'Read your financial reports',
   'read:contacts': 'Read your customers and suppliers',
   'read:vat': 'Read your VAT status',
+  'write:post': 'Post journals and finalize documents (irreversible)',
   'offline_access': 'Stay connected (refresh access in the background)',
 };
 
 export default function AuthorizePage(props: Props | ErrorProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Opt-in checkbox state (write:post). Declared before the early return so
+  // hook order stays stable regardless of the error/ok branch.
+  const [optInChecked, setOptInChecked] = useState<Record<string, boolean>>({});
 
   if (!props.ok) {
     return (
@@ -81,17 +86,26 @@ export default function AuthorizePage(props: Props | ErrorProps) {
 
   const { app, clientId, redirectUri, scopes, state, codeChallenge, codeChallengeMethod } = props;
 
+  // Posting scopes (write:post) are opt-in: shown UNCHECKED even when the
+  // client requested them, and granted only if the user actively ticks them.
+  const { autoGranted, optIn } = partitionRequestedScopes(scopes);
+
   const onSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
     try {
+      // Submit the full requested set + the explicitly-ticked opt-in scopes.
+      // The server (consent.ts) re-derives the grant — it will NOT grant an
+      // opt-in scope (write:post) unless it is confirmed here.
+      const optInConfirmed = optIn.filter((s) => optInChecked[s]);
       const res = await apiFetch('/api/oauth/consent', {
         method: 'POST',
         body: JSON.stringify({
           clientId,
           redirectUri,
           scopes,
+          optInConfirmed,
           state,
           codeChallenge,
           codeChallengeMethod,
@@ -163,7 +177,7 @@ export default function AuthorizePage(props: Props | ErrorProps) {
           <div>
             <h2 className="text-sm font-medium text-slate-300 mb-2">This app would like to:</h2>
             <ul className="space-y-2">
-              {scopes.map((s) => (
+              {autoGranted.map((s) => (
                 <li key={s} className="flex items-start gap-2 text-sm text-slate-300">
                   <Check className="h-4 w-4 text-teal-400 mt-0.5 shrink-0" />
                   <span>{SCOPE_LABELS[s as OAuthScope] ?? s}</span>
@@ -171,6 +185,30 @@ export default function AuthorizePage(props: Props | ErrorProps) {
               ))}
             </ul>
           </div>
+
+          {optIn.length > 0 && (
+            <div className="space-y-2">
+              {optIn.map((s) => (
+                <label
+                  key={s}
+                  className="flex items-start gap-3 text-sm rounded-lg border border-amber-800/50 bg-amber-900/20 px-3 py-2.5 cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    checked={optInChecked[s] ?? false}
+                    onChange={(e) =>
+                      setOptInChecked((prev) => ({ ...prev, [s]: e.target.checked }))
+                    }
+                    className="mt-0.5 h-4 w-4 shrink-0 accent-amber-500"
+                  />
+                  <span className="flex items-start gap-2 text-amber-200">
+                    <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                    <span>{SCOPE_LABELS[s as OAuthScope] ?? s}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          )}
 
           {!app.isVerified && (
             <div className="text-xs text-amber-400 bg-amber-900/20 border border-amber-800/40 rounded-lg px-3 py-2 flex items-start gap-2">

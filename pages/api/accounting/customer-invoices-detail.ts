@@ -12,13 +12,16 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql, withTransaction } from '@/lib/neon';
-import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerPaymentService';
 import { snapshotInvoicePdf } from '@/modules/accounting/services/ar/invoicePdfSnapshotService';
 import {
   cancelCustomerInvoice,
   InvoiceNotFoundError,
   InvoiceHasPaymentsError,
 } from '@/modules/accounting/services/ar/customerInvoiceCancelService';
+import {
+  approveCustomerInvoice,
+  InvoiceNotApprovableError,
+} from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
 import { ClosedFiscalPeriodError } from '@/modules/accounting/services/gl/journalEntryService';
 import {
   GetQuerySchema,
@@ -27,11 +30,6 @@ import {
 } from '@/lib/schemas/customerInvoiceDetail';
 import { getCustomerInvoiceDetail } from '@/modules/accounting/services/ar/customerInvoiceReadService';
 type Row = Record<string, unknown>;
-
-// Only pre-approval invoices may be approved. Re-approving a later-state invoice
-// (e.g. one already cancelled) would put it back in AR while its journal is the
-// reversed net-zero pair (AR != GL) — see the approve guard in the POST handler.
-const APPROVABLE_STATUSES = ['draft', 'pending_approval'];
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -217,70 +215,57 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
     }
 
-    const newStatus = action === 'approve' ? 'approved' : 'sent';
-
-    if (action === 'approve') {
-      // Guard the transition in the UPDATE: only draft/pending_approval invoices
-      // may be approved. Re-approving a cancelled invoice would re-add it to AR
-      // while its journal is already reversed to net zero (AR != GL).
-      const approved = (await sql`
-        UPDATE customer_invoices
-        SET status = 'approved', updated_at = NOW()
-        WHERE id = ${id}::UUID AND company_id = ${companyId}
-          AND status = ANY(${APPROVABLE_STATUSES}::text[])
-        RETURNING id
-      `) as Row[];
-      if (approved.length === 0) {
-        const cur = (await sql`SELECT status FROM customer_invoices WHERE id = ${id}::UUID AND company_id = ${companyId}`) as Row[];
-        if (cur.length === 0) return apiResponse.notFound(res, 'Invoice', id);
-        return apiResponse.badRequest(res, `Cannot approve an invoice with status '${String(cur[0]!.status)}'`);
-      }
-    } else {
-      // 'sent' is in AR_OPEN_STATUSES — sending a cancelled invoice would
-      // resurrect it into outstanding AR against a net-zero reversed journal.
-      const sent = (await sql`
-        UPDATE customer_invoices
-        SET status = 'sent', updated_at = NOW()
-        WHERE id = ${id}::UUID AND company_id = ${companyId}
-          AND status != 'cancelled'
-        RETURNING id
-      `) as Row[];
-      if (sent.length === 0) {
-        const cur = (await sql`SELECT status FROM customer_invoices WHERE id = ${id}::UUID AND company_id = ${companyId}`) as Row[];
-        if (cur.length === 0) return apiResponse.notFound(res, 'Invoice', id);
-        return apiResponse.badRequest(res, 'Cannot send a cancelled invoice');
-      }
-    }
-
-    // Post to GL on approve (accrual accounting: DR AR, CR Revenue, CR VAT Output)
-    let glJournalEntryId: string | null = null;
     if (action === 'approve') {
       try {
-        glJournalEntryId = await postCustomerInvoiceToGL(companyId, id, userId);
-        log.info('Customer invoice GL posted on approve', { id, glJournalEntryId });
-      } catch (glErr) {
-        log.error('GL posting failed on invoice approve (invoice still approved)', { id, error: glErr });
+        const result = await approveCustomerInvoice(companyId, id, userId);
+        log.info('Customer invoice action', { id, action, newStatus: result.status });
+        return apiResponse.success(res, {
+          id, status: result.status, glJournalEntryId: result.glJournalEntryId,
+          evidenceDocumentId: result.evidenceDocumentId,
+        });
+      } catch (err) {
+        if (err instanceof InvoiceNotApprovableError) {
+          return err.notFound ? apiResponse.notFound(res, 'Invoice', id) : apiResponse.badRequest(res, err.message);
+        }
+        throw err;
       }
     }
 
-    // PRD-06 Phase 1: seal the rendered PDF as evidence on approve/send.
+    // action === 'send' — the only branch remaining (PostBodySchema restricts
+    // action to 'approve' | 'send' | 'cancel', both handled above).
+    const newStatus = 'sent';
+
+    // 'sent' is in AR_OPEN_STATUSES — sending a cancelled invoice would
+    // resurrect it into outstanding AR against a net-zero reversed journal.
+    const sent = (await sql`
+      UPDATE customer_invoices
+      SET status = 'sent', updated_at = NOW()
+      WHERE id = ${id}::UUID AND company_id = ${companyId}
+        AND status != 'cancelled'
+      RETURNING id
+    `) as Row[];
+    if (sent.length === 0) {
+      const cur = (await sql`SELECT status FROM customer_invoices WHERE id = ${id}::UUID AND company_id = ${companyId}`) as Row[];
+      if (cur.length === 0) return apiResponse.notFound(res, 'Invoice', id);
+      return apiResponse.badRequest(res, 'Cannot send a cancelled invoice');
+    }
+
+    // PRD-06 Phase 1: seal the rendered PDF as evidence on send.
     // Non-blocking: if storage is flaky the status transition still succeeds;
     // a later admin can re-trigger via POST /ar/invoice/[id]/pdf.
     let evidenceDocumentId: string | null = null;
-    if (action === 'approve' || action === 'send') {
-      try {
-        const snapshot = await snapshotInvoicePdf(companyId, id);
-        evidenceDocumentId = snapshot.documentId;
-        log.info('Customer invoice PDF snapshot sealed', {
-          id, documentId: snapshot.documentId, wasExisting: snapshot.wasExisting,
-        });
-      } catch (snapErr) {
-        log.error('PDF snapshot failed (invoice still transitioned)', { id, error: snapErr });
-      }
+    try {
+      const snapshot = await snapshotInvoicePdf(companyId, id);
+      evidenceDocumentId = snapshot.documentId;
+      log.info('Customer invoice PDF snapshot sealed', {
+        id, documentId: snapshot.documentId, wasExisting: snapshot.wasExisting,
+      });
+    } catch (snapErr) {
+      log.error('PDF snapshot failed (invoice still transitioned)', { id, error: snapErr });
     }
 
     log.info('Customer invoice action', { id, action, newStatus });
-    return apiResponse.success(res, { id, status: newStatus, glJournalEntryId, evidenceDocumentId });
+    return apiResponse.success(res, { id, status: newStatus, glJournalEntryId: null, evidenceDocumentId });
   }
 
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'PUT', 'POST']);

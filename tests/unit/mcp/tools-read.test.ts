@@ -220,12 +220,13 @@ describe('contact + bank + vat tools', () => {
 });
 
 describe('suite-wide invariants', () => {
-  it('manifest: read tools, all write:false, additionalProperties:false everywhere', () => {
-    // Count is drift-guarded against CLIENT_MCP_TOOL_NAMES rather than a magic
-    // number, so adding a tool updates one place (clientMetadata.test.ts checks
-    // that list matches the registry).
+  const READ_TOOLS = MCP_TOOLS.filter((t) => !t.write);
+
+  it('exactly 15 read tools, all write:false, additionalProperties:false everywhere', () => {
+    expect(READ_TOOLS).toHaveLength(15);
+    // Every registered tool is drift-guarded against CLIENT_MCP_TOOL_NAMES.
     expect(MCP_TOOLS).toHaveLength(CLIENT_MCP_TOOL_NAMES.length);
-    for (const t of MCP_TOOLS) {
+    for (const t of READ_TOOLS) {
       expect(t.write).toBe(false);
       expect(t.requiresPost).toBeUndefined();
       expect((t.inputSchema as { additionalProperties?: boolean }).additionalProperties).toBe(false);
@@ -233,7 +234,7 @@ describe('suite-wide invariants', () => {
     }
   });
 
-  it('no tool accepts a company identifier in its schema', () => {
+  it('no tool (read OR write) accepts a company identifier in its schema', () => {
     for (const t of MCP_TOOLS) {
       const props = Object.keys(
         ((t.inputSchema as { properties?: Record<string, unknown> }).properties ?? {}),

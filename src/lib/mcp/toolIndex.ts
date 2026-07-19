@@ -17,8 +17,16 @@ import { getInvoiceTool, listInvoicesTool, listQuotesTool } from './tools/invoic
 import { listCustomersTool, listSuppliersTool } from './tools/contacts';
 import { bankAccountsStatusTool, listBankTransactionsTool } from './tools/bank';
 import { vatStatusTool } from './tools/vat';
+import {
+  createDraftInvoiceTool,
+  createDraftQuoteTool,
+  finalizeInvoiceTool,
+} from './tools/writeInvoices';
+import { createDraftJournalTool, postJournalTool } from './tools/writeJournals';
+import { suggestBankAllocationTool } from './tools/writeBank';
 
 export const MCP_TOOLS = [
+  // read (15)
   companyProfileTool,
   trialBalanceTool,
   profitAndLossTool,
@@ -34,6 +42,13 @@ export const MCP_TOOLS = [
   bankAccountsStatusTool,
   listBankTransactionsTool,
   vatStatusTool,
+  // write (6) — drafts + suggest are write; post/finalize additionally require write:post
+  createDraftInvoiceTool,
+  createDraftQuoteTool,
+  createDraftJournalTool,
+  suggestBankAllocationTool,
+  postJournalTool,
+  finalizeInvoiceTool,
 ] as const;
 
 export const mcpRegistry = new McpRegistry();

@@ -13,8 +13,9 @@ export const MCP_PROD_ENDPOINT = `${MCP_PROD_ORIGIN}${MCP_PATH}`;
 export const MCP_AUTH_SERVER_METADATA_PATH = '/.well-known/oauth-authorization-server';
 export const MCP_PROTECTED_RESOURCE_METADATA_PATH = '/.well-known/oauth-protected-resource';
 
-/** Read tools (Phase 2). Write tools append here in Phase 3. */
+/** All MCP tool names (15 read + 6 write). Drift-guarded against toolIndex. */
 export const CLIENT_MCP_TOOL_NAMES = [
+  // read
   'company_profile',
   'trial_balance',
   'profit_and_loss',
@@ -30,4 +31,11 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'bank_accounts_status',
   'list_bank_transactions',
   'vat_status',
+  // write
+  'create_draft_invoice',
+  'create_draft_quote',
+  'create_draft_journal',
+  'suggest_bank_allocation',
+  'post_journal',
+  'finalize_invoice',
 ] as const;
