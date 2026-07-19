@@ -11,7 +11,8 @@ import {
 } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
 import { approveCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
 import { createQuote } from '@/modules/accounting/services/ar/quoteService';
-import { ok, safeErrorText, strArg, toolError } from './toolHelpers';
+import { customerBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
+import { NOT_FOUND, ok, safeErrorText, strArg, toolError } from './toolHelpers';
 
 interface LineIn {
   description: string;
@@ -75,6 +76,10 @@ export const createDraftInvoiceTool: McpTool = {
     if (!customerId) return toolError('customer_id is required');
     const items = parseLines(args.items);
     if (!items) return toolError('items must be a non-empty array of {description, unit_price, quantity?}');
+    // Ownership: the customer must belong to the token's company (a plain FK
+    // would otherwise accept any company's customer id). Generic error — no
+    // existence oracle for foreign ids.
+    if (!(await customerBelongsToCompany(ctx.companyId, customerId))) return toolError(NOT_FOUND);
     try {
       const result = await createDraftCustomerInvoice(ctx.companyId, ctx.userId, {
         clientId: customerId,

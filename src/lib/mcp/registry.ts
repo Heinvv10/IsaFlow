@@ -10,7 +10,7 @@
 import { withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { McpTool, McpToolContext, McpToolResult } from './types';
-import { findIdempotentReplay, hashArgs, recordToolCall } from './audit';
+import { acquireIdempotencyLock, findIdempotentReplay, hashArgs, recordToolCall } from './audit';
 
 function errorResult(text: string): McpToolResult {
   return { content: [{ type: 'text', text }], isError: true };
@@ -80,6 +80,10 @@ export class McpRegistry {
     }
 
     if (tool.write && idempotencyKey) {
+      // Serialise concurrent same-key calls BEFORE the replay-check so two
+      // racing writes can't both pass "no prior call" and double-post. The
+      // lock is held for the request tx and released on COMMIT/ROLLBACK.
+      await acquireIdempotencyLock(ctx.companyId, name, idempotencyKey);
       const replay = await findIdempotentReplay(ctx.companyId, name, idempotencyKey, argsHash);
       if (replay.status === 'match') {
         log.info('MCP: idempotent replay served', { tool: name, companyId: ctx.companyId }, 'mcp');

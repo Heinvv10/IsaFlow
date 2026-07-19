@@ -111,6 +111,22 @@ export async function getAccountById(companyId: string, id: string): Promise<GLA
   }
 }
 
+/**
+ * True only if EVERY given GL account id belongs to companyId. Used to reject
+ * journal lines that reference another company's account (a plain FK on
+ * gl_account_id bypasses RLS and would otherwise let a cross-company account
+ * be booked into this company's journal — an integrity + disclosure hole).
+ */
+export async function accountsBelongToCompany(companyId: string, accountIds: string[]): Promise<boolean> {
+  const unique = [...new Set(accountIds.filter((id) => typeof id === 'string' && id))];
+  if (unique.length === 0) return true;
+  const rows = (await sql`
+    SELECT id FROM gl_accounts
+    WHERE company_id = ${companyId}::uuid AND id = ANY(${unique}::uuid[])
+  `) as { id: string }[];
+  return rows.length === unique.length;
+}
+
 export async function getAccountByCode(companyId: string, code: string): Promise<GLAccount | null> {
   try {
     const rows = await sql`SELECT * FROM gl_accounts WHERE company_id = ${companyId} AND account_code = ${code}`;
