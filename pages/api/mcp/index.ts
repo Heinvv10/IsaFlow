@@ -27,7 +27,7 @@ import type { NextApiHandler, NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { withBearerAuth } from '@/lib/auth/withBearerAuth';
 import type { BearerAuthedRequest } from '@/lib/auth/bearerPipeline';
-import { checkRateLimit } from '@/lib/rateLimit';
+import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { hasFeature } from '@/modules/admin/services/featureFlagService';
 import { log } from '@/lib/logger';
 import { mcpRegistry } from '@/lib/mcp/toolIndex';
@@ -230,6 +230,16 @@ const route: NextApiHandler = async (req: NextApiRequest, res: NextApiResponse) 
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'GET, POST, OPTIONS');
     res.status(405).json({ success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'Use POST for JSON-RPC' } });
+    return;
+  }
+
+  // Pre-auth per-IP throttle — the per-company 120/min limiter only runs AFTER
+  // a valid token; without this an anonymous caller could spam garbage bearer
+  // tokens, each costing a token-hash DB lookup. Bounds that before auth.
+  const ip = getClientIp(req);
+  if (!(await checkRateLimit(`mcp-ip:${ip}`, { max: 300, windowSecs: 60 }))) {
+    setCors(res);
+    res.status(429).json(rpcError(null, RPC_CODES.SERVER_ERROR, 'Too many requests. Slow down and retry.'));
     return;
   }
 

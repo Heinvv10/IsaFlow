@@ -241,17 +241,19 @@ describe('/api/mcp transport', () => {
   });
 
   it('per-company rate limit 120/min → -32000 when exceeded', async () => {
-    vi.mocked(checkRateLimit).mockResolvedValue(false);
+    // mcp-ip throttle passes; only the per-company bucket is exhausted.
+    vi.mocked(checkRateLimit).mockImplementation(async (key: string) => !key.startsWith('mcp:'));
     const res = makeRes();
     await route(makeReq('POST', rpc('ping')) as never, res);
     expect(checkRateLimit).toHaveBeenCalledWith(`mcp:${COMPANY_ID}`, { max: 120, windowSecs: 60 });
     expect((res.body as { error: { code: number } }).error.code).toBe(-32000);
   });
 
-  it('a batch charges the rate limiter PER call (no batch bypass)', async () => {
+  it('a batch charges the per-company limiter PER call (no batch bypass)', async () => {
     const res = makeRes();
     await route(makeReq('POST', [rpc('ping', undefined, 1), rpc('ping', undefined, 2), rpc('ping', undefined, 3)]) as never, res);
-    expect(checkRateLimit).toHaveBeenCalledTimes(3); // one unit per RPC, not one per HTTP request
+    const companyCharges = vi.mocked(checkRateLimit).mock.calls.filter(([k]) => (k as string).startsWith(`mcp:`));
+    expect(companyCharges).toHaveLength(3); // one per-company unit per RPC, not one per HTTP request
   });
 
   it('an over-large batch (>20) → 400 invalid request, nothing dispatched', async () => {
@@ -278,5 +280,15 @@ describe('/api/mcp transport', () => {
     const res = makeRes();
     await route(makeReq('PUT', {}) as never, res);
     expect(res.statusCode).toBe(405);
+  });
+
+  it('pre-auth per-IP throttle → 429 before any auth/dispatch', async () => {
+    // The mcp-ip bucket is checked at the route level before withBearerAuth.
+    vi.mocked(checkRateLimit).mockImplementation(async (key: string) => !key.startsWith('mcp-ip:'));
+    const res = makeRes();
+    await route(makeReq('POST', rpc('ping')) as never, res);
+    expect(checkRateLimit).toHaveBeenCalledWith('mcp-ip:10.0.0.1', { max: 300, windowSecs: 60 });
+    expect(res.statusCode).toBe(429);
+    expect(seenContexts).toHaveLength(0); // never reached a tool
   });
 });

@@ -138,6 +138,31 @@ describe('POST /api/oauth/register', () => {
     expect(registerOauthApp).toHaveBeenCalledTimes(1); // only the first, allowed request
   });
 
+  it('enforces a GLOBAL registration cap even when the per-IP limit is fine', async () => {
+    // per-IP bucket OK, global bucket exhausted → 429, no client minted
+    vi.mocked(checkRateLimit).mockImplementation(async (key: string) => key !== 'oauth-register-global');
+    const res = makeRes();
+    await handler(makeReq({ redirect_uris: ['https://client.example/cb'] }), res);
+    expect(checkRateLimit).toHaveBeenCalledWith('oauth-register-global', { max: 100, windowSecs: 3600 });
+    expect(res.statusCode).toBe(429);
+    expect(registerOauthApp).not.toHaveBeenCalled();
+  });
+
+  it('rejects a client_name that impersonates IsaFlow / claims official or verified status', async () => {
+    for (const name of ['IsaFlow Official', 'isaflow support', 'Verified Partner', 'First-Party App']) {
+      const res = makeRes();
+      await handler(makeReq({ redirect_uris: ['https://c.example/cb'], client_name: name }), res);
+      expect(res.statusCode).toBe(400);
+      expect(res.body!.error).toBe('invalid_client_metadata');
+    }
+    // legit names — including ones with generic words — are NOT blocked
+    for (const name of ['Acme Bookkeeping Bot', 'Acme Billing Bot', 'Support Desk Connector']) {
+      const ok = makeRes();
+      await handler(makeReq({ redirect_uris: ['https://c.example/cb'], client_name: name }), ok);
+      expect(ok.statusCode).toBe(201);
+    }
+  });
+
   it('rejects confidential-client requests and unsupported grant/response types', async () => {
     const confidential = makeRes();
     await handler(
