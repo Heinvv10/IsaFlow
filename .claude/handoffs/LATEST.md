@@ -36,11 +36,12 @@ The entire buildable programme is **merged to master and dark** behind the per-c
 - **Gate D (regression+integrity, automated):** CI green; local integrity **12/15** — the 3 fails (530 reconciled-txn mismatches, 6 fiscal-period, 1 cross-tenant GL line created 2026-04-13 via `auto_supplier_invoice`) are **pre-existing test-company data artifacts**, none from the dark schema-only MCP work (prod Demo is 15/15 per deployment history).
 - **Smoke:** `scripts/mcp-smoke.sh` written + syntax-checked (not yet run live — needs dev + a PAT).
 
-## HEIN-OWNED next steps (in priority order)
+## What's left — all Hein-only (everything code-fixable is DONE, incl. the pentest hardening residuals, closed in PR #231)
 
 1. **Gate C browser-OAuth click-through (the one piece not yet exercised):** on a dev server with `MCP_DCR_ENABLED=true` and `mcp_connector` armed for a test company, run `claude mcp add --transport http isaflow <dev-url>/api/mcp` → browser login (Demo: admin@isaflow.co.za) → tick `write:post` on the consent screen → confirm `tools/list`=21 and a `post_journal` succeeds. (The PAT run already proved the scope enforcement this produces; this just exercises the consent UI + `oat_` token path.) Then Gate D live: fresh golden E2E 12/12 vs Demo (delete the stale `tests/e2e/.auth/golden-session.json` first); Bugsink no new issues from dev traffic.
-2. **Before arming DCR / wider rollout (pentest MEDIUM/LOW residuals):** DCR global flood cap (per-IP-only today); reserved brand-name filter for `client_name`; scope the shared `customers`/`gl_accounts` read joins by `company_id`; pre-auth IP throttle on `/api/mcp`. (All documented in the pentest report; all behind the dark flag.)
-3. **Prod deploy:** after-hours, Hein-approved, via `bash scripts/deploy.sh`, then flip `mcp_connector` per pilot. Prod is at 505; this adds migs **506+507** (both `IF NOT EXISTS`, apply fresh).
+2. **Prod deploy:** after-hours, Hein-approved, via `bash scripts/deploy.sh`, then flip `mcp_connector` per pilot (and set `MCP_DCR_ENABLED=true` if you want dynamic registration). Prod is at 505; this adds migs **506+507** (both `IF NOT EXISTS`, apply fresh).
+
+**Closed in code (nothing left for you here):** the 4 pentest MEDIUM/LOW hardening residuals — DCR global flood cap, reserved brand-name filter, company-scoped shared read joins, pre-auth IP throttle on `/api/mcp` — all merged in **PR #231 (`8072f6e0`)**, blind-review APPROVED. Data-cleanup note (not code): the join-scoping now correctly excludes the pre-existing corrupt Britech cross-tenant GL line (created 2026-04-13) from Britech's own reports — that one row should be reversed/remediated in the data whenever convenient.
 
 ## Notes / deviations captured in PRs
 - Plan assumed migs 506/507; 506 taken by Phase-1 DCR so the audit table shipped as **507**.
