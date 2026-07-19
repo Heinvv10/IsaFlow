@@ -148,17 +148,19 @@ describe('POST /api/oauth/register', () => {
     expect(registerOauthApp).not.toHaveBeenCalled();
   });
 
-  it('rejects a client_name that impersonates IsaFlow or uses a reserved term', async () => {
-    for (const name of ['IsaFlow Official', 'isaflow support', 'System Admin', 'Verified Billing']) {
+  it('rejects a client_name that impersonates IsaFlow / claims official or verified status', async () => {
+    for (const name of ['IsaFlow Official', 'isaflow support', 'Verified Partner', 'First-Party App']) {
       const res = makeRes();
       await handler(makeReq({ redirect_uris: ['https://c.example/cb'], client_name: name }), res);
       expect(res.statusCode).toBe(400);
       expect(res.body!.error).toBe('invalid_client_metadata');
     }
-    // a normal name is fine
-    const ok = makeRes();
-    await handler(makeReq({ redirect_uris: ['https://c.example/cb'], client_name: 'Acme Bookkeeping Bot' }), ok);
-    expect(ok.statusCode).toBe(201);
+    // legit names — including ones with generic words — are NOT blocked
+    for (const name of ['Acme Bookkeeping Bot', 'Acme Billing Bot', 'Support Desk Connector']) {
+      const ok = makeRes();
+      await handler(makeReq({ redirect_uris: ['https://c.example/cb'], client_name: name }), ok);
+      expect(ok.statusCode).toBe(201);
+    }
   });
 
   it('rejects confidential-client requests and unsupported grant/response types', async () => {
