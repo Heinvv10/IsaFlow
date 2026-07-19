@@ -38,6 +38,11 @@ export async function recordToolCall(row: {
   durationMs: number;
 }): Promise<void> {
   try {
+    // ON CONFLICT DO NOTHING on the partial idempotency index: a concurrent
+    // duplicate write (same company/tool/key) must not throw here — an
+    // unhandled unique-violation aborts the request tx and cascades into a
+    // failed COMMIT. Silently skipping the duplicate audit row is correct; the
+    // conflict is already surfaced to the caller by the replay/args-hash path.
     await sql`
       INSERT INTO mcp_tool_calls (
         company_id, user_id, token_jti, oauth_app_id,
@@ -55,10 +60,11 @@ export async function recordToolCall(row: {
         ${JSON.stringify(row.result ?? null)}::jsonb,
         ${row.durationMs}
       )
+      ON CONFLICT (company_id, tool, idempotency_key) WHERE idempotency_key IS NOT NULL
+      DO NOTHING
     `;
   } catch (err) {
-    // Audit failure must not mask the tool result; the unique idem index can
-    // also fire here on a concurrent duplicate write (bounded by the index).
+    // Any other audit failure must not mask the tool result.
     log.error(
       'MCP audit: recordToolCall failed',
       { tool: row.tool, err: err instanceof Error ? err.message : String(err) },
@@ -67,19 +73,32 @@ export async function recordToolCall(row: {
   }
 }
 
+export type IdempotencyLookup =
+  | { status: 'none' }
+  | { status: 'match'; result: McpToolResult }
+  | { status: 'conflict' };
+
+/**
+ * Look up a prior successful call for (company, tool, key). The args_hash is
+ * compared: a reused key with DIFFERENT arguments returns 'conflict' (never the
+ * stale result) so the caller can surface an explicit error instead of silently
+ * reporting the first call's outcome for the second call's inputs.
+ */
 export async function findIdempotentReplay(
   companyId: string,
   tool: string,
   key: string,
-): Promise<McpToolResult | null> {
+  argsHash: string,
+): Promise<IdempotencyLookup> {
   const rows = (await sql`
-    SELECT result FROM mcp_tool_calls
+    SELECT result, args_hash FROM mcp_tool_calls
     WHERE company_id = ${companyId}::uuid
       AND tool = ${tool}
       AND idempotency_key = ${key}
       AND status = 'ok'
     LIMIT 1
   `) as Row[];
-  if (rows.length === 0) return null;
-  return rows[0]!.result as McpToolResult;
+  if (rows.length === 0) return { status: 'none' };
+  if (rows[0]!.args_hash !== argsHash) return { status: 'conflict' };
+  return { status: 'match', result: rows[0]!.result as McpToolResult };
 }

@@ -121,19 +121,33 @@ describe('McpRegistry — fence order', () => {
     }
   });
 
-  it('write replay with same idempotency_key → stored result, handler NOT called again', async () => {
+  it('write replay with same idempotency_key AND same args → stored result, handler NOT called again', async () => {
     const stored = { content: [{ type: 'text' as const, text: '"already-done"' }] };
     const handler = vi.fn();
     registry.register(makeTool({ write: true, scope: 'write:invoices', handler }));
-    mockSqlOnce([{ result: stored }]); // replay SELECT finds the original call
-    const r = await registry.call(
-      't', { idempotency_key: 'k1' }, ctxWithScopes(['write:invoices']),
-    );
+    const args = { idempotency_key: 'k1' };
+    mockSqlOnce([{ result: stored, args_hash: hashArgs(args) }]); // replay SELECT, args agree
+    const r = await registry.call('t', args, ctxWithScopes(['write:invoices']));
     expect(r).toEqual(stored);
     expect(handler).not.toHaveBeenCalled();
-    // replay lookup was tenant-scoped
     expect(sqlCallText(0)).toContain('idempotency_key =');
     expect(sqlCallValues(0)).toEqual(expect.arrayContaining([COMPANY_ID, 't', 'k1']));
+  });
+
+  it('same idempotency_key with DIFFERENT args → rejected, handler NOT called, no stale result', async () => {
+    const stored = { content: [{ type: 'text' as const, text: '"first-call"' }] };
+    const handler = vi.fn();
+    registry.register(makeTool({ write: true, scope: 'write:invoices', handler }));
+    // stored row was for a different args payload → args_hash won't match
+    mockSqlOnce([{ result: stored, args_hash: 'HASH-OF-THE-ORIGINAL-DIFFERENT-ARGS' }]);
+    const r = await registry.call(
+      't', { idempotency_key: 'k1', amount: 999 }, ctxWithScopes(['write:invoices']),
+    );
+    expect(r.isError).toBe(true);
+    expect(r.content[0]!.text).toContain('already used');
+    expect(handler).not.toHaveBeenCalled();
+    // did NOT return the stored result
+    expect(r.content[0]!.text).not.toContain('first-call');
   });
 
   it('data minimisation: read-tool audit stores NULL result; write-tool stores it', async () => {

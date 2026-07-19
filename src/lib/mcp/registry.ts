@@ -79,10 +79,17 @@ export class McpRegistry {
     }
 
     if (tool.write && idempotencyKey) {
-      const replay = await findIdempotentReplay(ctx.companyId, name, idempotencyKey);
-      if (replay) {
+      const replay = await findIdempotentReplay(ctx.companyId, name, idempotencyKey, argsHash);
+      if (replay.status === 'match') {
         log.info('MCP: idempotent replay served', { tool: name, companyId: ctx.companyId }, 'mcp');
-        return replay;
+        return replay.result;
+      }
+      if (replay.status === 'conflict') {
+        // Same key, different args — refuse rather than serve the stale result.
+        return reject(
+          'idempotency_key was already used for a different request. Use a fresh key.',
+          idempotencyKey,
+        );
       }
     }
 
