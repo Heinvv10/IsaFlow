@@ -27,6 +27,20 @@ Next.js 14 + TypeScript accounting SaaS. Multi-tenant (every query scoped by `co
 - **Nav**: Update `src/components/accounting/accountingNavConfig.ts` for every new page.
 - **Migrations**: `IF NOT EXISTS` on all `CREATE TABLE` / `CREATE INDEX`.
 - **Migrations**: Use the next unused 3-digit prefix. Never reuse an existing prefix. Use `244b_` style suffix if inserting between existing numbers.
+- **Git**: No `--no-verify`, no force-push to `master`, no amending published commits. Stage by explicit path — never `git add -A` (parallel sessions leave untracked files in the tree).
+- **Deploys**: `bash scripts/deploy.sh` enforces the lint ratchet and migration-naming gate. Production deploys are blocked during business hours (08:00–17:00 SAST, Mon–Fri) without explicit approval.
+
+## Modules (`src/modules/`)
+
+| Module | Scope |
+|--------|-------|
+| `accounting` | Core ledger: AR, AP, banking, GL, reporting, assets, VAT/SARS, payroll, AFS |
+| `admin` | Platform admin: companies, users, billing, plans, feature flags |
+| `analytics` | Native web tracking + query |
+| `auth` | GoTrue MFA + session management |
+| `billing` | PAYG Flow wallet, Stitch Express, subscription billing |
+| `bureau` | Bureau-mode payroll |
+| `onboarding` | SA address + CIPC reg-number normalisers (pure) |
 
 ## Key Paths
 
@@ -65,7 +79,7 @@ bash scripts/deploy.sh  # Deploy
 
 ## Module docs (sibling `.claude.md` files)
 
-Module-level rules live in `.claude.md` files next to each module — 49 files total. Cover all of `src/modules/*` and every API route group under `pages/api/accounting/*`. Codex/Cursor/Copilot mirror these as sibling `AGENTS.md` via `/portability --mirror-nested`. When adding a new module with ≥4 files, add a sibling `.claude.md` (purpose / caller contract / main signatures / business rules / recent changes).
+Module-level rules live in `.claude.md` files next to each module and API-route group. `CLAUDE.md` and every `.claude.md` are canonical; generate their `AGENTS.md` mirrors with `bun run agent-docs:generate`, and verify drift with `bun run agent-docs:check`. When adding a new module with ≥4 files, add a sibling `.claude.md` (purpose / caller contract / main signatures / business rules / recent changes).
 
 ## Plugins Active
 
