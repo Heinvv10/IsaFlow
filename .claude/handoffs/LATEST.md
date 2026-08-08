@@ -1,9 +1,23 @@
-# Handoff — MCP Connector FULLY LIVE — Demo pilot activated in prod (PAT + OAuth DCR), deployed 7f209f76
+# Handoff — MCP Connector LIVE in prod; NEXT SESSION = expand its features (Tier 1 / VAT201 wedge)
 
-**Project:** IsaFlow
-**Branch:** master (clean, in sync with origin @ `02896ade`)
-**Plan:** `docs/superpowers/plans/2026-07-18-mcp-connector.md` (all Phase 0–4 + Gate A/B/D-automated boxes ticked)
-**Session goal:** Autonomously execute the MCP Connector plan phase-by-phase (branch per phase, TDD, blind review per PR, Phase-5 verification gates). Ship the dark hosted MCP server so Claude/Codex can operate IsaFlow accounting via OAuth/PAT under the tenant/RLS model.
+**Project:** IsaFlow — master @ `16b0b7f2` (origin in sync).
+
+## ▶ NEXT SESSION — build more MCP features (user asked to do this in a fresh session)
+The connector is shipped, live, and proven end-to-end (both PAT + OAuth, real user on a real company). The next body of work is **expanding what the connector can do**. Full grounded roadmap in memory **`project_mcp_next_features`** (Tier 1 daily-loop actions / Tier 2 SA-compliance filing wedge / Tier 3 MCP-native + governance).
+
+**Start by:** plan the first slice on Opus (grill-me → writing-plans), then execute phase-by-phase exactly like the original build (phase branch → TDD per tool → blind `/review` → merge → dark deploy → enable per pilot). **Recommended first slice:** confirm with Hein between two options —
+1. **Tier 1 payments/allocations** — `record_customer_receipt`/`record_supplier_payment`/`allocate_payment` + `reconcile_bank_transaction` + `create_credit_note`. Completes the accountant's daily loop; low-risk (drafts+confirms); all backed by existing `ar`/`ap`/`bank` services.
+2. **VAT201 filing flagship** — `vat201_prepare`+`vat201_submit` via existing `reports/vat201Service.ts` + `sarsEfilingSubmissionService.ts`. THE market differentiator ("Claude, file my VAT"). High-stakes → give it its **own scope `write:file-sars` + an approval gate**, don't reuse `write:post`.
+
+Current tools: 21 in `src/lib/mcp/tools/*.ts`; registry/scope-fence/audit `src/lib/mcp/{registry,audit}.ts`; scopes `src/lib/auth/{oauthScopes,patScopes,consentScopes}.ts`. Most new tools = "expose an existing service." Follow CLAUDE.md invariants (company_id scoping, tenant id from ctx not args, readOnly asserted at registry, no token material in responses/audit/errors).
+
+**Prod pilot state to know:** `mcp_connector` currently enabled for **BOTH ISAFlow Demo AND Brightsphere Technologies** (`d27bac33`, Hein's real Sage client — enabled during a UI demo this session; no active tokens exist for it). `MCP_DCR_ENABLED=true` is set globally in prod env (OAuth works). To re-dark Brightsphere: admin → Companies → Brightsphere → Features → toggle "MCP Connector" off (or delete its `company_feature_overrides` row).
+
+---
+## ✅ Prior session — the connector build (COMPLETE, shipped, live)
+
+**Plan:** `docs/superpowers/plans/2026-07-18-mcp-connector.md` (all 46 boxes ticked).
+**Goal (done):** Ship the hosted MCP server so Claude/Codex can operate IsaFlow accounting via OAuth/PAT under the tenant/RLS model — built dark, deployed to prod, activated for a pilot.
 
 ## Status: SUCCESS — build complete + **Gate C validated live** (Hein-authorised 2026-07-19). Only the browser-OAuth click-through remains.
 
