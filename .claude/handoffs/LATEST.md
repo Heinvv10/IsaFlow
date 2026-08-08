@@ -1,4 +1,4 @@
-# Handoff — 2026-07-19 ~15:10 SAST — MCP Connector DEPLOYED to prod (7f209f76, DARK) + Gate C browser-OAuth validated
+# Handoff — MCP Connector FULLY LIVE — Demo pilot activated in prod (PAT + OAuth DCR), deployed 7f209f76
 
 **Project:** IsaFlow
 **Branch:** master (clean, in sync with origin @ `02896ade`)
@@ -48,9 +48,19 @@ Ran the full browser OAuth consent flow live on dev (`isaflow_dev`, isolated wor
 
 `bash scripts/deploy.sh` → **prod now at `7f209f76`** (from `d0f9ed85`). Migs **506+507+508 applied to prod** (`toApply: 506,507,508 → Applied 3`; prod `oauth_authorisations.refresh_token_prefix` now nullable). Build integrity 1135 pages-manifest entries (clean full build); CI gate green (type-check/lint/security-guards/unit/migration-naming; integration skipped, DATABASE_URL unset); schema-drift OK (281 tables); rollback snapshot of `d0f9ed85` taken. **Post-deploy verification PASSED: golden-paths 12/12 green + integrity green**; live health `status=ok, db=ok`. MCP connector is LIVE but **DARK** (`mcp_connector` global=false + 0 company overrides; `MCP_DCR_ENABLED` unset in prod env) — zero behavior change for existing users. (Note: the `:3200` local dev server was stopped for a clean build — restart with `bun run dev` if needed.)
 
+## GO-LIVE DONE ✅ (Hein-approved) — Demo pilot fully activated in prod
+
+Both switches flipped and verified live:
+- **`mcp_connector` enabled=true for Demo** (`00000000-…-0001`, prod feature id `bcff6f6c`) — verified via a read-only prod Demo PAT: `tools/list`=21 + `trial_balance` OK, then PAT revoked.
+- **`MCP_DCR_ENABLED=true`** appended to `/home/velo/isaflow/.env.local` + `systemctl restart isaflow` — verified `POST /api/oauth/register`→**201** public PKCE client (was 503). Health ok post-restart.
+
+Real users can now connect: `claude mcp add --transport http isaflow https://app.isaflow.co.za/api/mcp` → browser OAuth (login as a Demo user → consent → tick `write:post`) **or** a `pat_` token. All test artifacts cleaned (verify PAT + smoke DCR clients deleted).
+
+**Rollback the go-live:** delete the Demo `company_feature_overrides` row (feature `bcff6f6c`) to turn the connector off for Demo; remove the `MCP_DCR_ENABLED=true` line from `/home/velo/isaflow/.env.local` + restart to re-dark DCR (a `.env.local.pre-mcpdcr-*` backup was saved).
+
 ## What's left — all Hein-only
 
-1. **Activate MCP for a pilot:** flip `mcp_connector` per pilot company (feature override enabled=true) to turn the dark connector on; optionally set `MCP_DCR_ENABLED=true` in the prod env for dynamic client registration. The whole surface is proven (Gate A/B/C); this is the go-live switch.
+1. **Onboard real pilot clients:** repeat the per-company activation (enable `mcp_connector` override for each pilot company) — runbook in memory `project_mcp_pilot_ops`. Demo is the proven template.
 
 **Closed in code (nothing left for you here):** the 4 pentest MEDIUM/LOW hardening residuals — DCR global flood cap, reserved brand-name filter, company-scoped shared read joins, pre-auth IP throttle on `/api/mcp` — all merged in **PR #231 (`8072f6e0`)**, blind-review APPROVED. Data-cleanup note (not code): the join-scoping now correctly excludes the pre-existing corrupt Britech cross-tenant GL line (created 2026-04-13) from Britech's own reports — that one row should be reversed/remediated in the data whenever convenient.
 
