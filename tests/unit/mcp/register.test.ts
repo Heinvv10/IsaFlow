@@ -163,15 +163,31 @@ describe('POST /api/oauth/register', () => {
     }
   });
 
-  it('rejects confidential-client requests and unsupported grant/response types', async () => {
-    const confidential = makeRes();
-    await handler(
-      makeReq({ redirect_uris: ['https://c.example/cb'], token_endpoint_auth_method: 'client_secret_post' }),
-      confidential,
-    );
-    expect(confidential.statusCode).toBe(400);
-    expect(confidential.body!.error).toBe('invalid_client_metadata');
+  // RFC 7591 §3.2.1 — the AS MAY replace requested metadata with the values it
+  // will actually honour, and the client must use what comes back. claude.ai's
+  // web connector asks for client_secret_post; rejecting that outright broke
+  // "Connect" with an opaque "Couldn't register with IsaFlow's sign-in service".
+  it('downgrades a requested confidential auth method to a public client instead of rejecting', async () => {
+    for (const method of ['client_secret_post', 'client_secret_basic']) {
+      const res = makeRes();
+      await handler(
+        makeReq({
+          redirect_uris: ['https://claude.ai/api/mcp/auth_callback'],
+          client_name: 'Claude',
+          token_endpoint_auth_method: method,
+        }),
+        res,
+      );
 
+      expect(res.statusCode).toBe(201);
+      expect(res.body!.token_endpoint_auth_method).toBe('none');
+      expect(res.body).not.toHaveProperty('client_secret');
+    }
+    // never mint a secret-bearing client from an unauthenticated endpoint
+    expect(vi.mocked(registerOauthApp).mock.calls.every(([args]) => args.dynamic === true)).toBe(true);
+  });
+
+  it('rejects unsupported grant/response types', async () => {
     const badGrant = makeRes();
     await handler(
       makeReq({ redirect_uris: ['https://c.example/cb'], grant_types: ['implicit'] }),
