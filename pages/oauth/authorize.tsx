@@ -15,9 +15,13 @@ import type { GetServerSideProps } from 'next';
 import { ShieldCheck, AlertTriangle, Loader2 } from 'lucide-react';
 import { getOauthAppByClientId, OAUTH_SCOPES } from '@/lib/auth/oauth';
 import { ConsentScopeList } from '@/components/oauth/ConsentScopeList';
+import { ConsentCompanyPicker } from '@/components/oauth/ConsentCompanyPicker';
+import { ConsentRejected } from '@/components/oauth/ConsentRejected';
 import { partitionRequestedScopes } from '@/lib/auth/consentScopes';
 import { apiFetch } from '@/lib/apiFetch';
-import { parseCookies, ACCESS_COOKIE } from '@/lib/auth/cookies';
+import { parseCookies, ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE } from '@/lib/auth/cookies';
+import { resolveConsentCompany, type ConsentCompany } from '@/lib/auth/consentCompany';
+import { getUserCompanies } from '@/modules/accounting/services/core/companyService';
 import { verifyToken } from '@/lib/auth/gotrue';
 
 interface ConsentApp {
@@ -37,6 +41,10 @@ interface Props {
   state: string;
   codeChallenge: string;
   codeChallengeMethod: 'S256';
+  /** Memberships this user may grant against — resolved server-side. */
+  companies: ConsentCompany[];
+  /** Pre-selected company (active company when it is a membership). */
+  selectedCompanyId: string;
 }
 
 interface ErrorProps {
@@ -51,27 +59,13 @@ export default function AuthorizePage(props: Props | ErrorProps) {
   // Opt-in checkbox state (write:post). Declared before the early return so
   // hook order stays stable regardless of the error/ok branch.
   const [optInChecked, setOptInChecked] = useState<Record<string, boolean>>({});
+  // Which company this grant gets pinned to. Same rule as above: declared
+  // before the early return so hook order is stable across both branches.
+  const [companyId, setCompanyId] = useState(props.ok ? props.selectedCompanyId : '');
 
-  if (!props.ok) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-100 p-6">
-        <div className="max-w-md w-full bg-slate-900 border border-red-800/40 rounded-xl p-6">
-          <div className="flex items-start gap-3 mb-3">
-            <AlertTriangle className="h-6 w-6 text-red-400 shrink-0" />
-            <div>
-              <h1 className="text-lg font-semibold">Authorisation request rejected</h1>
-              <p className="text-sm text-slate-400 mt-1">{props.error}</p>
-            </div>
-          </div>
-          <p className="text-xs text-slate-500 mt-4">
-            If you didn&apos;t initiate this request, you can safely close this page.
-          </p>
-        </div>
-      </div>
-    );
-  }
+  if (!props.ok) return <ConsentRejected error={props.error} />;
 
-  const { app, clientId, redirectUri, scopes, state, codeChallenge, codeChallengeMethod } = props;
+  const { app, clientId, redirectUri, scopes, state, codeChallenge, codeChallengeMethod, companies } = props;
 
   // Posting scopes (write:post) are opt-in: shown UNCHECKED even when the
   // client requested them, and granted only if the user actively ticks them.
@@ -96,6 +90,9 @@ export default function AuthorizePage(props: Props | ErrorProps) {
           state,
           codeChallenge,
           codeChallengeMethod,
+          // Pin the grant to the company chosen here. consent.ts re-checks
+          // membership on this value — the picker is UX, not the boundary.
+          companyId,
         }),
       });
       const json = (await res.json()) as { data?: { redirectTo: string }; error?: { message: string } };
@@ -161,6 +158,14 @@ export default function AuthorizePage(props: Props | ErrorProps) {
         </div>
 
         <form onSubmit={(e) => void onSubmit(e)} className="p-6 space-y-4">
+          <ConsentCompanyPicker
+            companies={companies}
+            value={companyId}
+            onChange={setCompanyId}
+            disabled={submitting}
+            appName={app.name}
+          />
+
           <div>
             <ConsentScopeList
               autoGranted={autoGranted}
@@ -221,14 +226,14 @@ export const getServerSideProps: GetServerSideProps<Props | ErrorProps> = async 
   // with a returnTo so they come straight back here after signing in.
   const cookies = parseCookies(ctx.req as unknown as Parameters<typeof parseCookies>[0]);
   const accessToken = cookies[ACCESS_COOKIE];
-  let authenticated = false;
+  let userId = '';
   if (accessToken) {
     try {
-      await verifyToken(accessToken);
-      authenticated = true;
+      const claims = await verifyToken(accessToken);
+      userId = claims.sub;
     } catch { /* fall through to login redirect */ }
   }
-  if (!authenticated) {
+  if (!userId) {
     const url = ctx.resolvedUrl ?? '/oauth/authorize';
     return { redirect: { destination: `/login?returnTo=${encodeURIComponent(url)}`, permanent: false } };
   }
@@ -260,9 +265,20 @@ export const getServerSideProps: GetServerSideProps<Props | ErrorProps> = async 
   }
   if (scopes.length === 0) return { props: { ok: false, error: 'At least one scope must be requested' } };
 
+  // The grant is pinned to ONE company for the life of the token, so the user
+  // has to see (and for a multi-company user, choose) which one. Options come
+  // from real memberships; consent.ts re-checks the submitted value anyway.
+  const memberships = await getUserCompanies(userId);
+  const choice = resolveConsentCompany(memberships, cookies[ACTIVE_COMPANY_COOKIE]);
+  if (!choice) {
+    return { props: { ok: false, error: 'Your account is not linked to a company, so there is nothing to authorise.' } };
+  }
+
   return {
     props: {
       ok: true,
+      companies: choice.companies,
+      selectedCompanyId: choice.selectedCompanyId,
       app: {
         name: app.name,
         description: app.description,
